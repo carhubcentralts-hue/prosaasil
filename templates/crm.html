@@ -56,7 +56,7 @@
     <div class="col-md-3">
         <div class="card bg-primary text-white">
             <div class="card-body">
-                <h5 class="card-title">{{ customers|length if customers else 0 }}</h5>
+                <h5 class="card-title">{{ stats.total_customers if stats else 0 }}</h5>
                 <p class="card-text">סה"כ לקוחות</p>
             </div>
         </div>
@@ -64,7 +64,7 @@
     <div class="col-md-3">
         <div class="card bg-success text-white">
             <div class="card-body">
-                <h5 class="card-title">{{ (customers|selectattr('status', 'equalto', 'active')|list)|length if customers else 0 }}</h5>
+                <h5 class="card-title">{{ stats.active_customers if stats else 0 }}</h5>
                 <p class="card-text">לקוחות פעילים</p>
             </div>
         </div>
@@ -72,16 +72,16 @@
     <div class="col-md-3">
         <div class="card bg-warning text-white">
             <div class="card-body">
-                <h5 class="card-title">{{ (customers|selectattr('status', 'equalto', 'prospect')|list)|length if customers else 0 }}</h5>
-                <p class="card-text">לידים</p>
+                <h5 class="card-title">{{ stats.new_this_month if stats else 0 }}</h5>
+                <p class="card-text">לידים חדשים החודש</p>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card bg-info text-white">
             <div class="card-body">
-                <h5 class="card-title">{{ today_contacts or 0 }}</h5>
-                <p class="card-text">יצירות קשר היום</p>
+                <h5 class="card-title">{{ stats.completion_rate if stats else 0 }}%</h5>
+                <p class="card-text">שיעור השלמה</p>
             </div>
         </div>
     </div>

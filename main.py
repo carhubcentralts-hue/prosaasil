@@ -3,7 +3,7 @@ Hebrew AI Call Center CRM - Production Entry Point
 מערכת CRM מוקד שיחות AI בעברית - נקודת כניסה לייצור
 """
 from app import app
-import routes  # Main routes
+# Routes are already imported in app.py
 import os
 import logging
 from datetime import datetime

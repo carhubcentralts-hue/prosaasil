@@ -1,0 +1,133 @@
+מעולה – הנה **הודעה מסודרת וברורה שאתה יכול לשלוח לסוכן AI שלך**, שתוודא שהוא מתקין את **כל מה שצריך כדי שהמערכת שלך תרוץ** – כולל WhatsApp, Flask, GPT, Whisper, Twilio וכל השירותים:
+
+---
+
+## ✅ Mandatory Setup Instructions – Install All Dependencies
+
+Before continuing development or testing, make sure **all backend and frontend dependencies are installed and working.** Follow these steps carefully:
+
+---
+
+### 🟩 1. JavaScript Side (WhatsApp with Baileys)
+
+📁 Path: `AgentLocator/package.json`
+
+#### Run:
+
+```bash
+cd AgentLocator
+npm install
+```
+
+#### Required packages:
+
+These should already be listed in `package.json`. Make sure they’re present:
+
+```json
+"@whiskeysockets/baileys": "^6.x",
+"qrcode-terminal": "^0.12.0"
+```
+
+If `qrcode-terminal` is missing, install it:
+
+```bash
+npm install qrcode-terminal
+```
+
+Then you can run:
+
+```bash
+npm run dev
+```
+
+> ✅ This starts the WhatsApp client. You should see a QR code in the terminal.
+
+---
+
+### 🟦 2. Python Side (Flask backend for CRM + GPT + Whisper + Twilio)
+
+Make sure you have a working Python virtual environment.
+
+#### Required Python packages (requirements.txt should include):
+
+```txt
+Flask
+Flask-Login
+Flask-SQLAlchemy
+Flask-Migrate
+requests
+openai
+gtts
+python-dotenv
+twilio
+torch
+whisper
+pydub
+```
+
+> If not present, add them manually or run this:
+
+```bash
+pip install Flask Flask-Login Flask-SQLAlchemy Flask-Migrate requests openai gtts python-dotenv twilio torch git+https://github.com/openai/whisper.git pydub
+```
+
+💾 You can export them into a `requirements.txt` later with:
+
+```bash
+pip freeze > requirements.txt
+```
+
+---
+
+### 🔑 3. .env file (Environment Secrets)
+
+Create a `.env` file in your Flask project root with the following:
+
+```
+SESSION_SECRET=your-session-secret
+OPENAI_API_KEY=your-openai-key
+TWILIO_AUTH_TOKEN=your-twilio-token
+TWILIO_ACCOUNT_SID=your-twilio-sid
+TWILIO_PHONE_NUMBER=+1234567890
+WHISPER_MODEL_SIZE=base
+```
+
+> Make sure this file is **loaded using `python-dotenv`** in `app.py`.
+
+---
+
+### 🟨 4. Database
+
+Make sure the database is initialized:
+
+```bash
+flask db init
+flask db migrate
+flask db upgrade
+```
+
+---
+
+### ✅ After installation – check that the following run without errors:
+
+| Module                   | Check                                             |
+| ------------------------ | ------------------------------------------------- |
+| `npm run dev` (WhatsApp) | ✅ Baileys connects and QR appears                 |
+| `flask run` (Backend)    | ✅ API runs without errors                         |
+| GPT response test        | ✅ `/api/ask_gpt` returns text                     |
+| Whisper test             | ✅ `/api/transcribe` returns transcript from audio |
+| TTS test                 | ✅ Text converts to audio file with `gTTS`         |
+| Twilio webhook           | ✅ `/handle_recording` handles audio URLs          |
+
+---
+
+## 🛠 Optional dev tools:
+
+```bash
+pip install pytest
+npm install --save-dev nodemon concurrently
+```
+
+---
+
+Let me know once everything is installed and running, and I’ll help you validate the full flow across all 3 systems (WhatsApp, CRM, Twilio).

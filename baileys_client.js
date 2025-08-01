@@ -14,12 +14,27 @@ async function startBaileys() {
     // Multi-file auth state
     const { state, saveCreds } = await useMultiFileAuthState(authFolder);
 
+    // Create a simple logger that Baileys expects
+    const logger = {
+        child: () => ({
+            info: () => {},
+            debug: () => {},
+            warn: () => {},
+            error: () => {},
+            trace: () => {},
+            child: () => this
+        }),
+        info: () => {},
+        debug: () => {},
+        warn: () => {},
+        error: () => {},
+        trace: () => {}
+    };
+
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false, // We'll handle QR manually
-        logger: {
-            level: 'silent' // Reduce logs
-        }
+        logger: logger
     });
 
     // QR Code handling

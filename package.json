@@ -395,7 +395,8 @@
     "zod-validation-error": "^3.4.0"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "python main.py & node baileys_client.js"
   },
   "keywords": [],
   "author": "",
