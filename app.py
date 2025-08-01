@@ -61,6 +61,7 @@ with app.app_context():
         import routes_whatsapp    # WhatsApp (Baileys + Twilio) routes  
         import routes_crm         # Advanced CRM routes
         import routes             # Legacy routes
+        import api_routes         # New React API routes
         logging.info("✅ All route modules loaded successfully")
     except Exception as e:
         logging.warning(f"⚠️ Route modules error: {e}")
