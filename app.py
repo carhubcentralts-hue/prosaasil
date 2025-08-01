@@ -36,7 +36,24 @@ with app.app_context():
     # Import models to ensure tables are created
     import models  # noqa: F401
     
-    # Blueprints registered in routes.py to avoid conflicts
+    # Register Blueprints
+    try:
+        from crm_bp import crm_bp
+        from whatsapp_bp import whatsapp_bp
+        from signature_bp import signature_bp
+        from invoice_bp import invoice_bp
+        from proposal_bp import proposal_bp
+        
+        app.register_blueprint(crm_bp)
+        app.register_blueprint(whatsapp_bp)
+        app.register_blueprint(signature_bp)
+        app.register_blueprint(invoice_bp)
+        app.register_blueprint(proposal_bp)
+        
+        logging.info("✅ All Blueprints registered successfully")
+        
+    except Exception as e:
+        logging.warning(f"⚠️ Could not register some Blueprints: {e}")
 
     db.create_all()
     

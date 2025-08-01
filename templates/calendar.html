@@ -1,0 +1,419 @@
+{% extends "base.html" %}
+
+{% block title %}לוח שנה ותורים - מערכת CRM{% endblock %}
+
+{% block extra_css %}
+<link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css' rel='stylesheet' />
+<style>
+    .fc-event {
+        border-radius: 6px;
+        border: none;
+    }
+    
+    .fc-event-appointment {
+        background-color: #28a745;
+        color: white;
+    }
+    
+    .fc-event-call {
+        background-color: #007bff;
+        color: white;
+    }
+    
+    .fc-event-task {
+        background-color: #ffc107;
+        color: #212529;
+    }
+    
+    .appointment-card {
+        border-right: 4px solid #28a745;
+    }
+    
+    .call-card {
+        border-right: 4px solid #007bff;
+    }
+    
+    .task-card {
+        border-right: 4px solid #ffc107;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">
+        <i class="fas fa-calendar ms-2"></i>
+        לוח שנה ותורים
+    </h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addAppointmentModal">
+                <i class="fas fa-plus ms-1"></i>
+                תור חדש
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="syncGoogleCalendar()">
+                <i class="fab fa-google ms-1"></i>
+                סנכרון Google
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-info" onclick="exportCalendar()">
+                <i class="fas fa-download ms-1"></i>
+                ייצוא
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Calendar Stats -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <h5 class="card-title">{{ today_appointments or 0 }}</h5>
+                <p class="card-text">תורים היום</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <h5 class="card-title">{{ week_appointments or 0 }}</h5>
+                <p class="card-text">תורים השבוע</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <h5 class="card-title">{{ pending_tasks or 0 }}</h5>
+                <p class="card-text">משימות ממתינות</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <h5 class="card-title">{{ completion_rate or 0 }}%</h5>
+                <p class="card-text">אחוז השלמה</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Calendar -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">לוח שנה</h5>
+            </div>
+            <div class="card-body">
+                <div id="calendar"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Today's Schedule & Quick Actions -->
+    <div class="col-lg-4">
+        <!-- Today's Schedule -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">לוח זמנים היום</h5>
+            </div>
+            <div class="card-body">
+                {% if today_schedule %}
+                    {% for item in today_schedule %}
+                    <div class="card mb-2 {{ 'appointment-card' if item.type == 'appointment' else 'call-card' if item.type == 'call' else 'task-card' }}">
+                        <div class="card-body py-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div class="fw-bold">{{ item.time }}</div>
+                                    <div class="small">{{ item.title }}</div>
+                                    {% if item.customer %}
+                                    <div class="text-muted small">{{ item.customer }}</div>
+                                    {% endif %}
+                                </div>
+                                <div>
+                                    {% if item.type == 'appointment' %}
+                                        <span class="badge bg-success">תור</span>
+                                    {% elif item.type == 'call' %}
+                                        <span class="badge bg-primary">שיחה</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">משימה</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">אין אירועים מתוכננים להיום</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Quick Actions -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">פעולות מהירות</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addAppointmentModal">
+                        <i class="fas fa-calendar-plus ms-1"></i>
+                        הוסף תור
+                    </button>
+                    <button type="button" class="btn btn-outline-success" onclick="scheduleCall()">
+                        <i class="fas fa-phone ms-1"></i>
+                        תזמן שיחה
+                    </button>
+                    <button type="button" class="btn btn-outline-warning" onclick="addTask()">
+                        <i class="fas fa-tasks ms-1"></i>
+                        הוסף משימה
+                    </button>
+                    <button type="button" class="btn btn-outline-info" onclick="sendReminders()">
+                        <i class="fas fa-bell ms-1"></i>
+                        שלח תזכורות
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Upcoming Appointments -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">תורים קרובים</h5>
+            </div>
+            <div class="card-body">
+                {% if upcoming_appointments %}
+                    {% for appointment in upcoming_appointments %}
+                    <div class="d-flex align-items-center mb-3 p-2 bg-light rounded">
+                        <div class="me-3">
+                            <i class="fas fa-clock text-primary"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="fw-bold">{{ appointment.customer_name }}</div>
+                            <div class="small text-muted">{{ appointment.service or 'פגישה כללית' }}</div>
+                            <div class="small text-gray-500">
+                                {{ appointment.appointment_date.strftime('%d/%m %H:%M') if appointment.appointment_date else 'ללא תאריך' }}
+                            </div>
+                        </div>
+                        <div>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" onclick="editAppointment({{ appointment.id }})">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-outline-success" onclick="confirmAppointment({{ appointment.id }})">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">אין תורים קרובים</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Appointment Modal -->
+<div class="modal fade" id="addAppointmentModal" tabindex="-1" aria-labelledby="addAppointmentModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addAppointmentModalLabel">הוספת תור חדש</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור"></button>
+            </div>
+            <form action="/calendar/add_appointment" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="appointmentCustomer" class="form-label">לקוח *</label>
+                        <select class="form-select" id="appointmentCustomer" name="customer_id" required>
+                            <option value="">בחר לקוח...</option>
+                            {% for customer in customers %}
+                            <option value="{{ customer.id }}">{{ customer.name }} - {{ customer.phone }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="appointmentDate" class="form-label">תאריך *</label>
+                                <input type="date" class="form-control" id="appointmentDate" name="appointment_date" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="appointmentTime" class="form-label">שעה *</label>
+                                <input type="time" class="form-control" id="appointmentTime" name="appointment_time" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="appointmentDuration" class="form-label">משך בדקות</label>
+                        <select class="form-select" id="appointmentDuration" name="duration_minutes">
+                            <option value="30">30 דקות</option>
+                            <option value="60" selected>60 דקות</option>
+                            <option value="90">90 דקות</option>
+                            <option value="120">120 דקות</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="appointmentService" class="form-label">סוג שירות</label>
+                        <input type="text" class="form-control" id="appointmentService" name="service" placeholder="לדוגמה: ייעוץ, בדיקה, פגישת מכירה...">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="appointmentNotes" class="form-label">הערות</label>
+                        <textarea class="form-control" id="appointmentNotes" name="notes" rows="3" placeholder="הערות נוספות לתור..."></textarea>
+                    </div>
+                    
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="sendReminder" name="send_reminder" checked>
+                        <label class="form-check-label" for="sendReminder">
+                            שלח תזכורת ללקוח
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+                    <button type="submit" class="btn btn-primary">שמור תור</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.js'></script>
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/locales/he.js'></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const calendarEl = document.getElementById('calendar');
+    const calendar = new FullCalendar.Calendar(calendarEl, {
+        locale: 'he',
+        direction: 'rtl',
+        initialView: 'dayGridMonth',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+        },
+        events: [
+            // Sample events - should be loaded from backend
+            {% for appointment in appointments %}
+            {
+                id: '{{ appointment.id }}',
+                title: '{{ appointment.customer_name }} - {{ appointment.service or "פגישה" }}',
+                start: '{{ appointment.appointment_date.strftime("%Y-%m-%dT%H:%M:%S") if appointment.appointment_date else "" }}',
+                end: '{{ (appointment.appointment_date + timedelta(minutes=appointment.duration_minutes)).strftime("%Y-%m-%dT%H:%M:%S") if appointment.appointment_date and appointment.duration_minutes else "" }}',
+                className: 'fc-event-appointment',
+                extendedProps: {
+                    type: 'appointment',
+                    customer_id: '{{ appointment.customer_id }}',
+                    notes: '{{ appointment.notes or "" }}'
+                }
+            },
+            {% endfor %}
+        ],
+        eventClick: function(info) {
+            // Show appointment details
+            showAppointmentDetails(info.event);
+        },
+        dateClick: function(info) {
+            // Quick add appointment
+            document.getElementById('appointmentDate').value = info.dateStr;
+            const modal = new bootstrap.Modal(document.getElementById('addAppointmentModal'));
+            modal.show();
+        },
+        eventDidMount: function(info) {
+            // Add tooltip
+            info.el.setAttribute('title', info.event.title + (info.event.extendedProps.notes ? ' - ' + info.event.extendedProps.notes : ''));
+        }
+    });
+    
+    calendar.render();
+});
+
+function showAppointmentDetails(event) {
+    const details = `
+        תור: ${event.title}
+        תאריך: ${event.start.toLocaleDateString('he-IL')}
+        שעה: ${event.start.toLocaleTimeString('he-IL', {hour: '2-digit', minute: '2-digit'})}
+        ${event.extendedProps.notes ? 'הערות: ' + event.extendedProps.notes : ''}
+    `;
+    
+    if (confirm(details + '\n\nהאם תרצה לערוך את התור?')) {
+        editAppointment(event.id);
+    }
+}
+
+function editAppointment(appointmentId) {
+    // Redirect to edit page or open edit modal
+    console.log('Edit appointment:', appointmentId);
+}
+
+function confirmAppointment(appointmentId) {
+    if (confirm('האם לאשר את התור ולשלוח הודעה ללקוח?')) {
+        fetch(`/calendar/confirm_appointment/${appointmentId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('התור אושר והודעה נשלחה ללקוח');
+                location.reload();
+            } else {
+                alert('שגיאה באישור התור: ' + data.message);
+            }
+        });
+    }
+}
+
+function scheduleCall() {
+    // Open schedule call modal
+    console.log('Schedule call');
+}
+
+function addTask() {
+    // Open add task modal
+    console.log('Add task');
+}
+
+function sendReminders() {
+    if (confirm('האם לשלוח תזכורות לכל הלקוחות עם תורים מחר?')) {
+        fetch('/calendar/send_reminders', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+        });
+    }
+}
+
+function syncGoogleCalendar() {
+    // Implement Google Calendar sync
+    alert('תכונת סנכרון Google Calendar תהיה זמינה בקרוב');
+}
+
+function exportCalendar() {
+    // Export calendar to various formats
+    window.open('/calendar/export', '_blank');
+}
+
+// Set minimum date to today
+document.getElementById('appointmentDate').min = new Date().toISOString().split('T')[0];
+</script>
+{% endblock %}

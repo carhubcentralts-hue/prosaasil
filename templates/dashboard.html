@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% block title %}דשבורד ראשי - מערכת CRM{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">דשבורד ראשי</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary">רענן נתונים</button>
+        </div>
+    </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="row mb-4">
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-right-primary shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col me-2">
+                        <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">שיחות היום</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">{{ stats.today_calls or 0 }}</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="fas fa-phone fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-right-success shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col me-2">
+                        <div class="text-xs font-weight-bold text-success text-uppercase mb-1">לקוחות פעילים</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">{{ stats.active_customers or 0 }}</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="fas fa-users fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-right-info shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col me-2">
+                        <div class="text-xs font-weight-bold text-info text-uppercase mb-1">תורים השבוע</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">{{ stats.weekly_appointments or 0 }}</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="fas fa-calendar fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-right-warning shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col me-2">
+                        <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">משימות פתוחות</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">{{ stats.open_tasks or 0 }}</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="fas fa-tasks fa-2x text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Row -->
+<div class="row">
+    <!-- Calls Chart -->
+    <div class="col-xl-8 col-lg-7">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                <h6 class="m-0 font-weight-bold text-primary">סטטיסטיקות שיחות - 7 ימים אחרונים</h6>
+            </div>
+            <div class="card-body">
+                <div class="chart-area">
+                    <canvas id="callsChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Customer Sources -->
+    <div class="col-xl-4 col-lg-5">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                <h6 class="m-0 font-weight-bold text-primary">מקורות לקוחות</h6>
+            </div>
+            <div class="card-body">
+                <div class="chart-pie pt-4 pb-2">
+                    <canvas id="sourcesChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Activities -->
+<div class="row">
+    <div class="col-lg-6 mb-4">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">פעילות אחרונה</h6>
+            </div>
+            <div class="card-body">
+                {% if recent_activities %}
+                    {% for activity in recent_activities %}
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="me-3">
+                            {% if activity.type == 'call' %}
+                                <i class="fas fa-phone text-primary"></i>
+                            {% elif activity.type == 'whatsapp' %}
+                                <i class="fab fa-whatsapp text-success"></i>
+                            {% else %}
+                                <i class="fas fa-user text-info"></i>
+                            {% endif %}
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="small text-gray-500">{{ activity.created_at.strftime('%H:%M') }}</div>
+                            <div>{{ activity.description }}</div>
+                            <div class="text-muted small">{{ activity.contact }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">אין פעילות אחרונה</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Today's Appointments -->
+    <div class="col-lg-6 mb-4">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">תורים היום</h6>
+            </div>
+            <div class="card-body">
+                {% if today_appointments %}
+                    {% for appointment in today_appointments %}
+                    <div class="d-flex align-items-center mb-3 p-2 bg-light rounded">
+                        <div class="me-3">
+                            <i class="fas fa-clock text-warning"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="fw-bold">{{ appointment.customer_name }}</div>
+                            <div class="small text-muted">{{ appointment.requested_service }}</div>
+                            <div class="small text-gray-500">{{ appointment.created_at.strftime('%H:%M') }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">אין תורים מתוכננים להיום</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Calls Chart
+const ctx1 = document.getElementById('callsChart').getContext('2d');
+const callsChart = new Chart(ctx1, {
+    type: 'line',
+    data: {
+        labels: ['יום א\'', 'יום ב\'', 'יום ג\'', 'יום ד\'', 'יום ה\'', 'יום ו\'', 'שבת'],
+        datasets: [{
+            label: 'שיחות',
+            data: [12, 19, 15, 25, 22, 18, 8],
+            borderColor: 'rgb(75, 192, 192)',
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            tension: 0.1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            title: {
+                display: false
+            }
+        }
+    }
+});
+
+// Sources Chart
+const ctx2 = document.getElementById('sourcesChart').getContext('2d');
+const sourcesChart = new Chart(ctx2, {
+    type: 'doughnut',
+    data: {
+        labels: ['טלפון', 'WhatsApp', 'אתר', 'המלצה'],
+        datasets: [{
+            data: [45, 30, 15, 10],
+            backgroundColor: [
+                '#4e73df',
+                '#1cc88a',
+                '#36b9cc',
+                '#f6c23e'
+            ],
+            hoverBackgroundColor: [
+                '#2e59d9',
+                '#17a673',
+                '#2c9faf',
+                '#f4b619'
+            ]
+        }]
+    },
+    options: {
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            }
+        }
+    }
+});
+</script>
+{% endblock %}
