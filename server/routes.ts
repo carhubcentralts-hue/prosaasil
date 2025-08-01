@@ -1,252 +1,390 @@
-import { Request, Response } from "express";
-import { z } from "zod";
+import type { Express, Request, Response } from "express";
+import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCustomerSchema, insertWhatsappMessageSchema, insertAiCallSchema } from "../shared/schema";
+import { 
+  insertCustomerSchema, 
+  insertWhatsappMessageSchema, 
+  insertAiCallSchema 
+} from "../shared/schema";
+import { z } from "zod";
 
-// Get dashboard statistics
-export async function getStats(req: Request, res: Response) {
+// Mock business ID for now - in production this would come from auth
+const MOCK_BUSINESS_ID = 1;
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Statistics endpoint
+  app.get('/api/stats', async (req: Request, res: Response) => {
+    try {
+      const stats = await storage.getStats(MOCK_BUSINESS_ID);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching stats:", error);
+      res.status(500).json({ message: "Failed to fetch statistics" });
+    }
+  });
+
+  // Customer endpoints
+  app.get('/api/customers', async (req: Request, res: Response) => {
+    try {
+      const customers = await storage.getCustomers(MOCK_BUSINESS_ID);
+      res.json(customers);
+    } catch (error) {
+      console.error("Error fetching customers:", error);
+      res.status(500).json({ message: "Failed to fetch customers" });
+    }
+  });
+
+  app.post('/api/customers', async (req: Request, res: Response) => {
+    try {
+      const customerData = insertCustomerSchema.parse({
+        ...req.body,
+        businessId: MOCK_BUSINESS_ID
+      });
+      const customer = await storage.createCustomer(customerData);
+      
+      // Create activity
+      await storage.createActivity({
+        businessId: MOCK_BUSINESS_ID,
+        type: 'customer_added',
+        description: `נוסף לקוח חדש: ${customer.name}`,
+        customerId: customer.id,
+        customerName: customer.name,
+        metadata: null
+      });
+      
+      res.status(201).json(customer);
+    } catch (error) {
+      console.error("Error creating customer:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid customer data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create customer" });
+    }
+  });
+
+  app.put('/api/customers/:id', async (req: Request, res: Response) => {
+    try {
+      const customerId = parseInt(req.params.id);
+      const updates = req.body;
+      const customer = await storage.updateCustomer(customerId, updates);
+      res.json(customer);
+    } catch (error) {
+      console.error("Error updating customer:", error);
+      res.status(500).json({ message: "Failed to update customer" });
+    }
+  });
+
+  // WhatsApp endpoints
+  app.get('/api/whatsapp/messages', async (req: Request, res: Response) => {
+    try {
+      const messages = await storage.getWhatsappMessages(MOCK_BUSINESS_ID);
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching WhatsApp messages:", error);
+      res.status(500).json({ message: "Failed to fetch messages" });
+    }
+  });
+
+  app.post('/api/whatsapp/send', async (req: Request, res: Response) => {
+    try {
+      const messageData = insertWhatsappMessageSchema.parse({
+        ...req.body,
+        businessId: MOCK_BUSINESS_ID,
+        direction: 'outbound'
+      });
+      
+      const message = await storage.createWhatsappMessage(messageData);
+      
+      // Create activity
+      await storage.createActivity({
+        businessId: MOCK_BUSINESS_ID,
+        type: 'whatsapp_sent',
+        description: `נשלחה הודעת WhatsApp ל-${messageData.customerPhone}`,
+        customerId: messageData.customerId,
+        customerName: null,
+        metadata: { messageId: message.id }
+      });
+      
+      res.status(201).json(message);
+    } catch (error) {
+      console.error("Error sending WhatsApp message:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid message data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to send message" });
+    }
+  });
+
+  // AI Call endpoints
+  app.get('/api/ai-calls', async (req: Request, res: Response) => {
+    try {
+      const calls = await storage.getAiCalls(MOCK_BUSINESS_ID);
+      res.json(calls);
+    } catch (error) {
+      console.error("Error fetching AI calls:", error);
+      res.status(500).json({ message: "Failed to fetch AI calls" });
+    }
+  });
+
+  app.post('/api/ai-calls/start', async (req: Request, res: Response) => {
+    try {
+      const callData = insertAiCallSchema.parse({
+        ...req.body,
+        businessId: MOCK_BUSINESS_ID,
+        status: 'initiated'
+      });
+      
+      const call = await storage.createAiCall(callData);
+      
+      // Create activity
+      await storage.createActivity({
+        businessId: MOCK_BUSINESS_ID,
+        type: 'ai_call_started',
+        description: `התחילה שיחת AI ל-${callData.customerPhone}`,
+        customerId: callData.customerId,
+        customerName: null,
+        metadata: { callId: call.id }
+      });
+      
+      res.status(201).json(call);
+    } catch (error) {
+      console.error("Error starting AI call:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid call data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to start AI call" });
+    }
+  });
+
+  app.put('/api/ai-calls/:id/end', async (req: Request, res: Response) => {
+    try {
+      const callId = parseInt(req.params.id);
+      const { duration, notes, callSummary } = req.body;
+      
+      const call = await storage.updateAiCall(callId, {
+        status: 'ended',
+        duration,
+        notes,
+        callSummary
+      });
+      
+      res.json(call);
+    } catch (error) {
+      console.error("Error ending AI call:", error);
+      res.status(500).json({ message: "Failed to end AI call" });
+    }
+  });
+
+  // Activity endpoints
+  app.get('/api/activities', async (req: Request, res: Response) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const activities = await storage.getActivities(MOCK_BUSINESS_ID, limit);
+      res.json(activities);
+    } catch (error) {
+      console.error("Error fetching activities:", error);
+      res.status(500).json({ message: "Failed to fetch activities" });
+    }
+  });
+
+  // Business management endpoints (for admin)
+  app.get('/api/businesses', async (req: Request, res: Response) => {
+    try {
+      const businesses = await storage.getBusinesses();
+      res.json(businesses);
+    } catch (error) {
+      console.error("Error fetching businesses:", error);
+      res.status(500).json({ message: "Failed to fetch businesses" });
+    }
+  });
+
+  app.post('/api/businesses', async (req: Request, res: Response) => {
+    try {
+      const business = await storage.createBusiness(req.body);
+      res.status(201).json(business);
+    } catch (error) {
+      console.error("Error creating business:", error);
+      res.status(500).json({ message: "Failed to create business" });
+    }
+  });
+
+  // Invoice endpoints
+  app.get('/api/invoices', async (req: Request, res: Response) => {
+    try {
+      const invoices = await storage.getInvoices(MOCK_BUSINESS_ID);
+      res.json(invoices);
+    } catch (error) {
+      console.error("Error fetching invoices:", error);
+      res.status(500).json({ message: "Failed to fetch invoices" });
+    }
+  });
+
+  app.post('/api/invoices', async (req: Request, res: Response) => {
+    try {
+      const invoice = await storage.createInvoice({
+        ...req.body,
+        businessId: MOCK_BUSINESS_ID
+      });
+      res.status(201).json(invoice);
+    } catch (error) {
+      console.error("Error creating invoice:", error);
+      res.status(500).json({ message: "Failed to create invoice" });
+    }
+  });
+
+  // Digital signature endpoints
+  app.get('/api/signatures', async (req: Request, res: Response) => {
+    try {
+      const signatures = await storage.getDigitalSignatures(MOCK_BUSINESS_ID);
+      res.json(signatures);
+    } catch (error) {
+      console.error("Error fetching signatures:", error);
+      res.status(500).json({ message: "Failed to fetch signatures" });
+    }
+  });
+
+  app.post('/api/signatures', async (req: Request, res: Response) => {
+    try {
+      const signature = await storage.createDigitalSignature({
+        ...req.body,
+        businessId: MOCK_BUSINESS_ID
+      });
+      res.status(201).json(signature);
+    } catch (error) {
+      console.error("Error creating signature:", error);
+      res.status(500).json({ message: "Failed to create signature" });
+    }
+  });
+
+  const httpServer = createServer(app);
+  return httpServer;
+}
+
+// Legacy exports for backwards compatibility
+export const getStats = async (req: Request, res: Response) => {
   try {
-    const customers = await storage.getCustomers();
-    const messages = await storage.getWhatsappMessages();
-    const calls = await storage.getAiCalls();
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const todayMessages = messages.filter(m => m.timestamp >= today).length;
-    const aiCallsToday = calls.filter(c => c.timestamp >= today).length;
-    const activeCustomers = customers.filter(c => c.status === "active").length;
-    
-    const stats = {
-      totalCustomers: customers.length,
-      todayMessages,
-      aiCalls: aiCallsToday,
-      activeCustomers
-    };
-    
+    const stats = await storage.getStats(MOCK_BUSINESS_ID);
     res.json(stats);
   } catch (error) {
-    console.error("Error getting stats:", error);
-    res.status(500).json({ error: "שגיאה בקבלת נתונים סטטיסטיים" });
+    console.error("Error fetching stats:", error);
+    res.status(500).json({ message: "Failed to fetch statistics" });
   }
-}
+};
 
-// Customer routes
-export async function getCustomers(req: Request, res: Response) {
+export const getCustomers = async (req: Request, res: Response) => {
   try {
-    const customers = await storage.getCustomers();
+    const customers = await storage.getCustomers(MOCK_BUSINESS_ID);
     res.json(customers);
   } catch (error) {
-    console.error("Error getting customers:", error);
-    res.status(500).json({ error: "שגיאה בקבלת רשימת לקוחות" });
+    console.error("Error fetching customers:", error);
+    res.status(500).json({ message: "Failed to fetch customers" });
   }
-}
+};
 
-export async function createCustomer(req: Request, res: Response) {
+export const createCustomer = async (req: Request, res: Response) => {
   try {
-    const validatedData = insertCustomerSchema.parse(req.body);
-    const customer = await storage.createCustomer(validatedData);
-    
-    // Add activity
-    await storage.addActivity({
-      type: "customer_added",
-      description: `לקוח חדש נוסף: ${customer.name}`,
-      customerId: customer.id,
-      customerName: customer.name,
-      timestamp: new Date()
+    const customerData = insertCustomerSchema.parse({
+      ...req.body,
+      businessId: MOCK_BUSINESS_ID
     });
-    
+    const customer = await storage.createCustomer(customerData);
     res.status(201).json(customer);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: "נתונים לא תקינים", details: error.errors });
-    } else {
-      console.error("Error creating customer:", error);
-      res.status(500).json({ error: "שגיאה ביצירת לקוח" });
-    }
+    console.error("Error creating customer:", error);
+    res.status(500).json({ message: "Failed to create customer" });
   }
-}
+};
 
-export async function updateCustomer(req: Request, res: Response) {
+export const updateCustomer = async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id);
-    const validatedData = insertCustomerSchema.parse(req.body);
-    const customer = await storage.updateCustomer(id, validatedData);
-    
-    if (!customer) {
-      return res.status(404).json({ error: "לקוח לא נמצא" });
-    }
-    
+    const customerId = parseInt(req.params.id);
+    const customer = await storage.updateCustomer(customerId, req.body);
     res.json(customer);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: "נתונים לא תקינים", details: error.errors });
-    } else {
-      console.error("Error updating customer:", error);
-      res.status(500).json({ error: "שגיאה בעדכון לקוח" });
-    }
+    console.error("Error updating customer:", error);
+    res.status(500).json({ message: "Failed to update customer" });
   }
-}
+};
 
-export async function deleteCustomer(req: Request, res: Response) {
-  try {
-    const id = parseInt(req.params.id);
-    const success = await storage.deleteCustomer(id);
-    
-    if (!success) {
-      return res.status(404).json({ error: "לקוח לא נמצא" });
-    }
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting customer:", error);
-    res.status(500).json({ error: "שגיאה במחיקת לקוח" });
-  }
-}
+export const deleteCustomer = async (req: Request, res: Response) => {
+  // Implement if needed
+  res.status(501).json({ message: "Delete customer not implemented" });
+};
 
-// WhatsApp routes
-export async function getWhatsappMessages(req: Request, res: Response) {
+export const getWhatsappMessages = async (req: Request, res: Response) => {
   try {
-    const messages = await storage.getWhatsappMessages();
+    const messages = await storage.getWhatsappMessages(MOCK_BUSINESS_ID);
     res.json(messages);
   } catch (error) {
-    console.error("Error getting WhatsApp messages:", error);
-    res.status(500).json({ error: "שגיאה בקבלת הודעות WhatsApp" });
+    console.error("Error fetching messages:", error);
+    res.status(500).json({ message: "Failed to fetch messages" });
   }
-}
+};
 
-export async function sendWhatsappMessage(req: Request, res: Response) {
+export const sendWhatsappMessage = async (req: Request, res: Response) => {
   try {
-    const validatedData = insertWhatsappMessageSchema.parse(req.body);
-    const message = await storage.createWhatsappMessage(validatedData);
-    
-    // Add activity
-    const customer = await storage.getCustomerById(validatedData.customerId);
-    if (customer) {
-      await storage.addActivity({
-        type: "whatsapp_sent",
-        description: `הודעה נשלחה ל${customer.name}`,
-        customerId: customer.id,
-        customerName: customer.name,
-        timestamp: new Date()
-      });
-    }
-    
+    const message = await storage.createWhatsappMessage({
+      ...req.body,
+      businessId: MOCK_BUSINESS_ID,
+      direction: 'outbound'
+    });
     res.status(201).json(message);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: "נתונים לא תקינים", details: error.errors });
-    } else {
-      console.error("Error sending WhatsApp message:", error);
-      res.status(500).json({ error: "שגיאה בשליחת הודעה" });
-    }
+    console.error("Error sending message:", error);
+    res.status(500).json({ message: "Failed to send message" });
   }
-}
+};
 
-export async function getCustomerMessages(req: Request, res: Response) {
-  try {
-    const customerId = parseInt(req.params.customerId);
-    const messages = await storage.getCustomerWhatsappMessages(customerId);
-    res.json(messages);
-  } catch (error) {
-    console.error("Error getting customer messages:", error);
-    res.status(500).json({ error: "שגיאה בקבלת הודעות לקוח" });
-  }
-}
+export const getCustomerMessages = async (req: Request, res: Response) => {
+  // Implement if needed
+  res.status(501).json({ message: "Get customer messages not implemented" });
+};
 
-// AI Call routes
-export async function getAiCalls(req: Request, res: Response) {
+export const getAiCalls = async (req: Request, res: Response) => {
   try {
-    const calls = await storage.getAiCalls();
+    const calls = await storage.getAiCalls(MOCK_BUSINESS_ID);
     res.json(calls);
   } catch (error) {
-    console.error("Error getting AI calls:", error);
-    res.status(500).json({ error: "שגיאה בקבלת שיחות AI" });
+    console.error("Error fetching calls:", error);
+    res.status(500).json({ message: "Failed to fetch calls" });
   }
-}
+};
 
-export async function startAiCall(req: Request, res: Response) {
+export const startAiCall = async (req: Request, res: Response) => {
   try {
-    const validatedData = insertAiCallSchema.parse(req.body);
     const call = await storage.createAiCall({
-      ...validatedData,
-      status: "initiated",
-      timestamp: new Date()
+      ...req.body,
+      businessId: MOCK_BUSINESS_ID,
+      status: 'initiated'
     });
-    
-    // Add activity
-    const customer = await storage.getCustomerById(validatedData.customerId);
-    if (customer) {
-      await storage.addActivity({
-        type: "ai_call_started",
-        description: `שיחת AI החלה עם ${customer.name}`,
-        customerId: customer.id,
-        customerName: customer.name,
-        timestamp: new Date()
-      });
-    }
-    
-    // Simulate call progression
-    setTimeout(async () => {
-      await storage.updateAiCall(call.id, { status: "connecting" });
-    }, 1000);
-    
-    setTimeout(async () => {
-      await storage.updateAiCall(call.id, { status: "active" });
-    }, 3000);
-    
     res.status(201).json(call);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: "נתונים לא תקינים", details: error.errors });
-    } else {
-      console.error("Error starting AI call:", error);
-      res.status(500).json({ error: "שגיאה בהתחלת שיחה" });
-    }
+    console.error("Error starting call:", error);
+    res.status(500).json({ message: "Failed to start call" });
   }
-}
+};
 
-export async function endAiCall(req: Request, res: Response) {
+export const endAiCall = async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id);
-    const { notes } = req.body;
-    
-    const call = await storage.updateAiCall(id, { 
-      status: "ended",
-      notes,
-      duration: Math.floor(Math.random() * 300) + 60 // Mock duration 1-6 minutes
+    const callId = parseInt(req.params.id);
+    const call = await storage.updateAiCall(callId, {
+      status: 'ended',
+      ...req.body
     });
-    
-    if (!call) {
-      return res.status(404).json({ error: "שיחה לא נמצאה" });
-    }
-    
-    // Add activity
-    const customer = await storage.getCustomerById(call.customerId);
-    if (customer) {
-      await storage.addActivity({
-        type: "ai_call_ended",
-        description: `שיחת AI הסתיימה עם ${customer.name}`,
-        customerId: customer.id,
-        customerName: customer.name,
-        timestamp: new Date()
-      });
-    }
-    
     res.json(call);
   } catch (error) {
-    console.error("Error ending AI call:", error);
-    res.status(500).json({ error: "שגיאה בסיום שיחה" });
+    console.error("Error ending call:", error);
+    res.status(500).json({ message: "Failed to end call" });
   }
-}
+};
 
-// Activity routes
-export async function getActivities(req: Request, res: Response) {
+export const getActivities = async (req: Request, res: Response) => {
   try {
-    const activities = await storage.getActivities();
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+    const activities = await storage.getActivities(MOCK_BUSINESS_ID, limit);
     res.json(activities);
   } catch (error) {
-    console.error("Error getting activities:", error);
-    res.status(500).json({ error: "שגיאה בקבלת פעילויות" });
+    console.error("Error fetching activities:", error);
+    res.status(500).json({ message: "Failed to fetch activities" });
   }
-}
+};
