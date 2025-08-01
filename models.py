@@ -60,9 +60,9 @@ class Business(db.Model):
     greeting_message = db.Column(Text, nullable=False)
     whatsapp_greeting = db.Column(Text)  # WhatsApp-specific greeting
     system_prompt = db.Column(Text, nullable=False)
-    whatsapp_enabled = db.Column(Boolean, default=False)
-    phone_permissions = db.Column(Boolean, default=True)  # הרשאות טלפון
-    whatsapp_permissions = db.Column(Boolean, default=True)  # הרשאות WhatsApp
+    calls_enabled = db.Column(Boolean, default=False)      # הרשאות שיחות AI
+    whatsapp_enabled = db.Column(Boolean, default=False)   # הרשאות WhatsApp
+    crm_enabled = db.Column(Boolean, default=False)        # הרשאות CRM
     is_active = db.Column(Boolean, default=True)
     created_at = db.Column(DateTime, default=datetime.utcnow)
     updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -55,6 +55,16 @@ with app.app_context():
     except Exception as e:
         logging.warning(f"⚠️ Could not register some Blueprints: {e}")
 
+    # Import systematic route modules (Hebrew CRM System)
+    try:
+        import routes_twilio      # AI Call handling routes
+        import routes_whatsapp    # WhatsApp (Baileys + Twilio) routes  
+        import routes_crm         # Advanced CRM routes
+        import routes             # Legacy routes
+        logging.info("✅ All route modules loaded successfully")
+    except Exception as e:
+        logging.warning(f"⚠️ Route modules error: {e}")
+
     db.create_all()
     
     # הפעלת שירותי ניקוי אוטומטי
