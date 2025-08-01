@@ -337,47 +337,48 @@ def run_full_initialization():
     """הרצת אתחול מלא של המערכת"""
     logger.info("🚀 Starting full system initialization...")
     
-    # 1. אתחול מסד נתונים
-    if not init_database():
-        logger.error("❌ Database initialization failed")
-        return False
-    
-    # 2. יצירת משתמש מנהל
-    if not create_admin_user():
-        logger.error("❌ Admin user creation failed")
-        return False
-    
-    # 3. יצירת עסק לדוגמה
-    business_id = create_sample_business()
-    if not business_id:
-        logger.error("❌ Sample business creation failed")
-        return False
-    
-    # 4. יצירת נתוני דוגמה
-    if not create_sample_customers(business_id):
-        logger.error("❌ Sample customers creation failed")
-        return False
-    
-    if not create_sample_tasks(business_id):
-        logger.error("❌ Sample tasks creation failed")
-        return False
-    
-    if not create_sample_appointments(business_id):
-        logger.error("❌ Sample appointments creation failed")
-        return False
-    
-    logger.info("✅ Full system initialization completed successfully!")
-    logger.info("🎉 The Hebrew CRM system is ready to use!")
-    logger.info("")
-    logger.info("📊 Summary:")
-    logger.info("- Admin user: שי / HebrewCRM2024!")
-    logger.info("- Sample business: עסק לדוגמה")
-    logger.info("- Business user: עסק_לדוגמה / Business123!")
-    logger.info("- 5 sample customers")
-    logger.info("- 5 sample tasks")
-    logger.info("- 3 sample appointments")
-    logger.info("")
-    logger.info("🌐 Access the system at: http://localhost:5000")
+    with app.app_context():
+        # 1. אתחול מסד נתונים
+        if not init_database():
+            logger.error("❌ Database initialization failed")
+            return False
+        
+        # 2. יצירת משתמש מנהל
+        if not create_admin_user():
+            logger.error("❌ Admin user creation failed")
+            return False
+        
+        # 3. יצירת עסק לדוגמה
+        business_id = create_sample_business()
+        if not business_id:
+            logger.error("❌ Sample business creation failed")
+            return False
+        
+        # 4. יצירת נתוני דוגמה
+        if not create_sample_customers(business_id):
+            logger.error("❌ Sample customers creation failed")
+            return False
+        
+        if not create_sample_tasks(business_id):
+            logger.error("❌ Sample tasks creation failed")
+            return False
+        
+        if not create_sample_appointments(business_id):
+            logger.error("❌ Sample appointments creation failed")
+            return False
+        
+        logger.info("✅ Full system initialization completed successfully!")
+        logger.info("🎉 The Hebrew CRM system is ready to use!")
+        logger.info("")
+        logger.info("📊 Summary:")
+        logger.info("- Admin user: שי / HebrewCRM2024!")
+        logger.info("- Sample business: עסק לדוגמה")
+        logger.info("- Business user: עסק_לדוגמה / Business123!")
+        logger.info("- 5 sample customers")
+        logger.info("- 5 sample tasks")
+        logger.info("- 3 sample appointments")
+        logger.info("")
+        logger.info("🌐 Access the system at: http://localhost:5000")
     
     return True
 

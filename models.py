@@ -55,8 +55,8 @@ class Business(db.Model):
     id = db.Column(Integer, primary_key=True)
     name = db.Column(String(100), nullable=False)
     business_type = db.Column(String(50), nullable=False)  # restaurant, clinic, store, etc.
-    phone_number = db.Column(String(20), unique=True, nullable=False)
-    whatsapp_number = db.Column(String(20))  # WhatsApp Business number
+    phone_number = db.Column(String(50), unique=True, nullable=False)
+    whatsapp_number = db.Column(String(50))  # WhatsApp Business number
     greeting_message = db.Column(Text, nullable=False)
     whatsapp_greeting = db.Column(Text)  # WhatsApp-specific greeting
     system_prompt = db.Column(Text, nullable=False)

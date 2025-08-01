@@ -3138,9 +3138,6 @@ def api_dashboard_stats():
         return jsonify({"success": False, "error": str(e)})
 
 # ========== REGISTER BLUEPRINTS ==========
-# רישום נתיבי CRM
-from crm_routes_fixed import crm_bp
-app.register_blueprint(crm_bp, url_prefix='/crm')
-app.register_blueprint(admin_bp, url_prefix='/admin')
+# רישום נתיבי CRM מתבצע ב-app.py
 
 
