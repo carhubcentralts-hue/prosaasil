@@ -1,0 +1,17 @@
+{
+  "name": "whatsapp-baileys-integration",
+  "version": "1.0.0",
+  "description": "Baileys WhatsApp Web integration for Hebrew AI Call Center",
+  "main": "baileys_client.js",
+  "scripts": {
+    "start": "node baileys_client.js",
+    "setup": "npm install"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "pino": "^8.21.0",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "author": "Hebrew AI Call Center",
+  "license": "MIT"
+}

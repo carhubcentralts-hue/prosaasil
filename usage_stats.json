@@ -1,0 +1,27 @@
+{
+  "daily": {
+    "2025-07-10": {
+      "requests": 1,
+      "duration": 10
+    },
+    "2025-07-12": {
+      "requests": 8,
+      "duration": 80
+    },
+    "2025-07-13": {
+      "requests": 1,
+      "duration": 10
+    },
+    "2025-07-17": {
+      "requests": 1,
+      "duration": 10
+    }
+  },
+  "monthly": {
+    "2025-07": {
+      "requests": 11,
+      "duration": 110
+    }
+  },
+  "total_requests": 11
+}
