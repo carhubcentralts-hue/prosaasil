@@ -506,3 +506,37 @@ class CRMService:
         except Exception as e:
             self.logger.error(f"❌ Error exporting customers CSV: {e}")
             return None
+
+# === פונקציות עזר גלובליות ===
+
+def record_interaction(customer_id, interaction_type, direction='inbound', content='', ai_response='', call_sid=None, **kwargs):
+    """רישום אינטראקציה עם לקוח ב-CRM - פונקציה גלובלית להשימוש מmodules אחרים"""
+    try:
+        customer = Customer.query.get(customer_id)
+        if not customer:
+            logger.error(f"❌ Customer {customer_id} not found")
+            return None
+            
+        interaction = CustomerInteraction(
+            customer_id=customer_id,
+            business_id=customer.business_id,
+            interaction_type=interaction_type,
+            direction=direction,
+            content=content,
+            ai_response=ai_response,
+            call_sid=call_sid,
+            interaction_date=datetime.utcnow(),
+            status='completed',
+            metadata=json.dumps(kwargs) if kwargs else None
+        )
+        
+        db.session.add(interaction)
+        db.session.commit()
+        
+        logger.info(f"✅ Recorded {interaction_type} interaction for customer {customer_id}")
+        return interaction
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to record interaction: {e}")
+        db.session.rollback()
+        return None

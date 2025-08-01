@@ -24,7 +24,10 @@ def handle_recording():
     - מתמלל עם Whisper בעברית  
     - שולח ל-GPT לקבלת מענה
     - מחזיר תשובה בקול עברי
+    
+    ⚠️ CRITICAL: Must respond within 10 seconds to avoid Twilio timeout
     """
+    start_time = datetime.utcnow()
     try:
         # Get recording data from Twilio
         recording_url = request.form.get('RecordingUrl')
@@ -72,8 +75,10 @@ def handle_recording():
         # Transcribe with OpenAI Whisper (Hebrew)
         logger.info("Transcribing audio with Whisper...")
         
+        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        
         with open(temp_filename, 'rb') as audio_file:
-            transcript = openai.Audio.transcribe(
+            transcript = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file,
                 language="he"  # Hebrew
@@ -118,13 +123,41 @@ def handle_recording():
         customer.total_calls = customer.total_calls + 1 if customer.total_calls else 1
         customer.last_contact_date = datetime.utcnow()
         
+        # Record interaction in CRM
+        try:
+            from crm_service import record_interaction
+            record_interaction(
+                customer_id=customer.id,
+                interaction_type='call',
+                direction='inbound',
+                content=transcribed_text,
+                ai_response=response_text,
+                call_sid=call_sid
+            )
+        except Exception as crm_error:
+            logger.warning(f"Failed to record CRM interaction: {crm_error}")
+        
+        # Commit all database changes
         db.session.commit()
+        logger.info("✅ All database changes committed successfully")
         
         # Generate TTS audio and return TwiML
         twiml_response = generate_tts_response(response_text)
         
+        # Validate TwiML response before returning
+        if not twiml_response or len(twiml_response) < 50:
+            logger.error("TwiML response too short, using fallback")
+            twiml_response = generate_fallback_twiml()
+        
         # Clean up temporary file
         os.unlink(temp_filename)
+        
+        # Check timing - must respond within 10 seconds
+        elapsed_time = (datetime.utcnow() - start_time).total_seconds()
+        if elapsed_time > 9:
+            logger.warning(f"⚠️ Response took {elapsed_time:.2f}s - close to Twilio timeout!")
+        else:
+            logger.info(f"✅ Response completed in {elapsed_time:.2f}s")
         
         return Response(twiml_response, mimetype='text/xml')
         
@@ -153,8 +186,10 @@ def generate_ai_response(user_text, business):
             {"role": "user", "content": user_text}
         ]
         
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
+        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        
+        response = client.chat.completions.create(
+            model="gpt-4o",
             messages=messages,
             max_tokens=150,
             temperature=0.7
@@ -172,6 +207,18 @@ def generate_ai_response(user_text, business):
 def generate_tts_response(text):
     """יוצר TwiML עם קול עברי"""
     try:
+        # Validate input text
+        if not text or len(text.strip()) == 0:
+            logger.warning("Empty text for TTS, using default message")
+            text = "תודה לך על הפנייה"
+        
+        # Ensure text is not too long for TTS
+        if len(text) > 500:
+            text = text[:497] + "..."
+            
+        # Escape XML special characters
+        text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
         # Use Amazon Polly Hebrew voice through Twilio
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
         <Response>
@@ -179,16 +226,22 @@ def generate_tts_response(text):
             <Record action="/handle_recording" method="POST" maxLength="30" timeout="3" transcribe="false"/>
         </Response>'''
         
+        logger.info(f"✅ Generated TwiML response: {len(twiml)} characters")
         return twiml
         
     except Exception as e:
         logger.error(f"Error generating TTS: {str(e)}")
-        fallback_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
-        <Response>
-            <Say voice="Polly.Hilit" language="he-IL">תודה לך על הפנייה.</Say>
-            <Hangup/>
-        </Response>'''
-        return fallback_twiml
+        return generate_fallback_twiml()
+
+def generate_fallback_twiml():
+    """יוצר TwiML חלופי במקרה של כשל"""
+    fallback_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
+    <Response>
+        <Say voice="Polly.Hilit" language="he-IL">תודה לך על הפנייה. נחזור אליך בהקדם.</Say>
+        <Hangup/>
+    </Response>'''
+    logger.info("✅ Using fallback TwiML")
+    return fallback_twiml
 
 @app.route("/twilio/incoming_call", methods=["POST"])
 def incoming_call():
