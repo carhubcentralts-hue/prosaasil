@@ -39,10 +39,18 @@ with app.app_context():
     # Register Admin Blueprint FIRST
     try:
         from admin_routes import admin_bp  # Admin routes for business management
-        app.register_blueprint(admin_bp)
+        app.register_blueprint(admin_bp, url_prefix='/api/admin')
         logging.info("✅ Admin Blueprint registered successfully")
     except Exception as e:
         logging.error(f"❌ Admin Blueprint registration failed: {e}")
+
+    # Register Login Blueprint
+    try:
+        from login_routes import login_bp  # Login and authentication routes
+        app.register_blueprint(login_bp, url_prefix='/api')
+        logging.info("✅ Login Blueprint registered successfully")
+    except Exception as e:
+        logging.error(f"❌ Login Blueprint registration failed: {e}")
 
     # Register other Blueprints
     try:

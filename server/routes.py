@@ -191,31 +191,7 @@ def admin_businesses():
         flash('שגיאה בטעינת ניהול עסקים', 'error')
         return redirect(url_for('admin_dashboard'))
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    """עמוד התחברות למערכת"""
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
-        client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
-        user = AuthService.authenticate_user(username, password, client_ip)
-        if user:
-            # User object returned directly from authenticate_user
-            
-            if user and user.role == 'admin':
-                return redirect(url_for('admin_dashboard'))
-            elif user and user.business_id:
-                return redirect(url_for('business_dashboard', business_id=user.business_id))
-            elif user and user.role == 'business':
-                # Business user without business_id - show error
-                return render_template('login.html', error='משתמש עסק ללא עסק מוגדר - צור קשר עם המנהל')
-            else:
-                return render_template('login.html', error='שגיאה בהגדרות המשתמש - צור קשר עם המנהל')
-        else:
-            return render_template('login.html', error='שם משתמש או סיסמה שגויים')
-    
-    return render_template('login.html')
+# Login route removed - handled by React Router and /api/login API endpoint
 
 @app.route('/logout')
 def logout():
