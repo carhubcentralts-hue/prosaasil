@@ -238,12 +238,14 @@ const BusinessDashboard = () => {
             trend="חדשות"
             color="purple"
           />
-          <StatCard
-            title="חתימות ממתינות"
-            value={stats.pendingSignatures}
-            icon={FileText}
-            color="orange"
-          />
+          {services.crm && (
+            <StatCard
+              title="חתימות ממתינות"
+              value={stats.pendingSignatures}
+              icon={FileText}
+              color="orange"
+            />
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -251,7 +253,7 @@ const BusinessDashboard = () => {
           <div className="lg:col-span-2">
             <div className="bg-white rounded-lg shadow p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-6">פעולות מהירות</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <QuickActionButton
                   title="שיחות"
                   icon={Phone}
@@ -269,12 +271,6 @@ const BusinessDashboard = () => {
                   icon={Users}
                   onClick={() => handleQuickAction('crm')}
                   color="purple"
-                />
-                <QuickActionButton
-                  title="הצעות תשלום"
-                  icon={DollarSign}
-                  onClick={() => handleQuickAction('proposals')}
-                  color="orange"
                 />
               </div>
             </div>
