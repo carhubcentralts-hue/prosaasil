@@ -87,15 +87,12 @@ def serve_index():
 
 @app.route("/<path:path>")
 def serve_static_files(path):
-    # Skip API routes - let Flask handle them
-    if path.startswith('api/'):
-        from flask import abort
-        abort(404)
-    
+    # Static files from React build
     file_path = os.path.join("../client/dist", path)
     if os.path.exists(file_path):
         return send_from_directory("../client/dist", path)
     else:
+        # For all other routes (SPA routing), serve React app
         return send_from_directory("../client/dist", "index.html")
 
 # Media stream routes integrated into routes.py

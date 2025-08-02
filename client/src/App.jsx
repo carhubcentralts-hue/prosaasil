@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import BusinessDashboard from './pages/BusinessDashboard';
 import AdminDashboard from './pages/AdminDashboard';
+import BusinessViewPage from './pages/BusinessViewPage';
 import './index.css';
 
 function App() {
@@ -57,9 +58,19 @@ function App() {
     );
   }
 
+  // בדיקה אם זה דף צפייה בעסק ספציפי
+  const currentPath = window.location.pathname;
+  const isBusinessView = currentPath.startsWith('/business/') && currentPath.includes('/dashboard');
+
   return (
     <div className="App">
-      {userRole === 'admin' ? <AdminDashboard /> : <BusinessDashboard />}
+      {isBusinessView ? (
+        <BusinessViewPage />
+      ) : userRole === 'admin' ? (
+        <AdminDashboard />
+      ) : (
+        <BusinessDashboard />
+      )}
     </div>
   );
 }

@@ -76,6 +76,54 @@ def get_businesses():
         logger.error(f"Error fetching businesses: {e}")
         return jsonify({'error': 'Failed to fetch businesses'}), 500
 
+@admin_bp.route('/businesses/<int:business_id>', methods=['GET'])
+@admin_required
+def get_business(business_id):
+    """קבלת עסק ספציפי לפי ID"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT id, name, business_type, phone_israel, phone_whatsapp, 
+                   ai_prompt, crm_enabled, whatsapp_enabled, calls_enabled,
+                   created_at
+            FROM businesses 
+            WHERE id = %s
+        """, (business_id,))
+        
+        row = cur.fetchone()
+        if not row:
+            return jsonify({'error': 'Business not found'}), 404
+        
+        business = {
+            'id': row[0],
+            'name': row[1],
+            'type': row[2],
+            'phone': row[3],
+            'whatsapp_phone': row[4],
+            'ai_prompt': row[5],
+            'services': {
+                'crm': row[6],
+                'whatsapp': row[7],
+                'calls': row[8]
+            },
+            'created_at': row[9].strftime('%Y-%m-%d %H:%M:%S') if row[9] else None
+        }
+        
+        cur.close()
+        conn.close()
+        
+        logger.info(f"Found business: {business['name']}")
+        return jsonify(business)
+        
+    except Exception as e:
+        logger.error(f"Error fetching business {business_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @admin_bp.route('/businesses', methods=['POST'])
 @admin_required
 def create_business():
@@ -109,7 +157,11 @@ def create_business():
             services.get('calls', False)
         ))
         
-        business_id = cur.fetchone()[0]
+        result = cur.fetchone()
+        if result:
+            business_id = result[0]
+        else:
+            return jsonify({'error': 'Failed to create business'}), 500
         conn.commit()
         cur.close()
         conn.close()
@@ -219,14 +271,16 @@ def get_admin_stats():
         
         # סה"כ עסקים
         cur.execute("SELECT COUNT(*) FROM businesses")
-        total_businesses = cur.fetchone()[0]
+        result = cur.fetchone()
+        total_businesses = result[0] if result else 0
         
         # עסקים פעילים (לפחות שירות אחד פעיל)
         cur.execute("""
             SELECT COUNT(*) FROM businesses 
             WHERE crm_enabled = true OR whatsapp_enabled = true OR calls_enabled = true
         """)
-        active_businesses = cur.fetchone()[0]
+        result = cur.fetchone()
+        active_businesses = result[0] if result else 0
         
         # סימולציה של נתונים נוספים (עד שיהיו טבלאות אמתיות)
         total_calls = 127
