@@ -15,7 +15,8 @@ import {
   Key,
   Check,
   AlertCircle,
-  ArrowLeft
+  ArrowLeft,
+  LogOut
 } from 'lucide-react';
 
 // Removed handleLogout function - will be added inside component
