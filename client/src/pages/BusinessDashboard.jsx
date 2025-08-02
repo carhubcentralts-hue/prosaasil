@@ -13,7 +13,8 @@ import {
   Activity,
   LogOut,
   AlertCircle,
-  Settings
+  Settings,
+  ArrowLeft
 } from 'lucide-react';
 
 // כרטיס סטטיסטיקה
@@ -130,8 +131,19 @@ const BusinessDashboard = () => {
     if (confirm('האם אתה בטוח שברצונך לצאת מהמערכת?')) {
       localStorage.removeItem('auth_token');
       localStorage.removeItem('user_role');
+      localStorage.removeItem('impersonate_business_id');
+      localStorage.removeItem('impersonate_business_name');
+      localStorage.removeItem('original_role');
       window.location.href = '/login';
     }
+  };
+
+  // פונקציית חזרה למנהל
+  const handleBackToAdmin = () => {
+    localStorage.removeItem('impersonate_business_id');
+    localStorage.removeItem('impersonate_business_name');
+    localStorage.removeItem('original_role');
+    window.location.href = '/admin/dashboard';
   };
 
   useEffect(() => {
@@ -139,17 +151,32 @@ const BusinessDashboard = () => {
       try {
         setLoading(true);
         
-        // שליפת נתוני העסק
-        try {
-          const businessResponse = await axios.get('/api/business');
-          if (businessResponse.data && businessResponse.data.length > 0) {
-            setBusinessData(businessResponse.data[0]);
-          } else {
+        // בדיקה אם זה מצב השתלטות
+        const impersonateId = localStorage.getItem('impersonate_business_id');
+        const impersonateName = localStorage.getItem('impersonate_business_name');
+        
+        if (impersonateId && impersonateName) {
+          // במצב השתלטות - שלוף נתוני העסק הספציפי
+          try {
+            const businessResponse = await axios.get(`/api/admin/businesses/${impersonateId}`);
+            setBusinessData(businessResponse.data);
+          } catch (error) {
+            console.log('Impersonate API error:', error);
+            setBusinessData({ name: impersonateName, type: 'עסק מנוהל' });
+          }
+        } else {
+          // שליפת נתוני העסק רגיל
+          try {
+            const businessResponse = await axios.get('/api/business');
+            if (businessResponse.data && businessResponse.data.length > 0) {
+              setBusinessData(businessResponse.data[0]);
+            } else {
+              setBusinessData({ name: 'טכנו סולושנס', type: 'שירותי טכנולוגיה' });
+            }
+          } catch (error) {
+            console.log('Business API error:', error);
             setBusinessData({ name: 'טכנו סולושנס', type: 'שירותי טכנולוגיה' });
           }
-        } catch (error) {
-          console.log('Business API error:', error);
-          setBusinessData({ name: 'טכנו סולושנס', type: 'שירותי טכנולוגיה' });
         }
 
         // محاولة جلب الإحصائيات
@@ -252,6 +279,17 @@ const BusinessDashboard = () => {
                     day: 'numeric' 
                   })}
                 </div>
+
+                {localStorage.getItem('impersonate_business_id') && (
+                  <button
+                    onClick={handleBackToAdmin}
+                    className="flex items-center px-3 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="חזרה לפאנל מנהל"
+                  >
+                    <ArrowLeft className="w-4 h-4 ml-2" />
+                    <span>חזרה למנהל</span>
+                  </button>
+                )}
 
                 <button
                   onClick={handleLogout}

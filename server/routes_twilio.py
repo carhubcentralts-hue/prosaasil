@@ -32,9 +32,20 @@ def handle_incoming_call():
         
         logger.info(f"Incoming call: {from_number} -> {to_number}, CallSid: {call_sid}")
         
-        # Find business by phone number
-        business = Business.query.filter_by(phone_number=to_number).first()
-        if not business or not business.calls_enabled:
+        # Find business by phone number - using direct PostgreSQL query
+        import psycopg2
+        try:
+            conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
+            cur = conn.cursor()
+            cur.execute("SELECT name, ai_prompt FROM businesses WHERE phone_israel = %s AND calls_enabled = true", (to_number,))
+            business_row = cur.fetchone()
+            cur.close()
+            conn.close()
+        except Exception as db_e:
+            logger.error(f"Database error: {db_e}")
+            business_row = None
+            
+        if not business_row:
             # Default TwiML if no business found
             twiml = '''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
@@ -44,7 +55,8 @@ def handle_incoming_call():
             return Response(twiml, mimetype='text/xml')
         
         # Use business greeting or default
-        greeting = business.greeting_message or "שלום, אני העוזר הוירטואלי. איך אוכל לעזור לך היום?"
+        business_name = business_row[0] if business_row else "העסק"
+        greeting = f"שלום, זהו המוקד הוירטואלי של {business_name}. איך אוכל לעזור לך היום?"
         
         # Create TwiML response with greeting and recording
         base_url = request.url_root.rstrip('/')
@@ -58,7 +70,7 @@ def handle_incoming_call():
             <Hangup/>
         </Response>'''
         
-        logger.info(f"✅ Voice webhook response sent for business: {business.name}")
+        logger.info(f"✅ Voice webhook response sent for business: {business_name}")
         return Response(twiml, mimetype='text/xml')
         
     except Exception as e:
@@ -94,9 +106,20 @@ def handle_recording():
             logger.error("Missing recording URL or Call SID")
             return jsonify({'error': 'Missing required parameters'}), 400
             
-        # Find business by phone number
-        business = Business.query.filter_by(phone_number=to_number).first()
-        if not business or not business.calls_enabled:
+        # Find business by phone number - using direct PostgreSQL query
+        import psycopg2
+        try:
+            conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
+            cur = conn.cursor()
+            cur.execute("SELECT id, name, ai_prompt FROM businesses WHERE phone_israel = %s AND calls_enabled = true", (to_number,))
+            business_row = cur.fetchone()
+            cur.close()
+            conn.close()
+        except Exception as db_e:
+            logger.error(f"Database error: {db_e}")
+            business_row = None
+            
+        if not business_row:
             logger.warning(f"Business not found or calls disabled for {to_number}")
             return jsonify({'error': 'Business not configured for calls'}), 404
             
@@ -306,9 +329,20 @@ def incoming_call():
         to_number = request.form.get('To')
         call_sid = request.form.get('CallSid')
         
-        # Find business
-        business = Business.query.filter_by(phone_number=to_number).first()
-        if not business or not business.calls_enabled:
+        # Find business - using direct PostgreSQL query
+        import psycopg2
+        try:
+            conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
+            cur = conn.cursor()
+            cur.execute("SELECT id, name FROM businesses WHERE phone_israel = %s AND calls_enabled = true", (to_number,))
+            business_row = cur.fetchone()
+            cur.close()
+            conn.close()
+        except Exception as db_e:
+            logger.error(f"Database error: {db_e}")
+            business_row = None
+            
+        if not business_row:
             twiml = '''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
                 <Say voice="Polly.Hilit" language="he-IL">המספר שחייגת אליו לא פעיל כרגע.</Say>

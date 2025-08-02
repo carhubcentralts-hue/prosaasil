@@ -390,8 +390,13 @@ const AdminDashboard = () => {
   };
 
   const handleViewBusiness = (business) => {
-    // מעבר לדשבורד העסק
-    window.location.href = `/business/${business.id}/dashboard`;
+    // שמירת פרטי העסק בלוקל סטורג' כדי להשתלט עליו
+    localStorage.setItem('impersonate_business_id', business.id);
+    localStorage.setItem('impersonate_business_name', business.name);
+    localStorage.setItem('original_role', 'admin');
+    
+    // מעבר לדשבורד העסק במצב השתלטות
+    window.location.href = `/business/dashboard?impersonate=${business.id}`;
   };
 
   const handleEditBusiness = (business) => {
