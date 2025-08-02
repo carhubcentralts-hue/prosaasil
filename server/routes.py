@@ -50,11 +50,12 @@ logger = logging.getLogger(__name__)
 
 # Fix admin dashboard route
 
-@app.route('/')
-def index():
-    """עמוד בית - הפניה ישירה ל-CRM"""
-    # Direct access to CRM without authentication
-    return redirect('/crm')
+# React Frontend is served by app.py routes
+# @app.route('/')
+# def index():
+#     """עמוד בית - הפניה ישירה ל-CRM"""
+#     # Direct access to CRM without authentication
+#     return redirect('/crm')
 
 @app.route('/admin-dashboard')
 @admin_required

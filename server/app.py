@@ -78,19 +78,17 @@ with app.app_context():
     except Exception as e:
         logging.warning(f"⚠️ Could not start background cleanup: {e}")
 
-# React Frontend Routes - שרת את React frontend (Vite dist)
+# React Frontend Routes - Flask מגיש את React
 @app.route("/")
-def serve_react():
-    """שרת את React frontend דף הבית"""
+def serve_index():
     return send_from_directory("../client/dist", "index.html")
 
 @app.route("/<path:path>")
-def serve_static(path):
-    """שרת קבצים סטטיים של React"""
-    try:
+def serve_static_files(path):
+    file_path = os.path.join("../client/dist", path)
+    if os.path.exists(file_path):
         return send_from_directory("../client/dist", path)
-    except:
-        # אם הקובץ לא נמצא, החזר את index.html לטיפול ב-React Router
+    else:
         return send_from_directory("../client/dist", "index.html")
 
 # Media stream routes integrated into routes.py
