@@ -209,18 +209,7 @@ const LoginPage = () => {
           </form>
         </div>
 
-        {/* פרטי התחברות לדוגמה */}
-        <div className="mt-6 bg-gray-50 rounded-lg p-4 border border-gray-200">
-          <h3 className="text-sm font-medium text-gray-700 mb-3 font-hebrew">פרטי התחברות לדוגמה:</h3>
-          <div className="space-y-2 text-xs text-gray-600 font-hebrew">
-            <div>
-              <strong>מנהל מערכת:</strong> admin / admin123
-            </div>
-            <div>
-              <strong>עסק לדוגמה:</strong> business1 / biz1234
-            </div>
-          </div>
-        </div>
+
       </div>
     </div>
   );

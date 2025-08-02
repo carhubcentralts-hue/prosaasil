@@ -13,19 +13,19 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // נקה את כל המידע המאוחסן בצורה כוללת
-    localStorage.clear();
-    
     // בדיקה אם משתמש מחובר
     const token = localStorage.getItem('auth_token');
     const role = localStorage.getItem('user_role');
     
-    console.log('Auth check - FORCING LOGOUT:', { token: !!token, role });
-    console.log('Setting isAuthenticated to FALSE');
+    console.log('Auth check:', { token: !!token, role });
     
-    // כפה חוסר התקברות
-    setIsAuthenticated(false);
-    setUserRole(null);
+    if (token && role) {
+      setIsAuthenticated(true);
+      setUserRole(role);
+    } else {
+      setIsAuthenticated(false);
+      setUserRole(null);
+    }
     setLoading(false);
   }, []);
 
@@ -95,18 +95,22 @@ function App() {
             element={
               userRole === 'admin' ? 
                 <Navigate to="/admin/dashboard" replace /> :
-                <Navigate to="/business/dashboard" replace />
+                userRole === 'business' ?
+                <Navigate to="/business/dashboard" replace /> :
+                <Navigate to="/login" replace />
             } 
+          />
+          
+          {/* התחברות - הפניה לדשבורד אם כבר מחובר */}
+          <Route 
+            path="/login"
+            element={<Navigate to="/" replace />}
           />
           
           {/* כל שאר הנתיבים */}
           <Route 
             path="*" 
-            element={
-              userRole === 'admin' ? 
-                <Navigate to="/admin/dashboard" replace /> :
-                <Navigate to="/business/dashboard" replace />
-            } 
+            element={<Navigate to="/" replace />}
           />
         </Routes>
       </Router>
