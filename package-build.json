@@ -1,0 +1,19 @@
+{
+  "name": "hebrew-ai-call-center",
+  "version": "1.0.0",
+  "description": "Hebrew AI Call Center CRM with WhatsApp integration",
+  "scripts": {
+    "build": "cd client && npm install && npm run build",
+    "start": "cd server && python3 main.py",
+    "dev": "python main.py & node baileys_client.js",
+    "install-client": "cd client && npm install",
+    "build-client": "cd client && npm run build"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "python": ">=3.9.0"
+  },
+  "keywords": ["ai", "call-center", "hebrew", "crm", "whatsapp", "twilio"],
+  "author": "Hebrew AI Team",
+  "license": "MIT"
+}

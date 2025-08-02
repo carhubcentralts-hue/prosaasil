@@ -1,51 +1,37 @@
 #!/bin/bash
-# Build script for Hebrew AI Call Center CRM deployment
-# סקריפט בניה לפריסת מערכת CRM מוקד שיחות AI בעברית
+# Hebrew AI Call Center Build Script
+# סקריפט בנייה למערכת AI מוקד שיחות עברית
 
-echo "🚀 Building Hebrew AI Call Center CRM..."
-echo "=================================================="
+echo "🚀 Building Hebrew AI Call Center System..."
 
-# Set environment variables
-export FLASK_ENV=production
-export FLASK_DEBUG=false
-
-# Create necessary directories
-echo "📁 Creating directories..."
-mkdir -p static/voice_responses
-mkdir -p logs
-mkdir -p docs/backups
-mkdir -p baileys_auth_info
-
-# Check Python version
-python_version=$(python --version 2>&1)
-echo "✅ Python version: $python_version"
-
-# Install/upgrade Python dependencies from pyproject.toml
-echo "📦 Installing Python dependencies..."
-python -m pip install --upgrade pip
-python -m pip install .
-
-# Setup database
-echo "🗄️ Setting up database..."
-python -c "
-from app import app, db
-import models
-import crm_models
-
-with app.app_context():
-    try:
-        db.create_all()
-        print('✅ Database tables created successfully')
-    except Exception as e:
-        print(f'⚠️ Database setup warning: {e}')
-"
-
-# Install Node.js dependencies for Baileys WhatsApp service
-echo "📱 Installing WhatsApp service dependencies..."
-if [ -f "package.json" ]; then
-    npm install --production
-    echo "✅ Node.js dependencies installed"
+# Step 1: Install client dependencies
+echo "📦 Installing client dependencies..."
+cd client
+npm install
+if [ $? -ne 0 ]; then
+    echo "❌ Failed to install client dependencies"
+    exit 1
 fi
 
-echo "✅ Build completed successfully!"
-echo "🚀 Ready for deployment with 'python main.py'"
+# Step 2: Build React frontend
+echo "🏗️ Building React frontend..."
+npm run build
+if [ $? -ne 0 ]; then
+    echo "❌ Failed to build React frontend"
+    exit 1
+fi
+
+cd ..
+
+# Step 3: Verify build
+echo "✅ Verifying build..."
+if [ -d "client/dist" ]; then
+    echo "✅ React build successful - dist directory created"
+    ls -la client/dist/
+else
+    echo "❌ Build failed - no dist directory found"
+    exit 1
+fi
+
+echo "🎉 Build completed successfully!"
+echo "🚀 Ready for deployment!"
