@@ -17,12 +17,16 @@
     "python": ">=3.9.0"
   },
   "dependencies": {
-    "ws": "^8.18.0",
-    "@whiskeysockets/baileys": "^6.7.8"
+    "@vitejs/plugin-react": "^4.7.0",
+    "@whiskeysockets/baileys": "^6.7.8",
+    "qrcode-terminal": "^0.12.0",
+    "react-scripts": "^5.0.1",
+    "vite": "^7.0.6",
+    "ws": "^8.18.0"
   },
   "keywords": [
     "ai",
-    "call-center", 
+    "call-center",
     "hebrew",
     "crm",
     "whatsapp",
@@ -38,5 +42,8 @@
     "type": "git",
     "url": "replit"
   },
-  "buildPacks": ["python", "nodejs"]
+  "buildPacks": [
+    "python",
+    "nodejs"
+  ]
 }
