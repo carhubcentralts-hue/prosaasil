@@ -77,16 +77,14 @@ const LoginPage = () => {
 
       setSuccess(`התחברות מוצלחת! ברוך הבא ${name}`);
 
-      // המתן רגע ואז נווט
-      setTimeout(() => {
-        if (role === 'admin') {
-          navigate('/admin/dashboard');
-        } else if (role === 'business') {
-          navigate('/business/dashboard');  
-        } else {
-          navigate('/dashboard');
-        }
-      }, 1500);
+      // הפנה מיד לדשבורד המתאים
+      if (role === 'admin') {
+        window.location.href = '/admin/dashboard';
+      } else if (role === 'business') {
+        window.location.href = '/business/dashboard';  
+      } else {
+        window.location.href = '/dashboard';
+      }
 
     } catch (error) {
       console.error('Login error:', error);

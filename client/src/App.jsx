@@ -8,53 +8,100 @@ import PrivateRoute from './components/PrivateRoute';
 import './index.css';
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userRole, setUserRole] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // בדיקה אם משתמש מחובר
+    const token = localStorage.getItem('auth_token');
+    const role = localStorage.getItem('user_role');
+    
+    if (token && role) {
+      setIsAuthenticated(true);
+      setUserRole(role);
+    }
+    setLoading(false);
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600 font-hebrew">טוען מערכת...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // אם לא מחובר - הצג רק דף התחברות
+  if (!isAuthenticated) {
+    return (
+      <div className="App">
+        <Router>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </Router>
+      </div>
+    );
+  }
+
+  // אם מחובר - הצג את המערכת המתאימה
   return (
     <div className="App">
       <Router>
         <Routes>
-          {/* דף התחברות - הדף הראשון */}
-          <Route path="/login" element={<LoginPage />} />
-          
-          {/* דשבורד מנהל - מוגן */}
+          {/* דשבורד מנהל */}
           <Route 
             path="/admin/dashboard" 
             element={
-              <PrivateRoute requiredRole="admin">
-                <AdminDashboard />
-              </PrivateRoute>
+              userRole === 'admin' ? 
+                <AdminDashboard /> : 
+                <Navigate to="/login" replace />
             } 
           />
           
-          {/* דשבורד עסק - מוגן */}
+          {/* דשבורד עסק */}
           <Route 
             path="/business/dashboard" 
             element={
-              <PrivateRoute requiredRole="business">
-                <BusinessDashboard />
-              </PrivateRoute>
+              userRole === 'business' ? 
+                <BusinessDashboard /> : 
+                <Navigate to="/login" replace />
             } 
           />
           
-          {/* דף צפייה בעסק ספציפי - מוגן למנהלים בלבד */}
+          {/* דף צפייה בעסק ספציפי - רק למנהלים */}
           <Route 
             path="/business/:businessId/dashboard" 
             element={
-              <PrivateRoute requiredRole="admin">  
-                <BusinessViewPage />
-              </PrivateRoute>
+              userRole === 'admin' ? 
+                <BusinessViewPage /> : 
+                <Navigate to="/login" replace />
             } 
           />
           
-          {/* נתיב ברירת מחדל - הפנייה לדף התחברות */}
+          {/* נתיב ברירת מחדל - ניווט לפי תפקיד */}
           <Route 
             path="/" 
-            element={<Navigate to="/login" replace />} 
+            element={
+              userRole === 'admin' ? 
+                <Navigate to="/admin/dashboard" replace /> :
+                <Navigate to="/business/dashboard" replace />
+            } 
           />
           
-          {/* דף לא מוכר */}
+          {/* כל שאר הנתיבים */}
           <Route 
             path="*" 
-            element={<Navigate to="/login" replace />} 
+            element={
+              userRole === 'admin' ? 
+                <Navigate to="/admin/dashboard" replace /> :
+                <Navigate to="/business/dashboard" replace />
+            } 
           />
         </Routes>
       </Router>

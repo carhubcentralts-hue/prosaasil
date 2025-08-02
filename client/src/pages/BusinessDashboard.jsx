@@ -125,6 +125,15 @@ const BusinessDashboard = () => {
     signatures: false
   });
 
+  // פונקציית יציאה מהמערכת
+  const handleLogout = () => {
+    if (confirm('האם אתה בטוח שברצונך לצאת מהמערכת?')) {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('user_role');
+      window.location.href = '/login';
+    }
+  };
+
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
@@ -250,13 +259,9 @@ const BusinessDashboard = () => {
                   <span>פאנל מערכת</span>
                 </button>
                 <button
-                  onClick={() => {
-                    if (confirm('האם אתה בטוח שברצונך להתנתק?')) {
-                      window.location.href = '/logout';
-                    }
-                  }}
+                  onClick={handleLogout}
                   className="flex items-center px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                  title="התנתקות"
+                  title="יציאה מהמערכת"
                 >
                   <LogOut className="w-4 h-4 ml-2" />
                   <span>יציאה</span>

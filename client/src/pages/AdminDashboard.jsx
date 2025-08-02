@@ -18,6 +18,8 @@ import {
   ArrowLeft
 } from 'lucide-react';
 
+// Removed handleLogout function - will be added inside component
+
 // רכיב כרטיס עסק בשורה
 const BusinessRowCard = ({ business, onView, onEdit, onDelete, onChangePassword }) => {
   const getStatusColor = (isActive) => isActive ? 'text-green-600' : 'text-gray-400';
@@ -292,6 +294,13 @@ const AdminDashboard = () => {
     fetchStats();
   }, []);
 
+  // פונקציית יציאה מהמערכת
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_role');
+    window.location.href = '/login';
+  };
+
   const fetchBusinesses = async () => {
     try {
       const response = await axios.get('/api/admin/businesses');
@@ -424,14 +433,12 @@ const AdminDashboard = () => {
             </div>
             <div className="flex items-center space-x-3 space-x-reverse">
               <button
-                onClick={() => {
-                  window.location.href = '/';
-                }}
-                className="flex items-center px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                title="חזור לתצוגת עסק"
+                onClick={handleLogout}
+                className="flex items-center px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                title="יציאה מהמערכת"
               >
-                <ArrowLeft className="w-4 h-4 ml-2" />
-                <span>תצוגת עסק</span>
+                <LogOut className="w-4 h-4 ml-2" />
+                <span>יציאה</span>
               </button>
               <button
                 onClick={() => setShowForm(true)}

@@ -1,15 +1,16 @@
 """
-Clean Hebrew AI Call Center Routes
-מערכת מוקד שיחות AI עברית מנוקה ופשוטה
+This file is deprecated and replaced by specific API blueprints.
+The system now uses React frontend with API endpoints.
+All routes are handled by:
+- admin_routes.py (Admin API)
+- login_routes.py (Authentication API)  
+- Other API blueprints as needed
+
+This file is kept for backwards compatibility but should not be used.
 """
 
-from flask import request, Response, render_template, redirect, url_for, session, jsonify, flash
-from app import app, db
-from models import Business, CallLog, ConversationTurn, AppointmentRequest, User, CRMCustomer, CRMTask
-# CRM routes registered in main.py
-from admin_dashboard import admin_bp
-from invoice_generator import InvoiceGenerator
-from digital_signature_service import DigitalSignatureService
+# Deprecated - do not add new routes here
+# Use specific API blueprints instead
 
 # Agent task #10 - Setup logging to file for production stability
 import logging
