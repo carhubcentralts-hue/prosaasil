@@ -241,6 +241,16 @@ const BusinessDashboard = () => {
                 </div>
                 <button
                   onClick={() => {
+                    window.location.href = '/?role=admin';
+                  }}
+                  className="flex items-center px-3 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  title="פאנל מערכת"
+                >
+                  <Settings className="w-4 h-4 ml-2" />
+                  <span>פאנל מערכת</span>
+                </button>
+                <button
+                  onClick={() => {
                     if (confirm('האם אתה בטוח שברצונך להתנתק?')) {
                       window.location.href = '/logout';
                     }

@@ -14,7 +14,8 @@ import {
   X,
   Key,
   Check,
-  AlertCircle
+  AlertCircle,
+  ArrowLeft
 } from 'lucide-react';
 
 // רכיב כרטיס עסק בשורה
@@ -414,13 +415,25 @@ const AdminDashboard = () => {
               </h1>
               <p className="text-gray-500 mt-1">ניהול עסקים ומשתמשים במערכת</p>
             </div>
-            <button
-              onClick={() => setShowForm(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center"
-            >
-              <Plus className="w-5 h-5 ml-2" />
-              הוסף עסק חדש
-            </button>
+            <div className="flex items-center space-x-3 space-x-reverse">
+              <button
+                onClick={() => {
+                  window.location.href = '/';
+                }}
+                className="flex items-center px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="חזור לתצוגת עסק"
+              >
+                <ArrowLeft className="w-4 h-4 ml-2" />
+                <span>תצוגת עסק</span>
+              </button>
+              <button
+                onClick={() => setShowForm(true)}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center"
+              >
+                <Plus className="w-5 h-5 ml-2" />
+                הוסף עסק חדש
+              </button>
+            </div>
           </div>
         </div>
       </div>
