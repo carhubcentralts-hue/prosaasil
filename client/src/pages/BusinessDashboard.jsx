@@ -10,7 +10,10 @@ import {
   TrendingUp,
   Calendar,
   DollarSign,
-  Activity
+  Activity,
+  LogOut,
+  AlertCircle,
+  Settings
 } from 'lucide-react';
 
 // כרטיס סטטיסטיקה
@@ -61,19 +64,47 @@ const QuickActionButton = ({ title, icon: Icon, onClick, color = "primary" }) =>
   );
 };
 
-// מצב שירות
-const ServiceStatus = ({ name, enabled, icon: Icon }) => {
+// רכיב מצב מערכת
+const SystemStatus = ({ name, status, icon: Icon }) => {
+  const getStatusColor = (status) => {
+    switch(status) {
+      case 'active': return 'text-green-600';
+      case 'inactive': return 'text-red-600';
+      case 'warning': return 'text-yellow-600';
+      default: return 'text-gray-600';
+    }
+  };
+
+  const getStatusIcon = (status) => {
+    switch(status) {
+      case 'active': return CheckCircle;
+      case 'inactive': return XCircle;
+      case 'warning': return AlertCircle;
+      default: return XCircle;
+    }
+  };
+
+  const getStatusText = (status) => {
+    switch(status) {
+      case 'active': return 'פעיל';
+      case 'inactive': return 'לא פעיל';
+      case 'warning': return 'אזהרה';
+      default: return 'לא ידוע';
+    }
+  };
+
+  const StatusIcon = getStatusIcon(status);
+
   return (
-    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
       <div className="flex items-center">
-        <Icon className="w-5 h-5 ml-3 text-gray-600" />
+        <Icon className="w-5 h-5 text-gray-600 ml-3" />
         <span className="font-medium">{name}</span>
       </div>
-      {enabled ? (
-        <CheckCircle className="w-5 h-5 text-green-500" />
-      ) : (
-        <XCircle className="w-5 h-5 text-red-500" />
-      )}
+      <div className={`flex items-center ${getStatusColor(status)}`}>
+        <StatusIcon className="w-4 h-4 ml-1" />
+        <span className="text-sm">{getStatusText(status)}</span>
+      </div>
     </div>
   );
 };
@@ -201,13 +232,27 @@ const BusinessDashboard = () => {
               <p className="text-gray-500 mt-1">מערכת ניהול לידים ושיחות AI</p>
             </div>
             <div className="flex items-center space-x-4 space-x-reverse">
-              <div className="text-sm text-gray-500">
-                {new Date().toLocaleDateString('he-IL', { 
-                  weekday: 'long', 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
-                })}
+              <div className="flex items-center space-x-3 space-x-reverse">
+                <div className="text-sm text-gray-500">
+                  {new Date().toLocaleDateString('he-IL', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}
+                </div>
+                <button
+                  onClick={() => {
+                    if (confirm('האם אתה בטוח שברצונך להתנתק?')) {
+                      window.location.href = '/logout';
+                    }
+                  }}
+                  className="flex items-center px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  title="התנתקות"
+                >
+                  <LogOut className="w-4 h-4 ml-2" />
+                  <span>יציאה</span>
+                </button>
               </div>
             </div>
           </div>
@@ -304,30 +349,30 @@ const BusinessDashboard = () => {
             </div>
           </div>
 
-          {/* Services Status */}
+          {/* System Status */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">מצב שירותים</h2>
+              <h2 className="text-xl font-bold text-gray-900 mb-6">מצב מערכות</h2>
               <div className="space-y-3">
-                <ServiceStatus
-                  name="שיחות AI"
-                  enabled={services.calls}
+                <SystemStatus
+                  name="OpenAI GPT-4"
+                  status="active"
+                  icon={Settings}
+                />
+                <SystemStatus
+                  name="Twilio"
+                  status="active"
                   icon={Phone}
                 />
-                <ServiceStatus
-                  name="WhatsApp"
-                  enabled={services.whatsapp}
+                <SystemStatus
+                  name="Baileys WhatsApp"
+                  status="active"
                   icon={MessageCircle}
                 />
-                <ServiceStatus
-                  name="CRM מתקדם"
-                  enabled={services.crm}
-                  icon={Users}
-                />
-                <ServiceStatus
-                  name="חתימות דיגיטליות"
-                  enabled={services.signatures}
-                  icon={FileText}
+                <SystemStatus
+                  name="Whisper STT"
+                  status="active"
+                  icon={Activity}
                 />
               </div>
             </div>
