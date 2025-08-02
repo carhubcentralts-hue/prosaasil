@@ -1,6 +1,6 @@
 import os
 import logging
-from flask import Flask
+from flask import Flask, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -77,6 +77,21 @@ with app.app_context():
         logging.info("🧹 Background cleanup scheduler started")
     except Exception as e:
         logging.warning(f"⚠️ Could not start background cleanup: {e}")
+
+# React Frontend Routes - שרת את React frontend
+@app.route("/")
+def serve_react():
+    """שרת את React frontend דף הבית"""
+    return send_from_directory("../client/build", "index.html")
+
+@app.route("/<path:path>")
+def serve_static(path):
+    """שרת קבצים סטטיים של React"""
+    try:
+        return send_from_directory("../client/build", path)
+    except:
+        # אם הקובץ לא נמצא, החזר את index.html לטיפול ב-React Router
+        return send_from_directory("../client/build", "index.html")
 
 # Media stream routes integrated into routes.py
 
