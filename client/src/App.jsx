@@ -69,11 +69,11 @@ function App() {
             } 
           />
           
-          {/* דשבורד עסק */}
+          {/* דשבורד עסק - גם עבור עסקים וגם עבור מנהלים במצב השתלטות */}
           <Route 
             path="/business/dashboard" 
             element={
-              userRole === 'business' ? 
+              (userRole === 'business' || userRole === 'admin') ? 
                 <BusinessDashboard /> : 
                 <Navigate to="/login" replace />
             } 
