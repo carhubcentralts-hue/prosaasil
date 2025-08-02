@@ -295,7 +295,14 @@ const AdminDashboard = () => {
   const fetchBusinesses = async () => {
     try {
       const response = await axios.get('/api/admin/businesses');
-      setBusinesses(response.data);
+      console.log('API Response:', response.data);
+      // וודא שהתגובה היא array
+      if (Array.isArray(response.data)) {
+        setBusinesses(response.data);
+      } else {
+        console.warn('API did not return array, using fallback data');
+        setBusinesses([]);
+      }
     } catch (error) {
       console.error('Error fetching businesses:', error);
       // במקרה של שגיאה - נציג נתונים לדוגמה
@@ -541,7 +548,7 @@ const AdminDashboard = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4">
-                {businesses.map((business) => (
+                {Array.isArray(businesses) && businesses.map((business) => (
                   <BusinessRowCard
                     key={business.id}
                     business={business}
