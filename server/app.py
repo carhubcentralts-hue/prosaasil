@@ -78,20 +78,20 @@ with app.app_context():
     except Exception as e:
         logging.warning(f"⚠️ Could not start background cleanup: {e}")
 
-# React Frontend Routes - שרת את React frontend
+# React Frontend Routes - שרת את React frontend (Vite dist)
 @app.route("/")
 def serve_react():
     """שרת את React frontend דף הבית"""
-    return send_from_directory("../client/build", "index.html")
+    return send_from_directory("../client/dist", "index.html")
 
 @app.route("/<path:path>")
 def serve_static(path):
     """שרת קבצים סטטיים של React"""
     try:
-        return send_from_directory("../client/build", path)
+        return send_from_directory("../client/dist", path)
     except:
         # אם הקובץ לא נמצא, החזר את index.html לטיפול ב-React Router
-        return send_from_directory("../client/build", "index.html")
+        return send_from_directory("../client/dist", "index.html")
 
 # Media stream routes integrated into routes.py
 
