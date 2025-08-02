@@ -17,6 +17,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 @app.route("/voice", methods=["POST"])
+@app.route("/voice/incoming", methods=["POST"])  # Support both URLs
 def handle_incoming_call():
     """
     מטפל בשיחות נכנסות מ-Twilio
