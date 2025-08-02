@@ -13,14 +13,19 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // נקה את כל המידע המאוחסן בצורה כוללת
+    localStorage.clear();
+    
     // בדיקה אם משתמש מחובר
     const token = localStorage.getItem('auth_token');
     const role = localStorage.getItem('user_role');
     
-    if (token && role) {
-      setIsAuthenticated(true);
-      setUserRole(role);
-    }
+    console.log('Auth check - FORCING LOGOUT:', { token: !!token, role });
+    console.log('Setting isAuthenticated to FALSE');
+    
+    // כפה חוסר התקברות
+    setIsAuthenticated(false);
+    setUserRole(null);
     setLoading(false);
   }, []);
 
