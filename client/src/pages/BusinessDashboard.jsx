@@ -139,13 +139,17 @@ const BusinessDashboard = () => {
       try {
         setLoading(true);
         
-        // محاولة جلب بيانات العمل
+        // שליפת נתוני העסק
         try {
           const businessResponse = await axios.get('/api/business');
-          setBusinessData(businessResponse.data);
+          if (businessResponse.data && businessResponse.data.length > 0) {
+            setBusinessData(businessResponse.data[0]);
+          } else {
+            setBusinessData({ name: 'טכנו סולושנס', type: 'שירותי טכנולוגיה' });
+          }
         } catch (error) {
-          console.log('Business API not available, using default data');
-          setBusinessData({ name: 'עסק לדוגמה', type: 'עסק כללי' });
+          console.log('Business API error:', error);
+          setBusinessData({ name: 'טכנו סולושנס', type: 'שירותי טכנולוגיה' });
         }
 
         // محاولة جلب الإحصائيات
@@ -248,16 +252,7 @@ const BusinessDashboard = () => {
                     day: 'numeric' 
                   })}
                 </div>
-                <button
-                  onClick={() => {
-                    window.location.href = '/?role=admin';
-                  }}
-                  className="flex items-center px-3 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  title="פאנל מערכת"
-                >
-                  <Settings className="w-4 h-4 ml-2" />
-                  <span>פאנל מערכת</span>
-                </button>
+
                 <button
                   onClick={handleLogout}
                   className="flex items-center px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"

@@ -428,9 +428,9 @@ const AdminDashboard = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">
-                פאנל ניהול - מנהל מערכת
+                ברוך הבא שי - צורי הייטק
               </h1>
-              <p className="text-gray-500 mt-1">ניהול עסקים ומשתמשים במערכת</p>
+              <p className="text-gray-500 mt-1">מנהל מערכת - ניהול עסקים ומשתמשים</p>
             </div>
             <div className="flex items-center space-x-3 space-x-reverse">
               <button
