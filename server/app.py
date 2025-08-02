@@ -87,10 +87,6 @@ def serve_index():
 
 @app.route("/<path:path>")
 def serve_static_files(path):
-    # Don't intercept API routes
-    if path.startswith('api/'):
-        return "API route not found", 404
-    
     file_path = os.path.join("../client/dist", path)
     if os.path.exists(file_path):
         return send_from_directory("../client/dist", path)

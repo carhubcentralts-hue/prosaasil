@@ -150,16 +150,14 @@ const BusinessDashboard = () => {
           setStats({
             openLeads: leadsRes.status === 'fulfilled' ? leadsRes.value.data.count : Math.floor(Math.random() * 25) + 5,
             todayCalls: callsRes.status === 'fulfilled' ? callsRes.value.data.count : Math.floor(Math.random() * 15) + 2,
-            activeWhatsApp: whatsappRes.status === 'fulfilled' ? whatsappRes.value.data.count : Math.floor(Math.random() * 10) + 1,
-            pendingSignatures: Math.floor(Math.random() * 8) + 1
+            activeWhatsApp: whatsappRes.status === 'fulfilled' ? whatsappRes.value.data.count : Math.floor(Math.random() * 10) + 1
           });
         } catch (error) {
           // استخدام بيانات تجريبية في حالة عدم توفر API
           setStats({
             openLeads: Math.floor(Math.random() * 25) + 5,
             todayCalls: Math.floor(Math.random() * 15) + 2,
-            activeWhatsApp: Math.floor(Math.random() * 10) + 1,
-            pendingSignatures: Math.floor(Math.random() * 8) + 1
+            activeWhatsApp: Math.floor(Math.random() * 10) + 1
           });
         }
 
@@ -283,14 +281,7 @@ const BusinessDashboard = () => {
             trend="חדשות"
             color="purple"
           />
-          {services.crm && (
-            <StatCard
-              title="חתימות ממתינות"
-              value={stats.pendingSignatures}
-              icon={FileText}
-              color="orange"
-            />
-          )}
+
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
