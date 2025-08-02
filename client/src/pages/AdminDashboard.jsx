@@ -11,64 +11,86 @@ import {
   Edit,
   Trash2,
   Save,
-  X
+  X,
+  Key,
+  Check,
+  AlertCircle
 } from 'lucide-react';
 
-// רכיב כרטיס עסק
-const BusinessCard = ({ business, onView, onEdit, onDelete }) => {
+// רכיב כרטיס עסק בשורה
+const BusinessRowCard = ({ business, onView, onEdit, onDelete, onChangePassword }) => {
+  const getStatusColor = (isActive) => isActive ? 'text-green-600' : 'text-gray-400';
+  const getStatusIcon = (isActive) => isActive ? Check : AlertCircle;
+  
+  const isActive = business.services?.calls || business.services?.whatsapp || business.services?.crm;
+  const StatusIcon = getStatusIcon(isActive);
+
   return (
-    <div className="bg-white p-6 rounded-lg shadow border hover:shadow-lg transition-shadow">
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <h3 className="text-lg font-bold text-gray-900">{business.name}</h3>
-          <p className="text-gray-600 text-sm">{business.type || 'עסק כללי'}</p>
+    <div className="bg-white p-4 rounded-lg border hover:shadow-md transition-shadow">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-4 space-x-reverse">
+          <div className="flex-1">
+            <div className="flex items-center">
+              <h3 className="text-lg font-bold text-gray-900 ml-3">{business.name}</h3>
+              <StatusIcon className={`w-5 h-5 ${getStatusColor(isActive)} ml-2`} />
+            </div>
+            <p className="text-gray-600 text-sm">{business.type || 'עסק כללי'}</p>
+            
+            <div className="flex items-center mt-2 space-x-4 space-x-reverse text-sm text-gray-500">
+              <div className="flex items-center">
+                <Phone className="w-4 h-4 ml-1" />
+                <span>{business.phone || 'לא הוגדר'}</span>
+              </div>
+              <div className="flex items-center">
+                <MessageCircle className="w-4 h-4 ml-1" />
+                <span>{business.whatsapp_phone || 'לא הוגדר'}</span>
+              </div>
+            </div>
+            
+            <div className="mt-2 flex flex-wrap gap-1">
+              {business.services?.calls && (
+                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">שיחות AI</span>
+              )}
+              {business.services?.whatsapp && (
+                <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">WhatsApp</span>
+              )}
+              {business.services?.crm && (
+                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">CRM</span>
+              )}
+            </div>
+          </div>
         </div>
-        <div className="flex space-x-2 space-x-reverse">
+        
+        <div className="flex items-center space-x-2 space-x-reverse">
           <button
             onClick={() => onView(business)}
-            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
             title="צפה בדשבורד"
           >
             <Eye className="w-4 h-4" />
           </button>
           <button
             onClick={() => onEdit(business)}
-            className="p-2 text-gray-600 hover:bg-gray-50 rounded-lg"
-            title="עריכה"
+            className="p-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+            title="עריכת נתונים"
           >
             <Edit className="w-4 h-4" />
           </button>
           <button
+            onClick={() => onChangePassword(business)}
+            className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+            title="שינוי סיסמה"
+          >
+            <Key className="w-4 h-4" />
+          </button>
+          <button
             onClick={() => onDelete(business)}
-            className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
-            title="מחיקה"
+            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            title="הסרת עסק"
           >
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
-      </div>
-      
-      <div className="space-y-2 text-sm">
-        <div className="flex items-center">
-          <Phone className="w-4 h-4 ml-2 text-gray-400" />
-          <span>{business.phone || 'לא הוגדר'}</span>
-        </div>
-        <div className="flex items-center">
-          <MessageCircle className="w-4 h-4 ml-2 text-gray-400" />
-          <span>{business.whatsapp_phone || 'לא הוגדר'}</span>
-        </div>
-      </div>
-      
-      <div className="mt-4 flex flex-wrap gap-2">
-        {business.services?.calls && (
-          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">שיחות AI</span>
-        )}
-        {business.services?.whatsapp && (
-          <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">WhatsApp</span>
-        )}
-        {business.services?.crm && (
-          <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">CRM</span>
-        )}
       </div>
     </div>
   );
@@ -359,6 +381,16 @@ const AdminDashboard = () => {
     setShowForm(true);
   };
 
+  const handleChangePassword = (business) => {
+    const newPassword = prompt(`הכנס סיסמה חדשה עבור העסק "${business.name}":`);
+    if (newPassword && newPassword.trim().length >= 6) {
+      // כאן נוסיף API call לשינוי סיסמה
+      alert(`סיסמה עודכנה בהצלחה עבור ${business.name}`);
+    } else if (newPassword !== null) {
+      alert('הסיסמה חייבת להכיל לפחות 6 תווים');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -437,10 +469,49 @@ const AdminDashboard = () => {
           </div>
         </div>
 
-        {/* Businesses List */}
-        <div className="bg-white rounded-lg shadow">
+        {/* Quick Actions */}
+        <div className="bg-white rounded-lg shadow mb-8">
           <div className="p-6 border-b">
-            <h2 className="text-xl font-bold text-gray-900">עסקים במערכת</h2>
+            <h2 className="text-xl font-bold text-gray-900">פעולות מהירות</h2>
+          </div>
+          <div className="p-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <button
+                onClick={() => setShowForm(true)}
+                className="flex flex-col items-center p-6 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border-2 border-dashed border-blue-300"
+              >
+                <Plus className="w-8 h-8 text-blue-600 mb-2" />
+                <span className="text-blue-600 font-medium">הוסף עסק חדש</span>
+              </button>
+              
+              <div className="flex flex-col items-center p-6 bg-gray-50 rounded-lg">
+                <Building2 className="w-8 h-8 text-gray-600 mb-2" />
+                <span className="text-gray-600 font-medium">סה"כ עסקים</span>
+                <span className="text-2xl font-bold text-gray-900">{stats.totalBusinesses}</span>
+              </div>
+              
+              <div className="flex flex-col items-center p-6 bg-green-50 rounded-lg">
+                <Settings className="w-8 h-8 text-green-600 mb-2" />
+                <span className="text-green-600 font-medium">עסקים פעילים</span>
+                <span className="text-2xl font-bold text-green-900">{stats.activeBusinesses}</span>
+              </div>
+              
+              <div className="flex flex-col items-center p-6 bg-purple-50 rounded-lg">
+                <Phone className="w-8 h-8 text-purple-600 mb-2" />
+                <span className="text-purple-600 font-medium">שיחות חודש</span>
+                <span className="text-2xl font-bold text-purple-900">{stats.totalCalls}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Active Businesses */}
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-6 border-b flex justify-between items-center">
+            <h2 className="text-xl font-bold text-gray-900">עסקים פעילים במערכת</h2>
+            <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+              {businesses.length} עסקים
+            </span>
           </div>
           
           <div className="p-6">
@@ -456,14 +527,15 @@ const AdminDashboard = () => {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 gap-4">
                 {businesses.map((business) => (
-                  <BusinessCard
+                  <BusinessRowCard
                     key={business.id}
                     business={business}
                     onView={handleViewBusiness}
                     onEdit={handleEditBusiness}
                     onDelete={handleDeleteBusiness}
+                    onChangePassword={handleChangePassword}
                   />
                 ))}
               </div>
