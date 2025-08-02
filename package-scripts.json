@@ -1,0 +1,6 @@
+{
+  "build": "node deploy.js build",
+  "start": "node deploy.js start",
+  "dev": "python main.py & node baileys_client.js",
+  "test": "echo \"Error: no test specified\" && exit 1"
+}
