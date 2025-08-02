@@ -87,6 +87,11 @@ def serve_index():
 
 @app.route("/<path:path>")
 def serve_static_files(path):
+    # Skip API routes - let Flask handle them
+    if path.startswith('api/'):
+        from flask import abort
+        abort(404)
+    
     file_path = os.path.join("../client/dist", path)
     if os.path.exists(file_path):
         return send_from_directory("../client/dist", path)

@@ -11,14 +11,18 @@ function App() {
     // בדיקת תפקיד המשתמש
     const checkUserRole = async () => {
       try {
-        // כאן נבדוק עם הAPI מה התפקיד של המשתמש
-        // לעת עתה נשתמש בפרמטר URL או localStorage
+        // בדיקת פרמטר URL
         const urlParams = new URLSearchParams(window.location.search);
         const roleParam = urlParams.get('role');
         
+        console.log('URL params:', window.location.search);
+        console.log('Role param:', roleParam);
+        
         if (roleParam === 'admin') {
+          console.log('Setting role to admin');
           setUserRole('admin');
         } else {
+          console.log('Setting role to business');
           setUserRole('business');
         }
       } catch (error) {
@@ -30,6 +34,16 @@ function App() {
     };
 
     checkUserRole();
+    
+    // Listen for URL changes
+    const handleUrlChange = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const roleParam = urlParams.get('role');
+      setUserRole(roleParam === 'admin' ? 'admin' : 'business');
+    };
+    
+    window.addEventListener('popstate', handleUrlChange);
+    return () => window.removeEventListener('popstate', handleUrlChange);
   }, []);
 
   if (loading) {
