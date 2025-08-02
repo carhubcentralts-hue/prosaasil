@@ -68,13 +68,7 @@ with app.app_context():
 
     db.create_all()
     
-    # הפעלת שירותי ניקוי אוטומטי
-    try:
-        from cleanup_service import start_audio_cleanup
-        start_audio_cleanup()
-        logging.info("🧹 Audio cleanup service started")
-    except Exception as e:
-        logging.warning(f"⚠️ Could not start cleanup service: {e}")
+    # הפעלת שירותי ניקוי אוטומטי הוסר - משתמש ב-background_cleanup
     
     # הפעלת שירות ניקוי ברקע מתקדם
     try:
