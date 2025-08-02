@@ -17,10 +17,13 @@
     "python": ">=3.9.0"
   },
   "dependencies": {
+    "@tailwindcss/typography": "^0.5.16",
     "@vitejs/plugin-react": "^4.7.0",
     "@whiskeysockets/baileys": "^6.7.8",
+    "axios": "^1.11.0",
     "qrcode-terminal": "^0.12.0",
     "react-scripts": "^5.0.1",
+    "tailwindcss": "^4.1.11",
     "vite": "^7.0.6",
     "ws": "^8.18.0"
   },
