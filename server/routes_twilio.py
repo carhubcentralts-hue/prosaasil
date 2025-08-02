@@ -16,6 +16,60 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+@app.route("/voice", methods=["POST"])
+def handle_incoming_call():
+    """
+    מטפל בשיחות נכנסות מ-Twilio
+    - מברך את המתקשר בהודעה
+    - מתחיל הקלטה
+    - מעביר להקלטה עם webhook callback
+    """
+    try:
+        from_number = request.form.get('From')
+        to_number = request.form.get('To')
+        call_sid = request.form.get('CallSid')
+        
+        logger.info(f"Incoming call: {from_number} -> {to_number}, CallSid: {call_sid}")
+        
+        # Find business by phone number
+        business = Business.query.filter_by(phone_number=to_number).first()
+        if not business or not business.calls_enabled:
+            # Default TwiML if no business found
+            twiml = '''<?xml version="1.0" encoding="UTF-8"?>
+            <Response>
+                <Say voice="Polly.Hilit" language="he-IL">מצטערים, השירות אינו זמין כרגע.</Say>
+                <Hangup/>
+            </Response>'''
+            return Response(twiml, mimetype='text/xml')
+        
+        # Use business greeting or default
+        greeting = business.greeting_message or "שלום, אני העוזר הוירטואלי. איך אוכל לעזור לך היום?"
+        
+        # Create TwiML response with greeting and recording
+        base_url = request.url_root.rstrip('/')
+        recording_webhook = f"{base_url}/handle_recording"
+        
+        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+        <Response>
+            <Say voice="Polly.Hilit" language="he-IL">{greeting}</Say>
+            <Record action="{recording_webhook}" method="POST" maxLength="30" playBeep="true" recordingStatusCallback="{recording_webhook}" />
+            <Say voice="Polly.Hilit" language="he-IL">לא שמעתי תגובה. תודה על הפנייה ונתקשר בחזרה.</Say>
+            <Hangup/>
+        </Response>'''
+        
+        logger.info(f"✅ Voice webhook response sent for business: {business.name}")
+        return Response(twiml, mimetype='text/xml')
+        
+    except Exception as e:
+        logger.error(f"Error in voice webhook: {str(e)}")
+        # Fallback TwiML
+        fallback_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
+        <Response>
+            <Say voice="Polly.Hilit" language="he-IL">סליחה, יש בעיה טכנית. נסה שוב מאוחר יותר.</Say>
+            <Hangup/>
+        </Response>'''
+        return Response(fallback_twiml, mimetype='text/xml')
+
 @app.route("/handle_recording", methods=["POST"])
 def handle_recording():
     """

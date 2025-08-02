@@ -75,6 +75,7 @@ Preferred communication style: Simple, everyday language.
 - **Step 8 ✅**: Build Verification - `npm run build` works perfectly, creates client/dist/ with 144KB bundle
 - **Step 9 ✅**: React Version Fix - Downgraded React from 19.1.1 to 18.2.0 for lucide-react compatibility
 - **Step 10 ✅**: Dependencies Fix - Added missing @vitejs/plugin-react, vite, react-scripts, qrcode-terminal
+- **Step 11 ✅**: Twilio Voice Webhook - Added `/voice` endpoint for incoming calls with Hebrew TTS and recording
 
 ### Production Deployment Status - READY FOR REPLIT DEPLOYMENT:
 - **Architecture**: Flask backend (server/) + Vite React frontend (client/) + Whisper/OpenAI integration
