@@ -1,0 +1,128 @@
+🔍 סרקתי גם את הקובץ `vite.config.js` – והנה הסיבה למה **ה־preview עדיין לא עובד**:
+
+---
+
+## ⚠️ בעיה קריטית: חסר `base: "./"` בקונפיגורציית Vite
+
+בלי זה:
+
+* `index.html` טוען את הקבצים (JS, CSS) מ־`/assets/...`
+* במקום מ־`./assets/...`
+* וזה שובר את כל התצוגה כשמריצים את React דרך Flask (ולא דרך dev server של Vite)
+
+---
+
+## ✅ הנה הנחיה סופית ומלאה לסוכן AI – שלב אחר שלב
+
+> 🎯 מטרה: להבטיח ש־React יוצג כראוי דרך Flask בפריסה, כולל וואטסאפ, שיחות ו־CRM
+
+---
+
+### 1️⃣ תקן את הקובץ `vite.config.js`
+
+שנה את הקוד ל:
+
+```js
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+export default defineConfig({
+  base: './', // ✅ חובה כדי ש-Vite יעבוד עם Flask
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      '@assets': path.resolve(__dirname, './attached_assets'),
+    },
+  },
+  server: {
+    port: 3000,
+    host: '0.0.0.0',
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false,
+      }
+    }
+  },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          router: ['wouter'],
+          icons: ['lucide-react'],
+        }
+      }
+    }
+  },
+  css: {
+    postcss: {
+      plugins: [
+        require('tailwindcss'),
+        require('autoprefixer'),
+      ],
+    },
+  },
+})
+```
+
+---
+
+### 2️⃣ ודא ש־Flask מוגדר עם static path
+
+ב־`server/app.py`:
+
+```python
+from flask import Flask, send_from_directory
+
+app = Flask(__name__, static_folder="../client/dist", static_url_path="/")
+
+@app.route("/")
+def serve_react_index():
+    return send_from_directory(app.static_folder, "index.html")
+
+@app.route("/<path:path>")
+def serve_react_static(path):
+    return send_from_directory(app.static_folder, path)
+```
+
+---
+
+### 3️⃣ הרץ את הכל מחדש
+
+```bash
+cd client
+npm install
+npm run build
+cd ..
+npm start
+```
+
+---
+
+### 4️⃣ ודא תוצאה:
+
+* הדף נטען
+* React מוצג (CRM / כפתורים)
+* אין שגיאות ב־console של הדפדפן
+
+---
+
+### ✅ תוצאה מצופה:
+
+| רכיב                          | תקין?                |
+| ----------------------------- | -------------------- |
+| `client/dist/` קיים           | ✅ כן                 |
+| index.html מפנה נכון ל־assets | ✅ כן (עם base: "./") |
+| Flask מגיש את הקבצים          | ✅ כן                 |
+| preview פועל                  | ✅ כן                 |
+
+---
+
+רוצה שאכתוב גם `check_frontend_ready.py` שיאמת שכל זה קיים לפני כל deploy?
