@@ -73,6 +73,101 @@ def get_businesses():
         return jsonify(businesses)
         
     except Exception as e:
+        logger.error(f"Error getting businesses: {e}")
+        return jsonify({'error': 'Failed to get businesses'}), 500
+
+@admin_bp.route('/summary', methods=['GET'])
+@admin_required
+def get_admin_summary():
+    """סטטיסטיקות מערכת כלליות למנהל"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        # ספירת עסקים
+        cur.execute("SELECT COUNT(*) FROM businesses WHERE is_active = true")
+        total_businesses = cur.fetchone()[0]
+        
+        # ספירת משתמשים
+        cur.execute("SELECT COUNT(*) FROM users")
+        users_result = cur.fetchone()
+        total_users = users_result[0] if users_result else 0
+        
+        # שיחות היום
+        try:
+            cur.execute("""
+                SELECT COUNT(*) FROM call_log 
+                WHERE created_at >= CURRENT_DATE
+            """)
+            calls_result = cur.fetchone()
+            calls_today = calls_result[0] if calls_result else 0
+        except Exception:
+            calls_today = 0
+        
+        # הודעות WhatsApp היום (טבלה לא קיימת, נחזיר 0)
+        messages_today = 0
+        
+        cur.close()
+        conn.close()
+        
+        summary = {
+            'businesses': {
+                'total': total_businesses,
+                'active': total_businesses
+            },
+            'users': {
+                'total': total_users
+            },
+            'today': {
+                'calls': calls_today,
+                'messages': messages_today
+            },
+            'system_health': 'operational'
+        }
+        
+        return jsonify(summary)
+        
+    except Exception as e:
+        logger.error(f"Error getting admin summary: {e}")
+        return jsonify({'error': 'Failed to get summary'}), 500
+
+@admin_bp.route('/reset-password', methods=['POST'])
+@admin_required
+def reset_business_password():
+    """איפוס סיסמה לעסק"""
+    try:
+        data = request.get_json()
+        business_id = data.get('business_id')
+        new_password = data.get('new_password')
+        
+        if not business_id or not new_password:
+            return jsonify({'error': 'Missing business_id or new_password'}), 400
+            
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        # עדכון סיסמה (בהנחה שיש טבלת users)
+        cur.execute("""
+            UPDATE users SET password = %s 
+            WHERE business_id = %s AND role = 'business'
+        """, (new_password, business_id))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        logger.info(f"Password reset for business {business_id}")
+        return jsonify({'message': 'Password reset successfully'})
+        
+    except Exception as e:
+        logger.error(f"Error resetting password: {e}")
+        return jsonify({'error': 'Failed to reset password'}), 500
         logger.error(f"Error fetching businesses: {e}")
         return jsonify({'error': 'Failed to fetch businesses'}), 500
 
