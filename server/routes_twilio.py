@@ -32,16 +32,25 @@ def incoming_call():
             clean_to = to_number.strip()
             if not clean_to.startswith('+'):
                 clean_to = '+' + clean_to
-                
-            logger.info(f"🔍 Original: '{to_number}' -> Cleaned: '{clean_to}'")
+            
+            # Also try without dashes version
+            clean_to_no_dashes = clean_to.replace('-', '')
+            
+            logger.info(f"🔍 Original: '{to_number}' -> Cleaned: '{clean_to}' -> No dashes: '{clean_to_no_dashes}'")
             
             # Find business by phone number using raw SQL
             import psycopg2
             try:
                 conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
                 cur = conn.cursor()
-                # Try both original format and cleaned format
-                cur.execute("SELECT id, name FROM businesses WHERE (phone_israel = %s OR phone_israel = %s) AND is_active = true", (to_number.strip(), clean_to))
+                # Try multiple formats: original, cleaned, and both without dashes
+                cur.execute("""
+                    SELECT id, name FROM businesses 
+                    WHERE (phone_israel = %s OR phone_israel = %s OR 
+                           REPLACE(phone_israel, '-', '') = %s OR 
+                           REPLACE(phone_israel, '-', '') = %s) 
+                    AND is_active = true
+                """, (to_number.strip(), clean_to, clean_to_no_dashes, to_number.strip().replace('-', '')))
                 business_row = cur.fetchone()
                 cur.close()
                 conn.close()
@@ -53,7 +62,7 @@ def incoming_call():
                 logger.warning(f"Business not found for {clean_to}")
                 error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
                 <Response>
-                    <Say voice="he-IL-Wavenet-C" language="he-IL">סליחה, המספר אינו זמין כרגע.</Say>
+                    <Say voice="alice" language="he-IL">סליחה, המספר אינו זמין כרגע.</Say>
                     <Hangup/>
                 </Response>'''
                 return Response(error_twiml, mimetype='text/xml')
@@ -78,7 +87,7 @@ def incoming_call():
             
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="he-IL-Wavenet-C" language="he-IL">{greeting}</Say>
+                <Say voice="alice" language="he-IL">{greeting}</Say>
                 <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="false"/>
             </Response>'''
             
@@ -89,7 +98,7 @@ def incoming_call():
             logger.error(f"Error handling incoming call: {str(e)}")
             error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="he-IL-Wavenet-C" language="he-IL">סליחה, יש בעיה טכנית.</Say>
+                <Say voice="alice" language="he-IL">סליחה, יש בעיה טכנית.</Say>
                 <Hangup/>
             </Response>'''
             return Response(error_twiml, mimetype='text/xml')
@@ -118,7 +127,7 @@ def handle_recording():
                 logger.warning("No recording URL provided")
                 twiml = '''<?xml version="1.0" encoding="UTF-8"?>
                 <Response>
-                    <Say voice="he-IL-Wavenet-C" language="he-IL">לא קלטתי אותך. אנא נסה שוב.</Say>
+                    <Say voice="alice" language="he-IL">לא קלטתי אותך. אנא נסה שוב.</Say>
                     <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="false"/>
                 </Response>'''
                 return Response(twiml, mimetype='text/xml')
@@ -185,7 +194,7 @@ def handle_recording():
             # Generate response TwiML
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="he-IL-Wavenet-C" language="he-IL">{ai_response}</Say>
+                <Say voice="alice" language="he-IL">{ai_response}</Say>
                 <Hangup/>
             </Response>'''
             
@@ -196,7 +205,7 @@ def handle_recording():
             logger.error(f"Error handling recording: {str(e)}")
             error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="he-IL-Wavenet-C" language="he-IL">סליחה, הייתה בעיה בעיבוד ההקלטה.</Say>
+                <Say voice="alice" language="he-IL">סליחה, הייתה בעיה בעיבוד ההקלטה.</Say>
                 <Hangup/>
             </Response>'''
             return Response(error_twiml, mimetype='text/xml')
