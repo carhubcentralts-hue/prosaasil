@@ -129,10 +129,7 @@ const AdminDashboard = () => {
 
 
 
-  const handleViewBusiness = (businessId) => {
-    // שימוש בReact Router במקום window.location
-    window.location.href = `/admin/business/${businessId}/view`;
-  };
+  // הסרנו את handleViewBusiness - רק השתלטות ישירה
 
 
 
@@ -367,9 +364,9 @@ const AdminDashboard = () => {
                     <td className="py-4 px-4">
                       <div className="flex gap-2">
                         <button 
-                          onClick={() => handleViewBusiness(business.id)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                          title="צפה בעסק"
+                          onClick={() => handleViewAsABusiness(business.id)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded font-bold border-2 border-blue-200"
+                          title="🔥 השתלט על העסק והיכנס למערכת שלו"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
@@ -393,13 +390,6 @@ const AdminDashboard = () => {
                           title="מחק עסק"
                         >
                           <X className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => handleViewAsABusiness(business.id)}
-                          className="p-2 text-purple-600 hover:bg-purple-50 rounded font-bold border-2 border-purple-200"
-                          title="🔄 השתלט על מערכת העסק"
-                        >
-                          <UserPlus className="w-4 h-4" />
                         </button>
 
                       </div>
