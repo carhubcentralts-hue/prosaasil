@@ -30,7 +30,9 @@ const BusinessViewPage = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddUser, setShowAddUser] = useState(false);
-  const [newUser, setNewUser] = useState({ name: '', role: 'business', email: '' });
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [newUser, setNewUser] = useState({ username: '', password: '', email: '' });
+  const [passwordData, setPasswordData] = useState({ newPassword: '' });
 
   console.log('🚀 BusinessViewPage: State initialized, loading:', loading);
 
@@ -74,6 +76,68 @@ const BusinessViewPage = () => {
       console.error('❌ BusinessViewPage: Error fetching business data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    try {
+      console.log('🔑 BusinessViewPage: Resetting password for business ID:', id);
+      const response = await axios.post(`/api/admin/businesses/${id}/reset-password`, {
+        new_password: passwordData.newPassword || 'newpassword123'
+      });
+
+      alert(`סיסמה עודכנה בהצלחה! סיסמה חדשה: ${response.data.new_password}`);
+      setShowPasswordReset(false);
+      setPasswordData({ newPassword: '' });
+    } catch (error) {
+      console.error('❌ BusinessViewPage: Error resetting password:', error);
+      alert('שגיאה בעדכון סיסמה: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const handleAddUser = async () => {
+    try {
+      console.log('👤 BusinessViewPage: Adding user to business ID:', id);
+      const response = await axios.post(`/api/admin/businesses/${id}/users`, {
+        username: newUser.username,
+        password: newUser.password || 'defaultpass123',
+        email: newUser.email
+      });
+
+      alert(`משתמש נוסף בהצלחה! שם משתמש: ${response.data.username}`);
+      setShowAddUser(false);
+      setNewUser({ username: '', password: '', email: '' });
+      
+      // עדכון רשימת המשתמשים
+      const newUserData = {
+        id: response.data.user_id,
+        name: response.data.username,
+        role: 'employee',
+        status: 'active',
+        last_login: null,
+        email: newUser.email
+      };
+      setUsers(prev => [...prev, newUserData]);
+    } catch (error) {
+      console.error('❌ BusinessViewPage: Error adding user:', error);
+      alert('שגיאה בהוספת משתמש: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const handleToggleActive = async () => {
+    try {
+      console.log('🔄 BusinessViewPage: Toggling active status for business ID:', id);
+      const response = await axios.put(`/api/admin/businesses/${id}/toggle-active`);
+
+      alert(response.data.message);
+      // עדכון המידע המקומי
+      setBusinessInfo(prev => ({
+        ...prev,
+        is_active: response.data.is_active
+      }));
+    } catch (error) {
+      console.error('❌ BusinessViewPage: Error toggling active status:', error);
+      alert('שגיאה בשינוי סטטוס: ' + (error.response?.data?.error || error.message));
     }
   };
 
@@ -321,13 +385,24 @@ const BusinessViewPage = () => {
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">שם מלא</label>
+                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">שם משתמש</label>
                   <input
                     type="text"
-                    value={newUser.name}
-                    onChange={(e) => setNewUser({...newUser, name: e.target.value})}
+                    value={newUser.username}
+                    onChange={(e) => setNewUser({...newUser, username: e.target.value})}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
                     placeholder="הכנס שם המשתמש"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">סיסמה</label>
+                  <input
+                    type="password"
+                    value={newUser.password}
+                    onChange={(e) => setNewUser({...newUser, password: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="סיסמה (ריק = ברירת מחדל)"
                   />
                 </div>
                 
@@ -357,28 +432,15 @@ const BusinessViewPage = () => {
               
               <div className="flex gap-3 mt-6">
                 <button 
-                  onClick={() => {
-                    // הוספת משתמש חדש למערך
-                    const newUserId = users.length + 1;
-                    setUsers([...users, {
-                      id: newUserId,
-                      name: newUser.name,
-                      role: newUser.role,
-                      email: newUser.email,
-                      status: 'active',
-                      last_login: new Date().toISOString()
-                    }]);
-                    setNewUser({ name: '', role: 'business', email: '' });
-                    setShowAddUser(false);
-                  }}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium transition-colors font-hebrew"
+                  onClick={handleAddUser}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
                   הוסף משתמש
                 </button>
                 <button 
                   onClick={() => {
                     setShowAddUser(false);
-                    setNewUser({ name: '', role: 'business', email: '' });
+                    setNewUser({ username: '', password: '', email: '' });
                   }}
                   className="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded-lg font-medium transition-colors font-hebrew"
                 >
@@ -388,6 +450,62 @@ const BusinessViewPage = () => {
             </div>
           </div>
         )}
+
+        {/* מודל שינוי סיסמה */}
+        {showPasswordReset && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" dir="rtl">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
+              <h3 className="text-xl font-bold text-gray-900 font-hebrew mb-4">שינוי סיסמה</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">סיסמה חדשה</label>
+                  <input
+                    type="password"
+                    value={passwordData.newPassword}
+                    onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="הכנס סיסמה חדשה (ריק = newpassword123)"
+                  />
+                </div>
+              </div>
+              
+              <div className="flex gap-3 mt-6">
+                <button 
+                  onClick={handlePasswordReset}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  עדכן סיסמה
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowPasswordReset(false);
+                    setPasswordData({ newPassword: '' });
+                  }}
+                  className="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded-lg font-medium transition-colors font-hebrew"
+                >
+                  ביטול
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* כפתורי פעולות עיקריים */}
+        <div className="fixed bottom-6 left-6 flex gap-3" dir="ltr">
+          <button 
+            onClick={() => setShowPasswordReset(true)}
+            className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-lg"
+          >
+            🔑 שינוי סיסמה
+          </button>
+          <button 
+            onClick={handleToggleActive}
+            className={`${businessInfo?.is_active !== false ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'} text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-lg`}
+          >
+            {businessInfo?.is_active !== false ? '❌ השבת עסק' : '✅ הפעל עסק'}
+          </button>
+        </div>
       </div>
     </div>
   );

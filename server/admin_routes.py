@@ -43,8 +43,9 @@ def get_businesses():
         cur.execute("""
             SELECT id, name, business_type, phone_israel, phone_whatsapp, 
                    ai_prompt, crm_enabled, whatsapp_enabled, calls_enabled,
-                   created_at
+                   created_at, is_active
             FROM businesses 
+            WHERE is_active = true
             ORDER BY created_at DESC
         """)
         
@@ -62,7 +63,8 @@ def get_businesses():
                     'whatsapp': row[7],
                     'calls': row[8]
                 },
-                'created_at': row[9].strftime('%Y-%m-%d %H:%M:%S') if row[9] else None
+                'created_at': row[9].strftime('%Y-%m-%d %H:%M:%S') if row[9] else None,
+                'is_active': row[10]
             }
             businesses.append(business)
         
@@ -90,7 +92,7 @@ def get_business_by_id(business_id):
         cur.execute("""
             SELECT id, name, business_type, phone_israel, phone_whatsapp, 
                    ai_prompt, crm_enabled, whatsapp_enabled, calls_enabled,
-                   created_at
+                   created_at, is_active
             FROM businesses 
             WHERE id = %s
         """, (business_id,))
@@ -113,7 +115,8 @@ def get_business_by_id(business_id):
             },
             'created_at': row[9].strftime('%Y-%m-%d') if row[9] else None,
             'plan_expires': '2025-12-31',  # נתון קבוע לעת עתה
-            'users_count': 1
+            'users_count': 1,
+            'is_active': row[10]
         }
         
         cur.close()
@@ -234,11 +237,108 @@ def reset_business_password():
         logger.error(f"Error resetting password: {e}")
         return jsonify({'error': 'Failed to reset password'}), 500
 
-
-@admin_bp.route('/businesses/<int:business_id>', methods=['GET'])
+@admin_bp.route('/businesses/<int:business_id>/reset-password', methods=['POST'])
 @admin_required
-def get_business(business_id):
-    """קבלת עסק ספציפי לפי ID"""
+def reset_business_password_by_id(business_id):
+    """איפוס סיסמה לעסק ספציפי"""
+    try:
+        data = request.get_json()
+        new_password = data.get('new_password', 'newpassword123')
+        
+        if not new_password:
+            return jsonify({'error': 'Missing new_password'}), 400
+            
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        # עדכון סיסמה בטבלת המשתמשים
+        cur.execute("""
+            UPDATE users SET password = %s 
+            WHERE business_id = %s AND role = 'business'
+        """, (new_password, business_id))
+        
+        # אם אין משתמש קיים, ניצור חדש
+        if cur.rowcount == 0:
+            cur.execute("""
+                INSERT INTO users (business_id, username, password, role, created_at)
+                VALUES (%s, %s, %s, 'business', NOW())
+            """, (business_id, f'business{business_id}', new_password))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        logger.info(f"✅ Password reset for business {business_id}")
+        return jsonify({'message': 'סיסמה עודכנה בהצלחה', 'new_password': new_password})
+        
+    except Exception as e:
+        logger.error(f"Error resetting password for business {business_id}: {e}")
+        return jsonify({'error': 'Failed to reset password'}), 500
+
+@admin_bp.route('/businesses/<int:business_id>/users', methods=['POST'])
+@admin_required
+def add_user_to_business(business_id):
+    """הוספת משתמש חדש לעסק"""
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password', 'defaultpass123')
+        email = data.get('email', '')
+        
+        if not username:
+            return jsonify({'error': 'Missing username'}), 400
+            
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        # בדיקה שהעסק קיים
+        cur.execute("SELECT id FROM businesses WHERE id = %s", (business_id,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Business not found'}), 404
+        
+        # בדיקה שהשם משתמש לא קיים
+        cur.execute("SELECT id FROM users WHERE username = %s", (username,))
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Username already exists'}), 409
+        
+        # הוספת משתמש חדש
+        cur.execute("""
+            INSERT INTO users (business_id, username, password, email, role, created_at)
+            VALUES (%s, %s, %s, %s, 'employee', NOW())
+            RETURNING id
+        """, (business_id, username, password, email))
+        
+        result = cur.fetchone()
+        new_user_id = result[0] if result else None
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        logger.info(f"✅ New user {username} added to business {business_id}")
+        return jsonify({
+            'message': 'משתמש נוסף בהצלחה',
+            'user_id': new_user_id,
+            'username': username
+        })
+        
+    except Exception as e:
+        logger.error(f"Error adding user to business {business_id}: {e}")
+        return jsonify({'error': 'Failed to add user'}), 500
+
+@admin_bp.route('/businesses/<int:business_id>/toggle-active', methods=['PUT'])
+@admin_required
+def toggle_business_active(business_id):
+    """שינוי סטטוס פעיל/לא פעיל לעסק"""
     try:
         conn = get_db_connection()
         if not conn:
@@ -246,42 +346,42 @@ def get_business(business_id):
             
         cur = conn.cursor()
         
-        cur.execute("""
-            SELECT id, name, business_type, phone_israel, phone_whatsapp, 
-                   ai_prompt, crm_enabled, whatsapp_enabled, calls_enabled,
-                   created_at
-            FROM businesses 
-            WHERE id = %s
-        """, (business_id,))
-        
+        # קבלת סטטוס נוכחי
+        cur.execute("SELECT is_active FROM businesses WHERE id = %s", (business_id,))
         row = cur.fetchone()
+        
         if not row:
+            cur.close()
+            conn.close()
             return jsonify({'error': 'Business not found'}), 404
         
-        business = {
-            'id': row[0],
-            'name': row[1],
-            'type': row[2],
-            'phone': row[3],
-            'whatsapp_phone': row[4],
-            'ai_prompt': row[5],
-            'services': {
-                'crm': row[6],
-                'whatsapp': row[7],
-                'calls': row[8]
-            },
-            'created_at': row[9].strftime('%Y-%m-%d %H:%M:%S') if row[9] else None
-        }
+        current_status = row[0]
+        new_status = not current_status
         
+        # עדכון סטטוס
+        cur.execute("""
+            UPDATE businesses 
+            SET is_active = %s, updated_at = NOW()
+            WHERE id = %s
+        """, (new_status, business_id))
+        
+        conn.commit()
         cur.close()
         conn.close()
         
-        logger.info(f"Found business: {business['name']}")
-        return jsonify(business)
+        status_text = 'פעיל' if new_status else 'לא פעיל'
+        logger.info(f"✅ Business {business_id} status changed to {status_text}")
+        
+        return jsonify({
+            'message': f'סטטוס העסק שונה ל{status_text}',
+            'is_active': new_status
+        })
         
     except Exception as e:
-        logger.error(f"Error fetching business {business_id}: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error toggling business {business_id} status: {e}")
+        return jsonify({'error': 'Failed to toggle business status'}), 500
+
+# הפונקציה הוסרה - כבר קיימת למעלה
 
 @admin_bp.route('/businesses', methods=['POST'])
 @admin_required
