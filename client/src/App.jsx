@@ -82,7 +82,15 @@ function App() {
             } 
           />
           
-          {/* הסרתי את הניתובים לתצוגת עסק - רק השתלטות ישירה */}
+          {/* ניתוב להשתלטות על עסק */}
+          <Route 
+            path="/admin/business/:id/view" 
+            element={
+              <PrivateRoute requiredRole="admin">
+                <BusinessViewPage />
+              </PrivateRoute>
+            } 
+          />
           
           {/* דפי עסק */}
           <Route 

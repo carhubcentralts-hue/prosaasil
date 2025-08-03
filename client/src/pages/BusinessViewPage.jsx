@@ -1,513 +1,150 @@
 import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowRight,
-  Eye, 
-  Building2, 
-  Users, 
-  Activity,
-  MessageSquare,
-  Phone,
-  UserCheck,
-  AlertTriangle
-} from 'lucide-react';
+import { User, ArrowRight, Loader } from 'lucide-react';
 
-const BusinessViewPage = () => {
-  console.log('🚀 BusinessViewPage: Component initialization START');
-  console.log('🚀 BusinessViewPage: Current URL:', window.location.href);
-  console.log('🚀 BusinessViewPage: Current pathname:', window.location.pathname);
-  
+const BusinessTakeoverPage = () => {
   const { id } = useParams();
-  const navigate = useNavigate();
-  
-  console.log('🚀 BusinessViewPage: ID from useParams:', id);
-  console.log('🚀 BusinessViewPage: navigate function:', typeof navigate);
-  
-  const [businessInfo, setBusinessInfo] = useState(null);
-  const [services, setServices] = useState(null);
-  const [systemStatus, setSystemStatus] = useState(null);
-  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showAddUser, setShowAddUser] = useState(false);
-  const [showPasswordReset, setShowPasswordReset] = useState(false);
-  const [newUser, setNewUser] = useState({ username: '', password: '', email: '' });
-  const [passwordData, setPasswordData] = useState({ newPassword: '' });
+  const [taking, setTaking] = useState(false);
+  const [error, setError] = useState(null);
+  const [business, setBusiness] = useState(null);
+  const [message, setMessage] = useState('מתחיל השתלטות...');
 
-  console.log('🚀 BusinessViewPage: State initialized, loading:', loading);
+  console.log('🔥 BusinessTakeoverPage: מתחיל השתלטות על עסק ID:', id);
 
   useEffect(() => {
-    console.log('🔄 BusinessViewPage: useEffect triggered for ID:', id);
     if (id) {
-      fetchData();
-    } else {
-      console.log('❌ BusinessViewPage: No ID provided');
+      performTakeover();
     }
   }, [id]);
 
-  const fetchData = async () => {
+  const performTakeover = async () => {
     try {
-      setLoading(true);
-      console.log('📊 BusinessViewPage: Fetching data for business ID:', id);
+      setTaking(true);
+      setMessage('טוען נתוני עסק...');
+      console.log('🔥 מתחיל השתלטות אוטומטית על עסק:', id);
       
-      const [businessRes, statusRes] = await Promise.all([
-        axios.get(`/api/admin/businesses/${id}`),
-        axios.get('/api/status')
-      ]);
-
-      console.log('📊 BusinessViewPage: Business data received:', businessRes.data);
-      console.log('📊 BusinessViewPage: Status data received:', statusRes.data);
-
-      setBusinessInfo(businessRes.data);
-      setServices(businessRes.data.services);
-      setSystemStatus(statusRes.data);
-      // אחרי שנקבל את businessInfo, נוסיף משתמשים דמי
-      setUsers([
-        { 
-          id: 1, 
-          name: 'משתמש עסק ראשי', 
-          role: 'business', 
-          status: 'active',
-          last_login: new Date().toISOString(),
-          email: `business${id}@system.com`
-        }
-      ]);
-    } catch (error) {
-      console.error('❌ BusinessViewPage: Error fetching business data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePasswordReset = async () => {
-    try {
-      console.log('🔑 BusinessViewPage: Resetting password for business ID:', id);
+      // קודם נקבל את נתוני העסק
+      const businessResponse = await axios.get(`/api/admin/businesses/${id}`);
+      setBusiness(businessResponse.data);
+      setMessage(`מבצע השתלטות על עסק: ${businessResponse.data.name}`);
       
-      const token = localStorage.getItem('auth_token');
-      const response = await axios.post(`/api/admin/businesses/${id}/reset-password`, {
-        new_password: passwordData.newPassword || 'newpassword123'
-      }, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      alert(`סיסמה עודכנה בהצלחה! סיסמה חדשה: ${response.data.new_password}`);
-      setShowPasswordReset(false);
-      setPasswordData({ newPassword: '' });
-    } catch (error) {
-      console.error('❌ BusinessViewPage: Error resetting password:', error);
-      alert('שגיאה בעדכון סיסמה: ' + (error.response?.data?.error || error.message));
-    }
-  };
-
-  const handleAddUser = async () => {
-    try {
-      console.log('👤 BusinessViewPage: Adding user to business ID:', id);
+      // עכשיו נבצע השתלטות
+      const response = await axios.post(`/api/admin/impersonate/${id}`);
       
-      if (!newUser.username || !newUser.email) {
-        alert('נא למלא שם משתמש ואימייל');
-        return;
+      if (response.data.token) {
+        console.log('✅ השתלטות הצליחה על עסק:', response.data.business_name);
+        setMessage('השתלטות הצליחה! מעביר למערכת העסק...');
+        
+        // שמירת הטוקן המקורי
+        const currentToken = localStorage.getItem('token');
+        localStorage.setItem('originalAdminToken', currentToken);
+        
+        // שמירת הטוקן החדש למערכת העסק
+        localStorage.setItem('token', response.data.token);
+        localStorage.setItem('viewingAsBusinessId', id);
+        localStorage.setItem('isImpersonating', 'true');
+        localStorage.setItem('business_id', id);
+        localStorage.setItem('business_name', response.data.business_name);
+        localStorage.setItem('user_name', 'מנהל (במצב השתלטות)');
+        
+        console.log('🚀 מעביר למערכת העסק עם שליטה מלאה');
+        
+        // המתנה קצרה ומעבר למערכת העסק
+        setTimeout(() => {
+          window.location.href = '/business-dashboard';
+        }, 1500);
       }
-      
-      const token = localStorage.getItem('auth_token');
-      const response = await axios.post(`/api/admin/businesses/${id}/users`, {
-        username: newUser.username,
-        password: newUser.password || 'defaultpass123',
-        email: newUser.email
-      }, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      alert(`משתמש נוסף בהצלחה! שם משתמש: ${response.data.username}`);
-      setShowAddUser(false);
-      setNewUser({ username: '', password: '', email: '' });
-      
-      // עדכון רשימת המשתמשים
-      const newUserData = {
-        id: response.data.user_id,
-        name: response.data.username,
-        role: 'employee',
-        status: 'active',
-        last_login: null,
-        email: newUser.email
-      };
-      setUsers(prev => [...prev, newUserData]);
     } catch (error) {
-      console.error('❌ BusinessViewPage: Error adding user:', error);
-      alert('שגיאה בהוספת משתמש: ' + (error.response?.data?.error || error.message));
+      console.error('Error during takeover:', error);
+      setError('שגיאה בהשתלטות על מערכת העסק');
+      setMessage('שגיאה בהשתלטות');
+      setLoading(false);
+      setTaking(false);
     }
   };
 
-
-
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'operational': return <div className="w-3 h-3 bg-green-500 rounded-full"></div>;
-      case 'warning': return <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>;
-      case 'error': return <div className="w-3 h-3 bg-red-500 rounded-full"></div>;
-      default: return <div className="w-3 h-3 bg-gray-400 rounded-full"></div>;
-    }
-  };
-
-  const getHebrewDate = () => {
-    const options = { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric',
-      weekday: 'long'
-    };
-    return new Date().toLocaleDateString('he-IL', options);
-  };
-
-  if (loading) {
-    console.log('⏳ BusinessViewPage: Showing loading state for ID:', id);
+  if (error) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
-        <div className="text-center font-hebrew">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">טוען נתונים לעסק מספר {id}...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!businessInfo) {
-    console.log('❌ BusinessViewPage: No business info available for ID:', id);
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
-        <div className="text-center font-hebrew">
-          <h1 className="text-2xl font-bold text-red-600 mb-4">שגיאה בטעינת נתונים</h1>
-          <p className="text-gray-600 mb-4">לא ניתן לטעון את פרטי העסק מספר {id}</p>
+        <div className="text-center font-hebrew max-w-md">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            <h2 className="text-xl font-bold mb-2">שגיאה בהשתלטות</h2>
+            <p>{error}</p>
+          </div>
           <button 
-            onClick={() => navigate('/admin/dashboard')}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+            onClick={() => window.location.href = '/'}
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-hebrew"
           >
-            חזור לדשבורד
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  console.log('✅ BusinessViewPage: Rendering business view for:', businessInfo.name);
-
-  // הוספת תצוגה פשוטה לבדיקה
-  if (window.location.pathname.includes('/admin/business/')) {
-    console.log('📍 BusinessViewPage: Confirmed on admin business view path');
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50" dir="rtl">
-      <div className="max-w-6xl mx-auto p-6">
-        {/* כותרת עם חזרה */}
-        <div className="flex items-center gap-4 mb-6">
-          <button
-            onClick={() => navigate('/admin/dashboard')}
-            className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-hebrew"
-          >
-            <ArrowRight className="w-5 h-5" />
             חזור לדשבורד מנהל
           </button>
         </div>
+      </div>
+    );
+  }
 
-        {/* תווית מצב תצוגה */}
-        <div className="bg-orange-100 border border-orange-200 rounded-lg p-4 mb-6">
-          <div className="flex items-center gap-2">
-            <Eye className="w-5 h-5 text-orange-600" />
-            <p className="text-orange-800 font-hebrew font-medium">
-              מצב תצוגה - מנהל צופה בדשבורד העסקי של {businessInfo?.name}
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center" dir="rtl">
+      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-lg w-full mx-4">
+        <div className="text-center font-hebrew">
+          {/* כותרת */}
+          <div className="mb-6">
+            <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <User className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              השתלטות על מערכת העסק
+            </h1>
+            <p className="text-gray-600">
+              מבצע השתלטות על עסק #{id}
             </p>
           </div>
-          <p className="text-orange-700 text-sm font-hebrew mt-1">
-            זהו מצב תצוגה בלבד. לא ניתן לבצע פעולות בפועל.
-          </p>
-        </div>
 
-        {/* כותרת עסק */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 font-hebrew mb-2">
-            שלום {businessInfo?.name || 'עסק'}
-          </h1>
-          <p className="text-gray-600 font-hebrew">{getHebrewDate()}</p>
-        </div>
-
-        {/* פרטי עסק */}
-        {businessInfo && (
-          <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-            <h2 className="text-xl font-bold text-gray-900 font-hebrew mb-4 flex items-center gap-2">
-              <Building2 className="w-5 h-5" />
-              פרטי העסק
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <p className="text-sm text-gray-600 font-hebrew">מזהה עסק</p>
-                <p className="font-bold font-hebrew">#{businessInfo.id}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600 font-hebrew">מספר משתמשים</p>
-                <p className="font-bold font-hebrew">{businessInfo.users_count}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600 font-hebrew">סטטוס חבילה</p>
-                <p className="font-bold text-green-600 font-hebrew">פעילה (מנוהלת ידנית)</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* שירותים פעילים */}
-        {services && (
-          <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-            <h2 className="text-xl font-bold text-gray-900 font-hebrew mb-4">
-              שירותים זמינים
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {services.crm && (
-                <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-xl opacity-75">
-                  <Users className="w-6 h-6 text-blue-600" />
-                  <div className="text-right">
-                    <p className="font-medium font-hebrew">מערכת CRM</p>
-                    <p className="text-sm text-gray-600 font-hebrew">ניהול לקוחות ומשימות</p>
-                  </div>
-                </div>
-              )}
-              {services.whatsapp && (
-                <div className="flex items-center gap-3 p-4 bg-green-50 rounded-xl opacity-75">
-                  <MessageSquare className="w-6 h-6 text-green-600" />
-                  <div className="text-right">
-                    <p className="font-medium font-hebrew">WhatsApp עסקי</p>
-                    <p className="text-sm text-gray-600 font-hebrew">שיחות עם לקוחות</p>
-                  </div>
-                </div>
-              )}
-              {services.calls && (
-                <div className="flex items-center gap-3 p-4 bg-purple-50 rounded-xl opacity-75">
-                  <Phone className="w-6 h-6 text-purple-600" />
-                  <div className="text-right">
-                    <p className="font-medium font-hebrew">שיחות AI</p>
-                    <p className="text-sm text-gray-600 font-hebrew">ניהול שיחות אוטומטיות</p>
-                  </div>
-                </div>
-              )}
-            </div>
-            {!services.crm && !services.whatsapp && !services.calls && (
-              <p className="text-gray-600 font-hebrew text-center py-8">
-                אין שירותים פעילים עבור עסק זה
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* זמינות מערכת */}
-        {systemStatus && (
-          <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-            <h2 className="text-xl font-bold text-gray-900 font-hebrew mb-4 flex items-center gap-2">
-              <Activity className="w-5 h-5" />
-              זמינות מערכת
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                {getStatusIcon(systemStatus.systems.gpt?.status)}
-                <div>
-                  <p className="font-medium font-hebrew">GPT (בינה מלאכותית)</p>
-                  <p className="text-sm text-gray-600 font-hebrew">
-                    {systemStatus.systems.gpt?.status === 'operational' ? 'פעיל' : 'לא זמין'}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                {getStatusIcon(systemStatus.systems.twilio?.status)}
-                <div>
-                  <p className="font-medium font-hebrew">Twilio (שיחות)</p>
-                  <p className="text-sm text-gray-600 font-hebrew">
-                    {systemStatus.systems.twilio?.status === 'operational' ? 'פעיל' : 'לא זמין'}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                {getStatusIcon(systemStatus.systems.baileys?.status)}
-                <div>
-                  <p className="font-medium font-hebrew">Baileys (WhatsApp)</p>
-                  <p className="text-sm text-gray-600 font-hebrew">
-                    {systemStatus.systems.baileys?.status === 'operational' ? 'מחובר' : 'לא מחובר'}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* משתמשי העסק */}
-        <div className="bg-white rounded-2xl shadow-md p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-gray-900 font-hebrew flex items-center gap-2">
-              <UserCheck className="w-5 h-5" />
-              משתמשי העסק
-            </h2>
-            <button 
-              onClick={() => setShowAddUser(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            >
-              + הוסף משתמש
-            </button>
-          </div>
-          
-          <div className="space-y-3">
-            {users.map((user) => (
-              <div key={user.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                <UserCheck className="w-5 h-5 text-green-600" />
-                <div className="flex-1">
-                  <p className="font-medium font-hebrew">{user.name}</p>
-                  <p className="text-sm text-gray-600 font-hebrew">
-                    תפקיד: {user.role === 'business' ? 'עסק' : 'מנהל'} | אימייל: {user.email}
-                  </p>
-                </div>
-                <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-hebrew">
-                  {user.status === 'active' ? 'פעיל' : 'לא פעיל'}
-                </span>
-              </div>
-            ))}
-          </div>
-          
-          {users.length === 0 && (
-            <div className="text-center py-8 text-gray-500 font-hebrew">
-              אין משתמשים רשומים עדיין
+          {/* נתוני עסק */}
+          {business && (
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <h3 className="font-bold text-lg text-gray-900 mb-2">{business.name}</h3>
+              <p className="text-gray-600">סוג: {business.type}</p>
+              <p className="text-gray-600">טלפון: {business.phone}</p>
             </div>
           )}
-        </div>
 
-        {/* מודל הוספת משתמש */}
-        {showAddUser && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" dir="rtl">
-            <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
-              <h3 className="text-xl font-bold text-gray-900 font-hebrew mb-4">הוסף משתמש חדש</h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">שם משתמש</label>
-                  <input
-                    type="text"
-                    value={newUser.username}
-                    onChange={(e) => setNewUser({...newUser, username: e.target.value})}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
-                    placeholder="הכנס שם המשתמש"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">סיסמה</label>
-                  <input
-                    type="password"
-                    value={newUser.password}
-                    onChange={(e) => setNewUser({...newUser, password: e.target.value})}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="סיסמה (ריק = ברירת מחדל)"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">אימייל</label>
-                  <input
-                    type="email"
-                    value={newUser.email}
-                    onChange={(e) => setNewUser({...newUser, email: e.target.value})}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="user@example.com"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">תפקיד</label>
-                  <select
-                    value={newUser.role}
-                    onChange={(e) => setNewUser({...newUser, role: e.target.value})}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
-                  >
-                    <option value="business">משתמש עסק</option>
-                    <option value="admin">מנהל</option>
-                  </select>
-                </div>
-              </div>
-              
-              <div className="flex gap-3 mt-6">
-                <button 
-                  onClick={handleAddUser}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  הוסף משתמש
-                </button>
-                <button 
-                  onClick={() => {
-                    setShowAddUser(false);
-                    setNewUser({ username: '', password: '', email: '' });
-                  }}
-                  className="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded-lg font-medium transition-colors font-hebrew"
-                >
-                  ביטול
-                </button>
-              </div>
+          {/* סטטוס השתלטות */}
+          <div className="mb-6">
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <Loader className="w-6 h-6 text-blue-600 animate-spin" />
+              <span className="text-lg font-medium text-gray-900">{message}</span>
+            </div>
+            
+            {/* פס התקדמות */}
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div 
+                className="bg-blue-600 h-2 rounded-full transition-all duration-1000"
+                style={{ width: taking ? '80%' : '20%' }}
+              ></div>
             </div>
           </div>
-        )}
 
-        {/* מודל שינוי סיסמה */}
-        {showPasswordReset && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" dir="rtl">
-            <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
-              <h3 className="text-xl font-bold text-gray-900 font-hebrew mb-4">שינוי סיסמה</h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">סיסמה חדשה</label>
-                  <input
-                    type="password"
-                    value={passwordData.newPassword}
-                    onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="הכנס סיסמה חדשה (ריק = newpassword123)"
-                  />
-                </div>
-              </div>
-              
-              <div className="flex gap-3 mt-6">
-                <button 
-                  onClick={handlePasswordReset}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  עדכן סיסמה
-                </button>
-                <button 
-                  onClick={() => {
-                    setShowPasswordReset(false);
-                    setPasswordData({ newPassword: '' });
-                  }}
-                  className="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded-lg font-medium transition-colors font-hebrew"
-                >
-                  ביטול
-                </button>
-              </div>
-            </div>
+          {/* הודעת המתנה */}
+          <div className="text-sm text-gray-500">
+            <p>זה יקח רק רגע...</p>
+            <p>תועבר אוטומטית למערכת העסק עם שליטה מלאה</p>
           </div>
-        )}
 
-        {/* כפתורי פעולות עיקריים */}
-        <div className="fixed bottom-6 left-6 flex gap-3" dir="ltr">
-          <button 
-            onClick={() => setShowPasswordReset(true)}
-            className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-lg"
-          >
-            🔑 שינוי סיסמה
-          </button>
-
+          {/* כפתור חזרה במקרה של בעיה */}
+          <div className="mt-8">
+            <button 
+              onClick={() => window.location.href = '/'}
+              className="text-gray-600 hover:text-gray-800 underline font-hebrew"
+            >
+              חזור לדשבורד מנהל
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-export default BusinessViewPage;
+export default BusinessTakeoverPage;
