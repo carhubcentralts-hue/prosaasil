@@ -143,36 +143,7 @@ const BusinessViewPage = () => {
     }
   };
 
-  const handleToggleActive = async () => {
-    try {
-      console.log('🔄 BusinessViewPage: Toggling active status for business ID:', id);
-      
-      const token = localStorage.getItem('auth_token');
-      const response = await axios.put(`/api/admin/businesses/${id}/toggle-active`, {}, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
 
-      console.log('🔄 Toggle response:', response.data);
-      alert(response.data.message);
-      
-      // עדכון המידע המקומי
-      setBusinessInfo(prev => ({
-        ...prev,
-        is_active: response.data.is_active
-      }));
-      
-      // רענון הדף כדי לראות את השינוי
-      setTimeout(() => {
-        fetchBusinessData();
-      }, 500);
-    } catch (error) {
-      console.error('❌ BusinessViewPage: Error toggling active status:', error);
-      alert('שגיאה בשינוי סטטוס: ' + (error.response?.data?.error || error.message));
-    }
-  };
 
   const getStatusIcon = (status) => {
     switch (status) {
@@ -532,12 +503,7 @@ const BusinessViewPage = () => {
           >
             🔑 שינוי סיסמה
           </button>
-          <button 
-            onClick={handleToggleActive}
-            className={`${businessInfo?.is_active !== false ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'} text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-lg`}
-          >
-            {businessInfo?.is_active !== false ? '❌ השבת עסק' : '✅ הפעל עסק'}
-          </button>
+
         </div>
       </div>
     </div>

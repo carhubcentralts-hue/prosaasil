@@ -5,6 +5,9 @@ Clean version with only working functions
 
 import os
 import logging
+import requests
+import tempfile
+import openai
 from flask import request, Response, jsonify
 from models import Business, CallLog, db
 from datetime import datetime
@@ -12,8 +15,8 @@ from datetime import datetime
 # Setup logging
 logger = logging.getLogger('routes_twilio')
 
-# Import app from main
-from main import app
+# Import app 
+from app import app
 
 @app.route("/twilio/incoming_call", methods=["POST"])
 def incoming_call():
@@ -65,8 +68,7 @@ def incoming_call():
                 call_sid=call_sid,
                 from_number=from_number,
                 to_number=to_number,
-                call_status='ringing',
-                started_at=datetime.utcnow()
+                call_status='ringing'
             )
             db.session.add(call_log)
             db.session.commit()
@@ -121,8 +123,64 @@ def handle_recording():
                 </Response>'''
                 return Response(twiml, mimetype='text/xml')
             
-            # Process with AI (simplified for now)
-            ai_response = f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם האפשרי."
+            # Download and process recording with AI
+            ai_response = "תודה על פנייתך. נחזור אליך בהקדם."
+            
+            if recording_url:
+                try:
+                    # Download recording from Twilio
+                    logger.info(f"⬇️ Downloading recording from: {recording_url}")
+                    
+                    recording_response = requests.get(recording_url, stream=True)
+                    if recording_response.status_code == 200:
+                        # Save to temporary file
+                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+                            for chunk in recording_response.iter_content(chunk_size=8192):
+                                temp_file.write(chunk)
+                            temp_filename = temp_file.name
+                        
+                        # Transcribe with OpenAI Whisper (Hebrew)
+                        logger.info("🎙️ Transcribing with Whisper...")
+                        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+                        
+                        with open(temp_filename, 'rb') as audio_file:
+                            transcript = client.audio.transcriptions.create(
+                                model="whisper-1",
+                                file=audio_file,
+                                language="he"
+                            )
+                        
+                        transcribed_text = transcript.text.strip()
+                        logger.info(f"📝 Transcribed: {transcribed_text}")
+                        
+                        if transcribed_text and len(transcribed_text) > 2:
+                            # Get business info for AI prompt
+                            business = Business.query.get(call_log.business_id) if call_log else None
+                            ai_prompt = business.ai_prompt if business and business.ai_prompt else "אתה עוזר וירטואלי מועיל בעברית"
+                            
+                            # Generate AI response
+                            logger.info("🤖 Generating GPT response...")
+                            messages = [
+                                {"role": "system", "content": ai_prompt},
+                                {"role": "user", "content": transcribed_text}
+                            ]
+                            
+                            gpt_response = client.chat.completions.create(
+                                model="gpt-4o",
+                                messages=messages,
+                                max_tokens=150,
+                                temperature=0.7
+                            )
+                            
+                            ai_response = gpt_response.choices[0].message.content.strip() if gpt_response.choices[0].message.content else "תודה על פנייתך"
+                            logger.info(f"🎯 GPT Response: {ai_response}")
+                        
+                        # Cleanup
+                        os.unlink(temp_filename)
+                        
+                except Exception as ai_error:
+                    logger.error(f"AI processing error: {ai_error}")
+                    ai_response = f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם."
             
             # Generate response TwiML
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
