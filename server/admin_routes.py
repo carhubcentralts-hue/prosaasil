@@ -2,7 +2,8 @@ from flask import Blueprint, request, jsonify
 import psycopg2
 import os
 import logging
-from datetime import datetime
+import jwt
+from datetime import datetime, timedelta
 
 # הגדרת logger
 logging.basicConfig(level=logging.INFO)
@@ -23,8 +24,17 @@ def get_db_connection():
 def admin_required(f):
     """דקורטור לבדיקת הרשאות מנהל"""
     def decorated_function(*args, **kwargs):
-        # כרגע מאפשרים גישה לכולם לצורך פיתוח
-        # בהמשך נוסיף בדיקת JWT ותפקידים
+        # בדיקה בסיסית לפיתוח - מאפשר גישה ברירת מחדל
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            try:
+                token = auth_header.split(' ')[1]
+                decoded = jwt.decode(token, 'your-secret-key', algorithms=['HS256'])
+                if decoded.get('role') == 'admin':
+                    return f(*args, **kwargs)
+            except:
+                pass
+        # אם אין טוקן או שהוא לא מתאים, עדיין מאפשר גישה לפיתוח
         return f(*args, **kwargs)
     decorated_function.__name__ = f.__name__
     return decorated_function
@@ -608,6 +618,99 @@ def create_user_endpoint():
     except Exception as e:
         logger.error(f"Error creating user: {e}")
         return jsonify({'error': 'Failed to create user'}), 500
+
+@admin_bp.route('/impersonate/<int:business_id>', methods=['POST'])
+@admin_required
+def impersonate_business(business_id):
+    """אפשר למנהל להתחזות לעסק ולצפות במערכת שלו"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        # בדיקה שהעסק קיים
+        cur.execute("SELECT id, name FROM businesses WHERE id = %s", (business_id,))
+        business = cur.fetchone()
+        if not business:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Business not found'}), 404
+        
+        # חיפוש משתמש העסק או יצירת זמני
+        cur.execute("""
+            SELECT id, name, email FROM users 
+            WHERE business_id = %s AND role = 'business' 
+            LIMIT 1
+        """, (business_id,))
+        
+        user = cur.fetchone()
+        if not user:
+            # יצירת משתמש זמני לצפייה
+            cur.execute("""
+                INSERT INTO users (business_id, name, email, password, role, created_at)
+                VALUES (%s, %s, %s, %s, 'business', NOW())
+                RETURNING id, name, email
+            """, (business_id, f'temp_user_{business_id}', f'temp{business_id}@system.com', 'temp123'))
+            user = cur.fetchone()
+            conn.commit()
+        
+        cur.close()
+        conn.close()
+        
+        # יצירת טוקן זמני לעסק
+        business_token_payload = {
+            'user_id': user[0],
+            'business_id': business_id,
+            'role': 'business',
+            'name': user[1],
+            'email': user[2],
+            'is_impersonating': True,
+            'exp': datetime.utcnow() + timedelta(hours=8)  # תוקף של 8 שעות
+        }
+        
+        business_token = jwt.encode(business_token_payload, 'your-secret-key', algorithm='HS256')
+        
+        logger.info(f"✅ Admin impersonating business {business_id} - {business[1]}")
+        return jsonify({
+            'token': business_token,
+            'business_name': business[1],
+            'message': f'עבר למצב צפייה בעסק: {business[1]}'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error during impersonation: {e}")
+        return jsonify({'error': 'Failed to switch to business view'}), 500
+
+@admin_bp.route('/stop-impersonation', methods=['POST'])
+def stop_impersonation():
+    """חזרה למצב מנהל מהתחזות לעסק"""
+    try:
+        # הקליינט ישלח את הטוקן המקורי של המנהל
+        data = request.get_json()
+        original_admin_token = data.get('original_token')
+        
+        if not original_admin_token:
+            return jsonify({'error': 'Original admin token required'}), 400
+            
+        # בדיקת תוקף הטוקן המקורי
+        try:
+            decoded = jwt.decode(original_admin_token, 'your-secret-key', algorithms=['HS256'])
+            if decoded.get('role') != 'admin':
+                return jsonify({'error': 'Invalid admin token'}), 403
+        except jwt.InvalidTokenError:
+            return jsonify({'error': 'Invalid token'}), 403
+        
+        logger.info("✅ Admin returned from business impersonation")
+        return jsonify({
+            'message': 'חזר למצב מנהל בהצלחה',
+            'token': original_admin_token
+        })
+        
+    except Exception as e:
+        logger.error(f"Error stopping impersonation: {e}")
+        return jsonify({'error': 'Failed to return to admin mode'}), 500
 
 
 

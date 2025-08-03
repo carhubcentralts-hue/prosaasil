@@ -103,6 +103,29 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleViewAsABusiness = async (businessId) => {
+    try {
+      // שמירת המצב הנוכחי של המנהל
+      const currentToken = localStorage.getItem('token');
+      localStorage.setItem('originalAdminToken', currentToken);
+      
+      // קבלת טוקן עסק מהשרת
+      const response = await axios.post(`/api/admin/impersonate/${businessId}`);
+      const businessToken = response.data.token;
+      
+      // החלפת הטוקן לטוקן העסק
+      localStorage.setItem('token', businessToken);
+      localStorage.setItem('viewingAsBusinessId', businessId);
+      localStorage.setItem('isImpersonating', 'true');
+      
+      // מעבר לדשבורד העסק
+      window.location.href = '/dashboard';
+    } catch (error) {
+      console.error('Error switching to business view:', error);
+      alert('שגיאה במעבר למערכת העסק');
+    }
+  };
+
 
 
   const handleViewBusiness = (businessId) => {
@@ -369,6 +392,13 @@ const AdminDashboard = () => {
                           title="מחק עסק"
                         >
                           <X className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleViewAsABusiness(business.id)}
+                          className="p-2 text-purple-600 hover:bg-purple-50 rounded"
+                          title="צפה במערכת העסק"
+                        >
+                          <Eye className="w-4 h-4" />
                         </button>
 
                       </div>

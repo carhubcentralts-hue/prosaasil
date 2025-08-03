@@ -41,6 +41,7 @@ The system is built as a Flask web application for multi-business support, with 
 -   **Robust Call Handling**: Background processing for AI/DB operations to prevent webhook timeouts.
 -   **Comprehensive CRM**: Dashboard, lead management, customer profiles, task management, and calendar integration.
 -   **Business Management**: Create, edit, and manage businesses with full CRUD operations including delete functionality with red confirmation button. All admin panel functions fully operational.
+-   **Admin Impersonation**: Admins can now view and control individual business systems directly by clicking the purple "view as business" button, allowing complete system takeover with a return-to-admin option.
 -   **Payment Integration**: Advanced payment link generation and automated invoice sending.
 -   **Digital Signature Service**: Creation and management of professional e-signatures.
 

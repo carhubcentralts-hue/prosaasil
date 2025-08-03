@@ -138,6 +138,32 @@ const BusinessDashboard = () => {
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
       <div className="max-w-6xl mx-auto p-6">
+        {/* אם במצב impersonate, הצג כפתור חזרה */}
+        {localStorage.getItem('isImpersonating') === 'true' && (
+          <div className="mb-4 p-4 bg-yellow-100 border border-yellow-400 rounded-lg">
+            <div className="flex items-center justify-between">
+              <p className="text-yellow-800 font-hebrew">
+                🔍 אתה צופה במערכת העסק כמנהל - ID: {localStorage.getItem('viewingAsBusinessId')}
+              </p>
+              <button 
+                onClick={() => {
+                  const originalToken = localStorage.getItem('originalAdminToken');
+                  if (originalToken) {
+                    localStorage.setItem('token', originalToken);
+                    localStorage.removeItem('originalAdminToken');
+                    localStorage.removeItem('viewingAsBusinessId');
+                    localStorage.removeItem('isImpersonating');
+                    window.location.href = '/';
+                  }
+                }}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-hebrew"
+              >
+                חזור למצב מנהל
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* כותרת */}
         <div className="flex justify-between items-center mb-8">
           <div>
