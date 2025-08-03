@@ -104,37 +104,11 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleViewAsABusiness = async (businessId) => {
-    try {
-      console.log('🔥 השתלטות על עסק מספר:', businessId);
-      
-      // שמירת המצב הנוכחי של המנהל
-      const currentToken = localStorage.getItem('token');
-      localStorage.setItem('originalAdminToken', currentToken);
-      
-      // קבלת טוקן עסק מהשרת
-      const response = await axios.post(`/api/admin/impersonate/${businessId}`);
-      const businessToken = response.data.token;
-      const businessName = response.data.business_name;
-      
-      console.log('✅ קבלת טוקן עסק הצליחה:', businessName);
-      
-      // החלפת הטוקן לטוקן העסק + שמירת כל הנתונים
-      localStorage.setItem('token', businessToken);
-      localStorage.setItem('viewingAsBusinessId', businessId);
-      localStorage.setItem('isImpersonating', 'true');
-      localStorage.setItem('business_id', businessId);
-      localStorage.setItem('business_name', businessName);
-      localStorage.setItem('user_name', 'מנהל (במצב השתלטות)');
-      
-      console.log('🚀 מעבר למערכת העסק עם שליטה מלאה');
-      
-      // מעבר ישיר למערכת העסק - שליטה מלאה!
-      window.location.href = '/business/dashboard';
-    } catch (error) {
-      console.error('Error taking over business:', error);
-      alert('שגיאה בהשתלטות על מערכת העסק');
-    }
+  const handleViewAsABusiness = (businessId) => {
+    console.log('🔥 מעבר לדף שליטת מנהל על עסק מספר:', businessId);
+    
+    // מעבר ישיר לדף שליטת מנהל
+    window.location.href = `/admin/business-control/${businessId}`;
   };
 
 
@@ -376,7 +350,7 @@ const AdminDashboard = () => {
                         <button 
                           onClick={() => handleViewAsABusiness(business.id)}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded font-bold border-2 border-blue-200"
-                          title="🔥 השתלט על העסק והיכנס למערכת שלו"
+                          title="🔥 שליטת מנהל על העסק"
                         >
                           <Eye className="w-4 h-4" />
                         </button>

@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 import BusinessDashboard from './pages/BusinessDashboard';
 import BusinessViewPage from './pages/BusinessViewPage';
+import AdminBusinessControlPage from './pages/AdminBusinessControlPage';
 import PrivateRoute from './components/PrivateRoute';
 
 function App() {
@@ -83,7 +84,14 @@ function App() {
           />
           
           {/* ניתוב להשתלטות על עסק */}
-
+          <Route 
+            path="/admin/business-control/:id" 
+            element={
+              <PrivateRoute requiredRole="admin">
+                <AdminBusinessControlPage />
+              </PrivateRoute>
+            } 
+          />
           
           {/* דפי עסק */}
           <Route 
