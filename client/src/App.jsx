@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
+import AdminDashboard from './pages/AdminDashboard';
 import './index.css';
 
 function App() {
@@ -50,30 +51,71 @@ function App() {
     );
   }
 
-  // זמנית - הצג הודעה שהמערכת בבנייה
+  // אם מחובר - הצג את המערכת המתאימה
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center font-hebrew rtl">
-      <div className="bg-white p-8 rounded-lg shadow-lg text-center">
-        <h1 className="text-2xl font-bold text-gray-900 mb-4">
-          המערכת בבנייה
-        </h1>
-        <p className="text-gray-600 mb-6">
-          המערכת נבנית שלב אחר שלב. בחזרה בקרוב!
-        </p>
-        <p className="text-sm text-gray-500 mb-4">
-          מחובר כ: {userRole === 'admin' ? 'מנהל' : 'עסק'}
-        </p>
-        <button
-          onClick={() => {
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('user_role');
-            window.location.reload();
-          }}
-          className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
-        >
-          יציאה מהמערכת
-        </button>
-      </div>
+    <div className="App">
+      <Router>
+        <Routes>
+          {/* דשבורד מנהל */}
+          <Route 
+            path="/admin/dashboard" 
+            element={
+              userRole === 'admin' ? 
+                <AdminDashboard /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          
+          {/* דשבורד עסק - זמנית הודעה שבבנייה */}
+          <Route 
+            path="/business/dashboard" 
+            element={
+              userRole === 'business' ? 
+                <div className="min-h-screen bg-gray-50 flex items-center justify-center font-hebrew rtl">
+                  <div className="bg-white p-8 rounded-lg shadow-lg text-center">
+                    <h1 className="text-2xl font-bold text-gray-900 mb-4">דשבורד עסק בבנייה</h1>
+                    <p className="text-gray-600 mb-6">דשבורד העסק יבנה בשלב הבא</p>
+                    <button
+                      onClick={() => {
+                        localStorage.removeItem('auth_token');
+                        localStorage.removeItem('user_role');
+                        window.location.reload();
+                      }}
+                      className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+                    >
+                      יציאה מהמערכת
+                    </button>
+                  </div>
+                </div> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          
+          {/* נתיב ברירת מחדל - ניווט לפי תפקיד */}
+          <Route 
+            path="/" 
+            element={
+              userRole === 'admin' ? 
+                <Navigate to="/admin/dashboard" replace /> :
+                userRole === 'business' ?
+                <Navigate to="/business/dashboard" replace /> :
+                <Navigate to="/login" replace />
+            } 
+          />
+          
+          {/* התחברות - הפניה לדשבורד אם כבר מחובר */}
+          <Route 
+            path="/login"
+            element={<Navigate to="/" replace />}
+          />
+          
+          {/* כל שאר הנתיבים */}
+          <Route 
+            path="*" 
+            element={<Navigate to="/" replace />}
+          />
+        </Routes>
+      </Router>
     </div>
   );
 }
