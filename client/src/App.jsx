@@ -4,7 +4,6 @@ import axios from 'axios';
 import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 import BusinessDashboard from './pages/BusinessDashboard';
-import BusinessViewPage from './pages/BusinessViewPage';
 import AdminBusinessControlPage from './pages/AdminBusinessControlPage';
 import PrivateRoute from './components/PrivateRoute';
 

@@ -55,7 +55,7 @@ const BusinessViewPage = () => {
         
         // מעבר למערכת העסק
         setTimeout(() => {
-          window.location.href = '/business-dashboard';
+          window.location.href = '/business/dashboard';
         }, 1500);
       }
     } catch (error) {

@@ -105,9 +105,10 @@ const AdminDashboard = () => {
   };
 
   const handleViewAsABusiness = (businessId) => {
-    console.log('🔥 מעבר לדף שליטת מנהל על עסק מספר:', businessId);
+    console.log('🎯 ADMIN CONTROL: מעבר לדף שליטת מנהל על עסק:', businessId);
+    console.log('🎯 URL REDIRECT TO: /admin/business-control/' + businessId);
     
-    // מעבר ישיר לדף שליטת מנהל
+    // מעבר ישיר לדף שליטת מנהל - NO IMPERSONATION
     window.location.href = `/admin/business-control/${businessId}`;
   };
 
