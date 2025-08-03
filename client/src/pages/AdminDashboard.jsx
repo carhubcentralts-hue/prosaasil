@@ -14,7 +14,8 @@ import {
   Check,
   Edit,
   Plus,
-  LogOut
+  LogOut,
+  UserPlus
 } from 'lucide-react';
 
 const AdminDashboard = () => {
@@ -395,10 +396,10 @@ const AdminDashboard = () => {
                         </button>
                         <button 
                           onClick={() => handleViewAsABusiness(business.id)}
-                          className="p-2 text-purple-600 hover:bg-purple-50 rounded"
-                          title="צפה במערכת העסק"
+                          className="p-2 text-purple-600 hover:bg-purple-50 rounded font-bold border-2 border-purple-200"
+                          title="🔄 השתלט על מערכת העסק"
                         >
-                          <Eye className="w-4 h-4" />
+                          <UserPlus className="w-4 h-4" />
                         </button>
 
                       </div>
