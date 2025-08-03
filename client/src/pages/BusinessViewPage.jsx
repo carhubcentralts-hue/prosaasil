@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { User, ArrowRight, Loader } from 'lucide-react';
 
-const BusinessTakeoverPage = () => {
+const BusinessViewPage = () => {
   const { id } = useParams();
   const [loading, setLoading] = useState(true);
   const [taking, setTaking] = useState(false);
@@ -11,7 +11,7 @@ const BusinessTakeoverPage = () => {
   const [business, setBusiness] = useState(null);
   const [message, setMessage] = useState('מתחיל השתלטות...');
 
-  console.log('🔥 BusinessTakeoverPage: מתחיל השתלטות על עסק ID:', id);
+  console.log('🔥 BusinessViewPage: מתחיל השתלטות על עסק ID:', id);
 
   useEffect(() => {
     if (id) {
@@ -147,4 +147,4 @@ const BusinessTakeoverPage = () => {
   );
 };
 
-export default BusinessTakeoverPage;
+export default BusinessViewPage;
