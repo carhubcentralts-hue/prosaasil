@@ -82,24 +82,7 @@ function App() {
             } 
           />
           
-          <Route 
-            path="/admin/business/:id/view" 
-            element={
-              <PrivateRoute requiredRole="admin">
-                <BusinessViewPage />
-              </PrivateRoute>
-            } 
-          />
-          
-          {/* ניתוב נוסף למקרה של בעיות */}
-          <Route 
-            path="/admin/business/*/view" 
-            element={
-              <PrivateRoute requiredRole="admin">
-                <BusinessViewPage />
-              </PrivateRoute>
-            } 
-          />
+          {/* הסרתי את הניתובים לתצוגת עסק - רק השתלטות ישירה */}
           
           {/* דפי עסק */}
           <Route 

@@ -138,27 +138,31 @@ const BusinessDashboard = () => {
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
       <div className="max-w-6xl mx-auto p-6">
-        {/* אם במצב impersonate, הצג כפתור חזרה */}
+        {/* אם במצב השתלטות, הצג כפתור חזרה למנהל */}
         {localStorage.getItem('isImpersonating') === 'true' && (
-          <div className="mb-4 p-4 bg-yellow-100 border border-yellow-400 rounded-lg">
+          <div className="mb-4 p-4 bg-orange-100 border border-orange-400 rounded-lg">
             <div className="flex items-center justify-between">
-              <p className="text-yellow-800 font-hebrew">
-                🔍 אתה צופה במערכת העסק כמנהל - ID: {localStorage.getItem('viewingAsBusinessId')}
+              <p className="text-orange-800 font-hebrew text-lg font-bold">
+                🔥 אתה משתלט על מערכת העסק כמנהל - עסק #{localStorage.getItem('viewingAsBusinessId')}
               </p>
               <button 
                 onClick={() => {
+                  console.log('🔄 חזרה למצב מנהל');
                   const originalToken = localStorage.getItem('originalAdminToken');
                   if (originalToken) {
                     localStorage.setItem('token', originalToken);
                     localStorage.removeItem('originalAdminToken');
                     localStorage.removeItem('viewingAsBusinessId');
                     localStorage.removeItem('isImpersonating');
+                    localStorage.removeItem('business_id');
+                    localStorage.removeItem('business_name');
+                    localStorage.removeItem('user_name');
                     window.location.href = '/';
                   }
                 }}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-hebrew"
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-hebrew font-bold border-2 border-blue-800"
               >
-                חזור למצב מנהל
+                🔙 חזור למצב מנהל
               </button>
             </div>
           </div>
