@@ -19,6 +19,12 @@ Complete 3-page React system implemented - August 3, 2025:
 • ✅ **NEW**: User management - "הוסף משתמש" button in AdminDashboard with complete modal
 • ✅ **UPDATED**: Package expiration removed - admin controls manually (not time-based)
 • ✅ **CONFIRMED**: All buttons working - View Business button functional, Add User button in correct location
+• ✅ **LATEST FIX (Aug 3, 2025)**: All CRUD operations working with PostgreSQL database
+  - Password reset: ✅ Working with real database updates
+  - Add user: ✅ Creates users in PostgreSQL with proper schema (name column)
+  - Toggle active/inactive: ✅ Updates business status in database with UI refresh
+  - All authentication headers fixed (auth_token instead of token)
+  - Database schema mismatch resolved (users.name vs users.username)
 • Infrastructure: PostgreSQL, Flask backend, all systems operational
 
 ## User Preferences

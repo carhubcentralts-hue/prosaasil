@@ -155,12 +155,19 @@ const BusinessViewPage = () => {
         }
       });
 
+      console.log('🔄 Toggle response:', response.data);
       alert(response.data.message);
+      
       // עדכון המידע המקומי
       setBusinessInfo(prev => ({
         ...prev,
         is_active: response.data.is_active
       }));
+      
+      // רענון הדף כדי לראות את השינוי
+      setTimeout(() => {
+        fetchBusinessData();
+      }, 500);
     } catch (error) {
       console.error('❌ BusinessViewPage: Error toggling active status:', error);
       alert('שגיאה בשינוי סטטוס: ' + (error.response?.data?.error || error.message));
