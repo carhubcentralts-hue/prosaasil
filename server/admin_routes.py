@@ -207,18 +207,7 @@ def reset_business_password():
             
         cur = conn.cursor()
         
-        # בדיקת סיסמה נוכחית (אם סופקה)
-        if old_password:
-            cur.execute("""
-                SELECT password FROM users 
-                WHERE business_id = %s AND role = 'business'
-            """, (business_id,))
-            
-            current_password = cur.fetchone()
-            if not current_password or current_password[0] != old_password:
-                cur.close()
-                conn.close()
-                return jsonify({'error': 'Current password is incorrect'}), 401
+        # איפוס סיסמה ללא בדיקת סיסמה נוכחית במצב מנהל
         
         # עדכון סיסמה
         cur.execute("""
@@ -278,7 +267,7 @@ def reset_business_password_by_id(business_id):
         logger.error(f"Error resetting password for business {business_id}: {e}")
         return jsonify({'error': 'Failed to reset password'}), 500
 
-@admin_bp.route('/businesses/<int:business_id>/users', methods=['POST'])
+@admin_bp.route('/businesses/<int:business_id>/add-user', methods=['POST'])
 @admin_required
 def add_user_to_business(business_id):
     """הוספת משתמש חדש לעסק"""
@@ -477,6 +466,62 @@ def update_business(business_id):
         logger.error(f"Error updating business: {e}")
         return jsonify({'error': 'Failed to update business'}), 500
 
+@admin_bp.route('/businesses/<int:business_id>', methods=['PATCH'])
+@admin_required
+def update_business_full(business_id):
+    """עדכון מלא של עסק"""
+    try:
+        data = request.get_json()
+        
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        # בדיקה שהעסק קיים
+        cur.execute("SELECT id FROM businesses WHERE id = %s", (business_id,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Business not found'}), 404
+        
+        # עדכון העסק
+        cur.execute("""
+            UPDATE businesses SET 
+                name = %s,
+                business_type = %s,
+                phone_israel = %s,
+                phone_whatsapp = %s,
+                ai_prompt = %s,
+                crm_enabled = %s,
+                whatsapp_enabled = %s,
+                calls_enabled = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (
+            data.get('name'),
+            data.get('type'),
+            data.get('phone'),
+            data.get('whatsapp_phone'),
+            data.get('ai_prompt'),
+            data.get('crm_enabled', False),
+            data.get('whatsapp_enabled', False),
+            data.get('calls_enabled', False),
+            business_id
+        ))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        logger.info(f"✅ Business {business_id} updated successfully")
+        return jsonify({'message': 'Business updated successfully'})
+        
+    except Exception as e:
+        logger.error(f"Error updating business {business_id}: {e}")
+        return jsonify({'error': 'Failed to update business'}), 500
+
 @admin_bp.route('/businesses/<int:business_id>', methods=['DELETE'])
 @admin_required
 def delete_business(business_id):
@@ -512,6 +557,57 @@ def delete_business(business_id):
     except Exception as e:
         logger.error(f"Error deleting business: {e}")
         return jsonify({'error': 'Failed to delete business'}), 500
+
+@admin_bp.route('/users', methods=['POST'])
+@admin_required
+def create_user_endpoint():
+    """יצירת משתמש חדש"""
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        email = data.get('email')
+        password = data.get('password')
+        role = data.get('role', 'business')
+        business_id = data.get('businessId')
+        
+        if not name or not email or not password:
+            return jsonify({'error': 'Missing required fields'}), 400
+            
+        if role == 'business' and not business_id:
+            return jsonify({'error': 'Business ID required for business users'}), 400
+            
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        # בדיקה אם המשתמש כבר קיים
+        cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'User already exists'}), 409
+        
+        # יצירת המשתמש
+        cur.execute("""
+            INSERT INTO users (name, email, password, role, business_id, created_at)
+            VALUES (%s, %s, %s, %s, %s, NOW())
+            RETURNING id
+        """, (name, email, password, role, business_id))
+        
+        result = cur.fetchone()
+        user_id = result[0] if result else None
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        logger.info(f"✅ User created: {email} with ID {user_id}")
+        return jsonify({'message': 'User created successfully', 'user_id': user_id})
+        
+    except Exception as e:
+        logger.error(f"Error creating user: {e}")
+        return jsonify({'error': 'Failed to create user'}), 500
 
 
 

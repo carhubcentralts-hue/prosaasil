@@ -40,7 +40,7 @@ The system is built as a Flask web application for multi-business support, with 
 -   **Real-time Voice Processing**: **FULLY OPERATIONAL** End-to-end pipeline: Incoming call -> Whisper STT -> GPT-4o -> Google Cloud TTS (Wavenet Hebrew voice) -> TwiML response.
 -   **Robust Call Handling**: Background processing for AI/DB operations to prevent webhook timeouts.
 -   **Comprehensive CRM**: Dashboard, lead management, customer profiles, task management, and calendar integration.
--   **Business Management**: Create, edit, and manage businesses with full CRUD operations. Note: Active/inactive toggle functionality has been removed per user requirements.
+-   **Business Management**: Create, edit, and manage businesses with full CRUD operations including delete functionality with red confirmation button. All admin panel functions fully operational.
 -   **Payment Integration**: Advanced payment link generation and automated invoice sending.
 -   **Digital Signature Service**: Creation and management of professional e-signatures.
 
