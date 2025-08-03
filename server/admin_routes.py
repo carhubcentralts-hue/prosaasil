@@ -141,6 +141,7 @@ def reset_business_password():
     try:
         data = request.get_json()
         business_id = data.get('business_id')
+        old_password = data.get('old_password')
         new_password = data.get('new_password')
         
         if not business_id or not new_password:
@@ -152,7 +153,20 @@ def reset_business_password():
             
         cur = conn.cursor()
         
-        # עדכון סיסמה (בהנחה שיש טבלת users)
+        # בדיקת סיסמה נוכחית (אם סופקה)
+        if old_password:
+            cur.execute("""
+                SELECT password FROM users 
+                WHERE business_id = %s AND role = 'business'
+            """, (business_id,))
+            
+            current_password = cur.fetchone()
+            if not current_password or current_password[0] != old_password:
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'Current password is incorrect'}), 401
+        
+        # עדכון סיסמה
         cur.execute("""
             UPDATE users SET password = %s 
             WHERE business_id = %s AND role = 'business'
@@ -168,8 +182,7 @@ def reset_business_password():
     except Exception as e:
         logger.error(f"Error resetting password: {e}")
         return jsonify({'error': 'Failed to reset password'}), 500
-        logger.error(f"Error fetching businesses: {e}")
-        return jsonify({'error': 'Failed to fetch businesses'}), 500
+
 
 @admin_bp.route('/businesses/<int:business_id>', methods=['GET'])
 @admin_required
@@ -232,9 +245,6 @@ def create_business():
             
         cur = conn.cursor()
         
-        # עדכון services
-        services = data.get('services', {})
-        
         cur.execute("""
             INSERT INTO businesses 
             (name, business_type, phone_israel, phone_whatsapp, ai_prompt, 
@@ -247,9 +257,9 @@ def create_business():
             data.get('phone'),
             data.get('whatsapp_phone'),
             data.get('ai_prompt'),
-            services.get('crm', False),
-            services.get('whatsapp', False),
-            services.get('calls', False)
+            data.get('crm_enabled', False),
+            data.get('whatsapp_enabled', False),
+            data.get('calls_enabled', False)
         ))
         
         result = cur.fetchone()
@@ -285,9 +295,6 @@ def update_business(business_id):
             
         cur = conn.cursor()
         
-        # עדכון services
-        services = data.get('services', {})
-        
         cur.execute("""
             UPDATE businesses 
             SET name = %s, business_type = %s, phone_israel = %s, 
@@ -301,9 +308,9 @@ def update_business(business_id):
             data.get('phone'),
             data.get('whatsapp_phone'),
             data.get('ai_prompt'),
-            services.get('crm', False),
-            services.get('whatsapp', False),
-            services.get('calls', False),
+            data.get('crm_enabled', False),
+            data.get('whatsapp_enabled', False),
+            data.get('calls_enabled', False),
             business_id
         ))
         

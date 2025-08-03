@@ -30,17 +30,15 @@ const BusinessViewPage = () => {
     try {
       setLoading(true);
       
-      const [infoRes, servicesRes, statusRes, usersRes] = await Promise.all([
-        axios.get(`/api/business/info?business_id=${id}`),
-        axios.get(`/api/business/services?business_id=${id}`),
-        axios.get('/api/status'),
-        axios.get(`/api/business/users?business_id=${id}`)
+      const [businessRes, statusRes] = await Promise.all([
+        axios.get(`/api/admin/businesses/${id}`),
+        axios.get('/api/status')
       ]);
 
-      setBusinessInfo(infoRes.data);
-      setServices(servicesRes.data);
+      setBusinessInfo(businessRes.data);
+      setServices(businessRes.data.services);
       setSystemStatus(statusRes.data);
-      setUsers(usersRes.data);
+      setUsers([{ name: 'משתמש עסק', role: 'business', active: true }]); // Default user
     } catch (error) {
       console.error('Error fetching business data:', error);
     } finally {
