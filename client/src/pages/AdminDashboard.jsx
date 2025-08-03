@@ -130,7 +130,7 @@ const AdminDashboard = () => {
       console.log('🚀 מעבר למערכת העסק עם שליטה מלאה');
       
       // מעבר ישיר למערכת העסק - שליטה מלאה!
-      window.location.href = '/business-dashboard';
+      window.location.href = '/business/dashboard';
     } catch (error) {
       console.error('Error taking over business:', error);
       alert('שגיאה בהשתלטות על מערכת העסק');
