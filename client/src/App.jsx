@@ -4,6 +4,9 @@ import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 import BusinessDashboard from './pages/BusinessDashboard';
 import BusinessViewPage from './pages/BusinessViewPage';
+import CRMPage from './pages/CRMPage';
+import CallsPage from './pages/CallsPage';
+import WhatsAppPage from './pages/WhatsAppPage';
 import './index.css';
 
 function App() {
@@ -84,6 +87,34 @@ function App() {
             element={
               userRole === 'admin' ? 
                 <BusinessViewPage /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          
+          {/* דפי מערכות כלליות - רק למנהלים */}
+          <Route 
+            path="/admin/crm" 
+            element={
+              userRole === 'admin' ? 
+                <CRMPage /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          
+          <Route 
+            path="/admin/calls" 
+            element={
+              userRole === 'admin' ? 
+                <CallsPage /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          
+          <Route 
+            path="/admin/whatsapp" 
+            element={
+              userRole === 'admin' ? 
+                <WhatsAppPage /> : 
                 <Navigate to="/login" replace />
             } 
           />

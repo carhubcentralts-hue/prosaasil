@@ -53,7 +53,7 @@ const AdminDashboard = () => {
 
   const handleSystemAction = (system) => {
     console.log(`Navigation to: /admin/${system}`);
-    alert(`ניווט ל${system} - יושם בעתיד`);
+    window.location.href = `/admin/${system}`;
   };
 
   const handleBusinessView = (businessId) => {
@@ -73,7 +73,7 @@ const AdminDashboard = () => {
 
   const handleAddBusiness = () => {
     console.log('Add new business');
-    alert('הוספת עסק חדש - יושם בעתיד');
+    window.location.href = '/admin/add-business';
   };
 
   const getStatusColor = (status) => {
