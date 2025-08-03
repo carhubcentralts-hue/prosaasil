@@ -52,6 +52,8 @@ const AdminDashboard = () => {
   const [selectedBusinessId, setSelectedBusinessId] = useState(null);
   const [showBusinessModal, setShowBusinessModal] = useState(false);
   const [editingBusiness, setEditingBusiness] = useState(null);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'business', businessId: '' });
 
   const handleResetPassword = (businessId) => {
     setSelectedBusinessId(businessId);
@@ -99,6 +101,7 @@ const AdminDashboard = () => {
   };
 
   const handleViewBusiness = (businessId) => {
+    // שימוש בReact Router במקום window.location
     window.location.href = `/admin/business/${businessId}/view`;
   };
 
@@ -268,6 +271,12 @@ const AdminDashboard = () => {
                 <Plus className="w-4 h-4" />
                 הוסף עסק חדש
               </button>
+              <button 
+                onClick={() => setShowUserModal(true)}
+                className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors font-hebrew">
+                <Users className="w-4 h-4" />
+                הוסף משתמש
+              </button>
               <button
                 onClick={() => {
                   if (window.confirm('האם אתה בטוח שברצונך להתנתק?')) {
@@ -379,6 +388,18 @@ const AdminDashboard = () => {
             onClose={() => setShowBusinessModal(false)}
             onSubmit={() => {
               setShowBusinessModal(false);
+              fetchData(); // רענון נתונים
+            }}
+          />
+        )}
+
+        {/* מודל הוספת משתמש */}
+        {showUserModal && (
+          <UserModal 
+            businesses={businesses}
+            onClose={() => setShowUserModal(false)}
+            onSubmit={() => {
+              setShowUserModal(false);
               fetchData(); // רענון נתונים
             }}
           />
@@ -632,6 +653,139 @@ const BusinessModal = ({ business, onClose, onSubmit }) => {
               type="button"
               onClick={onClose}
               className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400"
+            >
+              ביטול
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// מודל הוספת משתמש
+const UserModal = ({ businesses, onClose, onSubmit }) => {
+  const [newUser, setNewUser] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: 'business',
+    businessId: ''
+  });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!newUser.name || !newUser.email || !newUser.password) {
+      alert('יש למלא את כל השדות');
+      return;
+    }
+    
+    if (newUser.role === 'business' && !newUser.businessId) {
+      alert('יש לבחור עסק עבור משתמש עסק');
+      return;
+    }
+
+    try {
+      await axios.post('/api/admin/users', {
+        name: newUser.name,
+        email: newUser.email,
+        password: newUser.password,
+        role: newUser.role,
+        businessId: newUser.role === 'business' ? newUser.businessId : null
+      });
+      alert('המשתמש נוסף בהצלחה');
+      onSubmit();
+    } catch (error) {
+      console.error('Error adding user:', error);
+      alert('שגיאה בהוספת המשתמש');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" dir="rtl">
+      <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
+        <h3 className="text-xl font-bold text-gray-900 font-hebrew mb-4">הוסף משתמש חדש</h3>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">שם מלא</label>
+            <input
+              type="text"
+              value={newUser.name}
+              onChange={(e) => setNewUser({...newUser, name: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
+              placeholder="הכנס שם המשתמש"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">אימייל</label>
+            <input
+              type="email"
+              value={newUser.email}
+              onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              placeholder="user@example.com"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">סיסמה</label>
+            <input
+              type="password"
+              value={newUser.password}
+              onChange={(e) => setNewUser({...newUser, password: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              placeholder="הכנס סיסמה"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">תפקיד</label>
+            <select
+              value={newUser.role}
+              onChange={(e) => setNewUser({...newUser, role: e.target.value, businessId: e.target.value === 'admin' ? '' : newUser.businessId})}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
+            >
+              <option value="business">משתמש עסק</option>
+              <option value="admin">מנהל מערכת</option>
+            </select>
+          </div>
+          
+          {newUser.role === 'business' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">בחר עסק</label>
+              <select
+                value={newUser.businessId}
+                onChange={(e) => setNewUser({...newUser, businessId: e.target.value})}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
+                required
+              >
+                <option value="">בחר עסק...</option>
+                {businesses.map((business) => (
+                  <option key={business.id} value={business.id}>
+                    {business.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          
+          <div className="flex gap-3 mt-6">
+            <button 
+              type="submit"
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg font-medium transition-colors font-hebrew"
+            >
+              הוסף משתמש
+            </button>
+            <button 
+              type="button"
+              onClick={onClose}
+              className="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded-lg font-medium transition-colors font-hebrew"
             >
               ביטול
             </button>
