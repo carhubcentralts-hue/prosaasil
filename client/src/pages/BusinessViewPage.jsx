@@ -14,8 +14,14 @@ import {
 } from 'lucide-react';
 
 const BusinessViewPage = () => {
+  console.log('🚀 BusinessViewPage: Component initialization START');
+  
   const { id } = useParams();
   const navigate = useNavigate();
+  
+  console.log('🚀 BusinessViewPage: ID from useParams:', id);
+  console.log('🚀 BusinessViewPage: navigate function:', typeof navigate);
+  
   const [businessInfo, setBusinessInfo] = useState(null);
   const [services, setServices] = useState(null);
   const [systemStatus, setSystemStatus] = useState(null);
@@ -24,18 +30,29 @@ const BusinessViewPage = () => {
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', role: 'business', email: '' });
 
+  console.log('🚀 BusinessViewPage: State initialized, loading:', loading);
+
   useEffect(() => {
-    fetchData();
+    console.log('🔄 BusinessViewPage: useEffect triggered for ID:', id);
+    if (id) {
+      fetchData();
+    } else {
+      console.log('❌ BusinessViewPage: No ID provided');
+    }
   }, [id]);
 
   const fetchData = async () => {
     try {
       setLoading(true);
+      console.log('📊 BusinessViewPage: Fetching data for business ID:', id);
       
       const [businessRes, statusRes] = await Promise.all([
         axios.get(`/api/admin/businesses/${id}`),
         axios.get('/api/status')
       ]);
+
+      console.log('📊 BusinessViewPage: Business data received:', businessRes.data);
+      console.log('📊 BusinessViewPage: Status data received:', statusRes.data);
 
       setBusinessInfo(businessRes.data);
       setServices(businessRes.data.services);
@@ -52,7 +69,7 @@ const BusinessViewPage = () => {
         }
       ]);
     } catch (error) {
-      console.error('Error fetching business data:', error);
+      console.error('❌ BusinessViewPage: Error fetching business data:', error);
     } finally {
       setLoading(false);
     }
@@ -78,14 +95,40 @@ const BusinessViewPage = () => {
   };
 
   if (loading) {
+    console.log('⏳ BusinessViewPage: Showing loading state for ID:', id);
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
         <div className="text-center font-hebrew">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">טוען נתונים...</p>
+          <p className="text-gray-600">טוען נתונים לעסק מספר {id}...</p>
         </div>
       </div>
     );
+  }
+
+  if (!businessInfo) {
+    console.log('❌ BusinessViewPage: No business info available for ID:', id);
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
+        <div className="text-center font-hebrew">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">שגיאה בטעינת נתונים</h1>
+          <p className="text-gray-600 mb-4">לא ניתן לטעון את פרטי העסק מספר {id}</p>
+          <button 
+            onClick={() => navigate('/admin/dashboard')}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+          >
+            חזור לדשבורד
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  console.log('✅ BusinessViewPage: Rendering business view for:', businessInfo.name);
+
+  // הוספת תצוגה פשוטה לבדיקה
+  if (window.location.pathname.includes('/admin/business/')) {
+    console.log('📍 BusinessViewPage: Confirmed on admin business view path');
   }
 
   return (
