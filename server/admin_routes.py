@@ -477,39 +477,7 @@ def update_business(business_id):
         logger.error(f"Error updating business: {e}")
         return jsonify({'error': 'Failed to update business'}), 500
 
-@admin_bp.route('/businesses/<int:business_id>', methods=['DELETE'])
-@admin_required
-def delete_business(business_id):
-    """מחיקת עסק"""
-    try:
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'error': 'Database connection failed'}), 500
-            
-        cur = conn.cursor()
-        
-        # קבלת שם העסק לפני המחיקה
-        cur.execute("SELECT name FROM businesses WHERE id = %s", (business_id,))
-        result = cur.fetchone()
-        if not result:
-            return jsonify({'error': 'Business not found'}), 404
-            
-        business_name = result[0]
-        
-        # מחיקת העסק
-        cur.execute("DELETE FROM businesses WHERE id = %s", (business_id,))
-        
-        conn.commit()
-        cur.close()
-        conn.close()
-        
-        logger.info(f"✅ Business deleted: {business_name} (ID: {business_id})")
-        
-        return jsonify({'message': 'Business deleted successfully'})
-    
-    except Exception as e:
-        logger.error(f"Error deleting business: {e}")
-        return jsonify({'error': 'Failed to delete business'}), 500
+
 
 @admin_bp.route('/stats', methods=['GET'])
 @admin_required

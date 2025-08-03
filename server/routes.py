@@ -3018,34 +3018,7 @@ def edit_business_config(business_id):
     business = Business.query.get_or_404(business_id)
     return render_template('edit_business.html', business=business)
 
-@app.route('/delete-business/<int:business_id>', methods=['POST'])
-@login_required 
-def delete_business_endpoint(business_id):
-    """מחיקת עסק"""
-    from auth import AuthService
-    current_user = AuthService.get_current_user()
-    
-    if current_user.role != 'admin':
-        return jsonify({'success': False, 'message': 'אין הרשאה'})
-    
-    try:
-        business = Business.query.get_or_404(business_id)
-        business_name = business.name
-        
-        # מחיקת כל הנתונים הקשורים
-        CallLog.query.filter_by(business_id=business_id).delete()
-        ConversationTurn.query.join(CallLog).filter(CallLog.business_id == business_id).delete()
-        AppointmentRequest.query.filter_by(business_id=business_id).delete()
-        
-        # מחיקת העסק עצמו
-        db.session.delete(business)
-        db.session.commit()
-        
-        return jsonify({'success': True, 'message': f'העסק {business_name} נמחק בהצלחה'})
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'message': f'שגיאה במחיקת העסק: {str(e)}'})
+# Delete function removed - only toggle active/inactive is supported
 
 @app.route('/update-business/<int:business_id>', methods=['POST'])
 @login_required
