@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/AdminDashboard';
+import BusinessDashboard from './pages/BusinessDashboard';
+import BusinessViewPage from './pages/BusinessViewPage';
 import './index.css';
 
 function App() {
@@ -66,27 +68,22 @@ function App() {
             } 
           />
           
-          {/* דשבורד עסק - זמנית הודעה שבבנייה */}
+          {/* דשבורד עסק */}
           <Route 
             path="/business/dashboard" 
             element={
-              userRole === 'business' ? 
-                <div className="min-h-screen bg-gray-50 flex items-center justify-center font-hebrew rtl">
-                  <div className="bg-white p-8 rounded-lg shadow-lg text-center">
-                    <h1 className="text-2xl font-bold text-gray-900 mb-4">דשבורד עסק בבנייה</h1>
-                    <p className="text-gray-600 mb-6">דשבורד העסק יבנה בשלב הבא</p>
-                    <button
-                      onClick={() => {
-                        localStorage.removeItem('auth_token');
-                        localStorage.removeItem('user_role');
-                        window.location.reload();
-                      }}
-                      className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
-                    >
-                      יציאה מהמערכת
-                    </button>
-                  </div>
-                </div> : 
+              (userRole === 'business' || userRole === 'admin') ? 
+                <BusinessDashboard /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          
+          {/* דף צפייה בעסק ספציפי - רק למנהלים */}
+          <Route 
+            path="/admin/business/:businessId/view" 
+            element={
+              userRole === 'admin' ? 
+                <BusinessViewPage /> : 
                 <Navigate to="/login" replace />
             } 
           />
