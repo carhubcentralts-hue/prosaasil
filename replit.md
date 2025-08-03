@@ -13,7 +13,7 @@ Complete 3-page React system implemented - August 3, 2025:
 • ✅ All API endpoints operational: /api/admin/*, /api/business/*, /api/status
 • ✅ **NEW**: Added `/api/admin/businesses/{id}` endpoint for individual business view
 • ✅ Database with real business data: טכנו סולושנס with Israeli/American phones
-• ✅ Login credentials: admin/admin123 (admin), business1/biz1234 (business)
+• ✅ Login credentials: admin/admin123 (admin), business1/biz1234 (business) **FIXED LOGIN ISSUE**
 • ✅ Build successful: 255.07 kB bundle **UPDATED**
 • Infrastructure: PostgreSQL, Flask backend, all systems operational
 
