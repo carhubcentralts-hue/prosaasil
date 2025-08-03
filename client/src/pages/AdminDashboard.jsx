@@ -12,7 +12,8 @@ import {
   Key,
   Trash2,
   Edit,
-  Plus
+  Plus,
+  LogOut
 } from 'lucide-react';
 
 const AdminDashboard = () => {
@@ -260,12 +261,26 @@ const AdminDashboard = () => {
             <h2 className="text-xl font-bold text-gray-900 font-hebrew">
               ניהול עסקים
             </h2>
-            <button 
-              onClick={handleAddBusiness}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-hebrew">
-              <Plus className="w-4 h-4" />
-              הוסף עסק חדש
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={handleAddBusiness}
+                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-hebrew">
+                <Plus className="w-4 h-4" />
+                הוסף עסק חדש
+              </button>
+              <button
+                onClick={() => {
+                  if (window.confirm('האם אתה בטוח שברצונך להתנתק?')) {
+                    localStorage.clear();
+                    window.location.href = '/login';
+                  }
+                }}
+                className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors font-hebrew"
+              >
+                <LogOut className="w-4 h-4" />
+                התנתק
+              </button>
+            </div>
           </div>
           
           <div className="overflow-x-auto">

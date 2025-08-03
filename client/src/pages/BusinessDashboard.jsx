@@ -55,8 +55,33 @@ const BusinessDashboard = () => {
     }
   };
 
+  const handleLogout = () => {
+    if (window.confirm('האם אתה בטוח שברצונך להתנתק?')) {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user_role');
+      localStorage.removeItem('user_name');
+      localStorage.removeItem('business_id');
+      window.location.href = '/login';
+    }
+  };
+
   const handleChangePassword = async (e) => {
     e.preventDefault();
+    
+    if (!passwordForm.current_password) {
+      alert('יש להזין את הסיסמה הנוכחית');
+      return;
+    }
+    
+    if (!passwordForm.new_password) {
+      alert('יש להזין סיסמה חדשה');
+      return;
+    }
+    
+    if (passwordForm.new_password.length < 6) {
+      alert('הסיסמה החדשה חייבת להכיל לפחות 6 תווים');
+      return;
+    }
     
     if (passwordForm.new_password !== passwordForm.confirm_password) {
       alert('הסיסמאות החדשות אינן תואמות');
@@ -78,12 +103,7 @@ const BusinessDashboard = () => {
     }
   };
 
-  const handleLogout = () => {
-    if (confirm('האם אתה בטוח שברצונך להתנתק?')) {
-      localStorage.clear();
-      window.location.href = '/login';
-    }
-  };
+
 
   const getStatusIcon = (status) => {
     switch (status) {
