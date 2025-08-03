@@ -49,7 +49,7 @@ def handle_incoming_call():
             # Default TwiML if no business found
             twiml = '''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="Polly.Hilit" language="he-IL">מצטערים, השירות אינו זמין כרגע.</Say>
+                <Say voice="he-IL-Wavenet-C" language="he-IL">מצטערים, השירות אינו זמין כרגע.</Say>
                 <Hangup/>
             </Response>'''
             return Response(twiml, mimetype='text/xml')
@@ -64,9 +64,9 @@ def handle_incoming_call():
         
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
         <Response>
-            <Say voice="Polly.Hilit" language="he-IL">{greeting}</Say>
+            <Say voice="he-IL-Wavenet-C" language="he-IL">{greeting}</Say>
             <Record action="{recording_webhook}" method="POST" maxLength="30" playBeep="true" recordingStatusCallback="{recording_webhook}" />
-            <Say voice="Polly.Hilit" language="he-IL">לא שמעתי תגובה. תודה על הפנייה ונתקשר בחזרה.</Say>
+            <Say voice="he-IL-Wavenet-C" language="he-IL">לא שמעתי תגובה. תודה על הפנייה ונתקשר בחזרה.</Say>
             <Hangup/>
         </Response>'''
         
@@ -78,7 +78,7 @@ def handle_incoming_call():
         # Fallback TwiML
         fallback_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
         <Response>
-            <Say voice="Polly.Hilit" language="he-IL">סליחה, יש בעיה טכנית. נסה שוב מאוחר יותר.</Say>
+            <Say voice="he-IL-Wavenet-C" language="he-IL">סליחה, יש בעיה טכנית. נסה שוב מאוחר יותר.</Say>
             <Hangup/>
         </Response>'''
         return Response(fallback_twiml, mimetype='text/xml')
@@ -244,7 +244,7 @@ def handle_recording():
         # Return error TwiML
         error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
         <Response>
-            <Say voice="Polly.Hilit" language="he-IL">סליחה, יש לי בעיה טכנית. נסה שוב בעוד רגע.</Say>
+            <Say voice="he-IL-Wavenet-C" language="he-IL">סליחה, יש לי בעיה טכנית. נסה שוב בעוד רגע.</Say>
             <Hangup/>
         </Response>'''
         return Response(error_twiml, mimetype='text/xml')
@@ -297,10 +297,10 @@ def generate_tts_response(text):
         # Escape XML special characters
         text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         
-        # Use Amazon Polly Hebrew voice through Twilio
+        # Use Google WaveNet Hebrew voice through Twilio
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
         <Response>
-            <Say voice="Polly.Hilit" language="he-IL">{text}</Say>
+            <Say voice="he-IL-Wavenet-C" language="he-IL">{text}</Say>
             <Record action="/handle_recording" method="POST" maxLength="30" timeout="3" transcribe="false"/>
         </Response>'''
         
@@ -315,7 +315,7 @@ def generate_fallback_twiml():
     """יוצר TwiML חלופי במקרה של כשל"""
     fallback_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
     <Response>
-        <Say voice="Polly.Hilit" language="he-IL">תודה לך על הפנייה. נחזור אליך בהקדם.</Say>
+        <Say voice="he-IL-Wavenet-C" language="he-IL">תודה לך על הפנייה. נחזור אליך בהקדם.</Say>
         <Hangup/>
     </Response>'''
     logger.info("✅ Using fallback TwiML")
@@ -345,7 +345,7 @@ def incoming_call():
         if not business_row:
             twiml = '''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="Polly.Hilit" language="he-IL">המספר שחייגת אליו לא פעיל כרגע.</Say>
+                <Say voice="he-IL-Wavenet-C" language="he-IL">המספר שחייגת אליו לא פעיל כרגע.</Say>
                 <Hangup/>
             </Response>'''
             return Response(twiml, mimetype='text/xml')
@@ -366,7 +366,7 @@ def incoming_call():
         
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
         <Response>
-            <Say voice="Polly.Hilit" language="he-IL">{greeting}</Say>
+            <Say voice="he-IL-Wavenet-C" language="he-IL">{greeting}</Say>
             <Record action="/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="false"/>
         </Response>'''
         
@@ -376,7 +376,7 @@ def incoming_call():
         logger.error(f"Error handling incoming call: {str(e)}")
         error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
         <Response>
-            <Say voice="Polly.Hilit" language="he-IL">סליחה, יש בעיה טכנית.</Say>
+            <Say voice="he-IL-Wavenet-C" language="he-IL">סליחה, יש בעיה טכנית.</Say>
             <Hangup/>
         </Response>'''
         return Response(error_twiml, mimetype='text/xml')
