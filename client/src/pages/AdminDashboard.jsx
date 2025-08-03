@@ -10,7 +10,8 @@ import {
   Settings,
   Eye,
   Key,
-  Trash2,
+  X,
+  Check,
   Edit,
   Plus,
   LogOut
@@ -103,6 +104,28 @@ const AdminDashboard = () => {
   const handleViewBusiness = (businessId) => {
     // שימוש בReact Router במקום window.location
     window.location.href = `/admin/business/${businessId}/view`;
+  };
+
+  // פונקציה לחלופת סטטוס פעיל/לא פעיל
+  const handleToggleBusinessStatus = async (businessId, businessName, currentStatus) => {
+    const action = currentStatus ? 'השבת' : 'הפעל';
+    if (window.confirm(`האם אתה בטוח שברצונך ל${action} את העסק "${businessName}"?`)) {
+      try {
+        const token = localStorage.getItem('auth_token');
+        const response = await axios.put(`/api/admin/businesses/${businessId}/toggle-active`, {}, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        alert(response.data.message);
+        fetchData(); // רענון הנתונים
+      } catch (error) {
+        console.error('❌ Error toggling business status:', error);
+        alert('שגיאה בשינוי סטטוס העסק');
+      }
+    }
   };
 
   const getStatusIcon = (status) => {
@@ -357,11 +380,11 @@ const AdminDashboard = () => {
                           <Edit className="w-4 h-4" />
                         </button>
                         <button 
-                          onClick={() => handleDeleteBusiness(business.id, business.name)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded"
-                          title="מחק עסק"
+                          onClick={() => handleToggleBusinessStatus(business.id, business.name, business.is_active)}
+                          className={`p-2 rounded ${business.is_active ? 'text-red-600 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`}
+                          title={business.is_active ? "השבת עסק" : "הפעל עסק"}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          {business.is_active ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
                         </button>
                       </div>
                     </td>
