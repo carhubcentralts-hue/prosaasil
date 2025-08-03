@@ -83,14 +83,7 @@ function App() {
           />
           
           {/* ניתוב להשתלטות על עסק */}
-          <Route 
-            path="/admin/business/:id/view" 
-            element={
-              <PrivateRoute requiredRole="admin">
-                <BusinessViewPage />
-              </PrivateRoute>
-            } 
-          />
+
           
           {/* דפי עסק */}
           <Route 
