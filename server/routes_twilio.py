@@ -329,13 +329,22 @@ def incoming_call():
         to_number = request.form.get('To')
         call_sid = request.form.get('CallSid')
         
-        # Find business - using direct PostgreSQL query
+        # Find business - using direct PostgreSQL query with debug
         import psycopg2
         try:
             conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
             cur = conn.cursor()
-            cur.execute("SELECT id, name FROM businesses WHERE phone_israel = %s AND calls_enabled = true", (to_number,))
+            # Clean and normalize phone number
+            clean_to_number = to_number.strip().replace(' ', '').replace('-', '')
+            if not clean_to_number.startswith('+'):
+                clean_to_number = '+' + clean_to_number
+                
+            logger.info(f"🔍 Original: '{to_number}' -> Cleaned: '{clean_to_number}'")
+            
+            # Try both original and cleaned number
+            cur.execute("SELECT id, name FROM businesses WHERE (phone_israel = %s OR REPLACE(REPLACE(phone_israel, ' ', ''), '-', '') = %s) AND calls_enabled = true", (to_number, clean_to_number))
             business_row = cur.fetchone()
+            logger.info(f"📞 Found business: {business_row}")
             cur.close()
             conn.close()
         except Exception as db_e:

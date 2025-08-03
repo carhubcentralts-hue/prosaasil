@@ -87,19 +87,7 @@ const AdminDashboard = () => {
     setShowBusinessModal(true);
   };
 
-  const handleDeleteBusiness = async (businessId, businessName) => {
-    const confirmDelete = window.confirm(`האם אתה בטוח שברצונך למחוק את העסק "${businessName}"?`);
-    if (!confirmDelete) return;
 
-    try {
-      await axios.delete(`/api/admin/businesses/${businessId}`);
-      alert('העסק נמחק בהצלחה');
-      fetchData(); // רענון הנתונים
-    } catch (error) {
-      console.error('Error deleting business:', error);
-      alert('שגיאה במחיקת העסק');
-    }
-  };
 
   const handleViewBusiness = (businessId) => {
     // שימוש בReact Router במקום window.location
