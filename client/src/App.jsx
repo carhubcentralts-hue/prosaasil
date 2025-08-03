@@ -46,6 +46,8 @@ function App() {
     );
   }
 
+  console.log('🌐 App: Current location:', window.location.pathname);
+
   return (
     <Router>
       <div className="App" dir="rtl">
@@ -82,6 +84,16 @@ function App() {
           
           <Route 
             path="/admin/business/:id/view" 
+            element={
+              <PrivateRoute requiredRole="admin">
+                <BusinessViewPage />
+              </PrivateRoute>
+            } 
+          />
+          
+          {/* ניתוב נוסף למקרה של בעיות */}
+          <Route 
+            path="/admin/business/*/view" 
             element={
               <PrivateRoute requiredRole="admin">
                 <BusinessViewPage />

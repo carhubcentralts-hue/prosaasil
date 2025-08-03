@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html dir="rtl">
+<head>
+    <title>בדיקה מהירה</title>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+        .btn { background: #2563eb; color: white; padding: 15px 30px; margin: 10px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+        .btn:hover { background: #1d4ed8; }
+        .success { background: #059669; }
+    </style>
+</head>
+<body>
+    <h1>🧪 בדיקה מהירה של התיקון</h1>
+    
+    <div style="background: #f0f8ff; padding: 20px; margin: 20px; border-radius: 8px;">
+        <h2>המערכת תוקנה! ✅</h2>
+        <p><strong>מה תוקן:</strong></p>
+        <ul style="text-align: right; display: inline-block;">
+            <li>נתיבי הנכסים עברו מיחסיים לאבסולוטיים</li>
+            <li>React Router כעת יכול לטעון את הקומפוננטים</li>
+            <li>דף צפייה בעסק אמור לעבוד תקין</li>
+        </ul>
+    </div>
+
+    <button onclick="window.location.href='/admin/business/1/view'" class="btn">
+        🔍 מעבר לדף צפייה בעסק מספר 1
+    </button>
+    <br>
+    <button onclick="window.location.href='/admin/business/2/view'" class="btn">
+        🔍 מעבר לדף צפייה בעסק מספר 2
+    </button>
+    <br>
+    <button onclick="window.location.href='/admin/dashboard'" class="btn success">
+        🏠 חזור לדשבורד מנהל
+    </button>
+
+    <div style="background: #fff3cd; padding: 15px; margin: 20px; border-radius: 8px; border: 1px solid #ffeaa7;">
+        <h3>אם עדיין לא עובד:</h3>
+        <p>רענן את הדף (Ctrl+F5) כדי לטעון את הנכסים החדשים</p>
+    </div>
+</body>
+</html>

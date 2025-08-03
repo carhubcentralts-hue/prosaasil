@@ -15,6 +15,8 @@ import {
 
 const BusinessViewPage = () => {
   console.log('🚀 BusinessViewPage: Component initialization START');
+  console.log('🚀 BusinessViewPage: Current URL:', window.location.href);
+  console.log('🚀 BusinessViewPage: Current pathname:', window.location.pathname);
   
   const { id } = useParams();
   const navigate = useNavigate();
