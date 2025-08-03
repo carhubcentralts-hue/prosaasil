@@ -263,7 +263,7 @@ def reset_business_password_by_id(business_id):
         # אם אין משתמש קיים, ניצור חדש
         if cur.rowcount == 0:
             cur.execute("""
-                INSERT INTO users (business_id, username, password, role, created_at)
+                INSERT INTO users (business_id, name, password, role, created_at)
                 VALUES (%s, %s, %s, 'business', NOW())
             """, (business_id, f'business{business_id}', new_password))
         
@@ -305,7 +305,7 @@ def add_user_to_business(business_id):
             return jsonify({'error': 'Business not found'}), 404
         
         # בדיקה שהשם משתמש לא קיים
-        cur.execute("SELECT id FROM users WHERE username = %s", (username,))
+        cur.execute("SELECT id FROM users WHERE name = %s", (username,))
         if cur.fetchone():
             cur.close()
             conn.close()
@@ -313,7 +313,7 @@ def add_user_to_business(business_id):
         
         # הוספת משתמש חדש
         cur.execute("""
-            INSERT INTO users (business_id, username, password, email, role, created_at)
+            INSERT INTO users (business_id, name, password, email, role, created_at)
             VALUES (%s, %s, %s, %s, 'employee', NOW())
             RETURNING id
         """, (business_id, username, password, email))

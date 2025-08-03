@@ -82,8 +82,15 @@ const BusinessViewPage = () => {
   const handlePasswordReset = async () => {
     try {
       console.log('🔑 BusinessViewPage: Resetting password for business ID:', id);
+      
+      const token = localStorage.getItem('auth_token');
       const response = await axios.post(`/api/admin/businesses/${id}/reset-password`, {
         new_password: passwordData.newPassword || 'newpassword123'
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
 
       alert(`סיסמה עודכנה בהצלחה! סיסמה חדשה: ${response.data.new_password}`);
@@ -98,10 +105,22 @@ const BusinessViewPage = () => {
   const handleAddUser = async () => {
     try {
       console.log('👤 BusinessViewPage: Adding user to business ID:', id);
+      
+      if (!newUser.username || !newUser.email) {
+        alert('נא למלא שם משתמש ואימייל');
+        return;
+      }
+      
+      const token = localStorage.getItem('auth_token');
       const response = await axios.post(`/api/admin/businesses/${id}/users`, {
         username: newUser.username,
         password: newUser.password || 'defaultpass123',
         email: newUser.email
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
 
       alert(`משתמש נוסף בהצלחה! שם משתמש: ${response.data.username}`);
@@ -127,7 +146,14 @@ const BusinessViewPage = () => {
   const handleToggleActive = async () => {
     try {
       console.log('🔄 BusinessViewPage: Toggling active status for business ID:', id);
-      const response = await axios.put(`/api/admin/businesses/${id}/toggle-active`);
+      
+      const token = localStorage.getItem('auth_token');
+      const response = await axios.put(`/api/admin/businesses/${id}/toggle-active`, {}, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
 
       alert(response.data.message);
       // עדכון המידע המקומי
