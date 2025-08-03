@@ -3,13 +3,13 @@
 ## Overview
 This project is an AI-powered call center system designed for Hebrew-speaking customers and businesses in Israel. It integrates with Twilio for call handling and OpenAI's GPT-4o for intelligent customer service automation. The system aims to provide a comprehensive CRM solution, automate payment integrations, and offer advanced analytics for businesses. Its vision is to deliver an enterprise-grade, commercially deployable solution for the Israeli market, enhancing customer interaction and business automation.
 
-**Current Status: SYSTEMATIC UPGRADE COMPLETE ✅**
-System upgraded following 6-step Hebrew systematic approach - August 1, 2025:
-• Step 1-4 COMPLETE: Business permissions, Twilio AI calls, WhatsApp (Baileys+Twilio), Advanced CRM
-• All 3 Components VERIFIED: Calls (Hebrew STT+GPT+TTS), WhatsApp (dual-platform), CRM (full Hebrew UI)
-• Route Integration: routes_twilio.py, routes_whatsapp.py, routes_crm.py successfully integrated
-• Business Configuration: calls_enabled=true, whatsapp_enabled=true, crm_enabled=true
-• Infrastructure: PostgreSQL operational, Hebrew RTL templates, multi-business support active
+**Current Status: COMPLETE RESTART - BUILDING FROM LOGIN ONLY ✅**
+System reset as requested by user - August 3, 2025:
+• All dashboard templates removed (AdminDashboard.jsx, BusinessDashboard.jsx, etc.)
+• Only LoginPage.jsx remains functional 
+• App.jsx shows "בבנייה" (under construction) message after login
+• Ready to build step by step from login forward
+• Infrastructure: PostgreSQL operational, Flask backend running, authentication working
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.

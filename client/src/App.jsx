@@ -1,13 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import BusinessDashboard from './pages/BusinessDashboard';
-import AdminDashboard from './pages/AdminDashboard';
-import BusinessViewPage from './pages/BusinessViewPage';
 import LoginPage from './pages/LoginPage';
-import CallsPage from './pages/CallsPage';
-import WhatsAppPage from './pages/WhatsAppPage';
-import CRMPage from './pages/CRMPage';
-import PrivateRoute from './components/PrivateRoute';
 import './index.css';
 
 function App() {
@@ -57,118 +50,30 @@ function App() {
     );
   }
 
-  // אם מחובר - הצג את המערכת המתאימה
+  // זמנית - הצג הודעה שהמערכת בבנייה
   return (
-    <div className="App">
-      <Router>
-        <Routes>
-          {/* דשבורד מנהל */}
-          <Route 
-            path="/admin/dashboard" 
-            element={
-              userRole === 'admin' ? 
-                <AdminDashboard /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          {/* דשבורד עסק - גם עבור עסקים וגם עבור מנהלים במצב השתלטות */}
-          <Route 
-            path="/business/dashboard" 
-            element={
-              (userRole === 'business' || userRole === 'admin') ? 
-                <BusinessDashboard /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          {/* דף צפייה בעסק ספציפי - רק למנהלים */}
-          <Route 
-            path="/business/:businessId/dashboard" 
-            element={
-              userRole === 'admin' ? 
-                <BusinessViewPage /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          {/* נתיבי מערכות עסק */}
-          <Route 
-            path="/business/calls" 
-            element={
-              (userRole === 'business' || userRole === 'admin') ? 
-                <CallsPage /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          <Route 
-            path="/business/whatsapp" 
-            element={
-              (userRole === 'business' || userRole === 'admin') ? 
-                <WhatsAppPage /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          <Route 
-            path="/business/crm" 
-            element={
-              (userRole === 'business' || userRole === 'admin') ? 
-                <CRMPage /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          {/* נתיבי מערכות מנהל */}
-          <Route 
-            path="/admin/calls" 
-            element={
-              userRole === 'admin' ? 
-                <CallsPage /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          <Route 
-            path="/admin/whatsapp" 
-            element={
-              userRole === 'admin' ? 
-                <WhatsAppPage /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          <Route 
-            path="/admin/crm" 
-            element={
-              userRole === 'admin' ? 
-                <CRMPage /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          {/* נתיב ברירת מחדל - ניווט לפי תפקיד */}
-          <Route 
-            path="/" 
-            element={
-              userRole === 'admin' ? 
-                <Navigate to="/admin/dashboard" replace /> :
-                userRole === 'business' ?
-                <Navigate to="/business/dashboard" replace /> :
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          {/* התחברות - הפניה לדשבורד אם כבר מחובר */}
-          <Route 
-            path="/login"
-            element={<Navigate to="/" replace />}
-          />
-          
-          {/* כל שאר הנתיבים */}
-          <Route 
-            path="*" 
-            element={<Navigate to="/" replace />}
-          />
-        </Routes>
-      </Router>
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center font-hebrew rtl">
+      <div className="bg-white p-8 rounded-lg shadow-lg text-center">
+        <h1 className="text-2xl font-bold text-gray-900 mb-4">
+          המערכת בבנייה
+        </h1>
+        <p className="text-gray-600 mb-6">
+          המערכת נבנית שלב אחר שלב. בחזרה בקרוב!
+        </p>
+        <p className="text-sm text-gray-500 mb-4">
+          מחובר כ: {userRole === 'admin' ? 'מנהל' : 'עסק'}
+        </p>
+        <button
+          onClick={() => {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_role');
+            window.location.reload();
+          }}
+          className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+        >
+          יציאה מהמערכת
+        </button>
+      </div>
     </div>
   );
 }
