@@ -4,6 +4,9 @@ import BusinessDashboard from './pages/BusinessDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import BusinessViewPage from './pages/BusinessViewPage';
 import LoginPage from './pages/LoginPage';
+import CallsPage from './pages/CallsPage';
+import WhatsAppPage from './pages/WhatsAppPage';
+import CRMPage from './pages/CRMPage';
 import PrivateRoute from './components/PrivateRoute';
 import './index.css';
 
@@ -85,6 +88,58 @@ function App() {
             element={
               userRole === 'admin' ? 
                 <BusinessViewPage /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          
+          {/* נתיבי מערכות עסק */}
+          <Route 
+            path="/business/calls" 
+            element={
+              (userRole === 'business' || userRole === 'admin') ? 
+                <CallsPage /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          <Route 
+            path="/business/whatsapp" 
+            element={
+              (userRole === 'business' || userRole === 'admin') ? 
+                <WhatsAppPage /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          <Route 
+            path="/business/crm" 
+            element={
+              (userRole === 'business' || userRole === 'admin') ? 
+                <CRMPage /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          
+          {/* נתיבי מערכות מנהל */}
+          <Route 
+            path="/admin/calls" 
+            element={
+              userRole === 'admin' ? 
+                <CallsPage /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          <Route 
+            path="/admin/whatsapp" 
+            element={
+              userRole === 'admin' ? 
+                <WhatsAppPage /> : 
+                <Navigate to="/login" replace />
+            } 
+          />
+          <Route 
+            path="/admin/crm" 
+            element={
+              userRole === 'admin' ? 
+                <CRMPage /> : 
                 <Navigate to="/login" replace />
             } 
           />

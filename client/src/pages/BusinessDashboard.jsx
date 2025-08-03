@@ -227,19 +227,19 @@ const BusinessDashboard = () => {
 
   const handleQuickAction = (action) => {
     console.log(`Quick action: ${action}`);
-    // هنا يمكن إضافة التنقل إلى الصفحات المختلفة
+    // ניווט למערכות השונות
     switch(action) {
       case 'calls':
-        window.location.href = '/calls';
+        window.location.href = '/business/calls';
         break;
       case 'whatsapp':
-        window.location.href = '/whatsapp';
+        window.location.href = '/business/whatsapp';
         break;
       case 'crm':
-        window.location.href = '/crm';
+        window.location.href = '/business/crm';
         break;
       case 'proposals':
-        window.location.href = '/proposals';
+        window.location.href = '/business/proposals';
         break;
       default:
         break;

@@ -538,6 +538,43 @@ const AdminDashboard = () => {
           </div>
         </div>
 
+        {/* System Management */}
+        <div className="bg-white rounded-lg shadow mb-8">
+          <div className="p-6 border-b">
+            <h2 className="text-xl font-bold text-gray-900">מערכות המערכת</h2>
+          </div>
+          <div className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <button
+                onClick={() => window.location.href = '/admin/calls'}
+                className="flex flex-col items-center p-6 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200"
+              >
+                <Phone className="w-8 h-8 text-blue-600 mb-2" />
+                <span className="text-blue-600 font-medium">מערכת שיחות AI</span>
+                <span className="text-xs text-blue-500">ניהול שיחות וקולות</span>
+              </button>
+              
+              <button
+                onClick={() => window.location.href = '/admin/whatsapp'}
+                className="flex flex-col items-center p-6 bg-green-50 hover:bg-green-100 rounded-lg transition-colors border border-green-200"
+              >
+                <MessageCircle className="w-8 h-8 text-green-600 mb-2" />
+                <span className="text-green-600 font-medium">מערכת WhatsApp</span>
+                <span className="text-xs text-green-500">הודעות וצ'אטים</span>
+              </button>
+              
+              <button
+                onClick={() => window.location.href = '/admin/crm'}
+                className="flex flex-col items-center p-6 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors border border-purple-200"
+              >
+                <Users className="w-8 h-8 text-purple-600 mb-2" />
+                <span className="text-purple-600 font-medium">מערכת CRM</span>
+                <span className="text-xs text-purple-500">ניהול לקוחות</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* Active Businesses */}
         <div className="bg-white rounded-lg shadow">
           <div className="p-6 border-b flex justify-between items-center">
