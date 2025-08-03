@@ -359,26 +359,20 @@ def incoming_call():
             </Response>'''
             return Response(twiml, mimetype='text/xml')
             
-        # Create call log
-        call_log = CallLog(
-            business_id=business.id,
-            call_sid=call_sid,
-            from_number=from_number,
-            to_number=to_number,
-            call_status='answered'
-        )
-        db.session.add(call_log)
-        db.session.commit()
+        # Extract business info from row
+        business_id, business_name = business_row
+        logger.info(f"✅ Found business: {business_name} (ID: {business_id})")
         
-        # Start conversation with greeting
-        greeting = business.greeting_message or "שלום! איך אפשר לעזור לך היום?"
+        # Start conversation with greeting  
+        greeting = f"שלום! זהו המוקד הוירטואלי של {business_name}. איך אוכל לעזור לך היום?"
         
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
         <Response>
             <Say voice="he-IL-Wavenet-C" language="he-IL">{greeting}</Say>
-            <Record action="/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="false"/>
+            <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="false"/>
         </Response>'''
         
+        logger.info(f"✅ Voice webhook response sent for business: {business_name}")
         return Response(twiml, mimetype='text/xml')
         
     except Exception as e:
@@ -386,6 +380,48 @@ def incoming_call():
         error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
         <Response>
             <Say voice="he-IL-Wavenet-C" language="he-IL">סליחה, יש בעיה טכנית.</Say>
+            <Hangup/>
+        </Response>'''
+        return Response(error_twiml, mimetype='text/xml')
+
+@app.route("/twilio/handle_recording", methods=["POST"])
+def handle_recording():
+    """מטפל בהקלטות מהמשתמש"""
+    try:
+        recording_url = request.form.get('RecordingUrl')
+        call_sid = request.form.get('CallSid')
+        from_number = request.form.get('From')
+        to_number = request.form.get('To')
+        
+        logger.info(f"🎙️ Received recording: {recording_url}")
+        
+        if not recording_url:
+            logger.warning("No recording URL provided")
+            twiml = '''<?xml version="1.0" encoding="UTF-8"?>
+            <Response>
+                <Say voice="he-IL-Wavenet-C" language="he-IL">לא קלטתי אותך. אנא נסה שוב.</Say>
+                <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="false"/>
+            </Response>'''
+            return Response(twiml, mimetype='text/xml')
+        
+        # Process with AI (simplified for now)
+        ai_response = "תודה על פנייתך. נחזור אליך בהקדם האפשרי."
+        
+        # Generate response TwiML
+        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+        <Response>
+            <Say voice="he-IL-Wavenet-C" language="he-IL">{ai_response}</Say>
+            <Hangup/>
+        </Response>'''
+        
+        logger.info(f"✅ Recording processed and response sent")
+        return Response(twiml, mimetype='text/xml')
+        
+    except Exception as e:
+        logger.error(f"Error handling recording: {str(e)}")
+        error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
+        <Response>
+            <Say voice="he-IL-Wavenet-C" language="he-IL">סליחה, הייתה בעיה בעיבוד ההקלטה.</Say>
             <Hangup/>
         </Response>'''
         return Response(error_twiml, mimetype='text/xml')
