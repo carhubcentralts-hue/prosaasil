@@ -87,6 +87,22 @@ const AdminDashboard = () => {
     setShowBusinessModal(true);
   };
 
+  const handleDeleteBusiness = async (businessId) => {
+    if (!window.confirm('האם אתה בטוח שברצונך למחוק את העסק? פעולה זו לא ניתנת לביטול.')) {
+      return;
+    }
+
+    try {
+      console.log('Deleting business:', businessId);
+      await axios.delete(`/api/admin/businesses/${businessId}`);
+      alert('העסק נמחק בהצלחה');
+      fetchData(); // רענון נתונים
+    } catch (error) {
+      console.error('Error deleting business:', error);
+      alert('שגיאה במחיקת העסק');
+    }
+  };
+
 
 
   const handleViewBusiness = (businessId) => {
@@ -346,6 +362,13 @@ const AdminDashboard = () => {
                           title="ערוך עסק"
                         >
                           <Edit className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteBusiness(business.id)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded"
+                          title="מחק עסק"
+                        >
+                          <X className="w-4 h-4" />
                         </button>
 
                       </div>
