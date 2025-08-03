@@ -14,7 +14,10 @@ Complete 3-page React system implemented - August 3, 2025:
 • ✅ **NEW**: Added `/api/admin/businesses/{id}` endpoint for individual business view
 • ✅ Database with real business data: טכנו סולושנס with Israeli/American phones
 • ✅ Login credentials: admin/admin123 (admin), business1/biz1234 (business) **FIXED LOGIN ISSUE**
-• ✅ Build successful: 255.07 kB bundle **UPDATED**
+• ✅ Build successful: 257.66 kB bundle **LATEST UPDATE**
+• ✅ **FIXED**: Business view routing now works for all business IDs (/admin/business/2/view, /admin/business/3/view)
+• ✅ **NEW**: User management - Add users functionality with modal form
+• ✅ **UPDATED**: Package expiration removed - admin controls manually (not time-based)
 • Infrastructure: PostgreSQL, Flask backend, all systems operational
 
 ## User Preferences

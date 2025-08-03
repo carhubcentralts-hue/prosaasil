@@ -21,6 +21,8 @@ const BusinessViewPage = () => {
   const [systemStatus, setSystemStatus] = useState(null);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [newUser, setNewUser] = useState({ name: '', role: 'business', email: '' });
 
   useEffect(() => {
     fetchData();
@@ -38,7 +40,17 @@ const BusinessViewPage = () => {
       setBusinessInfo(businessRes.data);
       setServices(businessRes.data.services);
       setSystemStatus(statusRes.data);
-      setUsers([{ name: 'משתמש עסק', role: 'business', active: true }]); // Default user
+      // אחרי שנקבל את businessInfo, נוסיף משתמשים דמי
+      setUsers([
+        { 
+          id: 1, 
+          name: 'משתמש עסק ראשי', 
+          role: 'business', 
+          status: 'active',
+          last_login: new Date().toISOString(),
+          email: `business${id}@system.com`
+        }
+      ]);
     } catch (error) {
       console.error('Error fetching business data:', error);
     } finally {
@@ -128,8 +140,8 @@ const BusinessViewPage = () => {
                 <p className="font-bold font-hebrew">{businessInfo.users_count}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600 font-hebrew">תוקף חבילה</p>
-                <p className="font-bold text-green-600 font-hebrew">{businessInfo.plan_expires}</p>
+                <p className="text-sm text-gray-600 font-hebrew">סטטוס חבילה</p>
+                <p className="font-bold text-green-600 font-hebrew">פעילה (מנוהלת ידנית)</p>
               </div>
             </div>
           </div>
@@ -219,10 +231,19 @@ const BusinessViewPage = () => {
 
         {/* משתמשי העסק */}
         <div className="bg-white rounded-2xl shadow-md p-6">
-          <h2 className="text-xl font-bold text-gray-900 font-hebrew mb-4 flex items-center gap-2">
-            <UserCheck className="w-5 h-5" />
-            משתמשי העסק
-          </h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-gray-900 font-hebrew flex items-center gap-2">
+              <UserCheck className="w-5 h-5" />
+              משתמשי העסק
+            </h2>
+            <button 
+              onClick={() => setShowAddUser(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              + הוסף משתמש
+            </button>
+          </div>
+          
           <div className="space-y-3">
             {users.map((user) => (
               <div key={user.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
@@ -230,7 +251,7 @@ const BusinessViewPage = () => {
                 <div className="flex-1">
                   <p className="font-medium font-hebrew">{user.name}</p>
                   <p className="text-sm text-gray-600 font-hebrew">
-                    תפקיד: {user.role} | התחברות אחרונה: {new Date(user.last_login).toLocaleDateString('he-IL')}
+                    תפקיד: {user.role === 'business' ? 'עסק' : 'מנהל'} | אימייל: {user.email}
                   </p>
                 </div>
                 <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-hebrew">
@@ -239,7 +260,89 @@ const BusinessViewPage = () => {
               </div>
             ))}
           </div>
+          
+          {users.length === 0 && (
+            <div className="text-center py-8 text-gray-500 font-hebrew">
+              אין משתמשים רשומים עדיין
+            </div>
+          )}
         </div>
+
+        {/* מודל הוספת משתמש */}
+        {showAddUser && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" dir="rtl">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
+              <h3 className="text-xl font-bold text-gray-900 font-hebrew mb-4">הוסף משתמש חדש</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">שם מלא</label>
+                  <input
+                    type="text"
+                    value={newUser.name}
+                    onChange={(e) => setNewUser({...newUser, name: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
+                    placeholder="הכנס שם המשתמש"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">אימייל</label>
+                  <input
+                    type="email"
+                    value={newUser.email}
+                    onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="user@example.com"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">תפקיד</label>
+                  <select
+                    value={newUser.role}
+                    onChange={(e) => setNewUser({...newUser, role: e.target.value})}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
+                  >
+                    <option value="business">משתמש עסק</option>
+                    <option value="admin">מנהל</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="flex gap-3 mt-6">
+                <button 
+                  onClick={() => {
+                    // הוספת משתמש חדש למערך
+                    const newUserId = users.length + 1;
+                    setUsers([...users, {
+                      id: newUserId,
+                      name: newUser.name,
+                      role: newUser.role,
+                      email: newUser.email,
+                      status: 'active',
+                      last_login: new Date().toISOString()
+                    }]);
+                    setNewUser({ name: '', role: 'business', email: '' });
+                    setShowAddUser(false);
+                  }}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium transition-colors font-hebrew"
+                >
+                  הוסף משתמש
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowAddUser(false);
+                    setNewUser({ name: '', role: 'business', email: '' });
+                  }}
+                  className="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded-lg font-medium transition-colors font-hebrew"
+                >
+                  ביטול
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
