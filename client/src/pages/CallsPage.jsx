@@ -1,7 +1,9 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Phone, Play, Download, Clock } from 'lucide-react';
 
 const CallsPage = () => {
+  const navigate = useNavigate();
   const calls = [
     {
       id: 1,
@@ -36,7 +38,7 @@ const CallsPage = () => {
   ];
 
   const goBack = () => {
-    window.location.href = '/admin/dashboard';
+    navigate('/admin/dashboard');
   };
 
   const handlePlayRecording = (callId) => {

@@ -1,7 +1,9 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Users, Plus, Search, Filter } from 'lucide-react';
 
 const CRMPage = () => {
+  const navigate = useNavigate();
   const customers = [
     {
       id: 1,
@@ -33,7 +35,7 @@ const CRMPage = () => {
   ];
 
   const goBack = () => {
-    window.location.href = '/admin/dashboard';
+    navigate('/admin/dashboard');
   };
 
   const handleAddCustomer = () => {

@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Settings, Users, Phone, MessageCircle, Eye, Edit, Key, Plus, Activity } from 'lucide-react';
 
 const AdminDashboard = () => {
+  const navigate = useNavigate();
   // נתונים קבועים (בעתיד יבואו מה-API)
   const stats = {
     totalBusinesses: 3,
@@ -53,12 +55,12 @@ const AdminDashboard = () => {
 
   const handleSystemAction = (system) => {
     console.log(`Navigation to: /admin/${system}`);
-    window.location.href = `/admin/${system}`;
+    navigate(`/admin/${system}`);
   };
 
   const handleBusinessView = (businessId) => {
     console.log(`View business: ${businessId}`);
-    window.location.href = `/admin/business/${businessId}/view`;
+    navigate(`/admin/business/${businessId}/view`);
   };
 
   const handleEditBusiness = (businessId) => {
@@ -73,7 +75,7 @@ const AdminDashboard = () => {
 
   const handleAddBusiness = () => {
     console.log('Add new business');
-    window.location.href = '/admin/add-business';
+    navigate('/admin/add-business');
   };
 
   const getStatusColor = (status) => {

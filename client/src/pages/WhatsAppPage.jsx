@@ -1,7 +1,9 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, MessageCircle, Send, Phone, Users } from 'lucide-react';
 
 const WhatsAppPage = () => {
+  const navigate = useNavigate();
   const conversations = [
     {
       id: 1,
@@ -40,7 +42,7 @@ const WhatsAppPage = () => {
   };
 
   const goBack = () => {
-    window.location.href = '/admin/dashboard';
+    navigate('/admin/dashboard');
   };
 
   const handleConversationClick = (conversationId) => {
