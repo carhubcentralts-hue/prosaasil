@@ -1,21 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState } from 'react';
 import LoginPage from './pages/LoginPage';
-import AdminDashboard from './pages/AdminDashboard';
-import BusinessDashboard from './pages/BusinessDashboard';
-import BusinessViewPage from './pages/BusinessViewPage';
-import CRMPage from './pages/CRMPage';
-import CallsPage from './pages/CallsPage';
-import WhatsAppPage from './pages/WhatsAppPage';
 import './index.css';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userRole, setUserRole] = useState(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // בדיקה אם משתמש מחובר
+  // בדיקה אם משתמש מחובר
+  React.useEffect(() => {
     const token = localStorage.getItem('auth_token');
     const role = localStorage.getItem('user_role');
     
@@ -24,126 +16,45 @@ function App() {
     if (token && role) {
       setIsAuthenticated(true);
       setUserRole(role);
-    } else {
-      setIsAuthenticated(false);
-      setUserRole(null);
     }
-    setLoading(false);
   }, []);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600 font-hebrew">טוען מערכת...</p>
-        </div>
-      </div>
-    );
-  }
 
   // אם לא מחובר - הצג רק דף התחברות
   if (!isAuthenticated) {
     return (
       <div className="App">
-        <Router>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="*" element={<Navigate to="/login" replace />} />
-          </Routes>
-        </Router>
+        <LoginPage />
       </div>
     );
   }
 
-  // אם מחובר - הצג את המערכת המתאימה
+  // אם מחובר - הצג הודעת הצלחה זמנית
   return (
     <div className="App">
-      <Router>
-        <Routes>
-          {/* דשבורד מנהל */}
-          <Route 
-            path="/admin/dashboard" 
-            element={
-              userRole === 'admin' ? 
-                <AdminDashboard /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          {/* דשבורד עסק */}
-          <Route 
-            path="/business/dashboard" 
-            element={
-              (userRole === 'business' || userRole === 'admin') ? 
-                <BusinessDashboard /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          {/* דף צפייה בעסק ספציפי - רק למנהלים */}
-          <Route 
-            path="/admin/business/:businessId/view" 
-            element={
-              userRole === 'admin' ? 
-                <BusinessViewPage /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          {/* דפי מערכות כלליות - רק למנהלים */}
-          <Route 
-            path="/admin/crm" 
-            element={
-              userRole === 'admin' ? 
-                <CRMPage /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          <Route 
-            path="/admin/calls" 
-            element={
-              userRole === 'admin' ? 
-                <CallsPage /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          <Route 
-            path="/admin/whatsapp" 
-            element={
-              userRole === 'admin' ? 
-                <WhatsAppPage /> : 
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          {/* נתיב ברירת מחדל - ניווט לפי תפקיד */}
-          <Route 
-            path="/" 
-            element={
-              userRole === 'admin' ? 
-                <Navigate to="/admin/dashboard" replace /> :
-                userRole === 'business' ?
-                <Navigate to="/business/dashboard" replace /> :
-                <Navigate to="/login" replace />
-            } 
-          />
-          
-          {/* התחברות - הפניה לדשבורד אם כבר מחובר */}
-          <Route 
-            path="/login"
-            element={<Navigate to="/" replace />}
-          />
-          
-          {/* כל שאר הנתיבים */}
-          <Route 
-            path="*" 
-            element={<Navigate to="/" replace />}
-          />
-        </Routes>
-      </Router>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full text-center">
+          <h1 className="text-2xl font-bold text-green-600 mb-4 font-hebrew">
+            ✅ התחברות הצליחה!
+          </h1>
+          <p className="text-gray-600 mb-4 font-hebrew">
+            שלום {userRole === 'admin' ? 'מנהל' : 'משתמש עסק'}
+          </p>
+          <p className="text-sm text-gray-500 mb-6 font-hebrew">
+            מערכת Agent Locator - CRM מתקדמת
+          </p>
+          <button
+            onClick={() => {
+              localStorage.removeItem('auth_token');
+              localStorage.removeItem('user_role');
+              setIsAuthenticated(false);
+              setUserRole(null);
+            }}
+            className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors font-hebrew"
+          >
+            יציאה מהמערכת
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
 import axios from 'axios';
 import { 
   Eye, 
@@ -20,22 +19,6 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const navigate = useNavigate();
-
-  // בדיקה אם המשתמש כבר מחובר
-  useEffect(() => {
-    const token = localStorage.getItem('auth_token');
-    const role = localStorage.getItem('user_role');
-    
-    if (token && role) {
-      // הפנה לדשבורד המתאים
-      if (role === 'admin') {
-        navigate('/admin/dashboard');
-      } else if (role === 'business') {
-        navigate('/business/dashboard');
-      }
-    }
-  }, [navigate]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -76,15 +59,11 @@ const LoginPage = () => {
       localStorage.setItem('user_name', name);
 
       setSuccess(`התחברות מוצלחת! ברוך הבא ${name}`);
-
-      // הפנה מיד לדשבורד המתאים
-      if (role === 'admin') {
-        window.location.href = '/admin/dashboard';
-      } else if (role === 'business') {
-        window.location.href = '/business/dashboard';  
-      } else {
-        window.location.href = '/dashboard';
-      }
+      
+      // רענן את הדף כדי שה-App.jsx יזהה את ההתחברות
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
 
     } catch (error) {
       console.error('Login error:', error);
