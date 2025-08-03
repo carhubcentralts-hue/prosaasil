@@ -7,13 +7,14 @@ This project is an AI-powered call center system designed for Hebrew-speaking cu
 Complete 3-page React system implemented - August 3, 2025:
 • ✅ LoginPage.jsx - Hebrew login interface with simple credentials
 • ✅ AdminDashboard.jsx - Full admin panel with business management
-• ✅ BusinessDashboard.jsx - Complete business dashboard with KPIs
-• ✅ BusinessViewPage.jsx - Detailed business view for admins
+• ✅ BusinessDashboard.jsx - Complete business dashboard with KPIs  
+• ✅ BusinessViewPage.jsx - Detailed business view for admins **FIXED: /admin/business/1/view now works**
 • ✅ React Router + PrivateRoute - Authentication-based routing working
 • ✅ All API endpoints operational: /api/admin/*, /api/business/*, /api/status
+• ✅ **NEW**: Added `/api/admin/businesses/{id}` endpoint for individual business view
 • ✅ Database with real business data: טכנו סולושנס with Israeli/American phones
 • ✅ Login credentials: admin/admin123 (admin), business1/biz1234 (business)
-• ✅ Build successful: 248.15 kB bundle
+• ✅ Build successful: 255.07 kB bundle **UPDATED**
 • Infrastructure: PostgreSQL, Flask backend, all systems operational
 
 ## User Preferences

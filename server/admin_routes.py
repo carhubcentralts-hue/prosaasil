@@ -76,6 +76,56 @@ def get_businesses():
         logger.error(f"Error getting businesses: {e}")
         return jsonify({'error': 'Failed to get businesses'}), 500
 
+@admin_bp.route('/businesses/<int:business_id>', methods=['GET'])
+@admin_required
+def get_business_by_id(business_id):
+    """קבלת פרטי עסק ספציפי"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT id, name, business_type, phone_israel, phone_whatsapp, 
+                   ai_prompt, crm_enabled, whatsapp_enabled, calls_enabled,
+                   created_at
+            FROM businesses 
+            WHERE id = %s
+        """, (business_id,))
+        
+        row = cur.fetchone()
+        if not row:
+            return jsonify({'error': 'Business not found'}), 404
+            
+        business_info = {
+            'id': row[0],
+            'name': row[1],
+            'type': row[2],
+            'phone': row[3],
+            'whatsapp_phone': row[4],
+            'ai_prompt': row[5],
+            'services': {
+                'crm': row[6],
+                'whatsapp': row[7],
+                'calls': row[8]
+            },
+            'created_at': row[9].strftime('%Y-%m-%d') if row[9] else None,
+            'plan_expires': '2025-12-31',  # נתון קבוע לעת עתה
+            'users_count': 1
+        }
+        
+        cur.close()
+        conn.close()
+        
+        logger.info(f"✅ Business {business_id} details retrieved successfully")
+        return jsonify(business_info)
+        
+    except Exception as e:
+        logger.error(f"Error fetching business {business_id}: {e}")
+        return jsonify({'error': 'Failed to get business details'}), 500
+
 @admin_bp.route('/summary', methods=['GET'])
 @admin_required
 def get_admin_summary():
@@ -88,8 +138,9 @@ def get_admin_summary():
         cur = conn.cursor()
         
         # ספירת עסקים
-        cur.execute("SELECT COUNT(*) FROM businesses WHERE is_active = true")
-        total_businesses = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM businesses")
+        result = cur.fetchone()
+        total_businesses = result[0] if result else 0
         
         # ספירת משתמשים
         cur.execute("SELECT COUNT(*) FROM users")
