@@ -106,6 +106,8 @@ const AdminDashboard = () => {
 
   const handleViewAsABusiness = async (businessId) => {
     try {
+      console.log('🔥 השתלטות על עסק מספר:', businessId);
+      
       // שמירת המצב הנוכחי של המנהל
       const currentToken = localStorage.getItem('token');
       localStorage.setItem('originalAdminToken', currentToken);
@@ -113,17 +115,25 @@ const AdminDashboard = () => {
       // קבלת טוקן עסק מהשרת
       const response = await axios.post(`/api/admin/impersonate/${businessId}`);
       const businessToken = response.data.token;
+      const businessName = response.data.business_name;
       
-      // החלפת הטוקן לטוקן העסק
+      console.log('✅ קבלת טוקן עסק הצליחה:', businessName);
+      
+      // החלפת הטוקן לטוקן העסק + שמירת כל הנתונים
       localStorage.setItem('token', businessToken);
       localStorage.setItem('viewingAsBusinessId', businessId);
       localStorage.setItem('isImpersonating', 'true');
+      localStorage.setItem('business_id', businessId);
+      localStorage.setItem('business_name', businessName);
+      localStorage.setItem('user_name', 'מנהל (במצב השתלטות)');
       
-      // מעבר לדשבורד העסק
-      window.location.href = '/dashboard';
+      console.log('🚀 מעבר למערכת העסק עם שליטה מלאה');
+      
+      // מעבר ישיר למערכת העסק - שליטה מלאה!
+      window.location.href = '/business-dashboard';
     } catch (error) {
-      console.error('Error switching to business view:', error);
-      alert('שגיאה במעבר למערכת העסק');
+      console.error('Error taking over business:', error);
+      alert('שגיאה בהשתלטות על מערכת העסק');
     }
   };
 
