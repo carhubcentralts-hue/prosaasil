@@ -20,19 +20,46 @@ class HebrewTTSService:
     def _check_google_credentials(self):
         """בדיקה אם Google Cloud TTS זמין"""
         try:
-            # SECURITY FIX: Use environment variable instead of hardcoded credentials
-            google_creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-            if not google_creds_path:
+            # Check for environment variable
+            google_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+            if not google_creds:
                 logger.warning("❌ GOOGLE_APPLICATION_CREDENTIALS not set")
                 return False
             
-            if not os.path.exists(google_creds_path):
-                logger.warning(f"❌ Google credentials file not found: {google_creds_path}")
+            # Check if it's JSON content or file path
+            if google_creds.startswith('{') and 'service_account' in google_creds:
+                # It's JSON content - write to temporary file
+                import tempfile
+                import json
+                
+                # Validate JSON first
+                try:
+                    json.loads(google_creds)
+                except json.JSONDecodeError:
+                    logger.warning("❌ Invalid JSON in GOOGLE_APPLICATION_CREDENTIALS")
+                    return False
+                
+                temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+                temp_file.write(google_creds)
+                temp_file.close()
+                
+                # Set the environment variable to the temp file path
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_file.name
+                self.temp_creds_path = temp_file.name
+                logger.info("✅ Created temporary Google credentials file from JSON content")
+                
+            elif os.path.exists(google_creds):
+                # It's a file path and exists
+                logger.info(f"✅ Using Google credentials file: {google_creds}")
+                
+            else:
+                logger.warning(f"❌ Google credentials invalid. Need JSON content starting with {{ or valid file path")
+                logger.warning(f"Current value: {google_creds[:50]}...")
                 return False
             
             # Test client creation with environment credentials
             client = texttospeech.TextToSpeechClient()
-            logger.info("✅ Google Cloud TTS client initialized from environment")
+            logger.info("✅ Google Cloud TTS client initialized successfully - WaveNet Hebrew female voice ready!")
             return True
                 
         except Exception as e:
