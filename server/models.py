@@ -79,6 +79,7 @@ class CallLog(db.Model):
     call_status = db.Column(String(20), nullable=False)
     call_duration = db.Column(Integer)  # in seconds
     conversation_summary = db.Column(Text)
+    recording_url = db.Column(String(500))  # CRITICAL FIX: URL to Twilio recording
     created_at = db.Column(DateTime, default=datetime.utcnow)
     updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     ended_at = db.Column(DateTime)
