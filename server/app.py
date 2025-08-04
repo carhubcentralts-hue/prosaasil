@@ -142,6 +142,161 @@ with app.app_context():
     except Exception as e:
         logging.warning(f"⚠️ Could not start background cleanup: {e}")
 
+# Emergency fix route for debugging stuck states
+@app.route('/fix')
+def fix_emergency():
+    """עמוד תיקון חירום למצבים תקועים"""
+    return """
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 תיקון חירום</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .card { background: white; margin: 15px 0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .btn { background: #7c3aed; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; margin: 5px; font-size: 16px; }
+        .btn.danger { background: #ef4444; }
+        .btn.success { background: #10b981; }
+        .log { background: #f8f9fa; padding: 15px; border-radius: 4px; font-family: monospace; margin: 10px 0; }
+        .status { padding: 15px; border-radius: 4px; margin: 10px 0; font-weight: bold; }
+        .status.good { background: #d1fae5; color: #065f46; }
+        .status.bad { background: #fee2e2; color: #991b1b; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 תיקון חירום למערכת</h1>
+        <p><strong>המערכת תקועה? השתמש בכלים הבאים:</strong></p>
+
+        <div class="card">
+            <h2>🔍 מצב נוכחי</h2>
+            <div id="status" class="log">בודק...</div>
+            <button class="btn" onclick="checkStatus()">בדוק מצב</button>
+        </div>
+
+        <div class="card">
+            <h2>🚨 איפוס מהיר</h2>
+            <button class="btn danger" onclick="resetToAdmin()">איפוס למנהל</button>
+            <button class="btn" onclick="clearAndLogin()">נקה והתחבר</button>
+            <div id="reset-result" class="log">לא בוצע</div>
+        </div>
+
+        <div class="card">
+            <h2>🎯 מעבר ישיר</h2>
+            <button class="btn" onclick="goTo('/admin/dashboard')">מנהל</button>
+            <button class="btn success" onclick="goTo('/business/dashboard')">עסק</button>
+            <button class="btn" onclick="goTo('/login')">התחברות</button>
+        </div>
+
+        <div class="card">
+            <h2>🧪 בדיקת השתלטות</h2>
+            <button class="btn success" onclick="testTakeover(1)">השתלטות על עסק #1</button>
+            <button class="btn success" onclick="testTakeover(2)">השתלטות על עסק #2</button>
+            <div id="takeover-result" class="log">לא בוצע</div>
+        </div>
+    </div>
+
+    <script>
+        function checkStatus() {
+            const url = window.location.pathname;
+            const token = localStorage.getItem('auth_token');
+            const role = localStorage.getItem('user_role');
+            const businessId = localStorage.getItem('business_id');
+            const takeover = localStorage.getItem('admin_takeover_mode');
+            
+            let statusClass = 'good';
+            let statusText = '✅ מצב תקין';
+            
+            if (role === 'business' && url.includes('/admin/')) {
+                statusClass = 'bad';
+                statusText = '❌ בעיה קריטית: role=business אבל בעמוד admin';
+            } else if (takeover === 'true' && !url.includes('/business/')) {
+                statusClass = 'bad';
+                statusText = '❌ השתלטות פעילה אבל לא בעמוד עסק';
+            }
+            
+            document.getElementById('status').innerHTML = 
+                `<div class="status ${statusClass}">${statusText}</div>` +
+                `URL: ${url}<br>` +
+                `טוכן: ${token ? 'יש' : 'אין'}<br>` +
+                `תפקיד: ${role || 'לא מוגדר'}<br>` +
+                `עסק: ${businessId || 'לא מוגדר'}<br>` +
+                `השתלטות: ${takeover || 'לא פעיל'}`;
+        }
+
+        function resetToAdmin() {
+            console.log('🔄 Reset to admin');
+            localStorage.clear();
+            localStorage.setItem('auth_token', 'admin_token_' + Date.now());
+            localStorage.setItem('user_role', 'admin');
+            localStorage.setItem('user_name', 'מנהל');
+            
+            document.getElementById('reset-result').innerHTML = '✅ איפוס הושלם - עובר למנהל...';
+            setTimeout(() => { window.location.href = '/admin/dashboard'; }, 1500);
+        }
+
+        function clearAndLogin() {
+            localStorage.clear();
+            document.getElementById('reset-result').innerHTML = '✅ נוקה - עובר להתחברות...';
+            setTimeout(() => { window.location.href = '/login'; }, 1500);
+        }
+
+        function goTo(path) {
+            window.location.href = path;
+        }
+
+        async function testTakeover(businessId) {
+            try {
+                document.getElementById('takeover-result').innerHTML = `🧪 בודק השתלטות על עסק #${businessId}...`;
+                
+                // איפוס למנהל
+                localStorage.setItem('auth_token', 'admin_token_' + Date.now());
+                localStorage.setItem('user_role', 'admin');
+                localStorage.setItem('user_name', 'מנהל');
+                localStorage.removeItem('admin_takeover_mode');
+                localStorage.removeItem('business_id');
+                
+                const response = await fetch(`/api/admin/impersonate/${businessId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer admin_token_' + Date.now(),
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    localStorage.setItem('admin_takeover_mode', 'true');
+                    localStorage.setItem('original_admin_token', localStorage.getItem('auth_token'));
+                    localStorage.setItem('business_id', businessId.toString());
+                    localStorage.setItem('auth_token', data.token);
+                    localStorage.setItem('user_role', 'business');
+                    localStorage.setItem('user_name', `מנהל שולט ב-${data.business.name}`);
+                    
+                    document.getElementById('takeover-result').innerHTML = 
+                        `✅ השתלטות על עסק #${businessId} הושלמה! עובר לדשבורד...`;
+                    
+                    setTimeout(() => { window.location.href = '/business/dashboard'; }, 2000);
+                } else {
+                    throw new Error(data.error || 'השתלטות נכשלה');
+                }
+            } catch (error) {
+                document.getElementById('takeover-result').innerHTML = `❌ שגיאה: ${error.message}`;
+            }
+        }
+
+        // הפעלה ראשונית
+        checkStatus();
+        setInterval(checkStatus, 5000);
+    </script>
+</body>
+</html>
+"""
+
 # React Frontend Routes - Flask מגיש את React
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")

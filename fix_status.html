@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 תיקון מצב</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .card { 
+            background: white; 
+            margin: 10px 0; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button { 
+            background: #7c3aed; 
+            color: white; 
+            border: none; 
+            padding: 12px 24px; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            margin: 5px;
+            font-size: 16px;
+        }
+        .reset { background: #ef4444; }
+        .admin { background: #3b82f6; }
+        .business { background: #10b981; }
+        .log { background: #f3f4f6; padding: 15px; border-radius: 4px; font-family: monospace; margin: 10px 0; }
+        .status { padding: 15px; border-radius: 4px; margin: 10px 0; font-weight: bold; }
+        .good { background: #d1fae5; color: #065f46; }
+        .bad { background: #fee2e2; color: #991b1b; }
+    </style>
+</head>
+<body>
+    <h1>🔧 תיקון מצב המערכת</h1>
+    <p>כלי לתיקון מהיר של בעיות השתלטות</p>
+
+    <div class="card">
+        <h2>מצב נוכחי</h2>
+        <div id="current-status" class="log">בודק...</div>
+        <button onclick="checkCurrentStatus()">בדוק מצב</button>
+    </div>
+
+    <div class="card">
+        <h2>פעולות תיקון</h2>
+        <button onclick="forceResetToAdmin()" class="reset">איפוס כולל למנהל</button>
+        <button onclick="forceGoToAdmin()" class="admin">עבור למנהל</button>
+        <button onclick="forceGoToBusiness()" class="business">עבור לעסק</button>
+        <div id="action-result" class="log">לא בוצע</div>
+    </div>
+
+    <div class="card">
+        <h2>בדיקת השתלטות</h2>
+        <button onclick="testTakeoverFlow()" class="business">בדוק זרימת השתלטות</button>
+        <div id="takeover-result" class="log">לא בדוק</div>
+    </div>
+
+    <script>
+        function checkCurrentStatus() {
+            const currentUrl = window.location.pathname;
+            const localStorage_data = {
+                token: localStorage.getItem('auth_token') ? 'יש' : 'אין',
+                role: localStorage.getItem('user_role') || 'לא מוגדר',
+                business_id: localStorage.getItem('business_id') || 'לא מוגדר',
+                admin_takeover: localStorage.getItem('admin_takeover_mode') || 'לא פעיל',
+                user_name: localStorage.getItem('user_name') || 'לא מוגדר',
+                original_token: localStorage.getItem('original_admin_token') ? 'יש' : 'אין'
+            };
+            
+            let statusClass = 'good';
+            let statusText = '✅ מצב תקין';
+            
+            // זיהוי בעיות
+            if (localStorage_data.role === 'business' && currentUrl.includes('/admin/')) {
+                statusClass = 'bad';
+                statusText = '❌ בעיה: role=business אבל בעמוד admin';
+            } else if (localStorage_data.role === 'admin' && currentUrl.includes('/business/')) {
+                statusClass = 'bad';
+                statusText = '❌ בעיה: role=admin אבל בעמוד business'; 
+            } else if (localStorage_data.admin_takeover === 'true' && !currentUrl.includes('/business/')) {
+                statusClass = 'bad';
+                statusText = '❌ בעיה: השתלטות פעילה אבל לא בעמוד business';
+            }
+            
+            document.getElementById('current-status').innerHTML = 
+                `<div class="status ${statusClass}">${statusText}</div>` +
+                `URL נוכחי: ${currentUrl}<br>` +
+                `טוכן: ${localStorage_data.token}<br>` +
+                `תפקיד: ${localStorage_data.role}<br>` +
+                `עסק: ${localStorage_data.business_id}<br>` +
+                `השתלטות: ${localStorage_data.admin_takeover}<br>` +
+                `שם: ${localStorage_data.user_name}<br>` +
+                `טוכן מקורי: ${localStorage_data.original_token}`;
+        }
+
+        function forceResetToAdmin() {
+            console.log('🔄 Force reset to admin');
+            
+            // ניקוי כולל
+            localStorage.removeItem('admin_takeover_mode');
+            localStorage.removeItem('business_id');
+            localStorage.removeItem('original_admin_token');
+            
+            // הגדרת מנהל
+            localStorage.setItem('auth_token', 'fake_admin_token');
+            localStorage.setItem('user_role', 'admin');
+            localStorage.setItem('user_name', 'מנהל');
+            
+            document.getElementById('action-result').innerHTML = '✅ איפוס הושלם - עובר למנהל...';
+            
+            setTimeout(() => {
+                window.location.href = '/admin/dashboard';
+            }, 1000);
+        }
+
+        function forceGoToAdmin() {
+            console.log('🔄 Force go to admin dashboard');
+            document.getElementById('action-result').innerHTML = '🔄 עובר למנהל...';
+            window.location.href = '/admin/dashboard';
+        }
+
+        function forceGoToBusiness() {
+            console.log('🔄 Force go to business dashboard');
+            document.getElementById('action-result').innerHTML = '🔄 עובר לעסק...';
+            window.location.href = '/business/dashboard';
+        }
+
+        async function testTakeoverFlow() {
+            try {
+                document.getElementById('takeover-result').innerHTML = '🧪 בודק זרימת השתלטות...';
+                
+                // איפוס למנהל
+                localStorage.setItem('auth_token', 'fake_admin_token');
+                localStorage.setItem('user_role', 'admin');
+                localStorage.setItem('user_name', 'מנהל');
+                localStorage.removeItem('admin_takeover_mode');
+                localStorage.removeItem('business_id');
+                
+                // השתלטות על עסק #1
+                const response = await fetch('/api/admin/impersonate/1', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer fake_admin_token',
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // עדכון localStorage
+                    localStorage.setItem('admin_takeover_mode', 'true');
+                    localStorage.setItem('original_admin_token', 'fake_admin_token');
+                    localStorage.setItem('business_id', '1');
+                    localStorage.setItem('auth_token', data.token);
+                    localStorage.setItem('user_role', 'business');
+                    localStorage.setItem('user_name', `מנהל שולט ב-${data.business.name}`);
+                    
+                    document.getElementById('takeover-result').innerHTML = 
+                        `✅ השתלטות הושלמה!<br>` +
+                        `עסק: ${data.business.name}<br>` +
+                        `עובר לעמוד העסק...`;
+                    
+                    setTimeout(() => {
+                        window.location.href = '/business/dashboard';
+                    }, 2000);
+                } else {
+                    throw new Error(data.error || 'השתלטות נכשלה');
+                }
+            } catch (error) {
+                document.getElementById('takeover-result').innerHTML = 
+                    `❌ שגיאה: ${error.message}`;
+            }
+        }
+
+        // בדיקה ראשונית
+        checkCurrentStatus();
+        
+        // רענון כל 3 שניות
+        setInterval(checkCurrentStatus, 3000);
+    </script>
+</body>
+</html>

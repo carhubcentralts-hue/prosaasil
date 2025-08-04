@@ -147,12 +147,23 @@ const AdminDashboard = () => {
           admin_takeover_mode: localStorage.getItem('admin_takeover_mode')
         });
         
-        // דיליי גדול יותר לוודא שהטוכן נשמר
+        console.log('🔄 Redirect sequence starting...');
+        
+        // אמינות מקסימלית - מעבר בשלבים
         setTimeout(() => {
-          console.log('🔄 Redirecting to business dashboard after token save');
-          // Force page reload to ensure clean state
-          window.location.href = '/business/dashboard';
-        }, 300);
+          console.log('🔄 Step 1: Checking localStorage after save');
+          console.log('Current localStorage state:', {
+            auth_token: !!localStorage.getItem('auth_token'),
+            user_role: localStorage.getItem('user_role'),
+            business_id: localStorage.getItem('business_id'),
+            admin_takeover_mode: localStorage.getItem('admin_takeover_mode')
+          });
+          
+          setTimeout(() => {
+            console.log('🔄 Step 2: Redirecting to business dashboard');
+            window.location.href = '/business/dashboard';
+          }, 200);
+        }, 100);
       }
     } catch (error) {
       console.error(`❌ שגיאה בהשתלטות על עסק #${businessId}:`, error);
