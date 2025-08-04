@@ -32,23 +32,29 @@ const BusinessDashboard = () => {
 
   const userName = localStorage.getItem('user_name') || 'משתמש עסק';
   
-  // קבלת business_id מהטוקן - זה הפתרון הסופי!
+  // קבלת business_id מהטוקן - תיקון סופי עם טיפול בpadding!
   const getBusinessId = () => {
     try {
       const token = localStorage.getItem('auth_token');
+      console.log('🔍 Getting business_id from token:', !!token);
+      
       if (token && token !== 'null' && token !== 'undefined') {
         const parts = token.split('.');
         if (parts.length === 3) {
-          const base64Url = parts[1];
+          let base64Url = parts[1];
+          // תיקון padding - זה היה החסר!
+          const missingPadding = base64Url.length % 4;
+          if (missingPadding) {
+            base64Url += '='.repeat(4 - missingPadding);
+          }
+          
           const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-          }).join(''));
-          const decoded = JSON.parse(jsonPayload);
-          console.log('🔍 Decoded token:', decoded);
+          const decoded = JSON.parse(atob(base64));
+          
+          console.log('🔍 Decoded token payload:', decoded);
           if (decoded.business_id) {
             console.log('✅ Using business_id from token:', decoded.business_id);
-            return decoded.business_id;
+            return parseInt(decoded.business_id);
           }
         }
       }
