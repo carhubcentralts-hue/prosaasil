@@ -13,6 +13,14 @@ Preferred communication style: Simple, everyday language.
 ### Core Design Principles
 The system is built as a Flask web application for multi-business support, with each business having customized AI configurations and segregated data. It emphasizes real-time voice processing, comprehensive conversation tracking, and role-based access control.
 
+### Admin Impersonation System (August 2025)
+Complete admin business takeover system implemented:
+- Simple purple "צפה כעסק" button for direct business access  
+- Seamless impersonation without intermediate pages
+- Admin operates as business owner with full access
+- Purple "חזרה למנהל" button returns to admin dashboard
+- Proper localStorage token management and role switching
+
 ### Technical Implementation
 -   **Backend Framework**: Flask with Blueprint architecture.
 -   **Database**: PostgreSQL for production, supporting multi-business data segregation.

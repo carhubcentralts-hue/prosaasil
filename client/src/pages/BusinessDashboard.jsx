@@ -155,48 +155,17 @@ const BusinessDashboard = () => {
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
       <div className="max-w-6xl mx-auto p-6">
-        {/* אם במצב השתלטות, הצג כפתור חזרה למנהל */}
-        {localStorage.getItem('isImpersonating') === 'true' && (
-          <div className="mb-4 p-4 bg-orange-100 border border-orange-400 rounded-lg">
-            <div className="flex items-center justify-between">
-              <p className="text-orange-800 font-hebrew text-lg font-bold">
-                🔥 אתה משתלט על מערכת העסק כמנהל - עסק #{localStorage.getItem('viewingAsBusinessId')}
-              </p>
-              <button 
-                onClick={() => {
-                  console.log('🔄 חזרה למצב מנהל');
-                  const originalToken = localStorage.getItem('originalAdminToken');
-                  if (originalToken) {
-                    localStorage.setItem('token', originalToken);
-                    localStorage.removeItem('originalAdminToken');
-                    localStorage.removeItem('viewingAsBusinessId');
-                    localStorage.removeItem('isImpersonating');
-                    localStorage.removeItem('business_id');
-                    localStorage.removeItem('business_name');
-                    localStorage.removeItem('user_name');
-                    window.location.href = '/';
-                  }
-                }}
-                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-hebrew font-bold border-2 border-blue-800"
-              >
-                🔙 חזור למצב מנהל
-              </button>
-            </div>
-          </div>
-        )}
+
 
         {/* כותרת */}
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 font-hebrew mb-2">
-              שלום מנהל
+              {localStorage.getItem('admin_takeover_mode') === 'true' 
+                ? `שלום מנהל (שולט ב-${businessInfo?.name || 'עסק'})`
+                : `שלום ${businessInfo?.name || 'עסק'}`}
             </h1>
             <p className="text-gray-600 font-hebrew">{getHebrewDate()}</p>
-            {localStorage.getItem('admin_takeover_mode') === 'true' && (
-              <p className="text-purple-600 font-bold font-hebrew">
-                במצב השתלטות על {businessInfo?.name || 'עסק'}
-              </p>
-            )}
           </div>
           <div className="flex gap-4">
             {localStorage.getItem('admin_takeover_mode') === 'true' ? (

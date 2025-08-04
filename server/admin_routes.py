@@ -15,7 +15,11 @@ admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 def get_db_connection():
     """חיבור לבסיס נתונים PostgreSQL"""
     try:
-        conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
+        database_url = os.environ.get('DATABASE_URL')
+        if not database_url:
+            # להשתמש בחיבור מקומי לפיתוח
+            database_url = "postgresql://replit:password@localhost:5432/replit_db"
+        conn = psycopg2.connect(database_url)
         return conn
     except Exception as e:
         logger.error(f"Database connection error: {e}")
