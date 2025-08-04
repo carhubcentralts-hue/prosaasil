@@ -1,9 +1,10 @@
 import os
 import logging
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, send_file
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.exceptions import NotFound
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -113,17 +114,25 @@ with app.app_context():
 # React Frontend Routes - Flask מגיש את React
 @app.route("/")
 def serve_index():
-    return send_from_directory("../client/dist", "index.html")
+    """Serve React app at root"""
+    try:
+        return send_from_directory("../client/dist", "index.html")
+    except FileNotFoundError:
+        return "<h1>React Build Not Found</h1><p>Run 'npm run build' in client directory</p>", 404
 
 @app.route("/<path:path>")
 def serve_static_files(path):
-    # Static files from React build
-    file_path = os.path.join("../client/dist", path)
-    if os.path.exists(file_path):
-        return send_from_directory("../client/dist", path)
-    else:
-        # For all other routes (SPA routing), serve React app
-        return send_from_directory("../client/dist", "index.html")
+    """Serve static files or React app for SPA routing"""
+    try:
+        # Static files from React build
+        file_path = os.path.join("../client/dist", path) 
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return send_from_directory("../client/dist", path)
+        else:
+            # For all other routes (SPA routing), serve React app
+            return send_from_directory("../client/dist", "index.html")
+    except FileNotFoundError:
+        return "<h1>React Build Not Found</h1><p>Run 'npm run build' in client directory</p>", 404
 
 # Media stream routes integrated into routes.py
 

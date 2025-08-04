@@ -104,13 +104,7 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleViewAsABusiness = (businessId) => {
-    console.log('🎯 ADMIN CONTROL: מעבר לדף שליטת מנהל על עסק:', businessId);
-    console.log('🎯 URL REDIRECT TO: /admin/business-control/' + businessId);
-    
-    // מעבר ישיר לדף שליטת מנהל - NO IMPERSONATION
-    window.location.href = `/admin/business-control/${businessId}`;
-  };
+  // פונקציה נמחקה - עכשיו הכפתור עובד ישירות
 
 
 
@@ -349,9 +343,12 @@ const AdminDashboard = () => {
                     <td className="py-4 px-4">
                       <div className="flex gap-2">
                         <button 
-                          onClick={() => handleViewAsABusiness(business.id)}
+                          onClick={() => {
+                            console.log('🎯 ADMIN CONTROL BUTTON CLICKED:', business.id);
+                            window.location.href = `/admin/business-control/${business.id}`;
+                          }}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded font-bold border-2 border-blue-200"
-                          title="🔥 שליטת מנהל על העסק"
+                          title="🎯 שליטת מנהל על העסק"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
