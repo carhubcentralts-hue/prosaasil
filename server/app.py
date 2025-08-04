@@ -143,27 +143,17 @@ with app.app_context():
         logging.warning(f"⚠️ Could not start background cleanup: {e}")
 
 # React Frontend Routes - Flask מגיש את React
-@app.route("/")
-def serve_index():
-    """Serve React app at root"""
-    try:
-        return send_from_directory("../client/dist", "index.html")
-    except FileNotFoundError:
-        return "<h1>React Build Not Found</h1><p>Run 'npm run build' in client directory</p>", 404
-
+@app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
-def serve_static_files(path):
-    """Serve static files or React app for SPA routing"""
-    try:
-        # Static files from React build
-        file_path = os.path.join("../client/dist", path) 
-        if os.path.exists(file_path) and os.path.isfile(file_path):
-            return send_from_directory("../client/dist", path)
-        else:
-            # For all other routes (SPA routing), serve React app
-            return send_from_directory("../client/dist", "index.html")
-    except FileNotFoundError:
-        return "<h1>React Build Not Found</h1><p>Run 'npm run build' in client directory</p>", 404
+def serve_react(path):
+    """Serve React app with proper SPA routing support"""
+    build_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../client/dist"))
+    requested_path = os.path.join(build_dir, path)
+
+    if path != "" and os.path.exists(requested_path):
+        return send_from_directory(build_dir, path)
+    else:
+        return send_from_directory(build_dir, "index.html")
 
 # Media stream routes integrated into routes.py
 
