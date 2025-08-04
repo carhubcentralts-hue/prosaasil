@@ -147,8 +147,12 @@ const AdminDashboard = () => {
           admin_takeover_mode: localStorage.getItem('admin_takeover_mode')
         });
         
-        // מעבר ישיר לדשבורד העסק
-        window.location.href = '/business/dashboard';
+        // דיליי גדול יותר לוודא שהטוכן נשמר
+        setTimeout(() => {
+          console.log('🔄 Redirecting to business dashboard after token save');
+          // Force page reload to ensure clean state
+          window.location.href = '/business/dashboard';
+        }, 300);
       }
     } catch (error) {
       console.error(`❌ שגיאה בהשתלטות על עסק #${businessId}:`, error);

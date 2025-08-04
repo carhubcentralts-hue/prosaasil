@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 בדיקת BusinessDashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .test { 
+            background: white; 
+            margin: 10px 0; 
+            padding: 15px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test h3 { margin: 0 0 10px 0; color: #333; }
+        .test button { 
+            background: #7c3aed; 
+            color: white; 
+            border: none; 
+            padding: 8px 16px; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            margin: 5px;
+        }
+        .log { background: #f3f4f6; padding: 10px; border-radius: 4px; font-family: monospace; margin: 10px 0; }
+        .status { padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .success { background: #d1fae5; color: #065f46; }
+        .error { background: #fee2e2; color: #991b1b; }
+        .warning { background: #fef3c7; color: #92400e; }
+    </style>
+</head>
+<body>
+    <h1>🔧 בדיקת BusinessDashboard</h1>
+    <p>בדיקה שלב אחר שלב של פיענוח business_id</p>
+
+    <div class="test">
+        <h3>בדיקה 1: פיענוח טוכן ישן</h3>
+        <button onclick="testOldToken()">בדוק טוכן ישן</button>
+        <div id="old-token-result" class="log">לא בדוק</div>
+    </div>
+
+    <div class="test">
+        <h3>בדיקה 2: סימולציה השתלטות על עסק #1</h3>
+        <button onclick="simulateTakeover(1)">השתלט על עסק #1</button>
+        <div id="takeover-1-result" class="log">לא בוצע</div>
+    </div>
+
+    <div class="test">
+        <h3>בדיקה 3: סימולציה השתלטות על עסק #2</h3>
+        <button onclick="simulateTakeover(2)">השתלט על עסק #2</button>
+        <div id="takeover-2-result" class="log">לא בוצע</div>
+    </div>
+
+    <div class="test">
+        <h3>בדיקה 4: טעינת נתוני עסק</h3>
+        <button onclick="loadBusinessData()">טען נתוני עסק</button>
+        <div id="business-data-result" class="log">לא נטען</div>
+    </div>
+
+    <div id="status" class="status">מוכן לבדיקה</div>
+
+    <script>
+        // העתקה של הלוגיקה מBusinessDashboard
+        function getBusinessId() {
+            try {
+                const token = localStorage.getItem('auth_token');
+                console.log('🔍 Getting business_id from token:', !!token);
+                
+                if (token && token !== 'null' && token !== 'undefined') {
+                    const parts = token.split('.');
+                    if (parts.length === 3) {
+                        let base64Url = parts[1];
+                        const missingPadding = base64Url.length % 4;
+                        if (missingPadding) {
+                            base64Url += '='.repeat(4 - missingPadding);
+                        }
+                        
+                        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                        const decoded = JSON.parse(atob(base64));
+                        
+                        console.log('🔍 Decoded token payload:', decoded);
+                        if (decoded.business_id) {
+                            console.log('✅ Using business_id from token:', decoded.business_id);
+                            return parseInt(decoded.business_id);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.log('⚠️ Token decode failed:', error);
+            }
+            
+            const fallbackId = localStorage.getItem('business_id') || '1';
+            console.log('📋 Using fallback business_id:', fallbackId);
+            return parseInt(fallbackId);
+        }
+
+        function testOldToken() {
+            const businessId = getBusinessId();
+            document.getElementById('old-token-result').innerHTML = 
+                `Business ID מהטוכן הנוכחי: ${businessId}`;
+            updateStatus(`✅ טוכן ישן: business_id = ${businessId}`, 'success');
+        }
+
+        async function simulateTakeover(targetBusinessId) {
+            try {
+                updateStatus(`🚀 מתחיל השתלטות על עסק #${targetBusinessId}...`, 'warning');
+                
+                const response = await fetch(`/api/admin/impersonate/${targetBusinessId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer fake_admin_token',
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // עדכון localStorage כמו בקוד האמיתי
+                    localStorage.setItem('admin_takeover_mode', 'true');
+                    localStorage.setItem('original_admin_token', localStorage.getItem('auth_token') || 'fake_admin_token');
+                    localStorage.setItem('business_id', targetBusinessId.toString());
+                    localStorage.setItem('auth_token', data.token);
+                    localStorage.setItem('user_role', 'business');
+                    localStorage.setItem('user_name', `מנהל שולט ב-${data.business.name}`);
+                    
+                    // בדיקה מיידית
+                    const newBusinessId = getBusinessId();
+                    
+                    document.getElementById(`takeover-${targetBusinessId}-result`).innerHTML = 
+                        `✅ השתלטות הושלמה!<br>` +
+                        `🔑 טוכן חדש נשמר<br>` +
+                        `📋 business_id מפוענח: ${newBusinessId}<br>` +
+                        `🏢 שם עסק: ${data.business.name}`;
+                    
+                    updateStatus(`✅ השתלטות על עסק #${targetBusinessId} הושלמה`, 'success');
+                } else {
+                    throw new Error(data.error || 'השתלטות נכשלה');
+                }
+            } catch (error) {
+                document.getElementById(`takeover-${targetBusinessId}-result`).innerHTML = 
+                    `❌ שגיאה: ${error.message}`;
+                updateStatus(`❌ שגיאה בהשתלטות על עסק #${targetBusinessId}`, 'error');
+            }
+        }
+
+        async function loadBusinessData() {
+            try {
+                const businessId = getBusinessId();
+                updateStatus(`📡 טוען נתוני עסק #${businessId}...`, 'warning');
+                
+                const response = await fetch(`/api/business/info?business_id=${businessId}`);
+                const data = await response.json();
+                
+                document.getElementById('business-data-result').innerHTML = 
+                    `✅ נתוני עסק #${businessId}:<br>` +
+                    `שם: ${data.name || 'לא זמין'}<br>` +
+                    `סוג: ${data.type || 'לא זמין'}<br>` +
+                    `טלפון: ${data.phone || 'לא זמין'}`;
+                
+                updateStatus(`✅ נתוני עסק #${businessId} נטענו בהצלחה`, 'success');
+            } catch (error) {
+                document.getElementById('business-data-result').innerHTML = 
+                    `❌ שגיאה: ${error.message}`;
+                updateStatus(`❌ שגיאה בטעינת נתוני עסק`, 'error');
+            }
+        }
+
+        function updateStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+
+        // הצגת מצב נוכחי
+        setInterval(() => {
+            const businessId = getBusinessId();
+            const role = localStorage.getItem('user_role');
+            const takeover = localStorage.getItem('admin_takeover_mode');
+            
+            console.log('📊 מצב נוכחי:', { businessId, role, takeover });
+        }, 3000);
+    </script>
+</body>
+</html>

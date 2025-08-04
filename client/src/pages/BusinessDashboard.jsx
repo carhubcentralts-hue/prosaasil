@@ -29,10 +29,11 @@ const BusinessDashboard = () => {
     new_password: '',
     confirm_password: ''
   });
+  const [businessId, setBusinessId] = useState(null);
 
   const userName = localStorage.getItem('user_name') || 'משתמש עסק';
   
-  // קבלת business_id מהטוקן - תיקון סופי עם טיפול בpadding!
+  // קבלת business_id מהטוקן - כעת reactive!
   const getBusinessId = () => {
     try {
       const token = localStorage.getItem('auth_token');
@@ -42,7 +43,6 @@ const BusinessDashboard = () => {
         const parts = token.split('.');
         if (parts.length === 3) {
           let base64Url = parts[1];
-          // תיקון padding - זה היה החסר!
           const missingPadding = base64Url.length % 4;
           if (missingPadding) {
             base64Url += '='.repeat(4 - missingPadding);
@@ -67,16 +67,63 @@ const BusinessDashboard = () => {
     console.log('📋 Using fallback business_id:', fallbackId);
     return parseInt(fallbackId);
   };
-  
-  const businessId = getBusinessId();
 
+  // Effect לעדכון business_id כשהטוקן משתנה
   useEffect(() => {
-    fetchData();
+    const updateBusinessId = () => {
+      const newBusinessId = getBusinessId();
+      console.log('🔄 BusinessDashboard: Setting business_id to:', newBusinessId);
+      setBusinessId(newBusinessId);
+    };
+    
+    // ניסיון מיידי
+    updateBusinessId();
+    
+    // ניסיון חוזר אחרי delay קטן
+    const timeout = setTimeout(updateBusinessId, 200);
+    
+    // האזנה לשינויים ב-localStorage
+    const handleStorageChange = () => {
+      console.log('📡 Storage changed, updating business_id');
+      updateBusinessId();
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    // בדיקה תקופתית עד שיש business_id תקין
+    const interval = setInterval(() => {
+      const currentBusinessId = getBusinessId();
+      if (currentBusinessId && currentBusinessId !== businessId) {
+        console.log('🔄 Periodic check found new business_id:', currentBusinessId);
+        setBusinessId(currentBusinessId);
+        clearInterval(interval);
+      }
+    }, 500);
+    
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
+  // Effect לטעינת נתונים כש-businessId משתנה
+  useEffect(() => {
+    if (businessId) {
+      console.log('📊 BusinessDashboard: Loading data for business_id:', businessId);
+      fetchData();
+    }
+  }, [businessId]);
+
   const fetchData = async () => {
+    if (!businessId) {
+      console.log('⚠️ No business_id, skipping fetch');
+      return;
+    }
+    
     try {
       setLoading(true);
+      console.log('📡 Fetching data for business_id:', businessId);
       
       const [infoRes, servicesRes, statusRes, usersRes] = await Promise.all([
         axios.get(`/api/business/info?business_id=${businessId}`),
@@ -85,12 +132,13 @@ const BusinessDashboard = () => {
         axios.get(`/api/business/users?business_id=${businessId}`)
       ]);
 
+      console.log('✅ Data loaded for business_id:', businessId, 'Business name:', infoRes.data?.name);
       setBusinessInfo(infoRes.data);
       setServices(servicesRes.data);
       setSystemStatus(statusRes.data);
       setUsers(usersRes.data);
     } catch (error) {
-      console.error('Error fetching business data:', error);
+      console.error('❌ Error fetching business data:', error);
     } finally {
       setLoading(false);
     }
