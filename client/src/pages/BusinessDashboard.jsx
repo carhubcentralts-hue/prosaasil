@@ -245,13 +245,13 @@ const BusinessDashboard = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {services.crm && (
                 <button 
-                  onClick={() => window.location.href = '/crm'}
+                  onClick={() => window.location.href = '/business/advanced'}
                   className="flex items-center gap-3 p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors text-right"
                 >
                   <Users className="w-6 h-6 text-blue-600" />
                   <div>
-                    <p className="font-medium font-hebrew">מערכת CRM</p>
-                    <p className="text-sm text-gray-600 font-hebrew">ניהול לקוחות ומשימות</p>
+                    <p className="font-medium font-hebrew">מערכת CRM מתקדמת</p>
+                    <p className="text-sm text-gray-600 font-hebrew">ניהול לקוחות, שיחות ו-WhatsApp</p>
                   </div>
                 </button>
               )}

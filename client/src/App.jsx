@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 import BusinessDashboard from './pages/BusinessDashboard';
 import AdminBusinessControlPage from './pages/AdminBusinessControlPage';
+import AdvancedBusinessDashboard from './components/AdvancedBusinessDashboard';
 import PrivateRoute from './components/PrivateRoute';
 
 function App() {
@@ -98,6 +99,16 @@ function App() {
             element={
               <PrivateRoute requiredRole="business">
                 <BusinessDashboard />
+              </PrivateRoute>
+            } 
+          />
+          
+          {/* דשבורד עסק מתקדם */}
+          <Route 
+            path="/business/advanced" 
+            element={
+              <PrivateRoute requiredRole="business">
+                <AdvancedBusinessDashboard />
               </PrivateRoute>
             } 
           />

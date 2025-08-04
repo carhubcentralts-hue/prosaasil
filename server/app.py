@@ -95,6 +95,9 @@ with app.app_context():
         import routes_crm         # Advanced CRM routes
         # import routes           # Legacy routes - DEPRECATED
         import api_routes         # New React API routes
+        import api_crm_advanced   # Advanced CRM API routes
+        import api_whatsapp_advanced # Advanced WhatsApp API routes
+        import api_business_info  # Business info API routes
         logging.info("✅ All route modules loaded successfully")
     except Exception as e:
         logging.warning(f"⚠️ Route modules error: {e}")

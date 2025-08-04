@@ -1,0 +1,461 @@
+/* Advanced CRM System - Monday.com Style CSS */
+/* Professional Hebrew RTL design system */
+
+:root {
+  /* Monday.com Color Palette */
+  --monday-blue: #0073ea;
+  --monday-blue-hover: #005bb5;
+  --monday-green: #00ca72;
+  --monday-green-hover: #00a85d;
+  --monday-purple: #a25ddc;
+  --monday-purple-hover: #8b4ec3;
+  --monday-orange: #ff9500;
+  --monday-orange-hover: #e6850e;
+  --monday-red: #e2445c;
+  --monday-red-hover: #c73650;
+  
+  /* Grays */
+  --monday-gray-50: #f8f9fb;
+  --monday-gray-100: #f1f3f4;
+  --monday-gray-200: #e6e9eb;
+  --monday-gray-300: #c4c7c5;
+  --monday-gray-400: #a1a6a4;
+  --monday-gray-500: #676879;
+  --monday-gray-600: #555d65;
+  --monday-gray-700: #323338;
+  --monday-gray-800: #181b34;
+  
+  /* Shadows */
+  --monday-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --monday-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --monday-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --monday-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  
+  /* Border Radius */
+  --monday-radius-sm: 4px;
+  --monday-radius: 6px;
+  --monday-radius-md: 8px;
+  --monday-radius-lg: 12px;
+  
+  /* Typography */
+  --monday-font-size-xs: 0.75rem;
+  --monday-font-size-sm: 0.875rem;
+  --monday-font-size-base: 1rem;
+  --monday-font-size-lg: 1.125rem;
+  --monday-font-size-xl: 1.25rem;
+  --monday-font-size-2xl: 1.5rem;
+  --monday-font-size-3xl: 1.875rem;
+}
+
+/* Hebrew Font Family */
+.font-hebrew {
+  font-family: 'Heebo', 'Assistant', 'Open Sans Hebrew', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  direction: rtl;
+}
+
+/* Card Components */
+.monday-card {
+  background: white;
+  border: 1px solid var(--monday-gray-200);
+  border-radius: var(--monday-radius-md);
+  box-shadow: var(--monday-shadow);
+  transition: all 0.2s ease;
+}
+
+.monday-card:hover {
+  box-shadow: var(--monday-shadow-md);
+  border-color: var(--monday-gray-300);
+}
+
+.monday-card-header {
+  padding: 1.5rem 1.5rem 1rem 1.5rem;
+  border-bottom: 1px solid var(--monday-gray-100);
+}
+
+.monday-card-body {
+  padding: 1.5rem;
+}
+
+/* Button Components */
+.monday-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--monday-radius);
+  font-weight: 500;
+  font-size: var(--monday-font-size-sm);
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.monday-btn-primary {
+  background: var(--monday-blue);
+  color: white;
+}
+
+.monday-btn-primary:hover {
+  background: var(--monday-blue-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--monday-shadow-md);
+}
+
+.monday-btn-success {
+  background: var(--monday-green);
+  color: white;
+}
+
+.monday-btn-success:hover {
+  background: var(--monday-green-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--monday-shadow-md);
+}
+
+.monday-btn-secondary {
+  background: var(--monday-gray-100);
+  color: var(--monday-gray-700);
+  border: 1px solid var(--monday-gray-200);
+}
+
+.monday-btn-secondary:hover {
+  background: var(--monday-gray-200);
+  border-color: var(--monday-gray-300);
+}
+
+/* Stat Cards */
+.monday-stat-card {
+  background: white;
+  border: 1px solid var(--monday-gray-200);
+  border-radius: var(--monday-radius-lg);
+  padding: 1.5rem;
+  box-shadow: var(--monday-shadow);
+  transition: all 0.3s ease;
+}
+
+.monday-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--monday-shadow-lg);
+}
+
+.monday-stat-value {
+  font-size: var(--monday-font-size-3xl);
+  font-weight: 700;
+  line-height: 1;
+  margin: 0.5rem 0;
+}
+
+.monday-stat-value.blue { color: var(--monday-blue); }
+.monday-stat-value.green { color: var(--monday-green); }
+.monday-stat-value.purple { color: var(--monday-purple); }
+.monday-stat-value.orange { color: var(--monday-orange); }
+.monday-stat-value.red { color: var(--monday-red); }
+
+.monday-stat-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--monday-radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.monday-stat-icon.blue { background: rgba(0, 115, 234, 0.1); }
+.monday-stat-icon.green { background: rgba(0, 202, 114, 0.1); }
+.monday-stat-icon.purple { background: rgba(162, 93, 220, 0.1); }
+.monday-stat-icon.orange { background: rgba(255, 149, 0, 0.1); }
+.monday-stat-icon.red { background: rgba(226, 68, 92, 0.1); }
+
+/* Table Components */
+.monday-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: var(--monday-radius-md);
+  overflow: hidden;
+  box-shadow: var(--monday-shadow);
+}
+
+.monday-table th {
+  background: var(--monday-gray-50);
+  color: var(--monday-gray-700);
+  font-weight: 600;
+  padding: 1rem;
+  text-align: right;
+  border-bottom: 1px solid var(--monday-gray-200);
+  font-size: var(--monday-font-size-sm);
+}
+
+.monday-table td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--monday-gray-100);
+  vertical-align: middle;
+}
+
+.monday-table tbody tr:hover {
+  background: var(--monday-gray-50);
+}
+
+.monday-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Status Badges */
+.monday-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: var(--monday-radius-sm);
+  font-size: var(--monday-font-size-xs);
+  font-weight: 500;
+  line-height: 1;
+}
+
+.monday-badge.success {
+  background: rgba(0, 202, 114, 0.1);
+  color: var(--monday-green);
+}
+
+.monday-badge.warning {
+  background: rgba(255, 149, 0, 0.1);
+  color: var(--monday-orange);
+}
+
+.monday-badge.danger {
+  background: rgba(226, 68, 92, 0.1);
+  color: var(--monday-red);
+}
+
+.monday-badge.info {
+  background: rgba(0, 115, 234, 0.1);
+  color: var(--monday-blue);
+}
+
+.monday-badge.secondary {
+  background: var(--monday-gray-100);
+  color: var(--monday-gray-600);
+}
+
+/* Navigation */
+.monday-nav {
+  background: white;
+  border-bottom: 1px solid var(--monday-gray-200);
+  box-shadow: var(--monday-shadow-sm);
+}
+
+.monday-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  color: var(--monday-gray-600);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: var(--monday-font-size-sm);
+  transition: all 0.2s ease;
+  border-radius: var(--monday-radius);
+  margin: 0 0.25rem;
+}
+
+.monday-nav-item:hover {
+  background: var(--monday-gray-50);
+  color: var(--monday-gray-700);
+}
+
+.monday-nav-item.active {
+  background: rgba(0, 115, 234, 0.1);
+  color: var(--monday-blue);
+  font-weight: 600;
+}
+
+/* Form Components */
+.monday-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--monday-gray-200);
+  border-radius: var(--monday-radius);
+  font-size: var(--monday-font-size-sm);
+  transition: all 0.2s ease;
+  background: white;
+}
+
+.monday-input:focus {
+  outline: none;
+  border-color: var(--monday-blue);
+  box-shadow: 0 0 0 3px rgba(0, 115, 234, 0.1);
+}
+
+.monday-select {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--monday-gray-200);
+  border-radius: var(--monday-radius);
+  font-size: var(--monday-font-size-sm);
+  background: white;
+  cursor: pointer;
+}
+
+.monday-select:focus {
+  outline: none;
+  border-color: var(--monday-blue);
+  box-shadow: 0 0 0 3px rgba(0, 115, 234, 0.1);
+}
+
+/* Layout */
+.monday-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.monday-grid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.monday-grid-cols-1 { grid-template-columns: repeat(1, 1fr); }
+.monday-grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+.monday-grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
+.monday-grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+@media (max-width: 768px) {
+  .monday-grid-cols-2,
+  .monday-grid-cols-3,
+  .monday-grid-cols-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Loading Animation */
+.monday-spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid var(--monday-gray-200);
+  border-top: 2px solid var(--monday-blue);
+  border-radius: 50%;
+  animation: monday-spin 1s linear infinite;
+}
+
+@keyframes monday-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Gradient Backgrounds */
+.monday-gradient-blue {
+  background: linear-gradient(135deg, var(--monday-blue) 0%, var(--monday-purple) 100%);
+}
+
+.monday-gradient-green {
+  background: linear-gradient(135deg, var(--monday-green) 0%, var(--monday-blue) 100%);
+}
+
+.monday-gradient-sunset {
+  background: linear-gradient(135deg, var(--monday-orange) 0%, var(--monday-red) 100%);
+}
+
+/* Responsive Design */
+@media (max-width: 640px) {
+  .monday-card-body {
+    padding: 1rem;
+  }
+  
+  .monday-stat-card {
+    padding: 1rem;
+  }
+  
+  .monday-stat-value {
+    font-size: var(--monday-font-size-2xl);
+  }
+}
+
+/* RTL Specific Adjustments */
+[dir="rtl"] .monday-nav-item {
+  margin: 0 0.25rem 0 0;
+}
+
+[dir="rtl"] .monday-table th,
+[dir="rtl"] .monday-table td {
+  text-align: right;
+}
+
+/* Accessibility */
+.monday-btn:focus,
+.monday-input:focus,
+.monday-select:focus {
+  outline: 2px solid var(--monday-blue);
+  outline-offset: 2px;
+}
+
+.monday-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.monday-btn:disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Advanced CRM Specific Styles */
+.crm-dashboard-header {
+  background: var(--monday-gradient-blue);
+  color: white;
+  padding: 2rem;
+  border-radius: var(--monday-radius-lg);
+  margin-bottom: 2rem;
+}
+
+.crm-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.crm-table-container {
+  background: white;
+  border-radius: var(--monday-radius-lg);
+  box-shadow: var(--monday-shadow);
+  overflow: hidden;
+}
+
+.crm-table-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--monday-gray-200);
+  display: flex;
+  justify-content: between;
+  align-items: center;
+}
+
+.crm-search-bar {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.crm-filters {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.crm-filter-tag {
+  padding: 0.25rem 0.75rem;
+  background: var(--monday-gray-100);
+  border-radius: var(--monday-radius-sm);
+  font-size: var(--monday-font-size-xs);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.crm-filter-tag:hover {
+  background: var(--monday-gray-200);
+}
+
+.crm-filter-tag.active {
+  background: var(--monday-blue);
+  color: white;
+}
