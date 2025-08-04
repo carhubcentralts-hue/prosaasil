@@ -15,11 +15,27 @@ const AdminBusinessControlPage = () => {
 
   const fetchBusinessData = async () => {
     try {
-      const response = await axios.get(`/api/admin/businesses/${id}`);
+      console.log('🔄 מתחיל לטעון נתוני עסק:', id);
+      
+      // קבלת הטוקן מה-localStorage
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('❌ אין טוקן');
+        setLoading(false);
+        return;
+      }
+      
+      const response = await axios.get(`/api/admin/businesses/${id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      console.log('✅ נתוני עסק התקבלו:', response.data);
       setBusiness(response.data);
       setLoading(false);
     } catch (error) {
-      console.error('Error fetching business:', error);
+      console.error('❌ שגיאה בקבלת נתוני עסק:', error);
       setLoading(false);
     }
   };
@@ -27,7 +43,18 @@ const AdminBusinessControlPage = () => {
   const handleTakeover = async () => {
     try {
       console.log('🚀 מתחיל השתלטות על עסק:', id);
-      const response = await axios.post(`/api/admin/impersonate/${id}`);
+      
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert('אין טוקן מנהל');
+        return;
+      }
+      
+      const response = await axios.post(`/api/admin/impersonate/${id}`, {}, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       
       if (response.data.success) {
         // שמירת מצב השתלטות
@@ -43,8 +70,8 @@ const AdminBusinessControlPage = () => {
         window.location.href = '/business/dashboard';
       }
     } catch (error) {
-      console.error('Error taking over business:', error);
-      alert('שגיאה בהשתלטות על העסק');
+      console.error('❌ שגיאה בהשתלטות על העסק:', error);
+      alert('שגיאה בהשתלטות על העסק: ' + (error.response?.data?.error || error.message));
     }
   };
 
