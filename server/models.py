@@ -80,6 +80,8 @@ class CallLog(db.Model):
     call_duration = db.Column(Integer)  # in seconds
     conversation_summary = db.Column(Text)
     recording_url = db.Column(String(500))  # CRITICAL FIX: URL to Twilio recording
+    transcription = db.Column(Text)  # Hebrew transcription from Whisper
+    ai_response = db.Column(Text)  # GPT-4o response in Hebrew
     created_at = db.Column(DateTime, default=datetime.utcnow)
     updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     ended_at = db.Column(DateTime)

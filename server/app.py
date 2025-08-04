@@ -136,8 +136,10 @@ with app.app_context():
     
     # הפעלת שירות ניקוי ברקע מתקדם
     try:
-        from auto_cleanup_background import background_cleanup
-        background_cleanup.start_scheduler()
+        from auto_cleanup_background import start_background_scheduler
+        import threading
+        cleanup_thread = threading.Thread(target=start_background_scheduler, daemon=True)
+        cleanup_thread.start()
         logging.info("🧹 Background cleanup scheduler started")
     except Exception as e:
         logging.warning(f"⚠️ Could not start background cleanup: {e}")

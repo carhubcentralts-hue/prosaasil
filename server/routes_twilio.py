@@ -89,18 +89,19 @@ def incoming_call():
             else:
                 logger.info(f"📞 Using existing call log for {call_sid}")
             
-            # Generate Hebrew greeting using Hebrew TTS
+            # Generate Hebrew greeting using Hebrew TTS - מותאם לכל עסק
             greeting = f"שלום! זהו המוקד הוירטואלי של {business_name}. איך אוכל לעזור לך היום?"
             instruction = "אנא דברו אחרי הצפצוף"
             
-            # Generate Hebrew audio files
-            logger.info(f"🎵 Generating Hebrew TTS for: '{greeting[:30]}...'")
-            greeting_file = hebrew_tts.synthesize_hebrew_audio(greeting)
-            logger.info(f"🎵 Greeting TTS result: {greeting_file}")
+            logger.info(f"📞 Call from {from_number} to business: {business_name} (ID: {business_id})")
+            logger.info(f"🎵 Generating Hebrew TTS for business greeting: '{greeting[:50]}...'")
             
-            logger.info(f"🎵 Generating Hebrew TTS for: '{instruction[:30]}...'")
+            # Generate Hebrew audio files
+            greeting_file = hebrew_tts.synthesize_hebrew_audio(greeting)
+            logger.info(f"✅ Greeting TTS created: {greeting_file}")
+            
             instruction_file = hebrew_tts.synthesize_hebrew_audio(instruction)
-            logger.info(f"🎵 Instruction TTS result: {instruction_file}")
+            logger.info(f"✅ Instruction TTS created: {instruction_file}")
             
             if greeting_file and instruction_file:
                 # Use Hebrew TTS files - correct path
@@ -168,13 +169,14 @@ def handle_recording():
 </Response>'''
                 return Response(twiml, mimetype='text/xml')
             
-            # Download and process recording with AI
-            ai_response = "תודה על פנייתך. נחזור אליך בהקדם."
+            # Download and process recording with AI - שיפור מלא
+            ai_response = f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם."
+            transcribed_text = ""
             
             if recording_url:
                 try:
-                    # Download recording from Twilio
-                    logger.info(f"⬇️ Downloading recording from: {recording_url}")
+                    logger.info(f"⬇️ Call {call_sid}: Downloading recording from Twilio")
+                    logger.info(f"🔗 Recording URL: {recording_url}")
                     
                     recording_response = requests.get(recording_url, stream=True)
                     if recording_response.status_code == 200:
@@ -184,8 +186,10 @@ def handle_recording():
                                 temp_file.write(chunk)
                             temp_filename = temp_file.name
                         
+                        logger.info(f"💾 Recording saved temporarily: {temp_filename}")
+                        
                         # Transcribe with OpenAI Whisper (Hebrew)
-                        logger.info("🎙️ Transcribing with Whisper...")
+                        logger.info(f"🎙️ Call {call_sid}: Starting Whisper transcription...")
                         client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
                         
                         with open(temp_filename, 'rb') as audio_file:
@@ -196,55 +200,70 @@ def handle_recording():
                             )
                         
                         transcribed_text = transcript.text.strip()
-                        logger.info(f"📝 Transcribed: {transcribed_text}")
+                        logger.info(f"📝 Call {call_sid}: Transcription result: '{transcribed_text}'")
                         
                         if transcribed_text and len(transcribed_text) > 2:
-                            # Get business info for AI prompt
+                            # Get business info for AI prompt - מותאם לעסק
                             business = Business.query.get(call_log.business_id) if call_log else None
-                            ai_prompt = business.ai_prompt if business and business.ai_prompt else "אתה עוזר וירטואלי מועיל בעברית"
+                            ai_prompt = business.ai_prompt if business and business.ai_prompt else "אתה עוזר וירטואלי מועיל בעברית. תן תשובה קצרה ומועילה."
+                            
+                            logger.info(f"🤖 Call {call_sid}: Using AI prompt for business {business_name}")
+                            logger.info(f"📋 AI Prompt: {ai_prompt[:100]}...")
                             
                             # Generate AI response
-                            logger.info("🤖 Generating GPT response...")
                             messages = [
                                 {"role": "system", "content": ai_prompt},
                                 {"role": "user", "content": transcribed_text}
                             ]
                             
                             gpt_response = client.chat.completions.create(
-                                model="gpt-4o",
+                                model="gpt-4o", # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
                                 messages=messages,
                                 max_tokens=150,
                                 temperature=0.7
                             )
                             
-                            ai_response = gpt_response.choices[0].message.content.strip() if gpt_response.choices[0].message.content else "תודה על פנייתך"
-                            logger.info(f"🎯 GPT Response: {ai_response}")
+                            ai_response = gpt_response.choices[0].message.content.strip() if gpt_response.choices[0].message.content else f"תודה על פנייתך ל{business_name}"
+                            logger.info(f"🎯 Call {call_sid}: GPT Response: '{ai_response}'")
+                        else:
+                            logger.warning(f"⚠️ Call {call_sid}: Transcription too short or empty")
+                            ai_response = f"לא שמעתי אותך בבירור. אנא התקשר שוב ל{business_name}"
                         
-                        # Cleanup
+                        # Cleanup temporary file
                         os.unlink(temp_filename)
+                        logger.info(f"🧹 Temporary file cleaned: {temp_filename}")
                         
                 except Exception as ai_error:
-                    logger.error(f"AI processing error: {ai_error}")
+                    logger.error(f"❌ Call {call_sid}: AI processing error: {ai_error}")
                     ai_response = f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם."
             
-            # Generate Hebrew response using Hebrew TTS
+            # Generate Hebrew response using Hebrew TTS - שיפור מלא
             hebrew_response = ai_response if ai_response else f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם."
+            
+            logger.info(f"🎵 Call {call_sid}: Generating Hebrew TTS response for business {business_name}")
+            logger.info(f"📝 TTS Text: '{hebrew_response[:50]}...'")
             
             # Generate Hebrew TTS for response
             response_file = hebrew_tts.synthesize_hebrew_audio(hebrew_response)
+            logger.info(f"🎵 Call {call_sid}: TTS response file created: {response_file}")
             
-            # עכשיו נעדכן את CallLog עם ההקלטה והתמלול
+            # שמירה מלאה במסד נתונים - שלב קריטי
             if call_log and recording_url:
                 call_log.recording_url = recording_url
-                if 'transcribed_text' in locals() and transcribed_text:
+                if transcribed_text:
                     call_log.transcription = transcribed_text
-                if 'ai_response' in locals() and ai_response:
+                    logger.info(f"💾 Call {call_sid}: Saved transcription: '{transcribed_text[:50]}...'")
+                if ai_response:
                     call_log.ai_response = ai_response
+                    logger.info(f"💾 Call {call_sid}: Saved AI response: '{ai_response[:50]}...'")
                 call_log.call_status = 'completed'
                 call_log.ended_at = datetime.utcnow()
                 db.session.commit()
-                logger.info(f"✅ Updated call log with recording: {recording_url}")
+                logger.info(f"✅ Call {call_sid}: Database updated successfully")
+            else:
+                logger.warning(f"⚠️ Call {call_sid}: CallLog or recording_url missing - database not updated")
 
+            # תגובה קולית עם fallback - XML תקני
             if response_file:
                 response_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{response_file}"
                 twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -252,16 +271,19 @@ def handle_recording():
     <Play>{response_url}</Play>
     <Hangup/>
 </Response>'''
-                logger.info(f"🎵 Using Hebrew TTS response: {response_file}")
+                logger.info(f"🎵 Call {call_sid}: Using Hebrew TTS response file: {response_file}")
+                logger.info(f"🔗 TTS URL: {response_url}")
             else:
-                # Fallback
+                # Fallback to text-to-speech
                 twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{hebrew_response}</prosody></Say>
     <Hangup/>
 </Response>'''
+                logger.warning(f"⚠️ Call {call_sid}: TTS file failed, using Polly fallback")
             
-            logger.info(f"✅ Recording processed and response sent for {business_name}")
+            logger.info(f"✅ Call {call_sid}: Complete call processing finished for business {business_name}")
+            logger.info(f"📊 Call {call_sid}: Final status - Recording: {bool(recording_url)}, Transcription: {bool(transcribed_text)}, AI Response: {bool(ai_response)}")
             return Response(twiml, mimetype='text/xml')
             
         except Exception as e:
