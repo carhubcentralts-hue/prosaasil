@@ -59,6 +59,17 @@ const AdminDashboard = () => {
   const [showUserModal, setShowUserModal] = useState(false);
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'business', businessId: '' });
 
+  const handleLogout = () => {
+    // מחיקת כל נתוני ההתחברות
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('user_name');
+    localStorage.removeItem('business_id');
+    
+    // ניתוב לדף התחברות
+    navigate('/login');
+  };
+
   const handleResetPassword = (businessId) => {
     setSelectedBusinessId(businessId);
     setShowPasswordModal(true);
@@ -360,8 +371,7 @@ const AdminDashboard = () => {
               <button
                 onClick={() => {
                   if (window.confirm('האם אתה בטוח שברצונך להתנתק?')) {
-                    localStorage.clear();
-                    navigate('/login');
+                    handleLogout();
                   }
                 }}
                 className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors font-hebrew"

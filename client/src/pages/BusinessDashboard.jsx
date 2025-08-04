@@ -34,6 +34,17 @@ const BusinessDashboard = () => {
   const [businessId, setBusinessId] = useState(null);
 
   const userName = localStorage.getItem('user_name') || 'משתמש עסק';
+
+  const handleLogout = () => {
+    // מחיקת כל נתוני ההתחברות
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('user_name');
+    localStorage.removeItem('business_id');
+    
+    // ניתוב לדף התחברות
+    navigate('/login');
+  };
   
   // קבלת business_id מהטוקן - כעת reactive!
   const getBusinessId = () => {
