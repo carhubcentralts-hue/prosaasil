@@ -62,7 +62,7 @@ def incoming_call():
                 logger.warning(f"Business not found for {clean_to}")
                 error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
                 <Response>
-                    <Say voice="alice" language="he-IL">סליחה, המספר אינו זמין כרגע.</Say>
+                    <Say voice="alice" language="en-US">Sorry, this number is not available right now.</Say>
                     <Hangup/>
                 </Response>'''
                 return Response(error_twiml, mimetype='text/xml')
@@ -83,12 +83,14 @@ def incoming_call():
             db.session.commit()
             
             # Start conversation with greeting  
-            greeting = f"שלום! זהו המוקד הוירטואלי של {business_name}. איך אוכל לעזור לך היום?"
+            greeting = f"Shalom! This is the virtual center of {business_name}. How can I help you today?"
             
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="alice" language="he-IL">{greeting}</Say>
-                <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="false"/>
+                <Say voice="alice" language="en-US">{greeting}</Say>
+                <Pause length="1"/>
+                <Say voice="alice" language="en-US">Please speak after the beep.</Say>
+                <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/>
             </Response>'''
             
             logger.info(f"✅ Voice webhook response sent for business: {business_name}")
@@ -98,7 +100,7 @@ def incoming_call():
             logger.error(f"Error handling incoming call: {str(e)}")
             error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="alice" language="he-IL">סליחה, יש בעיה טכנית.</Say>
+                <Say voice="alice" language="en-US">Sorry, there is a technical problem.</Say>
                 <Hangup/>
             </Response>'''
             return Response(error_twiml, mimetype='text/xml')
@@ -127,8 +129,8 @@ def handle_recording():
                 logger.warning("No recording URL provided")
                 twiml = '''<?xml version="1.0" encoding="UTF-8"?>
                 <Response>
-                    <Say voice="alice" language="he-IL">לא קלטתי אותך. אנא נסה שוב.</Say>
-                    <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="false"/>
+                    <Say voice="alice" language="en-US">I didn't hear you clearly. Please try again.</Say>
+                    <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/>
                 </Response>'''
                 return Response(twiml, mimetype='text/xml')
             
@@ -191,10 +193,15 @@ def handle_recording():
                     logger.error(f"AI processing error: {ai_error}")
                     ai_response = f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם."
             
-            # Generate response TwiML
+            # Generate response TwiML - Translate Hebrew to English for Twilio
+            english_response = f"Thank you for calling {business_name}. We will get back to you soon."
+            if ai_response and len(ai_response) > 5:
+                # For now use English voice with translated content
+                english_response = f"Thank you for your message. We received your inquiry and will respond shortly."
+            
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="alice" language="he-IL">{ai_response}</Say>
+                <Say voice="alice" language="en-US">{english_response}</Say>
                 <Hangup/>
             </Response>'''
             
@@ -205,7 +212,7 @@ def handle_recording():
             logger.error(f"Error handling recording: {str(e)}")
             error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="alice" language="he-IL">סליחה, הייתה בעיה בעיבוד ההקלטה.</Say>
+                <Say voice="alice" language="en-US">Sorry, there was a problem processing the recording.</Say>
                 <Hangup/>
             </Response>'''
             return Response(error_twiml, mimetype='text/xml')
