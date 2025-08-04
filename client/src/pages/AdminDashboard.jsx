@@ -261,35 +261,45 @@ const AdminDashboard = () => {
           <h2 className="text-xl font-bold text-gray-900 font-hebrew mb-4">
             גישה מהירה למערכות
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <button 
-              onClick={() => window.location.href = '/admin/crm'}
-              className="flex items-center gap-3 p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"
+              onClick={() => window.location.href = '/admin/crm/advanced'}
+              className="flex items-center gap-3 p-4 bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl transition-all shadow-lg"
             >
-              <Users className="w-6 h-6 text-blue-600" />
+              <Users className="w-6 h-6" />
               <div className="text-right">
-                <p className="font-medium font-hebrew">CRM מנהל</p>
-                <p className="text-sm text-gray-600 font-hebrew">ניהול לקוחות כללי</p>
+                <p className="font-medium font-hebrew">CRM מתקדם</p>
+                <p className="text-sm text-blue-100 font-hebrew">רמת Monday.com</p>
+              </div>
+            </button>
+            <button 
+              onClick={() => window.location.href = '/admin/phone-analysis'}
+              className="flex items-center gap-3 p-4 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl transition-all shadow-lg"
+            >
+              <Phone className="w-6 h-6" />
+              <div className="text-right">
+                <p className="font-medium font-hebrew">ניתוח +972</p>
+                <p className="text-sm text-green-100 font-hebrew">מוכנות שיחות</p>
               </div>
             </button>
             <button 
               onClick={() => window.location.href = '/admin/whatsapp'}
-              className="flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-colors"
+              className="flex items-center gap-3 p-4 bg-gradient-to-br from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white rounded-xl transition-all shadow-lg"
             >
-              <MessageSquare className="w-6 h-6 text-green-600" />
+              <MessageSquare className="w-6 h-6" />
               <div className="text-right">
                 <p className="font-medium font-hebrew">WhatsApp מנהל</p>
-                <p className="text-sm text-gray-600 font-hebrew">ניהול הודעות כללי</p>
+                <p className="text-sm text-purple-100 font-hebrew">ניהול הודעות</p>
               </div>
             </button>
             <button 
-              onClick={() => window.location.href = '/admin/calls'}
-              className="flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors"
+              onClick={() => window.location.href = '/admin/deployment'}
+              className="flex items-center gap-3 p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl transition-all shadow-lg"
             >
-              <Phone className="w-6 h-6 text-purple-600" />
+              <Activity className="w-6 h-6" />
               <div className="text-right">
-                <p className="font-medium font-hebrew">שיחות מוקד</p>
-                <p className="text-sm text-gray-600 font-hebrew">ניהול שיחות כללי</p>
+                <p className="font-medium font-hebrew">בדיקת פריסה</p>
+                <p className="text-sm text-orange-100 font-hebrew">מוכנות מערכת</p>
               </div>
             </button>
           </div>

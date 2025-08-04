@@ -3,7 +3,7 @@ API Routes for React Frontend
 Modern REST API endpoints for the React + Tailwind frontend
 """
 
-from flask import jsonify, request, session
+from flask import jsonify, request, session, Blueprint
 from app import app, db
 from models import Business, User, CRMCustomer, CRMTask, CallLog, ConversationTurn, AppointmentRequest
 from auth import login_required, admin_required, AuthService
@@ -11,6 +11,9 @@ from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Create Blueprint for API routes
+api_bp = Blueprint('api', __name__)
 
 # ============== Authentication APIs ==============
 

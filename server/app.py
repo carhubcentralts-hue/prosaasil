@@ -98,6 +98,40 @@ with app.app_context():
         import api_crm_advanced   # Advanced CRM API routes
         import api_whatsapp_advanced # Advanced WhatsApp API routes
         import api_business_info  # Business info API routes
+        
+        # Register new advanced API blueprints
+        from api_routes import api_bp
+        from api_business_info import business_info_bp
+        from api_crm_advanced import crm_advanced_bp
+        from api_whatsapp_advanced import whatsapp_advanced_bp
+        
+        app.register_blueprint(api_bp)
+        app.register_blueprint(business_info_bp)
+        app.register_blueprint(crm_advanced_bp)
+        app.register_blueprint(whatsapp_advanced_bp)
+        
+        # Register newest advanced blueprints
+        try:
+            from api_phone_analysis import phone_analysis_bp
+            app.register_blueprint(phone_analysis_bp)
+            logging.info("✅ Phone Analysis Blueprint registered")
+        except ImportError:
+            logging.warning("⚠️ Phone Analysis Blueprint not found")
+        
+        try:
+            from api_admin_advanced import admin_advanced_bp
+            app.register_blueprint(admin_advanced_bp)
+            logging.info("✅ Admin Advanced Blueprint registered")
+        except ImportError:
+            logging.warning("⚠️ Admin Advanced Blueprint not found")
+        
+        try:
+            from api_business_leads import business_leads_bp
+            app.register_blueprint(business_leads_bp)
+            logging.info("✅ Business Leads Blueprint registered")
+        except ImportError:
+            logging.warning("⚠️ Business Leads Blueprint not found")
+            
         logging.info("✅ All route modules loaded successfully")
     except Exception as e:
         logging.warning(f"⚠️ Route modules error: {e}")

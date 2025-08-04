@@ -7,6 +7,8 @@ import BusinessDashboard from './pages/BusinessDashboard';
 import AdminBusinessControlPage from './pages/AdminBusinessControlPage';
 import AdvancedBusinessDashboard from './components/AdvancedBusinessDashboard';
 import BusinessViewPage from './pages/BusinessViewPage';
+import AdminCRMAdvanced from './pages/AdminCRMAdvanced';
+import BusinessCRMAdvanced from './pages/BusinessCRMAdvanced';
 import PrivateRoute from './components/PrivateRoute';
 
 function App() {
@@ -120,6 +122,26 @@ function App() {
             element={
               <PrivateRoute requiredRole="admin">
                 <BusinessViewPage />
+              </PrivateRoute>
+            } 
+          />
+          
+          {/* CRM מתקדם למנהל */}
+          <Route 
+            path="/admin/crm/advanced" 
+            element={
+              <PrivateRoute requiredRole="admin">
+                <AdminCRMAdvanced />
+              </PrivateRoute>
+            } 
+          />
+          
+          {/* CRM מתקדם לעסק */}
+          <Route 
+            path="/business/crm/advanced" 
+            element={
+              <PrivateRoute requiredRole="business">
+                <BusinessCRMAdvanced />
               </PrivateRoute>
             } 
           />
