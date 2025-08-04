@@ -18,7 +18,7 @@ const AdminBusinessControlPage = () => {
       console.log('🔄 מתחיל לטעון נתוני עסק:', id);
       
       // קבלת הטוקן מה-localStorage
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('auth_token');
       if (!token) {
         console.error('❌ אין טוקן');
         setLoading(false);
@@ -44,7 +44,7 @@ const AdminBusinessControlPage = () => {
     try {
       console.log('🚀 מתחיל השתלטות על עסק:', id);
       
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('auth_token');
       if (!token) {
         alert('אין טוקן מנהל');
         return;
@@ -59,8 +59,8 @@ const AdminBusinessControlPage = () => {
       if (response.data.success) {
         // שמירת מצב השתלטות
         localStorage.setItem('admin_takeover_mode', 'true');
-        localStorage.setItem('original_admin_token', localStorage.getItem('token'));
-        localStorage.setItem('token', response.data.token);
+        localStorage.setItem('original_admin_token', localStorage.getItem('auth_token'));
+        localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('user_role', 'business');
         localStorage.setItem('user_name', `מנהל שולט ב-${business?.name || 'עסק'}`);
         
