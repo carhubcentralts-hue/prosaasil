@@ -25,7 +25,8 @@ def generate_response(prompt):
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
-        return response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        return content.strip() if content else "תודה על פנייתכם. נחזור אליכם בהקדם."
         
     except Exception as e:
         logger.error(f"OpenAI API error: {e}")
