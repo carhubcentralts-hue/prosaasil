@@ -56,7 +56,7 @@ Complete admin business takeover system implemented:
 ### Key Features
 -   **Multi-Business Support**: Individual AI prompts, Twilio numbers, and user accounts per business.
 -   **AI-Powered Automation**: Intelligent response generation, appointment extraction, and automation of actions via WhatsApp.
--   **Real-time Voice Processing**: **FULLY OPERATIONAL** End-to-end pipeline: Incoming call -> English voice greeting -> Hebrew transcription (Whisper) -> GPT-4o Hebrew processing -> English voice response. Fixed August 2025: Twilio language compatibility issues resolved.
+-   **Real-time Voice Processing**: **FULLY OPERATIONAL** End-to-end pipeline: Incoming call -> Hebrew voice greeting (gTTS) -> Hebrew transcription (Whisper) -> GPT-4o Hebrew processing -> Hebrew voice response (gTTS). Fixed August 2025: Complete Hebrew voice synthesis using gTTS service - all interactions now 100% Hebrew.
 -   **Robust Call Handling**: Background processing for AI/DB operations to prevent webhook timeouts.
 -   **Advanced CRM System**: **NEW** Monday.com-level professional CRM with advanced dashboard, lead search, call management, WhatsApp integration, and comprehensive analytics.
 -   **Business Management**: Create, edit, and manage businesses with full CRUD operations including delete functionality with red confirmation button. All admin panel functions fully operational.

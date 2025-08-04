@@ -11,6 +11,7 @@ import openai
 from flask import request, Response, jsonify
 from models import Business, CallLog, db
 from datetime import datetime
+from hebrew_tts import hebrew_tts
 
 # Setup logging
 logger = logging.getLogger('routes_twilio')
@@ -62,7 +63,7 @@ def incoming_call():
                 logger.warning(f"Business not found for {clean_to}")
                 error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
                 <Response>
-                    <Say voice="alice" language="en-US">Sorry, this number is not available right now.</Say>
+                    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, המספר אינו זמין כרגע</prosody></Say>
                     <Hangup/>
                 </Response>'''
                 return Response(error_twiml, mimetype='text/xml')
@@ -71,27 +72,58 @@ def incoming_call():
             business_id, business_name = business_row
             logger.info(f"✅ Found business: {business_name} (ID: {business_id})")
             
-            # Create call log
-            call_log = CallLog(
-                business_id=business_id,
-                call_sid=call_sid,
-                from_number=from_number,
-                to_number=to_number,
-                call_status='ringing'
-            )
-            db.session.add(call_log)
-            db.session.commit()
+            # Create call log - handle duplicates
+            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+            if not call_log:
+                call_log = CallLog(
+                    business_id=business_id,
+                    call_sid=call_sid,
+                    from_number=from_number,
+                    to_number=to_number,
+                    call_status='ringing'
+                )
+                db.session.add(call_log)
+                db.session.commit()
+                logger.info(f"✅ Created new call log for {call_sid}")
+            else:
+                logger.info(f"📞 Using existing call log for {call_sid}")
             
-            # Start conversation with greeting  
-            greeting = f"Shalom! This is the virtual center of {business_name}. How can I help you today?"
+            # Generate Hebrew greeting using Hebrew TTS
+            greeting = f"שלום! זהו המוקד הוירטואלי של {business_name}. איך אוכל לעזור לך היום?"
+            instruction = "אנא דברו אחרי הצפצוף"
             
-            twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
-            <Response>
-                <Say voice="alice" language="en-US">{greeting}</Say>
-                <Pause length="1"/>
-                <Say voice="alice" language="en-US">Please speak after the beep.</Say>
-                <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/>
-            </Response>'''
+            # Generate Hebrew audio files
+            logger.info(f"🎵 Generating Hebrew TTS for: '{greeting[:30]}...'")
+            greeting_file = hebrew_tts.synthesize_hebrew_audio(greeting)
+            logger.info(f"🎵 Greeting TTS result: {greeting_file}")
+            
+            logger.info(f"🎵 Generating Hebrew TTS for: '{instruction[:30]}...'")
+            instruction_file = hebrew_tts.synthesize_hebrew_audio(instruction)
+            logger.info(f"🎵 Instruction TTS result: {instruction_file}")
+            
+            if greeting_file and instruction_file:
+                # Use Hebrew TTS files - correct path
+                greeting_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{greeting_file}"
+                instruction_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{instruction_file}"
+                
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+                <Response>
+                    <Play>{greeting_url}</Play>
+                    <Pause length="1"/>
+                    <Play>{instruction_url}</Play>
+                    <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/>
+                </Response>'''
+                
+                logger.info(f"🎵 Using Hebrew TTS files: {greeting_file}, {instruction_file}")
+            else:
+                # Fallback to basic text  
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+                <Response>
+                    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{greeting}</prosody></Say>
+                    <Pause length="1"/>
+                    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{instruction}</prosody></Say>
+                    <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/>
+                </Response>'''
             
             logger.info(f"✅ Voice webhook response sent for business: {business_name}")
             return Response(twiml, mimetype='text/xml')
@@ -100,7 +132,7 @@ def incoming_call():
             logger.error(f"Error handling incoming call: {str(e)}")
             error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="alice" language="en-US">Sorry, there is a technical problem.</Say>
+                <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, יש בעיה טכנית</prosody></Say>
                 <Hangup/>
             </Response>'''
             return Response(error_twiml, mimetype='text/xml')
@@ -129,7 +161,7 @@ def handle_recording():
                 logger.warning("No recording URL provided")
                 twiml = '''<?xml version="1.0" encoding="UTF-8"?>
                 <Response>
-                    <Say voice="alice" language="en-US">I didn't hear you clearly. Please try again.</Say>
+                    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">לא שמעתי אותך בבירור. אנא נסה שוב</prosody></Say>
                     <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/>
                 </Response>'''
                 return Response(twiml, mimetype='text/xml')
@@ -193,17 +225,27 @@ def handle_recording():
                     logger.error(f"AI processing error: {ai_error}")
                     ai_response = f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם."
             
-            # Generate response TwiML - Translate Hebrew to English for Twilio
-            english_response = f"Thank you for calling {business_name}. We will get back to you soon."
-            if ai_response and len(ai_response) > 5:
-                # For now use English voice with translated content
-                english_response = f"Thank you for your message. We received your inquiry and will respond shortly."
+            # Generate Hebrew response using Hebrew TTS
+            hebrew_response = ai_response if ai_response else f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם."
             
-            twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
-            <Response>
-                <Say voice="alice" language="en-US">{english_response}</Say>
-                <Hangup/>
-            </Response>'''
+            # Generate Hebrew TTS for response
+            response_file = hebrew_tts.synthesize_hebrew_audio(hebrew_response)
+            
+            if response_file:
+                response_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{response_file}"
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+                <Response>
+                    <Play>{response_url}</Play>
+                    <Hangup/>
+                </Response>'''
+                logger.info(f"🎵 Using Hebrew TTS response: {response_file}")
+            else:
+                # Fallback
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+                <Response>
+                    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{hebrew_response}</prosody></Say>
+                    <Hangup/>
+                </Response>'''
             
             logger.info(f"✅ Recording processed and response sent for {business_name}")
             return Response(twiml, mimetype='text/xml')
@@ -212,7 +254,7 @@ def handle_recording():
             logger.error(f"Error handling recording: {str(e)}")
             error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-                <Say voice="alice" language="en-US">Sorry, there was a problem processing the recording.</Say>
+                <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, הייתה בעיה בעיבוד ההקלטה</prosody></Say>
                 <Hangup/>
             </Response>'''
             return Response(error_twiml, mimetype='text/xml')
