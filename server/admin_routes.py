@@ -674,8 +674,12 @@ def impersonate_business(business_id):
         
         logger.info(f"✅ Admin impersonating business {business_id} - {business[1]}")
         return jsonify({
+            'success': True,
             'token': business_token,
-            'business_name': business[1],
+            'business': {
+                'id': business_id,
+                'name': business[1]
+            },
             'message': f'עבר למצב צפייה בעסק: {business[1]}'
         })
         

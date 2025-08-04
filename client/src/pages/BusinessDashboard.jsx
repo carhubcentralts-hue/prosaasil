@@ -189,17 +189,44 @@ const BusinessDashboard = () => {
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 font-hebrew mb-2">
-              שלום {businessInfo?.name || 'עסק'}
+              שלום מנהל
             </h1>
             <p className="text-gray-600 font-hebrew">{getHebrewDate()}</p>
+            {localStorage.getItem('admin_takeover_mode') === 'true' && (
+              <p className="text-purple-600 font-bold font-hebrew">
+                במצב השתלטות על {businessInfo?.name || 'עסק'}
+              </p>
+            )}
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-red-600 hover:text-red-700 font-hebrew"
-          >
-            <LogOut className="w-5 h-5" />
-            התנתק
-          </button>
+          <div className="flex gap-4">
+            {localStorage.getItem('admin_takeover_mode') === 'true' ? (
+              <button 
+                onClick={() => {
+                  const originalAdminToken = localStorage.getItem('original_admin_token');
+                  if (originalAdminToken) {
+                    localStorage.removeItem('admin_takeover_mode');
+                    localStorage.setItem('auth_token', originalAdminToken);
+                    localStorage.setItem('user_role', 'admin');
+                    localStorage.setItem('user_name', 'מנהל');
+                    localStorage.removeItem('original_admin_token');
+                    window.location.href = '/admin/dashboard';
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-hebrew"
+              >
+                <LogOut className="w-4 h-4" />
+                חזרה למנהל
+              </button>
+            ) : (
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 text-red-600 hover:text-red-700 font-hebrew"
+              >
+                <LogOut className="w-5 h-5" />
+                התנתק
+              </button>
+            )}
+          </div>
         </div>
 
         {/* פרטי עסק */}
