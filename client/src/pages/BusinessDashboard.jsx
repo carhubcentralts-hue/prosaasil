@@ -31,7 +31,29 @@ const BusinessDashboard = () => {
   });
 
   const userName = localStorage.getItem('user_name') || 'משתמש עסק';
-  const businessId = localStorage.getItem('business_id') || 1;
+  
+  // קבלת business_id מהטוקן אם אפשר, אחרת מ-localStorage
+  const getBusinessId = () => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        // ניסיון לפענח הטוקן לקבלת business_id נכון
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        const decoded = JSON.parse(jsonPayload);
+        console.log('🔍 Business ID from token:', decoded.business_id);
+        return decoded.business_id || localStorage.getItem('business_id') || 1;
+      }
+    } catch (error) {
+      console.log('⚠️ Could not decode token, using localStorage:', error);
+    }
+    return localStorage.getItem('business_id') || 1;
+  };
+  
+  const businessId = getBusinessId();
 
   useEffect(() => {
     fetchData();
@@ -72,6 +94,7 @@ const BusinessDashboard = () => {
         localStorage.setItem('user_role', 'admin');
         localStorage.setItem('user_name', 'מנהל');
         localStorage.removeItem('original_admin_token');
+        localStorage.removeItem('business_id'); // ניקוי business_id כשחוזרים למנהל
         window.location.href = '/admin/dashboard';
       }
     } else {

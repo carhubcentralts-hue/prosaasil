@@ -137,6 +137,7 @@ const AdminDashboard = () => {
         localStorage.setItem('original_admin_token', token);
         localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('user_role', 'business');
+        localStorage.setItem('business_id', businessId.toString()); // 🔧 התיקון החשוב!
         localStorage.setItem('user_name', `מנהל שולט ב-${response.data.business?.name || businessName}`);
         
         console.log(`✅ מעבר לדשבורד עסק #${businessId}: ${businessName}`);
