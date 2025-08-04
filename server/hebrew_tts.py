@@ -165,17 +165,19 @@ class HebrewTTSService:
             # Set up Hebrew voice
             synthesis_input = texttospeech.SynthesisInput(text=text)
             
-            # Use Hebrew voice (Wavenet for best quality)
+            # Use Hebrew female voice (Wavenet for best quality - as requested)
             voice = texttospeech.VoiceSelectionParams(
-                language_code="he",
-                name="he-IL-Wavenet-C"  # Hebrew voice as requested - corrected format
+                language_code="he-IL",
+                name="he-IL-Wavenet-A",  # Hebrew female voice - most realistic and natural
+                ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
             )
             
-            # Audio config - optimized for natural human-like speech
+            # Audio config - optimized for natural female voice
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.MP3,
-                speaking_rate=0.92,  # ⏱ Optimized for natural human-like speech
-                pitch=0.0
+                speaking_rate=0.95,  # Slightly faster for natural conversation
+                pitch=2.0,  # Slightly higher pitch for female voice
+                volume_gain_db=1.0  # Slightly louder for phone calls
             )
             
             # Generate audio
@@ -186,6 +188,7 @@ class HebrewTTSService:
             )
             
             # Save to file
+            from uuid import uuid4
             filename = f"hebrew_{uuid4().hex[:8]}.mp3"
             filepath = f"static/voice_responses/{filename}"
             
