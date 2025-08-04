@@ -107,7 +107,15 @@ const AdminDashboard = () => {
   // השתלטות ישירה על עסק
   const handleDirectBusinessTakeover = async (businessId) => {
     try {
-      console.log('🚀 מתחיל השתלטות ישירה על עסק:', businessId);
+      // מציאת העסק ברשימה לצורך הודעה ברורה
+      const business = businesses.find(b => b.id === businessId);
+      const businessName = business ? business.name : `עסק #${businessId}`;
+      
+      if (!window.confirm(`האם אתה בטוח שברצונך להשתלט על ${businessName}?`)) {
+        return;
+      }
+      
+      console.log(`🚀 מתחיל השתלטות ישירה על עסק #${businessId}: ${businessName}`);
       
       const token = localStorage.getItem('auth_token');
       if (!token) {
@@ -129,14 +137,16 @@ const AdminDashboard = () => {
         localStorage.setItem('original_admin_token', token);
         localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('user_role', 'business');
-        localStorage.setItem('user_name', `מנהל שולט ב-${response.data.business?.name || 'עסק'}`);
+        localStorage.setItem('user_name', `מנהל שולט ב-${response.data.business?.name || businessName}`);
+        
+        console.log(`✅ מעבר לדשבורד עסק #${businessId}: ${businessName}`);
         
         // מעבר ישיר לדשבורד העסק
         window.location.href = '/business/dashboard';
       }
     } catch (error) {
-      console.error('❌ שגיאה בהשתלטות על עסק:', error);
-      alert('שגיאה בהשתלטות על העסק: ' + (error.response?.data?.error || error.message));
+      console.error(`❌ שגיאה בהשתלטות על עסק #${businessId}:`, error);
+      alert(`שגיאה בהשתלטות על עסק #${businessId}: ` + (error.response?.data?.error || error.message));
     }
   };
 
@@ -385,7 +395,7 @@ const AdminDashboard = () => {
                         <button 
                           onClick={() => handleDirectBusinessTakeover(business.id)}
                           className="p-2 text-purple-600 hover:bg-purple-50 rounded font-bold border-2 border-purple-200"
-                          title="צפה כעסק"
+                          title={`השתלט על ${business.name} (עסק #${business.id})`}
                         >
                           <Eye className="w-4 h-4" />
                         </button>

@@ -25,12 +25,14 @@ Complete production-ready Hebrew AI Call Center achieved:
 - **Deployment Ready**: All components tested and verified for production deployment
 
 ### Admin Impersonation System (August 2025)
-Complete admin business takeover system implemented:
-- Simple purple "צפה כעסק" button for direct business access  
+Complete admin business takeover system implemented and FIXED:
+- **CRITICAL BUG FIXED (Aug 4, 2025)**: Admin "View Business" now works correctly - businesses displayed in ID order (#1 first, not #6)
+- Simple purple "צפה כעסק" button for direct business access with confirmation dialog showing exact business name
 - Seamless impersonation without intermediate pages
 - Admin operates as business owner with full access
 - Purple "חזרה למנהל" button returns to admin dashboard
 - Proper localStorage token management and role switching
+- Enhanced UX: Tooltips show business name and ID, clear console logging for debugging
 
 ### Technical Implementation
 -   **Backend Framework**: Flask with Blueprint architecture.

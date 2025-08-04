@@ -60,7 +60,7 @@ def get_businesses():
                    created_at, is_active
             FROM businesses 
             WHERE is_active = true
-            ORDER BY created_at DESC
+            ORDER BY id ASC
         """)
         
         businesses = []
@@ -838,7 +838,7 @@ def impersonate_business_api(business_id):
             business_user = User(
                 username=f'temp_business_{business_id}',
                 email=f'temp{business_id}@system.com',
-                password='temp_password',
+                password_hash='temp_password_hash',
                 role='business',
                 business_id=business_id
             )
