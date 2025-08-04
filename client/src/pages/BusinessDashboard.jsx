@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Building2, 
@@ -18,6 +19,7 @@ import {
 import PasswordChangeModal from '../components/PasswordChangeModal';
 
 const BusinessDashboard = () => {
+  const navigate = useNavigate();
   const [businessInfo, setBusinessInfo] = useState(null);
   const [services, setServices] = useState(null);
   const [systemStatus, setSystemStatus] = useState(null);
@@ -158,7 +160,7 @@ const BusinessDashboard = () => {
         localStorage.setItem('user_name', 'מנהל');
         localStorage.removeItem('original_admin_token');
         localStorage.removeItem('business_id'); // ניקוי business_id כשחוזרים למנהל
-        window.location.href = '/admin/dashboard';
+        navigate('/admin/dashboard');
       }
     } else {
       // יציאה רגילה
@@ -167,7 +169,7 @@ const BusinessDashboard = () => {
         localStorage.removeItem('user_role');
         localStorage.removeItem('user_name');
         localStorage.removeItem('business_id');
-        window.location.href = '/login';
+        navigate('/login');
       }
     }
   };
@@ -268,7 +270,7 @@ const BusinessDashboard = () => {
                     localStorage.setItem('user_role', 'admin');
                     localStorage.setItem('user_name', 'מנהל');
                     localStorage.removeItem('original_admin_token');
-                    window.location.href = '/admin/dashboard';
+                    navigate('/admin/dashboard');
                   }
                 }}
                 className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-hebrew"
@@ -336,7 +338,7 @@ const BusinessDashboard = () => {
               {services.crm && (
                 <div className="relative">
                   <button 
-                    onClick={() => window.location.href = '/business/crm/advanced'}
+                    onClick={() => navigate('/business/crm/advanced')}
                     className="w-full flex items-center gap-3 p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors text-right"
                   >
                     <Users className="w-6 h-6 text-blue-600" />
@@ -353,7 +355,7 @@ const BusinessDashboard = () => {
               {services.whatsapp && (
                 <div className="relative">
                   <button 
-                    onClick={() => window.location.href = '/whatsapp'}
+                    onClick={() => navigate('/whatsapp')}
                     className="w-full flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-colors text-right"
                   >
                     <MessageSquare className="w-6 h-6 text-green-600" />
@@ -374,7 +376,7 @@ const BusinessDashboard = () => {
               {services.calls && (
                 <div className="relative">
                   <button 
-                    onClick={() => window.location.href = '/calls'}
+                    onClick={() => navigate('/calls')}
                     className="w-full flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors text-right"
                   >
                     <Phone className="w-6 h-6 text-purple-600" />

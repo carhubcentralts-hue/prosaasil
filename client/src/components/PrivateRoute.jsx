@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 
 const PrivateRoute = ({ children, requiredRole }) => {
+  const navigate = useNavigate();
   const token = localStorage.getItem('auth_token');
   const userRole = localStorage.getItem('user_role');
   const adminTakeover = localStorage.getItem('admin_takeover_mode');
@@ -27,9 +28,9 @@ const PrivateRoute = ({ children, requiredRole }) => {
     // במקרה של השתלטות מנהל - הפנה ישירות לדשבורד עסק
     if (adminTakeover === 'true' && userRole === 'business') {
       console.log('🔄 PrivateRoute: FIXED - Admin takeover active, forcing redirect to business dashboard');
-      // Force immediate redirect without React Router delays
+      // Force immediate redirect using React Router
       setTimeout(() => {
-        window.location.href = '/business/dashboard';
+        navigate('/business/dashboard');
       }, 100);
       return <div>מעביר לדשבורד העסק...</div>; // Show message while redirecting
     }

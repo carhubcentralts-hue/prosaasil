@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Users, 
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 
 const AdminDashboard = () => {
+  const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [businesses, setBusinesses] = useState([]);
   const [systemStatus, setSystemStatus] = useState(null);
@@ -149,7 +151,7 @@ const AdminDashboard = () => {
         
         console.log('🔄 Redirect sequence starting...');
         
-        // אמינות מקסימלית - מעבר בשלבים
+        // מעבר עם React Router
         setTimeout(() => {
           console.log('🔄 Step 1: Checking localStorage after save');
           console.log('Current localStorage state:', {
@@ -160,8 +162,8 @@ const AdminDashboard = () => {
           });
           
           setTimeout(() => {
-            console.log('🔄 Step 2: Redirecting to business dashboard');
-            window.location.href = '/business/dashboard';
+            console.log('🔄 Step 2: Navigating to business dashboard');
+            navigate('/business/dashboard');
           }, 200);
         }, 100);
       }
@@ -294,7 +296,7 @@ const AdminDashboard = () => {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <button 
-              onClick={() => window.location.href = '/admin/crm/advanced'}
+              onClick={() => navigate('/admin/crm/advanced')}
               className="flex items-center gap-3 p-4 bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl transition-all shadow-lg"
             >
               <Users className="w-6 h-6" />
@@ -304,7 +306,7 @@ const AdminDashboard = () => {
               </div>
             </button>
             <button 
-              onClick={() => window.location.href = '/admin/phone-analysis'}
+              onClick={() => navigate('/admin/phone-analysis')}
               className="flex items-center gap-3 p-4 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl transition-all shadow-lg"
             >
               <Phone className="w-6 h-6" />
@@ -314,7 +316,7 @@ const AdminDashboard = () => {
               </div>
             </button>
             <button 
-              onClick={() => window.location.href = '/admin/whatsapp'}
+              onClick={() => navigate('/admin/whatsapp')}
               className="flex items-center gap-3 p-4 bg-gradient-to-br from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white rounded-xl transition-all shadow-lg"
             >
               <MessageSquare className="w-6 h-6" />
@@ -324,7 +326,7 @@ const AdminDashboard = () => {
               </div>
             </button>
             <button 
-              onClick={() => window.location.href = '/admin/deployment'}
+              onClick={() => navigate('/admin/deployment')}
               className="flex items-center gap-3 p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl transition-all shadow-lg"
             >
               <Activity className="w-6 h-6" />
@@ -359,7 +361,7 @@ const AdminDashboard = () => {
                 onClick={() => {
                   if (window.confirm('האם אתה בטוח שברצונך להתנתק?')) {
                     localStorage.clear();
-                    window.location.href = '/login';
+                    navigate('/login');
                   }
                 }}
                 className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors font-hebrew"
@@ -421,7 +423,7 @@ const AdminDashboard = () => {
                           <Eye className="w-4 h-4" />
                         </button>
                         <button 
-                          onClick={() => window.location.href = `/admin/business/${business.id}/view`}
+                          onClick={() => navigate(`/admin/business/${business.id}/view`)}
                           className="p-2 text-indigo-600 hover:bg-indigo-50 rounded"
                           title="צפה בעסק"
                         >
