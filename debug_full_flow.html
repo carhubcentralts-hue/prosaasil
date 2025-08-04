@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 בדיקת זרימה מלאה - השתלטות על עסקים</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .step { 
+            background: white; 
+            margin: 10px 0; 
+            padding: 15px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .step h3 { margin: 0 0 10px 0; color: #333; }
+        .step button { 
+            background: #7c3aed; 
+            color: white; 
+            border: none; 
+            padding: 8px 16px; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            margin: 5px;
+        }
+        .step button:hover { background: #6d28d9; }
+        .step button.back { background: #ef4444; }
+        .step button.back:hover { background: #dc2626; }
+        .log { background: #f3f4f6; padding: 10px; border-radius: 4px; font-family: monospace; }
+        .header { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔧 בדיקת זרימה מלאה</h1>
+        <p>בדיקה שלב אחר שלב של השתלטות מנהל על עסקים</p>
+    </div>
+
+    <div class="step">
+        <h3>שלב 1: התחברות כמנהל</h3>
+        <button onclick="loginAsAdmin()">התחבר כמנהל</button>
+        <div id="admin-status" class="log">לא מחובר</div>
+    </div>
+
+    <div class="step">
+        <h3>שלב 2: קבלת רשימת עסקים</h3>
+        <button onclick="getBusinesses()">טען רשימת עסקים</button>
+        <div id="businesses-list" class="log">לא נטען</div>
+    </div>
+
+    <div class="step">
+        <h3>שלב 3: השתלטות על עסק #1</h3>
+        <button onclick="takeoverBusiness(1)">השתלט על עסק #1</button>
+        <div id="takeover-status" class="log">לא בוצע</div>
+    </div>
+
+    <div class="step">
+        <h3>שלב 4: בדיקת נתוני עסק</h3>
+        <button onclick="checkBusinessData()">בדוק נתוני עסק</button>
+        <div id="business-data" class="log">לא נבדק</div>
+    </div>
+
+    <div class="step">
+        <h3>שלב 5: חזרה למנהל</h3>
+        <button onclick="returnToAdmin()" class="back">חזור למנהל</button>
+        <div id="return-status" class="log">לא בוצע</div>
+    </div>
+
+    <script>
+        function loginAsAdmin() {
+            // סימולציה של התחברות מנהל
+            localStorage.setItem('auth_token', 'fake_admin_token');
+            localStorage.setItem('user_role', 'admin');
+            localStorage.setItem('user_name', 'מנהל');
+            localStorage.removeItem('admin_takeover_mode');
+            localStorage.removeItem('business_id');
+            
+            document.getElementById('admin-status').innerHTML = '✅ מחובר כמנהל';
+            console.log('✅ התחברות מנהל');
+        }
+
+        async function getBusinesses() {
+            try {
+                const response = await fetch('/api/admin/businesses');
+                const businesses = await response.json();
+                
+                let html = '📋 רשימת עסקים:<br>';
+                businesses.forEach((business, index) => {
+                    html += `${index + 1}. עסק #${business.id}: ${business.name}<br>`;
+                });
+                
+                document.getElementById('businesses-list').innerHTML = html;
+                console.log('✅ רשימת עסקים נטענה', businesses);
+            } catch (error) {
+                document.getElementById('businesses-list').innerHTML = '❌ שגיאה: ' + error.message;
+            }
+        }
+
+        async function takeoverBusiness(businessId) {
+            try {
+                console.log(`🚀 מתחיל השתלטות על עסק #${businessId}`);
+                
+                const response = await fetch(`/api/admin/impersonate/${businessId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer fake_admin_token',
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // שמירת נתונים בדיוק כמו בקוד האמיתי
+                    localStorage.setItem('admin_takeover_mode', 'true');
+                    localStorage.setItem('original_admin_token', 'fake_admin_token');
+                    localStorage.setItem('business_id', businessId.toString());
+                    localStorage.setItem('auth_token', data.token);
+                    localStorage.setItem('user_role', 'business');
+                    localStorage.setItem('user_name', `מנהל שולט ב-${data.business.name}`);
+                    
+                    document.getElementById('takeover-status').innerHTML = 
+                        `✅ השתלטות הושלמה על ${data.business.name}<br>` +
+                        `📋 business_id: ${businessId}<br>` +
+                        `🔑 טוכן חדש: ${data.token.substring(0, 20)}...`;
+                    
+                    console.log('✅ השתלטות הושלמה', data);
+                } else {
+                    throw new Error(data.error || 'השתלטות נכשלה');
+                }
+            } catch (error) {
+                document.getElementById('takeover-status').innerHTML = '❌ שגיאה: ' + error.message;
+                console.error('❌ שגיאה בהשתלטות', error);
+            }
+        }
+
+        async function checkBusinessData() {
+            try {
+                const businessId = localStorage.getItem('business_id');
+                const token = localStorage.getItem('auth_token');
+                
+                if (!businessId || !token) {
+                    throw new Error('אין נתוני השתלטות');
+                }
+                
+                console.log(`🔍 בודק נתוני עסק #${businessId}`);
+                
+                const response = await fetch(`/api/business/info?business_id=${businessId}`);
+                const data = await response.json();
+                
+                document.getElementById('business-data').innerHTML = 
+                    `✅ נתוני עסק #${businessId}:<br>` +
+                    `שם: ${data.name || 'לא זמין'}<br>` +
+                    `סוג: ${data.type || 'לא זמין'}<br>` +
+                    `טלפון: ${data.phone || 'לא זמין'}`;
+                
+                console.log('✅ נתוני עסק נטענו', data);
+            } catch (error) {
+                document.getElementById('business-data').innerHTML = '❌ שגיאה: ' + error.message;
+                console.error('❌ שגיאה בנתוני עסק', error);
+            }
+        }
+
+        function returnToAdmin() {
+            const originalToken = localStorage.getItem('original_admin_token');
+            
+            if (originalToken) {
+                localStorage.removeItem('admin_takeover_mode');
+                localStorage.setItem('auth_token', originalToken);
+                localStorage.setItem('user_role', 'admin');
+                localStorage.setItem('user_name', 'מנהל');
+                localStorage.removeItem('original_admin_token');
+                localStorage.removeItem('business_id');
+                
+                document.getElementById('return-status').innerHTML = '✅ חזרה למנהל הושלמה';
+                console.log('✅ חזרה למנהל');
+            } else {
+                document.getElementById('return-status').innerHTML = '❌ אין טוכן מנהל מקורי';
+            }
+        }
+
+        // הצגת מצב נוכחי
+        setInterval(() => {
+            const role = localStorage.getItem('user_role');
+            const businessId = localStorage.getItem('business_id');
+            const takeover = localStorage.getItem('admin_takeover_mode');
+            
+            console.log('📊 מצב נוכחי:', { role, businessId, takeover });
+        }, 5000);
+    </script>
+</body>
+</html>

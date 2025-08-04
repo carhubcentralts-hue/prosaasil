@@ -11,6 +11,55 @@ import AdminCRMAdvanced from './pages/AdminCRMAdvanced';
 import BusinessCRMAdvanced from './pages/BusinessCRMAdvanced';
 import PrivateRoute from './components/PrivateRoute';
 
+// דף לא מורשה חכם
+const UnauthorizedPage = () => {
+  const handleRedirect = () => {
+    const role = localStorage.getItem('user_role');
+    const adminTakeover = localStorage.getItem('admin_takeover_mode');
+    
+    console.log('🚫 Unauthorized page - role:', role, 'admin takeover:', adminTakeover);
+    
+    // אם אנחנו במצב השתלטות מנהל, חזור למנהל
+    if (adminTakeover === 'true') {
+      const originalToken = localStorage.getItem('original_admin_token');
+      if (originalToken) {
+        localStorage.removeItem('admin_takeover_mode');
+        localStorage.setItem('auth_token', originalToken);
+        localStorage.setItem('user_role', 'admin');
+        localStorage.setItem('user_name', 'מנהל');
+        localStorage.removeItem('original_admin_token');
+        localStorage.removeItem('business_id');
+        window.location.href = '/admin/dashboard';
+        return;
+      }
+    }
+    
+    // אחרת, הפנה לפי התפקיד
+    if (role === 'admin') {
+      window.location.href = '/admin/dashboard';
+    } else if (role === 'business') {
+      window.location.href = '/business/dashboard';
+    } else {
+      window.location.href = '/login';
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
+      <div className="text-center font-hebrew">
+        <h1 className="text-2xl font-bold text-red-600 mb-4">אין הרשאה</h1>
+        <p className="text-gray-600 mb-4">אין לך הרשאה לגשת לדף זה</p>
+        <button 
+          onClick={handleRedirect}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+        >
+          חזור לדף המתאים
+        </button>
+      </div>
+    </div>
+  );
+};
+
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -146,22 +195,11 @@ function App() {
             } 
           />
           
-          {/* דף לא מורשה */}
+          {/* דף לא מורשה - עם טיפול חכם */}
           <Route 
             path="/unauthorized" 
             element={
-              <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
-                <div className="text-center font-hebrew">
-                  <h1 className="text-2xl font-bold text-red-600 mb-4">אין הרשאה</h1>
-                  <p className="text-gray-600 mb-4">אין לך הרשאה לגשת לדף זה</p>
-                  <button 
-                    onClick={() => window.location.href = '/'}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                  >
-                    חזור לעמוד הבית
-                  </button>
-                </div>
-              </div>
+              <UnauthorizedPage />
             } 
           />
           

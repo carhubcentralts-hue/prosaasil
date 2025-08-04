@@ -32,25 +32,34 @@ const BusinessDashboard = () => {
 
   const userName = localStorage.getItem('user_name') || 'משתמש עסק';
   
-  // קבלת business_id מהטוקן אם אפשר, אחרת מ-localStorage
+  // קבלת business_id מהטוקן - זה הפתרון הסופי!
   const getBusinessId = () => {
     try {
       const token = localStorage.getItem('auth_token');
-      if (token) {
-        // ניסיון לפענח הטוקן לקבלת business_id נכון
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-        }).join(''));
-        const decoded = JSON.parse(jsonPayload);
-        console.log('🔍 Business ID from token:', decoded.business_id);
-        return decoded.business_id || localStorage.getItem('business_id') || 1;
+      if (token && token !== 'null' && token !== 'undefined') {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const base64Url = parts[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join(''));
+          const decoded = JSON.parse(jsonPayload);
+          console.log('🔍 Decoded token:', decoded);
+          if (decoded.business_id) {
+            console.log('✅ Using business_id from token:', decoded.business_id);
+            return decoded.business_id;
+          }
+        }
       }
     } catch (error) {
-      console.log('⚠️ Could not decode token, using localStorage:', error);
+      console.log('⚠️ Token decode failed:', error);
     }
-    return localStorage.getItem('business_id') || 1;
+    
+    // Fallback
+    const fallbackId = localStorage.getItem('business_id') || '1';
+    console.log('📋 Using fallback business_id:', fallbackId);
+    return parseInt(fallbackId);
   };
   
   const businessId = getBusinessId();

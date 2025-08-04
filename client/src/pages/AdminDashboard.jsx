@@ -130,17 +130,22 @@ const AdminDashboard = () => {
       });
       
       if (response.data.success) {
-        console.log('✅ השתלטות הושלמה, מעבר לדשבורד העסק');
+        console.log(`✅ השתלטות הושלמה על עסק #${businessId}: ${businessName}`);
         
-        // שמירת מצב השתלטות
+        // שמירת מצב השתלטות - בסדר הנכון!
         localStorage.setItem('admin_takeover_mode', 'true');
         localStorage.setItem('original_admin_token', token);
+        localStorage.setItem('business_id', businessId.toString());
         localStorage.setItem('auth_token', response.data.token);
         localStorage.setItem('user_role', 'business');
-        localStorage.setItem('business_id', businessId.toString()); // 🔧 התיקון החשוב!
         localStorage.setItem('user_name', `מנהל שולט ב-${response.data.business?.name || businessName}`);
         
-        console.log(`✅ מעבר לדשבורד עסק #${businessId}: ${businessName}`);
+        console.log(`🚀 מעבר לדשבורד עסק #${businessId}`);
+        console.log('📋 localStorage updated:', {
+          business_id: localStorage.getItem('business_id'),
+          user_role: localStorage.getItem('user_role'),
+          admin_takeover_mode: localStorage.getItem('admin_takeover_mode')
+        });
         
         // מעבר ישיר לדשבורד העסק
         window.location.href = '/business/dashboard';
