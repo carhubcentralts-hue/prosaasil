@@ -104,11 +104,41 @@ const AdminDashboard = () => {
     }
   };
 
-  // פונקציה נמחקה - עכשיו הכפתור עובד ישירות
-
-
-
-  // הסרנו את handleViewBusiness - רק השתלטות ישירה
+  // השתלטות ישירה על עסק
+  const handleDirectBusinessTakeover = async (businessId) => {
+    try {
+      console.log('🚀 מתחיל השתלטות ישירה על עסק:', businessId);
+      
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        alert('אין טוקן מנהל');
+        return;
+      }
+      
+      const response = await axios.post(`/api/admin/impersonate/${businessId}`, {}, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.data.success) {
+        console.log('✅ השתלטות הושלמה, מעבר לדשבורד העסק');
+        
+        // שמירת מצב השתלטות
+        localStorage.setItem('admin_takeover_mode', 'true');
+        localStorage.setItem('original_admin_token', token);
+        localStorage.setItem('auth_token', response.data.token);
+        localStorage.setItem('user_role', 'business');
+        localStorage.setItem('user_name', `מנהל שולט ב-${response.data.business?.name || 'עסק'}`);
+        
+        // מעבר ישיר לדשבורד העסק
+        window.location.href = '/business/dashboard';
+      }
+    } catch (error) {
+      console.error('❌ שגיאה בהשתלטות על עסק:', error);
+      alert('שגיאה בהשתלטות על העסק: ' + (error.response?.data?.error || error.message));
+    }
+  };
 
 
 
@@ -343,12 +373,9 @@ const AdminDashboard = () => {
                     <td className="py-4 px-4">
                       <div className="flex gap-2">
                         <button 
-                          onClick={() => {
-                            console.log('🎯 ADMIN CONTROL BUTTON CLICKED:', business.id);
-                            window.location.href = `/admin/business-control/${business.id}`;
-                          }}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded font-bold border-2 border-blue-200"
-                          title="🎯 שליטת מנהל על העסק"
+                          onClick={() => handleDirectBusinessTakeover(business.id)}
+                          className="p-2 text-purple-600 hover:bg-purple-50 rounded font-bold border-2 border-purple-200"
+                          title="צפה כעסק"
                         >
                           <Eye className="w-4 h-4" />
                         </button>

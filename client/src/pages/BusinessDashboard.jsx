@@ -56,12 +56,29 @@ const BusinessDashboard = () => {
   };
 
   const handleLogout = () => {
-    if (window.confirm('האם אתה בטוח שברצונך להתנתק?')) {
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('user_role');
-      localStorage.removeItem('user_name');
-      localStorage.removeItem('business_id');
-      window.location.href = '/login';
+    // בדיקה אם אנחנו במצב השתלטות מנהל
+    const adminTakeoverMode = localStorage.getItem('admin_takeover_mode');
+    const originalAdminToken = localStorage.getItem('original_admin_token');
+    
+    if (adminTakeoverMode && originalAdminToken) {
+      // חזרה למנהל
+      if (window.confirm('האם אתה רוצה לחזור לדשבורד המנהל?')) {
+        localStorage.removeItem('admin_takeover_mode');
+        localStorage.setItem('auth_token', originalAdminToken);
+        localStorage.setItem('user_role', 'admin');
+        localStorage.setItem('user_name', 'מנהל');
+        localStorage.removeItem('original_admin_token');
+        window.location.href = '/admin/dashboard';
+      }
+    } else {
+      // יציאה רגילה
+      if (window.confirm('האם אתה בטוח שברצונך להתנתק?')) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user_role');
+        localStorage.removeItem('user_name');
+        localStorage.removeItem('business_id');
+        window.location.href = '/login';
+      }
     }
   };
 
