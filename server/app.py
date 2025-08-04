@@ -101,14 +101,8 @@ with app.app_context():
         
         # Register new advanced API blueprints
         from api_routes import api_bp
-        from api_business_info import business_info_bp
-        from api_crm_advanced import crm_advanced_bp
-        from api_whatsapp_advanced import whatsapp_advanced_bp
-        
         app.register_blueprint(api_bp)
-        app.register_blueprint(business_info_bp)
-        app.register_blueprint(crm_advanced_bp)
-        app.register_blueprint(whatsapp_advanced_bp)
+        logging.info("✅ API Routes Blueprint registered successfully")
         
         # Register newest advanced blueprints
         try:
