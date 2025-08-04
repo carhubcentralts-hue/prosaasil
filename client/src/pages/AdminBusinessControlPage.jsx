@@ -1,65 +1,80 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { 
-  ArrowLeft, 
-  Building2, 
-  Users, 
-  Phone, 
-  MessageSquare,
-  Calendar,
-  Activity,
-  Settings,
-  Eye,
-  Shield,
-  ChevronRight
-} from 'lucide-react';
+import { ArrowRight, Building2, Phone, MessageSquare, Users, Calendar, DollarSign, Settings, Eye, LogOut } from 'lucide-react';
 
 const AdminBusinessControlPage = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [business, setBusiness] = useState(null);
-  const [businessData, setBusinessData] = useState(null);
-  const [customers, setCustomers] = useState([]);
-  const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
-
+  
   useEffect(() => {
     fetchBusinessData();
   }, [id]);
 
   const fetchBusinessData = async () => {
     try {
-      setLoading(true);
-      
-      const [businessRes, dataRes, customersRes, callsRes] = await Promise.all([
-        axios.get(`/api/admin/businesses/${id}`),
-        axios.get(`/api/business/info?business_id=${id}`),
-        axios.get(`/api/business/customers?business_id=${id}`),
-        axios.get(`/api/business/calls?business_id=${id}`)
-      ]);
-
-      setBusiness(businessRes.data);
-      setBusinessData(dataRes.data);
-      setCustomers(customersRes.data || []);
-      setCalls(callsRes.data || []);
+      const response = await axios.get(`/api/admin/businesses/${id}`);
+      setBusiness(response.data);
+      setLoading(false);
     } catch (error) {
-      console.error('Error fetching business control data:', error);
-    } finally {
+      console.error('Error fetching business:', error);
       setLoading(false);
     }
   };
 
-  const handleBackToAdmin = () => {
-    window.location.href = '/admin/dashboard';
+  const handleTakeover = async () => {
+    try {
+      console.log('🚀 מתחיל השתלטות על עסק:', id);
+      const response = await axios.post(`/api/admin/impersonate/${id}`);
+      
+      if (response.data.success) {
+        // שמירת מצב השתלטות
+        localStorage.setItem('admin_takeover_mode', 'true');
+        localStorage.setItem('original_admin_token', localStorage.getItem('token'));
+        localStorage.setItem('token', response.data.token);
+        localStorage.setItem('user_role', 'business');
+        localStorage.setItem('user_name', `מנהל שולט ב-${business?.name || 'עסק'}`);
+        
+        console.log('✅ השתלטות הושלמה, מעבר לדשבורד העסק');
+        
+        // מעבר לדשבורד העסק
+        window.location.href = '/business/dashboard';
+      }
+    } catch (error) {
+      console.error('Error taking over business:', error);
+      alert('שגיאה בהשתלטות על העסק');
+    }
+  };
+
+  const returnToAdmin = () => {
+    navigate('/admin/dashboard');
   };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
         <div className="text-center font-hebrew">
-          <div className="animate-spin w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p className="text-gray-600">טוען נתוני עסק...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">טוען נתוני העסק...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!business) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
+        <div className="text-center font-hebrew">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">עסק לא נמצא</h1>
+          <p className="text-gray-600 mb-4">לא ניתן למצוא עסק עם מזהה {id}</p>
+          <button 
+            onClick={returnToAdmin}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+          >
+            חזור לדשבורד מנהל
+          </button>
         </div>
       </div>
     );
@@ -67,247 +82,163 @@ const AdminBusinessControlPage = () => {
 
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
-      {/* כותרת עם חזרה למנהל */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+      {/* כותרת עליונה */}
+      <div className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <button
-                onClick={handleBackToAdmin}
-                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+              <button 
+                onClick={returnToAdmin}
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-800"
               >
-                <ArrowLeft className="w-5 h-5" />
+                <ArrowRight className="w-4 h-4" />
                 <span className="font-hebrew">חזור לדשבורד מנהל</span>
               </button>
-              <div className="w-px h-6 bg-gray-300"></div>
+              <div className="text-sm text-gray-400">|</div>
               <div className="flex items-center gap-2">
-                <Shield className="w-5 h-5 text-purple-600" />
-                <span className="font-hebrew font-medium text-gray-900">שליטת מנהל</span>
+                <Building2 className="w-5 h-5 text-blue-600" />
+                <h1 className="text-xl font-bold text-gray-900 font-hebrew">
+                  שליטת מנהל: {business.name}
+                </h1>
               </div>
             </div>
-            <div className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-hebrew">
-              במצב שליטה מלאה
+            
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-600 font-hebrew">מצב: מנהל</span>
+              <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* מידע עסק */}
-      {business && (
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
-                <Building2 className="w-8 h-8 text-white" />
+      <div className="max-w-7xl mx-auto p-6">
+        {/* מידע על העסק */}
+        <div className="bg-white rounded-lg shadow mb-6">
+          <div className="p-6">
+            <h2 className="text-lg font-bold text-gray-900 font-hebrew mb-4">מידע על העסק</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">שם העסק</label>
+                <p className="text-gray-900 font-hebrew">{business.name}</p>
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900 font-hebrew">{business.name}</h1>
-                <p className="text-gray-600 font-hebrew">{business.type} | עסק #{business.id}</p>
+                <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">סוג עסק</label>
+                <p className="text-gray-900 font-hebrew">{business.type}</p>
               </div>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-blue-50 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Phone className="w-5 h-5 text-blue-600" />
-                  <span className="font-medium text-blue-900 font-hebrew">טלפון עסק</span>
-                </div>
-                <p className="text-blue-800 font-bold">{business.phone}</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">מזהה עסק</label>
+                <p className="text-gray-900 font-hebrew">#{business.id}</p>
               </div>
-              
-              <div className="bg-green-50 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Users className="w-5 h-5 text-green-600" />
-                  <span className="font-medium text-green-900 font-hebrew">לקוחות</span>
-                </div>
-                <p className="text-green-800 font-bold">{customers.length}</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">מספר טלפון</label>
+                <p className="text-gray-900 font-hebrew">{business.phone || 'לא הוגדר'}</p>
               </div>
-              
-              <div className="bg-purple-50 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Activity className="w-5 h-5 text-purple-600" />
-                  <span className="font-medium text-purple-900 font-hebrew">שיחות</span>
-                </div>
-                <p className="text-purple-800 font-bold">{calls.length}</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">כתובת אימייל</label>
+                <p className="text-gray-900 font-hebrew">{business.email || 'לא הוגדר'}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">סטטוס</label>
+                <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                  business.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                }`}>
+                  {business.is_active ? 'פעיל' : 'לא פעיל'}
+                </span>
               </div>
             </div>
           </div>
+        </div>
 
-          {/* טאבים */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="border-b border-gray-200">
-              <nav className="flex">
-                <button
-                  onClick={() => setActiveTab('overview')}
-                  className={`px-6 py-3 font-hebrew font-medium ${
-                    activeTab === 'overview' 
-                      ? 'text-blue-600 border-b-2 border-blue-600' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  סקירה כללית
-                </button>
-                <button
-                  onClick={() => setActiveTab('customers')}
-                  className={`px-6 py-3 font-hebrew font-medium ${
-                    activeTab === 'customers' 
-                      ? 'text-blue-600 border-b-2 border-blue-600' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  לקוחות
-                </button>
-                <button
-                  onClick={() => setActiveTab('calls')}
-                  className={`px-6 py-3 font-hebrew font-medium ${
-                    activeTab === 'calls' 
-                      ? 'text-blue-600 border-b-2 border-blue-600' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  שיחות
-                </button>
-                <button
-                  onClick={() => setActiveTab('settings')}
-                  className={`px-6 py-3 font-hebrew font-medium ${
-                    activeTab === 'settings' 
-                      ? 'text-blue-600 border-b-2 border-blue-600' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  הגדרות
-                </button>
-              </nav>
-            </div>
-
-            <div className="p-6">
-              {activeTab === 'overview' && (
-                <div className="space-y-6">
-                  <h3 className="text-lg font-bold text-gray-900 font-hebrew">סקירה כללית</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <h4 className="font-medium text-gray-900 font-hebrew mb-3">שירותים פעילים</h4>
-                      <div className="space-y-2">
-                        {business.services?.crm && (
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span className="text-sm font-hebrew text-gray-700">מערכת CRM</span>
-                          </div>
-                        )}
-                        {business.services?.whatsapp && (
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span className="text-sm font-hebrew text-gray-700">WhatsApp עסקי</span>
-                          </div>
-                        )}
-                        {business.services?.calls && (
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span className="text-sm font-hebrew text-gray-700">מוקד שיחות</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <h4 className="font-medium text-gray-900 font-hebrew mb-3">סטטיסטיקות</h4>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-sm font-hebrew text-gray-600">סה"כ לקוחות:</span>
-                          <span className="text-sm font-bold text-gray-900">{customers.length}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm font-hebrew text-gray-600">שיחות השבוע:</span>
-                          <span className="text-sm font-bold text-gray-900">{calls.length}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+        {/* שירותים זמינים */}
+        <div className="bg-white rounded-lg shadow mb-6">
+          <div className="p-6">
+            <h2 className="text-lg font-bold text-gray-900 font-hebrew mb-4">שירותים זמינים</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {business.services?.crm && (
+                <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
+                  <Users className="w-5 h-5 text-blue-600" />
+                  <span className="font-hebrew text-blue-800">CRM</span>
                 </div>
               )}
-
-              {activeTab === 'customers' && (
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900 font-hebrew mb-4">רשימת לקוחות</h3>
-                  {customers.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-gray-200">
-                            <th className="text-right py-3 px-4 font-hebrew text-gray-700">שם</th>
-                            <th className="text-right py-3 px-4 font-hebrew text-gray-700">טלפון</th>
-                            <th className="text-right py-3 px-4 font-hebrew text-gray-700">מצב</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {customers.slice(0, 10).map((customer, index) => (
-                            <tr key={index} className="border-b border-gray-100">
-                              <td className="py-3 px-4 font-hebrew">{customer.name || 'לקוח ' + (index + 1)}</td>
-                              <td className="py-3 px-4">{customer.phone || '---'}</td>
-                              <td className="py-3 px-4">
-                                <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-hebrew">
-                                  פעיל
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-gray-500 font-hebrew">
-                      אין לקוחות רשומים עדיין
-                    </div>
-                  )}
+              {business.services?.whatsapp && (
+                <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
+                  <MessageSquare className="w-5 h-5 text-green-600" />
+                  <span className="font-hebrew text-green-800">WhatsApp</span>
                 </div>
               )}
-
-              {activeTab === 'calls' && (
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900 font-hebrew mb-4">שיחות אחרונות</h3>
-                  {calls.length > 0 ? (
-                    <div className="space-y-3">
-                      {calls.slice(0, 10).map((call, index) => (
-                        <div key={index} className="bg-gray-50 rounded-lg p-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <Phone className="w-4 h-4 text-gray-600" />
-                              <span className="font-hebrew text-gray-900">{call.from || 'מספר לא ידוע'}</span>
-                            </div>
-                            <span className="text-sm font-hebrew text-gray-600">
-                              {call.timestamp || 'זמן לא ידוע'}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-gray-500 font-hebrew">
-                      אין שיחות רשומות עדיין
-                    </div>
-                  )}
+              {business.services?.calls && (
+                <div className="flex items-center gap-2 p-3 bg-purple-50 rounded-lg">
+                  <Phone className="w-5 h-5 text-purple-600" />
+                  <span className="font-hebrew text-purple-800">שיחות</span>
                 </div>
               )}
-
-              {activeTab === 'settings' && (
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900 font-hebrew mb-4">הגדרות עסק</h3>
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Shield className="w-5 h-5 text-yellow-600" />
-                      <span className="font-medium text-yellow-800 font-hebrew">מצב מנהל</span>
-                    </div>
-                    <p className="text-yellow-700 font-hebrew text-sm">
-                      אתה צופה בעסק זה במצב שליטת מנהל. לא ניתן לבצע שינויים מהדף הזה.
-                      לשינויים, חזור לדשבורד המנהל.
-                    </p>
-                  </div>
+              {business.services?.calendar && (
+                <div className="flex items-center gap-2 p-3 bg-orange-50 rounded-lg">
+                  <Calendar className="w-5 h-5 text-orange-600" />
+                  <span className="font-hebrew text-orange-800">יומן</span>
                 </div>
               )}
             </div>
           </div>
         </div>
-      )}
+
+        {/* פעולות שליטה */}
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-6">
+            <h2 className="text-lg font-bold text-gray-900 font-hebrew mb-4">פעולות שליטה</h2>
+            <div className="space-y-4">
+              <div className="p-4 border-2 border-purple-200 rounded-lg bg-purple-50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-purple-900 font-hebrew">השתלטות מלאה על העסק</h3>
+                    <p className="text-sm text-purple-700 font-hebrew mt-1">
+                      כניסה למערכת העסק עם הרשאות מלאות כאילו אתה בעל העסק
+                    </p>
+                  </div>
+                  <button 
+                    onClick={handleTakeover}
+                    className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2 font-hebrew"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    השתלט על העסק
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 border-2 border-blue-200 rounded-lg bg-blue-50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-blue-900 font-hebrew">צפייה בלבד</h3>
+                    <p className="text-sm text-blue-700 font-hebrew mt-1">
+                      צפייה במידע העסק ללא יכולת עריכה או שינוי
+                    </p>
+                  </div>
+                  <button 
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-hebrew"
+                    disabled
+                  >
+                    <Eye className="w-4 h-4" />
+                    צפייה (בפיתוח)
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* הודעת אזהרה */}
+        <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 bg-yellow-400 rounded-full flex items-center justify-center">
+              <span className="text-yellow-800 text-xs font-bold">!</span>
+            </div>
+            <p className="text-yellow-800 font-hebrew">
+              <strong>אזהרה:</strong> השתלטות על עסק תעביר אותך למערכת העסק עם הרשאות מלאות. 
+              תוכל לחזור לדשבורד המנהל בכל עת.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

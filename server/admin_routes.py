@@ -755,3 +755,115 @@ def get_admin_stats():
     except Exception as e:
         logger.error(f"Error fetching admin stats: {e}")
         return jsonify({'error': 'Failed to fetch statistics'}), 500
+
+# React Frontend API Routes for Admin Business Control
+
+@admin_bp.route('/api/admin/businesses/<int:business_id>')
+def get_business_details_api(business_id):
+    """קבלת פרטי עסק מסוים למנהל עבור React"""
+    try:
+        from models import Business
+        
+        business = Business.query.get(business_id)
+        if not business:
+            return jsonify({"error": "Business not found"}), 404
+        
+        # חישוב שירותים זמינים
+        services = {
+            "crm": True,  # כל עסק יש לו CRM
+            "whatsapp": bool(business.twilio_phone_number),
+            "calls": bool(business.twilio_phone_number),
+            "calendar": True
+        }
+        
+        return jsonify({
+            "id": business.id,
+            "name": business.name,
+            "type": business.type,
+            "phone": business.phone,
+            "email": business.email,
+            "twilio_phone_number": business.twilio_phone_number,
+            "is_active": business.is_active,
+            "services": services,
+            "created_at": business.created_at.isoformat() if business.created_at else None
+        })
+        
+    except Exception as e:
+        logging.error(f"Error getting business details API: {e}")
+        return jsonify({"error": "Server error"}), 500
+
+@admin_bp.route('/api/admin/impersonate/<int:business_id>', methods=['POST'])
+def impersonate_business_api(business_id):
+    """השתלטות מנהל על עסק מסוים עבור React"""
+    try:
+        from models import Business, User
+        from datetime import datetime, timedelta
+        import jwt
+        
+        # בדיקת הרשאות מנהל
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"error": "No token provided"}), 401
+        
+        token = token.replace('Bearer ', '')
+        
+        # פיענוח הטוקן המקורי
+        try:
+            payload = jwt.decode(token, 'your-secret-key', algorithms=['HS256'])
+            if payload.get('role') != 'admin':
+                return jsonify({"error": "Admin access required"}), 403
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        # קבלת העסק
+        business = Business.query.get(business_id)
+        if not business:
+            return jsonify({"error": "Business not found"}), 404
+        
+        if not business.is_active:
+            return jsonify({"error": "Business is inactive"}), 400
+        
+        # חיפוש או יצירת משתמש לעסק
+        business_user = User.query.filter_by(business_id=business_id, role='business').first()
+        if not business_user:
+            # יצירת משתמש זמני
+            business_user = User(
+                username=f'temp_business_{business_id}',
+                email=f'temp{business_id}@system.com',
+                password='temp_password',
+                role='business',
+                business_id=business_id
+            )
+            from app import db
+            db.session.add(business_user)
+            db.session.commit()
+        
+        # יצירת טוקן השתלטות
+        takeover_payload = {
+            'user_id': business_user.id,
+            'role': 'business',
+            'business_id': business_id,
+            'username': business_user.username,
+            'is_admin_impersonation': True,
+            'original_admin_id': payload['user_id'],
+            'exp': datetime.utcnow() + timedelta(hours=8)
+        }
+        
+        takeover_token = jwt.encode(takeover_payload, 'your-secret-key', algorithm='HS256')
+        
+        logging.info(f"🚀 Admin {payload['user_id']} taking over business {business_id} - {business.name}")
+        
+        return jsonify({
+            "success": True,
+            "token": takeover_token,
+            "business": {
+                "id": business.id,
+                "name": business.name,
+                "type": business.type
+            },
+            "message": f"השתלטות על עסק {business.name} הושלמה בהצלחה"
+        })
+        
+    except Exception as e:
+        logging.error(f"Error in business impersonation API: {e}")
+        return jsonify({"error": "Server error"}), 500
