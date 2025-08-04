@@ -6,6 +6,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import BusinessDashboard from './pages/BusinessDashboard';
 import AdminBusinessControlPage from './pages/AdminBusinessControlPage';
 import AdvancedBusinessDashboard from './components/AdvancedBusinessDashboard';
+import BusinessViewPage from './pages/BusinessViewPage';
 import PrivateRoute from './components/PrivateRoute';
 
 function App() {
@@ -109,6 +110,16 @@ function App() {
             element={
               <PrivateRoute requiredRole="business">
                 <AdvancedBusinessDashboard />
+              </PrivateRoute>
+            } 
+          />
+          
+          {/* דף צפייה בעסק למנהל */}
+          <Route 
+            path="/admin/business/:id/view" 
+            element={
+              <PrivateRoute requiredRole="admin">
+                <BusinessViewPage />
               </PrivateRoute>
             } 
           />

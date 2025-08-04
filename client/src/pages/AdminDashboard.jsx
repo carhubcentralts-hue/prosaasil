@@ -380,6 +380,13 @@ const AdminDashboard = () => {
                           <Eye className="w-4 h-4" />
                         </button>
                         <button 
+                          onClick={() => window.location.href = `/admin/business/${business.id}/view`}
+                          className="p-2 text-indigo-600 hover:bg-indigo-50 rounded"
+                          title="צפה בעסק"
+                        >
+                          <Users className="w-4 h-4" />
+                        </button>
+                        <button 
                           onClick={() => handleResetPassword(business.id)}
                           className="p-2 text-orange-600 hover:bg-orange-50 rounded"
                           title="שנה סיסמה"

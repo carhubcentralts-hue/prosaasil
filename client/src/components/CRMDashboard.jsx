@@ -40,20 +40,42 @@ const CRMDashboard = ({ businessId, isAdmin = false }) => {
   const fetchCRMData = async () => {
     try {
       setLoading(true);
+      
+      // Get user role and business ID for proper permissions
+      const userRole = localStorage.getItem('user_role');
+      const currentBusinessId = businessId || localStorage.getItem('business_id');
+      
       const params = new URLSearchParams();
       if (searchTerm) params.append('search', searchTerm);
       if (statusFilter) params.append('status', statusFilter);
       if (sourceFilter) params.append('source', sourceFilter);
       
+      let customersEndpoint = `/api/crm/customers?business_id=${currentBusinessId}&${params}`;
+      let statsEndpoint = `/api/crm/stats?business_id=${currentBusinessId}`;
+      
+      // Admin can access all data, business users only their own data
+      if (userRole === 'admin' && isAdmin) {
+        customersEndpoint = `/api/admin/customers?${params}`;
+        statsEndpoint = `/api/admin/stats`;
+      } else if (userRole === 'business' && currentBusinessId) {
+        customersEndpoint = `/api/business/leads?business_id=${currentBusinessId}&${params}`;
+        statsEndpoint = `/api/business/stats?business_id=${currentBusinessId}`;
+      }
+      
       const [customersRes, statsRes] = await Promise.all([
-        axios.get(`/api/crm/customers?business_id=${businessId}&${params}`),
-        axios.get(`/api/crm/stats?business_id=${businessId}`)
+        axios.get(customersEndpoint),
+        axios.get(statsEndpoint)
       ]);
 
-      setCustomers(customersRes.data.customers || []);
+      setCustomers(customersRes.data.customers || customersRes.data || []);
       setStats(statsRes.data || {});
     } catch (error) {
       console.error('Error fetching CRM data:', error);
+      // Handle unauthorized access
+      if (error.response?.status === 401) {
+        localStorage.clear();
+        window.location.href = '/login';
+      }
     } finally {
       setLoading(false);
     }
