@@ -62,11 +62,7 @@ def incoming_call():
                 
             if not business_row:
                 logger.warning(f"Business not found for {clean_to}")
-                error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, המספר אינו זמין כרגע</prosody></Say>
-    <Hangup/>
-</Response>'''
+                error_twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, המספר אינו זמין כרגע</prosody></Say><Hangup/></Response>'''
                 return Response(error_twiml, mimetype='text/xml')
             
             # Extract business info from row
@@ -108,35 +104,19 @@ def incoming_call():
                 greeting_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{greeting_file}"
                 instruction_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{instruction_file}"
                 
-                twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Play>{greeting_url}</Play>
-    <Pause length="1"/>
-    <Play>{instruction_url}</Play>
-    <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/>
-</Response>'''
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Play>{greeting_url}</Play><Pause length="1"/><Play>{instruction_url}</Play><Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
                 
                 logger.info(f"🎵 Using Hebrew TTS files: {greeting_file}, {instruction_file}")
             else:
                 # Fallback to basic text  
-                twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{greeting}</prosody></Say>
-    <Pause length="1"/>
-    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{instruction}</prosody></Say>
-    <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/>
-</Response>'''
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{greeting}</prosody></Say><Pause length="1"/><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{instruction}</prosody></Say><Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
             
             logger.info(f"✅ Voice webhook response sent for business: {business_name}")
             return Response(twiml, mimetype='text/xml')
             
         except Exception as e:
             logger.error(f"Error handling incoming call: {str(e)}")
-            error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, יש בעיה טכנית</prosody></Say>
-    <Hangup/>
-</Response>'''
+            error_twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, יש בעיה טכנית</prosody></Say><Hangup/></Response>'''
             return Response(error_twiml, mimetype='text/xml')
 
 @app.route("/twilio/handle_recording", methods=["POST"])
@@ -162,11 +142,7 @@ def handle_recording():
             
             if not recording_url:
                 logger.warning("No recording URL provided")
-                twiml = '''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">לא שמעתי אותך בבירור. אנא נסה שוב</prosody></Say>
-    <Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/>
-</Response>'''
+                twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">לא שמעתי אותך בבירור. אנא נסה שוב</prosody></Say><Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
                 return Response(twiml, mimetype='text/xml')
             
             # Download and process recording with AI - שיפור מלא
@@ -266,20 +242,12 @@ def handle_recording():
             # תגובה קולית עם fallback - XML תקני
             if response_file:
                 response_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{response_file}"
-                twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Play>{response_url}</Play>
-    <Hangup/>
-</Response>'''
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Play>{response_url}</Play><Hangup/></Response>'''
                 logger.info(f"🎵 Call {call_sid}: Using Hebrew TTS response file: {response_file}")
                 logger.info(f"🔗 TTS URL: {response_url}")
             else:
                 # Fallback to text-to-speech
-                twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{hebrew_response}</prosody></Say>
-    <Hangup/>
-</Response>'''
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{hebrew_response}</prosody></Say><Hangup/></Response>'''
                 logger.warning(f"⚠️ Call {call_sid}: TTS file failed, using Polly fallback")
             
             logger.info(f"✅ Call {call_sid}: Complete call processing finished for business {business_name}")
@@ -288,11 +256,7 @@ def handle_recording():
             
         except Exception as e:
             logger.error(f"Error handling recording: {str(e)}")
-            error_twiml = '''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, הייתה בעיה בעיבוד ההקלטה</prosody></Say>
-    <Hangup/>
-</Response>'''
+            error_twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, הייתה בעיה בעיבוד ההקלטה</prosody></Say><Hangup/></Response>'''
             return Response(error_twiml, mimetype='text/xml')
 
 @app.route("/twilio/call_status", methods=["POST"])  
