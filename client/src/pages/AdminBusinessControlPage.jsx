@@ -130,12 +130,20 @@ const AdminBusinessControlPage = () => {
                 <p className="text-gray-900 font-hebrew">#{business.id}</p>
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">משתמשים</label>
+                <p className="text-gray-900 font-hebrew">{business.users_count || 0}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">תאריך תפוגת תוכנית</label>
+                <p className="text-gray-900 font-hebrew">{business.plan_expires || 'לא הוגדר'}</p>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">מספר טלפון</label>
                 <p className="text-gray-900 font-hebrew">{business.phone || 'לא הוגדר'}</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">כתובת אימייל</label>
-                <p className="text-gray-900 font-hebrew">{business.email || 'לא הוגדר'}</p>
+                <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">WhatsApp</label>
+                <p className="text-gray-900 font-hebrew">{business.whatsapp_phone || 'לא הוגדר'}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 font-hebrew mb-1">סטטוס</label>
@@ -154,30 +162,26 @@ const AdminBusinessControlPage = () => {
           <div className="p-6">
             <h2 className="text-lg font-bold text-gray-900 font-hebrew mb-4">שירותים זמינים</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {business.services?.crm && (
-                <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
-                  <Users className="w-5 h-5 text-blue-600" />
-                  <span className="font-hebrew text-blue-800">CRM</span>
-                </div>
-              )}
-              {business.services?.whatsapp && (
-                <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
-                  <MessageSquare className="w-5 h-5 text-green-600" />
-                  <span className="font-hebrew text-green-800">WhatsApp</span>
-                </div>
-              )}
-              {business.services?.calls && (
-                <div className="flex items-center gap-2 p-3 bg-purple-50 rounded-lg">
-                  <Phone className="w-5 h-5 text-purple-600" />
-                  <span className="font-hebrew text-purple-800">שיחות</span>
-                </div>
-              )}
-              {business.services?.calendar && (
-                <div className="flex items-center gap-2 p-3 bg-orange-50 rounded-lg">
-                  <Calendar className="w-5 h-5 text-orange-600" />
-                  <span className="font-hebrew text-orange-800">יומן</span>
-                </div>
-              )}
+              <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
+                <Users className="w-5 h-5 text-blue-600" />
+                <span className="font-hebrew text-blue-800">CRM</span>
+                <span className="text-xs text-blue-600">{business.services?.crm ? '✓' : '✗'}</span>
+              </div>
+              <div className="flex items-center gap-2 p-3 bg-green-50 rounded-lg">
+                <MessageSquare className="w-5 h-5 text-green-600" />
+                <span className="font-hebrew text-green-800">WhatsApp</span>
+                <span className="text-xs text-green-600">{business.services?.whatsapp ? '✓' : '✗'}</span>
+              </div>
+              <div className="flex items-center gap-2 p-3 bg-purple-50 rounded-lg">
+                <Phone className="w-5 h-5 text-purple-600" />
+                <span className="font-hebrew text-purple-800">שיחות</span>
+                <span className="text-xs text-purple-600">{business.services?.calls ? '✓' : '✗'}</span>
+              </div>
+              <div className="flex items-center gap-2 p-3 bg-orange-50 rounded-lg">
+                <Calendar className="w-5 h-5 text-orange-600" />
+                <span className="font-hebrew text-orange-800">יומן</span>
+                <span className="text-xs text-orange-600">✓</span>
+              </div>
             </div>
           </div>
         </div>
