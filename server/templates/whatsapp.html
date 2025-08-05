@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}דשבורד WhatsApp{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0">
+                        <i class="fab fa-whatsapp me-2"></i>
+                        דשבורד WhatsApp
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <!-- סטטיסטיקות -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card bg-primary text-white">
+                                <div class="card-body text-center">
+                                    <h3>{{ stats.total_conversations }}</h3>
+                                    <p class="mb-0">שיחות כולל</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-success text-white">
+                                <div class="card-body text-center">
+                                    <h3>{{ stats.active_conversations }}</h3>
+                                    <p class="mb-0">שיחות פעילות</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-info text-white">
+                                <div class="card-body text-center">
+                                    <h3>{{ stats.today_messages }}</h3>
+                                    <p class="mb-0">הודעות היום</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-warning text-white">
+                                <div class="card-body text-center">
+                                    <h3>{{ stats.total_messages }}</h3>
+                                    <p class="mb-0">הודעות כולל</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- רשימת שיחות -->
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>לקוח</th>
+                                    <th>מספר טלפון</th>
+                                    <th>סטטוס</th>
+                                    <th>עדכון אחרון</th>
+                                    <th>פעולות</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for conv in conversations %}
+                                <tr>
+                                    <td>{{ conv.customer_name or 'לא מוגדר' }}</td>
+                                    <td>{{ conv.customer_number }}</td>
+                                    <td>
+                                        <span class="badge bg-{{ 'success' if conv.status == 'active' else 'secondary' }}">
+                                            {{ conv.status }}
+                                        </span>
+                                    </td>
+                                    <td>{{ conv.updated_at.strftime('%d/%m/%Y %H:%M') if conv.updated_at else 'לא ידוע' }}</td>
+                                    <td>
+                                        <a href="{{ url_for('whatsapp.view_conversation', conversation_id=conv.id) }}" 
+                                           class="btn btn-sm btn-primary">צפה</a>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="5" class="text-center text-muted">אין שיחות WhatsApp</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

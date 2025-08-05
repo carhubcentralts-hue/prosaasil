@@ -23,17 +23,19 @@ def whatsapp_dashboard():
         current_user = AuthService.get_current_user()
         
         # בדיקת הרשאות WhatsApp
-        if not current_user.has_whatsapp_access():
+        if not current_user or not current_user.has_whatsapp_access():
             flash('אין לך הרשאה לגשת למערכת WhatsApp', 'error')
             return redirect(url_for('index'))
         
         # קבלת שיחות לפי העסק
-        if current_user.role == 'admin':
+        if current_user and current_user.role == 'admin':
             conversations = WhatsAppConversation.query.order_by(WhatsAppConversation.updated_at.desc()).all()
-        else:
+        elif current_user and current_user.business_id:
             conversations = WhatsAppConversation.query.filter_by(
                 business_id=current_user.business_id
             ).order_by(WhatsAppConversation.updated_at.desc()).all()
+        else:
+            conversations = []
         
         # סטטיסטיקות
         today = datetime.utcnow().date()

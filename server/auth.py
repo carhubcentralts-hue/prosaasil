@@ -84,7 +84,7 @@ class AuthService:
             return False
     
     @staticmethod
-    def authenticate_user(username: str, password: str, client_ip: str = None):
+    def authenticate_user(username: str, password: str, client_ip: str = ""):
         """אימות משתמש עם הגבלת ניסיונות"""
         try:
             # בדיקת הגבלת ניסיונות

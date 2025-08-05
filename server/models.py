@@ -106,6 +106,8 @@ class CallLog(db.Model):
     business = db.relationship('Business', backref=db.backref('calls', lazy=True))
 
 class ConversationTurn(db.Model):
+    __tablename__ = 'conversation_turns'
+    
     id = db.Column(Integer, primary_key=True)
     call_log_id = db.Column(Integer, db.ForeignKey('call_log.id'), nullable=True)
     call_sid = db.Column(String(50), nullable=False)  # Add call_sid field
@@ -117,11 +119,16 @@ class ConversationTurn(db.Model):
     updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def __init__(self, call_log_id=None, call_sid=None, speaker=None, message=None, confidence_score=None):
-        self.call_log_id = call_log_id
-        self.call_sid = call_sid
-        self.speaker = speaker
-        self.message = message
-        self.confidence_score = confidence_score
+        if call_log_id is not None:
+            self.call_log_id = call_log_id
+        if call_sid is not None:
+            self.call_sid = call_sid
+        if speaker is not None:
+            self.speaker = speaker
+        if message is not None:
+            self.message = message
+        if confidence_score is not None:
+            self.confidence_score = confidence_score
     
     def __repr__(self):
         return f'<ConversationTurn {self.id}: {self.speaker} - {self.message[:50]}...>'

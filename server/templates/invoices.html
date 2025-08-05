@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}דשבורד חשבוניות{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0">
+                        <i class="fas fa-file-invoice me-2"></i>
+                        דשבורד חשבוניות
+                    </h4>
+                    <button class="btn btn-light" data-bs-toggle="modal" data-bs-target="#createInvoiceModal">
+                        <i class="fas fa-plus me-1"></i>
+                        חשבונית חדשה
+                    </button>
+                </div>
+                <div class="card-body">
+                    <!-- סטטיסטיקות -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card bg-primary text-white">
+                                <div class="card-body text-center">
+                                    <h3>{{ total_invoices }}</h3>
+                                    <p class="mb-0">חשבוניות כולל</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-success text-white">
+                                <div class="card-body text-center">
+                                    <h3>{{ paid_invoices }}</h3>
+                                    <p class="mb-0">חשבוניות שולמו</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-warning text-white">
+                                <div class="card-body text-center">
+                                    <h3>{{ pending_invoices }}</h3>
+                                    <p class="mb-0">ממתינות תשלום</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-info text-white">
+                                <div class="card-body text-center">
+                                    <h3>₪{{ "{:,.0f}".format(total_amount) }}</h3>
+                                    <p class="mb-0">סכום כולל</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- רשימת חשבוניות -->
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>מס' חשבונית</th>
+                                    <th>לקוח</th>
+                                    <th>תאריך</th>
+                                    <th>סכום</th>
+                                    <th>סטטוס</th>
+                                    <th>פעולות</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for invoice in invoices %}
+                                <tr>
+                                    <td>{{ invoice.invoice_number }}</td>
+                                    <td>{{ invoice.customer_name }}</td>
+                                    <td>{{ invoice.invoice_date.strftime('%d/%m/%Y') if invoice.invoice_date else 'לא ידוע' }}</td>
+                                    <td>₪{{ "{:,.0f}".format(invoice.amount) }}</td>
+                                    <td>
+                                        <span class="badge bg-{{ 'success' if invoice.status == 'paid' else 'warning' if invoice.status == 'pending' else 'danger' }}">
+                                            {{ invoice.status }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-primary">צפה</button>
+                                        <button class="btn btn-sm btn-secondary">הורד PDF</button>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted">אין חשבוניות</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal יצירת חשבונית -->
+<div class="modal fade" id="createInvoiceModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">יצירת חשבונית חדשה</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('invoices.create_invoice') }}">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">לקוח</label>
+                                <select name="customer_id" class="form-select" required>
+                                    <option value="">בחר לקוח</option>
+                                    {% for customer in customers %}
+                                    <option value="{{ customer.id }}">{{ customer.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">תאריך חשבונית</label>
+                                <input type="date" name="invoice_date" class="form-control" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">תאריך פירעון</label>
+                                <input type="date" name="due_date" class="form-control" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">סכום</label>
+                                <input type="number" name="amount" class="form-control" step="0.01" required>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <div class="mb-3">
+                                <label class="form-label">תיאור</label>
+                                <textarea name="description" class="form-control" rows="3"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+                    <button type="submit" class="btn btn-primary">צור חשבונית</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

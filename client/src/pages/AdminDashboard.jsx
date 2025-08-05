@@ -43,7 +43,7 @@ const AdminDashboard = () => {
       ]);
 
       setSummary(summaryRes.data);
-      setBusinesses(businessesRes.data);
+      setBusinesses(Array.isArray(businessesRes.data) ? businessesRes.data : []);
       setSystemStatus(statusRes.data);
     } catch (error) {
       console.error('Error fetching admin data:', error);

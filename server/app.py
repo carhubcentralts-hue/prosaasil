@@ -76,12 +76,16 @@ with app.app_context():
         from signature_bp import signature_bp
         from invoice_bp import invoice_bp
         from proposal_bp import proposal_bp
+        from whatsapp_api import whatsapp_api_bp
+        from crm_api import crm_api_bp
         
         app.register_blueprint(crm_bp)
         app.register_blueprint(whatsapp_bp)
         app.register_blueprint(signature_bp)
         app.register_blueprint(invoice_bp)
         app.register_blueprint(proposal_bp)
+        app.register_blueprint(whatsapp_api_bp)
+        app.register_blueprint(crm_api_bp)
         
         logging.info("✅ All other Blueprints registered successfully")
         
