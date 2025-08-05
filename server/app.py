@@ -144,13 +144,33 @@ with app.app_context():
     except Exception as e:
         logging.warning(f"⚠️ Could not start background cleanup: {e}")
 
-# המערכת תוקנה - עמוד התיקון הוסר
+# TTS Static File Route - MUST BE BEFORE catch-all route
+@app.route("/server/static/voice_responses/<filename>")
+def serve_tts_files(filename):
+    """Serve TTS audio files with correct MIME type"""
+    try:
+        static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "static", "voice_responses"))
+        file_path = os.path.join(static_dir, filename)
+        
+        logging.info(f"🎵 TTS Request: {filename} -> {file_path}")
+        
+        if os.path.exists(file_path):
+            file_size = os.path.getsize(file_path)
+            logging.info(f"🎵 Serving TTS file: {filename} ({file_size} bytes)")
+            # Serve with correct MIME type for audio
+            return send_file(file_path, mimetype='audio/mpeg', as_attachment=False)
+        else:
+            logging.warning(f"❌ TTS file not found: {filename} at {file_path}")
+            return "File not found", 404
+    except Exception as e:
+        logging.error(f"❌ Error serving TTS file {filename}: {e}")
+        return "Server error", 500
 
 # React Frontend Routes - Flask מגיש את React
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
-    """Serve React app with proper SPA routing support"""
+    """Serve React app with proper SPA routing support"""       
     build_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../client/dist"))
     requested_path = os.path.join(build_dir, path)
 
