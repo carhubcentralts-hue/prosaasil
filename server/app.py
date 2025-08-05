@@ -144,27 +144,41 @@ with app.app_context():
     except Exception as e:
         logging.warning(f"⚠️ Could not start background cleanup: {e}")
 
-# TTS Static File Route - MUST BE BEFORE catch-all route
-@app.route("/server/static/voice_responses/<filename>")
+# TTS Static File Route - HIGHEST PRIORITY - MUST BE FIRST
+@app.route("/server/static/voice_responses/<filename>", methods=['GET', 'HEAD'])
 def serve_tts_files(filename):
-    """Serve TTS audio files with correct MIME type"""
+    """Serve TTS audio files with correct MIME type - FIXED VERSION"""
+    import os
+    from flask import send_file
+    
+    logging.info(f"🎵 TTS Route Called: {filename}")
+    
     try:
         static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "static", "voice_responses"))
         file_path = os.path.join(static_dir, filename)
         
-        logging.info(f"🎵 TTS Request: {filename} -> {file_path}")
+        logging.info(f"🎵 TTS Full Path: {file_path}")
+        logging.info(f"🎵 Directory exists: {os.path.exists(static_dir)}")
+        logging.info(f"🎵 File exists: {os.path.exists(file_path)}")
         
         if os.path.exists(file_path):
             file_size = os.path.getsize(file_path)
-            logging.info(f"🎵 Serving TTS file: {filename} ({file_size} bytes)")
-            # Serve with correct MIME type for audio
-            return send_file(file_path, mimetype='audio/mpeg', as_attachment=False)
+            logging.info(f"🎵 SUCCESS - Serving TTS file: {filename} ({file_size} bytes)")
+            
+            # Force the correct headers
+            response = send_file(file_path, mimetype='audio/mpeg', as_attachment=False)
+            response.headers['Content-Type'] = 'audio/mpeg'
+            response.headers['Cache-Control'] = 'no-cache'
+            return response
         else:
-            logging.warning(f"❌ TTS file not found: {filename} at {file_path}")
-            return "File not found", 404
+            logging.error(f"❌ TTS file not found: {filename} at {file_path}")
+            return "TTS File not found", 404
+            
     except Exception as e:
         logging.error(f"❌ Error serving TTS file {filename}: {e}")
-        return "Server error", 500
+        import traceback
+        logging.error(f"❌ Full traceback: {traceback.format_exc()}")
+        return f"Server error: {e}", 500
 
 # React Frontend Routes - Flask מגיש את React
 @app.route("/", defaults={"path": ""})
