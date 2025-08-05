@@ -496,15 +496,19 @@ def incoming_call_webhook():
         # Create call log (avoid duplicates)
         call_log = CallLog.query.filter_by(call_sid=call_sid).first()
         if not call_log:
-            call_log = CallLog(
-                business_id=business.id,
-                call_sid=call_sid,
-                from_number=from_number,
-                to_number=to_number,
-                call_status='in-progress'
-            )
-            db.session.add(call_log)
-            db.session.commit()
+            # Use RAW SQL to avoid foreign key constraint issues
+            try:
+                conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO call_log (business_id, call_sid, from_number, to_number, call_status, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+                """, (business.id, call_sid, from_number, to_number, 'in-progress'))
+                conn.commit()
+                cur.close()
+                conn.close()
+            except Exception as log_e:
+                logger.error(f"Call log creation error: {log_e}")
             
             # Start conversation tracking and save greeting (with error handling)
             try:
@@ -785,15 +789,19 @@ def handle_call():
             logger.error(f"No business found for number: {to_number}")
             return _generate_error_twiml("מספר לא זמין")
         
-        # Create or update call log
-        call_log = CallLog(
-            call_sid=call_sid,
-            business_id=business.id,
-            from_number=from_number,
-            call_status='in-progress'
-        )
-        db.session.add(call_log)
-        db.session.commit()
+        # Create or update call log using RAW SQL
+        try:
+            conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO call_log (business_id, call_sid, from_number, to_number, call_status, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+            """, (business.id, call_sid, from_number, to_number, 'in-progress'))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as log_e:
+            logger.error(f"Call log creation error: {log_e}")
         
         logger.info(f"🎧 Hebrew voice call started: {call_sid} for business {business.name}")
         

@@ -1,3 +1,9 @@
+# Import db from app to avoid circular imports
+import sys
+import os
+sys.path.append(os.path.dirname(__file__))
+
+# Import after adding path to avoid circular imports  
 from app import db
 from datetime import datetime
 from sqlalchemy import Text, DateTime, Integer, String, Boolean, Float, JSON
@@ -11,7 +17,7 @@ class Customer(db.Model):
     name = db.Column(String(100), nullable=False)
     phone = db.Column(String(20), nullable=False)
     email = db.Column(String(120))
-    business_id = db.Column(Integer, db.ForeignKey('business.id'), nullable=False)
+    business_id = db.Column(Integer, db.ForeignKey('businesses.id'), nullable=False)
     
     # Additional customer info
     status = db.Column(String(20), default='active')  # active, inactive, blocked
@@ -52,14 +58,15 @@ class Customer(db.Model):
         }
 
 class Business(db.Model):
+    __tablename__ = 'businesses'  # CRITICAL FIX: Specify correct table name
+    
     id = db.Column(Integer, primary_key=True)
     name = db.Column(String(100), nullable=False)
-    business_type = db.Column(String(50), nullable=False)  # restaurant, clinic, store, etc.
-    phone_number = db.Column(String(50), unique=True, nullable=False)
-    whatsapp_number = db.Column(String(50))  # WhatsApp Business number
-    greeting_message = db.Column(Text, nullable=False)
-    whatsapp_greeting = db.Column(Text)  # WhatsApp-specific greeting
-    system_prompt = db.Column(Text, nullable=False)
+    business_type = db.Column(String(50))  # restaurant, clinic, store, etc.
+    phone_israel = db.Column(String(50))  # FIXED: Match actual database field name
+    phone_whatsapp = db.Column(String(50))  # FIXED: Match actual database field name  
+    ai_prompt = db.Column(Text)  # FIXED: Match actual database field name
+    greeting_message = db.Column(Text)
     calls_enabled = db.Column(Boolean, default=False)      # הרשאות שיחות AI
     whatsapp_enabled = db.Column(Boolean, default=False)   # הרשאות WhatsApp
     crm_enabled = db.Column(Boolean, default=False)        # הרשאות CRM
@@ -72,7 +79,7 @@ class Business(db.Model):
 
 class CallLog(db.Model):
     id = db.Column(Integer, primary_key=True)
-    business_id = db.Column(Integer, db.ForeignKey('business.id'), nullable=False)
+    business_id = db.Column(Integer, db.ForeignKey('businesses.id'), nullable=False)
     call_sid = db.Column(String(50), unique=True, nullable=False)
     from_number = db.Column(String(20), nullable=False)
     to_number = db.Column(String(20), nullable=False)
@@ -126,7 +133,7 @@ class WhatsAppConversation(db.Model):
     __tablename__ = 'whatsapp_conversation'
     
     id = db.Column(Integer, primary_key=True)
-    business_id = db.Column(Integer, db.ForeignKey('business.id'), nullable=False)
+    business_id = db.Column(Integer, db.ForeignKey('businesses.id'), nullable=False)
     customer_number = db.Column(String(255), nullable=False)
     customer_name = db.Column(String(255))
     status = db.Column(String(50), default='active')
@@ -158,7 +165,7 @@ class WhatsAppMessage(db.Model):
     error_message = db.Column(Text)
     media_url = db.Column(Text)
     media_type = db.Column(String(100))
-    business_id = db.Column(Integer, db.ForeignKey('business.id'), nullable=False)
+    business_id = db.Column(Integer, db.ForeignKey('businesses.id'), nullable=False)
     created_at = db.Column(DateTime, default=datetime.utcnow)
     
     def __init__(self, conversation_id=None, message_sid=None, from_number=None, to_number=None, 
@@ -209,7 +216,7 @@ class User(UserMixin, db.Model):
     email = db.Column(String(120), unique=True, nullable=False)
     password_hash = db.Column(String(256), nullable=False)
     role = db.Column(String(20), nullable=False, default='business')  # admin, business
-    business_id = db.Column(Integer, db.ForeignKey('business.id'), nullable=True)
+    business_id = db.Column(Integer, db.ForeignKey('businesses.id'), nullable=True)
     is_active = db.Column(Boolean, default=True)
     created_at = db.Column(DateTime, default=datetime.utcnow)
     last_login = db.Column(DateTime)
@@ -262,7 +269,7 @@ class CRMCustomer(db.Model):
     name = db.Column(String(100), nullable=False)
     phone = db.Column(String(20), nullable=False)
     email = db.Column(String(120))
-    business_id = db.Column(Integer, db.ForeignKey('business.id'), nullable=False)
+    business_id = db.Column(Integer, db.ForeignKey('businesses.id'), nullable=False)
     status = db.Column(String(20), default='active')  # active, inactive, prospect
     source = db.Column(String(50), default='phone')  # phone, whatsapp, manual
     notes = db.Column(Text)
@@ -283,7 +290,7 @@ class CRMTask(db.Model):
     status = db.Column(String(20), default='pending')  # pending, in_progress, completed, cancelled
     priority = db.Column(String(20), default='medium')  # low, medium, high, urgent
     assigned_to = db.Column(String(100))  # Username of assigned user
-    business_id = db.Column(Integer, db.ForeignKey('business.id'), nullable=False)
+    business_id = db.Column(Integer, db.ForeignKey('businesses.id'), nullable=False)
     customer_id = db.Column(Integer, db.ForeignKey('crm_customer.id'), nullable=True)
     due_date = db.Column(DateTime)
     created_at = db.Column(DateTime, default=datetime.utcnow)
@@ -302,7 +309,7 @@ class Appointment(db.Model):
     """מודל פגישות ותורים"""
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('crm_customer.id'), nullable=False)
-    business_id = db.Column(db.Integer, db.ForeignKey('business.id'), nullable=False)
+    business_id = db.Column(db.Integer, db.ForeignKey('businesses.id'), nullable=False)
     appointment_date = db.Column(db.DateTime, nullable=False)
     duration_minutes = db.Column(db.Integer, default=60)
     note = db.Column(db.Text)

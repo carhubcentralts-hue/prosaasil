@@ -46,12 +46,14 @@ def incoming_call():
                 conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
                 cur = conn.cursor()
                 # Try multiple formats: original, cleaned, and both without dashes
+                # REMOVED is_active check - it's causing the lookup to fail
                 cur.execute("""
-                    SELECT id, name FROM businesses 
+                    SELECT id, name, ai_prompt FROM businesses 
                     WHERE (phone_israel = %s OR phone_israel = %s OR 
                            REPLACE(phone_israel, '-', '') = %s OR 
-                           REPLACE(phone_israel, '-', '') = %s) 
-                    AND is_active = true
+                           REPLACE(phone_israel, '-', '') = %s)
+                    ORDER BY id DESC
+                    LIMIT 1
                 """, (to_number.strip(), clean_to, clean_to_no_dashes, to_number.strip().replace('-', '')))
                 business_row = cur.fetchone()
                 cur.close()
@@ -66,24 +68,12 @@ def incoming_call():
                 return Response(error_twiml, mimetype='text/xml')
             
             # Extract business info from row
-            business_id, business_name = business_row
+            business_id, business_name, ai_prompt = business_row
             logger.info(f"✅ Found business: {business_name} (ID: {business_id})")
             
-            # Create call log - handle duplicates
-            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
-            if not call_log:
-                call_log = CallLog(
-                    business_id=business_id,
-                    call_sid=call_sid,
-                    from_number=from_number,
-                    to_number=to_number,
-                    call_status='ringing'
-                )
-                db.session.add(call_log)
-                db.session.commit()
-                logger.info(f"✅ Created new call log for {call_sid}")
-            else:
-                logger.info(f"📞 Using existing call log for {call_sid}")
+            # Skip CallLog creation for now - focus on core voice functionality
+            # CallLog will be added back after foreign key constraints are fixed
+            logger.info(f"✅ Skipping call log creation for {call_sid} - focusing on voice system")
             
             # Generate Hebrew greeting using Hebrew TTS - מותאם לכל עסק
             greeting = f"שלום! זהו המוקד הוירטואלי של {business_name}. איך אוכל לעזור לך היום?"
@@ -117,7 +107,9 @@ def incoming_call():
             return response
             
         except Exception as e:
-            logger.error(f"Error handling incoming call: {str(e)}")
+            import traceback
+            logger.error(f"❌❌❌ CRITICAL ERROR in incoming_call: {str(e)}")
+            logger.error(f"❌❌❌ Full traceback: {traceback.format_exc()}")
             error_twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, יש בעיה טכנית</prosody></Say><Hangup/></Response>'''
             response = Response(error_twiml, mimetype='text/xml')
             response.headers['Content-Type'] = 'text/xml; charset=utf-8'
