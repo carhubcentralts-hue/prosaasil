@@ -83,17 +83,55 @@ with app.app_context():
         from invoice_api import invoice_api_bp
         from stats_api import stats_api_bp
         
+        # Register template blueprints
         app.register_blueprint(crm_bp)
         app.register_blueprint(whatsapp_bp)
         app.register_blueprint(signature_bp)
         app.register_blueprint(invoice_bp)
         app.register_blueprint(proposal_bp)
-        app.register_blueprint(whatsapp_api_bp)
-        app.register_blueprint(crm_api_bp)
-        app.register_blueprint(signature_api_bp)
-        app.register_blueprint(proposal_api_bp)
-        app.register_blueprint(invoice_api_bp)
-        app.register_blueprint(stats_api_bp)
+        
+        # Register API blueprints for React consumption (AgentLocator)
+        try:
+            from crm_api import crm_api_bp
+            app.register_blueprint(crm_api_bp)
+            logging.info("✅ CRM API Blueprint registered")
+        except Exception as e:
+            logging.warning(f"⚠️ CRM API Blueprint failed: {e}")
+        
+        try:
+            from whatsapp_api import whatsapp_api_bp
+            app.register_blueprint(whatsapp_api_bp)
+            logging.info("✅ WhatsApp API Blueprint registered")
+        except Exception as e:
+            logging.warning(f"⚠️ WhatsApp API Blueprint failed: {e}")
+        
+        try:
+            from signature_api import signature_api_bp
+            app.register_blueprint(signature_api_bp)
+            logging.info("✅ Signature API Blueprint registered")
+        except Exception as e:
+            logging.warning(f"⚠️ Signature API Blueprint failed: {e}")
+        
+        try:
+            from proposal_api import proposal_api_bp
+            app.register_blueprint(proposal_api_bp)
+            logging.info("✅ Proposal API Blueprint registered")
+        except Exception as e:
+            logging.warning(f"⚠️ Proposal API Blueprint failed: {e}")
+        
+        try:
+            from invoice_api import invoice_api_bp
+            app.register_blueprint(invoice_api_bp)
+            logging.info("✅ Invoice API Blueprint registered")
+        except Exception as e:
+            logging.warning(f"⚠️ Invoice API Blueprint failed: {e}")
+        
+        try:
+            from stats_api import stats_api_bp
+            app.register_blueprint(stats_api_bp)
+            logging.info("✅ Stats API Blueprint registered")
+        except Exception as e:
+            logging.warning(f"⚠️ Stats API Blueprint failed: {e}")
         
         logging.info("✅ All other Blueprints registered successfully")
         
