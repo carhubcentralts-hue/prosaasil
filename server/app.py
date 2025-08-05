@@ -78,6 +78,10 @@ with app.app_context():
         from proposal_bp import proposal_bp
         from whatsapp_api import whatsapp_api_bp
         from crm_api import crm_api_bp
+        from signature_api import signature_api_bp
+        from proposal_api import proposal_api_bp
+        from invoice_api import invoice_api_bp
+        from stats_api import stats_api_bp
         
         app.register_blueprint(crm_bp)
         app.register_blueprint(whatsapp_bp)
@@ -86,6 +90,10 @@ with app.app_context():
         app.register_blueprint(proposal_bp)
         app.register_blueprint(whatsapp_api_bp)
         app.register_blueprint(crm_api_bp)
+        app.register_blueprint(signature_api_bp)
+        app.register_blueprint(proposal_api_bp)
+        app.register_blueprint(invoice_api_bp)
+        app.register_blueprint(stats_api_bp)
         
         logging.info("✅ All other Blueprints registered successfully")
         

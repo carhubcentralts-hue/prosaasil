@@ -6,7 +6,7 @@ sys.path.append(os.path.dirname(__file__))
 # Import after adding path to avoid circular imports  
 from app import db
 from datetime import datetime
-from sqlalchemy import Text, DateTime, Integer, String, Boolean, Float, JSON
+from sqlalchemy import Text, DateTime, Integer, String, Boolean, Float, JSON, Numeric
 from flask_login import UserMixin
 
 class Customer(db.Model):
@@ -251,6 +251,23 @@ class User(UserMixin, db.Model):
         self.can_access_crm = can_access_crm
         self.can_manage_business = can_manage_business
     
+    def to_dict(self):
+        """המרת משתמש לפורמט JSON"""
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'role': self.role,
+            'business_id': self.business_id,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_login': self.last_login.isoformat() if self.last_login else None,
+            'can_access_phone': self.can_access_phone,
+            'can_access_whatsapp': self.can_access_whatsapp,
+            'can_access_crm': self.can_access_crm,
+            'can_manage_business': self.can_manage_business
+        }
+    
     def has_phone_access(self):
         """בדיקה אם למשתמש יש גישה למערכת הטלפון"""
         return self.role == 'admin' or (self.can_access_phone and self.is_active)
@@ -328,3 +345,104 @@ class Appointment(db.Model):
     # יחסים
     customer = db.relationship('CRMCustomer', backref='appointments')
     business = db.relationship('Business', backref='appointments')
+
+# Digital Signature Model
+class DigitalSignature(db.Model):
+    """מודל חתימות דיגיטליות"""
+    __tablename__ = 'digital_signatures'
+    
+    id = db.Column(Integer, primary_key=True)
+    document_name = db.Column(String(200), nullable=False)
+    signer_name = db.Column(String(100), nullable=False)
+    signer_email = db.Column(String(120), nullable=False)
+    business_id = db.Column(Integer, db.ForeignKey('businesses.id'), nullable=True)
+    status = db.Column(String(20), default='pending')  # pending, signed, expired
+    document_content = db.Column(Text)
+    document_url = db.Column(String(500))
+    signature_data = db.Column(Text)
+    signature_url = db.Column(String(500))
+    created_at = db.Column(DateTime, default=datetime.utcnow)
+    signed_at = db.Column(DateTime)
+    
+    business = db.relationship('Business', backref=db.backref('signatures', lazy=True))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'document_name': self.document_name,
+            'signer_name': self.signer_name,
+            'signer_email': self.signer_email,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'signed_at': self.signed_at.isoformat() if self.signed_at else None,
+            'document_url': self.document_url,
+            'signature_url': self.signature_url
+        }
+
+# Proposal Model  
+class Proposal(db.Model):
+    """מודל הצעות מחיר"""
+    __tablename__ = 'proposals'
+    
+    id = db.Column(Integer, primary_key=True)
+    customer_name = db.Column(String(100), nullable=False)
+    customer_email = db.Column(String(120), nullable=False)
+    title = db.Column(String(200), nullable=False)
+    description = db.Column(Text)
+    amount = db.Column(Numeric(10, 2))
+    business_id = db.Column(Integer, db.ForeignKey('businesses.id'), nullable=True)
+    status = db.Column(String(20), default='pending')  # pending, accepted, rejected
+    valid_until = db.Column(DateTime)
+    created_at = db.Column(DateTime, default=datetime.utcnow)
+    updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    business = db.relationship('Business', backref=db.backref('proposals', lazy=True))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'customer_name': self.customer_name,
+            'customer_email': self.customer_email,
+            'title': self.title,
+            'description': self.description,
+            'amount': float(self.amount) if self.amount else 0,
+            'status': self.status,
+            'valid_until': self.valid_until.isoformat() if self.valid_until else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+# Invoice Model
+class Invoice(db.Model):
+    """מודל חשבוניות"""
+    __tablename__ = 'invoices'
+    
+    id = db.Column(Integer, primary_key=True)
+    invoice_number = db.Column(String(50), unique=True, nullable=False)
+    customer_name = db.Column(String(100), nullable=False)
+    customer_email = db.Column(String(120))
+    amount = db.Column(Numeric(10, 2), nullable=False)
+    description = db.Column(Text)
+    business_id = db.Column(Integer, db.ForeignKey('businesses.id'), nullable=True)
+    status = db.Column(String(20), default='pending')  # pending, paid, overdue, cancelled
+    invoice_date = db.Column(DateTime, default=datetime.utcnow)
+    due_date = db.Column(DateTime)
+    paid_at = db.Column(DateTime)
+    created_at = db.Column(DateTime, default=datetime.utcnow)
+    
+    business = db.relationship('Business', backref=db.backref('invoices', lazy=True))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'invoice_number': self.invoice_number,
+            'customer_name': self.customer_name,
+            'customer_email': self.customer_email,
+            'amount': float(self.amount) if self.amount else 0,
+            'status': self.status,
+            'invoice_date': self.invoice_date.isoformat() if self.invoice_date else None,
+            'due_date': self.due_date.isoformat() if self.due_date else None,
+            'paid_at': self.paid_at.isoformat() if self.paid_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'description': self.description
+        }
