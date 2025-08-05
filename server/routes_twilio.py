@@ -112,12 +112,16 @@ def incoming_call():
                 twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{greeting}</prosody></Say><Pause length="1"/><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{instruction}</prosody></Say><Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
             
             logger.info(f"✅ Voice webhook response sent for business: {business_name}")
-            return Response(twiml, mimetype='text/xml')
+            response = Response(twiml, mimetype='text/xml')
+            response.headers['Content-Type'] = 'text/xml; charset=utf-8'
+            return response
             
         except Exception as e:
             logger.error(f"Error handling incoming call: {str(e)}")
             error_twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, יש בעיה טכנית</prosody></Say><Hangup/></Response>'''
-            return Response(error_twiml, mimetype='text/xml')
+            response = Response(error_twiml, mimetype='text/xml')
+            response.headers['Content-Type'] = 'text/xml; charset=utf-8'
+            return response
 
 @app.route("/twilio/handle_recording", methods=["POST"])
 def handle_recording():
@@ -143,7 +147,9 @@ def handle_recording():
             if not recording_url:
                 logger.warning("No recording URL provided")
                 twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">לא שמעתי אותך בבירור. אנא נסה שוב</prosody></Say><Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
-                return Response(twiml, mimetype='text/xml')
+                response = Response(twiml, mimetype='text/xml')
+                response.headers['Content-Type'] = 'text/xml; charset=utf-8'
+                return response
             
             # Download and process recording with AI - שיפור מלא
             ai_response = f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם."
@@ -252,12 +258,16 @@ def handle_recording():
             
             logger.info(f"✅ Call {call_sid}: Complete call processing finished for business {business_name}")
             logger.info(f"📊 Call {call_sid}: Final status - Recording: {bool(recording_url)}, Transcription: {bool(transcribed_text)}, AI Response: {bool(ai_response)}")
-            return Response(twiml, mimetype='text/xml')
+            response = Response(twiml, mimetype='text/xml')
+            response.headers['Content-Type'] = 'text/xml; charset=utf-8'
+            return response
             
         except Exception as e:
             logger.error(f"Error handling recording: {str(e)}")
             error_twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, הייתה בעיה בעיבוד ההקלטה</prosody></Say><Hangup/></Response>'''
-            return Response(error_twiml, mimetype='text/xml')
+            response = Response(error_twiml, mimetype='text/xml')
+            response.headers['Content-Type'] = 'text/xml; charset=utf-8'
+            return response
 
 @app.route("/twilio/call_status", methods=["POST"])  
 def call_status():
