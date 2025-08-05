@@ -14,7 +14,8 @@ import {
   LogOut,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  BarChart
 } from 'lucide-react';
 import PasswordChangeModal from '../components/PasswordChangeModal';
 
@@ -396,6 +397,23 @@ const BusinessDashboard = () => {
                   </div>
                 </div>
               )}
+              
+              {/* כפתור AgentLocator Dashboard - תמיד זמין */}
+              <div className="relative">
+                <button 
+                  onClick={() => navigate('/agentlocator')}
+                  className="w-full flex items-center gap-3 p-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl transition-all transform hover:scale-105 shadow-lg text-right"
+                >
+                  <BarChart className="w-6 h-6 text-white" />
+                  <div>
+                    <p className="font-bold font-hebrew">דשבורד AgentLocator</p>
+                    <p className="text-sm text-blue-100 font-hebrew">מערכת ניהול מתקדמת עם APIs</p>
+                  </div>
+                </button>
+                <div className="absolute top-2 left-2">
+                  <div className="w-3 h-3 bg-yellow-400 rounded-full animate-pulse"></div>
+                </div>
+              </div>
             </div>
             {!services.crm && !services.whatsapp && !services.calls && (
               <p className="text-gray-600 font-hebrew text-center py-8">
