@@ -126,6 +126,13 @@ with app.app_context():
         except ImportError:
             logging.warning("⚠️ Business Leads Blueprint not found")
             
+        try:
+            from routes_crm_integration import crm_integration
+            app.register_blueprint(crm_integration)
+            logging.info("✅ CRM Integration Blueprint registered")
+        except ImportError:
+            logging.warning("⚠️ CRM Integration Blueprint not found")
+            
         logging.info("✅ All route modules loaded successfully")
     except Exception as e:
         logging.warning(f"⚠️ Route modules error: {e}")

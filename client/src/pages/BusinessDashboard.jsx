@@ -346,7 +346,7 @@ const BusinessDashboard = () => {
                     <Users className="w-6 h-6 text-blue-600" />
                     <div>
                       <p className="font-medium font-hebrew">מערכת CRM מתקדמת</p>
-                      <p className="text-sm text-gray-600 font-hebrew">ניהול לקוחות, שיחות ו-WhatsApp</p>
+                      <p className="text-sm text-gray-600 font-hebrew">לקוחות, חוזים, חשבוניות והתממשקות</p>
                     </div>
                   </button>
                   <div className="absolute top-2 left-2">

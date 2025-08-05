@@ -318,3 +318,8 @@ def get_hebrew_audio_url(text, host):
     """יצירת URL לאודיו עברי - DISABLED FOR DIRECT SAY"""
     logger.info(f"🔊 Audio URL generation disabled, returning None for direct Say")
     return None  # Force direct Say usage
+
+def generate_hebrew_tts(text, filename_prefix='hebrew_voice'):
+    """יוצר קובץ TTS בעברית עם gTTS fallback"""
+    service = HebrewTTSService()
+    return service.synthesize_hebrew_audio(text)

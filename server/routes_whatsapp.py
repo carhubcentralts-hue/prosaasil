@@ -56,15 +56,13 @@ def whatsapp_webhook():
         # Find or create WhatsApp conversation
         conversation = WhatsAppConversation.query.filter_by(
             business_id=business.id,
-            customer_phone=from_number
+            customer_number=from_number
         ).first()
         
         if not conversation:
             conversation = WhatsAppConversation(
                 business_id=business.id,
-                customer_phone=from_number,
-                customer_name=customer.name,
-                platform='twilio'
+                customer_number=from_number
             )
             db.session.add(conversation)
             db.session.flush()
@@ -73,13 +71,13 @@ def whatsapp_webhook():
         incoming_message = WhatsAppMessage(
             conversation_id=conversation.id,
             business_id=business.id,
-            sender_phone=from_number,
-            message_text=message_body,
-            message_type='text' if not media_url else 'media',
-            media_url=media_url,
-            direction='incoming',
-            platform='twilio',
-            external_id=message_sid
+            from_number=from_number,
+            to_number=to_number,
+            message_body=message_body,
+            direction='inbound',
+            status='received',
+            message_sid=message_sid,
+            media_url=media_url
         )
         db.session.add(incoming_message)
         
@@ -88,18 +86,18 @@ def whatsapp_webhook():
         customer.last_contact_date = datetime.utcnow()
         
         # Generate AI response if enabled
-        if business.system_prompt and message_body:
+        if hasattr(business, 'ai_prompt') and business.ai_prompt and message_body:
             ai_response = generate_whatsapp_ai_response(message_body, business)
             
             # Save AI response message
             response_message = WhatsAppMessage(
                 conversation_id=conversation.id,
                 business_id=business.id,
-                sender_phone=to_number,
-                message_text=ai_response,
-                message_type='text',
-                direction='outgoing',
-                platform='twilio'
+                from_number=to_number,
+                to_number=from_number,
+                message_body=ai_response,
+                direction='outbound',
+                status='sent'
             )
             db.session.add(response_message)
             
@@ -242,8 +240,10 @@ def generate_whatsapp_ai_response(message_text, business):
             {"role": "user", "content": message_text}
         ]
         
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
+        import openai
+        client = openai.OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+        response = client.chat.completions.create(
+            model="gpt-4o",  # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
             messages=messages,
             max_tokens=200,
             temperature=0.7

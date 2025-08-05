@@ -312,8 +312,8 @@ const AdminDashboard = () => {
             >
               <Users className="w-6 h-6" />
               <div className="text-right">
-                <p className="font-medium font-hebrew">CRM מתקדם</p>
-                <p className="text-sm text-blue-100 font-hebrew">רמת Monday.com</p>
+                <p className="font-medium font-hebrew">מערכת CRM מתקדמת</p>
+                <p className="text-sm text-blue-100 font-hebrew">ניהול לקוחות מקצועי</p>
               </div>
             </button>
             <button 
@@ -336,16 +336,7 @@ const AdminDashboard = () => {
                 <p className="text-sm text-purple-100 font-hebrew">ניהול הודעות</p>
               </div>
             </button>
-            <button 
-              onClick={() => navigate('/admin/deployment')}
-              className="flex items-center gap-3 p-4 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl transition-all shadow-lg"
-            >
-              <Activity className="w-6 h-6" />
-              <div className="text-right">
-                <p className="font-medium font-hebrew">בדיקת פריסה</p>
-                <p className="text-sm text-orange-100 font-hebrew">מוכנות מערכת</p>
-              </div>
-            </button>
+
           </div>
         </div>
 
