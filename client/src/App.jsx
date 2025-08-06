@@ -49,7 +49,19 @@ function App() {
               </PrivateRoute>
             } />
             
+            <Route path="/business/calls" element={
+              <PrivateRoute requiredRole="business">
+                <CallSystemPage />
+              </PrivateRoute>
+            } />
+            
             <Route path="/whatsapp" element={
+              <PrivateRoute requiredRole="business">
+                <WhatsAppPage />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/business/whatsapp" element={
               <PrivateRoute requiredRole="business">
                 <WhatsAppPage />
               </PrivateRoute>

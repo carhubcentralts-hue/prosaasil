@@ -177,45 +177,50 @@ const AgentLocatorDashboard = () => {
     </Card>
   );
 
-  const DataTable = ({ title, data, columns, emptyMessage }) => (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg font-semibold">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {data && Array.isArray(data) && data.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  {columns.map((col, index) => (
-                    <th key={index} className="text-right p-2 font-medium">
-                      {col.header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {Array.isArray(data) && data.slice(0, 5).map((item, index) => (
-                  <tr key={index} className="border-b hover:bg-gray-50">
-                    {columns.map((col, colIndex) => (
-                      <td key={colIndex} className="p-2 text-right">
-                        {col.render ? col.render(item) : item[col.key]}
-                      </td>
+  const DataTable = ({ title, data, columns, emptyMessage }) => {
+    // תיקון חיוני - וידוא שdata תמיד מערך
+    const safeData = Array.isArray(data) ? data : [];
+    
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold">{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {safeData.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    {columns.map((col, index) => (
+                      <th key={index} className="text-right p-2 font-medium">
+                        {col.header}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="text-center py-8 text-gray-500">
-            {emptyMessage}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+                </thead>
+                <tbody>
+                  {safeData.slice(0, 5).map((item, index) => (
+                    <tr key={index} className="border-b hover:bg-gray-50">
+                      {columns.map((col, colIndex) => (
+                        <td key={colIndex} className="p-2 text-right">
+                          {col.render ? col.render(item) : (item[col.key] || '')}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              {emptyMessage}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   if (loading) {
     return (

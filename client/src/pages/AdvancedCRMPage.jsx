@@ -17,7 +17,18 @@ import {
   ArrowLeft,
   CheckCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  Building2,
+  Target,
+  TrendingUp,
+  DollarSign,
+  Mail,
+  Filter,
+  Download,
+  Edit2,
+  Trash2,
+  XCircle,
+  ArrowRight
 } from 'lucide-react';
 
 const AdvancedCRMPage = () => {
@@ -174,28 +185,32 @@ const AdvancedCRMPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50" dir="rtl">
-      <div className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50" dir="rtl">
+      {/* כותרת מעוצבת מחדש */}
+      <div className="bg-white shadow-xl border-b-4 border-gradient-to-r from-blue-500 to-purple-600">
+        <div className="max-w-7xl mx-auto px-6 py-6">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-6">
               <button
                 onClick={() => navigate('/business/dashboard')}
-                className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 rounded-xl transition-all text-gray-700 font-hebrew shadow-md hover:shadow-lg"
               >
                 <ArrowLeft className="w-5 h-5" />
-                <span className="font-hebrew">חזרה לדשבורד</span>
+                <span>חזרה לדשבורד</span>
               </button>
-              <h1 className="text-2xl font-bold text-gray-900 font-hebrew">
-                מערכת CRM מתקדמת
-              </h1>
+              <div>
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent font-hebrew mb-1">
+                  🏢 מערכת CRM מתקדמת
+                </h1>
+                <p className="text-gray-600 font-hebrew">ניהול לקוחות, חוזים ותקשורת מרוכזת</p>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowNewCustomer(true)}
-                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-hebrew"
+                className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-6 py-3 rounded-xl font-hebrew shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-5 h-5" />
                 לקוח חדש
               </button>
             </div>
