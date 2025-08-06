@@ -358,7 +358,7 @@ const BusinessDashboard = () => {
               {/* כפתור WhatsApp עסקי - תמיד זמין */}
               <div className="relative">
                 <button 
-                  onClick={() => navigate('/whatsapp')}
+                  onClick={() => navigate('/business/whatsapp')}
                   className="w-full flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-colors text-right shadow-md hover:shadow-lg transform hover:scale-105"
                 >
                   <MessageSquare className="w-6 h-6 text-green-600" />
@@ -375,7 +375,7 @@ const BusinessDashboard = () => {
               {/* כפתור שיחות AI - תמיד זמין */}
               <div className="relative">
                 <button 
-                  onClick={() => navigate('/calls')}
+                  onClick={() => navigate('/business/calls')}
                   className="w-full flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors text-right shadow-md hover:shadow-lg transform hover:scale-105"
                 >
                   <Phone className="w-6 h-6 text-purple-600" />
