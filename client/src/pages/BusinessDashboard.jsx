@@ -338,65 +338,56 @@ const BusinessDashboard = () => {
               השירותים שלך
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {services.crm && (
-                <div className="relative">
-                  <button 
-                    onClick={() => navigate('/business/crm/advanced')}
-                    className="w-full flex items-center gap-3 p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors text-right"
-                  >
-                    <Users className="w-6 h-6 text-blue-600" />
-                    <div>
-                      <p className="font-medium font-hebrew">מערכת CRM מתקדמת</p>
-                      <p className="text-sm text-gray-600 font-hebrew">לקוחות, חוזים, חשבוניות והתממשקות</p>
-                    </div>
-                  </button>
-                  <div className="absolute top-2 left-2">
-                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+              {/* כפתור CRM מתקדם - תמיד זמין */}
+              <div className="relative">
+                <button 
+                  onClick={() => navigate('/business/crm/advanced')}
+                  className="w-full flex items-center gap-3 p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors text-right shadow-md hover:shadow-lg transform hover:scale-105"
+                >
+                  <Users className="w-6 h-6 text-blue-600" />
+                  <div>
+                    <p className="font-medium font-hebrew">מערכת CRM מתקדמת</p>
+                    <p className="text-sm text-gray-600 font-hebrew">לקוחות, חוזים, חשבוניות והתממשקות</p>
                   </div>
+                </button>
+                <div className="absolute top-2 left-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
                 </div>
-              )}
-              {services.whatsapp && (
-                <div className="relative">
-                  <button 
-                    onClick={() => navigate('/whatsapp')}
-                    className="w-full flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-colors text-right"
-                  >
-                    <MessageSquare className="w-6 h-6 text-green-600" />
-                    <div>
-                      <p className="font-medium font-hebrew">WhatsApp עסקי</p>
-                      <p className="text-sm text-gray-600 font-hebrew">
-                        {systemStatus?.systems?.baileys?.status === 'operational' ? 'מחובר ופעיל' : 'לא מחובר'}
-                      </p>
-                    </div>
-                  </button>
-                  <div className="absolute top-2 left-2">
-                    <div className={`w-3 h-3 rounded-full ${
-                      systemStatus?.systems?.baileys?.status === 'operational' ? 'bg-green-500' : 'bg-red-500'
-                    }`}></div>
+              </div>
+              
+              {/* כפתור WhatsApp עסקי - תמיד זמין */}
+              <div className="relative">
+                <button 
+                  onClick={() => navigate('/whatsapp')}
+                  className="w-full flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-colors text-right shadow-md hover:shadow-lg transform hover:scale-105"
+                >
+                  <MessageSquare className="w-6 h-6 text-green-600" />
+                  <div>
+                    <p className="font-medium font-hebrew">WhatsApp עסקי</p>
+                    <p className="text-sm text-gray-600 font-hebrew">ניהול שיחות ולקוחות</p>
                   </div>
+                </button>
+                <div className="absolute top-2 left-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
                 </div>
-              )}
-              {services.calls && (
-                <div className="relative">
-                  <button 
-                    onClick={() => navigate('/calls')}
-                    className="w-full flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors text-right"
-                  >
-                    <Phone className="w-6 h-6 text-purple-600" />
-                    <div>
-                      <p className="font-medium font-hebrew">שיחות AI</p>
-                      <p className="text-sm text-gray-600 font-hebrew">
-                        {systemStatus?.systems?.twilio?.status === 'operational' ? 'מחובר ופעיל' : 'לא מחובר'}
-                      </p>
-                    </div>
-                  </button>
-                  <div className="absolute top-2 left-2">
-                    <div className={`w-3 h-3 rounded-full ${
-                      systemStatus?.systems?.twilio?.status === 'operational' ? 'bg-green-500' : 'bg-red-500'
-                    }`}></div>
+              </div>
+              
+              {/* כפתור שיחות AI - תמיד זמין */}
+              <div className="relative">
+                <button 
+                  onClick={() => navigate('/calls')}
+                  className="w-full flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors text-right shadow-md hover:shadow-lg transform hover:scale-105"
+                >
+                  <Phone className="w-6 h-6 text-purple-600" />
+                  <div>
+                    <p className="font-medium font-hebrew">שיחות AI</p>
+                    <p className="text-sm text-gray-600 font-hebrew">מערכת שיחות אוטומטית</p>
                   </div>
+                </button>
+                <div className="absolute top-2 left-2">
+                  <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
                 </div>
-              )}
+              </div>
               
               {/* כפתור AgentLocator Dashboard - תמיד זמין */}
               <div className="relative">
@@ -415,11 +406,7 @@ const BusinessDashboard = () => {
                 </div>
               </div>
             </div>
-            {!services.crm && !services.whatsapp && !services.calls && (
-              <p className="text-gray-600 font-hebrew text-center py-8">
-                אין שירותים פעילים עבור העסק שלך
-              </p>
-            )}
+            {/* הכפתורים תמיד זמינים עכשיו */}
           </div>
         )}
 
