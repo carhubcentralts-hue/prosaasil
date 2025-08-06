@@ -185,7 +185,7 @@ const AgentLocatorDashboard = () => {
                 </tr>
               </thead>
               <tbody>
-                {data.slice(0, 5).map((item, index) => (
+                {Array.isArray(data) && data.slice(0, 5).map((item, index) => (
                   <tr key={index} className="border-b hover:bg-gray-50">
                     {columns.map((col, colIndex) => (
                       <td key={colIndex} className="p-2 text-right">
