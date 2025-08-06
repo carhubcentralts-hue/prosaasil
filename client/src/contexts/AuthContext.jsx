@@ -20,14 +20,14 @@ export const AuthProvider = ({ children }) => {
       try {
         const token = localStorage.getItem('authToken');
         const role = localStorage.getItem('userRole');
+        const name = localStorage.getItem('userName') || 'משתמש';
         
-        console.log('Auth check:', { token: !!token, role });
+        console.log('Auth check:', { token: !!token, role, name });
         
         if (token && role) {
-          // Mock user data for testing
           setUser({
             id: 1,
-            name: 'Test User',
+            name: name,
             role: role,
             token: token
           });
@@ -46,24 +46,29 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (credentials) => {
     try {
-      // Mock login for testing
       const { username, password, role } = credentials;
       
       if (username && password) {
-        const token = 'mock-token-' + Date.now();
+        const token = localStorage.getItem('authToken') || 'mock-token-' + Date.now();
         const userRole = role || 'business';
+        const userName = localStorage.getItem('userName') || username;
         
+        // עדכן localStorage אם עדיין לא קיים
         localStorage.setItem('authToken', token);
         localStorage.setItem('userRole', userRole);
+        localStorage.setItem('userName', userName);
         
+        // עדכן את המשתמש ב-state
         setUser({
           id: 1,
-          name: username,
+          name: userName,
           role: userRole,
           token: token
         });
         
-        return { success: true, user: { name: username, role: userRole } };
+        console.log('Auth updated:', { name: userName, role: userRole, token: !!token });
+        
+        return { success: true, user: { name: userName, role: userRole } };
       }
       
       throw new Error('Invalid credentials');
@@ -76,6 +81,7 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('authToken');
     localStorage.removeItem('userRole');
+    localStorage.removeItem('userName');
     setUser(null);
   };
 

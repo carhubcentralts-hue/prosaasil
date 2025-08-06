@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { 
   Eye, 
@@ -11,6 +13,10 @@ import {
 } from 'lucide-react';
 
 const LoginPage = () => {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  
   const [formData, setFormData] = useState({
     username: '',
     password: ''
@@ -53,16 +59,25 @@ const LoginPage = () => {
 
       const { token, role, name } = response.data;
 
-      // שמור פרטי התחברות
-      localStorage.setItem('auth_token', token);
-      localStorage.setItem('user_role', role);
-      localStorage.setItem('user_name', name);
+      // שמור פרטי התחברות עם השמות הנכונים
+      localStorage.setItem('authToken', token);
+      localStorage.setItem('userRole', role);
+      localStorage.setItem('userName', name);
+
+      // עדכן את ה-AuthContext
+      await login({
+        username: formData.username,
+        password: formData.password,
+        role: role
+      });
 
       setSuccess(`התחברות מוצלחת! ברוך הבא ${name}`);
       
-      // רענן את הדף כדי שה-App.jsx יזהה את ההתחברות
+      // נווט לדף המתאים
+      const from = location.state?.from?.pathname || (role === 'admin' ? '/admin/dashboard' : '/business/dashboard');
+      
       setTimeout(() => {
-        window.location.reload();
+        navigate(from, { replace: true });
       }, 1500);
 
     } catch (error) {
