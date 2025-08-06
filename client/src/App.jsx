@@ -75,7 +75,11 @@ function App() {
             } />
             
             {/* נתיב ברירת מחדל */}
-            <Route path="/" element={<Navigate to="/login" replace />} />
+            <Route path="/" element={
+              <PrivateRoute requiredRole="business">
+                <BusinessDashboard />
+              </PrivateRoute>
+            } />
             
             {/* נתיב לדפים לא נמצאו */}
             <Route path="*" element={<Navigate to="/login" replace />} />

@@ -331,6 +331,31 @@ const BusinessDashboard = () => {
           </button>
         </div>
 
+        {/* כפתור בדיקת ניווט - זמני */}
+        <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 mb-6">
+          <h3 className="text-lg font-bold text-red-800 font-hebrew mb-2">🔧 בדיקת ניווט (זמני)</h3>
+          <div className="flex gap-4">
+            <button 
+              onClick={() => {
+                console.log('🔄 TEST: Simple navigate test');
+                window.location.pathname = '/business/whatsapp';
+              }}
+              className="bg-red-600 text-white px-4 py-2 rounded-lg font-hebrew hover:bg-red-700"
+            >
+              בדיקת ניווט - WhatsApp
+            </button>
+            <button 
+              onClick={() => {
+                console.log('🔄 TEST: React Router navigate test');
+                navigate('/business/calls');
+              }}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg font-hebrew hover:bg-blue-700"
+            >
+              בדיקת React Router - Calls  
+            </button>
+          </div>
+        </div>
+
         {/* שירותים פעילים */}
         {services && (
           <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
@@ -341,7 +366,10 @@ const BusinessDashboard = () => {
               {/* כפתור CRM מתקדם - תמיד זמין */}
               <div className="relative">
                 <button 
-                  onClick={() => navigate('/business/crm/advanced')}
+                  onClick={() => {
+                    console.log('🔄 Clicking CRM button - navigating to /business/crm/advanced');
+                    navigate('/business/crm/advanced');
+                  }}
                   className="w-full flex items-center gap-3 p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors text-right shadow-md hover:shadow-lg transform hover:scale-105"
                 >
                   <Users className="w-6 h-6 text-blue-600" />
@@ -358,7 +386,10 @@ const BusinessDashboard = () => {
               {/* כפתור WhatsApp עסקי - תמיד זמין */}
               <div className="relative">
                 <button 
-                  onClick={() => navigate('/business/whatsapp')}
+                  onClick={() => {
+                    console.log('🔄 Clicking WhatsApp button - navigating to /business/whatsapp');
+                    navigate('/business/whatsapp');
+                  }}
                   className="w-full flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-colors text-right shadow-md hover:shadow-lg transform hover:scale-105"
                 >
                   <MessageSquare className="w-6 h-6 text-green-600" />
@@ -375,7 +406,10 @@ const BusinessDashboard = () => {
               {/* כפתור שיחות AI - תמיד זמין */}
               <div className="relative">
                 <button 
-                  onClick={() => navigate('/business/calls')}
+                  onClick={() => {
+                    console.log('🔄 Clicking Calls button - navigating to /business/calls');
+                    navigate('/business/calls');
+                  }}
                   className="w-full flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors text-right shadow-md hover:shadow-lg transform hover:scale-105"
                 >
                   <Phone className="w-6 h-6 text-purple-600" />
