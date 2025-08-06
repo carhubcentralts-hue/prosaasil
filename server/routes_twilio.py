@@ -1,6 +1,6 @@
 """
 Twilio Integration Routes for Hebrew AI Call Center
-Clean version with only working functions
+Blueprint version with webhook handlers
 """
 
 import os
@@ -8,18 +8,19 @@ import logging
 import requests
 import tempfile
 import openai
-from flask import request, Response, jsonify
+from flask import Blueprint, request, Response, jsonify
 from models import Business, CallLog, db
 from datetime import datetime
 from hebrew_tts import hebrew_tts
+from whisper_handler import process_recording
 
 # Setup logging
 logger = logging.getLogger('routes_twilio')
 
-# Import app 
-from app import app
+# Create Blueprint
+twilio_bp = Blueprint('twilio_bp', __name__, url_prefix='/webhook')
 
-@app.route("/twilio/incoming_call", methods=["POST"])
+@twilio_bp.route("/incoming_call", methods=["POST"])
 def incoming_call():
         """Handle incoming calls with Hebrew greeting - FIXED Content-Type"""
         try:
@@ -94,12 +95,12 @@ def incoming_call():
                 greeting_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{greeting_file}"
                 instruction_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{instruction_file}"
                 
-                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Play>{greeting_url}</Play><Pause length="1"/><Play>{instruction_url}</Play><Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Play>{greeting_url}</Play><Pause length="1"/><Play>{instruction_url}</Play><Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
                 
                 logger.info(f"🎵 Using Hebrew TTS files: {greeting_file}, {instruction_file}")
             else:
                 # Fallback to basic text  
-                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{greeting}</prosody></Say><Pause length="1"/><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{instruction}</prosody></Say><Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{greeting}</prosody></Say><Pause length="1"/><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{instruction}</prosody></Say><Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
             
             logger.info(f"✅ Voice webhook response sent for business: {business_name}")
             response = Response(twiml, mimetype='text/xml')
@@ -115,153 +116,54 @@ def incoming_call():
             response.headers['Content-Type'] = 'text/xml; charset=utf-8'
             return response
 
-@app.route("/twilio/handle_recording", methods=["POST"])
+@twilio_bp.route("/handle_recording", methods=["POST"])
 def handle_recording():
-        """Handle recordings from users - FIXED Content-Type and XML"""
+        """Handle recordings from Twilio - Using whisper_handler.process_recording"""
         try:
-            # Twilio שולח application/x-www-form-urlencoded - אין צורך לבדוק Content-Type
-            recording_url = request.form.get('RecordingUrl')
+            recording_sid = request.form.get('RecordingSid')
             call_sid = request.form.get('CallSid')
             from_number = request.form.get('From')
             to_number = request.form.get('To')
             
-            logger.info(f"🎙️ Received recording: {recording_url} for call {call_sid}")
+            logger.info(f"🎙️ Received recording: RecordingSid={recording_sid}, CallSid={call_sid}")
             
-            # Find business by call_sid from existing call log
-            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
-            business_name = "לקוח יקר"
-            
-            if call_log:
-                business = Business.query.get(call_log.business_id)
-                if business:
-                    business_name = business.name
-            
-            if not recording_url:
-                logger.warning("No recording URL provided")
-                twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">לא שמעתי אותך בבירור. אנא נסה שוב</prosody></Say><Record action="/twilio/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
+            if not recording_sid or not call_sid:
+                logger.warning("Missing RecordingSid or CallSid")
+                twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">לא שמעתי אותך בבירור. אנא נסה שוב</prosody></Say><Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
                 response = Response(twiml, mimetype='text/xml')
                 response.headers['Content-Type'] = 'text/xml; charset=utf-8'
                 return response
             
-            # Download and process recording with AI - שיפור מלא
-            ai_response = f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם."
-            transcribed_text = ""
+            # Process recording using whisper_handler as per guidelines
+            ai_response = process_recording(recording_sid=recording_sid, call_sid=call_sid)
             
-            if recording_url:
-                try:
-                    logger.info(f"⬇️ Call {call_sid}: Downloading recording from Twilio")
-                    logger.info(f"🔗 Recording URL: {recording_url}")
-                    
-                    recording_response = requests.get(recording_url, stream=True)
-                    if recording_response.status_code == 200:
-                        # Save to temporary file
-                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-                            for chunk in recording_response.iter_content(chunk_size=8192):
-                                temp_file.write(chunk)
-                            temp_filename = temp_file.name
-                        
-                        logger.info(f"💾 Recording saved temporarily: {temp_filename}")
-                        
-                        # Transcribe with OpenAI Whisper (Hebrew)
-                        logger.info(f"🎙️ Call {call_sid}: Starting Whisper transcription...")
-                        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-                        
-                        with open(temp_filename, 'rb') as audio_file:
-                            transcript = client.audio.transcriptions.create(
-                                model="whisper-1",
-                                file=audio_file,
-                                language="he"
-                            )
-                        
-                        transcribed_text = transcript.text.strip()
-                        logger.info(f"📝 Call {call_sid}: Transcription result: '{transcribed_text}'")
-                        
-                        if transcribed_text and len(transcribed_text) > 2:
-                            # Get business info for AI prompt - מותאם לעסק
-                            business = Business.query.get(call_log.business_id) if call_log else None
-                            ai_prompt = business.ai_prompt if business and business.ai_prompt else "אתה עוזר וירטואלי מועיל בעברית. תן תשובה קצרה ומועילה."
-                            
-                            logger.info(f"🤖 Call {call_sid}: Using AI prompt for business {business_name}")
-                            logger.info(f"📋 AI Prompt: {ai_prompt[:100]}...")
-                            
-                            # Generate AI response
-                            messages = [
-                                {"role": "system", "content": ai_prompt},
-                                {"role": "user", "content": transcribed_text}
-                            ]
-                            
-                            gpt_response = client.chat.completions.create(
-                                model="gpt-4o", # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
-                                messages=messages,
-                                max_tokens=150,
-                                temperature=0.7
-                            )
-                            
-                            ai_response = gpt_response.choices[0].message.content.strip() if gpt_response.choices[0].message.content else f"תודה על פנייתך ל{business_name}"
-                            logger.info(f"🎯 Call {call_sid}: GPT Response: '{ai_response}'")
-                        else:
-                            logger.warning(f"⚠️ Call {call_sid}: Transcription too short or empty")
-                            ai_response = f"לא שמעתי אותך בבירור. אנא התקשר שוב ל{business_name}"
-                        
-                        # Cleanup temporary file
-                        os.unlink(temp_filename)
-                        logger.info(f"🧹 Temporary file cleaned: {temp_filename}")
-                        
-                except Exception as ai_error:
-                    logger.error(f"❌ Call {call_sid}: AI processing error: {ai_error}")
-                    ai_response = f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם."
+            if not ai_response or ai_response == "שגיאה בעיבוד השיחה":
+                ai_response = "תודה על פנייתכם. נחזור אליכם בהקדם."
             
-            # Generate Hebrew response using Hebrew TTS - שיפור מלא
-            hebrew_response = ai_response if ai_response else f"תודה על פנייתך ל{business_name}. נחזור אליך בהקדם."
+            # Generate Hebrew TTS response
+            response_file = hebrew_tts.synthesize_hebrew_audio(ai_response)
             
-            logger.info(f"🎵 Call {call_sid}: Generating Hebrew TTS response for business {business_name}")
-            logger.info(f"📝 TTS Text: '{hebrew_response[:50]}...'")
-            
-            # Generate Hebrew TTS for response
-            response_file = hebrew_tts.synthesize_hebrew_audio(hebrew_response)
-            logger.info(f"🎵 Call {call_sid}: TTS response file created: {response_file}")
-            
-            # שמירה מלאה במסד נתונים - שלב קריטי
-            if call_log and recording_url:
-                call_log.recording_url = recording_url
-                if transcribed_text:
-                    call_log.transcription = transcribed_text
-                    logger.info(f"💾 Call {call_sid}: Saved transcription: '{transcribed_text[:50]}...'")
-                if ai_response:
-                    call_log.ai_response = ai_response
-                    logger.info(f"💾 Call {call_sid}: Saved AI response: '{ai_response[:50]}...'")
-                call_log.call_status = 'completed'
-                call_log.ended_at = datetime.utcnow()
-                db.session.commit()
-                logger.info(f"✅ Call {call_sid}: Database updated successfully")
-            else:
-                logger.warning(f"⚠️ Call {call_sid}: CallLog or recording_url missing - database not updated")
-
-            # תגובה קולית עם fallback - XML תקני
             if response_file:
+                # Use Hebrew TTS file
                 response_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{response_file}"
                 twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Play>{response_url}</Play><Hangup/></Response>'''
-                logger.info(f"🎵 Call {call_sid}: Using Hebrew TTS response file: {response_file}")
-                logger.info(f"🔗 TTS URL: {response_url}")
             else:
-                # Fallback to text-to-speech
-                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{hebrew_response}</prosody></Say><Hangup/></Response>'''
-                logger.warning(f"⚠️ Call {call_sid}: TTS file failed, using Polly fallback")
+                # Fallback to text response
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{ai_response}</prosody></Say><Hangup/></Response>'''
             
-            logger.info(f"✅ Call {call_sid}: Complete call processing finished for business {business_name}")
-            logger.info(f"📊 Call {call_sid}: Final status - Recording: {bool(recording_url)}, Transcription: {bool(transcribed_text)}, AI Response: {bool(ai_response)}")
+            logger.info(f"✅ Call {call_sid}: Processing complete, sending response")
             response = Response(twiml, mimetype='text/xml')
             response.headers['Content-Type'] = 'text/xml; charset=utf-8'
             return response
             
         except Exception as e:
-            logger.error(f"Error handling recording: {str(e)}")
-            error_twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, הייתה בעיה בעיבוד ההקלטה</prosody></Say><Hangup/></Response>'''
-            response = Response(error_twiml, mimetype='text/xml')
+            logger.error(f"❌ Error in handle_recording: {e}")
+            error_twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">תודה על פנייתכם. נחזור אליכם בהקדם.</prosody></Say><Hangup/></Response>'''
+            response = Response(error_twiml, mimetype='text/xml')  
             response.headers['Content-Type'] = 'text/xml; charset=utf-8'
             return response
 
-@app.route("/twilio/call_status", methods=["POST"])  
+@twilio_bp.route("/call_status", methods=["POST"])  
 def call_status():
         """Handle call status updates"""
         try:

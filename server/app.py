@@ -68,6 +68,14 @@ with app.app_context():
         logging.info("✅ Login Blueprint registered successfully")
     except Exception as e:
         logging.error(f"❌ Login Blueprint registration failed: {e}")
+        
+    # Register Twilio Blueprint  
+    try:
+        from routes_twilio import twilio_bp  # Twilio webhook routes
+        app.register_blueprint(twilio_bp)
+        logging.info("✅ Twilio Blueprint registered successfully")
+    except Exception as e:
+        logging.error(f"❌ Twilio Blueprint registration failed: {e}")
 
     # Register other Blueprints
     try:
