@@ -61,27 +61,38 @@ const AgentLocatorDashboard = () => {
 
   const fetchStats = async () => {
     try {
+      console.log('🔄 AgentLocator: Fetching stats from /api/stats/overview...');
       const response = await fetch('/api/stats/overview');
+      console.log('📡 AgentLocator: Stats response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
-        console.log('Stats data:', data);
+        console.log('📊 AgentLocator: Stats data received:', data);
         setStats(data.stats || null);
+      } else {
+        console.error('❌ AgentLocator: Stats API failed:', response.status);
       }
     } catch (err) {
-      console.error('Error fetching stats:', err);
+      console.error('❌ AgentLocator: Stats fetch error:', err);
     }
   };
 
   const fetchCustomers = async () => {
     try {
+      console.log('🔄 AgentLocator: Fetching customers from /api/crm/customers...');
       const response = await fetch('/api/crm/customers');
+      console.log('📡 AgentLocator: Customers response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
-        console.log('CRM Customers data:', data);
+        console.log('👥 AgentLocator: Customers data received:', data);
         setCustomers(Array.isArray(data.customers) ? data.customers : []);
+      } else {
+        console.error('❌ AgentLocator: Customers API failed:', response.status);
+        setCustomers([]);
       }
     } catch (err) {
-      console.error('Error fetching customers:', err);
+      console.error('❌ AgentLocator: Customers fetch error:', err);
       setCustomers([]);
     }
   };
