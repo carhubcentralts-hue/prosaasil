@@ -14,9 +14,10 @@ logger = logging.getLogger(__name__)
 # Create WhatsApp Blueprint
 whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/whatsapp')
 
-@whatsapp_bp.route('/')
-@login_required
-def whatsapp_dashboard():
+# DISABLED: Old Flask template route - React handles frontend now
+# @whatsapp_bp.route('/')
+# @login_required
+def whatsapp_dashboard_old_disabled():
     """דשבורד WhatsApp ראשי"""
     try:
         from auth import AuthService
@@ -24,8 +25,7 @@ def whatsapp_dashboard():
         
         # בדיקת הרשאות WhatsApp
         if not current_user or not current_user.has_whatsapp_access():
-            flash('אין לך הרשאה לגשת למערכת WhatsApp', 'error')
-            return redirect(url_for('index'))
+            return jsonify({'error': 'אין הרשאה לגשת למערכת WhatsApp'}), 403
         
         # קבלת שיחות לפי העסק
         if current_user and current_user.role == 'admin':
@@ -64,8 +64,7 @@ def whatsapp_dashboard():
                              stats=stats)
     except Exception as e:
         logger.error(f"Error in WhatsApp dashboard: {e}")
-        flash('שגיאה בטעינת דשבורד WhatsApp', 'error')
-        return redirect(url_for('index'))
+        return jsonify({'error': 'שגיאה בטעינת דשבורד WhatsApp'}), 500
 
 @whatsapp_bp.route('/conversation/<int:conversation_id>')
 @login_required

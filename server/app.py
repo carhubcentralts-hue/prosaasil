@@ -254,17 +254,54 @@ def serve_tts_files(filename):
         logging.error(f"❌ Full traceback: {traceback.format_exc()}")
         return f"Server error: {e}", 500
 
+# React Assets Route - CRITICAL: Handle both /assets/ and /*/assets/ paths
+@app.route("/assets/<path:filename>")
+@app.route("/<path:route>/assets/<path:filename>")
+def serve_assets(filename, route=None):
+    """Serve React assets with correct MIME types from any route"""
+    from flask import Response
+    
+    build_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../client/dist"))
+    assets_dir = os.path.join(build_dir, "assets")
+    
+    try:
+        response = send_from_directory(assets_dir, filename)
+        
+        # Set correct MIME types for JavaScript modules
+        if filename.endswith('.js'):
+            response.mimetype = 'application/javascript'
+            response.headers['Content-Type'] = 'application/javascript; charset=utf-8'
+        elif filename.endswith('.css'):
+            response.mimetype = 'text/css'
+            response.headers['Content-Type'] = 'text/css; charset=utf-8'
+            
+        logging.info(f"✅ Serving asset: {filename} from route: {route} with MIME: {response.mimetype}")
+        return response
+    except Exception as e:
+        logging.error(f"❌ Error serving asset {filename}: {e}")
+        return "Asset not found", 404
+
 # React Frontend Routes - Flask מגיש את React
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
     """Serve React app with proper SPA routing support"""       
     build_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../client/dist"))
+    
+    # CRITICAL: Skip any requests that contain /assets/ - let asset routes handle them
+    if "/assets/" in path or path.startswith("assets/"):
+        logging.info(f"🔄 Skipping asset path in serve_react: {path}")
+        # Don't handle assets - this should never be reached
+        from flask import abort
+        return abort(404)
+    
     requested_path = os.path.join(build_dir, path)
 
     if path != "" and os.path.exists(requested_path):
         return send_from_directory(build_dir, path)
     else:
+        # Serve index.html for SPA routing
+        logging.info(f"📄 Serving index.html for SPA path: {path}")
         return send_from_directory(build_dir, "index.html")
 
 # Media stream routes integrated into routes.py
