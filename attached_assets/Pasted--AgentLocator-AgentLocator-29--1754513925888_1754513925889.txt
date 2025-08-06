@@ -1,0 +1,103 @@
+## 📞 הנחיה מלאה לתיקון מערכת השיחות ב־AgentLocator
+
+> גרסה: AgentLocator 29
+> מטרה: לגרום לשיחות להקליט, להתמלל, להישמר ולשלב ב־CRM בפועל
+
+---
+
+## ✅ שלב 1 – חיבור מסלול webhook להקלטות Twilio
+
+ב־`server/routes_twilio.py` ודא שהקיים:
+
+```python
+from flask import Blueprint, request
+from whisper_handler import process_recording
+
+twilio_bp = Blueprint('twilio_bp', __name__, url_prefix='/webhook')
+
+@twilio_bp.route('/handle_recording', methods=['POST'])
+def handle_recording():
+    recording_sid = request.form.get('RecordingSid')
+    call_sid = request.form.get('CallSid')
+
+    if not recording_sid or not call_sid:
+        return "Missing data", 400
+
+    process_recording(recording_sid=recording_sid, call_sid=call_sid)
+    return "OK", 200
+```
+
+### חיבור לקובץ `app.py`
+
+```python
+from routes_twilio import twilio_bp
+app.register_blueprint(twilio_bp)
+```
+
+---
+
+## ✅ שלב 2 – ווידוא שהתמלול מתבצע בפועל
+
+ב־`whisper_handler.py`:
+
+* ודא ש־`process_recording()`:
+
+  * מוריד הקלטה מ־Twilio (`get_call_recording`)
+  * מבצע תמלול (עברית)
+  * מבצע בדיקת ג'יבריש
+  * מפעיל `generate_response()` (GPT)
+  * שומר במסד (אם יש CRM)
+
+---
+
+## ✅ שלב 3 – בדיקה שכל שלב קורה בפועל
+
+* Twilio שולח הקלטה ל־`/webhook/handle_recording` (הגדר ב־Twilio Console)
+* בפועל הקובץ מוקלט ונשמר זמנית
+* התמלול מייצר טקסט עברי (שמור אותו)
+* יש `response` מטעם GPT
+* נוצרת רשומה במסד הנתונים `CallTranscript` או `CallLog`
+
+---
+
+## ✅ שלב 4 – שילוב ב־CRM
+
+* ודא שבמודל לקוח יש יחס ל־Call / Transcript
+* בדף לקוח ב־CRM:
+
+  * 탭 "שיחות מוקלטות"
+  * רשימת שיחות עם תאריך, תמלול, תשובה, האזנה
+
+---
+
+## ✅ שלב 5 – בדיקות טכניות
+
+| בדיקה                      | סטטוס נדרש |
+| -------------------------- | ---------- |
+| Flask מאזין ל־/webhook/... | ✅          |
+| Twilio שולח הקלטה          | ✅          |
+| Whisper פועל               | ✅          |
+| GPT מגיב                   | ✅          |
+| הנתונים נשמרים למסד        | ✅          |
+| השיחה מוצגת ב־CRM          | ✅          |
+
+---
+
+## 🛡️ דרישות אבטחה
+
+* אל תאפשר קריאות GET ל־Webhook
+* ודא שה־recording\_sid תקף לפני עיבוד
+* נקה קבצים זמניים בסיום
+
+---
+
+## ✉️ טסט סיום
+
+* תבצע שיחה ל־Twilio Number
+* תדמה webhook ל־`/webhook/handle_recording`
+* בדוק שתמלול מוצג במסך שיחות ב־CRM
+* בדוק שה־GPT הגיב והכול נשמר
+
+---
+
+### ✅ רק אחרי שכל אלה מצליחים בפועל – מערכת השיחות נחשבת פעילה
