@@ -1,54 +1,40 @@
-import React, { useEffect } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
-const PrivateRoute = ({ children, requiredRole }) => {
-  const navigate = useNavigate();
-  const token = localStorage.getItem('auth_token');
-  const userRole = localStorage.getItem('user_role');
-  const adminTakeover = localStorage.getItem('admin_takeover_mode');
+const PrivateRoute = ({ children, requiredRole = null }) => {
+  const { user, loading } = useAuth();
+  const location = useLocation();
 
-  console.log('🔒 PrivateRoute: Checking access', { 
-    token: !!token, 
-    userRole, 
+  console.log('PrivateRoute check:', { 
+    user: !!user, 
+    loading, 
     requiredRole, 
-    adminTakeover: adminTakeover === 'true' 
+    userRole: user?.role,
+    path: location.pathname 
   });
 
-  // אם אין טוכן, הפנה להתחברות
-  if (!token) {
-    console.log('🚫 PrivateRoute: No token, redirecting to login');
-    return <Navigate to="/login" replace />;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">טוען...</p>
+        </div>
+      </div>
+    );
   }
 
-  // אם יש role mismatch
-  if (requiredRole && userRole !== requiredRole) {
-    console.log('🚫 PrivateRoute: Role mismatch - need:', requiredRole, 'have:', userRole);
-    console.log('🔍 PrivateRoute: Admin takeover mode:', adminTakeover);
-    
-    // במקרה של השתלטות מנהל - הפנה ישירות לדשבורד עסק
-    if (adminTakeover === 'true' && userRole === 'business') {
-      console.log('🔄 PrivateRoute: FIXED - Admin takeover active, forcing redirect to business dashboard');
-      // Force immediate redirect using React Router
-      setTimeout(() => {
-        navigate('/business/dashboard');
-      }, 100);
-      return <div>מעביר לדשבורד העסק...</div>; // Show message while redirecting
-    }
-    
-    // הפנה לדף המתאים לפי התפקיד
-    if (userRole === 'admin') {
-      console.log('🔄 PrivateRoute: Redirecting admin to admin dashboard');
-      return <Navigate to="/admin/dashboard" replace />;
-    } else if (userRole === 'business') {
-      console.log('🔄 PrivateRoute: Redirecting business to business dashboard');
-      return <Navigate to="/business/dashboard" replace />;
-    } else {
-      console.log('🔄 PrivateRoute: Unknown role, redirecting to login');
-      return <Navigate to="/login" replace />;
-    }
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  console.log('✅ PrivateRoute: Access granted');
+  if (requiredRole && user.role !== requiredRole) {
+    // Redirect based on user role
+    const redirectPath = user.role === 'admin' ? '/admin/dashboard' : '/business/dashboard';
+    return <Navigate to={redirectPath} replace />;
+  }
+
   return children;
 };
 
