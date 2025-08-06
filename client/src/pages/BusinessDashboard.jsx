@@ -358,7 +358,7 @@ const BusinessDashboard = () => {
               {services.whatsapp && (
                 <div className="relative">
                   <button 
-                    onClick={() => navigate('/business/whatsapp')}
+                    onClick={() => navigate('/whatsapp')}
                     className="w-full flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-colors text-right"
                   >
                     <MessageSquare className="w-6 h-6 text-green-600" />
@@ -379,7 +379,7 @@ const BusinessDashboard = () => {
               {services.calls && (
                 <div className="relative">
                   <button 
-                    onClick={() => navigate('/business/calls')}
+                    onClick={() => navigate('/calls')}
                     className="w-full flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors text-right"
                   >
                     <Phone className="w-6 h-6 text-purple-600" />

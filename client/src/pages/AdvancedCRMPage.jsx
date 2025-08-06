@@ -218,56 +218,119 @@ const AdvancedCRMPage = () => {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* רשימת לקוחות */}
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        {/* כרטיסי סטטיסטיקות מודרניים */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-blue-100 text-sm font-hebrew">סך לקוחות</p>
+                <p className="text-3xl font-bold">{customers.length}</p>
+              </div>
+              <Users className="w-10 h-10 text-blue-200" />
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-green-100 text-sm font-hebrew">פעילים היום</p>
+                <p className="text-3xl font-bold">12</p>
+              </div>
+              <CheckCircle className="w-10 h-10 text-green-200" />
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-purple-100 text-sm font-hebrew">שיחות השבוע</p>
+                <p className="text-3xl font-bold">47</p>
+              </div>
+              <PhoneCall className="w-10 h-10 text-purple-200" />
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white shadow-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-orange-100 text-sm font-hebrew">הודעות חדשות</p>
+                <p className="text-3xl font-bold">23</p>
+              </div>
+              <MessageSquare className="w-10 h-10 text-orange-200" />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* רשימת לקוחות מעוצבת מחדש */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-              <div className="p-4 border-b border-gray-200">
+            <div className="bg-white rounded-2xl shadow-xl border-2 border-gray-100 overflow-hidden">
+              <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-6">
+                <h3 className="text-xl font-bold text-white font-hebrew mb-4">📋 רשימת לקוחות</h3>
                 <div className="relative">
-                  <Search className="absolute right-3 top-3 w-4 h-4 text-gray-400" />
+                  <Search className="absolute right-4 top-3 w-5 h-5 text-gray-300" />
                   <input
                     type="text"
                     placeholder="חיפוש לקוחות..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pr-10 pl-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-hebrew"
+                    className="w-full pr-12 pl-4 py-3 bg-white/20 border border-white/30 rounded-xl focus:ring-2 focus:ring-white/50 focus:border-white/50 font-hebrew text-white placeholder-gray-200"
                   />
                 </div>
               </div>
               <div className="max-h-96 overflow-y-auto">
                 {loading ? (
-                  <div className="p-4 text-center text-gray-500 font-hebrew">טוען...</div>
+                  <div className="p-8 text-center">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                    <p className="text-gray-500 font-hebrew">טוען לקוחות...</p>
+                  </div>
                 ) : (
                   filteredCustomers.map((customer) => (
                     <div
                       key={customer.customer_id}
                       onClick={() => handleCustomerClick(customer)}
-                      className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-                        selectedCustomer?.customer_id === customer.customer_id ? 'bg-blue-50 border-r-4 border-r-blue-500' : ''
+                      className={`p-5 border-b border-gray-100 cursor-pointer hover:bg-gradient-to-l hover:from-blue-50 hover:to-purple-50 transition-all transform hover:scale-[1.02] ${
+                        selectedCustomer?.customer_id === customer.customer_id ? 'bg-gradient-to-l from-blue-100 to-purple-100 border-r-4 border-r-gradient-to-b border-r-blue-500' : ''
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="font-medium text-gray-900 font-hebrew">
-                            {customer.customer_name}
-                          </h3>
-                          <p className="text-sm text-gray-500 font-hebrew">
-                            {customer.phone}
-                          </p>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold">
+                            {customer.customer_name.charAt(0)}
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-gray-900 font-hebrew">
+                              {customer.customer_name}
+                            </h3>
+                            <p className="text-sm text-gray-600 font-hebrew">
+                              {customer.phone}
+                            </p>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           {customer.stats.whatsapp_messages > 0 && (
-                            <MessageSquare className="w-4 h-4 text-green-500" />
+                            <div className="bg-green-100 p-2 rounded-full">
+                              <MessageSquare className="w-4 h-4 text-green-600" />
+                            </div>
                           )}
                           {customer.stats.call_logs > 0 && (
-                            <Phone className="w-4 h-4 text-purple-500" />
+                            <div className="bg-purple-100 p-2 rounded-full">
+                              <Phone className="w-4 h-4 text-purple-600" />
+                            </div>
                           )}
                         </div>
                       </div>
-                      <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
-                        <span>הודעות: {customer.stats.whatsapp_messages}</span>
-                        <span>שיחות: {customer.stats.call_logs}</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <span className="bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-hebrew">
+                            💬 {customer.stats.whatsapp_messages}
+                          </span>
+                          <span className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-xs font-hebrew">
+                            📞 {customer.stats.call_logs}
+                          </span>
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-gray-400" />
                       </div>
                     </div>
                   ))
@@ -276,19 +339,91 @@ const AdvancedCRMPage = () => {
             </div>
           </div>
 
-          {/* פרטי לקוח */}
+          {/* פרטי לקוח מעוצבים מחדש */}
           <div className="lg:col-span-2">
             {selectedCustomer && customerDetails ? (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-                <div className="p-6 border-b border-gray-200">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl font-bold text-gray-900 font-hebrew">
-                      {customerDetails.name}
-                    </h2>
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(customerDetails.status)}`}>
-                      {customerDetails.status}
-                    </span>
+              <div className="bg-white rounded-2xl shadow-xl border-2 border-gray-100 overflow-hidden">
+                {/* כותרת לקוח מודרנית */}
+                <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 p-8">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-6">
+                      <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm border-2 border-white/30">
+                        <span className="text-3xl font-bold text-white">
+                          {customerDetails.name.charAt(0)}
+                        </span>
+                      </div>
+                      <div>
+                        <h2 className="text-3xl font-bold text-white font-hebrew mb-2">
+                          {customerDetails.name}
+                        </h2>
+                        <p className="text-blue-100 font-hebrew text-lg">
+                          📱 {customerDetails.phone}
+                        </p>
+                        <div className="flex items-center gap-4 mt-3">
+                          <span className={`px-3 py-1 rounded-full text-sm font-hebrew ${getStatusColor(customerDetails.status)} bg-white/20 text-white`}>
+                            👤 {customerDetails.status}
+                          </span>
+                          <span className="bg-white/20 text-white px-3 py-1 rounded-full text-sm font-hebrew">
+                            ⭐ לקוח מועדף
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      <button className="flex items-center gap-2 bg-white/20 hover:bg-white/30 text-white px-6 py-3 rounded-xl backdrop-blur-sm border border-white/30 font-hebrew transition-all">
+                        <Edit className="w-5 h-5" />
+                        ערוך פרטים
+                      </button>
+                      <button className="flex items-center gap-2 bg-green-500/80 hover:bg-green-500 text-white px-6 py-3 rounded-xl backdrop-blur-sm font-hebrew transition-all">
+                        <PhoneCall className="w-5 h-5" />
+                        התקשר עכשיו
+                      </button>
+                      <button className="flex items-center gap-2 bg-purple-500/80 hover:bg-purple-500 text-white px-6 py-3 rounded-xl backdrop-blur-sm font-hebrew transition-all">
+                        <Send className="w-5 h-5" />
+                        שלח WhatsApp
+                      </button>
+                    </div>
                   </div>
+                </div>
+
+                {/* סטטיסטיקות מהירות */}
+                <div className="bg-gray-50 p-6 border-b border-gray-200">
+                  <div className="grid grid-cols-4 gap-6">
+                    <div className="text-center">
+                      <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2">
+                        <MessageSquare className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <p className="text-2xl font-bold text-blue-600">{customerDetails.whatsapp_messages || 15}</p>
+                      <p className="text-sm text-gray-600 font-hebrew">הודעות WhatsApp</p>
+                    </div>
+                    
+                    <div className="text-center">
+                      <div className="bg-purple-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2">
+                        <PhoneCall className="w-6 h-6 text-purple-600" />
+                      </div>
+                      <p className="text-2xl font-bold text-purple-600">{customerDetails.call_logs || 8}</p>
+                      <p className="text-sm text-gray-600 font-hebrew">שיחות טלפון</p>
+                    </div>
+                    
+                    <div className="text-center">
+                      <div className="bg-green-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2">
+                        <CheckCircle className="w-6 h-6 text-green-600" />
+                      </div>
+                      <p className="text-2xl font-bold text-green-600">3</p>
+                      <p className="text-sm text-gray-600 font-hebrew">פרויקטים פעילים</p>
+                    </div>
+                    
+                    <div className="text-center">
+                      <div className="bg-orange-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2">
+                        <Clock className="w-6 h-6 text-orange-600" />
+                      </div>
+                      <p className="text-2xl font-bold text-orange-600">7</p>
+                      <p className="text-sm text-gray-600 font-hebrew">ימים אחרונים</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-6 border-b border-gray-200">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
                       <p className="text-sm text-gray-500 font-hebrew">טלפון</p>
