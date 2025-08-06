@@ -23,7 +23,31 @@ function App() {
             {/* דף התחברות */}
             <Route path="/login" element={<LoginPage />} />
             
-            {/* נתיב מוגן למנהל */}
+            {/* נתיבים מוגנים למנהל */}
+            <Route path="/admin/dashboard" element={
+              <PrivateRoute requiredRole="admin">
+                <AdminDashboard />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/admin/crm/advanced" element={
+              <PrivateRoute requiredRole="admin">
+                <AdvancedCRMPage />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/admin/phone-analysis" element={
+              <PrivateRoute requiredRole="admin">
+                <CallSystemPage />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/admin/whatsapp" element={
+              <PrivateRoute requiredRole="admin">
+                <WhatsAppPage />
+              </PrivateRoute>
+            } />
+            
             <Route path="/admin/*" element={
               <PrivateRoute requiredRole="admin">
                 <AdminDashboard />
