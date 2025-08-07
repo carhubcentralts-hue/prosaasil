@@ -111,12 +111,12 @@ def incoming_call():
                 greeting_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{greeting_file}"
                 instruction_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{instruction_file}"
                 
-                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Play>{greeting_url}</Play><Pause length="1"/><Play>{instruction_url}</Play><Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Play>{greeting_url}</Play><Pause length="1"/><Play>{instruction_url}</Play><Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="8" finishOnKey="*" transcribe="false" language="he-IL"/></Response>'''
                 
                 logger.info(f"🎵 Using Hebrew TTS files: {greeting_file}, {instruction_file}")
             else:
                 # Fallback to basic text  
-                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{greeting}</prosody></Say><Pause length="1"/><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{instruction}</prosody></Say><Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{greeting}</prosody></Say><Pause length="1"/><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{instruction}. לחצו כוכבית לסיום</prosody></Say><Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="8" finishOnKey="*" transcribe="false" language="he-IL"/></Response>'''
             
             logger.info(f"✅ Voice webhook response sent for business: {business_name}")
             response = Response(twiml, mimetype='text/xml')
@@ -145,7 +145,7 @@ def handle_recording():
             
             if not recording_sid or not call_sid:
                 logger.warning("Missing RecordingSid or CallSid")
-                twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">לא שמעתי אותך בבירור. אנא נסה שוב</prosody></Say><Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="5" transcribe="true" language="he-IL"/></Response>'''
+                twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">לא שמעתי אותך בבירור. אנא דברו שוב ולחצו כוכבית לסיום</prosody></Say><Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="8" finishOnKey="*" transcribe="false" language="he-IL"/></Response>'''
                 response = Response(twiml, mimetype='text/xml')
                 response.headers['Content-Type'] = 'text/xml; charset=utf-8'
                 return response
@@ -157,7 +157,8 @@ def handle_recording():
                 ai_response = "תודה על פנייתכם. נחזור אליכם בהקדם."
             
             # Generate Hebrew TTS response
-            response_file = hebrew_tts.synthesize_hebrew_audio(ai_response)
+            from hebrew_tts import synthesize_hebrew_audio
+            response_file = synthesize_hebrew_audio(ai_response)
             
             if response_file:
                 # Use Hebrew TTS file
@@ -183,9 +184,14 @@ def handle_recording():
 def call_status():
         """Handle call status updates"""
         try:
+            # Import here to avoid circular imports
+            from models import CallLog, db
+            
             call_sid = request.form.get('CallSid')
             call_status = request.form.get('CallStatus')
             call_duration = request.form.get('CallDuration')
+            
+            logger.info(f"📞 Call status update: {call_sid} -> {call_status} (duration: {call_duration})")
             
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
             if call_log:
@@ -194,10 +200,14 @@ def call_status():
                     call_log.call_duration = int(call_duration)
                 if call_status == 'completed':
                     call_log.ended_at = datetime.utcnow()
+                    call_log.updated_at = datetime.utcnow()
                 db.session.commit()
+                logger.info(f"✅ Call log updated for {call_sid}")
+            else:
+                logger.warning(f"⚠️ Call log not found for {call_sid}")
                 
-            return jsonify({'status': 'updated'})
+            return Response('OK', status=200)
             
         except Exception as e:
-            logger.error(f"Error updating call status: {str(e)}")
-            return jsonify({'error': 'Failed to update status'}), 500
+            logger.error(f"❌ Error updating call status: {str(e)}")
+            return Response('Error', status=500)
