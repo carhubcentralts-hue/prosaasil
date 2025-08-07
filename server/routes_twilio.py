@@ -157,8 +157,8 @@ def handle_recording():
                 ai_response = "תודה על פנייתכם. נחזור אליכם בהקדם."
             
             # Generate Hebrew TTS response
-            from hebrew_tts import synthesize_hebrew_audio
-            response_file = synthesize_hebrew_audio(ai_response)
+            from hebrew_tts import hebrew_tts
+            response_file = hebrew_tts.synthesize_hebrew_audio(ai_response)
             
             if response_file:
                 # Use Hebrew TTS file
