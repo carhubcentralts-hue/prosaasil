@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import AdminLayout from '../components/AdminLayout';
 import { 
   Phone, 
   PhoneCall, 
@@ -110,7 +111,7 @@ const CallSystemPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100" dir="rtl" style={{ fontFamily: 'Assistant, system-ui, sans-serif' }}>
+    <AdminLayout>
       <div className="max-w-6xl mx-auto px-4 py-6">
         
         {/* Header */}
@@ -349,7 +350,7 @@ const CallSystemPage = () => {
           </div>
         </div>
       </div>
-    </div>
+    </AdminLayout>
   );
 };
 

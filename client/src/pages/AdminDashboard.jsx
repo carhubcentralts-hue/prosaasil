@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import AdminLayout from '../components/AdminLayout';
 import { 
   Users, 
   Building2, 
@@ -207,7 +208,7 @@ const AdminDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50" dir="rtl">
+    <AdminLayout>
       <div className="max-w-7xl mx-auto p-6">
         {/* כותרת */}
         <div className="mb-8">
@@ -893,6 +894,8 @@ const UserModal = ({ businesses, onClose, onSubmit }) => {
         </form>
       </div>
     </div>
+      </div>
+    </AdminLayout>
   );
 };
 

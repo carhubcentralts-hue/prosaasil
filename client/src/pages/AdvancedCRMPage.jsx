@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import AdminLayout from '../components/AdminLayout';
 import CustomerDetailsModal from '../components/CRM/CustomerDetailsModal';
 import { 
   Users, 
@@ -167,7 +168,7 @@ const AdvancedCRMPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100" dir="rtl" style={{ fontFamily: 'Assistant, system-ui, sans-serif' }}>
+    <AdminLayout>
       <div className="max-w-7xl mx-auto p-6">
         {/* Header */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 mb-8">
@@ -544,6 +545,9 @@ const NewCustomerForm = ({ onClose, onSubmit }) => {
         </form>
       </div>
     </div>
+        )}
+      </div>
+    </AdminLayout>
   );
 };
 
