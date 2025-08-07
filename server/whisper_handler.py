@@ -159,8 +159,12 @@ def generate_ai_response(transcript, call_sid=None):
             
         client = OpenAI(api_key=api_key)
         
-        # Default AI prompt for Hebrew business assistant
-        ai_prompt = "אתה עוזר וירטואלי מועיל בעברית לעסק. תן תשובה קצרה, מועילה ומנומסת. השתמש בפנייה מכבדת ותמיד תודה על הפנייה."
+        # Enhanced AI prompt for continuous conversation
+        ai_prompt = """אתה עוזר וירטואלי מועיל בעברית לעסק. 
+        תן תשובה קצרה, מועילה ומנומסת. 
+        אל תסיים את השיחה - ענה על השאלה ותמשיך את השיחה.
+        אם הלקוח ביקש לקבוע פגישה, תשאל לפרטים נוספים (תאריך, שעה, סוג השירות).
+        השתמש בפנייה מכבדת ותמיד התייחס לצרכים של הלקוח."""
         
         messages = [
             {"role": "system", "content": ai_prompt},
