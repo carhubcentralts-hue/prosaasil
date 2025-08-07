@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -9,14 +9,18 @@ import {
   Settings, 
   LogOut,
   Menu,
-  X
+  X,
+  Shield,
+  Building2
 } from 'lucide-react';
-import { useState } from 'react';
+import axios from 'axios';
 
 const AdminLayout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [userInfo, setUserInfo] = useState({ name: 'מנהל', role: 'admin' });
+  const [systemStats, setSystemStats] = useState(null);
 
   const menuItems = [
     {
@@ -51,9 +55,32 @@ const AdminLayout = ({ children }) => {
     }
   ];
 
+  useEffect(() => {
+    loadUserInfo();
+    loadSystemStats();
+  }, []);
+
+  const loadUserInfo = () => {
+    const userName = localStorage.getItem('user_name') || 'מנהל';
+    const userRole = localStorage.getItem('user_role') || 'admin';
+    setUserInfo({ name: userName, role: userRole });
+  };
+
+  const loadSystemStats = async () => {
+    try {
+      const response = await axios.get('/api/admin/summary');
+      setSystemStats(response.data);
+    } catch (error) {
+      console.error('Error loading system stats:', error);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('authToken');
     localStorage.removeItem('userRole');
+    localStorage.removeItem('user_name');
+    localStorage.removeItem('business_id');
+    localStorage.removeItem('admin_takeover_mode');
     navigate('/login');
   };
 
@@ -67,10 +94,14 @@ const AdminLayout = ({ children }) => {
             <div className="flex items-center justify-between">
               {sidebarOpen && (
                 <div>
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                    🎯 AI Call Center
+                  <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                    🎯 AI Call Center CRM
                   </h1>
-                  <p className="text-gray-600 text-sm">מערכת ניהול מתקדמת</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Shield className="w-4 h-4 text-blue-600" />
+                    <span className="text-sm text-blue-600 font-medium">{userInfo.name}</span>
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">מנהל מערכת</span>
+                  </div>
                 </div>
               )}
               <button
@@ -80,6 +111,20 @@ const AdminLayout = ({ children }) => {
                 {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
             </div>
+            
+            {/* Quick Stats */}
+            {sidebarOpen && systemStats && (
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-3 rounded-lg">
+                  <div className="text-xs text-gray-600">עסקים פעילים</div>
+                  <div className="text-lg font-bold text-blue-600">{systemStats.businesses?.total || 0}</div>
+                </div>
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-3 rounded-lg">
+                  <div className="text-xs text-gray-600">שיחות היום</div>
+                  <div className="text-lg font-bold text-green-600">{systemStats.today?.calls || 0}</div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Navigation */}

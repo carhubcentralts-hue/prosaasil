@@ -722,6 +722,116 @@ def stop_impersonation():
 
 
 
+# ============== CRM Admin Routes ==============
+
+@admin_bp.route('/all-customers', methods=['GET'])
+@admin_required
+def get_all_customers():
+    """מנהל מערכת - קבלת כל הלקוחות מכל העסקים"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        # שליפת כל הלקוחות מכל העסקים כולל שם העסק
+        cur.execute("""
+            SELECT c.id, c.first_name, c.last_name, c.phone_number, c.email, 
+                   c.status, c.created_at, c.last_interaction, c.business_id,
+                   b.name as business_name, b.business_type
+            FROM customers c
+            LEFT JOIN businesses b ON c.business_id = b.id
+            ORDER BY c.created_at DESC
+        """)
+        
+        customers = []
+        for row in cur.fetchall():
+            customer = {
+                'id': row[0],
+                'name': f"{row[1] or ''} {row[2] or ''}".strip(),
+                'first_name': row[1],
+                'last_name': row[2],
+                'phone': row[3],
+                'email': row[4],
+                'status': row[5] or 'potential',
+                'created_at': row[6].strftime('%Y-%m-%d %H:%M:%S') if row[6] else None,
+                'last_interaction': row[7].strftime('%Y-%m-%d %H:%M:%S') if row[7] else None,
+                'business_id': row[8],
+                'business_name': row[9] or f'עסק #{row[8]}',
+                'business_type': row[10] or 'לא מוגדר'
+            }
+            customers.append(customer)
+        
+        cur.close()
+        conn.close()
+        
+        logger.info(f"Admin: Found {len(customers)} customers across all businesses")
+        return jsonify({
+            'success': True,
+            'customers': customers,
+            'total_count': len(customers)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting all customers for admin: {e}")
+        return jsonify({'error': 'Failed to get customers'}), 500
+
+@admin_bp.route('/global-stats', methods=['GET'])
+@admin_required
+def get_global_stats():
+    """מנהל מערכת - סטטיסטיקות כלליות מכל העסקים"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        # ספירת לקוחות מכל העסקים
+        cur.execute("SELECT COUNT(*) FROM customers")
+        total_customers_result = cur.fetchone()
+        total_customers = total_customers_result[0] if total_customers_result else 0
+        
+        # שיחות כלליות
+        cur.execute("SELECT COUNT(*) FROM call_log WHERE created_at >= CURRENT_DATE")
+        calls_today_result = cur.fetchone()
+        calls_today = calls_today_result[0] if calls_today_result else 0
+        
+        # הודעות WhatsApp (אם קיימת הטבלה)
+        whatsapp_today = 0
+        try:
+            cur.execute("SELECT COUNT(*) FROM whatsapp_messages WHERE created_at >= CURRENT_DATE")
+            whatsapp_result = cur.fetchone()
+            whatsapp_today = whatsapp_result[0] if whatsapp_result else 0
+        except:
+            pass
+        
+        # לקוחות פעילים vs פוטנציאליים
+        cur.execute("SELECT status, COUNT(*) FROM customers GROUP BY status")
+        status_breakdown = {}
+        for row in cur.fetchall():
+            status_breakdown[row[0] or 'unknown'] = row[1]
+        
+        cur.close()
+        conn.close()
+        
+        stats = {
+            'success': True,
+            'total_customers': total_customers,
+            'total_calls_today': calls_today,
+            'total_whatsapp': whatsapp_today,
+            'status_breakdown': status_breakdown,
+            'generated_at': datetime.now().isoformat()
+        }
+        
+        logger.info(f"Admin global stats: {total_customers} customers, {calls_today} calls today")
+        return jsonify(stats)
+        
+    except Exception as e:
+        logger.error(f"Error getting global stats: {e}")
+        return jsonify({'error': 'Failed to get global stats'}), 500
+
 @admin_bp.route('/stats', methods=['GET'])
 @admin_required
 def get_admin_stats():
