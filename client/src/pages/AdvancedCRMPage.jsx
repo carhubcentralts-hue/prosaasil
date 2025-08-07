@@ -437,7 +437,7 @@ const AdvancedCRMPage = () => {
           />
         )}
       </div>
-    </div>
+    </AdminLayout>
   );
 };
 
@@ -545,9 +545,6 @@ const NewCustomerForm = ({ onClose, onSubmit }) => {
         </form>
       </div>
     </div>
-        )}
-      </div>
-    </AdminLayout>
   );
 };
 

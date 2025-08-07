@@ -506,7 +506,7 @@ const AdminDashboard = () => {
           />
         )}
       </div>
-    </div>
+    </AdminLayout>
   );
 };
 
@@ -894,8 +894,6 @@ const UserModal = ({ businesses, onClose, onSubmit }) => {
         </form>
       </div>
     </div>
-      </div>
-    </AdminLayout>
   );
 };
 
