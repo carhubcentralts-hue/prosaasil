@@ -126,20 +126,62 @@ const WhatsAppPage = () => {
                 </h2>
               </div>
               <div className="max-h-96 overflow-y-auto">
-                <h1 className="text-3xl font-bold text-green-600 font-hebrew mb-1">
-                  💬 WhatsApp עסקי
-                </h1>
-                <p className="text-gray-600 font-hebrew">ניהול שיחות ותקשורת עם לקוחות</p>
+                {filteredConversations.length > 0 ? (
+                  filteredConversations.map((conversation) => (
+                    <div
+                      key={conversation.id}
+                      onClick={() => setSelectedConversation(conversation)}
+                      className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-green-50 transition-all ${
+                        selectedConversation?.id === conversation.id ? 'bg-green-100 border-r-4 border-r-green-500 shadow-inner' : ''
+                      }`}
+                      data-testid={`conversation-${conversation.id}`}
+                    >
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center text-white font-bold">
+                          {conversation.customer_name?.charAt(0) || 'L'}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-900">
+                            {conversation.customer_name}
+                          </h4>
+                          <p className="text-sm text-gray-600">
+                            {conversation.customer_number}
+                          </p>
+                        </div>
+                        <div className={`w-3 h-3 rounded-full ${
+                          conversation.status === 'active' ? 'bg-green-500' : 'bg-gray-400'
+                        }`}></div>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-full">
+                          <MessageSquare className="w-3 h-3" />
+                          {conversation.message_count} הודעות
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {new Date(conversation.last_message_time).toLocaleDateString('he-IL')}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-12 text-center">
+                    <div className="w-16 h-16 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <MessageSquare className="w-6 h-6 text-gray-400" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-2">
+                      {searchTerm ? '🔍 לא נמצאו שיחות' : '💬 אין שיחות פעילות'}
+                    </h3>
+                    <p className="text-gray-600">
+                      {searchTerm ? 'נסה לשנות את החיפוש' : 'שיחות חדשות יופיעו כאן'}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* רשימת שיחות */}
+          {/* פרטי שיחה */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-xl shadow-lg border border-gray-200">
               <div className="p-4 border-b border-gray-200 bg-green-50">
