@@ -49,30 +49,83 @@ const WhatsAppPage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
-        <div className="text-center font-hebrew">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">טוען שיחות WhatsApp...</p>
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center" dir="rtl" style={{ fontFamily: 'Assistant, system-ui, sans-serif' }}>
+        <div className="text-center">
+          <div className="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+          </div>
+          <h3 className="text-3xl font-bold text-gray-900 mb-2">💬 WhatsApp Business</h3>
+          <p className="text-gray-600 text-lg">טוען שיחות ולקוחות...</p>
+          <div className="mt-4 flex justify-center">
+            <div className="bg-white rounded-full px-4 py-2 shadow-md">
+              <span className="text-sm text-green-600 font-medium">אינטגרציה ישירה עם WhatsApp</span>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-blue-50" dir="rtl">
-      {/* כותרת */}
-      <div className="bg-white shadow-xl border-b-4 border-green-500">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100" dir="rtl" style={{ fontFamily: 'Assistant, system-ui, sans-serif' }}>
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        
+        {/* Header */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 mb-8">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                💬 WhatsApp Business
+              </h1>
+              <p className="text-gray-600 text-lg mt-2">
+                ניהול שיחות ולקוחות עם אינטגרציה ישירה לWhatsApp
+              </p>
+            </div>
+            <div className="flex gap-3">
               <button
-                onClick={() => navigate('/business/dashboard')}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl transition-all text-gray-700 font-hebrew shadow-md"
+                onClick={() => navigate('/admin/dashboard')}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-xl hover:from-gray-600 hover:to-gray-700 shadow-lg transition-all"
               >
                 <ArrowLeft className="w-5 h-5" />
                 חזרה לדשבורד
               </button>
-              <div>
+            </div>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <Search className="w-5 h-5 text-green-600" />
+            חיפוש שיחות ולקוחות
+          </h2>
+          <div className="relative">
+            <Search className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="חפש לפי שם לקוח או מספר טלפון..."
+              className="w-full pr-12 pl-4 py-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-green-100 focus:border-green-500 transition-all"
+              data-testid="input-search-conversations"
+            />
+          </div>
+        </div>
+
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* שיחות */}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50">
+                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+                    <MessageSquare className="w-4 h-4 text-white" />
+                  </div>
+                  🗨️ שיחות פעילות ({filteredConversations.length})
+                </h2>
+              </div>
+              <div className="max-h-96 overflow-y-auto">
                 <h1 className="text-3xl font-bold text-green-600 font-hebrew mb-1">
                   💬 WhatsApp עסקי
                 </h1>
@@ -114,23 +167,29 @@ const WhatsAppPage = () => {
                     <div
                       key={conversation.id}
                       onClick={() => setSelectedConversation(conversation)}
-                      className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-green-50 transition-colors ${
-                        selectedConversation?.id === conversation.id ? 'bg-green-100 border-r-4 border-r-green-500' : ''
+                      className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-green-50 transition-all ${
+                        selectedConversation?.id === conversation.id ? 'bg-green-100 border-r-4 border-r-green-500 shadow-inner' : ''
                       }`}
+                      data-testid={`conversation-${conversation.id}`}
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium text-gray-900 font-hebrew">
-                          {conversation.customer_name}
-                        </h4>
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center text-white font-bold">
+                          {conversation.customer_name?.charAt(0) || 'L'}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-900">
+                            {conversation.customer_name}
+                          </h4>
+                          <p className="text-sm text-gray-600">
+                            {conversation.customer_number}
+                          </p>
+                        </div>
                         <div className={`w-3 h-3 rounded-full ${
                           conversation.status === 'active' ? 'bg-green-500' : 'bg-gray-400'
                         }`}></div>
                       </div>
-                      <p className="text-sm text-gray-600 font-hebrew mb-1">
-                        {conversation.customer_number}
-                      </p>
                       <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span className="flex items-center gap-1">
+                        <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-full">
                           <MessageSquare className="w-3 h-3" />
                           {conversation.message_count} הודעות
                         </span>
@@ -142,8 +201,16 @@ const WhatsAppPage = () => {
                     </div>
                   ))
                 ) : (
-                  <div className="p-8 text-center text-gray-500 font-hebrew">
-                    {searchTerm ? 'לא נמצאו שיחות מתאימות' : 'אין שיחות פעילות'}
+                  <div className="p-12 text-center">
+                    <div className="w-16 h-16 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <MessageSquare className="w-6 h-6 text-gray-400" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-2">
+                      {searchTerm ? '🔍 לא נמצאו שיחות' : '💬 אין שיחות פעילות'}
+                    </h3>
+                    <p className="text-gray-600">
+                      {searchTerm ? 'נסה לשנות את החיפוש' : 'שיחות חדשות יופיעו כאן'}
+                    </p>
                   </div>
                 )}
               </div>
@@ -153,23 +220,35 @@ const WhatsAppPage = () => {
           {/* פרטי שיחה */}
           <div className="lg:col-span-2">
             {selectedConversation ? (
-              <div className="bg-white rounded-xl shadow-lg border border-gray-200">
-                <div className="p-6 border-b border-gray-200 bg-green-50">
+              <div className="bg-white rounded-2xl shadow-lg border border-gray-100">
+                <div className="p-8 border-b border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-xl font-bold text-gray-900 font-hebrew mb-1">
-                        {selectedConversation.customer_name}
-                      </h3>
-                      <p className="text-gray-600 font-hebrew">
-                        {selectedConversation.customer_number}
-                      </p>
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center text-white text-xl font-bold">
+                        {selectedConversation.customer_name?.charAt(0) || 'L'}
+                      </div>
+                      <div>
+                        <h3 className="text-2xl font-bold text-gray-900 mb-1">
+                          {selectedConversation.customer_name}
+                        </h3>
+                        <p className="text-gray-600 flex items-center gap-2">
+                          <Phone className="w-4 h-4" />
+                          {selectedConversation.customer_number}
+                        </p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <button className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 font-hebrew">
+                      <button 
+                        className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-3 rounded-xl hover:from-green-700 hover:to-emerald-700 shadow-lg transition-all"
+                        data-testid="button-send-whatsapp"
+                      >
                         <Send className="w-4 h-4" />
                         שלח הודעה
                       </button>
-                      <button className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-hebrew">
+                      <button 
+                        className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-3 rounded-xl hover:from-blue-700 hover:to-blue-800 shadow-lg transition-all"
+                        data-testid="button-make-call"
+                      >
                         <Phone className="w-4 h-4" />
                         התקשר
                       </button>

@@ -149,43 +149,54 @@ const AdvancedCRMPage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
-        <div className="text-center font-hebrew">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">טוען מערכת CRM מתקדמת...</p>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center" dir="rtl" style={{ fontFamily: 'Assistant, system-ui, sans-serif' }}>
+        <div className="text-center">
+          <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+          </div>
+          <h3 className="text-3xl font-bold text-gray-900 mb-2">🏢 CRM מתקדם</h3>
+          <p className="text-gray-600 text-lg">טוען מערכת ניהול לקוחות מתקדמת...</p>
+          <div className="mt-4 flex justify-center">
+            <div className="bg-white rounded-full px-4 py-2 shadow-md">
+              <span className="text-sm text-purple-600 font-medium">אינטגרציה מלאה עם WhatsApp</span>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50" dir="rtl">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100" dir="rtl" style={{ fontFamily: 'Assistant, system-ui, sans-serif' }}>
       <div className="max-w-7xl mx-auto p-6">
         {/* Header */}
-        <div className="mb-8 flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 font-hebrew">
-              מערכת CRM מתקדמת
-            </h1>
-            <p className="text-gray-600 font-hebrew mt-2">
-              ניהול לקוחות מקצועי עם אינטגרציה מלאה
-            </p>
-          </div>
-          <div className="flex gap-4">
-            <button
-              onClick={() => navigate('/admin/dashboard')}
-              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 font-hebrew"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              חזרה לדשבורד
-            </button>
-            <button
-              onClick={() => setShowNewCustomerForm(true)}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-hebrew"
-            >
-              <UserPlus className="w-5 h-5" />
-              הוסף לקוח
-            </button>
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 mb-8">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
+                🏢 מערכת CRM מתקדמת
+              </h1>
+              <p className="text-gray-600 text-lg mt-2">
+                ניהול לקוחות מקצועי עם אינטגרציה מלאה לWhatsApp ושיחות
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => navigate('/admin/dashboard')}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-xl hover:from-gray-600 hover:to-gray-700 shadow-lg transition-all"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                חזרה לדשבורד
+              </button>
+              <button
+                onClick={() => setShowNewCustomerForm(true)}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl hover:from-purple-700 hover:to-purple-800 shadow-lg transition-all"
+                data-testid="button-add-customer"
+              >
+                <UserPlus className="w-5 h-5" />
+                הוסף לקוח חדש
+              </button>
+            </div>
           </div>
         </div>
 
@@ -235,11 +246,15 @@ const AdvancedCRMPage = () => {
         )}
 
         {/* Search and Filters */}
-        <div className="bg-white rounded-xl shadow-sm p-6 mb-8">
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <Search className="w-5 h-5 text-blue-600" />
+            חיפוש וסינון לקוחות
+          </h2>
           <div className="flex gap-4 flex-wrap">
             <div className="flex-1 min-w-64">
               <div className="relative">
-                <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Search className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
                   type="text"
                   value={searchTerm}
@@ -266,47 +281,50 @@ const AdvancedCRMPage = () => {
         </div>
 
         {/* Customers Table */}
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-bold text-gray-900 font-hebrew">
-              לקוחות ({filteredCustomers.length})
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+          <div className="px-8 py-6 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
+                <Users className="w-4 h-4 text-white" />
+              </div>
+              👥 לקוחות במערכת ({filteredCustomers.length})
             </h2>
           </div>
           
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
                 <tr>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider font-hebrew">
+                  <th className="px-6 py-4 text-right font-semibold text-gray-900">
                     שם לקוח
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider font-hebrew">
+                  <th className="px-6 py-4 text-right font-semibold text-gray-900">
                     טלפון
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider font-hebrew">
+                  <th className="px-6 py-4 text-right font-semibold text-gray-900">
                     אימייל
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider font-hebrew">
+                  <th className="px-6 py-4 text-right font-semibold text-gray-900">
                     סטטוס
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider font-hebrew">
+                  <th className="px-6 py-4 text-right font-semibold text-gray-900">
                     מקור הגעה
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider font-hebrew">
+                  <th className="px-6 py-4 text-right font-semibold text-gray-900">
                     פעולות
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white divide-y divide-gray-100">
                 {filteredCustomers.map((customer, index) => (
-                  <tr key={customer.id || customer.customer_id || index} className="hover:bg-gray-50">
+                  <tr key={customer.id || customer.customer_id || index} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="bg-blue-100 rounded-full p-2 ml-3">
-                          <User className="w-5 h-5 text-blue-600" />
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+                          {(customer.name || customer.customer_name)?.charAt(0) || 'L'}
                         </div>
                         <div>
-                          <div className="text-sm font-medium text-gray-900 font-hebrew">
+                          <div className="text-sm font-semibold text-gray-900">
                             {customer.name || customer.customer_name}
                           </div>
                           <div className="text-sm text-gray-500">
@@ -336,12 +354,13 @@ const AdvancedCRMPage = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-hebrew">
                       {customer.source || 'טלפון'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleCustomerClick(customer)}
-                          className="text-blue-600 hover:text-blue-900 p-1 hover:bg-blue-50 rounded"
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200 hover:shadow-md"
                           title="פרטי לקוח מלאים"
+                          data-testid={`button-view-${customer.id || customer.customer_id}`}
                         >
                           <Eye className="w-4 h-4" />
                         </button>
@@ -349,15 +368,17 @@ const AdvancedCRMPage = () => {
                           href={`https://wa.me/${(customer.phone || customer.customer_number)?.replace(/[^\d]/g, '')}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-green-600 hover:text-green-900 p-1 hover:bg-green-50 rounded"
+                          className="p-2 text-green-600 hover:bg-green-50 rounded-xl transition-all duration-200 hover:shadow-md"
                           title="שלח WhatsApp"
+                          data-testid={`button-whatsapp-${customer.id || customer.customer_id}`}
                         >
                           <MessageSquare className="w-4 h-4" />
                         </a>
                         <a
                           href={`tel:${customer.phone || customer.customer_number}`}
-                          className="text-purple-600 hover:text-purple-900 p-1 hover:bg-purple-50 rounded"
+                          className="p-2 text-purple-600 hover:bg-purple-50 rounded-xl transition-all duration-200 hover:shadow-md"
                           title="התקשר"
+                          data-testid={`button-call-${customer.id || customer.customer_id}`}
                         >
                           <Phone className="w-4 h-4" />
                         </a>
@@ -369,8 +390,26 @@ const AdvancedCRMPage = () => {
             </table>
             
             {filteredCustomers.length === 0 && (
-              <div className="text-center py-12 font-hebrew text-gray-500">
-                {searchTerm ? 'לא נמצאו לקוחות התואמים לחיפוש' : 'אין לקוחות במערכת כרגע'}
+              <div className="text-center py-16">
+                <div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                  <Users className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">
+                  {searchTerm ? '🔍 לא נמצאו תוצאות' : '📋 אין לקוחות במערכת'}
+                </h3>
+                <p className="text-gray-600 mb-6">
+                  {searchTerm ? 'נסה לשנות את החיפוש או הסינון' : 'הוסף לקוח ראשון כדי להתחיל'}
+                </p>
+                {!searchTerm && (
+                  <button
+                    onClick={() => setShowNewCustomerForm(true)}
+                    className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-6 py-3 rounded-xl hover:from-purple-700 hover:to-purple-800 shadow-lg transition-all flex items-center gap-2 mx-auto"
+                    data-testid="button-add-first-customer"
+                  >
+                    <UserPlus className="w-5 h-5" />
+                    הוסף לקוח ראשון
+                  </button>
+                )}
               </div>
             )}
           </div>

@@ -92,77 +92,132 @@ const CallSystemPage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
-        <div className="text-center font-hebrew">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">טוען נתוני שיחות...</p>
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 flex items-center justify-center" dir="rtl" style={{ fontFamily: 'Assistant, system-ui, sans-serif' }}>
+        <div className="text-center">
+          <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+          </div>
+          <h3 className="text-3xl font-bold text-gray-900 mb-2">📞 מערכת שיחות AI</h3>
+          <p className="text-gray-600 text-lg">טוען נתוני שיחות ומוקד...</p>
+          <div className="mt-4 flex justify-center">
+            <div className="bg-white rounded-full px-4 py-2 shadow-md">
+              <span className="text-sm text-purple-600 font-medium">מערכת מוקד חכמה עם AI</span>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50" dir="rtl">
-      {/* כותרת */}
-      <div className="bg-white shadow-xl border-b-4 border-purple-500">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100" dir="rtl" style={{ fontFamily: 'Assistant, system-ui, sans-serif' }}>
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        
+        {/* Header */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 mb-8">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">
+                📞 מערכת שיחות AI
+              </h1>
+              <p className="text-gray-600 text-lg mt-2">
+                מוקד חכם עם בינה מלאכותית וניתוח שיחות מתקדם
+              </p>
+            </div>
+            <div className="flex gap-3">
               <button
-                onClick={() => navigate('/business/dashboard')}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl transition-all text-gray-700 font-hebrew shadow-md"
+                onClick={() => navigate('/admin/dashboard')}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-xl hover:from-gray-600 hover:to-gray-700 shadow-lg transition-all"
+                data-testid="button-back-dashboard"
               >
                 <ArrowLeft className="w-5 h-5" />
                 חזרה לדשבורד
               </button>
-              <div>
-                <h1 className="text-3xl font-bold text-purple-600 font-hebrew mb-1">
-                  📞 מערכת שיחות AI
-                </h1>
-                <p className="text-gray-600 font-hebrew">ניהול שיחות ותקשורת קולית חכמה</p>
-              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* רשימת שיחות */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-lg border border-gray-200">
-              <div className="p-4 border-b border-gray-200 bg-purple-50">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-gray-900 font-hebrew">יומן שיחות</h3>
-                  <div className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-hebrew">
-                    {callLogs.length} שיחות
-                  </div>
-                </div>
+        {/* Call Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center">
+                <PhoneCall className="w-6 h-6 text-white" />
               </div>
+              <h3 className="text-lg font-bold text-gray-900">שיחות שהושלמו</h3>
+            </div>
+            <p className="text-3xl font-bold text-green-600" data-testid="stat-completed-calls">
+              {callLogs.filter(call => call.status === 'completed').length}
+            </p>
+          </div>
+          
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-xl flex items-center justify-center">
+                <Phone className="w-6 h-6 text-white" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900">שיחות שהוחמצו</h3>
+            </div>
+            <p className="text-3xl font-bold text-red-600" data-testid="stat-missed-calls">
+              {callLogs.filter(call => call.status === 'missed').length}
+            </p>
+          </div>
+          
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center">
+                <Clock className="w-6 h-6 text-white" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900">סך כל השיחות</h3>
+            </div>
+            <p className="text-3xl font-bold text-purple-600" data-testid="stat-total-calls">
+              {callLogs.length}
+            </p>
+          </div>
+        </div>
 
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Call Logs */}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-indigo-50">
+                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                    <Phone className="w-4 h-4 text-white" />
+                  </div>
+                  📋 יומן שיחות ({callLogs.length})
+                </h2>
+              </div>
+              
               <div className="max-h-96 overflow-y-auto">
                 {callLogs.map((call) => (
                   <div
                     key={call.id}
                     onClick={() => setSelectedCall(call)}
-                    className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-purple-50 transition-colors ${
-                      selectedCall?.id === call.id ? 'bg-purple-100 border-r-4 border-r-purple-500' : ''
+                    className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-purple-50 transition-all ${
+                      selectedCall?.id === call.id ? 'bg-purple-100 border-r-4 border-r-purple-500 shadow-inner' : ''
                     }`}
+                    data-testid={`call-${call.id}`}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-medium text-gray-900 font-hebrew">
-                        {call.caller_name}
-                      </h4>
-                      <span className={`px-2 py-1 rounded-full text-xs font-hebrew ${getStatusColor(call.status)}`}>
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold">
+                        {call.caller_name?.charAt(0) || 'C'}
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-gray-900">
+                          {call.caller_name}
+                        </h4>
+                        <p className="text-sm text-gray-600">
+                          {call.caller_number}
+                        </p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(call.status)}`}>
                         {getStatusText(call.status)}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600 font-hebrew mb-1">
-                      {call.caller_number}
-                    </p>
                     <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded-full">
                         <Clock className="w-3 h-3" />
                         {call.duration || 'לא זמין'}
                       </span>

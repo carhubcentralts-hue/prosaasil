@@ -148,18 +148,25 @@ const MondayStyleCRM = ({ businessId, isAdmin = false }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center" dir="rtl">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center" dir="rtl" style={{ fontFamily: 'Assistant, system-ui, sans-serif' }}>
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
-          <p className="text-xl font-semibold text-gray-700 font-hebrew">טוען מערכת CRM מתקדמת...</p>
-          <p className="text-gray-500 font-hebrew">מנתח מספרי +972 ובודק מוכנות לשיחות</p>
+          <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+          </div>
+          <h3 className="text-3xl font-bold text-gray-900 mb-2">🏢 מערכת CRM מתקדמת</h3>
+          <p className="text-gray-600 text-lg">מנתח נתוני לקוחות ומספרי +972...</p>
+          <div className="mt-4 flex justify-center">
+            <div className="bg-white rounded-full px-4 py-2 shadow-md">
+              <span className="text-sm text-blue-600 font-medium">בדיקת מוכנות לשיחות</span>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100" dir="rtl">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100" dir="rtl" style={{ fontFamily: 'Assistant, system-ui, sans-serif' }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
         {/* Monday.com Style Header */}
@@ -232,35 +239,47 @@ const MondayStyleCRM = ({ businessId, isAdmin = false }) => {
         </div>
 
         {/* +972 Phone Numbers Analysis */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 font-hebrew mb-4 flex items-center gap-2">
-            <Phone className="w-6 h-6 text-blue-600" />
-            ניתוח מספרי +972 במסד הנתונים
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 mb-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-3" style={{ fontFamily: 'Assistant, sans-serif' }}>
+            <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center">
+              <Phone className="w-5 h-5 text-white" />
+            </div>
+            📞 ניתוח מספרי +972 במסד הנתונים
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {phoneNumbers.map((phone, index) => (
-              <div key={index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-lg text-gray-900">{phone.number}</span>
-                  <div className={`w-3 h-3 rounded-full ${
+              <div key={index} className="bg-gradient-to-br from-white to-gray-50 border border-gray-200 rounded-xl p-6 hover:shadow-xl transition-all duration-300 hover:border-green-300">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="font-mono text-lg font-bold text-gray-900" style={{ fontFamily: 'Assistant, monospace' }}>{phone.number}</span>
+                  <div className={`w-4 h-4 rounded-full shadow-sm ${
                     callReadiness[phone.number] === 'ready' ? 'bg-green-500' :
                     callReadiness[phone.number] === 'pending' ? 'bg-yellow-500' : 'bg-red-500'
                   }`}></div>
                 </div>
-                <div className="text-sm text-gray-600 font-hebrew">
-                  <p>עסק: {phone.business_name || 'לא מוקצה'}</p>
-                  <p>מוכנות לשיחה: {
-                    callReadiness[phone.number] === 'ready' ? 'מוכן' :
-                    callReadiness[phone.number] === 'pending' ? 'בהמתנה' : 'לא מוכן'
-                  }</p>
-                  <p>עדכון אחרון: {phone.last_updated || 'לא זמין'}</p>
+                <div className="text-sm text-gray-600 space-y-2" style={{ fontFamily: 'Assistant, sans-serif' }}>
+                  <p className="flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-blue-500" />
+                    <span className="font-medium">עסק:</span> {phone.business_name || 'לא מוקצה'}
+                  </p>
+                  <p className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <span className="font-medium">מוכנות:</span> {
+                      callReadiness[phone.number] === 'ready' ? '✅ מוכן' :
+                      callReadiness[phone.number] === 'pending' ? '⏳ בהמתנה' : '❌ לא מוכן'
+                    }
+                  </p>
+                  <p className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-blue-500" />
+                    <span className="font-medium">עדכון:</span> {phone.last_updated || 'לא זמין'}
+                  </p>
                 </div>
                 <button 
                   onClick={() => handleCustomerAction('call', phone.customer_id)}
-                  className="mt-2 w-full bg-blue-50 hover:bg-blue-100 text-blue-600 py-2 rounded-lg transition-colors font-hebrew"
+                  className="mt-4 w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white py-3 rounded-xl transition-all duration-300 font-medium shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+                  style={{ fontFamily: 'Assistant, sans-serif' }}
                 >
-                  <PhoneCall className="w-4 h-4 inline-block ml-2" />
-                  התחל שיחה
+                  <PhoneCall className="w-4 h-4" />
+                  התחל שיחה עכשיו
                 </button>
               </div>
             ))}
@@ -401,21 +420,23 @@ const MondayStyleCRM = ({ businessId, isAdmin = false }) => {
                       <div className="flex items-center gap-2">
                         <button 
                           onClick={() => handleCustomerAction('call', customer.id)}
-                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                          className="p-2 text-green-600 hover:bg-green-50 rounded-xl transition-all duration-200 hover:shadow-md"
                           title="התחל שיחה"
+                          data-testid={`button-call-${customer.id}`}
                         >
                           <PhoneCall className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={() => handleCustomerAction('edit', customer.id)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200 hover:shadow-md"
                           title="ערוך לקוח"
+                          data-testid={`button-edit-${customer.id}`}
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={() => handleCustomerAction('delete', customer.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 hover:shadow-md"
                           title="מחק לקוח"
                         >
                           <Trash2 className="w-4 h-4" />

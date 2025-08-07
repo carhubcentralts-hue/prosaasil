@@ -71,138 +71,177 @@ export default function AdminCallAnalysis() {
   }
 
   return (
-    <div className="p-6 space-y-6" dir="rtl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">ניתוח שיחות טלפון</h1>
-        <button 
-          onClick={fetchCalls} 
-          className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 transition-colors"
-        >
-          🔄 רענן נתונים
-        </button>
-      </div>
-
-      {/* סטטיסטיקות מהירות */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100" dir="rtl" style={{ fontFamily: 'Assistant, system-ui, sans-serif' }}>
+      {/* Header Section */}
+      <div className="bg-white shadow-lg border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-6 py-8">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">סה"כ שיחות</p>
-              <p className="text-2xl font-bold">{calls.length}</p>
+              <h1 className="text-4xl font-bold text-gray-900 mb-2">🎧 ניתוח תמלולי שיחות</h1>
+              <p className="text-gray-600 text-lg">ניהול וניתוח מתקדם של שיחות טלפון ותמלולים</p>
             </div>
-            <div className="w-8 h-8 text-blue-600">📞</div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">עם תמלולים</p>
-              <p className="text-2xl font-bold">{calls.filter(c => c.transcription).length}</p>
-            </div>
-            <div className="w-8 h-8 text-green-600">💬</div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">עם תגובות AI</p>
-              <p className="text-2xl font-bold">{calls.filter(c => c.ai_response).length}</p>
-            </div>
-            <div className="w-8 h-8 text-purple-600">🤖</div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">הושלמו בהצלחה</p>
-              <p className="text-2xl font-bold">{calls.filter(c => c.call_status === 'completed').length}</p>
-            </div>
-            <div className="w-8 h-8 text-orange-600">⏰</div>
+            <button 
+              onClick={fetchCalls} 
+              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl flex items-center gap-2"
+            >
+              <span className="text-lg">🔄</span>
+              רענן נתונים
+            </button>
           </div>
         </div>
       </div>
 
-      {/* רשימת שיחות */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium">שיחות אחרונות</h3>
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+
+        {/* Analytics Dashboard */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl shadow-lg p-6 border border-blue-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-blue-700 font-medium mb-1">סה"כ שיחות</p>
+                <p className="text-3xl font-bold text-blue-900">{calls.length}</p>
+                <p className="text-sm text-blue-600 mt-1">כל הזמנים</p>
+              </div>
+              <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center text-white text-2xl">
+                📞
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-2xl shadow-lg p-6 border border-green-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-green-700 font-medium mb-1">עם תמלולים</p>
+                <p className="text-3xl font-bold text-green-900">{calls.filter(c => c.transcription).length}</p>
+                <p className="text-sm text-green-600 mt-1">תמלול מוצלח</p>
+              </div>
+              <div className="w-12 h-12 bg-green-500 rounded-xl flex items-center justify-center text-white text-2xl">
+                💬
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-2xl shadow-lg p-6 border border-purple-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-purple-700 font-medium mb-1">תגובות AI</p>
+                <p className="text-3xl font-bold text-purple-900">{calls.filter(c => c.ai_response).length}</p>
+                <p className="text-sm text-purple-600 mt-1">AI פעיל</p>
+              </div>
+              <div className="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center text-white text-2xl">
+                🤖
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-2xl shadow-lg p-6 border border-orange-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-orange-700 font-medium mb-1">הקלטות</p>
+                <p className="text-3xl font-bold text-orange-900">{calls.filter(c => c.recording_url).length}</p>
+                <p className="text-sm text-orange-600 mt-1">קבצי אודיו</p>
+              </div>
+              <div className="w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center text-white text-2xl">
+                🎵
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="p-6">
-          <div className="space-y-4">
-            {calls.length === 0 ? (
-              <p className="text-center text-gray-500 py-8">אין שיחות להצגה</p>
-            ) : (
-              calls.map((call) => (
-                <div
-                  key={call.id}
-                  className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                  onClick={() => setSelectedCall(call)}
-                  data-testid={`call-row-${call.id}`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-reverse space-x-4">
-                      <div className="flex-shrink-0">
-                        📞
+
+        {/* רשימת שיחות */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-200">
+          <div className="px-8 py-6 border-b border-gray-200">
+            <h3 className="text-2xl font-bold text-gray-900">📋 שיחות אחרונות</h3>
+            <p className="text-gray-600 mt-1">רשימת כל השיחות עם תמלולים ותגובות AI</p>
+          </div>
+          <div className="p-8">
+            <div className="space-y-6">
+              {calls.length === 0 ? (
+                <div className="text-center py-16">
+                  <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span className="text-3xl">📞</span>
+                  </div>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">אין שיחות להצגה</h3>
+                  <p className="text-gray-600">לא נמצאו שיחות במערכת כרגע</p>
+                </div>
+              ) : (
+                calls.map((call) => (
+                  <div
+                    key={call.id}
+                    className="bg-gradient-to-r from-white to-gray-50 border border-gray-200 rounded-2xl p-6 hover:shadow-xl cursor-pointer transition-all duration-300 hover:border-blue-300"
+                    onClick={() => setSelectedCall(call)}
+                    data-testid={`call-row-${call.id}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-reverse space-x-6">
+                        <div className="flex-shrink-0">
+                          <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                            <span className="text-xl">📞</span>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-lg font-bold text-gray-900">{call.from_number}</p>
+                          <p className="text-sm text-gray-600 font-medium">
+                            {formatDate(call.created_at)}
+                          </p>
+                          {call.call_duration && (
+                            <p className="text-xs text-blue-600">משך: {call.call_duration} שניות</p>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium">{call.from_number}</p>
-                        <p className="text-sm text-gray-600">
-                          {formatDate(call.created_at)}
-                        </p>
+                      
+                      <div className="flex items-center space-x-reverse space-x-3">
+                        <span className={`px-4 py-2 rounded-xl text-sm font-medium shadow-sm ${getStatusColor(call.call_status)}`}>
+                          {call.call_status}
+                        </span>
+                        
+                        {call.transcription && (
+                          <span className="px-3 py-2 rounded-xl text-xs bg-green-100 text-green-800 border border-green-200 font-medium">
+                            💬 תמלול
+                          </span>
+                        )}
+                        
+                        {call.ai_response && (
+                          <span className="px-3 py-2 rounded-xl text-xs bg-purple-100 text-purple-800 border border-purple-200 font-medium">
+                            🤖 AI
+                          </span>
+                        )}
+                        
+                        {call.recording_url && (
+                          <span className="px-3 py-2 rounded-xl text-xs bg-orange-100 text-orange-800 border border-orange-200 font-medium">
+                            🎵 הקלטה
+                          </span>
+                        )}
                       </div>
                     </div>
                     
-                    <div className="flex items-center space-x-reverse space-x-2">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(call.call_status)}`}>
-                        {call.call_status}
-                      </span>
-                      
-                      {call.transcription && (
-                        <span className="px-2 py-1 rounded-full text-xs bg-green-50 text-green-800 border border-green-200">
-                          תמלול ✓
-                        </span>
-                      )}
-                      
-                      {call.ai_response && (
-                        <span className="px-2 py-1 rounded-full text-xs bg-blue-50 text-blue-800 border border-blue-200">
-                          AI תגובה ✓
-                        </span>
-                      )}
-                      
-                      {call.recording_url && (
-                        <span className="px-2 py-1 rounded-full text-xs bg-purple-50 text-purple-800 border border-purple-200">
-                          הקלטה ✓
-                        </span>
-                      )}
-                    </div>
+                    {call.transcription && (
+                      <div className="mt-6 p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl border border-gray-200">
+                        <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                          💬 תמלול השיחה
+                        </h4>
+                        <p className="text-sm text-gray-800 leading-relaxed">
+                          {call.transcription}
+                        </p>
+                      </div>
+                    )}
+                    
+                    {call.ai_response && (
+                      <div className="mt-4 p-4 bg-gradient-to-r from-purple-50 to-purple-100 rounded-xl border border-purple-200">
+                        <h4 className="text-sm font-bold text-purple-700 mb-2 flex items-center gap-2">
+                          🤖 תגובת המערכת
+                        </h4>
+                        <p className="text-sm text-purple-800 leading-relaxed">
+                          {call.ai_response}
+                        </p>
+                      </div>
+                    )}
                   </div>
-                  
-                  {call.transcription && (
-                    <div className="mt-3 p-3 bg-gray-50 rounded-md">
-                      <p className="text-sm text-gray-800 line-clamp-2">
-                        <strong>תמלול:</strong> {call.transcription}
-                      </p>
-                    </div>
-                  )}
-                  
-                  {call.ai_response && (
-                    <div className="mt-2 p-3 bg-blue-50 rounded-md">
-                      <p className="text-sm text-blue-800 line-clamp-2">
-                        <strong>תגובת AI:</strong> {call.ai_response}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
-        </div>
-      </div>
-
-      {/* פרטי שיחה נבחרת */}
+        {/* פרטי שיחה נבחרת */}
       {selectedCall && (
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
