@@ -9,9 +9,7 @@ import requests
 import tempfile
 import openai
 from flask import Blueprint, request, Response, jsonify
-from models import Business, CallLog, db
 from datetime import datetime
-from hebrew_tts import hebrew_tts
 from whisper_handler import process_recording
 
 # Setup logging
@@ -24,6 +22,10 @@ twilio_bp = Blueprint('twilio_bp', __name__, url_prefix='/webhook')
 def incoming_call():
         """Handle incoming calls with Hebrew greeting - FIXED Content-Type"""
         try:
+            # Import here to avoid circular imports
+            from models import Business, CallLog, db
+            from hebrew_tts import hebrew_tts
+            
             # צריך לוודא שאנחנו לא בודקים Content-Type מיותר - Twilio שולח application/x-www-form-urlencoded
             from_number = request.form.get('From', '')
             to_number = request.form.get('To', '').strip()
@@ -41,8 +43,20 @@ def incoming_call():
             
             logger.info(f"🔍 Original: '{to_number}' -> Cleaned: '{clean_to}' -> No dashes: '{clean_to_no_dashes}'")
             
-            # Find business by phone number using raw SQL
-            import psycopg2
+            # Find business by phone number - FIXED DB lookup
+            business = None
+            try:
+                # Try phone_israel field (correct field name from model)
+                business = Business.query.filter_by(phone_israel=clean_to).first()
+                if not business:
+                    business = Business.query.filter_by(phone_israel=clean_to_no_dashes).first()
+                if not business:
+                    # Try without plus
+                    no_plus = clean_to[1:] if clean_to.startswith('+') else clean_to
+                    business = Business.query.filter_by(phone_israel=no_plus).first()
+            except Exception as db_error:
+                logger.error(f"❌ Database lookup error: {db_error}")
+                business = None
             try:
                 conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
                 cur = conn.cursor()
