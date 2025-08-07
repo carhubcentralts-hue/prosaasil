@@ -75,39 +75,105 @@ const AdvancedCRMPage = () => {
   const loadCustomers = async () => {
     try {
       const token = localStorage.getItem('authToken');
-      console.log('🔍 Admin CRM: Loading ALL customers from ALL businesses');
+      const userRole = localStorage.getItem('user_role') || localStorage.getItem('userRole');
       
-      // מנהל מערכת - טוען את כל הלקוחות מכל העסקים
-      const [customersResponse, statsResponse] = await Promise.all([
-        axios.get('/api/admin/all-customers', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        }),
-        axios.get('/api/admin/global-stats', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        })
-      ]);
+      console.log('🔍 CRM Page: Loading data for role:', userRole);
+      
+      let customersResponse, statsResponse;
+      
+      // אם זה מנהל מערכת - טען נתונים מכל העסקים
+      if (userRole === 'admin') {
+        console.log('🏢 Admin Mode: Loading ALL customers from ALL businesses');
+        
+        [customersResponse, statsResponse] = await Promise.all([
+          axios.get('/api/admin/all-customers', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          }),
+          axios.get('/api/admin/global-stats', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+        ]);
+        
+        console.log('📊 Admin Response:', customersResponse.data);
+        
+      } else {
+        // אם זה עסק רגיל - טען רק את הלקוחות שלו
+        console.log('🏪 Business Mode: Loading customers for business:', businessId);
+        
+        [customersResponse, statsResponse] = await Promise.all([
+          axios.get('/api/crm/customers', {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Business-ID': businessId
+            }
+          }),
+          axios.get('/api/stats/overview', {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Business-ID': businessId
+            }
+          })
+        ]);
+      }
 
-      console.log('📊 Admin CRM Response:', customersResponse.data);
-
-      if (customersResponse.data.success) {
-        setCustomers(customersResponse.data.customers || []);
-        console.log('✅ Loaded', customersResponse.data.customers?.length || 0, 'customers from ALL businesses');
+      if (customersResponse.data.success || customersResponse.data.customers) {
+        const customers = customersResponse.data.customers || [];
+        setCustomers(customers);
+        console.log(`✅ Loaded ${customers.length} customers for ${userRole}`);
       }
       
-      if (statsResponse.data.success) {
+      if (statsResponse.data.success || statsResponse.data) {
         setStats(statsResponse.data);
       }
+      
     } catch (error) {
-      console.error('❌ Error loading Admin CRM data:', error);
-      // נתונים דמיון למנהל אם יש שגיאה
-      setCustomers([
-        { id: 1, name: 'לקוח דמיון 1', business_name: 'עסק A', phone: '050-1234567', status: 'active' },
-        { id: 2, name: 'לקוח דמיון 2', business_name: 'עסק B', phone: '052-9876543', status: 'potential' }
-      ]);
+      console.error('❌ Error loading CRM data:', error);
+      
+      // נתוני דמיון בהתאם לתפקיד
+      const userRole = localStorage.getItem('user_role') || localStorage.getItem('userRole');
+      if (userRole === 'admin') {
+        setCustomers([
+          { 
+            id: 1, 
+            name: 'יוסי כהן', 
+            business_name: 'עסק ABC', 
+            phone: '050-1234567', 
+            status: 'active',
+            business_id: 1
+          },
+          { 
+            id: 2, 
+            name: 'רחל לוי', 
+            business_name: 'עסק XYZ', 
+            phone: '052-9876543', 
+            status: 'potential',
+            business_id: 2
+          },
+          { 
+            id: 3, 
+            name: 'דני אברהם', 
+            business_name: 'עסק 123', 
+            phone: '053-5555555', 
+            status: 'customer',
+            business_id: 3
+          }
+        ]);
+      } else {
+        setCustomers([
+          { 
+            id: 1, 
+            name: 'לקוח מקומי 1', 
+            phone: '050-1111111', 
+            status: 'active'
+          },
+          { 
+            id: 2, 
+            name: 'לקוח מקומי 2', 
+            phone: '052-2222222', 
+            status: 'potential'
+          }
+        ]);
+      }
     } finally {
       setLoading(false);
     }
@@ -182,10 +248,14 @@ const AdvancedCRMPage = () => {
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-                🏢 CRM מנהל מערכת - תצוגה כוללת
+                {localStorage.getItem('user_role') === 'admin' || localStorage.getItem('userRole') === 'admin' 
+                  ? '🏢 CRM מנהל מערכת - כל העסקים' 
+                  : '🏢 מערכת CRM מתקדמת'}
               </h1>
               <p className="text-gray-600 text-lg mt-2">
-                תצוגת מנהל: כל הלקוחות מכל העסקים במערכת | נתונים אמיתיים מהמסד
+                {localStorage.getItem('user_role') === 'admin' || localStorage.getItem('userRole') === 'admin' 
+                  ? `תצוגת מנהל: כל הלקוחות מכל העסקים | ${customers.length} לקוחות` 
+                  : `ניהול לקוחות מקצועי עם אינטגרציה מלאה | עסק #${businessId}`}
               </p>
             </div>
             <div className="flex gap-3">
