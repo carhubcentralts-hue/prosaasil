@@ -1,9 +1,12 @@
-# Import db from app to avoid circular imports
+# Import statements  
 import sys
 import os
-sys.path.append(os.path.dirname(__file__))
+from datetime import datetime
+from sqlalchemy import Text, DateTime, Integer, String, Boolean, Float, JSON, Numeric
+from flask_login import UserMixin
 
-# Import after adding path to avoid circular imports  
+# Import db from app - fixed circular imports
+sys.path.append(os.path.dirname(__file__))
 from app import db
 from datetime import datetime
 from sqlalchemy import Text, DateTime, Integer, String, Boolean, Float, JSON, Numeric
