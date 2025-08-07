@@ -20,14 +20,17 @@ class HebrewTTSService:
     def _check_google_credentials(self):
         """בדיקה אם Google Cloud TTS זמין"""
         try:
-            # Check for environment variable
-            google_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+            # Check for new service account JSON secret first
+            google_creds = os.environ.get("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
             if not google_creds:
-                logger.warning("❌ GOOGLE_APPLICATION_CREDENTIALS not set")
-                return False
+                # Fallback to old environment variable
+                google_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+                if not google_creds:
+                    logger.warning("❌ Google Cloud credentials not set (GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS)")
+                    return False
             
             # Check if it's JSON content or file path
-            if google_creds.startswith('{') and 'service_account' in google_creds:
+            if google_creds.strip().startswith('{'):
                 # It's JSON content - write to temporary file
                 import tempfile
                 import json
@@ -46,7 +49,7 @@ class HebrewTTSService:
                 # Set the environment variable to the temp file path
                 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_file.name
                 self.temp_creds_path = temp_file.name
-                logger.info("✅ Created temporary Google credentials file from JSON content")
+                logger.info("✅ Created temporary Google credentials file from GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
                 
             elif os.path.exists(google_creds):
                 # It's a file path and exists
