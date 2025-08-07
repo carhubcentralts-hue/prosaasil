@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation, navigate } from 'wouter';
+import { useLocation } from 'wouter';
 import { 
   Menu, X, Home, Users, Phone, MessageSquare, Settings, 
   BarChart3, LogOut, Bell, Search, UserCheck, Building2,
@@ -110,7 +110,7 @@ export default function ModernLayout({ children, userRole = 'business' }) {
     localStorage.removeItem('authToken');
     localStorage.removeItem('user_role');
     localStorage.removeItem('userRole');
-    navigate('/login');
+    window.location.href = '/login';
   };
 
   const getUserInfo = () => {
@@ -200,7 +200,7 @@ export default function ModernLayout({ children, userRole = 'business' }) {
             return (
               <button
                 key={item.path}
-                onClick={() => navigate(item.path)}
+                onClick={() => window.location.href = item.path}
                 className={`w-full group flex items-center gap-4 px-4 py-4 rounded-xl transition-all duration-200 ${
                   isActive 
                     ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg shadow-blue-200/50 scale-[1.02]' 
