@@ -336,6 +336,17 @@ const AdminDashboard = () => {
                 <p className="text-sm text-purple-100 font-hebrew">ניהול הודעות</p>
               </div>
             </button>
+            
+            <button 
+              onClick={() => navigate('/admin/call-analysis')}
+              className="flex items-center gap-3 p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white rounded-xl transition-all shadow-lg"
+            >
+              <Activity className="w-6 h-6" />
+              <div className="text-right">
+                <p className="font-medium font-hebrew">ניתוח תמלולי שיחות</p>
+                <p className="text-sm text-indigo-100 font-hebrew">תמלולים ואנליטיקה</p>
+              </div>
+            </button>
 
           </div>
         </div>

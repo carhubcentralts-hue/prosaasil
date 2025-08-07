@@ -141,6 +141,13 @@ with app.app_context():
         except Exception as e:
             logging.warning(f"⚠️ Stats API Blueprint failed: {e}")
         
+        try:
+            from routes_call_analysis import call_analysis_bp
+            app.register_blueprint(call_analysis_bp)
+            logging.info("✅ Call Analysis API Blueprint registered")
+        except Exception as e:
+            logging.warning(f"⚠️ Call Analysis API Blueprint failed: {e}")
+        
         logging.info("✅ All other Blueprints registered successfully")
         
     except Exception as e:

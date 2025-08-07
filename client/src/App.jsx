@@ -9,6 +9,7 @@ import BusinessDashboard from './pages/BusinessDashboard';
 import AdvancedCRMPage from './pages/AdvancedCRMPage';
 import CallSystemPage from './pages/CallSystemPage';
 import WhatsAppPage from './pages/WhatsAppPage';
+import AdminCallAnalysis from './pages/AdminCallAnalysis';
 import AgentLocatorDashboard from './components/AgentLocatorDashboard';
 import { Toaster } from './components/ui/toaster';
 
@@ -39,6 +40,12 @@ function App() {
             <Route path="/admin/phone-analysis" element={
               <PrivateRoute requiredRole="admin">
                 <CallSystemPage />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/admin/call-analysis" element={
+              <PrivateRoute requiredRole="admin">
+                <AdminCallAnalysis />
               </PrivateRoute>
             } />
             

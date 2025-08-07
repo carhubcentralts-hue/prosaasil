@@ -6,6 +6,7 @@ Whisper Audio Processing for Hebrew Speech Recognition
 import os
 import requests
 import logging
+from datetime import datetime
 from twilio.rest import Client
 from openai import OpenAI
 
@@ -178,9 +179,14 @@ def generate_ai_response(transcript, call_sid=None):
             temperature=0.7
         )
         
-        ai_text = response.choices[0].message.content.strip()
-        logger.info(f"🤖 Generated AI response: {ai_text}")
-        return ai_text
+        ai_content = response.choices[0].message.content
+        if ai_content:
+            ai_text = ai_content.strip()
+            logger.info(f"🤖 Generated AI response: {ai_text}")
+            return ai_text
+        else:
+            logger.warning("Empty AI response")
+            return "תודה על פנייתכם. נחזור אליכם בהקדם."
         
     except Exception as e:
         logger.error(f"❌ AI response error: {e}")
