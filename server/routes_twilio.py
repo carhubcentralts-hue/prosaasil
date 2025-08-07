@@ -43,58 +43,60 @@ def incoming_call():
             
             logger.info(f"🔍 Original: '{to_number}' -> Cleaned: '{clean_to}' -> No dashes: '{clean_to_no_dashes}'")
             
-            # Find business by phone number - FIXED DB lookup
+            # Find business by phone number - IMPROVED SEARCH
             business = None
             try:
-                # Try phone_israel field (correct field name from model)
-                business = Business.query.filter_by(phone_israel=clean_to).first()
+                from sqlalchemy import or_
+                
+                # Try exact phone formats - prioritize full format with dashes
+                business = Business.query.filter_by(phone_israel=clean_to, is_active=True).first()
                 if not business:
-                    business = Business.query.filter_by(phone_israel=clean_to_no_dashes).first()
+                    business = Business.query.filter_by(phone_israel=clean_to_no_dashes, is_active=True).first()
                 if not business:
-                    # Try without plus
                     no_plus = clean_to[1:] if clean_to.startswith('+') else clean_to
-                    business = Business.query.filter_by(phone_israel=no_plus).first()
+                    business = Business.query.filter_by(phone_israel=no_plus, is_active=True).first()
+                
+                if business:
+                    logger.info(f"✅ Found business with exact search: {business.name}")
+                else:
+                    # Log all active businesses for debugging
+                    all_businesses = Business.query.filter_by(is_active=True).all()
+                    logger.warning(f"❌ No business found for {clean_to}")
+                    logger.warning(f"Available active businesses: {[(b.name, b.phone_israel) for b in all_businesses]}")
+                    
             except Exception as db_error:
                 logger.error(f"❌ Database lookup error: {db_error}")
                 business = None
-            try:
-                conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
-                cur = conn.cursor()
-                # Try multiple formats: original, cleaned, and both without dashes
-                # REMOVED is_active check - it's causing the lookup to fail
-                cur.execute("""
-                    SELECT id, name, ai_prompt FROM businesses 
-                    WHERE (phone_israel = %s OR phone_israel = %s OR 
-                           REPLACE(phone_israel, '-', '') = %s OR 
-                           REPLACE(phone_israel, '-', '') = %s)
-                    ORDER BY id DESC
-                    LIMIT 1
-                """, (to_number.strip(), clean_to, clean_to_no_dashes, to_number.strip().replace('-', '')))
-                business_row = cur.fetchone()
-                cur.close()
-                conn.close()
-            except Exception as db_e:
-                logger.error(f"Database error: {db_e}")
-                business_row = None
                 
-            if not business_row:
+            if not business:
                 logger.warning(f"Business not found for {clean_to}")
-                error_twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">סליחה, המספר אינו זמין כרגע</prosody></Say><Hangup/></Response>'''
+                error_twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="he-IL">סליחה, המספר אינו זמין כרגע. המספר שחייגת אליו אינו קיים במערכת.</Say><Hangup/></Response>'''
                 return Response(error_twiml, mimetype='text/xml')
             
-            # Extract business info from row
-            business_id, business_name, ai_prompt = business_row
-            logger.info(f"✅ Found business: {business_name} (ID: {business_id})")
+            business_name = business.name
+            logger.info(f"✅ Found business: {business_name} (ID: {business.id})")
             
-            # Skip CallLog creation for now - focus on core voice functionality
-            # CallLog will be added back after foreign key constraints are fixed
-            logger.info(f"✅ Skipping call log creation for {call_sid} - focusing on voice system")
+            # Create CallLog for tracking (simplified)
+            try:
+                call_log = CallLog(
+                    call_sid=call_sid,
+                    from_number=from_number,
+                    to_number=to_number,  
+                    business_id=business.id,
+                    call_status='incoming'
+                )
+                db.session.add(call_log)
+                db.session.commit()
+                logger.info(f"✅ CallLog created for {call_sid}")
+            except Exception as db_error:
+                logger.error(f"❌ CallLog creation failed: {db_error}")
+                db.session.rollback()
             
             # Generate Hebrew greeting using Hebrew TTS - מותאם לכל עסק
             greeting = f"שלום! זהו המוקד הוירטואלי של {business_name}. איך אוכל לעזור לך היום?"
             instruction = "אנא דברו אחרי הצפצוף"
             
-            logger.info(f"📞 Call from {from_number} to business: {business_name} (ID: {business_id})")
+            logger.info(f"📞 Call from {from_number} to business: {business_name} (ID: {business.id})")
             logger.info(f"🎵 Generating Hebrew TTS for business greeting: '{greeting[:50]}...'")
             
             # Generate Hebrew audio files
