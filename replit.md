@@ -87,7 +87,9 @@ Preferred communication style: Simple, everyday language.
 - ✅ **Enhanced Recording System**: Fixed timeout=8s, finishOnKey=*, transcribe=false
 - ✅ **Twilio Integration**: All webhooks operational (incoming_call, call_status, handle_recording)
 - ✅ **Call Flow Optimized**: Hebrew instructions, user-controlled recording termination
+- ✅ **Continuous Conversation Flow**: Multi-question sessions until user says goodbye
+- ✅ **Smart Conversation End**: Detects Hebrew end keywords (תודה, זהו, סיום) 
 - ✅ **Database Models**: Optimized and circular imports resolved
 - ✅ **System Cleanup**: Removed duplicate files, clean error-free codebase
-- 🎯 **Real-World Validation**: System answered live calls with 21-second duration
+- 🎯 **Real-World Validation**: System answered live calls with 35-second duration
 - 🚀 **Production Deployed**: Fully operational AI call center with Hebrew support

@@ -101,6 +101,13 @@ def transcribe_audio(audio_path):
         
         text = transcript.text.strip()
         logger.info(f"📝 Transcription: {text}")
+        
+        # Check for conversation end keywords
+        end_keywords = ['תודה', 'זהו', 'סיום', 'לא צריך', 'מספיק', 'הכל טוב', 'זה הכל', 'ביי', 'שלום']
+        if any(keyword in text.lower() for keyword in end_keywords):
+            logger.info(f"🔚 End keyword detected in: {text}")
+            return "CONVERSATION_END"
+            
         return text
         
     except Exception as e:
@@ -120,15 +127,19 @@ def process_recording(recording_sid, call_sid):
         if not transcript:
             return "שגיאה בתמלול"
         
-        # Step 3: Check for gibberish
+        # Step 3: Check for conversation end first
+        if transcript == "CONVERSATION_END":
+            return "תודה שפנית אלינו! שיהיה לך יום טוב!"
+            
+        # Step 4: Check for gibberish
         if is_gibberish(transcript):
-            logger.info("🚫 Gibberish detected, ending call")
-            return "ג'יבריש זוהה, שיחה הופסקה."
+            logger.info("🚫 Gibberish detected, asking for retry")
+            return "לא הבנתי מה אמרת. אנא נסה שוב."
         
-        # Step 4: Generate AI response
+        # Step 5: Generate AI response
         ai_text = generate_ai_response(transcript, call_sid)
         
-        # Step 5: Save to database
+        # Step 6: Save to database
         save_transcription_to_db(call_sid, transcript, ai_text)
         
         logger.info(f"✅ Processing complete: {ai_text}")

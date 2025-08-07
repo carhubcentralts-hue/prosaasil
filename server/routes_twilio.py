@@ -156,17 +156,39 @@ def handle_recording():
             if not ai_response or ai_response == "שגיאה בעיבוד השיחה":
                 ai_response = "תודה על פנייתכם. נחזור אליכם בהקדם."
             
+            # Check if user wants to end conversation
+            if "תודה שפנית אלינו" in ai_response or "שיהיה לך יום טוב" in ai_response:
+                # End conversation - play goodbye and hangup
+                from hebrew_tts import hebrew_tts
+                goodbye_file = hebrew_tts.synthesize_hebrew_audio(ai_response)
+                
+                if goodbye_file:
+                    goodbye_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{goodbye_file}"
+                    twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Play>{goodbye_url}</Play><Hangup/></Response>'''
+                else:
+                    twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{ai_response}</prosody></Say><Hangup/></Response>'''
+                
+                logger.info(f"✅ Call {call_sid}: Conversation ended by user")
+                response = Response(twiml, mimetype='text/xml')
+                response.headers['Content-Type'] = 'text/xml; charset=utf-8'
+                return response
+            
             # Generate Hebrew TTS response
             from hebrew_tts import hebrew_tts
             response_file = hebrew_tts.synthesize_hebrew_audio(ai_response)
             
-            if response_file:
-                # Use Hebrew TTS file
+            # Generate "continue?" prompt
+            continue_prompt = "האם יש לך עוד שאלה? אם כן, דבר עכשיו. אם לא, אמר 'תודה' או 'זהו'."
+            continue_file = hebrew_tts.synthesize_hebrew_audio(continue_prompt)
+            
+            if response_file and continue_file:
+                # Use Hebrew TTS files with continuation option
                 response_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{response_file}"
-                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Play>{response_url}</Play><Hangup/></Response>'''
+                continue_url = f"https://ai-crmd.replit.app/server/static/voice_responses/{continue_file}"
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Play>{response_url}</Play><Pause length="1"/><Play>{continue_url}</Play><Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="8" finishOnKey="*" transcribe="false" language="he-IL"/></Response>'''
             else:
-                # Fallback to text response
-                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{ai_response}</prosody></Say><Hangup/></Response>'''
+                # Fallback to text response with continuation
+                twiml = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{ai_response}</prosody></Say><Pause length="1"/><Say voice="Polly.Joanna" language="en-US"><prosody rate="slow">{continue_prompt}</prosody></Say><Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="8" finishOnKey="*" transcribe="false" language="he-IL"/></Response>'''
             
             logger.info(f"✅ Call {call_sid}: Processing complete, sending response")
             response = Response(twiml, mimetype='text/xml')
