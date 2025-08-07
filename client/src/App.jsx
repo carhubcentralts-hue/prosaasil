@@ -2,15 +2,17 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import PrivateRoute from './components/PrivateRoute';
-// נניתוח נתיבים
+// Modern SaaS Components
 import LoginPage from './pages/LoginPage';
-import AdminDashboard from './pages/AdminDashboard';
-import BusinessDashboard from './pages/BusinessDashboard';
-import AdvancedCRMPage from './pages/AdvancedCRMPage';
-import CallSystemPage from './pages/CallSystemPage';
-import WhatsAppPage from './pages/WhatsAppPage';
-import AdminCallAnalysis from './pages/AdminCallAnalysis';
-import AgentLocatorDashboard from './components/AgentLocatorDashboard';
+import ModernDashboard from './pages/ModernDashboard';
+import ModernCRM from './pages/ModernCRM';
+import ModernCalls from './pages/ModernCalls';
+import ModernWhatsApp from './pages/ModernWhatsApp';
+import ModernSettings from './pages/ModernSettings';
+import ModernAnalytics from './pages/ModernAnalytics';
+import AdminBusinesses from './pages/AdminBusinesses';
+import AdminSystem from './pages/AdminSystem';
+import AdminSecurity from './pages/AdminSecurity';
 import { Toaster } from './components/ui/toaster';
 
 function App() {
@@ -27,88 +29,105 @@ function App() {
             {/* נתיבים מוגנים למנהל */}
             <Route path="/admin/dashboard" element={
               <PrivateRoute requiredRole="admin">
-                <AdminDashboard />
+                <ModernDashboard />
               </PrivateRoute>
             } />
             
             <Route path="/admin/crm/advanced" element={
               <PrivateRoute requiredRole="admin">
-                <AdvancedCRMPage />
+                <ModernCRM />
               </PrivateRoute>
             } />
             
-            <Route path="/admin/phone-analysis" element={
+            <Route path="/admin/businesses" element={
               <PrivateRoute requiredRole="admin">
-                <CallSystemPage />
+                <AdminBusinesses />
               </PrivateRoute>
             } />
             
-            <Route path="/admin/call-analysis" element={
+            <Route path="/admin/system" element={
               <PrivateRoute requiredRole="admin">
-                <AdminCallAnalysis />
+                <AdminSystem />
               </PrivateRoute>
             } />
             
-            <Route path="/admin/whatsapp" element={
+            <Route path="/admin/analytics" element={
               <PrivateRoute requiredRole="admin">
-                <WhatsAppPage />
+                <ModernAnalytics />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/admin/security" element={
+              <PrivateRoute requiredRole="admin">
+                <AdminSecurity />
               </PrivateRoute>
             } />
             
             <Route path="/admin/*" element={
               <PrivateRoute requiredRole="admin">
-                <AdminDashboard />
+                <ModernDashboard />
               </PrivateRoute>
             } />
             
             {/* נתיבים מוגנים לעסקים */}
             <Route path="/business/dashboard" element={
               <PrivateRoute requiredRole="business">
-                <BusinessDashboard />
+                <ModernDashboard />
               </PrivateRoute>
             } />
             
             <Route path="/business/crm/advanced" element={
               <PrivateRoute requiredRole="business">
-                <AdvancedCRMPage />
+                <ModernCRM />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/crm" element={
+              <PrivateRoute requiredRole="business">
+                <ModernCRM />
               </PrivateRoute>
             } />
             
             <Route path="/calls" element={
               <PrivateRoute requiredRole="business">
-                <CallSystemPage />
+                <ModernCalls />
               </PrivateRoute>
             } />
             
             <Route path="/business/calls" element={
               <PrivateRoute requiredRole="business">
-                <CallSystemPage />
+                <ModernCalls />
               </PrivateRoute>
             } />
             
             <Route path="/whatsapp" element={
               <PrivateRoute requiredRole="business">
-                <WhatsAppPage />
+                <ModernWhatsApp />
               </PrivateRoute>
             } />
             
             <Route path="/business/whatsapp" element={
               <PrivateRoute requiredRole="business">
-                <WhatsAppPage />
+                <ModernWhatsApp />
               </PrivateRoute>
             } />
             
-            {/* דשבורד AgentLocator */}
-            <Route path="/agentlocator" element={
+            <Route path="/analytics" element={
               <PrivateRoute requiredRole="business">
-                <AgentLocatorDashboard />
+                <ModernAnalytics />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/settings" element={
+              <PrivateRoute requiredRole="business">
+                <ModernSettings />
               </PrivateRoute>
             } />
             
             {/* נתיב ברירת מחדל */}
             <Route path="/" element={
               <PrivateRoute requiredRole="business">
-                <BusinessDashboard />
+                <ModernDashboard />
               </PrivateRoute>
             } />
             
