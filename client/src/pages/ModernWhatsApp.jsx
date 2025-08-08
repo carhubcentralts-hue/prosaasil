@@ -42,25 +42,12 @@ export default function ModernWhatsApp() {
     setConnectionError(null);
     
     try {
-      // Simulate connection process
       if (connectionMethod === 'baileys') {
-        // Generate fresh QR code for Baileys
+        // Generate QR code and wait for manual scan
         generateQRCode();
-        
-        // Simulate QR scanning process - show QR immediately
         setIsConnecting(false);
-        
-        // Simulate scanning after delay
-        setTimeout(() => {
-          const success = Math.random() > 0.3; // 70% success rate for demo
-          if (success) {
-            setConnectionStatus('connected');
-            setQrCodeUrl(null);
-          } else {
-            setConnectionError('QR Code לא נסרק. נסה שוב.');
-            generateQRCode(); // Generate new QR
-          }
-        }, 8000); // Longer delay to see QR
+        // QR code will be displayed and user must scan it manually
+        // No automatic connection simulation
         
       } else if (connectionMethod === 'twilio') {
         if (!hasTwilioNumber) {
@@ -142,6 +129,13 @@ export default function ModernWhatsApp() {
     
     const base64QR = btoa(qrSvg);
     setQrCodeUrl(`data:image/svg+xml;base64,${base64QR}`);
+  };
+
+  // Manual connection function for when QR is scanned
+  const handleManualConnection = () => {
+    setConnectionStatus('connected');
+    setQrCodeUrl(null);
+    setConnectionError(null);
   };
 
   const loadConversations = async (role) => {
@@ -571,19 +565,15 @@ export default function ModernWhatsApp() {
                 </div>
               </div>
               
-              {isConnecting ? (
-                <div className="flex items-center justify-center gap-3 text-blue-600 mb-6">
-                  <RefreshCw className="w-6 h-6 animate-spin" />
-                  <span className="text-lg font-medium">מתחבר...</span>
+              <div className="flex items-center justify-center gap-3 text-orange-600 mb-6 bg-orange-50 rounded-xl p-4 border border-orange-200">
+                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                  <div className="w-3 h-3 bg-orange-500 rounded-full animate-pulse"></div>
                 </div>
-              ) : (
-                <div className="flex items-center justify-center gap-3 text-green-600 mb-6">
-                  <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center">
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  </div>
-                  <span className="text-lg font-medium">ממתין לסריקה...</span>
+                <div className="text-center">
+                  <span className="text-lg font-bold block">👀 סרוק את הקוד עכשיו</span>
+                  <span className="text-sm text-orange-700">אחרי שסרקת - לחץ על "סרקתי בהצלחה"</span>
                 </div>
-              )}
+              </div>
               
               {connectionError && (
                 <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 flex items-center justify-center gap-2">
@@ -593,6 +583,14 @@ export default function ModernWhatsApp() {
               )}
               
               <div className="flex gap-4 justify-center">
+                <button
+                  onClick={handleManualConnection}
+                  className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all font-bold text-lg shadow-lg flex items-center gap-3"
+                >
+                  <CheckCircle className="w-5 h-5" />
+                  ✅ סרקתי בהצלחה
+                </button>
+                
                 <button
                   onClick={generateQRCode}
                   className="px-8 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all font-bold text-lg shadow-lg flex items-center gap-3"
