@@ -10,7 +10,7 @@ import {
   Receipt, Banknote, ExternalLink, Copy, Archive
 } from 'lucide-react';
 
-export default function EnhancedAdvancedCRM() {
+export default function AdvancedCRM() {
   const [userRole, setUserRole] = useState('business');
   const [activeTab, setActiveTab] = useState('leads');
   const [searchTerm, setSearchTerm] = useState('');

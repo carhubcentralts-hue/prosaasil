@@ -36,7 +36,7 @@ function App() {
             
             <Route path="/admin/crm/advanced" element={
               <PrivateRoute requiredRole="admin">
-                <ModernCRM />
+                <AdvancedCRM />
               </PrivateRoute>
             } />
             
@@ -91,13 +91,13 @@ function App() {
             
             <Route path="/business/crm/advanced" element={
               <PrivateRoute requiredRole="business">
-                <ModernCRM />
+                <AdvancedCRM />
               </PrivateRoute>
             } />
             
             <Route path="/crm" element={
               <PrivateRoute requiredRole="business">
-                <ModernCRM />
+                <AdvancedCRM />
               </PrivateRoute>
             } />
             

@@ -24,10 +24,10 @@ export default function ModernLayout({ children, userRole = 'business' }) {
     },
     { 
       path: '/admin/crm/advanced', 
-      label: '🌟 CRM כללי', 
-      icon: Users, 
-      color: 'text-purple-600',
-      badge: 'מתקדם'
+      label: '🚀 CRM מתקדם', 
+      icon: Briefcase, 
+      color: 'text-indigo-600',
+      badge: 'חדש'
     },
     { 
       path: '/admin/calls', 
