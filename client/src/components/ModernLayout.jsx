@@ -123,27 +123,6 @@ export default function ModernLayout({ children, userRole = 'business' }) {
       color: 'text-gray-600',
       badge: null
     }
-    { 
-      path: '/whatsapp', 
-      label: 'WhatsApp עסקי', 
-      icon: MessageSquare, 
-      color: 'text-emerald-600',
-      badge: null
-    },
-    { 
-      path: '/analytics', 
-      label: 'דוחות ואנליטיקה', 
-      icon: BarChart3, 
-      color: 'text-orange-600',
-      badge: null
-    },
-    { 
-      path: '/settings', 
-      label: 'הגדרות', 
-      icon: Settings, 
-      color: 'text-gray-600',
-      badge: null
-    }
   ];
 
   const menuItems = userRole === 'admin' ? adminMenuItems : businessMenuItems;
