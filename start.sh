@@ -1,21 +1,41 @@
-#!/bin/bash
-# Production start script for Hebrew AI Call Center CRM
-# סקריפט הפעלה לייצור עבור מערכת CRM מוקד שיחות AI בעברית
+#!/usr/bin/env bash
+set -e
 
-echo "🚀 Starting Hebrew AI Call Center CRM - Production Mode"
-echo "======================================================="
+echo "🚀 Starting Hebrew AI Call Center CRM - SAFE MODE"
 
-# Set production environment
-export FLASK_ENV=production
-export FLASK_DEBUG=false
-export PYTHONPATH="."
+# Python env
+echo "📦 Setting up Python virtual environment..."
+python3 -m venv .venv || true
+source .venv/bin/activate
+python -m pip install -U pip wheel
 
-# Set default port if not provided
-export PORT=${PORT:-5000}
-export HOST=${HOST:-0.0.0.0}
+echo "📥 Installing Python dependencies..."
+pip install -r server/requirements.txt
 
-echo "📍 Starting on $HOST:$PORT"
-echo "🕐 $(date)"
+echo "🔥 Starting Flask backend on port 5000..."
+cd server
+python main.py &
+FLASK_PID=$!
+cd ..
 
-# Start the main Python application
-exec python main.py
+# Wait for port 5000 so Preview doesn't get stuck
+echo "⏳ Waiting for Flask to start on port 5000..."
+python - <<'PY'
+import socket,time,sys
+for _ in range(120):
+    try:
+        s=socket.socket(); s.settimeout(1)
+        s.connect(("127.0.0.1",5000)); s.close()
+        print("✅ Flask backend ready on port 5000")
+        sys.exit(0)
+    except Exception: time.sleep(1)
+print("❌ Flask failed to start on port 5000")
+sys.exit(1)
+PY
+
+echo "🎯 Hebrew AI Call Center CRM is running!"
+echo "📱 Flask Backend: http://localhost:5000"
+echo "💻 Frontend (manual): cd client && npm run dev"
+
+# Keep the script running
+wait $FLASK_PID
