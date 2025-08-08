@@ -61,13 +61,13 @@ const AgentLocatorDashboard = () => {
 
   const fetchStats = async () => {
     try {
-      console.log('🔄 AgentLocator: Fetching stats from /api/stats/overview...');
+      ;
       const response = await fetch('/api/stats/overview');
-      console.log('📡 AgentLocator: Stats response status:', response.status);
+      ;
       
       if (response.ok) {
         const data = await response.json();
-        console.log('📊 AgentLocator: Stats data received:', data);
+        ;
         setStats(data.stats || null);
       } else {
         console.error('❌ AgentLocator: Stats API failed:', response.status);
@@ -79,13 +79,13 @@ const AgentLocatorDashboard = () => {
 
   const fetchCustomers = async () => {
     try {
-      console.log('🔄 AgentLocator: Fetching customers from /api/crm/customers...');
+      ;
       const response = await fetch('/api/crm/customers');
-      console.log('📡 AgentLocator: Customers response status:', response.status);
+      ;
       
       if (response.ok) {
         const data = await response.json();
-        console.log('👥 AgentLocator: Customers data received:', data);
+        ;
         setCustomers(Array.isArray(data.customers) ? data.customers : []);
       } else {
         console.error('❌ AgentLocator: Customers API failed:', response.status);
@@ -102,7 +102,7 @@ const AgentLocatorDashboard = () => {
       const response = await fetch('/api/signature/signatures');
       if (response.ok) {
         const data = await response.json();
-        console.log('Signatures data:', data);
+        ;
         setSignatures(Array.isArray(data.signatures) ? data.signatures : []);
       }
     } catch (err) {
@@ -116,7 +116,7 @@ const AgentLocatorDashboard = () => {
       const response = await fetch('/api/proposal/proposals');
       if (response.ok) {
         const data = await response.json();
-        console.log('Proposals data:', data);
+        ;
         setProposals(Array.isArray(data.proposals) ? data.proposals : []);
       }
     } catch (err) {
@@ -130,7 +130,7 @@ const AgentLocatorDashboard = () => {
       const response = await fetch('/api/invoice/invoices');
       if (response.ok) {
         const data = await response.json();
-        console.log('Invoices data:', data);
+        ;
         setInvoices(Array.isArray(data.invoices) ? data.invoices : []);
       }
     } catch (err) {
@@ -144,7 +144,7 @@ const AgentLocatorDashboard = () => {
       const response = await fetch('/api/whatsapp/conversations');
       if (response.ok) {
         const data = await response.json();
-        console.log('Conversations data:', data);
+        ;
         setConversations(Array.isArray(data.conversations) ? data.conversations : []);
       }
     } catch (err) {

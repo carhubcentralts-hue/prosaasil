@@ -11,7 +11,7 @@ export const Toaster = () => {
 
 export const useToast = () => {
   const toast = ({ title, description, variant = 'default' }) => {
-    console.log('Toast:', { title, description, variant });
+    ;
     
     // Simple alert for now - can be enhanced later
     if (variant === 'destructive') {

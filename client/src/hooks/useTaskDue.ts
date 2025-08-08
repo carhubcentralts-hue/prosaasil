@@ -17,7 +17,7 @@ export function useTaskDue(options: UseTaskDueOptions = {}) {
     
     const handleTaskDue = useCallback((taskData: TaskDueEvent) => {
         try {
-            console.log('📅 Task due notification received:', taskData);
+            ;
             
             // Validate task data
             if (!taskData.task_id || !taskData.customer_id) {
@@ -28,7 +28,7 @@ export function useTaskDue(options: UseTaskDueOptions = {}) {
             onTaskDue?.(taskData);
             
             // Log for debugging
-            console.log(`Task ${taskData.task_id} is due for customer ${taskData.customer_name}`);
+            ;
             
         } catch (error) {
             console.error('Error handling task due event:', error);
@@ -42,11 +42,11 @@ export function useTaskDue(options: UseTaskDueOptions = {}) {
         // Subscribe to task due events
         const unsubscribe = socketEvents.onTaskDue(handleTaskDue);
         
-        console.log('🔔 Subscribed to task due notifications');
+        ;
         
         // Cleanup on unmount
         return () => {
-            console.log('🔕 Unsubscribed from task due notifications');
+            ;
             unsubscribe();
         };
     }, [enabled, handleTaskDue]);
@@ -60,7 +60,7 @@ export function useTaskDue(options: UseTaskDueOptions = {}) {
 // Hook for general notifications
 export function useNotifications() {
     const handleNotification = useCallback((notificationData: any) => {
-        console.log('🔔 General notification received:', notificationData);
+        ;
         
         // Could trigger toast notifications here
         // toast.info(notificationData.message);
@@ -75,7 +75,7 @@ export function useNotifications() {
 // Hook for WhatsApp message notifications
 export function useWhatsAppNotifications() {
     const handleWhatsAppMessage = useCallback((messageData: any) => {
-        console.log('💬 WhatsApp message received:', messageData);
+        ;
         
         // Could update UI state or show notification
         // updateWhatsAppConversation(messageData);
@@ -90,7 +90,7 @@ export function useWhatsAppNotifications() {
 // Hook for call updates
 export function useCallNotifications() {
     const handleCallUpdate = useCallback((callData: any) => {
-        console.log('📞 Call update received:', callData);
+        ;
         
         // Could update call status in UI
         // updateCallStatus(callData);

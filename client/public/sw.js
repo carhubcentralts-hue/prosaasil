@@ -1,300 +1,243 @@
 /**
- * AgentLocator v39 - Service Worker
- * Service Worker עבור PWA ו־Push Notifications
+ * AgentLocator v42 - Service Worker
+ * תמיכה במידע offline ו-push notifications
  */
 
-const CACHE_NAME = 'agentlocator-v39-cache';
-const STATIC_ASSETS = [
-    '/',
-    '/static/css/index.css',
-    '/static/js/index.js',
-    '/manifest.json'
+const CACHE_NAME = 'agentlocator-v42-1.0.0';
+const OFFLINE_URL = '/offline.html';
+
+// Files to cache for offline functionality
+const CACHE_FILES = [
+  '/',
+  '/offline.html',
+  '/assets/index.css',
+  '/assets/index.js',
+  // Add other critical assets
 ];
 
-// Install event - cache static assets
+// Install event - cache resources
 self.addEventListener('install', (event) => {
-    console.log('🔧 Service Worker: Installing');
-    
-    event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then((cache) => {
-                console.log('📦 Service Worker: Caching static assets');
-                return cache.addAll(STATIC_ASSETS.filter(url => url !== '/'));
-            })
-            .then(() => {
-                console.log('✅ Service Worker: Installation complete');
-                self.skipWaiting();
-            })
-            .catch((error) => {
-                console.error('❌ Service Worker: Installation failed', error);
-            })
-    );
+  ;
+  
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => {
+        ;
+        return cache.addAll(CACHE_FILES);
+      })
+      .then(() => {
+        ;
+        return self.skipWaiting();
+      })
+      .catch((error) => {
+        console.error('❌ Service Worker install failed:', error);
+      })
+  );
 });
 
-// Activate event - cleanup old caches
+// Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-    console.log('🚀 Service Worker: Activating');
-    
-    event.waitUntil(
-        caches.keys()
-            .then((cacheNames) => {
-                return Promise.all(
-                    cacheNames.map((cacheName) => {
-                        if (cacheName !== CACHE_NAME) {
-                            console.log('🗑️ Service Worker: Deleting old cache', cacheName);
-                            return caches.delete(cacheName);
-                        }
-                    })
-                );
-            })
-            .then(() => {
-                console.log('✅ Service Worker: Activation complete');
-                return self.clients.claim();
-            })
-    );
+  ;
+  
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          if (cacheName !== CACHE_NAME) {
+            ;
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(() => {
+      ;
+      return self.clients.claim();
+    })
+  );
 });
 
 // Fetch event - serve cached content when offline
 self.addEventListener('fetch', (event) => {
-    // Skip non-GET requests and external resources
-    if (event.request.method !== 'GET' || 
-        !event.request.url.startsWith(self.location.origin)) {
-        return;
-    }
-    
-    event.respondWith(
-        caches.match(event.request)
-            .then((response) => {
-                // Return cached version if available
-                if (response) {
-                    return response;
-                }
-                
-                // Otherwise fetch from network
-                return fetch(event.request)
-                    .then((response) => {
-                        // Cache successful responses
-                        if (response.status === 200) {
-                            const responseClone = response.clone();
-                            caches.open(CACHE_NAME)
-                                .then((cache) => {
-                                    cache.put(event.request, responseClone);
-                                });
-                        }
-                        return response;
-                    })
-                    .catch((error) => {
-                        console.log('🔌 Service Worker: Network fetch failed, serving offline page');
-                        
-                        // Return offline page for navigation requests
-                        if (event.request.mode === 'navigate') {
-                            return new Response(`
-                                <!DOCTYPE html>
-                                <html lang="he" dir="rtl">
-                                <head>
-                                    <meta charset="UTF-8">
-                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                    <title>AgentLocator - לא מחובר</title>
-                                    <style>
-                                        body { font-family: 'Segoe UI', sans-serif; text-align: center; padding: 2rem; background: #f5f5f5; }
-                                        .offline-container { max-width: 400px; margin: 0 auto; background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-                                        h1 { color: #333; margin-bottom: 1rem; }
-                                        p { color: #666; margin-bottom: 1.5rem; }
-                                        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
-                                        button:hover { background: #0056b3; }
-                                    </style>
-                                </head>
-                                <body>
-                                    <div class="offline-container">
-                                        <h1>🔌 לא מחובר לרשת</h1>
-                                        <p>AgentLocator זמין במצב לא מקוון מוגבל. חלק מהתכונות עשויות שלא לפעול.</p>
-                                        <button onclick="window.location.reload()">נסה שוב</button>
-                                    </div>
-                                    <script>
-                                        // Auto-retry when back online
-                                        window.addEventListener('online', () => {
-                                            window.location.reload();
-                                        });
-                                    </script>
-                                </body>
-                                </html>
-                            `, { 
-                                headers: { 'Content-Type': 'text/html; charset=utf-8' } 
-                            });
-                        }
-                        
-                        throw error;
-                    });
-            })
-    );
+  // Only handle GET requests
+  if (event.request.method !== 'GET') return;
+  
+  // Skip Chrome extension and other non-http requests
+  if (!event.request.url.startsWith('http')) return;
+  
+  event.respondWith(
+    caches.match(event.request)
+      .then((cachedResponse) => {
+        // Return cached version if available
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+        
+        // Try to fetch from network
+        return fetch(event.request)
+          .then((response) => {
+            // Don't cache non-successful responses
+            if (!response || response.status !== 200 || response.type !== 'basic') {
+              return response;
+            }
+            
+            // Clone the response for caching
+            const responseToCache = response.clone();
+            
+            // Cache successful responses
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+            
+            return response;
+          })
+          .catch(() => {
+            // Network failed, serve offline page for navigation requests
+            if (event.request.mode === 'navigate') {
+              return caches.match(OFFLINE_URL);
+            }
+            
+            // For other requests, just fail
+            throw new Error('Network error and no cached version');
+          });
+      })
+  );
 });
 
 // Push notification event
 self.addEventListener('push', (event) => {
-    console.log('🔔 Service Worker: Push notification received');
-    
-    let data = {};
-    try {
-        data = event.data ? event.data.json() : {};
-    } catch (e) {
-        console.error('❌ Service Worker: Failed to parse push data', e);
-        data = { title: 'התראה חדשה', body: 'יש לך הודעה חדשה ב־AgentLocator' };
-    }
-    
-    const { title, body, icon, badge, tag, requireInteraction } = data;
-    
-    const options = {
-        body: body || 'יש לך הודעה חדשה',
-        icon: icon || '/favicon.ico',
-        badge: badge || '/favicon.ico',
-        tag: tag || 'default',
-        requireInteraction: requireInteraction || true,
-        data: data,
-        actions: [
-            {
-                action: 'open',
-                title: 'פתח',
-                icon: '/icons/open.png'
-            },
-            {
-                action: 'call',
-                title: 'התקשר',
-                icon: '/icons/call.png'
-            },
-            {
-                action: 'whatsapp',
-                title: 'WhatsApp',
-                icon: '/icons/whatsapp.png'
-            },
-            {
-                action: 'snooze',
-                title: 'דחה',
-                icon: '/icons/snooze.png'
-            }
-        ],
-        vibrate: [200, 100, 200],
-        silent: false
-    };
-    
-    event.waitUntil(
-        self.registration.showNotification(title || 'AgentLocator', options)
-    );
+  ;
+  
+  if (!event.data) {
+    ;
+    return;
+  }
+  
+  const data = event.data.json();
+  
+  const options = {
+    body: data.body || 'יש לך הודעה חדשה',
+    icon: '/logo-192.png',
+    badge: '/badge-72.png',
+    image: data.image,
+    tag: data.tag || 'default',
+    renotify: true,
+    requireInteraction: data.requireInteraction || false,
+    actions: data.actions || [],
+    data: data.data || {},
+    dir: 'rtl', // Hebrew text direction
+    lang: 'he'
+  };
+  
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'AgentLocator CRM', options)
+  );
 });
 
 // Notification click event
 self.addEventListener('notificationclick', (event) => {
-    console.log('👆 Service Worker: Notification clicked', event.action);
-    
-    event.notification.close();
-    
-    const { action } = event;
-    const { task_id, customer_phone, customer_id } = event.notification.data || {};
-    
+  ;
+  
+  event.notification.close();
+  
+  const data = event.notification.data;
+  const action = event.action;
+  
+  // Handle specific actions
+  if (action === 'open_customer') {
     event.waitUntil(
-        self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-            .then((clients) => {
-                // Try to focus existing window
-                for (const client of clients) {
-                    if (client.url.includes(self.location.origin)) {
-                        return client.focus().then(() => {
-                            // Send message to client about the action
-                            client.postMessage({
-                                type: 'NOTIFICATION_CLICK',
-                                action: action,
-                                data: { task_id, customer_phone, customer_id }
-                            });
-                        });
-                    }
-                }
-                
-                // Open new window if no existing window
-                let url = '/';
-                
-                if (action === 'call' && customer_phone) {
-                    url = `/?action=call&phone=${encodeURIComponent(customer_phone)}`;
-                } else if (action === 'whatsapp' && customer_phone) {
-                    url = `/?action=whatsapp&phone=${encodeURIComponent(customer_phone)}`;
-                } else if (customer_id) {
-                    url = `/?customer_id=${customer_id}`;
-                }
-                
-                return self.clients.openWindow(url);
-            })
+      clients.openWindow(`/customers/${data.customerId}`)
     );
-});
-
-// Background sync event (for offline task completion)
-self.addEventListener('sync', (event) => {
-    console.log('🔄 Service Worker: Background sync', event.tag);
-    
-    if (event.tag === 'sync-tasks') {
-        event.waitUntil(
-            syncPendingTasks()
-        );
-    }
-});
-
-// Helper function to sync pending tasks
-async function syncPendingTasks() {
-    try {
-        // Get pending tasks from IndexedDB or localStorage
-        const pendingTasks = JSON.parse(localStorage.getItem('pendingTasks') || '[]');
-        
-        for (const task of pendingTasks) {
-            try {
-                const response = await fetch('/api/tasks/sync', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(task)
-                });
-                
-                if (response.ok) {
-                    // Remove synced task from pending list
-                    const updatedTasks = pendingTasks.filter(t => t.id !== task.id);
-                    localStorage.setItem('pendingTasks', JSON.stringify(updatedTasks));
-                    console.log('✅ Service Worker: Task synced', task.id);
-                } else {
-                    console.error('❌ Service Worker: Task sync failed', task.id, response.status);
-                }
-            } catch (error) {
-                console.error('❌ Service Worker: Task sync error', task.id, error);
-            }
+  } else if (action === 'open_call') {
+    event.waitUntil(
+      clients.openWindow(`/calls/${data.callId}`)
+    );
+  } else {
+    // Default action - focus the app or open it
+    event.waitUntil(
+      clients.matchAll({ type: 'window' }).then((clientList) => {
+        // Find an existing window and focus it
+        for (let client of clientList) {
+          if (client.url.includes(self.location.origin)) {
+            return client.focus();
+          }
         }
-    } catch (error) {
-        console.error('❌ Service Worker: Background sync failed', error);
+        
+        // No existing window, open a new one
+        return clients.openWindow('/');
+      })
+    );
+  }
+});
+
+// Background sync for offline actions
+self.addEventListener('sync', (event) => {
+  ;
+  
+  if (event.tag === 'background-sync-calls') {
+    event.waitUntil(syncCalls());
+  } else if (event.tag === 'background-sync-messages') {
+    event.waitUntil(syncMessages());
+  }
+});
+
+// Sync functions
+async function syncCalls() {
+  try {
+    ;
+    
+    // Get offline calls from IndexedDB
+    const offlineCalls = await getOfflineCalls();
+    
+    for (const call of offlineCalls) {
+      try {
+        const response = await fetch('/api/calls', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(call)
+        });
+        
+        if (response.ok) {
+          await removeOfflineCall(call.id);
+          ;
+        }
+      } catch (error) {
+        console.error('❌ Failed to sync call:', call.id, error);
+      }
     }
+  } catch (error) {
+    console.error('❌ Background sync failed:', error);
+  }
 }
 
-// Message event - handle messages from main thread
-self.addEventListener('message', (event) => {
-    console.log('💬 Service Worker: Message received', event.data);
-    
-    const { type, data } = event.data || {};
-    
-    switch (type) {
-        case 'SKIP_WAITING':
-            self.skipWaiting();
-            break;
-        case 'GET_VERSION':
-            event.ports[0].postMessage({ version: CACHE_NAME });
-            break;
-        case 'CLEAR_CACHE':
-            caches.delete(CACHE_NAME).then(() => {
-                event.ports[0].postMessage({ cleared: true });
-            });
-            break;
-        case 'CACHE_URLS':
-            if (data && data.urls) {
-                caches.open(CACHE_NAME).then((cache) => {
-                    cache.addAll(data.urls);
-                });
-            }
-            break;
-        default:
-            console.log('🤷 Service Worker: Unknown message type', type);
-    }
+async function syncMessages() {
+  try {
+    ;
+    // Similar implementation for messages
+  } catch (error) {
+    console.error('❌ Message sync failed:', error);
+  }
+}
+
+// Placeholder functions for IndexedDB operations
+async function getOfflineCalls() {
+  // Implementation would use IndexedDB to get offline calls
+  return [];
+}
+
+async function removeOfflineCall(id) {
+  // Implementation would remove call from IndexedDB
+  ;
+}
+
+// Error handling
+self.addEventListener('error', (event) => {
+  console.error('❌ Service Worker error:', event.error);
 });
 
-console.log('🚀 Service Worker: Loaded and ready for AgentLocator v39');
+self.addEventListener('unhandledrejection', (event) => {
+  console.error('❌ Service Worker unhandled rejection:', event.reason);
+});
+
+;

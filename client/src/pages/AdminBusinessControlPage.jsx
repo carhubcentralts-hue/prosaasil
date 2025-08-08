@@ -15,7 +15,7 @@ const AdminBusinessControlPage = () => {
 
   const fetchBusinessData = async () => {
     try {
-      console.log('🔄 מתחיל לטעון נתוני עסק:', id);
+      ;
       
       // קבלת הטוקן מה-localStorage
       const token = localStorage.getItem('auth_token');
@@ -31,7 +31,7 @@ const AdminBusinessControlPage = () => {
         }
       });
       
-      console.log('✅ נתוני עסק התקבלו:', response.data);
+      ;
       setBusiness(response.data);
       setLoading(false);
     } catch (error) {
@@ -42,7 +42,7 @@ const AdminBusinessControlPage = () => {
 
   const handleTakeover = async () => {
     try {
-      console.log('🚀 מתחיל השתלטות על עסק:', id);
+      ;
       
       const token = localStorage.getItem('auth_token');
       if (!token) {
@@ -64,7 +64,7 @@ const AdminBusinessControlPage = () => {
         localStorage.setItem('user_role', 'business');
         localStorage.setItem('user_name', `מנהל שולט ב-${business?.name || 'עסק'}`);
         
-        console.log('✅ השתלטות הושלמה, מעבר לדשבורד העסק');
+        ;
         
         // מעבר לדשבורד העסק
         window.location.href = '/business/dashboard';

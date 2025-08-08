@@ -17,7 +17,7 @@ export default function ModernDashboard() {
     const token = localStorage.getItem('authToken');
     const role = localStorage.getItem('user_role') || localStorage.getItem('userRole');
     
-    console.log('Dashboard: Detected role:', role);
+    ;
     setUserRole(role || 'business');
     
     // Load dashboard data based on role
@@ -26,7 +26,7 @@ export default function ModernDashboard() {
 
   const loadDashboardData = async (role) => {
     try {
-      console.log('Loading dashboard data for role:', role);
+      ;
       
       if (role === 'admin') {
         // Admin dashboard data

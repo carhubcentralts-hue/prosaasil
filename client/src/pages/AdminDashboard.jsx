@@ -108,7 +108,7 @@ const AdminDashboard = () => {
     }
 
     try {
-      console.log('Deleting business:', businessId);
+      ;
       await axios.delete(`/api/admin/businesses/${businessId}`);
       alert('העסק נמחק בהצלחה');
       fetchData(); // רענון נתונים
@@ -129,7 +129,7 @@ const AdminDashboard = () => {
         return;
       }
       
-      console.log(`🚀 מתחיל השתלטות ישירה על עסק #${businessId}: ${businessName}`);
+      ;
       
       const token = localStorage.getItem('auth_token');
       if (!token) {
@@ -144,7 +144,7 @@ const AdminDashboard = () => {
       });
       
       if (response.data.success) {
-        console.log(`✅ השתלטות הושלמה על עסק #${businessId}: ${businessName}`);
+        ;
         
         // שמירת מצב השתלטות - בסדר הנכון!
         localStorage.setItem('admin_takeover_mode', 'true');
@@ -154,27 +154,25 @@ const AdminDashboard = () => {
         localStorage.setItem('user_role', 'business');
         localStorage.setItem('user_name', `מנהל שולט ב-${response.data.business?.name || businessName}`);
         
-        console.log(`🚀 מעבר לדשבורד עסק #${businessId}`);
-        console.log('📋 localStorage updated:', {
-          business_id: localStorage.getItem('business_id'),
+        ;
+        ,
           user_role: localStorage.getItem('user_role'),
           admin_takeover_mode: localStorage.getItem('admin_takeover_mode')
         });
         
-        console.log('🔄 Redirect sequence starting...');
+        ;
         
         // מעבר עם React Router
         setTimeout(() => {
-          console.log('🔄 Step 1: Checking localStorage after save');
-          console.log('Current localStorage state:', {
-            auth_token: !!localStorage.getItem('auth_token'),
+          ;
+          ,
             user_role: localStorage.getItem('user_role'),
             business_id: localStorage.getItem('business_id'),
             admin_takeover_mode: localStorage.getItem('admin_takeover_mode')
           });
           
           setTimeout(() => {
-            console.log('🔄 Step 2: Navigating to business dashboard');
+            ;
             navigate('/business/dashboard');
           }, 200);
         }, 100);
@@ -184,8 +182,6 @@ const AdminDashboard = () => {
       alert(`שגיאה בהשתלטות על עסק #${businessId}: ` + (error.response?.data?.error || error.message));
     }
   };
-
-
 
   const getStatusIcon = (status) => {
     switch (status) {

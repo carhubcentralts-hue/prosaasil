@@ -417,8 +417,6 @@ def edit_business(business_id):
     # GET request - show edit form
     return render_template('edit_business.html', business=business)
 
-
-
 # Previous test_connection function removed to prevent duplicate route error
 
 @app.route('/api/transcript/<call_sid>')
@@ -593,7 +591,7 @@ def incoming_call_webhook():
     
     # CRITICAL DEBUG: Print actual TwiML being generated
     print("=" * 60)
-    print("🔍 DEBUG: TwiML being generated:")
+    
     print(twiml)
     print("=" * 60)
     
@@ -602,7 +600,6 @@ def incoming_call_webhook():
     logger.info(f"📦 TwiML structure: greeting → instructions → beep → record")
     
     return Response(twiml, mimetype="application/xml; charset=utf-8")
-
 
 # Helper functions for TwiML generation
 def _generate_processing_twiml():
@@ -623,7 +620,6 @@ def _generate_processing_twiml():
 </Response>'''
     return Response(twiml, mimetype="application/xml; charset=utf-8")
 
-
 def _generate_fallback_twiml(message="אנא נסה שוב"):
     """יצירת TwiML עם הודעה ואפשרות לנסות שוב"""
     twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -641,7 +637,6 @@ def _generate_fallback_twiml(message="אנא נסה שוב"):
         finishOnKey="*" />
 </Response>'''
     return Response(twiml, mimetype="application/xml; charset=utf-8")
-
 
 def _generate_error_twiml(message="שגיאה במערכת"):
     """יצירת TwiML עם הודעת שגיאה וסיום שיחה"""
@@ -770,9 +765,6 @@ def detect_gibberish(text):
     
     logger.info(f"✅ Valid text: entropy {entropy_ratio:.2f}")
     return False
-
-
-
 
 @app.route("/webhook/handle_call", methods=["POST"])
 def handle_call():
@@ -1006,7 +998,6 @@ def handle_recording():
         logger.error(f"❌ Error in handle_recording ({elapsed:.3f}s): {e}")
         return _generate_error_twiml("שגיאה טכנית")
 
-
 # דוגמא להשלמת החסרת הפונקציה שהושמטה במהלך העריכה
 @app.route("/webhook/handle_recording_complete", methods=["POST"])
 def handle_recording_complete():
@@ -1022,7 +1013,6 @@ def handle_recording_complete():
         logger.error(f"Error in recording complete: {e}")
         return _generate_error_twiml("שיחה הסתיימה")
 
-
 # ========== DIGITAL SIGNATURES ROUTES ==========
 @app.route('/digital-signature')
 @login_required
@@ -1030,7 +1020,6 @@ def digital_signature_page():
     """דף חתימות דיגיטליות"""
     current_user = AuthService.get_current_user()
     return render_template('digital_signature.html', current_user=current_user)
-
 
 @app.route('/api/save-signature', methods=['POST'])
 @login_required
@@ -1059,7 +1048,6 @@ def save_digital_signature():
         logger.error(f"Error saving signature: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
-
 @app.route('/api/add-signature-to-document', methods=['POST'])
 @login_required
 def add_signature_to_document():
@@ -1085,7 +1073,6 @@ def add_signature_to_document():
         logger.error(f"Error adding signature to document: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
-
 # ========== APPOINTMENT EDITING ROUTES ==========
 # Old route redirects to new structure
 @app.route('/edit-appointment/<int:appointment_id>')
@@ -1093,7 +1080,6 @@ def add_signature_to_document():
 def edit_appointment_old_redirect(appointment_id):
     """הפניה לנתיב החדש"""
     return redirect(url_for('edit_appointment_form', appointment_id=appointment_id))
-
 
 @app.route('/api/update-appointment', methods=['POST'])
 @login_required
@@ -1303,7 +1289,6 @@ def send_payment():
         logger.error(f"Error sending payment: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
-
 @app.route('/api/crm-action', methods=['POST'])
 @login_required
 def handle_crm_action():
@@ -1384,7 +1369,6 @@ def handle_crm_action():
         logger.error(f"Error handling CRM action: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
-
 @app.route('/api/dashboard-stats')
 @login_required
 def get_dashboard_stats():
@@ -1429,7 +1413,6 @@ def get_dashboard_stats():
         logger.error(f"Error getting dashboard stats: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
-
 @app.route('/api/delete-appointment', methods=['POST'])
 @login_required
 def delete_appointment():
@@ -1461,7 +1444,6 @@ def delete_appointment():
         logger.error(f"Error deleting appointment: {e}")
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)})
-
 
 # ========== CUSTOMERS API ROUTES ==========
 @app.route('/api/customers')
@@ -1499,7 +1481,6 @@ def get_customers():
         logger.error(f"Error getting customers: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
-
 @app.route('/api/customer-signatures/<int:customer_id>')
 @login_required
 def get_customer_signatures(customer_id):
@@ -1521,14 +1502,12 @@ def get_customer_signatures(customer_id):
         logger.error(f"Error getting customer signatures: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
-
 # ========== NAVIGATION FIXES ==========
 @app.route('/digital-signatures')
 @login_required
 def digital_signatures_redirect():
     """הפניה לדף חתימות דיגיטליות"""
     return redirect(url_for('digital_signature_page'))
-
 
 @app.route('/appointments')
 @login_required
@@ -1561,7 +1540,6 @@ def appointments_list():
         flash('שגיאה בטעינת התורים', 'error')
         return redirect(url_for('index'))
 
-
 # ========== SYSTEM STATUS & DEBUGGING ==========
 @app.route('/api/system-test')
 @login_required
@@ -1589,7 +1567,6 @@ def system_test():
             'timestamp': datetime.utcnow().isoformat()
         })
 
-
 # ========== BUSINESS MANAGEMENT ROUTE ==========
 @app.route('/admin/businesses')
 @admin_required  
@@ -1609,7 +1586,6 @@ def business_management():
 def customers_management():
     """דף ניהול לקוחות"""
     return render_template('customers_management.html')
-
 
 # ========== APPOINTMENT EDITING ROUTES ==========
 @app.route('/appointments/edit/<int:appointment_id>')
@@ -1636,9 +1612,7 @@ def edit_appointment_form(appointment_id):
         flash('שגיאה בטעינת התור', 'error')
         return redirect(url_for('appointments_list'))
 
-
 # Removed duplicate redirect function
-
 
 @app.route('/admin/business/<int:business_id>/dashboard')
 @admin_required
@@ -1706,7 +1680,6 @@ def business_dashboards():
         businesses = []
     
     return render_template('business_dashboards.html', businesses=businesses, current_user=current_user)
-
 
 @app.route('/business/<int:business_id>')
 @login_required
@@ -2264,7 +2237,6 @@ def manual_cleanup():
             'message': f'שגיאה בניקוי: {str(e)}'
         })
 
-
 @app.route('/call-logs')
 @login_required
 def call_logs():
@@ -2301,7 +2273,6 @@ def call_logs():
     return render_template('call_logs.html', 
                          calls_with_transcripts=calls_with_transcripts,
                          current_user=current_user)
-
 
 @app.route('/export-calls')
 @login_required  
@@ -3059,7 +3030,6 @@ def update_business_endpoint(business_id):
     
     return redirect('/configuration')
 
-
 # API לרענון נתוני CRM
 @app.route("/api/dashboard-stats")
 @login_required
@@ -3098,5 +3068,4 @@ def api_dashboard_stats():
 
 # ========== REGISTER BLUEPRINTS ==========
 # רישום נתיבי CRM מתבצע ב-app.py
-
 

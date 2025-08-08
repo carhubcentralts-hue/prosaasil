@@ -665,11 +665,11 @@ def impersonate_business(business_id):
         
         # יצירת טוקן זמני לעסק
         business_token_payload = {
-            'user_id': user[0],
+            'user_id': user[0] if user else business_id,
             'business_id': business_id,
             'role': 'business',
-            'name': user[1],
-            'email': user[2],
+            'name': user[1] if user else f'Business_{business_id}',
+            'email': user[2] if user else f'business{business_id}@temp.com',
             'is_impersonating': True,
             'exp': datetime.utcnow() + timedelta(hours=8)  # תוקף של 8 שעות
         }

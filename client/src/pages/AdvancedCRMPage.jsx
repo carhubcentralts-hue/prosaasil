@@ -77,13 +77,13 @@ const AdvancedCRMPage = () => {
       const token = localStorage.getItem('authToken');
       const userRole = localStorage.getItem('user_role') || localStorage.getItem('userRole');
       
-      console.log('🔍 CRM Page: Loading data for role:', userRole);
+      ;
       
       let customersResponse, statsResponse;
       
       // אם זה מנהל מערכת - טען נתונים מכל העסקים
       if (userRole === 'admin') {
-        console.log('🏢 Admin Mode: Loading ALL customers from ALL businesses');
+        ;
         
         [customersResponse, statsResponse] = await Promise.all([
           axios.get('/api/admin/all-customers', {
@@ -94,11 +94,11 @@ const AdvancedCRMPage = () => {
           })
         ]);
         
-        console.log('📊 Admin Response:', customersResponse.data);
+        ;
         
       } else {
         // אם זה עסק רגיל - טען רק את הלקוחות שלו
-        console.log('🏪 Business Mode: Loading customers for business:', businessId);
+        ;
         
         [customersResponse, statsResponse] = await Promise.all([
           axios.get('/api/crm/customers', {
@@ -119,7 +119,7 @@ const AdvancedCRMPage = () => {
       if (customersResponse.data.success || customersResponse.data.customers) {
         const customers = customersResponse.data.customers || [];
         setCustomers(customers);
-        console.log(`✅ Loaded ${customers.length} customers for ${userRole}`);
+        ;
       }
       
       if (statsResponse.data.success || statsResponse.data) {

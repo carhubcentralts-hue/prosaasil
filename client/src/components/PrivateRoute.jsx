@@ -10,15 +10,7 @@ const PrivateRoute = ({ children, requiredRole = null }) => {
   const adminTakeoverMode = localStorage.getItem('admin_takeover_mode') === 'true';
   const isAdminInTakeoverMode = user?.role === 'admin' && adminTakeoverMode;
 
-  console.log('PrivateRoute check:', { 
-    user: !!user, 
-    loading, 
-    requiredRole, 
-    userRole: user?.role,
-    adminTakeoverMode,
-    isAdminInTakeoverMode,
-    path: location.pathname 
-  });
+  ;
 
   if (loading) {
     return (
@@ -37,20 +29,20 @@ const PrivateRoute = ({ children, requiredRole = null }) => {
 
   // אם יש השתלטות אדמין ו-requiredRole הוא 'business', אפשר גישה
   if (requiredRole === 'business' && isAdminInTakeoverMode) {
-    console.log('🔑 Admin takeover mode: allowing access to business route');
+    ;
     return children;
   }
 
   // אם יש השתלטות אדמין ו-requiredRole הוא 'admin', חזור לדשבורד אדמין
   if (requiredRole === 'admin' && isAdminInTakeoverMode) {
-    console.log('🔙 Admin takeover mode: redirecting admin routes to admin dashboard');
+    ;
     return <Navigate to="/admin/dashboard" replace />;
   }
 
   if (requiredRole && user.role !== requiredRole) {
     // נווט לפי תפקיד המשתמש
     const redirectPath = user.role === 'admin' ? '/admin/dashboard' : '/business/dashboard';
-    console.log('🚫 Role mismatch: redirecting to', redirectPath);
+    ;
     return <Navigate to={redirectPath} replace />;
   }
 

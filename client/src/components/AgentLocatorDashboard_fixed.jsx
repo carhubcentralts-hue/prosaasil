@@ -64,7 +64,7 @@ const AgentLocatorDashboard = () => {
       const response = await fetch('/api/stats/overview');
       if (response.ok) {
         const data = await response.json();
-        console.log('Stats data:', data);
+        ;
         setStats(data.stats || null);
       }
     } catch (err) {
@@ -77,7 +77,7 @@ const AgentLocatorDashboard = () => {
       const response = await fetch('/api/crm/customers');
       if (response.ok) {
         const data = await response.json();
-        console.log('CRM Customers data:', data);
+        ;
         setCustomers(Array.isArray(data.customers) ? data.customers : []);
       }
     } catch (err) {
@@ -91,7 +91,7 @@ const AgentLocatorDashboard = () => {
       const response = await fetch('/api/signature/signatures');
       if (response.ok) {
         const data = await response.json();
-        console.log('Signatures data:', data);
+        ;
         setSignatures(Array.isArray(data.signatures) ? data.signatures : []);
       }
     } catch (err) {
@@ -105,7 +105,7 @@ const AgentLocatorDashboard = () => {
       const response = await fetch('/api/proposal/proposals');
       if (response.ok) {
         const data = await response.json();
-        console.log('Proposals data:', data);
+        ;
         setProposals(Array.isArray(data.proposals) ? data.proposals : []);
       }
     } catch (err) {
@@ -119,7 +119,7 @@ const AgentLocatorDashboard = () => {
       const response = await fetch('/api/invoice/invoices');
       if (response.ok) {
         const data = await response.json();
-        console.log('Invoices data:', data);
+        ;
         setInvoices(Array.isArray(data.invoices) ? data.invoices : []);
       }
     } catch (err) {
@@ -133,7 +133,7 @@ const AgentLocatorDashboard = () => {
       const response = await fetch('/api/whatsapp/conversations');
       if (response.ok) {
         const data = await response.json();
-        console.log('Conversations data:', data);
+        ;
         setConversations(Array.isArray(data.conversations) ? data.conversations : []);
       }
     } catch (err) {

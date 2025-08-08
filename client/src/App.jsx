@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import PrivateRoute from './components/PrivateRoute';
@@ -20,7 +20,10 @@ import TaskDueModal from './components/TaskDueModal';
 import { useTaskDue } from './hooks/useTaskDue';
 
 function App() {
-  console.log('🌐 App: Current location:', window.location.pathname);
+  useEffect(() => {
+    // AgentLocator v42 - Basic initialization
+    console.log('🚀 AgentLocator v42 initialized');
+  }, []);
 
   return (
     <div className="App">

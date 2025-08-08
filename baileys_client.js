@@ -42,7 +42,7 @@ async function startBaileys() {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-            console.log('📱 QR Code received, saving...');
+            ;
             
             // Save QR to file for web interface
             const qrFile = path.join(authFolder, 'qr_code.txt');
@@ -54,13 +54,13 @@ async function startBaileys() {
         
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('❌ Connection closed due to', lastDisconnect?.error, ', reconnecting:', shouldReconnect);
+            ;
             
             if (shouldReconnect) {
                 setTimeout(startBaileys, 3000);
             }
         } else if (connection === 'open') {
-            console.log('✅ WhatsApp connection established!');
+            ;
             
             // Remove QR file when connected
             const qrFile = path.join(authFolder, 'qr_code.txt');
@@ -91,7 +91,7 @@ async function startBaileys() {
                                  message.message.extendedTextMessage?.text || 
                                  'Media message';
                 
-                console.log(`📨 New message from ${from}: ${messageText}`);
+                ;
                 
                 // Save to message queue for processing
                 const messageData = {
@@ -128,7 +128,7 @@ async function startBaileys() {
                     for (const msg of queue) {
                         try {
                             await sock.sendMessage(msg.to, { text: msg.message });
-                            console.log(`📤 Sent message to ${msg.to}: ${msg.message}`);
+                            ;
                         } catch (error) {
                             console.error(`❌ Failed to send message to ${msg.to}:`, error);
                         }
@@ -154,11 +154,11 @@ startBaileys().catch(err => {
 
 // Handle process termination
 process.on('SIGINT', () => {
-    console.log('👋 Shutting down Baileys service...');
+    ;
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-    console.log('👋 Shutting down Baileys service...');
+    ;
     process.exit(0);
 });

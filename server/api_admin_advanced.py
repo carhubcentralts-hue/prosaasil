@@ -73,47 +73,56 @@ def get_all_customers():
 def get_admin_stats():
     """Get comprehensive stats for admin across all businesses"""
     try:
-        # Mock comprehensive stats - replace with actual database query
-        mock_stats = {
-            'total_customers': 156,
-            'active_customers': 89,
-            'pending_customers': 34,
-            'completed_customers': 33,
-            'today_customers': 12,
-            'this_week_customers': 45,
-            'this_month_customers': 156,
-            'conversion_rate': 28.5,
-            'by_business': [
-                {
-                    'business_id': 1,
-                    'business_name': 'מכון היופי של שרה',
-                    'customers': 78,
-                    'active': 45,
-                    'conversion_rate': 32.1
-                },
-                {
-                    'business_id': 2,
-                    'business_name': 'חברת הביטוח הישראלית',
-                    'customers': 78,
-                    'active': 44,
-                    'conversion_rate': 25.6
-                }
-            ],
-            'by_source': {
-                'WhatsApp': 67,
-                'טלפון': 45,
-                'אתר': 34,
-                'אחר': 10
-            },
-            'monthly_trend': [
-                {'month': 'ינואר', 'customers': 23},
-                {'month': 'פברואר', 'customers': 34},
-                {'month': 'מרץ', 'customers': 45},
-                {'month': 'אפריל', 'customers': 54}
-            ]
-        }
+        from utils import get_db_connection
         
-        return jsonify(mock_stats)
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        cur = conn.cursor()
+        
+        # תיקון מוחלט: שליפה ישירה של נתוני העסקים
+        cur.execute("SELECT name, business_type, COALESCE(is_active, true) as is_active FROM business")
+        business_rows = cur.fetchall()
+        
+        totalBusinesses = len(business_rows)
+        activeBusinesses = sum(1 for row in business_rows if row[2])  # Count active businesses
+        
+        # לוג לבדיקה
+        logger.info(f"Admin stats: Found {totalBusinesses} total, {activeBusinesses} active businesses")
+        
+        # אולוז לבדוק שהחיבור עובד
+        conn.commit()
+        
+        # אין צורך בעדכון - הנתונים נמצאים
+        
+        # ספירת שיחות (בדיקה אם הטבלה קיימת)
+        try:
+            cur.execute("SELECT COUNT(*) FROM call_log")
+            calls_result = cur.fetchone()
+            totalCalls = calls_result[0] if calls_result else 0
+        except Exception:
+            try:
+                cur.execute("SELECT COUNT(*) FROM call_logs") 
+                calls_result = cur.fetchone()
+                totalCalls = calls_result[0] if calls_result else 0
+            except Exception:
+                totalCalls = 0
+        
+        # ספירת משתמשים
+        cur.execute("SELECT COUNT(*) FROM users")
+        users_result = cur.fetchone()
+        totalUsers = users_result[0] if users_result else 0
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'activeBusinesses': activeBusinesses,
+            'totalBusinesses': totalBusinesses,
+            'totalCalls': totalCalls,
+            'totalUsers': totalUsers
+        })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500

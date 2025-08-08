@@ -125,7 +125,7 @@ def fix_status():
         }
 
         function resetToAdmin() {
-            console.log('🔄 Reset to admin mode');
+            ;
             
             // ניקוי מלא
             localStorage.clear();

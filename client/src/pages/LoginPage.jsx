@@ -48,14 +48,14 @@ const LoginPage = () => {
     setError('');
 
     try {
-      console.log('Attempting login with:', { username: formData.username });
+      ;
       
       const response = await axios.post('/api/login', {
         username: formData.username,
         password: formData.password
       });
 
-      console.log('Login response:', response.data);
+      ;
 
       const { token, role, name } = response.data;
 
@@ -202,7 +202,6 @@ const LoginPage = () => {
             </button>
           </form>
         </div>
-
 
       </div>
     </div>

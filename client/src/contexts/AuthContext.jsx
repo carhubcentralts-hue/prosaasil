@@ -22,7 +22,7 @@ export const AuthProvider = ({ children }) => {
         const role = localStorage.getItem('userRole');
         const name = localStorage.getItem('userName') || 'משתמש';
         
-        console.log('Auth check:', { token: !!token, role, name });
+        ;
         
         if (token && role) {
           setUser({
@@ -66,7 +66,7 @@ export const AuthProvider = ({ children }) => {
           token: token
         });
         
-        console.log('Auth updated:', { name: userName, role: userRole, token: !!token });
+        ;
         
         return { success: true, user: { name: userName, role: userRole } };
       }

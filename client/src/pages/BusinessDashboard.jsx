@@ -36,13 +36,11 @@ const BusinessDashboard = () => {
 
   const userName = localStorage.getItem('user_name') || 'משתמש עסק';
 
-
-  
   // קבלת business_id מהטוקן - כעת reactive!
   const getBusinessId = () => {
     try {
       const token = localStorage.getItem('auth_token');
-      console.log('🔍 Getting business_id from token:', !!token);
+      ;
       
       if (token && token !== 'null' && token !== 'undefined') {
         const parts = token.split('.');
@@ -56,20 +54,20 @@ const BusinessDashboard = () => {
           const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
           const decoded = JSON.parse(atob(base64));
           
-          console.log('🔍 Decoded token payload:', decoded);
+          ;
           if (decoded.business_id) {
-            console.log('✅ Using business_id from token:', decoded.business_id);
+            ;
             return parseInt(decoded.business_id);
           }
         }
       }
     } catch (error) {
-      console.log('⚠️ Token decode failed:', error);
+      ;
     }
     
     // Fallback
     const fallbackId = localStorage.getItem('business_id') || '1';
-    console.log('📋 Using fallback business_id:', fallbackId);
+    ;
     return parseInt(fallbackId);
   };
 
@@ -77,7 +75,7 @@ const BusinessDashboard = () => {
   useEffect(() => {
     const updateBusinessId = () => {
       const newBusinessId = getBusinessId();
-      console.log('🔄 BusinessDashboard: Setting business_id to:', newBusinessId);
+      ;
       setBusinessId(newBusinessId);
     };
     
@@ -89,7 +87,7 @@ const BusinessDashboard = () => {
     
     // האזנה לשינויים ב-localStorage
     const handleStorageChange = () => {
-      console.log('📡 Storage changed, updating business_id');
+      ;
       updateBusinessId();
     };
     
@@ -99,7 +97,7 @@ const BusinessDashboard = () => {
     const interval = setInterval(() => {
       const currentBusinessId = getBusinessId();
       if (currentBusinessId && currentBusinessId !== businessId) {
-        console.log('🔄 Periodic check found new business_id:', currentBusinessId);
+        ;
         setBusinessId(currentBusinessId);
         clearInterval(interval);
       }
@@ -115,20 +113,20 @@ const BusinessDashboard = () => {
   // Effect לטעינת נתונים כש-businessId משתנה
   useEffect(() => {
     if (businessId) {
-      console.log('📊 BusinessDashboard: Loading data for business_id:', businessId);
+      ;
       fetchData();
     }
   }, [businessId]);
 
   const fetchData = async () => {
     if (!businessId) {
-      console.log('⚠️ No business_id, skipping fetch');
+      ;
       return;
     }
     
     try {
       setLoading(true);
-      console.log('📡 Fetching data for business_id:', businessId);
+      ;
       
       const [infoRes, servicesRes, statusRes, usersRes] = await Promise.all([
         axios.get(`/api/business/info?business_id=${businessId}`),
@@ -137,7 +135,7 @@ const BusinessDashboard = () => {
         axios.get(`/api/business/users?business_id=${businessId}`)
       ]);
 
-      console.log('✅ Data loaded for business_id:', businessId, 'Business name:', infoRes.data?.name);
+      ;
       setBusinessInfo(infoRes.data);
       setServices(servicesRes.data);
       setSystemStatus(statusRes.data);
@@ -215,8 +213,6 @@ const BusinessDashboard = () => {
     }
   };
 
-
-
   const getStatusIcon = (status) => {
     switch (status) {
       case 'operational': return <div className="w-3 h-3 bg-green-500 rounded-full"></div>;
@@ -250,7 +246,6 @@ const BusinessDashboard = () => {
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
       <div className="max-w-6xl mx-auto p-6">
-
 
         {/* כותרת */}
         <div className="flex justify-between items-center mb-8">
@@ -337,7 +332,7 @@ const BusinessDashboard = () => {
           <div className="flex gap-4">
             <button 
               onClick={() => {
-                console.log('🔄 TEST: Simple navigate test');
+                ;
                 window.location.pathname = '/business/whatsapp';
               }}
               className="bg-red-600 text-white px-4 py-2 rounded-lg font-hebrew hover:bg-red-700"
@@ -346,7 +341,7 @@ const BusinessDashboard = () => {
             </button>
             <button 
               onClick={() => {
-                console.log('🔄 TEST: React Router navigate test');
+                ;
                 navigate('/business/calls');
               }}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg font-hebrew hover:bg-blue-700"
@@ -367,7 +362,7 @@ const BusinessDashboard = () => {
               <div className="relative">
                 <button 
                   onClick={() => {
-                    console.log('🔄 Clicking CRM button - navigating to /business/crm/advanced');
+                    ;
                     navigate('/business/crm/advanced');
                   }}
                   className="w-full flex items-center gap-3 p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors text-right shadow-md hover:shadow-lg transform hover:scale-105"
@@ -387,7 +382,7 @@ const BusinessDashboard = () => {
               <div className="relative">
                 <button 
                   onClick={() => {
-                    console.log('🔄 Clicking WhatsApp button - navigating to /business/whatsapp');
+                    ;
                     navigate('/business/whatsapp');
                   }}
                   className="w-full flex items-center gap-3 p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-colors text-right shadow-md hover:shadow-lg transform hover:scale-105"
@@ -407,7 +402,7 @@ const BusinessDashboard = () => {
               <div className="relative">
                 <button 
                   onClick={() => {
-                    console.log('🔄 Clicking Calls button - navigating to /business/calls');
+                    ;
                     navigate('/business/calls');
                   }}
                   className="w-full flex items-center gap-3 p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors text-right shadow-md hover:shadow-lg transform hover:scale-105"

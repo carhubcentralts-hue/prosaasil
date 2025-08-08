@@ -7,19 +7,19 @@
 const fs = require('fs');
 const { execSync } = require('child_process');
 
-console.log('🔍 Hebrew AI Call Center CRM - Deployment Verification');
-console.log('====================================================');
+;
+;
 
 let allTests = [];
 
 function test(name, fn) {
     try {
         fn();
-        console.log(`✅ ${name}`);
+        ;
         allTests.push({ name, status: 'PASS' });
         return true;
     } catch (error) {
-        console.log(`❌ ${name}: ${error.message}`);
+        ;
         allTests.push({ name, status: 'FAIL', error: error.message });
         return false;
     }
@@ -89,29 +89,29 @@ test('Environment configuration ready', () => {
     const envVars = ['PORT', 'DATABASE_URL'];
     for (const envVar of envVars) {
         if (!process.env[envVar] && envVar === 'DATABASE_URL') {
-            console.log(`⚠️  Warning: ${envVar} not set (expected in production)`);
+            `);
         }
     }
 });
 
 // Summary
-console.log('\n📊 VERIFICATION SUMMARY');
-console.log('======================');
+;
+;
 
 const passed = allTests.filter(t => t.status === 'PASS').length;
 const failed = allTests.filter(t => t.status === 'FAIL').length;
 
-console.log(`✅ Passed: ${passed}`);
-console.log(`❌ Failed: ${failed}`);
-console.log(`📈 Success Rate: ${Math.round((passed / allTests.length) * 100)}%`);
+;
+;
+ * 100)}%`);
 
 if (failed === 0) {
-    console.log('\n🚀 DEPLOYMENT READY!');
-    console.log('The Hebrew AI Call Center CRM is ready for deployment.');
-    console.log('Use: npm run build && npm run start');
+    ;
+    ;
+    ;
 } else {
-    console.log('\n⚠️  ISSUES FOUND');
-    console.log('Please resolve the failed tests before deployment.');
+    ;
+    ;
 }
 
 process.exit(failed > 0 ? 1 : 0);

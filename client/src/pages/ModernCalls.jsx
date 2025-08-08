@@ -163,7 +163,7 @@ export default function ModernCalls() {
   const copyTranscription = async (transcription) => {
     try {
       await navigator.clipboard.writeText(transcription);
-      console.log('תמלול הועתק בהצלחה');
+      ;
     } catch (error) {
       console.error('שגיאה בהעתקת התמלול:', error);
     }

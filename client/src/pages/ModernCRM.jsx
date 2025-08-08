@@ -35,7 +35,7 @@ export default function ModernCRM() {
       });
       
       const data = await response.json();
-      console.log('CRM customers data:', data);
+      ;
       
       if (data.success && data.customers) {
         setCustomers(data.customers);

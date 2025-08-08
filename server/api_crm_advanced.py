@@ -56,14 +56,13 @@ def api_get_crm_customers():
         if source_filter:
             query = query.filter(Customer.source == source_filter)
         
-        # Execute query with pagination
-        customers_paginated = query.order_by(Customer.created_at.desc()).paginate(
-            page=page, per_page=per_page, error_out=False
-        )
+        # AgentLocator v42: Replace customers_paginate with proper pagination
+        total = query.count()
+        items = query.order_by(Customer.created_at.desc()).offset((page-1)*per_page).limit(per_page).all()
         
         # Convert to dict with Hebrew labels
         customers_data = []
-        for customer in customers_paginated.items:
+        for customer in items:
             customer_dict = {
                 'id': customer.id,
                 'name': customer.name,
@@ -82,16 +81,12 @@ def api_get_crm_customers():
             }
             customers_data.append(customer_dict)
         
+        # v42 format - consistent with document requirements
         response = {
-            'customers': customers_data,
-            'pagination': {
-                'page': customers_paginated.page,
-                'per_page': customers_paginated.per_page,
-                'total': customers_paginated.total,
-                'pages': customers_paginated.pages,
-                'has_next': customers_paginated.has_next,
-                'has_prev': customers_paginated.has_prev
-            }
+            'page': page,
+            'limit': per_page, 
+            'total': total,
+            'items': customers_data
         }
         
         return jsonify(response)
