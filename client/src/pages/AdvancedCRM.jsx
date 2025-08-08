@@ -16,7 +16,11 @@ export default function AdvancedCRM() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState(''); // 'invoice', 'contract', 'payment', 'customer'
+  const [modalType, setModalType] = useState(''); // 'invoice', 'contract', 'payment', 'customer', 'follow_up'
+  const [followUpData, setFollowUpData] = useState({ leadId: null, date: '', time: '', note: '' });
+  const [reminders, setReminders] = useState([]);
+  const [showReminder, setShowReminder] = useState(false);
+  const [currentReminder, setCurrentReminder] = useState(null);
   const [leads, setLeads] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [invoices, setInvoices] = useState([]);
@@ -292,6 +296,14 @@ export default function AdvancedCRM() {
 
   // Function to update lead status
   const updateLeadStatus = async (leadId, newStatus) => {
+    // If "follow_up" is selected, show follow-up modal
+    if (newStatus === 'follow_up') {
+      setFollowUpData({ leadId, date: '', time: '', note: '' });
+      setModalType('follow_up');
+      setShowModal(true);
+      return; // Don't update status yet
+    }
+
     setLeads(prevLeads => 
       prevLeads.map(lead => 
         lead.id === leadId 
@@ -303,6 +315,71 @@ export default function AdvancedCRM() {
     // In real app, would call API here
     // await fetch(`/api/leads/${leadId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
   };
+
+  // Function to save follow-up reminder
+  const saveFollowUpReminder = () => {
+    if (!followUpData.date || !followUpData.time) {
+      alert('אנא בחר תאריך ושעה לתזכורת');
+      return;
+    }
+
+    const lead = leads.find(l => l.id === followUpData.leadId);
+    if (!lead) return;
+
+    const reminderDateTime = new Date(`${followUpData.date}T${followUpData.time}`);
+    
+    // Update lead status to follow_up
+    setLeads(prevLeads => 
+      prevLeads.map(l => 
+        l.id === followUpData.leadId 
+          ? { ...l, status: 'follow_up', last_contact: new Date().toISOString().split('T')[0] }
+          : l
+      )
+    );
+
+    // Add reminder
+    const newReminder = {
+      id: Date.now(),
+      leadId: followUpData.leadId,
+      leadName: lead.name,
+      company: lead.company,
+      phone: lead.phone,
+      dateTime: reminderDateTime,
+      note: followUpData.note,
+      isActive: true
+    };
+
+    setReminders(prev => [...prev, newReminder]);
+    setShowModal(false);
+    setFollowUpData({ leadId: null, date: '', time: '', note: '' });
+
+    // Schedule reminder check
+    scheduleReminderCheck(newReminder);
+  };
+
+  // Function to schedule reminder check
+  const scheduleReminderCheck = (reminder) => {
+    const now = new Date();
+    const timeDiff = reminder.dateTime.getTime() - now.getTime();
+    
+    if (timeDiff > 0) {
+      setTimeout(() => {
+        setCurrentReminder(reminder);
+        setShowReminder(true);
+        // Remove from active reminders
+        setReminders(prev => prev.filter(r => r.id !== reminder.id));
+      }, timeDiff);
+    }
+  };
+
+  // Check existing reminders on load
+  useEffect(() => {
+    reminders.forEach(reminder => {
+      if (reminder.isActive) {
+        scheduleReminderCheck(reminder);
+      }
+    });
+  }, []);
 
   // Function to get status display info
   const getStatusInfo = (status) => {
@@ -914,6 +991,78 @@ export default function AdvancedCRM() {
         </div>
       </div>
 
+      {/* Reminder Popup */}
+      {showReminder && currentReminder && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 border-l-4 border-orange-500 shadow-2xl animate-pulse">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+                  <Clock className="w-6 h-6 text-orange-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">🔔 תזכורת!</h2>
+                  <p className="text-gray-600 text-sm">זמן לחזור ללקוח</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowReminder(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="bg-orange-50 rounded-xl p-4 mb-6">
+              <h3 className="font-bold text-orange-900 mb-2">{currentReminder.leadName}</h3>
+              <p className="text-orange-800 text-sm mb-2">{currentReminder.company}</p>
+              <p className="text-orange-700 font-medium flex items-center gap-2">
+                <Phone className="w-4 h-4" />
+                {currentReminder.phone}
+              </p>
+              
+              {currentReminder.note && (
+                <div className="mt-3 pt-3 border-t border-orange-200">
+                  <p className="text-sm text-orange-800">
+                    <strong>הערות:</strong> {currentReminder.note}
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowReminder(false)}
+                className="flex-1 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium"
+              >
+                התקשר עכשיו
+              </button>
+              
+              <button 
+                onClick={() => {
+                  // Schedule for 1 hour later
+                  const newDateTime = new Date();
+                  newDateTime.setHours(newDateTime.getHours() + 1);
+                  
+                  const postponedReminder = {
+                    ...currentReminder,
+                    id: Date.now(),
+                    dateTime: newDateTime
+                  };
+                  
+                  setReminders(prev => [...prev, postponedReminder]);
+                  scheduleReminderCheck(postponedReminder);
+                  setShowReminder(false);
+                }}
+                className="px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              >
+                דחה לשעה
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -923,6 +1072,7 @@ export default function AdvancedCRM() {
                 {modalType === 'customer' && 'פרטי לקוח'}
                 {modalType === 'invoice' && 'צור חשבונית חדשה'}
                 {modalType === 'contract' && 'צור חוזה חדש'}
+                {modalType === 'follow_up' && 'תזכורת לחזרה ללקוח'}
               </h2>
               <button 
                 onClick={() => setShowModal(false)}
@@ -932,6 +1082,68 @@ export default function AdvancedCRM() {
               </button>
             </div>
             
+            {modalType === 'follow_up' && (
+              <div className="space-y-6">
+                <div className="bg-blue-50 rounded-xl p-6 border border-blue-200">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Calendar className="w-6 h-6 text-blue-600" />
+                    <h3 className="text-lg font-bold text-blue-900">תזכורת לחזרה ללקוח</h3>
+                  </div>
+                  
+                  <div className="grid md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">תאריך</label>
+                      <input
+                        type="date"
+                        value={followUpData.date}
+                        onChange={(e) => setFollowUpData({...followUpData, date: e.target.value})}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        min={new Date().toISOString().split('T')[0]}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">שעה</label>
+                      <input
+                        type="time"
+                        value={followUpData.time}
+                        onChange={(e) => setFollowUpData({...followUpData, time: e.target.value})}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">הערות (אופציונלי)</label>
+                    <textarea
+                      value={followUpData.note}
+                      onChange={(e) => setFollowUpData({...followUpData, note: e.target.value})}
+                      placeholder="מה לזכור לשיחה הבאה..."
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      rows={3}
+                    />
+                  </div>
+                  
+                  <div className="flex gap-3 justify-end">
+                    <button
+                      onClick={() => setShowModal(false)}
+                      className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                    >
+                      בטל
+                    </button>
+                    
+                    <button
+                      onClick={saveFollowUpReminder}
+                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                    >
+                      <Clock className="w-4 h-4" />
+                      קבע תזכורת
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {modalType === 'customer' && selectedCustomer && (
               <div className="space-y-6">
                 <div className="bg-gray-50 rounded-xl p-6">

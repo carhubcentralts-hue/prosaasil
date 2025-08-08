@@ -5,7 +5,7 @@ import {
   WifiOff, Users, Clock, CheckCircle, AlertCircle, Star,
   Eye, MoreVertical, Copy, Share2, Download, Upload,
   Smartphone, Globe, Shield, Zap, Activity, TrendingUp,
-  User, Calendar, Building2, RefreshCw, Power, Link
+  User, Calendar, Building2, RefreshCw, Power, Link, X
 } from 'lucide-react';
 
 export default function ModernWhatsApp() {
@@ -47,7 +47,10 @@ export default function ModernWhatsApp() {
         // Generate fresh QR code for Baileys
         generateQRCode();
         
-        // Simulate QR scanning process
+        // Simulate QR scanning process - show QR immediately
+        setIsConnecting(false);
+        
+        // Simulate scanning after delay
         setTimeout(() => {
           const success = Math.random() > 0.3; // 70% success rate for demo
           if (success) {
@@ -57,8 +60,7 @@ export default function ModernWhatsApp() {
             setConnectionError('QR Code לא נסרק. נסה שוב.');
             generateQRCode(); // Generate new QR
           }
-          setIsConnecting(false);
-        }, 3000);
+        }, 8000); // Longer delay to see QR
         
       } else if (connectionMethod === 'twilio') {
         if (!hasTwilioNumber) {
@@ -91,13 +93,8 @@ export default function ModernWhatsApp() {
       // Check business info and Twilio verification
       await loadBusinessInfo();
       
-      // Simulate connection check
-      const isConnected = Math.random() > 0.3; // Mostly disconnected for demo
-      setConnectionStatus(isConnected ? 'connected' : 'disconnected');
-      
-      if (!isConnected) {
-        generateQRCode();
-      }
+      // Simulate connection check - start disconnected for demo
+      setConnectionStatus('disconnected');
     } catch (error) {
       console.error('Connection check failed:', error);
       setConnectionError('שגיאה בבדיקת סטטוס החיבור');
