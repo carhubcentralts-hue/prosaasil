@@ -1,261 +1,37 @@
-"""
-Whisper Audio Processing for Hebrew Speech Recognition
-תיקון מלא לפי ההנחיות - August 2, 2025
-"""
+import io, requests, os
+from pydub import AudioSegment
 
-import os
-import requests
-import logging
-from datetime import datetime
-from twilio.rest import Client
-from openai import OpenAI
+TW_SID  = os.getenv("TWILIO_ACCOUNT_SID")
+TW_TOKEN= os.getenv("TWILIO_AUTH_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Import AI service and models
-try:
-    from ai_service import generate_response
-    from models import db  # We'll use basic model or create simple one
-except ImportError:
-    generate_response = None
-    db = None  
-    logging.warning("Could not import AI service or models")
+def _download_recording(url: str) -> bytes:
+    # Twilio מוסיפה URL ללא סיומת — נסה .mp3 ואז .wav
+    for ext in (".mp3", ".wav"):
+        r = requests.get(url + ext, auth=(TW_SID, TW_TOKEN), timeout=30)
+        if r.ok and r.content:
+            return r.content
+    # fallback: נסה כמו שהוא
+    r = requests.get(url, auth=(TW_SID, TW_TOKEN), timeout=30)
+    r.raise_for_status()
+    return r.content
 
-logger = logging.getLogger(__name__)
+def transcribe_hebrew(recording_url: str) -> str:
+    raw = _download_recording(recording_url)
+    # ייצוב לפורמט WAV 16k
+    audio = AudioSegment.from_file(io.BytesIO(raw))
+    wav_bytes = io.BytesIO()
+    audio.set_channels(1).set_frame_rate(16000).export(wav_bytes, format="wav")
+    wav_bytes.seek(0)
 
-def is_gibberish(text):
-    """סינון ג'יבריש - בודק אם הטקסט הוא ג'יבריש"""
-    if not text or not text.strip():
-        return True
-    
-    text = text.strip()
-    
-    # בדיקות בסיסיות לג'יבריש
-    if len(text) < 5:
-        return True
-    
-    # אם יש יותר מדי נקודות
-    if text.lower().count("...") > 3:
-        return True
-    
-    # אם כל הטקסט הוא תווים מוזרים
-    if len([c for c in text if c.isalnum() or c in 'אבגדהוזחטיכלמנסעפצקרשת ']) < len(text) * 0.3:
-        return True
-    
-    return False
-
-def download_audio(recording_sid, filename="audio.wav"):
-    """הורדת הקלטה מ-Twilio"""
-    try:
-        twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
-        
-        if not twilio_sid or not twilio_token:
-            logger.error("Missing Twilio credentials")
-            return None
-        
-        client = Client(twilio_sid, twilio_token)
-        recording = client.recordings(recording_sid).fetch()
-        
-        # Build URL for audio file
-        if recording.uri:
-            url = f"https://api.twilio.com{recording.uri.replace('.json', '.wav')}"
-        else:
-            logger.error("No recording URI found")
-            return None
-        
-        logger.info(f"📥 Downloading audio from: {url}")
-        
-        # Download with Twilio credentials
-        response = requests.get(url, auth=(twilio_sid, twilio_token))
-        
-        if response.status_code != 200:
-            logger.error(f"❌ Failed to download audio: {response.status_code}")
-            return None
-        
-        # Save to temporary file
-        temp_path = f"/tmp/{filename}"
-        with open(temp_path, "wb") as f:
-            f.write(response.content)
-        
-        logger.info(f"✅ Audio downloaded successfully: {temp_path}")
-        return temp_path
-        
-    except Exception as e:
-        logger.error(f"❌ Error downloading audio: {e}")
-        return None
-
-def transcribe_audio(audio_path):
-    """תמלול אודיו עם Whisper"""
-    try:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            logger.error("Missing OpenAI API key")
-            return None
-            
-        client = OpenAI(api_key=api_key)
-        
-        with open(audio_path, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="he"  # Hebrew
-            )
-        
-        text = transcript.text.strip()
-        logger.info(f"📝 Transcription: {text}")
-        
-        # Check for conversation end keywords
-        end_keywords = ['תודה', 'זהו', 'סיום', 'לא צריך', 'מספיק', 'הכל טוב', 'זה הכל', 'ביי', 'שלום']
-        if any(keyword in text.lower() for keyword in end_keywords):
-            logger.info(f"🔚 End keyword detected in: {text}")
-            return "CONVERSATION_END"
-            
-        return text
-        
-    except Exception as e:
-        logger.error(f"❌ Transcription error: {e}")
-        return None
-
-def process_recording(recording_sid, call_sid):
-    """תהליך מלא: הורדה → תמלול → בדיקת ג'יבריש → AI → שמירה"""
-    try:
-        # Step 1: Download audio
-        audio_path = download_audio(recording_sid)
-        if not audio_path:
-            return "שגיאה בהורדת הקלטה"
-        
-        # Step 2: Transcribe
-        transcript = transcribe_audio(audio_path)
-        if not transcript:
-            return "שגיאה בתמלול"
-        
-        # Step 3: Check for conversation end first
-        if transcript == "CONVERSATION_END":
-            return "תודה שפנית אלינו! שיהיה לך יום טוב!"
-            
-        # Step 4: Check for gibberish
-        if is_gibberish(transcript):
-            logger.info("🚫 Gibberish detected, asking for retry")
-            return "לא הבנתי מה אמרת. אנא נסה שוב."
-        
-        # Step 5: Generate AI response
-        ai_text = generate_ai_response(transcript, call_sid)
-        
-        # Step 6: Save to database
-        save_transcription_to_db(call_sid, transcript, ai_text)
-        
-        logger.info(f"✅ Processing complete: {ai_text}")
-        return ai_text
-        
-    except Exception as e:
-        logger.error(f"❌ Processing error: {e}")
-        return "שגיאה בעיבוד השיחה"
-
-def generate_ai_response(transcript, call_sid=None):
-    """יצירת תגובת AI בעברית"""
-    try:
-        api_key = os.environ.get("OPENAI_API_KEY") 
-        if not api_key:
-            logger.error("Missing OpenAI API key")
-            return "תודה על פנייתכם. נחזור אליכם בהקדם."
-            
-        client = OpenAI(api_key=api_key)
-        
-        # Enhanced AI prompt for continuous conversation
-        ai_prompt = """אתה עוזר וירטואלי מועיל בעברית לעסק. 
-        תן תשובה קצרה, מועילה ומנומסת. 
-        אל תסיים את השיחה - ענה על השאלה ותמשיך את השיחה.
-        אם הלקוח ביקש לקבוע פגישה, תשאל לפרטים נוספים (תאריך, שעה, סוג השירות).
-        השתמש בפנייה מכבדת ותמיד התייחס לצרכים של הלקוח."""
-        
-        messages = [
-            {"role": "system", "content": ai_prompt},
-            {"role": "user", "content": transcript}
-        ]
-        
-        response = client.chat.completions.create(
-            model="gpt-4o", # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
-            messages=messages,
-            max_tokens=150,
-            temperature=0.7
-        )
-        
-        ai_content = response.choices[0].message.content
-        if ai_content:
-            ai_text = ai_content.strip()
-            logger.info(f"🤖 Generated AI response: {ai_text}")
-            return ai_text
-        else:
-            logger.warning("Empty AI response")
-            return "תודה על פנייתכם. נחזור אליכם בהקדם."
-        
-    except Exception as e:
-        logger.error(f"❌ AI response error: {e}")
-        return "תודה על פנייתכם. נחזור אליכם בהקדם."
-
-def save_transcription_to_db(call_sid, transcript, response):
-    """שמירת תמלול למסד נתונים"""
-    try:
-        if not db:
-            logger.warning("Database not available for saving")
-            return
-            
-        # Try to find existing CallLog
-        from models import CallLog
-        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
-        
-        if call_log:
-            call_log.transcription = transcript
-            call_log.ai_response = response
-            call_log.call_status = 'completed'
-            call_log.updated_at = datetime.utcnow()
-            db.session.commit()
-            logger.info(f"✅ Updated CallLog for {call_sid}")
-        else:
-            logger.warning(f"⚠️ CallLog not found for {call_sid} - cannot save transcription")
-            
-    except Exception as e:
-        logger.error(f"❌ Database save error: {e}")
-
-# Compatibility wrapper for older calls
-def process_recording_old(recording_url, call_sid):
-    """Legacy compatibility - download from URL"""
-    try:
-        # Download recording directly from URL
-        response = requests.get(recording_url, stream=True)
-        if response.status_code != 200:
-            return "שגיאה בהורדת הקלטה"
-            
-        # Save to temp file
-        temp_path = "/tmp/recording.wav"
-        with open(temp_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        
-        # Process with standard flow
-        transcript = transcribe_audio(temp_path)
-        if not transcript:
-            return "שגיאה בתמלול"
-            
-        if is_gibberish(transcript):
-            return "ג'יבריש זוהה, שיחה הופסקה."
-            
-        ai_response = generate_ai_response(transcript, call_sid)
-        save_transcription_to_db(call_sid, transcript, ai_response)
-        
-        # Cleanup
-        os.unlink(temp_path)
-        
-        return ai_response
-        
-    except Exception as e:
-        logger.error(f"❌ Legacy processing error: {e}")
-        return "שגיאה בעיבוד השיחה"
-
-# Class wrapper for compatibility
-class WhisperHandler:
-    def process_recording(self, recording_sid, call_sid):
-        """Compatibility wrapper"""
-        return process_recording(recording_sid, call_sid)
-
-# Ready to use instance
-whisper_handler = WhisperHandler()
+    # Whisper (OpenAI) – הגדר שפה לעברית להעדפה
+    import requests
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+    files = {"file": ("audio.wav", wav_bytes, "audio/wav")}
+    data  = {"model": "whisper-1", "language": "he"}  # עדכן למודל זמין אצלך
+    resp = requests.post("https://api.openai.com/v1/audio/transcriptions",
+                         headers=headers, files=files, data=data, timeout=120)
+    resp.raise_for_status()
+    text = resp.json().get("text","").strip()
+    # סינון ג'יבריש קצר
+    return text if len(text) >= 2 else "לא נשמע בבירור, נסה שוב."

@@ -1,71 +1,38 @@
-"""
-AI Service for Hebrew Call Center
-תיקון מלא לפי ההנחיות - August 2, 2025
-"""
+import os, uuid
+from google.cloud import texttospeech
+import requests
 
-import openai
-import os
-import logging
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+AUDIO_DIR = "server/static/tts"
 
-logger = logging.getLogger(__name__)
+def _ensure_dir():
+    os.makedirs(AUDIO_DIR, exist_ok=True)
 
-# Set OpenAI API key
-openai.api_key = os.getenv("OPENAI_API_KEY")
+def _ask_llm_hebrew(prompt: str) -> str:
+    # החלף לקריאה למודל הטקסט שלך (GPT וכו')
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type":"application/json"}
+    body = {"model":"gpt-4o-mini", "messages":[{"role":"user","content":prompt}]}
+    r = requests.post("https://api.openai.com/v1/chat/completions", json=body, headers=headers, timeout=60)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"].strip()
 
-def generate_response(prompt):
-    """פונקציה פשוטה ליצירת תגובה מ-OpenAI כמו בהנחיות"""
+def _tts_google_wavenet_he(text: str) -> str:
+    client = texttospeech.TextToSpeechClient()
+    synthesis_input = texttospeech.SynthesisInput(text=text)
+    voice = texttospeech.VoiceSelectionParams(language_code="he-IL", name="he-IL-Wavenet-A")
+    audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
+    _ensure_dir()
+    fn = f"{uuid.uuid4().hex}.mp3"
+    out_path = os.path.join(AUDIO_DIR, fn)
+    resp = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+    with open(out_path, "wb") as f:
+        f.write(resp.audio_content)
+    return f"/static/tts/{fn}"
+
+def generate_reply_tts(user_text: str) -> str:
+    answer = _ask_llm_hebrew(user_text)
     try:
-        if not openai.api_key:
-            logger.warning("OpenAI API key not found")
-            return "תודה על פנייתכם. נחזור אליכם בהקדם."
-        
-        from openai import OpenAI
-        client = OpenAI(api_key=openai.api_key)
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        content = response.choices[0].message.content
-        return content.strip() if content else "תודה על פנייתכם. נחזור אליכם בהקדם."
-        
-    except Exception as e:
-        logger.error(f"OpenAI API error: {e}")
-        return "תודה על פנייתכם. נחזור אליכם בהקדם."
-
-def get_business_context(business_id):
-    """Get business-specific context for AI responses"""
-    try:
-        from server.models import Business
-        business = Business.query.get(business_id)
-        if business and business.ai_prompt:
-            return business.ai_prompt
-        
-        # Default real estate context for Shai Real Estate
-        return """
-        אני עוזר דיגיטלי של שי דירות ומשרדים בע״מ, חברה מקצועית לתיווך נדלן.
-        אני מתמחה בסיוע ללקוחות עם:
-        - מכירת ורכישת דירות ונכסים
-        - השכרת נכסים למגורים ומסחר
-        - יעוץ והערכת שווי נכסים
-        - ליווי משפטי ומימון
-        
-        אדבר בעברית בצורה מקצועית ואדיבה, ואפנה לתיאום פגישה עם המתווכים שלנו.
-        """
-    except Exception as e:
-        logger.error(f"Error getting business context: {str(e)}")
-        return "אני עוזר דיגיטלי של שי דירות ומשרדים בע״מ, מוכן לעזור בכל נושא של נדלן"
-
-# Compatibility class for existing code
-class AIService:
-    def __init__(self):
-        self.api_available = bool(openai.api_key)
-        self.model = "gpt-3.5-turbo"
-        
-    def generate_response(self, user_input, business=None, conversation_history=None, caller_info=None):
-        """Generate AI response with business context"""
-        try:
-            business_context = get_business_context(business.id if business else 12)  # Default to new real estate business
-            full_prompt = f"{business_context}\n\nלקוח: {user_input}\n\nתגובה:"
-            return generate_response(full_prompt)
-        except:
-            return generate_response(user_input)
+        return _tts_google_wavenet_he(answer)
+    except Exception:
+        # Fallback יחיד (אין לולאה)
+        return _tts_google_wavenet_he("סליחה, הייתה תקלה רגעית. כיצד אוכל לעזור?")
