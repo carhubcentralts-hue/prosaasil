@@ -13,60 +13,60 @@ export default function ModernLayout({ children, userRole = 'business' }) {
   const [notifications, setNotifications] = useState(3);
   const [systemStatus, setSystemStatus] = useState('active');
 
-  // Admin vs Business menu items
+  // Admin menu items - only for admin users
   const adminMenuItems = [
     { 
       path: '/admin/dashboard', 
-      label: 'דשבורד ראשי', 
+      label: '🏛️ דשבורד מנהל', 
       icon: Home, 
       color: 'text-blue-600',
       badge: null
     },
     { 
       path: '/admin/crm/advanced', 
-      label: 'CRM כללי', 
+      label: '🌟 CRM כללי', 
       icon: Users, 
       color: 'text-purple-600',
-      badge: 'חדש'
+      badge: 'מתקדם'
     },
     { 
       path: '/admin/calls', 
-      label: 'שיחות קוליות', 
+      label: '📞 שיחות AI', 
       icon: Phone, 
       color: 'text-blue-600',
       badge: null
     },
     { 
       path: '/admin/whatsapp', 
-      label: 'WhatsApp עסקי', 
+      label: '💬 WhatsApp', 
       icon: MessageSquare, 
       color: 'text-green-600',
       badge: null
     },
     { 
       path: '/admin/businesses', 
-      label: 'ניהול עסקים', 
+      label: '🏢 עסקים', 
       icon: Building2, 
       color: 'text-emerald-600',
       badge: null
     },
     { 
       path: '/admin/system', 
-      label: 'הגדרות מערכת', 
+      label: '⚙️ מערכת', 
       icon: Settings, 
       color: 'text-gray-600',
       badge: null
     },
     { 
       path: '/admin/analytics', 
-      label: 'אנליטיקה מתקדמת', 
+      label: '📈 אנליטיקה', 
       icon: BarChart3, 
       color: 'text-orange-600',
       badge: null
     },
     { 
       path: '/admin/security', 
-      label: 'אבטחה', 
+      label: '🔒 אבטחה', 
       icon: Shield, 
       color: 'text-red-600',
       badge: null
@@ -76,17 +76,10 @@ export default function ModernLayout({ children, userRole = 'business' }) {
   const businessMenuItems = [
     { 
       path: '/', 
-      label: 'דשבורד עסקי', 
+      label: '🏠 דשבורד עסקי', 
       icon: Home, 
       color: 'text-blue-600',
       badge: null
-    },
-    { 
-      path: '/crm', 
-      label: 'ניהול לקוחות', 
-      icon: Users, 
-      color: 'text-purple-600',
-      badge: notifications > 0 ? notifications.toString() : null
     },
     { 
       path: '/advanced-crm', 
@@ -96,12 +89,40 @@ export default function ModernLayout({ children, userRole = 'business' }) {
       badge: 'חדש'
     },
     { 
+      path: '/crm', 
+      label: '👥 לקוחות', 
+      icon: Users, 
+      color: 'text-purple-600',
+      badge: notifications > 0 ? notifications.toString() : null
+    },
+    { 
       path: '/calls', 
-      label: 'מערכת שיחות', 
+      label: '📞 שיחות AI', 
       icon: Phone, 
+      color: 'text-blue-600',
+      badge: null
+    },
+    { 
+      path: '/whatsapp', 
+      label: '💬 WhatsApp', 
+      icon: MessageSquare, 
       color: 'text-green-600',
       badge: null
     },
+    { 
+      path: '/analytics', 
+      label: '📊 אנליטיקה', 
+      icon: BarChart3, 
+      color: 'text-orange-600',
+      badge: null
+    },
+    { 
+      path: '/settings', 
+      label: '⚙️ הגדרות', 
+      icon: Settings, 
+      color: 'text-gray-600',
+      badge: null
+    }
     { 
       path: '/whatsapp', 
       label: 'WhatsApp עסקי', 
