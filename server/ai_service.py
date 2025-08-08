@@ -32,6 +32,29 @@ def generate_response(prompt):
         logger.error(f"OpenAI API error: {e}")
         return "תודה על פנייתכם. נחזור אליכם בהקדם."
 
+def get_business_context(business_id):
+    """Get business-specific context for AI responses"""
+    try:
+        from server.models import Business
+        business = Business.query.get(business_id)
+        if business and business.ai_prompt:
+            return business.ai_prompt
+        
+        # Default real estate context for Shai Real Estate
+        return """
+        אני עוזר דיגיטלי של שי דירות ומשרדים בע״מ, חברה מקצועית לתיווך נדלן.
+        אני מתמחה בסיוע ללקוחות עם:
+        - מכירת ורכישת דירות ונכסים
+        - השכרת נכסים למגורים ומסחר
+        - יעוץ והערכת שווי נכסים
+        - ליווי משפטי ומימון
+        
+        אדבר בעברית בצורה מקצועית ואדיבה, ואפנה לתיאום פגישה עם המתווכים שלנו.
+        """
+    except Exception as e:
+        logger.error(f"Error getting business context: {str(e)}")
+        return "אני עוזר דיגיטלי של שי דירות ומשרדים בע״מ, מוכן לעזור בכל נושא של נדלן"
+
 # Compatibility class for existing code
 class AIService:
     def __init__(self):
@@ -39,5 +62,10 @@ class AIService:
         self.model = "gpt-3.5-turbo"
         
     def generate_response(self, user_input, business=None, conversation_history=None, caller_info=None):
-        """Generate AI response - compatibility wrapper"""
-        return generate_response(user_input)
+        """Generate AI response with business context"""
+        try:
+            business_context = get_business_context(business.id if business else 12)  # Default to new real estate business
+            full_prompt = f"{business_context}\n\nלקוח: {user_input}\n\nתגובה:"
+            return generate_response(full_prompt)
+        except:
+            return generate_response(user_input)
