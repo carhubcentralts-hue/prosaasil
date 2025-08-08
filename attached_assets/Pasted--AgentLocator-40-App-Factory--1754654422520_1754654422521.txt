@@ -1,0 +1,123 @@
+עברתי על **AgentLocator (40)** מול כל הצ’ק־ליסט שכתבתי. מצב עדכני:
+
+# סטטוס מהיר
+
+* ✅ App Factory + `routes/__init__.py` קיימים ומחוברים.
+* ✅ Error handlers + Logging לפרודקשן קיימים.
+* ✅ `api_timeline.py` קיים.
+* ✅ Service Worker (`public/sw.js`) + Socket client (`src/lib/socket.ts`) + `TaskDueModal.tsx` + `useTaskDue.ts` קיימים.
+* ✅ טסטים קיימים.
+* 🟡 Twilio: יש `/webhook/handle_recording`, אבל **חסרים** `incoming_call` ו־`call_status`.
+* 🟡 CRM: עדיין יש **הטעות** `customers_paginate` בנוסף ל־`customers_paginated`.
+* 🟡 UI: יש `styles/tokens.css`, אבל **אין** שימוש ב־**TanStack Table** בטבלאות.
+* 🟡 DevOps: אין קבצי CI (`.github/workflows/*.yml`).
+* 🔸 Legacy: `server/debug_full_flow.html` עדיין בפרויקט (השאר נוקו).
+
+# מה לתקן עכשיו (סופר ממוקד)
+
+## 1) Twilio – להשלים את 3 ה־webhooks
+
+בקובץ `server/routes_twilio.py` הוסף/השלים:
+
+```python
+@twilio_bp.post("/webhook/incoming_call")
+def incoming_call():
+    # TwiML: Play greeting + Record (finishOnKey="*", timeout="5", maxLength="30")
+    ...
+
+@twilio_bp.post("/webhook/call_status")
+def call_status():
+    return "OK", 200
+```
+
+> אחרי דיפלוי: לעדכן ב־Twilio Console את שלושת הנתיבים ל־POST. לוודא ב־Request Inspector שאין 500.
+
+## 2) CRM paginate – לחסל את הטעות בכל המקומות
+
+ב־`server/api_crm_advanced.py`:
+
+* חפש **כל** `customers_paginate` → החלף ל־`customers_paginated` (או יישר לשם האמתי של הפונקציה אצלך).
+* בדיקה: `GET /api/crm/customers?page=1&limit=25` צריך להחזיר 200 + דפדוף תקין.
+
+## 3) לנקות legacy
+
+מחק:
+
+* `server/debug_full_flow.html`
+  ואשר ב־git:
+  `git rm server/debug_full_flow.html && git commit -m "chore: remove legacy debug file"`
+
+## 4) טבלאות מקצועיות – TanStack Table
+
+כרגע אין קבצי שימוש. החלף טבלאות ב־CRM/Invoices/Contracts לרכיב DataTable אחיד.
+דוגמה מינימום (בכל טבלה ראשית):
+
+```tsx
+import { useReactTable, getCoreRowModel } from "@tanstack/react-table";
+...
+const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel() });
+```
+
+כולל: מיון, סינון, הסתרת עמודות, צפיפות, יצוא CSV.
+
+## 5) CI – להוסיף וורקפלו בסיסי
+
+צור `.github/workflows/ci.yml`:
+
+```yaml
+name: CI
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r AgentLocator/requirements.txt
+      - run: pytest -q AgentLocator/tests
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm ci --prefix AgentLocator/client
+      - run: npm run build --prefix AgentLocator/client
+```
+
+## 6) Timeline – לחבר ל־UI
+
+`api_timeline.py` קיים. ודא שב־Client יש קומפוננטה שמצרכת:
+
+* `GET /api/customers/:id/timeline`
+* מציגה אירועים (calls/whatsapp/tasks/contracts/invoices) לפי זמן, עם פילטרים וקישורים חזרה למסך המקור.
+
+## 7) התראות – בדיקת מסלול מלא
+
+* `POST /api/notifications/subscribe` מקבל endpoint/p256dh/auth ונשמר.
+* כש־Task מגיע ל־`due_at`:
+
+  * שרת שולח `socket.emit('task:due', {...})` למשתמש הרלוונטי.
+  * אם הטאב סגור – נשלח **Push** דרך ה־Service Worker (בדוק ש־VAPID מוגדר).
+* ב־Client: `useTaskDue` פותח **TaskDueModal** מסך מלא עם כפתורי Call/WhatsApp/Snooze/Done.
+
+# בדיקות מהירות (תעשה/י עכשיו)
+
+* `/server/routes/__init__.py` קיים ומכיל רישום לכל ה־BPs (כולל timeline, twilio).
+* `server/app_factory.py` קורא ל־`register_blueprints`, `register_error_handlers`, `setup_logging`.
+* `server/routes_twilio.py` כולל 3 נתיבים ומחזיר 200.
+* `api_crm_advanced.py` — אין יותר `customers_paginate`.
+* `client/public/sw.js` נטען בפועל (בדפדפן → Application → Service Workers).
+* קיים `src/lib/socket.ts`, וה־socket מתחבר.
+* יש לפחות טבלה אחת שמייבאת `@tanstack/react-table`.
+* אין `server/debug_full_flow.html`.
+* רץ `pytest -q` ועובר.
+* הוסף פוש ל־GitHub וודא שה־CI החדש רץ ירוק.
+
+---
+
+אם תרצה, אני יכול לייצר לך **PR מוכן** עם:
+
+* השלמה ל־Twilio routes,
+* תיקון ה־CRM paginate,
+* מחיקת legacy,
+* קובץ CI,
+* ודוגמת DataTable ראשונה ב־CRM.
+  תגיד “תן PR ראשון”, ואני כותב את הדיפים כדי שתעשה merge בלי כאב ראש.

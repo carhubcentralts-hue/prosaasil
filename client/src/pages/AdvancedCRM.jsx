@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import ModernLayout from '../components/ModernLayout';
+import DataTable from '../components/DataTable';
+import { createColumnHelper } from '@tanstack/react-table';
 import { 
   Users, Search, Filter, Plus, Edit, Trash2, Eye, 
   Phone, Mail, Calendar, MapPin, Building2, Tag, 
@@ -402,6 +404,98 @@ export default function AdvancedCRM() {
   };
 
   // Filter functions
+  // TanStack Table column definitions
+  const columnHelper = createColumnHelper();
+  
+  const leadColumns = useMemo(() => [
+    columnHelper.accessor('name', {
+      header: 'שם',
+      cell: info => (
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-semibold text-sm">
+            {info.getValue()?.charAt(0)}
+          </div>
+          <div>
+            <div className="font-medium text-gray-900">{info.getValue()}</div>
+            <div className="text-sm text-gray-500">{info.row.original.company}</div>
+          </div>
+        </div>
+      ),
+    }),
+    columnHelper.accessor('phone', {
+      header: 'טלפון',
+      cell: info => (
+        <div className="flex items-center gap-2">
+          <Phone className="h-4 w-4 text-gray-400" />
+          <span className="text-sm">{info.getValue()}</span>
+        </div>
+      ),
+    }),
+    columnHelper.accessor('status', {
+      header: 'סטטוס',
+      cell: info => {
+        const status = info.getValue();
+        const statusMap = {
+          'new': { label: 'חדש', color: 'blue' },
+          'contacted': { label: 'נוצר קשר', color: 'yellow' },
+          'qualified': { label: 'מוכשר', color: 'green' },
+          'proposal_sent': { label: 'הצעה נשלחה', color: 'purple' },
+          'negotiation': { label: 'משא ומתן', color: 'orange' },
+          'closed_won': { label: 'נסגר בהצלחה', color: 'green' },
+          'closed_lost': { label: 'אבוד', color: 'red' }
+        };
+        const statusInfo = statusMap[status] || { label: status, color: 'gray' };
+        return (
+          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium bg-${statusInfo.color}-100 text-${statusInfo.color}-800`}>
+            {statusInfo.label}
+          </span>
+        );
+      },
+    }),
+    columnHelper.accessor('value', {
+      header: 'ערך',
+      cell: info => (
+        <div className="text-sm font-medium">
+          ₪{info.getValue()?.toLocaleString()}
+        </div>
+      ),
+    }),
+    columnHelper.accessor('probability', {
+      header: 'סיכוי',
+      cell: info => (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 bg-gray-200 rounded-full h-2">
+            <div 
+              className={`h-2 rounded-full ${info.getValue() > 70 ? 'bg-green-500' : info.getValue() > 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
+              style={{ width: `${info.getValue()}%` }}
+            ></div>
+          </div>
+          <span className="text-sm font-medium">{info.getValue()}%</span>
+        </div>
+      ),
+    }),
+    columnHelper.display({
+      id: 'actions',
+      header: 'פעולות',
+      cell: info => (
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => handleViewCustomer(info.row.original)}
+            className="p-1 text-blue-600 hover:text-blue-800"
+          >
+            <Eye className="h-4 w-4" />
+          </button>
+          <button 
+            onClick={() => handleEditCustomer(info.row.original)}
+            className="p-1 text-green-600 hover:text-green-800"
+          >
+            <Edit className="h-4 w-4" />
+          </button>
+        </div>
+      ),
+    }),
+  ], []);
+
   const filteredLeads = leads.filter(lead => {
     const matchesSearch = lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          lead.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
