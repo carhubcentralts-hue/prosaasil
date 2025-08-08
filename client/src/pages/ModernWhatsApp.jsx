@@ -43,11 +43,22 @@ export default function ModernWhatsApp() {
     
     try {
       if (connectionMethod === 'baileys') {
-        // Generate QR code and wait for manual scan
-        generateQRCode();
-        setIsConnecting(false);
-        // QR code will be displayed and user must scan it manually
-        // No automatic connection simulation
+        // הפעלת שירות Baileys אמיתי
+        const response = await fetch('/api/whatsapp/connect', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          // הקש QR Code אמיתי
+          await fetchRealQRCode();
+        } else {
+          setConnectionError(data.message || 'שגיאה בהפעלת שירות WhatsApp');
+        }
         
       } else if (connectionMethod === 'twilio') {
         if (!hasTwilioNumber) {
@@ -69,24 +80,49 @@ export default function ModernWhatsApp() {
     }
   };
 
+  const fetchRealQRCode = async () => {
+    try {
+      const response = await fetch('/api/whatsapp/qr');
+      const data = await response.json();
+      
+      if (data.success) {
+        setQrCodeUrl(data.qr_code);
+        setIsConnecting(false);
+      } else {
+        setConnectionError('QR Code לא זמין כרגע');
+        setIsConnecting(false);
+      }
+    } catch (error) {
+      setConnectionError('שגיאה בקבלת QR Code');
+      setIsConnecting(false);
+    }
+  };
+
+  const checkConnectionStatus = async () => {
+    try {
+      const response = await fetch('/api/whatsapp/status');
+      const data = await response.json();
+      
+      if (data.success) {
+        if (data.connected) {
+          setConnectionStatus('connected');
+          setQrCodeUrl(null);
+        } else if (data.qr_available) {
+          setConnectionStatus('disconnected');
+        }
+      }
+    } catch (error) {
+      console.error('שגיאה בבדיקת סטטוס:', error);
+    }
+  };
+
   const disconnectWhatsApp = async () => {
     setConnectionStatus('disconnected');
     setQrCodeUrl(null);
     setConnectionError(null);
   };
 
-  const checkConnectionStatus = async () => {
-    try {
-      // Check business info and Twilio verification
-      await loadBusinessInfo();
-      
-      // Simulate connection check - start disconnected for demo
-      setConnectionStatus('disconnected');
-    } catch (error) {
-      console.error('Connection check failed:', error);
-      setConnectionError('שגיאה בבדיקת סטטוס החיבור');
-    }
-  };
+
 
   const loadBusinessInfo = async () => {
     // Demo business info with Twilio verification status
@@ -103,40 +139,27 @@ export default function ModernWhatsApp() {
     setHasTwilioNumber(demoBusiness.twilioPhoneVerified && demoBusiness.twilioAccountSid);
   };
 
-  const generateQRCode = () => {
-    // Generate a more realistic QR code
-    const qrData = `whatsapp-connect-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    
-    // Create SVG QR code pattern (simplified for demo)
-    const qrSvg = `
-      <svg width="200" height="200" xmlns="http://www.w3.org/2000/svg">
-        <rect width="100%" height="100%" fill="white"/>
-        <rect x="20" y="20" width="20" height="20" fill="black"/>
-        <rect x="60" y="20" width="20" height="20" fill="black"/>
-        <rect x="100" y="20" width="20" height="20" fill="black"/>
-        <rect x="140" y="20" width="20" height="20" fill="black"/>
-        <rect x="20" y="60" width="20" height="20" fill="black"/>
-        <rect x="140" y="60" width="20" height="20" fill="black"/>
-        <rect x="20" y="100" width="20" height="20" fill="black"/>
-        <rect x="100" y="100" width="20" height="20" fill="black"/>
-        <rect x="20" y="140" width="20" height="20" fill="black"/>
-        <rect x="60" y="140" width="20" height="20" fill="black"/>
-        <rect x="100" y="140" width="20" height="20" fill="black"/>
-        <rect x="140" y="140" width="20" height="20" fill="black"/>
-        <text x="100" y="185" text-anchor="middle" font-size="12px" font-family="Arial">${connectionMethod.toUpperCase()}</text>
-      </svg>
-    `;
-    
-    const base64QR = btoa(qrSvg);
-    setQrCodeUrl(`data:image/svg+xml;base64,${base64QR}`);
+  const generateQRCode = async () => {
+    // קבלת QR Code אמיתי מהשרת
+    await fetchRealQRCode();
   };
 
   // Manual connection function for when QR is scanned
-  const handleManualConnection = () => {
-    setConnectionStatus('connected');
-    setQrCodeUrl(null);
-    setConnectionError(null);
+  const handleManualConnection = async () => {
+    // בדיקה אמיתית של סטטוס חיבור
+    await checkConnectionStatus();
+    
+    // אם עדיין לא מחובר, נתן הודעה
+    setTimeout(async () => {
+      await checkConnectionStatus();
+    }, 3000); // בדיקה נוספת אחרי 3 שניות
   };
+
+  // בדיקת סטטוס רציפה
+  useEffect(() => {
+    const interval = setInterval(checkConnectionStatus, 5000); // בדיקה כל 5 שניות
+    return () => clearInterval(interval);
+  }, []);
 
   const loadConversations = async (role) => {
     try {
