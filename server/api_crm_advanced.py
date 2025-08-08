@@ -78,7 +78,7 @@ def api_get_crm_customers():
                 'updated_at': customer.updated_at.isoformat() if customer.updated_at else None,
                 'notes': getattr(customer, 'notes', ''),
                 'tags': getattr(customer, 'tags', '').split(',') if getattr(customer, 'tags', '') else [],
-                'last_contact': getattr(customer, 'last_contact', None).isoformat() if getattr(customer, 'last_contact', None) else None
+                'last_contact': getattr(customer, 'last_contact', None).isoformat() if hasattr(customer, 'last_contact') and getattr(customer, 'last_contact', None) is not None else None
             }
             customers_data.append(customer_dict)
         
@@ -188,12 +188,13 @@ def api_get_calls_list():
         # Search by phone number
         if search:
             search_term = f"%{search}%"
-            query = query.filter(
-                or_(
-                    CallLog.from_number.ilike(search_term),
-                    CallLog.to_number.ilike(search_term)
-                )
-            )
+            search_filters = []
+            if hasattr(CallLog, 'from_number') and CallLog.from_number is not None:
+                search_filters.append(CallLog.from_number.ilike(search_term))
+            if hasattr(CallLog, 'to_number') and CallLog.to_number is not None:
+                search_filters.append(CallLog.to_number.ilike(search_term))
+            if search_filters:
+                query = query.filter(or_(*search_filters))
             
         # Status filter
         if status_filter and hasattr(CallLog, 'call_status'):
