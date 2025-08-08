@@ -44,7 +44,7 @@ export default function AdvancedCRM() {
         company: 'כהן טכנולוגיות',
         phone: '050-1234567',
         email: 'yossi@cohen-tech.co.il',
-        status: 'hot',
+        status: 'negotiation',
         source: 'whatsapp',
         probability: 85,
         value: 45000,
@@ -62,7 +62,7 @@ export default function AdvancedCRM() {
         company: 'לוי שיווק',
         phone: '052-9876543',
         email: 'sarah@levi-marketing.co.il',
-        status: 'warm',
+        status: 'proposal_sent',
         source: 'phone',
         probability: 65,
         value: 25000,
@@ -80,7 +80,7 @@ export default function AdvancedCRM() {
         company: 'אברהם יעוץ',
         phone: '053-5555555',
         email: 'danny@abraham-consulting.co.il',
-        status: 'cold',
+        status: 'follow_up',
         source: 'website',
         probability: 30,
         value: 15000,
@@ -225,8 +225,103 @@ export default function AdvancedCRM() {
     setLeads(demoLeads);
     setContracts(demoContracts);
     setInvoices(demoInvoices);
+    // Add more leads with various statuses
+    const additionalLeads = [
+      {
+        id: 4,
+        name: 'מירי דוד',
+        company: 'דוד דיגיטל',
+        phone: '054-1111111',
+        email: 'miri@david-digital.co.il',
+        status: 'new',
+        source: 'website',
+        probability: 20,
+        value: 8000,
+        last_contact: '2025-08-08',
+        next_action: 'יצירת קשר ראשוני',
+        tags: ['דיגיטל', 'עסק קטן'],
+        created_at: '2025-08-08',
+        notes: 'נרשמה לניוזלטר היום, מעוניינת בשיווק דיגיטלי.',
+        interactions: 1,
+        lead_score: 30
+      },
+      {
+        id: 5,
+        name: 'אבי גרין',
+        company: 'גרין ייעוץ',
+        phone: '055-2222222',
+        email: 'avi@green-consulting.co.il',
+        status: 'contacted',
+        source: 'phone',
+        probability: 45,
+        value: 18000,
+        last_contact: '2025-08-07',
+        next_action: 'שליחת חומרים נוספים',
+        tags: ['ייעוץ', 'מתעניין'],
+        created_at: '2025-08-05',
+        notes: 'דיברנו היום בטלפון, מעוניין לשמוע יותר פרטים.',
+        interactions: 2,
+        lead_score: 55
+      },
+      {
+        id: 6,
+        name: 'רות כהן',
+        company: 'כהן עיצוב',
+        phone: '056-3333333',
+        email: 'ruth@cohen-design.co.il',
+        status: 'dormant',
+        source: 'whatsapp',
+        probability: 10,
+        value: 12000,
+        last_contact: '2025-07-20',
+        next_action: 'נסיון יצירת קשר מחדש',
+        tags: ['עיצוב', 'לא מגיב'],
+        created_at: '2025-07-15',
+        notes: 'התעניינה בעבר, אין מענה לפניותינו האחרונות.',
+        interactions: 4,
+        lead_score: 25
+      }
+    ];
+
+    setLeads([...demoLeads, ...additionalLeads]);
+    setContracts(demoContracts);
+    setInvoices(demoInvoices);
     setTasks(demoTasks);
     setLoading(false);
+  };
+
+  // Function to update lead status
+  const updateLeadStatus = async (leadId, newStatus) => {
+    setLeads(prevLeads => 
+      prevLeads.map(lead => 
+        lead.id === leadId 
+          ? { ...lead, status: newStatus, last_contact: new Date().toISOString().split('T')[0] }
+          : lead
+      )
+    );
+    
+    // In real app, would call API here
+    // await fetch(`/api/leads/${leadId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
+  };
+
+  // Function to get status display info
+  const getStatusInfo = (status) => {
+    const statusMap = {
+      'new': { label: '🆕 ליד חדש', color: 'bg-blue-100 text-blue-800' },
+      'contacted': { label: '☎️ יצרנו קשר', color: 'bg-yellow-100 text-yellow-800' },
+      'interested': { label: '😊 מעוניין', color: 'bg-green-100 text-green-800' },
+      'follow_up': { label: '🔄 לחזור אליו', color: 'bg-orange-100 text-orange-800' },
+      'proposal_sent': { label: '📄 הצעה נשלחה', color: 'bg-purple-100 text-purple-800' },
+      'negotiation': { label: '🤝 במשא ומתן', color: 'bg-indigo-100 text-indigo-800' },
+      'won': { label: '✅ נסגר בהצלחה', color: 'bg-green-100 text-green-800' },
+      'lost': { label: '❌ אבד', color: 'bg-red-100 text-red-800' },
+      'dormant': { label: '😴 לא פעיל', color: 'bg-gray-100 text-gray-800' },
+      // Legacy statuses
+      'hot': { label: '🔥 חם', color: 'bg-red-100 text-red-800' },
+      'warm': { label: '🌡️ חמים', color: 'bg-orange-100 text-orange-800' },
+      'cold': { label: '🧊 קר', color: 'bg-blue-100 text-blue-800' }
+    };
+    return statusMap[status] || { label: status, color: 'bg-gray-100 text-gray-800' };
   };
 
   // Filter functions
@@ -457,9 +552,15 @@ export default function AdvancedCRM() {
                     className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
                   >
                     <option value="all">כל הסטטוסים</option>
-                    <option value="hot">חמים</option>
-                    <option value="warm">חמימים</option>
-                    <option value="cold">קרים</option>
+                    <option value="new">🆕 ליד חדש</option>
+                    <option value="contacted">☎️ יצרנו קשר</option>
+                    <option value="interested">😊 מעוניין</option>
+                    <option value="follow_up">🔄 לחזור אליו</option>
+                    <option value="proposal_sent">📄 הצעה נשלחה</option>
+                    <option value="negotiation">🤝 במשא ומתן</option>
+                    <option value="won">✅ נסגר בהצלחה</option>
+                    <option value="lost">❌ אבד</option>
+                    <option value="dormant">😴 לא פעיל</option>
                   </select>
 
                   <select
@@ -517,9 +618,21 @@ export default function AdvancedCRM() {
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <h3 className="text-lg font-bold text-gray-900">{lead.name}</h3>
-                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(lead.status)}`}>
-                              {getStatusText(lead.status)}
-                            </span>
+                            <select 
+                              value={lead.status} 
+                              onChange={(e) => updateLeadStatus(lead.id, e.target.value)}
+                              className={`px-3 py-1 rounded-full text-sm font-medium border cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-500 ${getStatusInfo(lead.status).color}`}
+                            >
+                              <option value="new">🆕 ליד חדש</option>
+                              <option value="contacted">☎️ יצרנו קשר</option>
+                              <option value="interested">😊 מעוניין</option>
+                              <option value="follow_up">🔄 לחזור אליו</option>
+                              <option value="proposal_sent">📄 הצעה נשלחה</option>
+                              <option value="negotiation">🤝 במשא ומתן</option>
+                              <option value="won">✅ נסגר בהצלחה</option>
+                              <option value="lost">❌ אבד</option>
+                              <option value="dormant">😴 לא פעיל</option>
+                            </select>
                             <div className="flex items-center gap-1">
                               <Star className="w-4 h-4 text-yellow-500" />
                               <span className="text-sm font-medium">{lead.lead_score}</span>

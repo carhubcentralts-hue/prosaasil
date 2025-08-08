@@ -20,6 +20,10 @@ export default function ModernWhatsApp() {
   const [hasWhatsAppPermissions, setHasWhatsAppPermissions] = useState(true);
   const [qrCodeUrl, setQrCodeUrl] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [businessInfo, setBusinessInfo] = useState(null);
+  const [hasTwilioNumber, setHasTwilioNumber] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectionError, setConnectionError] = useState(null);
 
   useEffect(() => {
     const role = localStorage.getItem('user_role') || localStorage.getItem('userRole');
@@ -28,15 +32,119 @@ export default function ModernWhatsApp() {
     checkConnectionStatus();
   }, []);
 
-  const checkConnectionStatus = async () => {
-    // Simulate connection check
-    const isConnected = Math.random() > 0.5; // Random for demo
-    setConnectionStatus(isConnected ? 'connected' : 'disconnected');
+  // Re-check connection when method changes
+  useEffect(() => {
+    checkConnectionStatus();
+  }, [connectionMethod]);
+
+  const connectWhatsApp = async () => {
+    setIsConnecting(true);
+    setConnectionError(null);
     
-    if (!isConnected && connectionMethod === 'baileys') {
-      // Generate demo QR code URL
-      setQrCodeUrl('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ3aGl0ZSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0iY2VudHJhbCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1zaXplPSIxNHB4Ij5RUiBDb2RlPC90ZXh0Pjwvc3ZnPg==');
+    try {
+      // Simulate connection process
+      if (connectionMethod === 'baileys') {
+        // Generate fresh QR code for Baileys
+        generateQRCode();
+        
+        // Simulate QR scanning process
+        setTimeout(() => {
+          const success = Math.random() > 0.3; // 70% success rate for demo
+          if (success) {
+            setConnectionStatus('connected');
+            setQrCodeUrl(null);
+          } else {
+            setConnectionError('QR Code לא נסרק. נסה שוב.');
+            generateQRCode(); // Generate new QR
+          }
+          setIsConnecting(false);
+        }, 3000);
+        
+      } else if (connectionMethod === 'twilio') {
+        if (!hasTwilioNumber) {
+          setConnectionError('לא נמצא מספר Twilio מאומת לעסק זה');
+          setIsConnecting(false);
+          return;
+        }
+        
+        // Simulate Twilio connection
+        setTimeout(() => {
+          setConnectionStatus('connected');
+          setIsConnecting(false);
+        }, 2000);
+      }
+      
+    } catch (error) {
+      setConnectionError(`שגיאה בחיבור: ${error.message}`);
+      setIsConnecting(false);
     }
+  };
+
+  const disconnectWhatsApp = async () => {
+    setConnectionStatus('disconnected');
+    setQrCodeUrl(null);
+    setConnectionError(null);
+  };
+
+  const checkConnectionStatus = async () => {
+    try {
+      // Check business info and Twilio verification
+      await loadBusinessInfo();
+      
+      // Simulate connection check
+      const isConnected = Math.random() > 0.3; // Mostly disconnected for demo
+      setConnectionStatus(isConnected ? 'connected' : 'disconnected');
+      
+      if (!isConnected) {
+        generateQRCode();
+      }
+    } catch (error) {
+      console.error('Connection check failed:', error);
+      setConnectionError('שגיאה בבדיקת סטטוס החיבור');
+    }
+  };
+
+  const loadBusinessInfo = async () => {
+    // Demo business info with Twilio verification status
+    const demoBusiness = {
+      id: 1,
+      name: 'עסק דמו',
+      phone: '+972501234567',
+      twilioPhoneVerified: Math.random() > 0.5, // Random for demo
+      twilioAccountSid: Math.random() > 0.5 ? 'AC123456789' : null,
+      whatsappEnabled: true
+    };
+    
+    setBusinessInfo(demoBusiness);
+    setHasTwilioNumber(demoBusiness.twilioPhoneVerified && demoBusiness.twilioAccountSid);
+  };
+
+  const generateQRCode = () => {
+    // Generate a more realistic QR code
+    const qrData = `whatsapp-connect-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    
+    // Create SVG QR code pattern (simplified for demo)
+    const qrSvg = `
+      <svg width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100%" height="100%" fill="white"/>
+        <rect x="20" y="20" width="20" height="20" fill="black"/>
+        <rect x="60" y="20" width="20" height="20" fill="black"/>
+        <rect x="100" y="20" width="20" height="20" fill="black"/>
+        <rect x="140" y="20" width="20" height="20" fill="black"/>
+        <rect x="20" y="60" width="20" height="20" fill="black"/>
+        <rect x="140" y="60" width="20" height="20" fill="black"/>
+        <rect x="20" y="100" width="20" height="20" fill="black"/>
+        <rect x="100" y="100" width="20" height="20" fill="black"/>
+        <rect x="20" y="140" width="20" height="20" fill="black"/>
+        <rect x="60" y="140" width="20" height="20" fill="black"/>
+        <rect x="100" y="140" width="20" height="20" fill="black"/>
+        <rect x="140" y="140" width="20" height="20" fill="black"/>
+        <text x="100" y="185" text-anchor="middle" font-size="12px" font-family="Arial">${connectionMethod.toUpperCase()}</text>
+      </svg>
+    `;
+    
+    const base64QR = btoa(qrSvg);
+    setQrCodeUrl(`data:image/svg+xml;base64,${base64QR}`);
   };
 
   const loadConversations = async (role) => {
@@ -186,32 +294,7 @@ export default function ModernWhatsApp() {
     }
   };
 
-  const connectWhatsApp = async () => {
-    setLoading(true);
-    
-    if (connectionMethod === 'baileys') {
-      // Show QR code for Baileys connection
-      setQrCodeUrl('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ3aGl0ZSIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0iY2VudHJhbCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1zaXplPSIxNHB4Ij5TY2FuIE1lPC90ZXh0Pjwvc3ZnPg==');
-      
-      // Simulate connection process
-      setTimeout(() => {
-        setConnectionStatus('connected');
-        setQrCodeUrl(null);
-        setLoading(false);
-      }, 3000);
-    } else {
-      // Twilio connection simulation
-      setTimeout(() => {
-        setConnectionStatus('connected');
-        setLoading(false);
-      }, 1000);
-    }
-  };
 
-  const disconnectWhatsApp = () => {
-    setConnectionStatus('disconnected');
-    setQrCodeUrl(null);
-  };
 
   const sendMessage = () => {
     if (!newMessage.trim() || !selectedConversation) return;
@@ -392,6 +475,12 @@ export default function ModernWhatsApp() {
                     <AlertCircle className="w-4 h-4" />
                     עלות נוספת עפ"י שימוש
                   </div>
+                  {!hasTwilioNumber && (
+                    <div className="flex items-center gap-2 text-red-600 mt-2">
+                      <X className="w-4 h-4" />
+                      לא זמין - אין מספר Twilio מאומת
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -399,12 +488,39 @@ export default function ModernWhatsApp() {
             <div className="flex gap-4 justify-center">
               <button
                 onClick={connectWhatsApp}
-                className="flex items-center gap-2 px-6 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 font-medium"
+                disabled={isConnecting || (connectionMethod === 'twilio' && !hasTwilioNumber)}
+                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all ${
+                  isConnecting || (connectionMethod === 'twilio' && !hasTwilioNumber)
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-green-500 text-white hover:bg-green-600'
+                }`}
               >
-                <Power className="w-5 h-5" />
-                התחבר ל-WhatsApp
+                {isConnecting ? (
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Power className="w-5 h-5" />
+                )}
+                {isConnecting ? 'מתחבר...' : 'התחבר ל-WhatsApp'}
               </button>
             </div>
+
+            {connectionError && (
+              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-center">
+                <AlertCircle className="w-5 h-5 inline mr-2" />
+                {connectionError}
+              </div>
+            )}
+
+            {businessInfo && (
+              <div className="mt-6 bg-gray-50 rounded-xl p-4">
+                <h3 className="font-bold text-gray-900 mb-2">מידע עסק</h3>
+                <div className="text-sm text-gray-600 space-y-1">
+                  <p><span className="font-medium">שם:</span> {businessInfo.name}</p>
+                  <p><span className="font-medium">טלפון:</span> {businessInfo.phone}</p>
+                  <p><span className="font-medium">Twilio מאומת:</span> {hasTwilioNumber ? '✅ כן' : '❌ לא'}</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -418,9 +534,41 @@ export default function ModernWhatsApp() {
             <p className="text-gray-600 mb-4">
               פתח WhatsApp בטלפון → הגדרות → WhatsApp Web → סרוק QR Code
             </p>
-            <div className="flex items-center justify-center gap-2 text-blue-600">
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              ממתין לסריקה...
+            {isConnecting ? (
+              <div className="flex items-center justify-center gap-2 text-blue-600">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                מתחבר...
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-2 text-green-600">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                ממתין לסריקה...
+              </div>
+            )}
+            
+            {connectionError && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                {connectionError}
+              </div>
+            )}
+            
+            <div className="mt-6 flex gap-3 justify-center">
+              <button
+                onClick={generateQRCode}
+                className="px-4 py-2 text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50"
+              >
+                QR חדש
+              </button>
+              
+              <button
+                onClick={() => {
+                  setQrCodeUrl(null);
+                  setConnectionStatus('disconnected');
+                }}
+                className="px-4 py-2 text-red-600 border border-red-600 rounded-lg hover:bg-red-50"
+              >
+                בטל
+              </button>
             </div>
           </div>
         )}
