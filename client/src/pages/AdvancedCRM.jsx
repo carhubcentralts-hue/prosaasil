@@ -1,203 +1,259 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import axios from 'axios';
+import React, { useState, useEffect } from 'react';
+import ModernLayout from '../components/ModernLayout';
 import { 
-  Search, 
-  Filter, 
-  Plus, 
-  Edit3, 
-  Phone, 
-  Mail, 
-  Calendar,
-  User,
-  Building2,
-  MapPin,
-  Tag,
-  Star,
-  Download,
-  Upload,
-  MoreVertical,
-  Eye,
-  Trash2,
-  Archive,
-  PhoneCall,
-  MessageSquare,
-  UserPlus,
-  TrendingUp,
-  TrendingDown,
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  Activity
+  Users, Plus, Search, Filter, Star, Phone, MessageSquare,
+  Eye, Edit3, Trash2, FileText, Receipt, PenTool, Calendar,
+  ArrowUpRight, TrendingUp, Activity, UserCheck, Building2,
+  Mail, MapPin, Clock, Tag, ChevronDown, MoreVertical,
+  Target, DollarSign, CheckCircle2, AlertTriangle, 
+  XCircle, RefreshCw, Bell, Archive, Send, Copy,
+  Download, Upload, Settings, BarChart3, Zap,
+  Shield, Lock, User, Briefcase, CreditCard, 
+  FileContract, Calculator, CalendarCheck, Timer
 } from 'lucide-react';
 
-const AdvancedCRM = () => {
-  // State Management
+export default function AdvancedCRM() {
+  const [userRole, setUserRole] = useState('business');
+  const [activeTab, setActiveTab] = useState('leads');
   const [leads, setLeads] = useState([]);
-  const [filteredLeads, setFilteredLeads] = useState([]);
+  const [contracts, setContracts] = useState([]);
+  const [invoices, setInvoices] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filters, setFilters] = useState({
-    status: '',
-    source: '',
-    priority: '',
-    dateRange: '',
-    assignedTo: '',
-    tags: []
-  });
-  const [sortConfig, setSortConfig] = useState({
-    key: 'created_at',
-    direction: 'desc'
-  });
-  const [selectedLeads, setSelectedLeads] = useState([]);
-  const [viewMode, setViewMode] = useState('table'); // table, cards, kanban
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingLead, setEditingLead] = useState(null);
-  const [stats, setStats] = useState({});
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [showTaskNotification, setShowTaskNotification] = useState(null);
 
-  // Business Info
-  const businessId = localStorage.getItem('business_id') || localStorage.getItem('impersonated_business_id') || 1;
-  const userRole = localStorage.getItem('user_role');
-
-  // Fetch Data
   useEffect(() => {
-    fetchLeads();
-    fetchStats();
-  }, [businessId]);
+    const role = localStorage.getItem('user_role') || localStorage.getItem('userRole');
+    setUserRole(role || 'business');
+    loadCRMData(role);
+    checkTaskNotifications();
+    
+    // Check for task notifications every minute
+    const interval = setInterval(checkTaskNotifications, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const fetchLeads = async () => {
+  const checkTaskNotifications = () => {
+    const now = new Date();
+    const dueTasks = tasks.filter(task => {
+      if (task.status === 'completed') return false;
+      const dueDate = new Date(task.due_date + ' ' + task.due_time);
+      return dueDate <= now && dueDate > new Date(now.getTime() - 5 * 60000); // Within last 5 minutes
+    });
+    
+    if (dueTasks.length > 0) {
+      setShowTaskNotification(dueTasks[0]);
+    }
+  };
+
+  const loadCRMData = async (role) => {
     try {
-      setLoading(true);
-      const response = await axios.get(`/api/crm/leads?business_id=${businessId}`);
-      setLeads(response.data);
-      setFilteredLeads(response.data);
+      // Demo leads data
+      const demoLeads = [
+        {
+          id: 1,
+          name: 'אליעזר רוזנברג',
+          phone: '050-1234567',
+          email: 'eliezer@example.com',
+          status: 'new',
+          source: 'שיחה טלפונית',
+          value: 25000,
+          probability: 75,
+          created_at: '2025-08-07',
+          last_contact: '2025-08-07',
+          next_action: 'קביעת פגישה',
+          tags: ['VIP', 'דחוף'],
+          notes: 'לקוח פוטנציאלי חזק, מעוניין בפתרון מלא',
+          business_id: 1,
+          assigned_to: 'יוסי כהן'
+        },
+        {
+          id: 2,
+          name: 'שרה לוי',
+          phone: '052-9876543',
+          email: 'sarah@business.com',
+          status: 'qualified',
+          source: 'WhatsApp',
+          value: 15000,
+          probability: 60,
+          created_at: '2025-08-06',
+          last_contact: '2025-08-06',
+          next_action: 'שליחת הצעת מחיר',
+          tags: ['חם', 'מעקב'],
+          notes: 'לקוח חוזר, זקוק לפתרון מותאם אישית',
+          business_id: 1,
+          assigned_to: 'רחל כהן'
+        },
+        {
+          id: 3,
+          name: 'דוד אברהם',
+          phone: '053-5555555',
+          email: 'david@company.co.il',
+          status: 'proposal',
+          source: 'אתר אינטרנט',
+          value: 40000,
+          probability: 85,
+          created_at: '2025-08-05',
+          last_contact: '2025-08-06',
+          next_action: 'חתימה על חוזה',
+          tags: ['חוזה', 'VIP'],
+          notes: 'הצעת מחיר אושרה, ממתין לחתימה',
+          business_id: 1,
+          assigned_to: 'יוסי כהן'
+        }
+      ];
+
+      // Demo contracts data
+      const demoContracts = [
+        {
+          id: 1,
+          title: 'חוזה שירותי ייעוץ - אליעזר רוזנברג',
+          client_name: 'אליעזר רוזנברג',
+          value: 25000,
+          status: 'active',
+          start_date: '2025-08-01',
+          end_date: '2025-12-31',
+          payment_terms: '30 ימים',
+          signed_date: '2025-07-28',
+          services: 'ייעוץ עסקי ואסטרטגי למשך 5 חודשים',
+          milestones: [
+            { name: 'תכנון אסטרטגי', due_date: '2025-08-15', status: 'completed' },
+            { name: 'יישום שלב ראשון', due_date: '2025-09-15', status: 'in_progress' },
+            { name: 'הערכת ביניים', due_date: '2025-10-15', status: 'pending' }
+          ]
+        },
+        {
+          id: 2,
+          title: 'חוזה פיתוח מערכת - שרה לוי',
+          client_name: 'שרה לוי',
+          value: 15000,
+          status: 'pending_signature',
+          start_date: '2025-08-15',
+          end_date: '2025-11-15',
+          payment_terms: '50% מקדמה, יתרה בסיום',
+          signed_date: null,
+          services: 'פיתוח מערכת CRM מותאמת',
+          milestones: [
+            { name: 'תכנון מערכת', due_date: '2025-08-30', status: 'pending' },
+            { name: 'פיתוח', due_date: '2025-10-15', status: 'pending' },
+            { name: 'בדיקות והטמעה', due_date: '2025-11-15', status: 'pending' }
+          ]
+        }
+      ];
+
+      // Demo invoices data
+      const demoInvoices = [
+        {
+          id: 1,
+          number: 'INV-2025-001',
+          client_name: 'אליעזר רוזנברג',
+          amount: 12500,
+          tax: 2125,
+          total: 14625,
+          status: 'paid',
+          issue_date: '2025-08-01',
+          due_date: '2025-08-31',
+          paid_date: '2025-08-15',
+          items: [
+            { description: 'ייעוץ אסטרטגי - שלב 1', quantity: 1, price: 12500 }
+          ],
+          contract_id: 1
+        },
+        {
+          id: 2,
+          number: 'INV-2025-002',
+          client_name: 'שרה לוי',
+          amount: 7500,
+          tax: 1275,
+          total: 8775,
+          status: 'pending',
+          issue_date: '2025-08-05',
+          due_date: '2025-09-04',
+          paid_date: null,
+          items: [
+            { description: 'מקדמה - פיתוח מערכת CRM', quantity: 1, price: 7500 }
+          ],
+          contract_id: 2
+        }
+      ];
+
+      // Demo tasks data
+      const demoTasks = [
+        {
+          id: 1,
+          title: 'התקשרות לאליעזר רוזנברג - מעקב פרויקט',
+          description: 'לבדוק התקדמות בתכנון האסטרטגי ולקבוע פגישת מעקב',
+          lead_id: 1,
+          contract_id: 1,
+          priority: 'high',
+          status: 'pending',
+          due_date: '2025-08-08',
+          due_time: '10:00',
+          assigned_to: 'יוסי כהן',
+          created_at: '2025-08-07'
+        },
+        {
+          id: 2,
+          title: 'שליחת הצעת מחיר לשרה לוי',
+          description: 'להכין הצעת מחיר מפורטת לפיתוח מערכת CRM',
+          lead_id: 2,
+          contract_id: null,
+          priority: 'medium',
+          status: 'in_progress',
+          due_date: '2025-08-09',
+          due_time: '14:00',
+          assigned_to: 'רחל כהן',
+          created_at: '2025-08-06'
+        },
+        {
+          id: 3,
+          title: 'חתימה על חוזה - דוד אברהם',
+          description: 'לתאם פגישה לחתימה על החוזה',
+          lead_id: 3,
+          contract_id: null,
+          priority: 'high',
+          status: 'pending',
+          due_date: '2025-08-08',
+          due_time: '16:00',
+          assigned_to: 'יוסי כהן',
+          created_at: '2025-08-05'
+        }
+      ];
+
+      setLeads(demoLeads);
+      setContracts(demoContracts);
+      setInvoices(demoInvoices);
+      setTasks(demoTasks);
+      setLoading(false);
     } catch (error) {
-      console.error('Error fetching leads:', error);
-    } finally {
+      console.error('Error loading CRM data:', error);
       setLoading(false);
     }
   };
 
-  const fetchStats = async () => {
-    try {
-      const response = await axios.get(`/api/crm/stats?business_id=${businessId}`);
-      setStats(response.data);
-    } catch (error) {
-      console.error('Error fetching stats:', error);
+  const getLeadStatusColor = (status) => {
+    switch (status) {
+      case 'new': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'qualified': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'proposal': return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'negotiation': return 'bg-orange-100 text-orange-800 border-orange-200';
+      case 'closed_won': return 'bg-green-100 text-green-800 border-green-200';
+      case 'closed_lost': return 'bg-red-100 text-red-800 border-red-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
-  // Advanced Search and Filter Logic
-  const performAdvancedSearch = useMemo(() => {
-    let result = [...leads];
-
-    // Search in multiple fields
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      result = result.filter(lead => 
-        lead.name?.toLowerCase().includes(term) ||
-        lead.email?.toLowerCase().includes(term) ||
-        lead.phone?.includes(term) ||
-        lead.company?.toLowerCase().includes(term) ||
-        lead.notes?.toLowerCase().includes(term) ||
-        lead.tags?.some(tag => tag.toLowerCase().includes(term))
-      );
-    }
-
-    // Apply filters
-    if (filters.status) {
-      result = result.filter(lead => lead.status === filters.status);
-    }
-    if (filters.source) {
-      result = result.filter(lead => lead.source === filters.source);
-    }
-    if (filters.priority) {
-      result = result.filter(lead => lead.priority === filters.priority);
-    }
-    if (filters.assignedTo) {
-      result = result.filter(lead => lead.assigned_to === filters.assignedTo);
-    }
-    if (filters.tags.length > 0) {
-      result = result.filter(lead => 
-        filters.tags.some(tag => lead.tags?.includes(tag))
-      );
-    }
-
-    // Date range filter
-    if (filters.dateRange) {
-      const now = new Date();
-      let startDate;
-      switch (filters.dateRange) {
-        case 'today':
-          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          break;
-        case 'week':
-          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          break;
-        case 'month':
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-          break;
-        case '3months':
-          startDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-          break;
-        default:
-          startDate = null;
-      }
-      if (startDate) {
-        result = result.filter(lead => new Date(lead.created_at) >= startDate);
-      }
-    }
-
-    // Sorting
-    result.sort((a, b) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
-      
-      if (typeof aVal === 'string') {
-        aVal = aVal.toLowerCase();
-        bVal = bVal.toLowerCase();
-      }
-      
-      if (aVal < bVal) {
-        return sortConfig.direction === 'asc' ? -1 : 1;
-      }
-      if (aVal > bVal) {
-        return sortConfig.direction === 'asc' ? 1 : -1;
-      }
-      return 0;
-    });
-
-    return result;
-  }, [leads, searchTerm, filters, sortConfig]);
-
-  useEffect(() => {
-    setFilteredLeads(performAdvancedSearch);
-  }, [performAdvancedSearch]);
-
-  // Status Icons and Colors
-  const getStatusIcon = (status) => {
+  const getLeadStatusText = (status) => {
     switch (status) {
-      case 'new': return <Clock className="w-4 h-4 text-blue-500" />;
-      case 'contacted': return <PhoneCall className="w-4 h-4 text-yellow-500" />;
-      case 'qualified': return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'proposal': return <TrendingUp className="w-4 h-4 text-purple-500" />;
-      case 'negotiation': return <Activity className="w-4 h-4 text-orange-500" />;
-      case 'closed_won': return <Star className="w-4 h-4 text-green-600" />;
-      case 'closed_lost': return <TrendingDown className="w-4 h-4 text-red-500" />;
-      default: return <AlertCircle className="w-4 h-4 text-gray-500" />;
-    }
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'new': return 'bg-blue-100 text-blue-800';
-      case 'contacted': return 'bg-yellow-100 text-yellow-800';
-      case 'qualified': return 'bg-green-100 text-green-800';
-      case 'proposal': return 'bg-purple-100 text-purple-800';
-      case 'negotiation': return 'bg-orange-100 text-orange-800';
-      case 'closed_won': return 'bg-green-200 text-green-900';
-      case 'closed_lost': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'new': return 'חדש';
+      case 'qualified': return 'מוכשר';
+      case 'proposal': return 'הצעת מחיר';
+      case 'negotiation': return 'משא ומתן';
+      case 'closed_won': return 'נסגר בהצלחה';
+      case 'closed_lost': return 'נסגר ללא הצלחה';
+      default: return 'לא ידוע';
     }
   };
 
@@ -210,492 +266,539 @@ const AdvancedCRM = () => {
     }
   };
 
-  // Hebrew Date Formatting
-  const formatHebrewDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('he-IL', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  // Handlers
-  const handleSort = (key) => {
-    setSortConfig(prevConfig => ({
-      key,
-      direction: prevConfig.key === key && prevConfig.direction === 'asc' ? 'desc' : 'asc'
-    }));
-  };
-
-  const handleSelectLead = (leadId) => {
-    setSelectedLeads(prev => 
-      prev.includes(leadId) 
-        ? prev.filter(id => id !== leadId)
-        : [...prev, leadId]
-    );
-  };
-
-  const handleSelectAll = () => {
-    setSelectedLeads(
-      selectedLeads.length === filteredLeads.length 
-        ? [] 
-        : filteredLeads.map(lead => lead.id)
-    );
-  };
-
-  const handleBulkAction = async (action) => {
-    try {
-      await axios.post(`/api/crm/bulk-action`, {
-        business_id: businessId,
-        lead_ids: selectedLeads,
-        action
-      });
-      fetchLeads();
-      setSelectedLeads([]);
-    } catch (error) {
-      console.error('Bulk action error:', error);
+  const getTaskStatusColor = (status) => {
+    switch (status) {
+      case 'pending': return 'bg-gray-100 text-gray-800 border-gray-200';
+      case 'in_progress': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'completed': return 'bg-green-100 text-green-800 border-green-200';
+      case 'overdue': return 'bg-red-100 text-red-800 border-red-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('he-IL', {
+      style: 'currency',
+      currency: 'ILS'
+    }).format(amount);
+  };
+
+  const filteredLeads = leads.filter(lead => {
+    const matchesSearch = lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         lead.phone.includes(searchTerm) ||
+                         lead.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = filterStatus === 'all' || lead.status === filterStatus;
+    return matchesSearch && matchesStatus;
+  });
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center" dir="rtl">
-        <div className="text-center font-hebrew">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">טוען נתוני לידים...</p>
+      <ModernLayout userRole={userRole}>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">טוען נתוני CRM...</p>
+          </div>
         </div>
-      </div>
+      </ModernLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50" dir="rtl">
-      <div className="max-w-7xl mx-auto p-6">
+    <ModernLayout userRole={userRole}>
+      {/* Task Notification Popup */}
+      {showTaskNotification && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Bell className="w-8 h-8 text-red-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">⏰ משימה דחופה!</h3>
+              <p className="text-gray-600 mb-6">{showTaskNotification.title}</p>
+              <div className="flex gap-4 justify-center">
+                <button
+                  onClick={() => setShowTaskNotification(null)}
+                  className="px-6 py-2 bg-gray-500 text-white rounded-xl hover:bg-gray-600"
+                >
+                  סגור
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('tasks');
+                    setShowTaskNotification(null);
+                  }}
+                  className="px-6 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600"
+                >
+                  עבור למשימה
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-8">
         {/* Header */}
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 font-hebrew mb-2">
-              CRM מתקדם - ניהול לידים
-            </h1>
-            <p className="text-gray-600 font-hebrew">
-              מערכת ניהול לקוחות פוטנציאליים ברמת Monday.com
-            </p>
-          </div>
-          <div className="flex gap-3 mt-4 lg:mt-0">
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-hebrew"
-            >
-              <Plus className="w-4 h-4" />
-              הוסף ליד חדש
-            </button>
-            <button className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-hebrew">
-              <Upload className="w-4 h-4" />
-              ייבא נתונים
-            </button>
-            <button className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-hebrew">
-              <Download className="w-4 h-4" />
-              ייצא לExcel
-            </button>
-          </div>
-        </div>
-
-        {/* Stats Cards - Monday.com Style */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 font-hebrew">סה"כ לידים</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.total_leads || 0}</p>
-              </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <Users className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-            <div className="mt-4 flex items-center text-sm">
-              <TrendingUp className="w-4 h-4 text-green-500 ml-1" />
-              <span className="text-green-600 font-medium">+12%</span>
-              <span className="text-gray-600 font-hebrew mr-2">מהחודש הקודם</span>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 font-hebrew">מחכים למעקב</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.pending_followup || 0}</p>
-              </div>
-              <div className="p-3 bg-yellow-100 rounded-lg">
-                <Clock className="w-6 h-6 text-yellow-600" />
-              </div>
-            </div>
-            <div className="mt-4 flex items-center text-sm">
-              <AlertCircle className="w-4 h-4 text-yellow-500 ml-1" />
-              <span className="text-yellow-600 font-hebrew">דורש תשומת לב</span>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 font-hebrew">עסקאות סגורות</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.closed_won || 0}</p>
-              </div>
-              <div className="p-3 bg-green-100 rounded-lg">
-                <CheckCircle className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
-            <div className="mt-4 flex items-center text-sm">
-              <Star className="w-4 h-4 text-green-500 ml-1" />
-              <span className="text-green-600 font-medium">₪{stats.total_revenue || 0}</span>
-              <span className="text-gray-600 font-hebrew mr-2">הכנסות</span>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 font-hebrew">שיעור המרה</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.conversion_rate || 0}%</p>
-              </div>
-              <div className="p-3 bg-purple-100 rounded-lg">
-                <TrendingUp className="w-6 h-6 text-purple-600" />
-              </div>
-            </div>
-            <div className="mt-4 flex items-center text-sm">
-              <Activity className="w-4 h-4 text-purple-500 ml-1" />
-              <span className="text-purple-600 font-hebrew">ביצועים מעולים</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Advanced Search and Filters */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-          <div className="flex flex-col lg:flex-row gap-4">
-            {/* Search Bar */}
-            <div className="flex-1 relative">
-              <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="חיפוש לפי שם, טלפון, אימייל, חברה או הערות..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pr-10 pl-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-hebrew"
-              />
-            </div>
-
-            {/* Filters */}
-            <div className="flex flex-wrap gap-3">
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
-              >
-                <option value="">כל הסטטוסים</option>
-                <option value="new">חדש</option>
-                <option value="contacted">נוצר קשר</option>
-                <option value="qualified">מוכשר</option>
-                <option value="proposal">הצעה</option>
-                <option value="negotiation">משא ומתן</option>
-                <option value="closed_won">נסגר בהצלחה</option>
-                <option value="closed_lost">נסגר ללא הצלחה</option>
-              </select>
-
-              <select
-                value={filters.source}
-                onChange={(e) => setFilters(prev => ({ ...prev, source: e.target.value }))}
-                className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
-              >
-                <option value="">כל המקורות</option>
-                <option value="website">אתר</option>
-                <option value="phone">טלפון</option>
-                <option value="whatsapp">WhatsApp</option>
-                <option value="facebook">Facebook</option>
-                <option value="google">Google</option>
-                <option value="referral">הפניה</option>
-              </select>
-
-              <select
-                value={filters.priority}
-                onChange={(e) => setFilters(prev => ({ ...prev, priority: e.target.value }))}
-                className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
-              >
-                <option value="">כל העדיפויות</option>
-                <option value="high">גבוהה</option>
-                <option value="medium">בינונית</option>
-                <option value="low">נמוכה</option>
-              </select>
-
-              <select
-                value={filters.dateRange}
-                onChange={(e) => setFilters(prev => ({ ...prev, dateRange: e.target.value }))}
-                className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-hebrew"
-              >
-                <option value="">כל התאריכים</option>
-                <option value="today">היום</option>
-                <option value="week">השבוע</option>
-                <option value="month">החודש</option>
-                <option value="3months">3 חודשים אחרונים</option>
-              </select>
-
-              <button
-                onClick={() => setFilters({ status: '', source: '', priority: '', dateRange: '', assignedTo: '', tags: [] })}
-                className="px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-hebrew"
-              >
-                נקה מסננים
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Results Summary and Actions */}
-        {selectedLeads.length > 0 && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-blue-600" />
-                <span className="font-hebrew text-blue-800">
-                  נבחרו {selectedLeads.length} לידים
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleBulkAction('update_status')}
-                  className="px-3 py-1 bg-blue-600 text-white rounded font-hebrew text-sm"
-                >
-                  עדכן סטטוס
-                </button>
-                <button
-                  onClick={() => handleBulkAction('assign')}
-                  className="px-3 py-1 bg-green-600 text-white rounded font-hebrew text-sm"
-                >
-                  הקצה למשתמש
-                </button>
-                <button
-                  onClick={() => handleBulkAction('delete')}
-                  className="px-3 py-1 bg-red-600 text-white rounded font-hebrew text-sm"
-                >
-                  מחק
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Results Table - Monday.com Style */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900 font-hebrew">
-                תוצאות חיפוש ({filteredLeads.length} לידים)
-              </h3>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setViewMode('table')}
-                  className={`p-2 rounded ${viewMode === 'table' ? 'bg-blue-100 text-blue-600' : 'text-gray-400'}`}
-                >
-                  <Activity className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setViewMode('cards')}
-                  className={`p-2 rounded ${viewMode === 'cards' ? 'bg-blue-100 text-blue-600' : 'text-gray-400'}`}
-                >
-                  <Building2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {filteredLeads.length === 0 ? (
-            <div className="text-center py-12">
-              <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 font-hebrew mb-2">
-                לא נמצאו לידים
-              </h3>
-              <p className="text-gray-600 font-hebrew">
-                נסה לשנות את קריטריוני החיפוש או הוסף ליד חדש
+        <div className="bg-gradient-to-r from-purple-600 to-indigo-700 rounded-3xl p-8 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold mb-2 flex items-center gap-3">
+                <Briefcase className="w-10 h-10" />
+                🚀 CRM מתקדם
+              </h1>
+              <p className="text-purple-100 text-lg">
+                ניהול לקוחות, חוזים, חשבוניות ומשימות במקום אחד
               </p>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <input
-                        type="checkbox"
-                        checked={selectedLeads.length === filteredLeads.length}
-                        onChange={handleSelectAll}
-                        className="rounded border-gray-300"
-                      />
-                    </th>
-                    <th 
-                      className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 font-hebrew"
-                      onClick={() => handleSort('name')}
-                    >
-                      שם הליד
-                      {sortConfig.key === 'name' && (
-                        <span className="mr-1">
-                          {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                        </span>
+            <div className="text-left">
+              <div className="text-3xl font-bold">{leads.length}</div>
+              <div className="text-purple-100">ליידים פעילים</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">ליידים חדשים</p>
+                <p className="text-3xl font-bold text-blue-600">
+                  {leads.filter(l => l.status === 'new').length}
+                </p>
+              </div>
+              <Target className="w-12 h-12 text-blue-500" />
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">חוזים פעילים</p>
+                <p className="text-3xl font-bold text-green-600">
+                  {contracts.filter(c => c.status === 'active').length}
+                </p>
+              </div>
+              <FileContract className="w-12 h-12 text-green-500" />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">הכנסות החודש</p>
+                <p className="text-3xl font-bold text-purple-600">
+                  {formatCurrency(invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.total, 0))}
+                </p>
+              </div>
+              <DollarSign className="w-12 h-12 text-purple-500" />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">משימות דחופות</p>
+                <p className="text-3xl font-bold text-red-600">
+                  {tasks.filter(t => t.priority === 'high' && t.status !== 'completed').length}
+                </p>
+              </div>
+              <Timer className="w-12 h-12 text-red-500" />
+            </div>
+          </div>
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+          <div className="flex">
+            {[
+              { key: 'leads', label: 'ליידים', icon: Target },
+              { key: 'contracts', label: 'חוזים', icon: FileContract },
+              { key: 'invoices', label: 'חשבוניות', icon: Receipt },
+              { key: 'tasks', label: 'משימות', icon: CalendarCheck }
+            ].map(tab => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`flex-1 px-6 py-4 flex items-center justify-center gap-2 transition-all ${
+                    activeTab === tab.key
+                      ? 'bg-blue-500 text-white'
+                      : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <Icon className="w-5 h-5" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Tab Content */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+          {/* Search Bar */}
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex flex-wrap gap-4 items-center justify-between">
+              <div className="relative flex-1 min-w-[300px]">
+                <Search className="w-5 h-5 text-gray-400 absolute right-3 top-1/2 transform -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder={`חיפוש ${activeTab === 'leads' ? 'ליידים' : activeTab === 'contracts' ? 'חוזים' : activeTab === 'invoices' ? 'חשבוניות' : 'משימות'}...`}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl pr-10 pl-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              
+              <div className="flex gap-4">
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">כל הסטטוסים</option>
+                  {activeTab === 'leads' && (
+                    <>
+                      <option value="new">חדש</option>
+                      <option value="qualified">מוכשר</option>
+                      <option value="proposal">הצעת מחיר</option>
+                      <option value="negotiation">משא ומתן</option>
+                      <option value="closed_won">נסגר בהצלחה</option>
+                      <option value="closed_lost">נסגר ללא הצלחה</option>
+                    </>
+                  )}
+                </select>
+                
+                <button className="bg-blue-500 text-white px-6 py-3 rounded-xl hover:bg-blue-600 flex items-center gap-2">
+                  <Plus className="w-5 h-5" />
+                  הוסף חדש
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Leads Tab */}
+          {activeTab === 'leads' && (
+            <div className="space-y-4 p-6">
+              {filteredLeads.map((lead) => (
+                <div key={lead.id} className="bg-gray-50 rounded-2xl p-6 hover:bg-gray-100 transition-all duration-200 border border-gray-100">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+                      {lead.name.charAt(0)}
+                    </div>
+                    
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                            {lead.name}
+                            {lead.tags && lead.tags.map(tag => (
+                              <span key={tag} className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                                {tag}
+                              </span>
+                            ))}
+                          </h3>
+                          <p className="text-sm text-gray-600 flex items-center gap-2">
+                            <Phone className="w-4 h-4" />
+                            {lead.phone}
+                            <span className="mx-2">•</span>
+                            <Mail className="w-4 h-4" />
+                            {lead.email}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getLeadStatusColor(lead.status)}`}>
+                            {getLeadStatusText(lead.status)}
+                          </span>
+                          <div className="text-right">
+                            <div className="font-bold text-green-600">{formatCurrency(lead.value)}</div>
+                            <div className="text-xs text-gray-500">{lead.probability}% סיכוי</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div className="bg-white rounded-lg p-3">
+                          <div className="text-xs text-gray-500 mb-1">מקור הליד</div>
+                          <div className="font-medium">{lead.source}</div>
+                        </div>
+                        <div className="bg-white rounded-lg p-3">
+                          <div className="text-xs text-gray-500 mb-1">פעולה הבאה</div>
+                          <div className="font-medium">{lead.next_action}</div>
+                        </div>
+                        <div className="bg-white rounded-lg p-3">
+                          <div className="text-xs text-gray-500 mb-1">אחראי</div>
+                          <div className="font-medium">{lead.assigned_to}</div>
+                        </div>
+                      </div>
+
+                      {lead.notes && (
+                        <div className="bg-white rounded-lg p-4 mb-4">
+                          <div className="text-xs text-gray-500 mb-2">הערות</div>
+                          <div className="text-sm text-gray-700">{lead.notes}</div>
+                        </div>
                       )}
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider font-hebrew">
-                      פרטי קשר
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider font-hebrew">
-                      חברה
-                    </th>
-                    <th 
-                      className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 font-hebrew"
-                      onClick={() => handleSort('status')}
-                    >
-                      סטטוס
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider font-hebrew">
-                      עדיפות
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider font-hebrew">
-                      מקור
-                    </th>
-                    <th 
-                      className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 font-hebrew"
-                      onClick={() => handleSort('created_at')}
-                    >
-                      תאריך יצירה
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider font-hebrew">
-                      פעולות
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredLeads.map((lead) => (
-                    <tr key={lead.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <input
-                          type="checkbox"
-                          checked={selectedLeads.includes(lead.id)}
-                          onChange={() => handleSelectLead(lead.id)}
-                          className="rounded border-gray-300"
-                        />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="flex-shrink-0 h-10 w-10">
-                            <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center">
-                              <User className="w-5 h-5 text-gray-600" />
-                            </div>
+
+                      <div className="flex items-center gap-3">
+                        <button className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600">
+                          <Phone className="w-4 h-4" />
+                          התקשר
+                        </button>
+                        <button className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600">
+                          <MessageSquare className="w-4 h-4" />
+                          WhatsApp
+                        </button>
+                        <button className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-xl hover:bg-purple-600">
+                          <FileText className="w-4 h-4" />
+                          הצעת מחיר
+                        </button>
+                        <button className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600">
+                          <CalendarCheck className="w-4 h-4" />
+                          הוסף משימה
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Contracts Tab */}
+          {activeTab === 'contracts' && (
+            <div className="space-y-4 p-6">
+              {contracts.map((contract) => (
+                <div key={contract.id} className="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">{contract.title}</h3>
+                      <p className="text-gray-600">{contract.client_name}</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-green-600">{formatCurrency(contract.value)}</div>
+                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                        contract.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {contract.status === 'active' ? 'פעיל' : 'ממתין לחתימה'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">תאריך התחלה</div>
+                      <div className="font-medium">{new Date(contract.start_date).toLocaleDateString('he-IL')}</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">תאריך סיום</div>
+                      <div className="font-medium">{new Date(contract.end_date).toLocaleDateString('he-IL')}</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">תנאי תשלום</div>
+                      <div className="font-medium">{contract.payment_terms}</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">תאריך חתימה</div>
+                      <div className="font-medium">
+                        {contract.signed_date ? new Date(contract.signed_date).toLocaleDateString('he-IL') : 'לא נחתם'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg p-4 mb-4">
+                    <div className="text-xs text-gray-500 mb-2">תיאור השירותים</div>
+                    <div className="text-sm text-gray-700">{contract.services}</div>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="text-sm font-medium text-gray-900 mb-3">אבני דרך</div>
+                    <div className="space-y-2">
+                      {contract.milestones.map((milestone, index) => (
+                        <div key={index} className="flex items-center justify-between bg-white rounded-lg p-3">
+                          <div className="flex items-center gap-3">
+                            {milestone.status === 'completed' && <CheckCircle2 className="w-5 h-5 text-green-500" />}
+                            {milestone.status === 'in_progress' && <RefreshCw className="w-5 h-5 text-blue-500" />}
+                            {milestone.status === 'pending' && <Clock className="w-5 h-5 text-gray-400" />}
+                            <span className="font-medium">{milestone.name}</span>
                           </div>
-                          <div className="mr-4">
-                            <div className="text-sm font-medium text-gray-900 font-hebrew">
-                              {lead.name}
-                            </div>
-                            {lead.tags && lead.tags.length > 0 && (
-                              <div className="flex gap-1 mt-1">
-                                {lead.tags.slice(0, 2).map((tag, index) => (
-                                  <span key={index} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                                    {tag}
-                                  </span>
-                                ))}
-                                {lead.tags.length > 2 && (
-                                  <span className="text-xs text-gray-500">+{lead.tags.length - 2}</span>
-                                )}
-                              </div>
-                            )}
+                          <div className="text-sm text-gray-500">
+                            {new Date(milestone.due_date).toLocaleDateString('he-IL')}
                           </div>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {lead.phone && (
-                            <div className="flex items-center gap-1 mb-1">
-                              <Phone className="w-3 h-3 text-gray-400" />
-                              <span className="font-hebrew">{lead.phone}</span>
-                            </div>
-                          )}
-                          {lead.email && (
-                            <div className="flex items-center gap-1">
-                              <Mail className="w-3 h-3 text-gray-400" />
-                              <span className="font-hebrew">{lead.email}</span>
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-hebrew">
-                        {lead.company || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(lead.status)}`}>
-                          {getStatusIcon(lead.status)}
-                          <span className="mr-1 font-hebrew">
-                            {lead.status === 'new' && 'חדש'}
-                            {lead.status === 'contacted' && 'נוצר קשר'}
-                            {lead.status === 'qualified' && 'מוכשר'}
-                            {lead.status === 'proposal' && 'הצעה'}
-                            {lead.status === 'negotiation' && 'משא ומתן'}
-                            {lead.status === 'closed_won' && 'נסגר בהצלחה'}
-                            {lead.status === 'closed_lost' && 'נסגר ללא הצלחה'}
-                          </span>
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`text-sm font-medium ${getPriorityColor(lead.priority)}`}>
-                          <span className="font-hebrew">
-                            {lead.priority === 'high' && 'גבוהה'}
-                            {lead.priority === 'medium' && 'בינונית'}
-                            {lead.priority === 'low' && 'נמוכה'}
-                            {!lead.priority && '-'}
-                          </span>
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-hebrew">
-                        {lead.source === 'website' && 'אתר'}
-                        {lead.source === 'phone' && 'טלפון'}
-                        {lead.source === 'whatsapp' && 'WhatsApp'}
-                        {lead.source === 'facebook' && 'Facebook'}
-                        {lead.source === 'google' && 'Google'}
-                        {lead.source === 'referral' && 'הפניה'}
-                        {!['website', 'phone', 'whatsapp', 'facebook', 'google', 'referral'].includes(lead.source) && (lead.source || '-')}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-hebrew">
-                        {formatHebrewDate(lead.created_at)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center gap-2">
-                          <button className="text-indigo-600 hover:text-indigo-900">
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => {
-                              setEditingLead(lead);
-                              setShowEditModal(true);
-                            }}
-                            className="text-green-600 hover:text-green-900"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button className="text-blue-600 hover:text-blue-900">
-                            <PhoneCall className="w-4 h-4" />
-                          </button>
-                          <button className="text-orange-600 hover:text-orange-900">
-                            <MessageSquare className="w-4 h-4" />
-                          </button>
-                          <button className="text-red-600 hover:text-red-900">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600">
+                      <Eye className="w-4 h-4" />
+                      צפייה מלאה
+                    </button>
+                    <button className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600">
+                      <Download className="w-4 h-4" />
+                      הורד PDF
+                    </button>
+                    <button className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-xl hover:bg-purple-600">
+                      <Receipt className="w-4 h-4" />
+                      צור חשבונית
+                    </button>
+                    <button className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600">
+                      <Edit3 className="w-4 h-4" />
+                      עריכה
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Invoices Tab */}
+          {activeTab === 'invoices' && (
+            <div className="space-y-4 p-6">
+              {invoices.map((invoice) => (
+                <div key={invoice.id} className="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">חשבונית {invoice.number}</h3>
+                      <p className="text-gray-600">{invoice.client_name}</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-blue-600">{formatCurrency(invoice.total)}</div>
+                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                        invoice.status === 'paid' ? 'bg-green-100 text-green-800' : 
+                        invoice.status === 'overdue' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {invoice.status === 'paid' ? 'שולם' : 
+                         invoice.status === 'overdue' ? 'באיחור' : 'ממתין לתשלום'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">תאריך הנפקה</div>
+                      <div className="font-medium">{new Date(invoice.issue_date).toLocaleDateString('he-IL')}</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">תאריך פירעון</div>
+                      <div className="font-medium">{new Date(invoice.due_date).toLocaleDateString('he-IL')}</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">סכום לפני מע"מ</div>
+                      <div className="font-medium">{formatCurrency(invoice.amount)}</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">מע"מ</div>
+                      <div className="font-medium">{formatCurrency(invoice.tax)}</div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg p-4 mb-4">
+                    <div className="text-sm font-medium text-gray-900 mb-3">פריטים</div>
+                    {invoice.items.map((item, index) => (
+                      <div key={index} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
+                        <div>{item.description}</div>
+                        <div className="font-medium">{formatCurrency(item.price)}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600">
+                      <Eye className="w-4 h-4" />
+                      צפייה מלאה
+                    </button>
+                    <button className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600">
+                      <Download className="w-4 h-4" />
+                      הורד PDF
+                    </button>
+                    <button className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-xl hover:bg-purple-600">
+                      <Send className="w-4 h-4" />
+                      שלח ללקוח
+                    </button>
+                    {invoice.status === 'pending' && (
+                      <button className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600">
+                        <CheckCircle2 className="w-4 h-4" />
+                        סמן כשולם
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Tasks Tab */}
+          {activeTab === 'tasks' && (
+            <div className="space-y-4 p-6">
+              {tasks.map((task) => (
+                <div key={task.id} className="bg-gray-50 rounded-2xl p-6 border border-gray-100">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                        {task.title}
+                        <span className={`w-3 h-3 rounded-full ${getPriorityColor(task.priority)} bg-current`}></span>
+                      </h3>
+                      <p className="text-gray-600 text-sm mt-1">{task.description}</p>
+                    </div>
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getTaskStatusColor(task.status)}`}>
+                      {task.status === 'pending' ? 'ממתין' :
+                       task.status === 'in_progress' ? 'בביצוע' :
+                       task.status === 'completed' ? 'הושלם' : 'באיחור'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">תאריך ביצוע</div>
+                      <div className="font-medium">{new Date(task.due_date).toLocaleDateString('he-IL')}</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">שעה</div>
+                      <div className="font-medium">{task.due_time}</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">אחראי</div>
+                      <div className="font-medium">{task.assigned_to}</div>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">עדיפות</div>
+                      <div className={`font-medium ${getPriorityColor(task.priority)}`}>
+                        {task.priority === 'high' ? 'גבוהה' :
+                         task.priority === 'medium' ? 'בינונית' : 'נמוכה'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button 
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl ${
+                        task.status === 'completed' 
+                          ? 'bg-green-500 text-white' 
+                          : 'bg-blue-500 text-white hover:bg-blue-600'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      {task.status === 'completed' ? 'הושלם' : 'סמן כהושלם'}
+                    </button>
+                    <button className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600">
+                      <Edit3 className="w-4 h-4" />
+                      עריכה
+                    </button>
+                    <button className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-xl hover:bg-purple-600">
+                      <Calendar className="w-4 h-4" />
+                      דחה תאריך
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
       </div>
-    </div>
+    </ModernLayout>
   );
-};
-
-export default AdvancedCRM;
+}

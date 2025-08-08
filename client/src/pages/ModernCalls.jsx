@@ -4,7 +4,11 @@ import {
   Phone, Play, Pause, Download, FileText, Clock, 
   Mic, User, Calendar, MessageSquare, Star,
   Volume2, PhoneCall, Activity, TrendingUp,
-  ArrowUpRight, CheckCircle, AlertCircle
+  ArrowUpRight, CheckCircle, AlertCircle,
+  Search, Filter, Eye, EyeOff, Headphones,
+  Volume1, MoreVertical, UserCheck, Building2,
+  PhoneIncoming, PhoneOutgoing, Settings,
+  BarChart3, Zap, Copy, Share2, Edit
 } from 'lucide-react';
 
 export default function ModernCalls() {
@@ -13,6 +17,12 @@ export default function ModernCalls() {
   const [loading, setLoading] = useState(true);
   const [playingCall, setPlayingCall] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCall, setSelectedCall] = useState(null);
+  const [showTranscription, setShowTranscription] = useState({});
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [hasCallPermissions, setHasCallPermissions] = useState(true);
+  const [businesses, setBusinesses] = useState([]);
+  const [selectedBusiness, setSelectedBusiness] = useState('all');
 
   useEffect(() => {
     const role = localStorage.getItem('user_role') || localStorage.getItem('userRole');
@@ -22,7 +32,15 @@ export default function ModernCalls() {
 
   const loadCalls = async (role) => {
     try {
-      // Demo call data
+      // Check permissions based on business features
+      await checkCallPermissions(role);
+      
+      // Load businesses for admin
+      if (role === 'admin') {
+        await loadBusinesses();
+      }
+      
+      // Enhanced demo call data with full transcriptions
       const demoCalls = [
         {
           id: 1,
@@ -30,12 +48,35 @@ export default function ModernCalls() {
           customer_phone: '050-1234567',
           duration: '2:34',
           status: 'completed',
+          business_name: 'עסק ABC - ייעוץ',
+          business_id: 1,
+          direction: 'incoming',
           ai_response: 'שיחה הושלמה בהצלחה, הלקוח מעוניין בפגישה',
-          transcription: 'שלום, אני מעוניין לקבל מידע על השירותים שלכם...',
+          transcription: `מערכת: שלום, הגעת לעסק ABC. איך אני יכול לעזור לך היום?
+
+יוסי: שלום, אני יוסי כהן. שמעתי עליכם המלצות מצוינות ואני מעוניין לקבל מידע על השירותים שלכם.
+
+מערכת: נהדר יוסי! אני שמח לשמוע שהגעת אלינו דרך המלצה. אנחנו מתמחים בשירותי ייעוץ עסקי ואסטרטגי. באיזה תחום אתה מעוניין בדיוק?
+
+יוסי: אני מנהל חברת טכנולוגיה קטנה ואני מחפש ייעוץ בתחום השיווק הדיגיטלי. יש לנו מוצר טוב אבל אנחנו לא מצליחים להגיע ללקוחות.
+
+מערכת: מבין לחלוטין. זה אתגר נפוץ בחברות טכנולוגיה. אנחנו עוזרים לחברות כמו שלך לבנות אסטרטגית שיווק יעילה. האם תרצה לקבוע פגישת ייעוץ ראשונית?
+
+יוסי: כן, זה נשמע מעולה. מתי אפשר לקבוע?
+
+מערכת: אני יכול לקבוע לך פגישה לשבוע הבא. האם יום שלישי בשעה 10:00 מתאים לך?
+
+יוסי: מושלם! אני אשמח. איך אנחנו מתקדמים?
+
+מערכת: נפלא! אני רושם אותך לפגישה ביום שלישי הקרוב בשעה 10:00. תקבל SMS אישור עם כל הפרטים. תודה רבה יוסי!`,
           recording_url: '/audio/demo_call_1.mp3',
           created_at: '2025-08-07 14:30:00',
           sentiment: 'positive',
-          summary: 'לקוח מעוניין בשירותי ייעוץ, נקבעה פגישה לשבוע הבא'
+          confidence_score: 0.87,
+          tags: ['ייעוץ', 'טכנולוגיה', 'שיווק דיגיטלי', 'פגישה'],
+          follow_up_required: true,
+          appointment_scheduled: true,
+          summary: 'לקוח מעוניין בשירותי ייעוץ שיווק דיגיטלי, נקבעה פגישה לשלישי 10:00'
         },
         {
           id: 2,
@@ -43,12 +84,31 @@ export default function ModernCalls() {
           customer_phone: '052-9876543',
           duration: '1:45',
           status: 'completed',
+          business_name: 'עסק XYZ - מכירות',
+          business_id: 2,
+          direction: 'incoming',
           ai_response: 'הלקוח ביקש מידע נוסף, נשלח מייל עם פרטים',
-          transcription: 'היי, שמעתי עליכם המלצות טובות...',
+          transcription: `מערכת: שלום וברוכה הבאה לעסק XYZ. איך אני יכול לעזור לך?
+
+רחל: היי, אני רחל. שמעתי שיש לכם מוצרים מעניינים ואני רוצה לשמוע עוד.
+
+מערכת: נהדר רחל! אני שמח שהתעניינת במוצרים שלנו. אנחנו מתמחים במכירת פתרונות טכנולוגיים לעסקים. איזה סוג של פתרון מחפשת?
+
+רחל: אני מחפשת משהו לניהול לקוחות. יש לי עסק קטן ואני רוצה לארגן את כל המידע על הלקוחות שלי.
+
+מערכת: מצוין! יש לנו פתרון CRM שמתאים בדיוק לעסקים כמו שלך. האם תרצי שאני אשלח לך מידע מפורט על המערכת?
+
+רחל: כן, זה יהיה נהדר. ואם אפשר גם מחירים.
+
+מערכת: בוודאי. אני אשלח לך מייל עם כל המידע הרלוונטי. תודה רחל!`,
           recording_url: '/audio/demo_call_2.mp3',
           created_at: '2025-08-07 13:15:00',
-          sentiment: 'neutral',
-          summary: 'בירור ראשוני על השירותים, הלקוח רוצה לחזור אלינו'
+          sentiment: 'positive',
+          confidence_score: 0.73,
+          tags: ['CRM', 'טכנולוגיה', 'ניהול לקוחות'],
+          follow_up_required: true,
+          appointment_scheduled: false,
+          summary: 'בירור על פתרונות CRM, הלקוח מעוניין לקבל מידע נוסף במייל'
         },
         {
           id: 3,
@@ -56,12 +116,21 @@ export default function ModernCalls() {
           customer_phone: '053-5555555',
           duration: '0:23',
           status: 'failed',
-          ai_response: 'שיחה קצרה מדי, לא ניתן היה להבין את הבקשה',
-          transcription: 'לא זמין כרגע...',
+          business_name: 'עסק ABC - ייעוץ',
+          business_id: 1,
+          direction: 'incoming',
+          ai_response: 'שיחה קצרה מדי, הלקוח התנתק מהר',
+          transcription: `מערכת: שלום, הגעת לעסק ABC. איך אני יכול לעזור לך היום?
+
+דני: לא זמין כרגע... [השיחה הסתיימה]`,
           recording_url: '/audio/demo_call_3.mp3',
           created_at: '2025-08-07 12:45:00',
           sentiment: 'neutral',
-          summary: 'שיחה קצרה, הלקוח לא היה זמין'
+          confidence_score: 0.21,
+          tags: ['שיחה קצרה', 'התנתקות'],
+          follow_up_required: false,
+          appointment_scheduled: false,
+          summary: 'שיחה קצרה, הלקוח התנתק מיד - אין מידע משמעותי'
         }
       ];
       
@@ -73,10 +142,65 @@ export default function ModernCalls() {
     }
   };
 
-  const filteredCalls = calls.filter(call =>
-    call.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    call.customer_phone?.includes(searchTerm)
-  );
+  const checkCallPermissions = async (role) => {
+    // In real implementation, check if business has call features enabled
+    if (role === 'business') {
+      try {
+        const response = await fetch('/api/business/features');
+        const features = await response.json();
+        setHasCallPermissions(features.calls_enabled || false);
+      } catch (error) {
+        setHasCallPermissions(false);
+      }
+    } else {
+      setHasCallPermissions(true); // Admin always has access
+    }
+  };
+
+  const loadBusinesses = async () => {
+    // Demo businesses data
+    const demoBusinesses = [
+      { id: 1, name: 'עסק ABC - ייעוץ', calls_enabled: true },
+      { id: 2, name: 'עסק XYZ - מכירות', calls_enabled: true },
+      { id: 3, name: 'עסק 123 - שירותים', calls_enabled: false }
+    ];
+    setBusinesses(demoBusinesses);
+  };
+
+  const toggleTranscription = (callId) => {
+    setShowTranscription(prev => ({
+      ...prev,
+      [callId]: !prev[callId]
+    }));
+  };
+
+  const filteredCalls = calls.filter(call => {
+    const matchesSearch = call.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         call.customer_phone?.includes(searchTerm) ||
+                         call.transcription?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         call.summary?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesStatus = filterStatus === 'all' || call.status === filterStatus;
+    
+    const matchesBusiness = userRole === 'admin' 
+      ? (selectedBusiness === 'all' || call.business_id?.toString() === selectedBusiness)
+      : true;
+    
+    return matchesSearch && matchesStatus && matchesBusiness;
+  });
+
+  const copyTranscription = (transcription) => {
+    navigator.clipboard.writeText(transcription);
+  };
+
+  const downloadRecording = (recordingUrl, customerName) => {
+    const link = document.createElement('a');
+    link.href = recordingUrl;
+    link.download = `recording_${customerName}.mp3`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handlePlayPause = (callId) => {
     if (playingCall === callId) {
@@ -121,6 +245,20 @@ export default function ModernCalls() {
       default: return Clock;
     }
   };
+
+  if (!hasCallPermissions) {
+    return (
+      <ModernLayout userRole={userRole}>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center bg-red-50 p-8 rounded-2xl border border-red-200">
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-red-800 mb-2">אין הרשאה למערכת שיחות</h3>
+            <p className="text-red-600">העסק שלך לא כולל תכונת מערכת שיחות AI. צור קשר לשדרוג החבילה.</p>
+          </div>
+        </div>
+      </ModernLayout>
+    );
+  }
 
   if (loading) {
     return (
@@ -218,17 +356,48 @@ export default function ModernCalls() {
           </div>
         </div>
 
-        {/* Search Bar */}
+        {/* Advanced Search and Filters */}
         <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
-          <div className="relative max-w-md">
-            <Phone className="w-5 h-5 text-gray-400 absolute right-3 top-1/2 transform -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="חיפוש לפי שם לקוח או מספר טלפון..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl pr-10 pl-4 py-3 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-            />
+          <div className="flex flex-wrap gap-4 items-center justify-between">
+            {/* Search Bar */}
+            <div className="relative flex-1 min-w-[300px]">
+              <Search className="w-5 h-5 text-gray-400 absolute right-3 top-1/2 transform -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="חיפוש בשם לקוח, טלפון, תמלול או סיכום..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl pr-10 pl-4 py-3 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              />
+            </div>
+            
+            {/* Status Filter */}
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            >
+              <option value="all">כל הסטטוסים</option>
+              <option value="completed">הושלמו</option>
+              <option value="failed">נכשלו</option>
+              <option value="in_progress">בתהליך</option>
+            </select>
+
+            {/* Business Filter (Admin only) */}
+            {userRole === 'admin' && (
+              <select
+                value={selectedBusiness}
+                onChange={(e) => setSelectedBusiness(e.target.value)}
+                className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              >
+                <option value="all">כל העסקים</option>
+                {businesses.map(business => (
+                  <option key={business.id} value={business.id.toString()}>
+                    {business.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
@@ -329,15 +498,87 @@ export default function ModernCalls() {
                           )}
                         </button>
 
-                        <button className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all duration-200">
+                        <button 
+                          onClick={() => downloadRecording(call.recording_url, call.customer_name)}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all duration-200"
+                        >
                           <Download className="w-4 h-4" />
-                          הורד
+                          הורד הקלטה
+                        </button>
+
+                        <button 
+                          onClick={() => copyTranscription(call.transcription)}
+                          className="flex items-center gap-2 px-4 py-2 bg-gray-500 text-white rounded-xl hover:bg-gray-600 transition-all duration-200"
+                        >
+                          <Copy className="w-4 h-4" />
+                          העתק תמלול
+                        </button>
+
+                        <button 
+                          onClick={() => toggleTranscription(call.id)}
+                          className="flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 transition-all duration-200"
+                        >
+                          {showTranscription[call.id] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {showTranscription[call.id] ? 'הסתר תמלול' : 'הצג תמלול מלא'}
                         </button>
 
                         <button className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-all duration-200">
                           <MessageSquare className="w-4 h-4" />
                           שלח WhatsApp
                         </button>
+                      </div>
+
+                      {/* Full Transcription Expandable */}
+                      {showTranscription[call.id] && call.transcription && (
+                        <div className="mt-4 bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="font-bold text-gray-900 flex items-center gap-2">
+                              <Headphones className="w-5 h-5 text-green-500" />
+                              תמלול מלא של השיחה
+                            </h4>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => copyTranscription(call.transcription)}
+                                className="text-blue-500 hover:text-blue-700"
+                              >
+                                <Copy className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => downloadRecording(call.recording_url, call.customer_name)}
+                                className="text-green-500 hover:text-green-700"
+                              >
+                                <Download className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-4 max-h-96 overflow-y-auto">
+                            <div className="space-y-3">
+                              {call.transcription.split('\n').map((line, index) => {
+                                if (!line.trim()) return null;
+                                const isSystem = line.includes('מערכת:');
+                                const isCustomer = !isSystem && line.includes(':');
+                                
+                                return (
+                                  <div key={index} className={`flex gap-3 ${isSystem ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[80%] p-3 rounded-2xl ${
+                                      isSystem 
+                                        ? 'bg-blue-500 text-white ml-4' 
+                                        : 'bg-white text-gray-900 border border-gray-200 mr-4'
+                                    }`}>
+                                      <div className="text-sm font-medium mb-1">
+                                        {isSystem ? '🤖 מערכת AI' : '👤 לקוח'}
+                                      </div>
+                                      <div className="text-sm leading-relaxed">
+                                        {line.replace(/^[^:]+:\s*/, '')}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                       </div>
                     </div>
                   </div>

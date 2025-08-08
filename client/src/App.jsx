@@ -6,6 +6,7 @@ import PrivateRoute from './components/PrivateRoute';
 import LoginPage from './pages/LoginPage';
 import ModernDashboard from './pages/ModernDashboard';
 import ModernCRM from './pages/ModernCRM';
+import AdvancedCRM from './pages/AdvancedCRM';
 import ModernCalls from './pages/ModernCalls';
 import ModernWhatsApp from './pages/ModernWhatsApp';
 import ModernSettings from './pages/ModernSettings';
@@ -97,6 +98,12 @@ function App() {
             <Route path="/crm" element={
               <PrivateRoute requiredRole="business">
                 <ModernCRM />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/advanced-crm" element={
+              <PrivateRoute requiredRole="business">
+                <AdvancedCRM />
               </PrivateRoute>
             } />
             

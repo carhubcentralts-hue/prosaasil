@@ -4,7 +4,7 @@ import {
   Menu, X, Home, Users, Phone, MessageSquare, Settings, 
   BarChart3, LogOut, Bell, Search, UserCheck, Building2,
   Shield, Star, TrendingUp, Calendar, Mail, FileText,
-  Zap, Globe, Activity, Database, Lock, Smartphone
+  Zap, Globe, Activity, Database, Lock, Smartphone, Briefcase
 } from 'lucide-react';
 
 export default function ModernLayout({ children, userRole = 'business' }) {
@@ -87,6 +87,13 @@ export default function ModernLayout({ children, userRole = 'business' }) {
       icon: Users, 
       color: 'text-purple-600',
       badge: notifications > 0 ? notifications.toString() : null
+    },
+    { 
+      path: '/advanced-crm', 
+      label: '🚀 CRM מתקדם', 
+      icon: Briefcase, 
+      color: 'text-indigo-600',
+      badge: 'חדש'
     },
     { 
       path: '/calls', 
