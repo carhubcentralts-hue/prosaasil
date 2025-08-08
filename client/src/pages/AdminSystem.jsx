@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ModernLayout from '../components/ModernLayout';
 import { 
   Settings, Database, Server, Shield, Globe, 
-  Activity, Monitor, HardDrive, Cpu, Memory,
+  Activity, Monitor, HardDrive, Cpu, MemoryStick,
   Network, Clock, AlertTriangle, CheckCircle,
   RefreshCw, Power, Download, Upload, Terminal,
   Key, Lock, Users, FileText, Bell, Mail,
@@ -112,7 +112,7 @@ export default function AdminSystem() {
           <div className="bg-purple-50 rounded-xl p-4">
             <div className="flex items-center justify-between mb-2">
               <span className="text-purple-700 font-medium">זיכרון (RAM)</span>
-              <Memory className="w-5 h-5 text-purple-600" />
+              <MemoryStick className="w-5 h-5 text-purple-600" />
             </div>
             <div className="text-2xl font-bold text-purple-900">{systemStatus.server?.memory}%</div>
             <div className="w-full bg-purple-200 rounded-full h-2 mt-2">

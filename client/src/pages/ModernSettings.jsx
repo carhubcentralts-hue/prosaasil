@@ -3,7 +3,7 @@ import ModernLayout from '../components/ModernLayout';
 import { 
   Settings, User, Bell, Shield, Palette, Globe,
   Phone, MessageSquare, Key, Database, Cloud,
-  Save, Reset, Eye, EyeOff, Upload, Download,
+  Save, RotateCcw, Eye, EyeOff, Upload, Download,
   Smartphone, Monitor, Volume2, Mic, Camera,
   Lock, Unlock, AlertTriangle, CheckCircle
 } from 'lucide-react';
