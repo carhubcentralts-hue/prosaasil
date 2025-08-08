@@ -39,6 +39,18 @@ function App() {
               </PrivateRoute>
             } />
             
+            <Route path="/admin/calls" element={
+              <PrivateRoute requiredRole="admin">
+                <ModernCalls />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/admin/whatsapp" element={
+              <PrivateRoute requiredRole="admin">
+                <ModernWhatsApp />
+              </PrivateRoute>
+            } />
+            
             <Route path="/admin/businesses" element={
               <PrivateRoute requiredRole="admin">
                 <AdminBusinesses />

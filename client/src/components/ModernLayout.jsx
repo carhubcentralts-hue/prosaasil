@@ -30,10 +30,24 @@ export default function ModernLayout({ children, userRole = 'business' }) {
       badge: 'חדש'
     },
     { 
+      path: '/admin/calls', 
+      label: 'שיחות קוליות', 
+      icon: Phone, 
+      color: 'text-blue-600',
+      badge: null
+    },
+    { 
+      path: '/admin/whatsapp', 
+      label: 'WhatsApp עסקי', 
+      icon: MessageSquare, 
+      color: 'text-green-600',
+      badge: null
+    },
+    { 
       path: '/admin/businesses', 
       label: 'ניהול עסקים', 
       icon: Building2, 
-      color: 'text-green-600',
+      color: 'text-emerald-600',
       badge: null
     },
     { 
@@ -145,10 +159,18 @@ export default function ModernLayout({ children, userRole = 'business' }) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 font-['Assistant']" dir="rtl">
+      {/* Mobile Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        ></div>
+      )}
+      
       {/* Sidebar */}
       <div className={`fixed right-0 top-0 h-full bg-white/95 backdrop-blur-xl border-l border-gray-200/50 shadow-2xl z-50 transition-all duration-300 ease-in-out ${
-        sidebarOpen ? 'w-80' : 'w-20'
-      }`}>
+        sidebarOpen ? 'w-80 md:w-80' : 'w-20 md:w-20'
+      } ${sidebarOpen ? 'max-sm:w-full max-sm:right-0' : 'max-sm:w-16'}`}>
         
         {/* Header */}
         <div className="p-6 border-b border-gray-100">
@@ -163,7 +185,7 @@ export default function ModernLayout({ children, userRole = 'business' }) {
             </div>
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-3 rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105"
+              className="p-3 rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105 flex-shrink-0"
             >
               {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -281,7 +303,7 @@ export default function ModernLayout({ children, userRole = 'business' }) {
       </div>
 
       {/* Main Content */}
-      <div className={`transition-all duration-300 ${sidebarOpen ? 'mr-80' : 'mr-20'}`}>
+      <div className={`transition-all duration-300 ${sidebarOpen ? 'mr-80 md:mr-80' : 'mr-20 md:mr-20'} ${sidebarOpen ? 'max-sm:mr-0 max-sm:opacity-30' : 'max-sm:mr-16'}`}>
         {/* Top Bar */}
         <div className="bg-white/80 backdrop-blur-xl border-b border-gray-200/50 p-4 sticky top-0 z-40">
           <div className="flex items-center justify-between">
