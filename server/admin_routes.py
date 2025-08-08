@@ -55,10 +55,10 @@ def get_businesses():
         cur = conn.cursor()
         
         cur.execute("""
-            SELECT id, name, business_type, phone_israel, phone_whatsapp, 
-                   ai_prompt, crm_enabled, whatsapp_enabled, calls_enabled,
+            SELECT id, name, business_type, phone_number, whatsapp_number, 
+                   system_prompt, crm_enabled, whatsapp_enabled, calls_enabled,
                    created_at, is_active
-            FROM businesses 
+            FROM business 
             WHERE is_active = true
             ORDER BY id ASC
         """)
@@ -73,12 +73,12 @@ def get_businesses():
                 'whatsapp_phone': row[4],
                 'ai_prompt': row[5],
                 'services': {
-                    'crm': row[6],
-                    'whatsapp': row[7],
-                    'calls': row[8]
+                    'crm': row[6] if row[6] is not None else True,
+                    'whatsapp': row[7] if row[7] is not None else True,
+                    'calls': row[8] if row[8] is not None else True
                 },
                 'created_at': row[9].strftime('%Y-%m-%d %H:%M:%S') if row[9] else None,
-                'is_active': row[10]
+                'is_active': row[10] if row[10] is not None else True
             }
             businesses.append(business)
         
@@ -155,7 +155,7 @@ def get_admin_summary():
         cur = conn.cursor()
         
         # ספירת עסקים
-        cur.execute("SELECT COUNT(*) FROM businesses")
+        cur.execute("SELECT COUNT(*) FROM business")
         result = cur.fetchone()
         total_businesses = result[0] if result else 0
         
