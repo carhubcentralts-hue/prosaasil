@@ -1,197 +1,121 @@
 """
-Flask Application Factory
-מפעל יישומים Flask עם הגדרות סביבה
+AgentLocator v39 - App Factory Pattern
+מפעל אפליקציה למחזור הפיתוח הפרודקציוני
 """
+
+import os
+import logging
 from flask import Flask
 from flask_cors import CORS
-import logging
-import os
+from datetime import datetime
 
-def create_app(env: str = 'development') -> Flask:
-    """Create Flask application with environment-specific configuration"""
-    
-    if env is None:
-        env = os.getenv('FLASK_ENV', 'development')
-    
+# Import core modules
+from .models import db, init_db
+from .routes import register_blueprints
+from .error_handlers import register_error_handlers
+from .logging_setup import setup_logging
+
+def create_app(config_name='development'):
+    """
+    Application factory pattern for creating Flask app instances
+    יצירת מופע אפליקציה עם דפוס Factory
+    """
     app = Flask(__name__)
     
-    # Load configuration
-    CONFIG_MAP = {
-        'development': 'config.DevConfig',
-        'testing': 'config.TestConfig', 
-        'production': 'config.ProdConfig',
-    }
-    
-    config_class = CONFIG_MAP.get(env, 'config.DevConfig')
-    app.config.from_object(config_class)
+    # Environment-based configuration
+    if config_name == 'production':
+        app.config.update({
+            'DEBUG': False,
+            'TESTING': False,
+            'SECRET_KEY': os.environ.get('SECRET_KEY', os.urandom(32)),
+            'DATABASE_URL': os.environ.get('DATABASE_URL'),
+            'SQLALCHEMY_DATABASE_URI': os.environ.get('DATABASE_URL'),
+            'SQLALCHEMY_TRACK_MODIFICATIONS': False,
+            'SQLALCHEMY_ENGINE_OPTIONS': {
+                'pool_pre_ping': True,
+                'pool_recycle': 300,
+                'connect_args': {"connect_timeout": 10}
+            }
+        })
+    elif config_name == 'testing':
+        app.config.update({
+            'DEBUG': False,
+            'TESTING': True,
+            'SECRET_KEY': 'test-secret-key',
+            'DATABASE_URL': 'sqlite:///:memory:',
+            'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',
+            'SQLALCHEMY_TRACK_MODIFICATIONS': False
+        })
+    else:  # development
+        app.config.update({
+            'DEBUG': True,
+            'TESTING': False,
+            'SECRET_KEY': os.environ.get('SECRET_KEY', 'dev-secret-key'),
+            'DATABASE_URL': os.environ.get('DATABASE_URL', 'sqlite:///development.db'),
+            'SQLALCHEMY_DATABASE_URI': os.environ.get('DATABASE_URL', 'sqlite:///development.db'),
+            'SQLALCHEMY_TRACK_MODIFICATIONS': False
+        })
     
     # Initialize extensions
-    CORS(app, origins=app.config.get('CORS_ORIGINS', ['*']))
+    init_extensions(app)
     
-    # Initialize database from existing app setup
-    # Note: Database is already initialized in app.py to avoid circular imports
+    # Setup logging first
+    setup_logging(app)
+    app.logger.info(f"🏭 App Factory: Creating {config_name} application")
     
-    # Register blueprints
+    # Register components
     register_blueprints(app)
-    
-    # Register error handlers
     register_error_handlers(app)
     
-    # Setup logging
-    setup_logging(app, env)
+    # Initialize database
+    with app.app_context():
+        try:
+            init_db(app)
+            app.logger.info("✅ App Factory: Database initialized")
+        except Exception as e:
+            app.logger.error(f"❌ App Factory: Database initialization failed: {e}")
     
-    app.logger.info(f"🚀 Hebrew AI Call Center CRM initialized - {env} mode")
+    # Feature flags
+    setup_feature_flags(app)
     
+    app.logger.info(f"🚀 App Factory: {config_name.title()} application created successfully")
     return app
 
-def register_blueprints(app):
-    """Register all application blueprints in organized manner"""
+def init_extensions(app):
+    """Initialize Flask extensions"""
     
-    def safe_register_blueprint(module_name, bp_name, description):
-        """Safely register a blueprint with error handling"""
-        try:
-            module = __import__(module_name, fromlist=[bp_name])
-            blueprint = getattr(module, bp_name)
-            app.register_blueprint(blueprint)
-            app.logger.info(f"✅ {description} registered")
-            return True
-        except ImportError as e:
-            app.logger.warning(f"⚠️ {description} not found: {e}")
-            return False
-        except Exception as e:
-            app.logger.error(f"❌ {description} failed: {e}")
-            return False
+    # Database
+    db.init_app(app)
     
-    registered_count = 0
+    # CORS configuration
+    cors_origins = os.environ.get('CORS_ORIGINS', '*').split(',')
+    CORS(app, origins=cors_origins, supports_credentials=True)
     
-    # Core service blueprints
-    core_blueprints = [
-        ('routes_twilio', 'twilio_bp', 'Twilio Service Blueprint'),
-        ('crm_bp', 'crm_bp', 'CRM Blueprint'),
-        ('whatsapp_bp', 'whatsapp_bp', 'WhatsApp Blueprint'),
-        ('signature_bp', 'signature_bp', 'Signature Blueprint'),
-        ('invoice_bp', 'invoice_bp', 'Invoice Blueprint'),
-        ('proposal_bp', 'proposal_bp', 'Proposal Blueprint'),
-    ]
-    
-    for module, bp_name, desc in core_blueprints:
-        if safe_register_blueprint(module, bp_name, desc):
-            registered_count += 1
-    
-    # API blueprints
-    api_blueprints = [
-        ('whatsapp_api', 'whatsapp_api_bp', 'WhatsApp API Blueprint'),
-        ('crm_api', 'crm_api_bp', 'CRM API Blueprint'),
-        ('signature_api', 'signature_api_bp', 'Signature API Blueprint'),
-        ('proposal_api', 'proposal_api_bp', 'Proposal API Blueprint'),
-        ('invoice_api', 'invoice_api_bp', 'Invoice API Blueprint'),
-        ('stats_api', 'stats_api_bp', 'Stats API Blueprint'),
-    ]
-    
-    for module, bp_name, desc in api_blueprints:
-        if safe_register_blueprint(module, bp_name, desc):
-            registered_count += 1
-    
-    # Advanced API blueprints
-    advanced_blueprints = [
-        ('api_routes', 'api_bp', 'Main API Blueprint'),
-        ('api_admin_advanced', 'admin_advanced_bp', 'Admin Advanced Blueprint'),
-        ('api_business_leads', 'business_leads_bp', 'Business Leads Blueprint'),
-        ('routes_call_analysis', 'call_analysis_bp', 'Call Analysis Blueprint'),
-        ('api_phone_analysis', 'phone_analysis_bp', 'Phone Analysis Blueprint'),
-        ('api_tasks', 'tasks_api_bp', 'Tasks API Blueprint'),
-        ('api_notifications', 'notifications_api_bp', 'Notifications API Blueprint'),
-    ]
-    
-    for module, bp_name, desc in advanced_blueprints:
-        if safe_register_blueprint(module, bp_name, desc):
-            registered_count += 1
-    
-    app.logger.info(f"🎯 Blueprint registration complete: {registered_count} blueprints loaded")
+    # Add health check endpoint
+    @app.route('/health')
+    def health_check():
+        return {
+            'status': 'healthy',
+            'timestamp': datetime.utcnow().isoformat(),
+            'version': 'v39',
+            'environment': app.config.get('ENV', 'unknown')
+        }
 
-def register_error_handlers(app):
-    """Register error handlers for common HTTP errors"""
+def setup_feature_flags(app):
+    """Setup feature flags based on environment"""
     
-    @app.errorhandler(404)
-    def not_found_error(error):
-        return {
-            "error": "not_found",
-            "message": "המשאב המבוקש לא נמצא",
-            "detail": "Resource not found",
-            "status_code": 404
-        }, 404
+    feature_flags = {
+        'advanced_crm': True,
+        'whatsapp_integration': True,
+        'voice_calls': True,
+        'digital_signatures': True,
+        'invoicing': True,
+        'task_management': True,
+        'real_time_notifications': True,
+        'timeline_api': True,
+        'analytics': True,
+        'ai_insights': os.environ.get('OPENAI_API_KEY') is not None
+    }
     
-    @app.errorhandler(500) 
-    def internal_error(error):
-        app.logger.exception("Unhandled server error")
-        return {
-            "error": "server_error",
-            "message": "שגיאת שרת פנימית", 
-            "detail": "Internal server error",
-            "status_code": 500
-        }, 500
-    
-    @app.errorhandler(403)
-    def forbidden_error(error):
-        return {
-            "error": "forbidden",
-            "message": "אין הרשאה לגשת למשאב זה",
-            "detail": "Access forbidden",
-            "status_code": 403
-        }, 403
-    
-    @app.errorhandler(400)
-    def bad_request_error(error):
-        return {
-            "error": "bad_request", 
-            "message": "בקשה לא תקינה",
-            "detail": "Bad request",
-            "status_code": 400
-        }, 400
-
-def setup_logging(app, env):
-    """Setup logging based on environment"""
-    import json
-    
-    class JsonFormatter(logging.Formatter):
-        """JSON log formatter for production"""
-        def format(self, record):
-            log_obj = {
-                'timestamp': self.formatTime(record, self.datefmt),
-                'level': record.levelname,
-                'message': record.getMessage(),
-                'logger': record.name,
-                'module': record.module,
-                'funcName': record.funcName,
-                'lineno': record.lineno
-            }
-            
-            if record.exc_info:
-                log_obj['exception'] = self.formatException(record.exc_info)
-                
-            return json.dumps(log_obj, ensure_ascii=False)
-    
-    # Setup handler
-    handler = logging.StreamHandler()
-    
-    if env == 'production':
-        # JSON logging for production
-        handler.setFormatter(JsonFormatter())
-        app.logger.setLevel(logging.INFO)
-        
-        # Suppress debug logs from other libraries
-        logging.getLogger('werkzeug').setLevel(logging.WARNING)
-        logging.getLogger('urllib3').setLevel(logging.WARNING)
-        
-    else:
-        # Human-readable logging for development
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        handler.setFormatter(formatter)
-        app.logger.setLevel(logging.DEBUG if app.config.get('ENABLE_DEBUG_LOGS') else logging.INFO)
-    
-    # Add handler to app logger
-    app.logger.addHandler(handler)
-    
-    app.logger.info(f"📋 Logging setup complete for {env} environment")
+    app.config['FEATURE_FLAGS'] = feature_flags
+    app.logger.info(f"🚩 Feature flags configured: {sum(feature_flags.values())}/{len(feature_flags)} enabled")

@@ -15,6 +15,9 @@ import AdminBusinesses from './pages/AdminBusinesses';
 import AdminSystem from './pages/AdminSystem';
 import AdminSecurity from './pages/AdminSecurity';
 import { Toaster } from './components/ui/toaster';
+// AgentLocator v39 Components
+import TaskDueModal from './components/TaskDueModal';
+import { useTaskDue } from './hooks/useTaskDue';
 
 function App() {
   console.log('🌐 App: Current location:', window.location.pathname);
@@ -22,8 +25,20 @@ function App() {
   return (
     <div className="App">
       <AuthProvider>
-        <Router>
-          <Routes>
+        <AppWithTaskDue />
+      </AuthProvider>
+    </div>
+  );
+}
+
+function AppWithTaskDue() {
+  // AgentLocator v39 - Task Due Integration
+  const { taskDue, handleCall, handleWhatsApp, handleSnooze, handleComplete, dismissTask } = useTaskDue();
+
+  return (
+    <>
+      <Router>
+        <Routes>
             {/* דף התחברות */}
             <Route path="/login" element={<LoginPage />} />
             
@@ -154,9 +169,18 @@ function App() {
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         </Router>
-      </AuthProvider>
-      <Toaster />
-    </div>
+        
+        {/* AgentLocator v39 - Task Due Modal */}
+        <TaskDueModal
+          isOpen={!!taskDue}
+          task={taskDue}
+          onClose={dismissTask}
+          onCall={handleCall}
+          onWhatsApp={handleWhatsApp}
+          onSnooze={handleSnooze}
+          onComplete={handleComplete}
+        />
+      </>
   );
 }
 

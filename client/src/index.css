@@ -3,6 +3,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import AgentLocator v39 Design System Tokens */
+@import './styles/tokens.css';
+
 body {
   margin: 0;
   font-family: 'Assistant', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
