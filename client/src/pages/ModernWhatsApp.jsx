@@ -523,49 +523,95 @@ export default function ModernWhatsApp() {
 
         {/* QR Code Display */}
         {qrCodeUrl && connectionMethod === 'baileys' && (
-          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 text-center">
-            <h3 className="text-xl font-bold mb-4">סרוק QR Code עם WhatsApp</h3>
-            <div className="flex justify-center mb-4">
-              <img src={qrCodeUrl} alt="WhatsApp QR Code" className="w-48 h-48 border border-gray-300 rounded-xl" />
+          <div className="bg-gradient-to-br from-white to-green-50 rounded-3xl shadow-2xl border border-green-100 p-10 text-center">
+            <div className="flex items-center justify-center gap-4 mb-8">
+              <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center">
+                <Smartphone className="w-7 h-7 text-white" />
+              </div>
+              <h3 className="text-3xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                📱 סרוק QR Code
+              </h3>
             </div>
-            <p className="text-gray-600 mb-4">
-              פתח WhatsApp בטלפון → הגדרות → WhatsApp Web → סרוק QR Code
-            </p>
-            {isConnecting ? (
-              <div className="flex items-center justify-center gap-2 text-blue-600">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                מתחבר...
-              </div>
-            ) : (
-              <div className="flex items-center justify-center gap-2 text-green-600">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                ממתין לסריקה...
-              </div>
-            )}
             
-            {connectionError && (
-              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
-                {connectionError}
+            <div className="max-w-lg mx-auto">
+              <div className="bg-white rounded-3xl p-8 mb-8 shadow-lg border border-gray-200">
+                <div className="w-72 h-72 mx-auto bg-white rounded-2xl border-4 border-green-200 flex items-center justify-center shadow-inner">
+                  <img 
+                    src={qrCodeUrl} 
+                    alt="WhatsApp QR Code" 
+                    className="w-full h-full rounded-xl object-contain"
+                  />
+                </div>
               </div>
-            )}
-            
-            <div className="mt-6 flex gap-3 justify-center">
-              <button
-                onClick={generateQRCode}
-                className="px-4 py-2 text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50"
-              >
-                QR חדש
-              </button>
               
-              <button
-                onClick={() => {
-                  setQrCodeUrl(null);
-                  setConnectionStatus('disconnected');
-                }}
-                className="px-4 py-2 text-red-600 border border-red-600 rounded-lg hover:bg-red-50"
-              >
-                בטל
-              </button>
+              <div className="bg-green-50 rounded-2xl p-6 mb-6 border border-green-200">
+                <h4 className="font-bold text-green-900 mb-4 text-lg">🔢 הוראות חיבור:</h4>
+                <div className="space-y-4 text-gray-700">
+                  <div className="flex items-start gap-4 p-3 bg-white rounded-xl shadow-sm">
+                    <div className="w-8 h-8 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full flex items-center justify-center text-white font-bold shrink-0">1</div>
+                    <div>
+                      <p className="font-semibold text-gray-900">פתח WhatsApp במכשיר הנייד</p>
+                      <p className="text-sm text-gray-600">וודא שאתה מחובר לאינטרנט</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-4 p-3 bg-white rounded-xl shadow-sm">
+                    <div className="w-8 h-8 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full flex items-center justify-center text-white font-bold shrink-0">2</div>
+                    <div>
+                      <p className="font-semibold text-gray-900">עבור להגדרות ← מכשירים מקושרים</p>
+                      <p className="text-sm text-gray-600">או לחץ על שלוש הנקודות ← WhatsApp Web</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-4 p-3 bg-white rounded-xl shadow-sm">
+                    <div className="w-8 h-8 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full flex items-center justify-center text-white font-bold shrink-0">3</div>
+                    <div>
+                      <p className="font-semibold text-gray-900">סרוק את הקוד</p>
+                      <p className="text-sm text-gray-600">כוון את המצלמה לכיוון הQR</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {isConnecting ? (
+                <div className="flex items-center justify-center gap-3 text-blue-600 mb-6">
+                  <RefreshCw className="w-6 h-6 animate-spin" />
+                  <span className="text-lg font-medium">מתחבר...</span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center gap-3 text-green-600 mb-6">
+                  <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                  </div>
+                  <span className="text-lg font-medium">ממתין לסריקה...</span>
+                </div>
+              )}
+              
+              {connectionError && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 flex items-center justify-center gap-2">
+                  <AlertCircle className="w-5 h-5" />
+                  <span>{connectionError}</span>
+                </div>
+              )}
+              
+              <div className="flex gap-4 justify-center">
+                <button
+                  onClick={generateQRCode}
+                  className="px-8 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all font-bold text-lg shadow-lg flex items-center gap-3"
+                >
+                  <RefreshCw className="w-5 h-5" />
+                  חדש QR Code
+                </button>
+                
+                <button
+                  onClick={() => {
+                    setQrCodeUrl(null);
+                    setConnectionStatus('disconnected');
+                  }}
+                  className="px-8 py-4 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium text-lg border border-gray-300 flex items-center gap-3"
+                >
+                  <X className="w-5 h-5" />
+                  בטל
+                </button>
+              </div>
             </div>
           </div>
         )}

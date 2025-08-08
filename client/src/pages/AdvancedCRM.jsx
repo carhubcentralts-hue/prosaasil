@@ -681,38 +681,109 @@ export default function AdvancedCRM() {
 
           {/* Content Area */}
           <div className="p-6">
+            {/* Active Reminders Section - Only show in leads tab */}
+            {activeTab === 'leads' && reminders.length > 0 && (
+              <div className="mb-8 bg-gradient-to-r from-orange-50 to-amber-50 rounded-2xl shadow-lg p-6 border-l-4 border-orange-500">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                    <Clock className="w-5 h-5 text-orange-600" />
+                  </div>
+                  <h3 className="text-xl font-bold text-orange-900">📅 תזכורות פעילות</h3>
+                  <span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-medium">
+                    {reminders.length} פעילות
+                  </span>
+                </div>
+                
+                <div className="grid gap-4">
+                  {reminders.map(reminder => (
+                    <div key={reminder.id} className="bg-white rounded-xl p-5 shadow-sm border border-orange-100 hover:shadow-md transition-shadow">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                              {reminder.leadName.charAt(0)}
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-gray-900">{reminder.leadName}</h4>
+                              <p className="text-gray-600 text-sm">{reminder.company}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-6 text-sm text-gray-600">
+                            <span className="flex items-center gap-2 bg-orange-50 px-3 py-1 rounded-lg">
+                              <Calendar className="w-4 h-4 text-orange-600" />
+                              <span className="font-medium">
+                                {reminder.dateTime.toLocaleDateString('he-IL')} בשעה {reminder.dateTime.toLocaleTimeString('he-IL', {hour: '2-digit', minute:'2-digit'})}
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Phone className="w-4 h-4" />
+                              {reminder.phone}
+                            </span>
+                          </div>
+                          {reminder.note && (
+                            <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                              <p className="text-gray-700 text-sm">
+                                <span className="font-semibold text-amber-800">💭 הערה:</span> {reminder.note}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right ml-4">
+                          <div className={`text-sm font-medium px-3 py-1 rounded-full ${
+                            new Date() > reminder.dateTime 
+                              ? 'bg-red-100 text-red-700' 
+                              : 'bg-green-100 text-green-700'
+                          }`}>
+                            {new Date() > reminder.dateTime ? '⚠️ דורש טיפול' : '⏰ מתוכנן'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
             {/* Leads Tab */}
             {activeTab === 'leads' && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 {filteredLeads.map(lead => (
-                  <div key={lead.id} className="bg-gradient-to-r from-gray-50 to-white rounded-xl p-6 border border-gray-200 hover:shadow-lg transition-all">
+                  <div key={lead.id} className="bg-white rounded-2xl p-6 border border-gray-200 hover:shadow-xl transition-all duration-300 hover:border-gray-300">
                     <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-4">
-                        <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold">
+                      <div className="flex items-start gap-5">
+                        <div className="w-14 h-14 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-lg">
                           {lead.name.charAt(0)}
                         </div>
                         
                         <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-lg font-bold text-gray-900">{lead.name}</h3>
-                            <select 
-                              value={lead.status} 
-                              onChange={(e) => updateLeadStatus(lead.id, e.target.value)}
-                              className={`px-3 py-1 rounded-full text-sm font-medium border cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-500 ${getStatusInfo(lead.status).color}`}
-                            >
-                              <option value="new">🆕 ליד חדש</option>
-                              <option value="contacted">☎️ יצרנו קשר</option>
-                              <option value="interested">😊 מעוניין</option>
-                              <option value="follow_up">🔄 לחזור אליו</option>
-                              <option value="proposal_sent">📄 הצעה נשלחה</option>
-                              <option value="negotiation">🤝 במשא ומתן</option>
-                              <option value="won">✅ נסגר בהצלחה</option>
-                              <option value="lost">❌ אבד</option>
-                              <option value="dormant">😴 לא פעיל</option>
-                            </select>
-                            <div className="flex items-center gap-1">
-                              <Star className="w-4 h-4 text-yellow-500" />
-                              <span className="text-sm font-medium">{lead.lead_score}</span>
+                          <div className="flex items-start gap-4 mb-4">
+                            <div className="flex-1">
+                              <h3 className="text-xl font-bold text-gray-900 mb-1">{lead.name}</h3>
+                              <p className="text-gray-600 flex items-center gap-2">
+                                <Building2 className="w-4 h-4" />
+                                {lead.company}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <select 
+                                value={lead.status} 
+                                onChange={(e) => updateLeadStatus(lead.id, e.target.value)}
+                                className={`px-4 py-2 rounded-xl text-sm font-medium border-2 cursor-pointer focus:outline-none focus:ring-3 focus:ring-blue-300 transition-all ${getStatusInfo(lead.status).color}`}
+                              >
+                                <option value="new">🆕 ליד חדש</option>
+                                <option value="contacted">☎️ יצרנו קשר</option>
+                                <option value="interested">😊 מעוניין</option>
+                                <option value="follow_up">🔄 לחזור אליו</option>
+                                <option value="proposal_sent">📄 הצעה נשלחה</option>
+                                <option value="negotiation">🤝 במשא ומתן</option>
+                                <option value="won">✅ נסגר בהצלחה</option>
+                                <option value="lost">❌ אבד</option>
+                                <option value="dormant">😴 לא פעיל</option>
+                              </select>
+                              <div className="flex items-center gap-2 bg-yellow-50 px-3 py-2 rounded-xl border border-yellow-200">
+                                <Star className="w-4 h-4 text-yellow-500" />
+                                <span className="text-sm font-bold text-yellow-700">{lead.lead_score}</span>
+                              </div>
                             </div>
                           </div>
                           
@@ -1145,42 +1216,197 @@ export default function AdvancedCRM() {
             )}
 
             {modalType === 'customer' && selectedCustomer && (
-              <div className="space-y-6">
-                <div className="bg-gray-50 rounded-xl p-6">
-                  <h3 className="font-bold text-lg mb-4">{selectedCustomer.name}</h3>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <p><span className="font-medium">חברה:</span> {selectedCustomer.company}</p>
-                      <p><span className="font-medium">טלפון:</span> {selectedCustomer.phone}</p>
-                      <p><span className="font-medium">אימייל:</span> {selectedCustomer.email}</p>
+              <div className="space-y-8">
+                {/* Customer Header */}
+                <div className="bg-gradient-to-r from-blue-50 via-purple-50 to-indigo-50 rounded-2xl p-8 border border-gray-200">
+                  <div className="flex items-start gap-6">
+                    <div className="w-16 h-16 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white font-bold text-2xl shadow-lg">
+                      {selectedCustomer.name.charAt(0)}
                     </div>
-                    <div>
-                      <p><span className="font-medium">ערך:</span> ₪{selectedCustomer.value?.toLocaleString()}</p>
-                      <p><span className="font-medium">הסתברות:</span> {selectedCustomer.probability}%</p>
-                      <p><span className="font-medium">אינטראקציות:</span> {selectedCustomer.interactions}</p>
+                    
+                    <div className="flex-1">
+                      <div className="flex items-center gap-4 mb-3">
+                        <h3 className="text-2xl font-bold text-gray-900">{selectedCustomer.name}</h3>
+                        <div className={`px-4 py-2 rounded-xl text-sm font-medium ${getStatusInfo(selectedCustomer.status).color}`}>
+                          {getStatusInfo(selectedCustomer.status).label}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-6 text-gray-600">
+                        <span className="flex items-center gap-2">
+                          <Building2 className="w-4 h-4" />
+                          {selectedCustomer.company}
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <Star className="w-4 h-4 text-yellow-500" />
+                          <span className="font-medium">{selectedCustomer.lead_score}/100</span>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <TrendingUp className="w-4 h-4 text-green-500" />
+                          <span className="font-medium">₪{selectedCustomer.value?.toLocaleString()}</span>
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
-                
-                {selectedCustomer.notes && (
-                  <div>
-                    <h4 className="font-medium mb-2">הערות</h4>
-                    <p className="text-gray-700 bg-gray-50 p-3 rounded-lg">{selectedCustomer.notes}</p>
+
+                {/* Contact Information */}
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+                    <h4 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+                      <User className="w-5 h-5 text-blue-600" />
+                      פרטי התקשרות
+                    </h4>
+                    
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
+                        <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                          <Phone className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-500">טלפון</p>
+                          <p className="font-bold text-gray-900">{selectedCustomer.phone}</p>
+                        </div>
+                        <button className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg">
+                          <Phone className="w-4 h-4" />
+                        </button>
+                      </div>
+                      
+                      <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
+                        <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
+                          <Mail className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-500">אימייל</p>
+                          <p className="font-bold text-gray-900">{selectedCustomer.email}</p>
+                        </div>
+                        <button className="p-2 text-green-600 hover:bg-green-100 rounded-lg">
+                          <Mail className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Statistics */}
+                  <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+                    <h4 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-purple-600" />
+                      סטטיסטיקות
+                    </h4>
+                    
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-4 bg-purple-50 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+                            <Star className="w-5 h-5 text-purple-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-500">דירוג ליד</p>
+                            <p className="font-bold text-gray-900">{selectedCustomer.lead_score}/100</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="w-16 h-2 bg-gray-200 rounded-full">
+                            <div 
+                              className="h-2 bg-purple-500 rounded-full" 
+                              style={{width: `${selectedCustomer.lead_score}%`}}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between p-4 bg-green-50 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
+                            <TrendingUp className="w-5 h-5 text-green-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-500">הסתברות</p>
+                            <p className="font-bold text-gray-900">{selectedCustomer.probability || 75}%</p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between p-4 bg-yellow-50 rounded-xl">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-yellow-100 rounded-xl flex items-center justify-center">
+                            <Calendar className="w-5 h-5 text-yellow-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-500">קשר אחרון</p>
+                            <p className="font-bold text-gray-900">{selectedCustomer.last_contact}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Next Action */}
+                <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-2xl p-6 border-l-4 border-orange-500">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
+                      <Activity className="w-6 h-6 text-orange-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-lg font-bold text-orange-900 mb-2">פעולה הבאה</h4>
+                      <p className="text-orange-800 mb-4">{selectedCustomer.next_action}</p>
+                      
+                      <div className="flex gap-3">
+                        <button 
+                          onClick={() => {
+                            setModalType('follow_up');
+                            setFollowUpData({ leadId: selectedCustomer.id, date: '', time: '', note: '' });
+                          }}
+                          className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 flex items-center gap-2 text-sm"
+                        >
+                          <Clock className="w-4 h-4" />
+                          קבע תזכורת
+                        </button>
+                        <button className="px-4 py-2 bg-white border border-orange-300 text-orange-700 rounded-lg hover:bg-orange-50 text-sm">
+                          עדכן פעולה
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tags */}
+                {selectedCustomer.tags && selectedCustomer.tags.length > 0 && (
+                  <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+                    <h4 className="text-lg font-bold text-gray-900 mb-4">תגיות</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedCustomer.tags.map(tag => (
+                        <span key={tag} className="px-4 py-2 bg-gradient-to-r from-purple-100 to-indigo-100 text-purple-800 text-sm rounded-xl font-medium border border-purple-200">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
-                
-                <div className="flex gap-3">
+
+                {/* Action Buttons */}
+                <div className="flex gap-4 pt-4">
                   <button 
-                    onClick={() => createContract(selectedCustomer)}
-                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
+                    onClick={() => {
+                      setModalType('invoice');
+                      setSelectedCustomer(selectedCustomer);
+                    }}
+                    className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 flex items-center justify-center gap-2 font-medium"
                   >
-                    צור חוזה
-                  </button>
-                  <button 
-                    onClick={() => createInvoice(selectedCustomer)}
-                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-                  >
+                    <FileText className="w-5 h-5" />
                     צור חשבונית
+                  </button>
+                  
+                  <button 
+                    onClick={() => {
+                      setModalType('contract');
+                      setSelectedCustomer(selectedCustomer);
+                    }}
+                    className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 flex items-center justify-center gap-2 font-medium"
+                  >
+                    <FileText className="w-5 h-5" />
+                    צור חוזה
                   </button>
                 </div>
               </div>
