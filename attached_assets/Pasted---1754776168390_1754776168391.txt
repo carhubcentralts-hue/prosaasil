@@ -1,0 +1,145 @@
+לך על ההנחיה האחרונה – אבל בגרסה מרוכזת אחת, מוכנה להדבקה. זו תגרום לו בדיוק לעשות מה שביקשת: להשאיר רק דף התחברות נקי ב-React, לא לגעת ב-API/וובהוקים של השיחות/וואטסאפ/CRM, לתקן את פרמטרי ה-TwiML, ולהרים את השרת בצורה שעובדת גם ב-Preview וגם בפרודקשן.
+
+תעתיק/י לו אחד-לאחד👇
+
+⸻
+
+🚦 FINAL — “Login-Only UI” + שרת Flask שמגיש את ה-React (מוכן לפריסה)
+
+אסור לשבור Backend: לא נוגעים בקבצי Python של Twilio/WhatsApp/CRM.
+מותר למחוק Frontend: משאירים רק דף התחברות.
+עובדים ב-Branch + PR עם diff.
+
+0) ענף עבודה
+
+git checkout -b ui/login-only
+
+1) Frontend — נשאר רק Login
+	1.	מחיקת דפים/תבניות מיותרים (פרונט בלבד), משאירים רק:
+
+	•	src/pages/LoginPage.jsx
+	•	src/App.jsx
+	•	src/main.jsx
+	•	src/index.css (או styles רלוונטי)
+
+לדוגמה:
+
+git rm -r src/pages/* 2>/dev/null || true
+git restore src/pages/LoginPage.jsx
+
+	2.	src/App.jsx – מציג רק את דף ההתחברות:
+
+import React from 'react';
+import LoginPage from './pages/LoginPage';
+export default function App(){ return <LoginPage/> }
+
+	3.	src/main.jsx – ללא Router/תפריטים:
+
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+import './index.css';
+ReactDOM.createRoot(document.getElementById('root')).render(<React.StrictMode><App/></React.StrictMode>);
+
+אם ה-Login קורא ל-/api/auth/login – ודא שה-fetch שולח credentials: 'include'.
+
+2) Vite — Build לפרודקשן (Flask יגיש את ה-dist)
+
+בקובץ package.json (שורש הפרויקט) הוסף/עדכן:
+
+{
+  "scripts": {
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
+    "start": "python main.py"
+  }
+}
+
+(לא חייבים concurrently כרגע – נגיש build סטטי דרך Flask על פורט 5000, וזה מתאים ל-Preview.)
+
+ב־vite.config.js ודא base: "./":
+
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+export default defineConfig({
+  base: './',
+  plugins: [react()],
+})
+
+3) Flask — מגיש את React ה-build
+
+ב־app.py (או בקובץ ההפעלה של Flask), הוסף/עדכן כך:
+
+from flask import Flask, send_from_directory, jsonify
+import os
+
+app = Flask(__name__, static_folder="dist", static_url_path="/")
+
+@app.route("/health")
+def health(): return jsonify(ok=True), 200
+
+# שאר הראוטים/בלופרינטים/וובהוקים – אל תיגע!
+
+# הגשת האפליקציה (SPA)
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_spa(path):
+    file_path = os.path.join(app.static_folder, path)
+    if path and os.path.exists(file_path):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, "index.html")
+
+לא משנים/מוחקים שום API או webhook קיים. רק מוסיפים הגשה סטטית ל-SPA.
+
+4) Twilio — עדכון פרמטרים בטוח
+
+במקום שבו נבנה ה-TwiML (למשל routes.py), ודא שה-<Record> עם הערכים הנכונים (לא משנה שמות נתיבים קיימים):
+
+<Record
+  maxLength="30"
+  timeout="5"
+  finishOnKey="*"
+  playBeep="true"
+  action="/webhook/handle_recording"
+  method="POST"
+/>
+
+5) התקנה והרצה (מוכן ל-Preview + פרודקשן)
+
+# התקנות
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip wheel
+pip install -r requirements.txt 2>/dev/null || pip install -r server/requirements.txt
+
+npm ci
+npm run build      # יוצר dist/
+
+# הרמה
+python main.py     # Flask יגיש את dist על פורט 5000
+
+6) בדיקות קבלה (חייב ירוק לפני Merge)
+
+# שרת חי
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5000/health   # מצופה 200
+
+# דף התחברות נטען בשורש (מוגש ע"י Flask)
+# פתח בדפדפן: http://localhost:5000  — רואים רק Login
+
+# TwiML פרמטרים
+curl -s -X POST http://localhost:5000/voice/incoming | grep -E 'Record|maxLength="30"|timeout="5"|finishOnKey="\\*"'
+
+חשוב:
+	•	לא לגעת בקבצי Python של שיחות/WhatsApp/CRM.
+	•	לא לשנות שמות ראוטים קיימים; רק פרמטרי <Record> כפי שמופיע למעלה.
+	•	אם יש Router/תפריטים בצד פרונט – להסירם עכשיו, נשאר רק Login.
+
+פלט ה-PR הנדרש:
+	•	שינויי Frontend: App.jsx, main.jsx, מחיקת דפים אחרים, (אם צריך) התאמת LoginPage.jsx.
+	•	שינויי Backend קטנים: תוספת שירות SPA ב-app.py + health.
+	•	שינויי Build: package.json scripts + vite.config.js (base: './').
+	•	אין שינויים בקבצי Python של ה-API/וובהוקים.
+
+⸻
+
+זהו. זו ההנחיה הכדאית לשלוח — הכי קצרה, הכי ממוקדת ליעד (“רק דף התחברות”), ובלי סיכונים לקוד השרת הקיים.

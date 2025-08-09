@@ -1,83 +1,24 @@
-from flask import Flask, send_file
+from flask import Flask, send_from_directory, jsonify
 import os
 
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    """דף התחברות פשוט"""
-    # Try to serve React built files first
-    dist_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'dist', 'index.html')
-    if os.path.exists(dist_path):
-        return send_file(dist_path)
-    
-    # Simple login page fallback
-    return '''<!DOCTYPE html>
-<html dir="rtl" lang="he">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>התחברות - AgentLocator CRM</title>
-    <style>
-        body { 
-            font-family: "Assistant", Arial, sans-serif; 
-            margin: 0;
-            direction: rtl;
-            background: white;
-            min-height: 100vh;
-            display: grid;
-            place-items: center;
-        }
-        .login-form {
-            width: 100%;
-            max-width: 380px;
-            padding: 24px;
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-            border: 1px solid #ddd;
-        }
-        h1 { margin-bottom: 16px; font-weight: 700; color: #333; }
-        label { display: block; margin-bottom: 8px; color: #333; }
-        input { 
-            width: 100%; 
-            padding: 12px; 
-            margin-bottom: 12px; 
-            border-radius: 10px; 
-            border: 1px solid #ddd;
-            box-sizing: border-box;
-        }
-        button { 
-            width: 100%; 
-            padding: 12px; 
-            border-radius: 10px; 
-            border: none; 
-            background: #007bff;
-            color: white;
-            font-weight: 700; 
-            cursor: pointer;
-        }
-        .demo { margin-top: 16px; font-size: 12px; color: #666; }
-    </style>
-</head>
-<body>
-    <form class="login-form">
-        <h1>התחברות</h1>
-        <label>אימייל</label>
-        <input type="email" required>
-        <label>סיסמה</label>
-        <input type="password" required>
-        <button type="submit">כניסה</button>
-        <div class="demo">דמו: admin@example.com / demo123</div>
-    </form>
-</body>
-</html>'''
+app = Flask(__name__, static_folder="../client/dist", static_url_path="/")
 
 @app.route("/health")
-def health():
-    return {"ok": True}, 200
+def health(): 
+    return jsonify(ok=True), 200
 
-if __name__ == "__main__":
+# שאר הראוטים/בלופרינטים/וובהוקים – אל תיגע!
+
+# הגשת האפליקציה (SPA)
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_spa(path):
+    file_path = os.path.join(app.static_folder, path)
+    if path and os.path.exists(file_path):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, "index.html")
+
+if __name__ == '__main__':
     print("🚀 AgentLocator Simple Login Server")
     print("📱 Starting on http://localhost:5000")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
