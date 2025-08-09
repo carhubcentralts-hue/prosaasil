@@ -1,15 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Hebrew AI Call Center CRM - Main Server (Safe Mode)
-Fixed version that avoids grpc conflicts while maintaining functionality
-"""
-
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-# Create simple app directly
 from flask import Flask, send_file
 import os
 
@@ -17,7 +5,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    """דף התחברות פשוט בלבד"""
+    """דף התחברות פשוט"""
     # Try to serve React built files first
     dist_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'dist', 'index.html')
     if os.path.exists(dist_path):
@@ -90,21 +78,6 @@ def health():
     return {"ok": True}, 200
 
 if __name__ == "__main__":
-    print("🚀 Starting Hebrew AI Call Center CRM (Safe Mode)")
-    print("📱 Flask Server starting on http://localhost:5000")
-    print("🎯 עסק: שי דירות ומשרדים בע״מ")
-    print("✅ AI Hebrew Support Ready")
-    
-    # Add session configuration
-    app.secret_key = os.getenv("SECRET_KEY", "change-me-in-production")
-    app.config.update(
-        SESSION_COOKIE_SAMESITE="Lax", 
-        SESSION_COOKIE_SECURE=False
-    )
-    
-    # Add health check endpoint
-    @app.route("/health", methods=["GET"])
-    def health(): 
-        return {"ok": True}, 200
-    
+    print("🚀 AgentLocator Simple Login Server")
+    print("📱 Starting on http://localhost:5000")
     app.run(host="0.0.0.0", port=5000, debug=True)
