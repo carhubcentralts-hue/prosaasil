@@ -1,0 +1,1 @@
+web: python server/minimal_server.py

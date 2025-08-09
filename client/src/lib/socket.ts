@@ -5,6 +5,25 @@
 
 import { io, Socket } from 'socket.io-client';
 
+// Export socket events for hooks
+export const socketEvents = {
+  TASK_DUE: 'task:due',
+  CALL_UPDATE: 'call:incoming', 
+  WHATSAPP_MESSAGE: 'whatsapp:message',
+  NOTIFICATION_GENERAL: 'notification:general',
+  CUSTOMER_UPDATED: 'customer:updated',
+  SYSTEM_STATUS: 'system:status'
+} as const;
+
+export interface TaskDueEvent {
+  task_id: number;
+  customer_id: number;
+  taskId: string;
+  title: string;
+  dueDate: string;
+  priority: 'low' | 'medium' | 'high';
+}
+
 interface ServerToClientEvents {
   'task:due': (data: { task_id: number; title: string; due_date: string }) => void;
   'call:incoming': (data: { call_id: string; customer_name: string; phone: string }) => void;
@@ -154,7 +173,7 @@ class SocketManager {
       this.reconnectAttempts++;
       this.reconnectInterval = Math.min(this.reconnectInterval * 2, 10000); // Max 10 seconds
       
-       in ${this.reconnectInterval}ms`);
+      console.log(`Will reconnect in ${this.reconnectInterval}ms`);
       
       setTimeout(() => {
         this.reconnect();
