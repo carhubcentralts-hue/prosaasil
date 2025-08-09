@@ -1,4 +1,11 @@
 def register_blueprints(app):
+    # Import frontend first - serves React app
+    try:
+        from .frontend import frontend_bp
+        app.register_blueprint(frontend_bp)
+    except ImportError:
+        pass
+    
     # Import only existing blueprints
     try:
         from ..routes_twilio import twilio_bp
