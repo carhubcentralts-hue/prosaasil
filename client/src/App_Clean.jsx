@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import '../styles/tokens.css';
+import './styles/tokens.css';
 
 const LoginPage = () => {
   const [credentials, setCredentials] = useState({
@@ -30,9 +30,9 @@ const LoginPage = () => {
         localStorage.setItem('user', JSON.stringify(data.user));
         
         if (data.user.role === 'admin') {
-          window.location.href = '/admin-dashboard';
+          window.location.href = '/admin';
         } else {
-          window.location.href = '/business-dashboard';
+          window.location.href = '/business';
         }
       } else {
         setError('שם משתמש או סיסמה שגויים');
@@ -52,17 +52,17 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+    <div className="min-h-screen bg-white flex items-center justify-center">
       <div className="max-w-md w-full mx-4">
         {/* Login Card */}
         <div className="card p-8">
           {/* Header */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              AgentLocator CRM
+              שי דירות ומשרדים בע״מ
             </h1>
             <p className="text-gray-600">
-              מערכת ניהול לקוחות מתקדמת עם AI
+              מערכת ניהול לקוחות עם AI
             </p>
           </div>
 
@@ -117,7 +117,7 @@ const LoginPage = () => {
 
           {/* Demo Credentials */}
           <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-            <h3 className="font-semibold text-gray-700 mb-2">פרטי התחברות לדמו:</h3>
+            <h3 className="font-semibold text-gray-700 mb-2">פרטי התחברות:</h3>
             <div className="text-sm text-gray-600 space-y-1">
               <p><strong>מנהל:</strong> admin / admin123</p>
               <p><strong>עסק:</strong> business / business123</p>
@@ -128,7 +128,7 @@ const LoginPage = () => {
         {/* Footer */}
         <div className="text-center mt-6">
           <p className="text-gray-500 text-sm">
-            © 2025 AgentLocator CRM. כל הזכויות שמורות.
+            © 2025 מערכת ניהול לקוחות עם AI
           </p>
         </div>
       </div>
@@ -136,4 +136,8 @@ const LoginPage = () => {
   );
 };
 
-export default LoginPage;
+const App = () => {
+  return <LoginPage />;
+};
+
+export default App;
