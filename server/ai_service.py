@@ -29,8 +29,41 @@ def _tts_google_wavenet_he(text: str) -> str:
         f.write(resp.audio_content)
     return f"/static/tts/{fn}"
 
-def generate_reply_tts(user_text: str) -> str:
-    answer = _ask_llm_hebrew(user_text)
+def generate_reply_tts(user_text: str, business_id: int = 13) -> str:
+    """Generate AI reply with TTS for specific business"""
+    # Get business AI prompt from database using direct SQL
+    import sqlite3
+    import os
+    
+    try:
+        # Try PostgreSQL first (production)
+        db_url = os.getenv("DATABASE_URL")
+        if db_url:
+            import psycopg2
+            conn = psycopg2.connect(db_url)
+            cursor = conn.cursor()
+            cursor.execute("SELECT ai_prompt FROM businesses WHERE id = %s", (business_id,))
+            result = cursor.fetchone()
+            business_prompt = result[0] if result else None
+            conn.close()
+        else:
+            business_prompt = None
+    except Exception as e:
+        print(f"Database error: {e}")
+        business_prompt = None
+    
+    # Create a mock business object
+    business = type('Business', (), {})()
+    business.ai_prompt = business_prompt
+    
+    if business and business.ai_prompt:
+        # Use business-specific AI prompt
+        full_prompt = f"{business.ai_prompt}\n\nשאלת הלקוח: {user_text}\n\nענה בעברית בצורה מקצועית ונעימה:"
+    else:
+        # Fallback prompt
+        full_prompt = f"אתה עוזר וירטואלי עבור עסק נדל״ן בישראל. ענה על השאלה הזו בעברית: {user_text}"
+    
+    answer = _ask_llm_hebrew(full_prompt)
     try:
         return _tts_google_wavenet_he(answer)
     except Exception:
