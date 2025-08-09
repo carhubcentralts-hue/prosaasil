@@ -227,7 +227,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(String(256), nullable=False)
     role = db.Column(String(20), nullable=False, default='business')  # admin, business
     business_id = db.Column(Integer, db.ForeignKey('businesses.id'), nullable=True)
-    is_active = db.Column(Boolean, default=True)
+    active = db.Column(Boolean, default=True)
     created_at = db.Column(DateTime, default=datetime.utcnow)
     last_login = db.Column(DateTime)
     
@@ -248,7 +248,7 @@ class User(UserMixin, db.Model):
         self.password_hash = password_hash
         self.role = role
         self.business_id = business_id
-        self.is_active = is_active
+        self.active = is_active
         self.can_access_phone = can_access_phone
         self.can_access_whatsapp = can_access_whatsapp
         self.can_access_crm = can_access_crm
@@ -262,7 +262,7 @@ class User(UserMixin, db.Model):
             'email': self.email,
             'role': self.role,
             'business_id': self.business_id,
-            'is_active': self.is_active,
+            'active': self.active,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_login': self.last_login.isoformat() if self.last_login else None,
             'can_access_phone': self.can_access_phone,
@@ -273,15 +273,15 @@ class User(UserMixin, db.Model):
     
     def has_phone_access(self):
         """בדיקה אם למשתמש יש גישה למערכת הטלפון"""
-        return self.role == 'admin' or (self.can_access_phone and self.is_active)
+        return self.role == 'admin' or (self.can_access_phone and self.active)
     
     def has_whatsapp_access(self):
         """בדיקה אם למשתמש יש גישה למערכת WhatsApp"""
-        return self.role == 'admin' or (self.can_access_whatsapp and self.is_active)
+        return self.role == 'admin' or (self.can_access_whatsapp and self.active)
     
     def has_crm_access(self):
         """בדיקה אם למשתמש יש גישה למערכת CRM"""
-        return self.role == 'admin' or (self.can_access_crm and self.is_active)
+        return self.role == 'admin' or (self.can_access_crm and self.active)
     
     def can_manage_businesses(self):
         """בדיקה אם המשתמש יכול לנהל עסקים"""
