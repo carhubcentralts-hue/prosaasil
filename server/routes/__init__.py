@@ -1,5 +1,12 @@
 def register_blueprints(app):
-    # Import frontend first - serves React app
+    # Import auth blueprint first
+    try:
+        from ..auth_bp import auth_bp
+        app.register_blueprint(auth_bp)
+    except ImportError:
+        pass
+    
+    # Import frontend - serves React app
     try:
         from .frontend import frontend_bp
         app.register_blueprint(frontend_bp)
@@ -14,8 +21,8 @@ def register_blueprints(app):
         pass
     
     try:
-        from ..auth import auth_bp
-        app.register_blueprint(auth_bp, url_prefix="/auth")
+        from ..auth import auth_bp as old_auth_bp
+        app.register_blueprint(old_auth_bp, url_prefix="/auth")
     except ImportError:
         pass
         

@@ -1,7 +1,13 @@
+html { 
+  direction: rtl; 
+  font-family: "Assistant", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; 
+}
+
 body {
   margin: 0;
-  font-family: Arial, sans-serif;
+  font-family: "Assistant", Arial, sans-serif;
   background-color: white;
+  direction: rtl;
 }
 
 * {
