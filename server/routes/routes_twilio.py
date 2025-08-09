@@ -47,8 +47,12 @@ def handle_recording():
         print(f"🔊 תשובה AI נוצרה: {audio_url}")
         
         vr = VoiceResponse()
-        # Play AI response
-        vr.play(f"http://localhost:5000{audio_url}")
+        # Get the actual host URL (works in production)
+        host = current_app.config.get("HOST", request.host_url.rstrip("/"))
+        # Play AI response with correct URL
+        full_audio_url = f"{host}{audio_url}"
+        print(f"🔊 משמיע קובץ אודיו: {full_audio_url}")
+        vr.play(full_audio_url)
         
         # Continue conversation - record again for follow-up
         vr.record(

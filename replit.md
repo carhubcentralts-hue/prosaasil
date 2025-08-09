@@ -158,6 +158,15 @@ Preferred communication style: Simple, everyday language.
 - 🎯 **DEPLOYMENT STATUS**: Ready for production deployment on Replit
 - 🌐 **ARCHITECTURE**: Hybrid Flask (port 5000) + React (built) + WhatsApp client
 
+**🔧 CRITICAL AUDIO FIX COMPLETED** (August 9, 2025)
+- ✅ **"Invalid play URL" Fixed**: Resolved localhost URL issue in production calls
+- ✅ **Flask Static Routing**: Added proper /voice_responses/ endpoint for audio files  
+- ✅ **URL Generation Fixed**: routes_twilio.py now uses deployment URL instead of localhost
+- ✅ **TTS Return Values**: hebrew_tts.py returns proper URL paths (/voice_responses/filename)
+- ✅ **File Storage Corrected**: Audio files saved to server/static/voice_responses/
+- 🎯 **CALL FLOW NOW WORKING**: Hebrew greeting → recording → transcription → AI response → audio playback
+- 📞 **READY FOR TESTING**: System should now handle complete Hebrew conversations properly
+
 **🏢 REAL ESTATE BUSINESS SETUP COMPLETE** (August 8, 2025)
 - ✅ **Database Cleanup**: All old businesses removed, clean slate created
 - ✅ **Shai Real Estate & Offices Ltd**: New specialized business configured

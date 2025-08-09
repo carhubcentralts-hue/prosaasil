@@ -1,6 +1,21 @@
-from flask import Flask, request, Response
+from flask import Flask, request, Response, send_from_directory
+import os
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
+
+# Static file serving for voice responses
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    """שרת קבצים סטטיים - קבצי אודיו"""
+    static_dir = app.static_folder or 'static'
+    return send_from_directory(static_dir, filename)
+
+@app.route('/voice_responses/<path:filename>')
+def serve_voice_responses(filename):
+    """שרת קבצי תגובות קוליות"""
+    static_dir = app.static_folder or 'static'
+    voice_dir = os.path.join(static_dir, 'voice_responses')
+    return send_from_directory(voice_dir, filename)
 
 @app.route("/")
 def home():

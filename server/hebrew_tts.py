@@ -113,14 +113,14 @@ class HebrewTTSService:
             unique_id = str(uuid.uuid4())[:8]
             text_hash = hashlib.md5(text.encode()).hexdigest()[:8]
             filename = f"hebrew_{text_hash}_{unique_id}.mp3"
-            filepath = f"static/voice_responses/{filename}"
+            filepath = f"server/static/voice_responses/{filename}"
             logger.info(f"🎵 Creating TTS file: {filename} for text: '{text[:50]}...'")
             
             # CRITICAL FIX: Ensure unique filenames to avoid cache issues
             if os.path.exists(filepath):
                 timestamp = str(int(time.time()))  # Use full timestamp if file exists
                 filename = f"hebrew_{text_hash}_{timestamp}.mp3"
-                filepath = f"static/voice_responses/{filename}"
+                filepath = f"server/static/voice_responses/{filename}"
                 logger.info(f"🔄 File exists, using new timestamp: {filename}")
             
             # Save TTS to file
@@ -134,7 +134,8 @@ class HebrewTTSService:
             if os.path.exists(filepath) and os.path.getsize(filepath) > 3000:
                 logger.info(f"✅ Created {filename} using gTTS Hebrew fallback ({os.path.getsize(filepath)} bytes)")
                 print(f"🎵 TTS FILE VERIFIED: {filepath} exists ({os.path.getsize(filepath)} bytes)")
-                return filename
+                # Return URL path for Flask routing
+                return f"/voice_responses/{filename}"
             else:
                 logger.error(f"❌ TTS file creation failed or too small: {filepath}")
                 raise Exception("TTS file creation failed")
@@ -163,12 +164,12 @@ class HebrewTTSService:
                 if os.path.exists(template):
                     shutil.copy(template, filepath)
                     logger.warning(f"⚠️ Created {filename} from template {template} (no Hebrew TTS available)")
-                    return filename
+                    return f"/voice_responses/{filename}"
             
             # Last resort - create minimal MP3 header
             self._create_minimal_mp3(filepath)
             logger.warning(f"⚠️ Created minimal MP3: {filename}")
-            return filename
+            return f"/voice_responses/{filename}"
     
     def _create_minimal_mp3(self, filepath):
         """יצירת קובץ MP3 מינימלי"""
@@ -217,16 +218,17 @@ class HebrewTTSService:
                 audio_config=audio_config
             )
             
-            # Save to file
+            # Save to file with correct path
             from uuid import uuid4
             filename = f"hebrew_{uuid4().hex[:8]}.mp3"
-            filepath = f"static/voice_responses/{filename}"
+            filepath = f"server/static/voice_responses/{filename}"
             
             with open(filepath, "wb") as f:
                 f.write(response.audio_content)
             
             logger.info(f"✅ Google Cloud Hebrew TTS: {filename}")
-            return filename
+            # Return URL path for Flask routing
+            return f"/voice_responses/{filename}"
             
         except Exception as e:
             logger.error(f"❌ Google Cloud TTS failed: {e}")
