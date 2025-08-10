@@ -1,324 +1,453 @@
-import os
-import logging
-from flask import Flask, send_from_directory, send_file
+from flask import Flask, request, jsonify, session, send_from_directory
+from flask_cors import CORS
+from flask_session import Session
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.orm import DeclarativeBase
-from werkzeug.middleware.proxy_fix import ProxyFix
-from werkzeug.exceptions import NotFound
+from werkzeug.security import generate_password_hash, check_password_hash
+import os
+from datetime import datetime, timedelta
+import logging
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
+# יצירת אפליקציה
+app = Flask(__name__, static_folder='../client/dist', static_url_path='/')
 
-class Base(DeclarativeBase):
-    pass
+# הגדרות אפליקציה
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_PERMANENT'] = False
+app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_KEY_PREFIX'] = 'agentlocator:'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = False  # True בפרודקשן עם HTTPS
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 
-db = SQLAlchemy(model_class=Base)
+# מסד נתונים
+database_url = os.getenv('DATABASE_URL', 'sqlite:///agentlocator.db')
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Create the app
-app = Flask(__name__)
-app.secret_key = os.environ.get("SESSION_SECRET", "default_secret_key_for_dev")
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+# אתחול הרחבות
+CORS(app, supports_credentials=True, origins=["http://localhost:5173", "http://0.0.0.0:5173"])
+Session(app)
+db = SQLAlchemy(app)
 
-# Production security settings
-if os.environ.get("HTTPS_ONLY", "True").lower() == "true":
-    app.config["PREFERRED_URL_SCHEME"] = "https"
+# לוגים
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Configure the database
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///call_center.db")
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "pool_recycle": 300,
-    "pool_pre_ping": True,
-}
-
-# Initialize the app with the extension
-db.init_app(app)
-
-with app.app_context():
-    # Import models to ensure tables are created
-    import models  # noqa: F401
+# מודלים
+class User(db.Model):
+    __tablename__ = 'users'
     
-    # Register Admin Blueprint FIRST
-    try:
-        from admin_routes import admin_bp  # Admin routes for business management
-        app.register_blueprint(admin_bp)
-        logging.info("✅ Admin Blueprint registered successfully")
-    except Exception as e:
-        logging.error(f"❌ Admin Blueprint registration failed: {e}")
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default='business')  # 'admin' או 'business'
+    business_id = db.Column(db.Integer, db.ForeignKey('businesses.id'), nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime)
+    
+    # קשר לעסק
+    business = db.relationship('Business', backref=db.backref('users', lazy=True))
+    
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'email': self.email,
+            'role': self.role,
+            'business_id': self.business_id,
+            'business': self.business.to_dict() if self.business else None,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_login': self.last_login.isoformat() if self.last_login else None
+        }
 
-    # Register Business Blueprint
-    try:
-        from business_routes import business_bp  # Business routes
-        app.register_blueprint(business_bp)
-        logging.info("✅ Business Blueprint registered successfully")
-    except Exception as e:
-        logging.error(f"❌ Business Blueprint registration failed: {e}")
-        
-    # Register Status Blueprint
-    try:
-        from status_routes import status_bp  # Status routes
-        app.register_blueprint(status_bp)
-        logging.info("✅ Status Blueprint registered successfully")
-    except Exception as e:
-        logging.error(f"❌ Status Blueprint registration failed: {e}")
+class Business(db.Model):
+    __tablename__ = 'businesses'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    hebrew_name = db.Column(db.String(200), nullable=False)
+    business_type = db.Column(db.String(100), nullable=False)
+    phone = db.Column(db.String(20))
+    whatsapp = db.Column(db.String(20))
+    email = db.Column(db.String(120))
+    address = db.Column(db.Text)
+    description = db.Column(db.Text)
+    status = db.Column(db.String(20), default='active')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'hebrew_name': self.hebrew_name,
+            'business_type': self.business_type,
+            'phone': self.phone,
+            'whatsapp': self.whatsapp,
+            'email': self.email,
+            'address': self.address,
+            'description': self.description,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
 
-    # Register Login Blueprint
-    try:
-        from login_routes import login_bp  # Login and authentication routes
-        app.register_blueprint(login_bp, url_prefix='/api')
-        logging.info("✅ Login Blueprint registered successfully")
-    except Exception as e:
-        logging.error(f"❌ Login Blueprint registration failed: {e}")
-        
-    # Register Twilio Blueprint  
-    try:
-        from routes_twilio import twilio_bp  # Twilio webhook routes
-        app.register_blueprint(twilio_bp)
-        logging.info("✅ Twilio Blueprint registered successfully")
-    except Exception as e:
-        logging.error(f"❌ Twilio Blueprint registration failed: {e}")
+class CallLog(db.Model):
+    __tablename__ = 'call_logs'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey('businesses.id'), nullable=False)
+    phone_number = db.Column(db.String(20), nullable=False)
+    direction = db.Column(db.String(10), nullable=False)  # 'incoming' או 'outgoing'
+    duration = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(20), default='completed')
+    recording_url = db.Column(db.String(500))
+    transcription = db.Column(db.Text)
+    summary = db.Column(db.Text)
+    ai_response = db.Column(db.Text)
+    customer_name = db.Column(db.String(200))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # קשר לעסק
+    business = db.relationship('Business', backref=db.backref('call_logs', lazy=True))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'business_id': self.business_id,
+            'business': self.business.to_dict() if self.business else None,
+            'phone_number': self.phone_number,
+            'direction': self.direction,
+            'duration': self.duration,
+            'status': self.status,
+            'recording_url': self.recording_url,
+            'transcription': self.transcription,
+            'summary': self.summary,
+            'ai_response': self.ai_response,
+            'customer_name': self.customer_name,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
 
-    # Register other Blueprints
-    try:
-        from crm_bp import crm_bp
-        from whatsapp_bp import whatsapp_bp
-        from signature_bp import signature_bp
-        from invoice_bp import invoice_bp
-        from proposal_bp import proposal_bp
-        from whatsapp_api import whatsapp_api_bp
-        from crm_api import crm_api_bp
-        from signature_api import signature_api_bp
-        from proposal_api import proposal_api_bp
-        from invoice_api import invoice_api_bp
-        from stats_api import stats_api_bp
-        
-        # Register template blueprints
-        app.register_blueprint(crm_bp)
-        app.register_blueprint(whatsapp_bp)
-        app.register_blueprint(signature_bp)
-        app.register_blueprint(invoice_bp)
-        app.register_blueprint(proposal_bp)
-        
-        # Register API blueprints for React consumption (AgentLocator)
-        try:
-            from crm_api import crm_api_bp
-            app.register_blueprint(crm_api_bp)
-            logging.info("✅ CRM API Blueprint registered")
-        except Exception as e:
-            logging.warning(f"⚠️ CRM API Blueprint failed: {e}")
-        
-        try:
-            from whatsapp_api import whatsapp_api_bp
-            app.register_blueprint(whatsapp_api_bp)
-            logging.info("✅ WhatsApp API Blueprint registered")
-        except Exception as e:
-            logging.warning(f"⚠️ WhatsApp API Blueprint failed: {e}")
-        
-        try:
-            from signature_api import signature_api_bp
-            app.register_blueprint(signature_api_bp)
-            logging.info("✅ Signature API Blueprint registered")
-        except Exception as e:
-            logging.warning(f"⚠️ Signature API Blueprint failed: {e}")
-        
-        try:
-            from proposal_api import proposal_api_bp
-            app.register_blueprint(proposal_api_bp)
-            logging.info("✅ Proposal API Blueprint registered")
-        except Exception as e:
-            logging.warning(f"⚠️ Proposal API Blueprint failed: {e}")
-        
-        try:
-            from invoice_api import invoice_api_bp
-            app.register_blueprint(invoice_api_bp)
-            logging.info("✅ Invoice API Blueprint registered")
-        except Exception as e:
-            logging.warning(f"⚠️ Invoice API Blueprint failed: {e}")
-        
-        try:
-            from stats_api import stats_api_bp
-            app.register_blueprint(stats_api_bp)
-            logging.info("✅ Stats API Blueprint registered")
-        except Exception as e:
-            logging.warning(f"⚠️ Stats API Blueprint failed: {e}")
-        
-        try:
-            from routes_call_analysis import call_analysis_bp
-            app.register_blueprint(call_analysis_bp)
-            logging.info("✅ Call Analysis API Blueprint registered")
-        except Exception as e:
-            logging.warning(f"⚠️ Call Analysis API Blueprint failed: {e}")
-        
-        logging.info("✅ All other Blueprints registered successfully")
-        
-    except Exception as e:
-        logging.warning(f"⚠️ Could not register some Blueprints: {e}")
+class Customer(db.Model):
+    __tablename__ = 'customers'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey('businesses.id'), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    phone = db.Column(db.String(20))
+    email = db.Column(db.String(120))
+    whatsapp = db.Column(db.String(20))
+    notes = db.Column(db.Text)
+    status = db.Column(db.String(20), default='active')
+    source = db.Column(db.String(50))  # 'call', 'whatsapp', 'manual'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # קשר לעסק
+    business = db.relationship('Business', backref=db.backref('customers', lazy=True))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'business_id': self.business_id,
+            'business': self.business.to_dict() if self.business else None,
+            'name': self.name,
+            'phone': self.phone,
+            'email': self.email,
+            'whatsapp': self.whatsapp,
+            'notes': self.notes,
+            'status': self.status,
+            'source': self.source,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
 
-    # Import systematic route modules (Hebrew CRM System)
+# מידלוור לבדיקת הרשאות
+def require_auth():
+    if 'user_id' not in session:
+        return jsonify({'error': 'לא מחובר למערכת', 'code': 'UNAUTHORIZED'}), 401
+    return None
+
+def require_admin():
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    user = User.query.get(session['user_id'])
+    if not user or user.role != 'admin':
+        return jsonify({'error': 'נדרשות הרשאות מנהל', 'code': 'FORBIDDEN'}), 403
+    return None
+
+def get_current_user():
+    if 'user_id' not in session:
+        return None
+    return User.query.get(session['user_id'])
+
+# נתיבי API - Authentication
+@app.route('/api/auth/login', methods=['POST'])
+def login():
     try:
-        import routes_twilio      # AI Call handling routes
-        import routes_whatsapp    # WhatsApp (Baileys + Twilio) routes  
-        import routes_crm         # Advanced CRM routes
-        # import routes           # Legacy routes - DEPRECATED
-        import api_routes         # New React API routes
-        import api_crm_advanced   # Advanced CRM API routes
-        import api_whatsapp_advanced # Advanced WhatsApp API routes
-        import api_business_info  # Business info API routes
+        data = request.get_json()
+        if not data or 'email' not in data or 'password' not in data:
+            return jsonify({'success': False, 'error': 'נתונים חסרים'}), 400
         
-        # Register new advanced API blueprints
-        from api_routes import api_bp
-        app.register_blueprint(api_bp)
-        logging.info("✅ API Routes Blueprint registered successfully")
+        email = data['email'].strip().lower()
+        password = data['password']
         
-        # Register newest advanced blueprints
-        try:
-            from api_phone_analysis import phone_analysis_bp
-            app.register_blueprint(phone_analysis_bp)
-            logging.info("✅ Phone Analysis Blueprint registered")
-        except ImportError:
-            logging.warning("⚠️ Phone Analysis Blueprint not found")
+        user = User.query.filter_by(email=email).first()
         
-        try:
-            from api_admin_advanced import admin_advanced_bp
-            app.register_blueprint(admin_advanced_bp)
-            logging.info("✅ Admin Advanced Blueprint registered")
-        except ImportError:
-            logging.warning("⚠️ Admin Advanced Blueprint not found")
-        
-        try:
-            from api_business_leads import business_leads_bp
-            app.register_blueprint(business_leads_bp)
-            logging.info("✅ Business Leads Blueprint registered")
-        except ImportError:
-            logging.warning("⚠️ Business Leads Blueprint not found")
+        if user and user.check_password(password) and user.is_active:
+            # עדכון זמן התחברות אחרון
+            user.last_login = datetime.utcnow()
+            db.session.commit()
             
-        try:
-            from routes_crm_integration import crm_integration
-            app.register_blueprint(crm_integration)
-            logging.info("✅ CRM Integration Blueprint registered")
-        except ImportError:
-            logging.warning("⚠️ CRM Integration Blueprint not found")
+            # שמירה בסשן
+            session['user_id'] = user.id
+            session['user_email'] = user.email
+            session['user_role'] = user.role
+            session['business_id'] = user.business_id
             
-        # AGENTLOCATOR API BLUEPRINTS - SIMPLE CONNECTION  
-        from crm_api import crm_api_bp
-        from whatsapp_api import whatsapp_api_bp
-        from signature_api import signature_api_bp
-        from invoice_api import invoice_api_bp
-        from proposal_api import proposal_api_bp
-        from stats_api import stats_api_bp
-
-        app.register_blueprint(crm_api_bp)
-        app.register_blueprint(whatsapp_api_bp)
-        app.register_blueprint(signature_api_bp)
-        app.register_blueprint(invoice_api_bp)
-        app.register_blueprint(proposal_api_bp)
-        app.register_blueprint(stats_api_bp)
-        
-        logging.info("✅ AgentLocator API Blueprints registered successfully")
-        
-        logging.info("✅ All route modules loaded successfully")
-    except Exception as e:
-        logging.warning(f"⚠️ Route modules error: {e}")
-
-    db.create_all()
-    
-    # הפעלת שירותי ניקוי אוטומטי הוסר - משתמש ב-background_cleanup
-    
-    # הפעלת שירות ניקוי ברקע מתקדם
-    try:
-        from auto_cleanup_background import start_background_scheduler
-        import threading
-        cleanup_thread = threading.Thread(target=start_background_scheduler, daemon=True)
-        cleanup_thread.start()
-        logging.info("🧹 Background cleanup scheduler started")
-    except Exception as e:
-        logging.warning(f"⚠️ Could not start background cleanup: {e}")
-
-# TTS Static File Route - HIGHEST PRIORITY - MUST BE FIRST
-@app.route("/server/static/voice_responses/<filename>", methods=['GET', 'HEAD'])
-def serve_tts_files(filename):
-    """Serve TTS audio files with correct MIME type - FIXED VERSION"""
-    import os
-    from flask import send_file
-    
-    logging.info(f"🎵 TTS Route Called: {filename}")
-    
-    try:
-        static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "static", "voice_responses"))
-        file_path = os.path.join(static_dir, filename)
-        
-        logging.info(f"🎵 TTS Full Path: {file_path}")
-        logging.info(f"🎵 Directory exists: {os.path.exists(static_dir)}")
-        logging.info(f"🎵 File exists: {os.path.exists(file_path)}")
-        
-        if os.path.exists(file_path):
-            file_size = os.path.getsize(file_path)
-            logging.info(f"🎵 SUCCESS - Serving TTS file: {filename} ({file_size} bytes)")
+            logger.info(f"התחברות מוצלחת: {email}")
             
-            # Force the correct headers
-            response = send_file(file_path, mimetype='audio/mpeg', as_attachment=False)
-            response.headers['Content-Type'] = 'audio/mpeg'
-            response.headers['Cache-Control'] = 'no-cache'
-            return response
+            return jsonify({
+                'success': True,
+                'user': user.to_dict()
+            })
         else:
-            logging.error(f"❌ TTS file not found: {filename} at {file_path}")
-            return "TTS File not found", 404
+            logger.warning(f"התחברות נכשלה: {email}")
+            return jsonify({'success': False, 'error': 'אימייל או סיסמה שגויים'}), 401
             
     except Exception as e:
-        logging.error(f"❌ Error serving TTS file {filename}: {e}")
-        import traceback
-        logging.error(f"❌ Full traceback: {traceback.format_exc()}")
-        return f"Server error: {e}", 500
+        logger.error(f"שגיאה בהתחברות: {str(e)}")
+        return jsonify({'success': False, 'error': 'שגיאה בשרת'}), 500
 
-# React Assets Route - CRITICAL: Handle both /assets/ and /*/assets/ paths
-@app.route("/assets/<path:filename>")
-@app.route("/<path:route>/assets/<path:filename>")
-def serve_assets(filename, route=None):
-    """Serve React assets with correct MIME types from any route"""
-    from flask import Response
-    
-    build_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../client/dist"))
-    assets_dir = os.path.join(build_dir, "assets")
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    try:
+        user_email = session.get('user_email', 'unknown')
+        session.clear()
+        logger.info(f"יציאה מוצלחת: {user_email}")
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"שגיאה ביציאה: {str(e)}")
+        return jsonify({'success': False, 'error': 'שגיאה בשרת'}), 500
+
+@app.route('/api/auth/me', methods=['GET'])
+def get_me():
+    try:
+        current_user = get_current_user()
+        if not current_user:
+            return jsonify({'error': 'לא מחובר'}), 401
+        
+        return jsonify(current_user.to_dict())
+    except Exception as e:
+        logger.error(f"שגיאה בקבלת פרטי משתמש: {str(e)}")
+        return jsonify({'error': 'שגיאה בשרת'}), 500
+
+# נתיבי API - CRM
+@app.route('/api/crm/customers', methods=['GET'])
+def get_customers():
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
     
     try:
-        response = send_from_directory(assets_dir, filename)
+        current_user = get_current_user()
+        page = request.args.get('page', 1, type=int)
+        limit = request.args.get('limit', 25, type=int)
         
-        # Set correct MIME types for JavaScript modules
-        if filename.endswith('.js'):
-            response.mimetype = 'application/javascript'
-            response.headers['Content-Type'] = 'application/javascript; charset=utf-8'
-        elif filename.endswith('.css'):
-            response.mimetype = 'text/css'
-            response.headers['Content-Type'] = 'text/css; charset=utf-8'
-            
-        logging.info(f"✅ Serving asset: {filename} from route: {route} with MIME: {response.mimetype}")
-        return response
+        query = Customer.query
+        
+        # סינון לפי הרשאות
+        if current_user.role != 'admin':
+            query = query.filter_by(business_id=current_user.business_id)
+        
+        # Pagination
+        customers = query.paginate(
+            page=page, per_page=limit, error_out=False
+        )
+        
+        return jsonify({
+            'customers': [customer.to_dict() for customer in customers.items],
+            'total': customers.total,
+            'pages': customers.pages,
+            'current_page': page,
+            'per_page': limit
+        })
+        
     except Exception as e:
-        logging.error(f"❌ Error serving asset {filename}: {e}")
-        return "Asset not found", 404
+        logger.error(f"שגיאה בקבלת לקוחות: {str(e)}")
+        return jsonify({'error': 'שגיאה בשרת'}), 500
 
-# React Frontend Routes - Flask מגיש את React
-@app.route("/", defaults={"path": ""})
-@app.route("/<path:path>")
-def serve_react(path):
-    """Serve React app with proper SPA routing support"""       
-    build_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../client/dist"))
+# נתיבי API - Calls  
+@app.route('/api/calls', methods=['GET'])
+def get_calls():
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
     
-    # CRITICAL: Skip any requests that contain /assets/ - let asset routes handle them
-    if "/assets/" in path or path.startswith("assets/"):
-        logging.info(f"🔄 Skipping asset path in serve_react: {path}")
-        # Don't handle assets - this should never be reached
-        from flask import abort
-        return abort(404)
+    try:
+        current_user = get_current_user()
+        page = request.args.get('page', 1, type=int)
+        limit = request.args.get('limit', 25, type=int)
+        
+        query = CallLog.query
+        
+        # סינון לפי הרשאות
+        if current_user.role != 'admin':
+            query = query.filter_by(business_id=current_user.business_id)
+        
+        # סדר לפי תאריך יצירה - החדשים ראשון
+        query = query.order_by(CallLog.created_at.desc())
+        
+        # Pagination
+        calls = query.paginate(
+            page=page, per_page=limit, error_out=False
+        )
+        
+        return jsonify({
+            'calls': [call.to_dict() for call in calls.items],
+            'total': calls.total,
+            'pages': calls.pages,
+            'current_page': page,
+            'per_page': limit
+        })
+        
+    except Exception as e:
+        logger.error(f"שגיאה בקבלת שיחות: {str(e)}")
+        return jsonify({'error': 'שגיאה בשרת'}), 500
+
+# נתיבי API - Businesses (מנהלים בלבד)
+@app.route('/api/admin/businesses', methods=['GET'])
+def get_businesses():
+    admin_error = require_admin()
+    if admin_error:
+        return admin_error
     
-    requested_path = os.path.join(build_dir, path)
+    try:
+        businesses = Business.query.all()
+        return jsonify({
+            'businesses': [business.to_dict() for business in businesses]
+        })
+    except Exception as e:
+        logger.error(f"שגיאה בקבלת עסקים: {str(e)}")
+        return jsonify({'error': 'שגיאה בשרת'}), 500
 
-    if path != "" and os.path.exists(requested_path):
-        return send_from_directory(build_dir, path)
-    else:
-        # Serve index.html for SPA routing
-        logging.info(f"📄 Serving index.html for SPA path: {path}")
-        return send_from_directory(build_dir, "index.html")
+# נתיב בריאות
+@app.route('/api/health', methods=['GET'])
+def health():
+    return jsonify({
+        'ok': True,
+        'service': 'AgentLocator API',
+        'version': '1.0.0',
+        'timestamp': datetime.utcnow().isoformat()
+    })
 
-# Media stream routes integrated into routes.py
+# הגשת React App
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_spa(path):
+    if path and os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, 'index.html')
 
+# יצירת הטבלאות ונתונים ראשוניים
+def init_database():
+    """יצירת הטבלאות ונתוני דמו"""
+    try:
+        db.create_all()
+        
+        # בדיקה אם יש כבר נתונים
+        if User.query.first():
+            logger.info("הנתונים כבר קיימים במסד הנתונים")
+            return
+        
+        # יצירת עסק דמו
+        business = Business(
+            name='Shai Real Estate & Offices Ltd.',
+            hebrew_name='שי דירות ומשרדים בע״מ',
+            business_type='נדל"ן ותיווך',
+            phone='+972-3-555-7777',
+            whatsapp='+1-555-123-4567',
+            email='info@shai-realestate.co.il',
+            description='חברת תיווך נדל"ן מקצועית המתמחה בדירות ומשרדים',
+            status='active'
+        )
+        db.session.add(business)
+        db.session.flush()  # כדי לקבל ID
+        
+        # יצירת משתמש מנהל
+        admin_user = User(
+            email='admin@example.com',
+            role='admin',
+            is_active=True
+        )
+        admin_user.set_password('admin123')
+        db.session.add(admin_user)
+        
+        # יצירת משתמש עסק
+        business_user = User(
+            email='shai@example.com',
+            role='business',
+            business_id=business.id,
+            is_active=True
+        )
+        business_user.set_password('shai123')
+        db.session.add(business_user)
+        
+        # יצירת נתוני דמו - לקוחות
+        customers_data = [
+            {'name': 'יוסי כהן', 'phone': '+972-50-123-4567', 'source': 'call'},
+            {'name': 'רחל לוי', 'phone': '+972-54-987-6543', 'source': 'whatsapp'},
+            {'name': 'דוד ישראל', 'phone': '+972-52-456-7890', 'source': 'manual'},
+        ]
+        
+        for customer_data in customers_data:
+            customer = Customer(
+                business_id=business.id,
+                name=customer_data['name'],
+                phone=customer_data['phone'],
+                source=customer_data['source'],
+                status='active'
+            )
+            db.session.add(customer)
+        
+        # יצירת נתוני דמו - שיחות
+        for i in range(5):
+            call = CallLog(
+                business_id=business.id,
+                phone_number=f'+972-50-{1234567+i}',
+                direction='incoming',
+                duration=120 + i * 30,
+                status='completed',
+                transcription=f'תמלול שיחה מספר {i+1} - לקוח מעוניין בדירת 3 חדרים באזור המרכז',
+                summary=f'סיכום שיחה {i+1}: פנייה לגבי דירה',
+                customer_name=f'לקוח {i+1}'
+            )
+            db.session.add(call)
+        
+        db.session.commit()
+        logger.info("נתוני הדמו נוצרו בהצלחה")
+        logger.info("פרטי התחברות:")
+        logger.info("מנהל: admin@example.com / admin123")
+        logger.info("עסק: shai@example.com / shai123")
+        
+    except Exception as e:
+        logger.error(f"שגיאה ביצירת מסד הנתונים: {str(e)}")
+        db.session.rollback()
 
+if __name__ == '__main__':
+    init_database()
+    port = int(os.getenv('PORT', 5000))
+    debug_mode = os.getenv('FLASK_ENV') == 'development'
+    
+    logger.info(f"מפעיל שרת AgentLocator על פורט {port}")
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)
