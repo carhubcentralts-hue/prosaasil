@@ -9,11 +9,11 @@ def health():
 
 @app.route("/")
 def home():
-    """דף התחברות פשוט"""
-    # בדיקה אם יש build של React
-    dist_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'dist', 'index.html')
-    if os.path.exists(dist_path):
-        return send_file(dist_path)
+    """דף התחברות React"""
+    # הגשת קובץ HTML עם React
+    html_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'index.html')
+    if os.path.exists(html_path):
+        return send_file(html_path)
     
     # דף התחברות פשוט כגיבוי
     return '''<!DOCTYPE html>
