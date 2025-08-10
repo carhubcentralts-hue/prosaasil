@@ -52,6 +52,12 @@ class User(db.Model):
     # קשר לעסק
     business = db.relationship('Business', backref=db.backref('users', lazy=True))
     
+    def __init__(self, email, role='business', business_id=None, is_active=True):
+        self.email = email
+        self.role = role
+        self.business_id = business_id
+        self.is_active = is_active
+    
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
     
@@ -84,6 +90,17 @@ class Business(db.Model):
     description = db.Column(db.Text)
     status = db.Column(db.String(20), default='active')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __init__(self, name, hebrew_name=None, business_type=None, phone=None, whatsapp=None, email=None, address=None, description=None, status='active'):
+        self.name = name
+        self.hebrew_name = hebrew_name
+        self.business_type = business_type
+        self.phone = phone
+        self.whatsapp = whatsapp
+        self.email = email
+        self.address = address
+        self.description = description
+        self.status = status
     
     def to_dict(self):
         return {
@@ -119,6 +136,18 @@ class CallLog(db.Model):
     # קשר לעסק
     business = db.relationship('Business', backref=db.backref('call_logs', lazy=True))
     
+    def __init__(self, business_id, phone_number, direction, duration=0, status='completed', recording_url=None, transcription=None, summary=None, ai_response=None, customer_name=None):
+        self.business_id = business_id
+        self.phone_number = phone_number
+        self.direction = direction
+        self.duration = duration
+        self.status = status
+        self.recording_url = recording_url
+        self.transcription = transcription
+        self.summary = summary
+        self.ai_response = ai_response
+        self.customer_name = customer_name
+    
     def to_dict(self):
         return {
             'id': self.id,
@@ -153,6 +182,16 @@ class Customer(db.Model):
     
     # קשר לעסק
     business = db.relationship('Business', backref=db.backref('customers', lazy=True))
+    
+    def __init__(self, business_id, name, phone=None, email=None, whatsapp=None, notes=None, status='active', source=None):
+        self.business_id = business_id
+        self.name = name
+        self.phone = phone
+        self.email = email
+        self.whatsapp = whatsapp
+        self.notes = notes
+        self.status = status
+        self.source = source
     
     def to_dict(self):
         return {
@@ -267,7 +306,7 @@ def get_customers():
         query = Customer.query
         
         # סינון לפי הרשאות
-        if current_user.role != 'admin':
+        if current_user and current_user.role != 'admin':
             query = query.filter_by(business_id=current_user.business_id)
         
         # Pagination
@@ -302,7 +341,7 @@ def get_calls():
         query = CallLog.query
         
         # סינון לפי הרשאות
-        if current_user.role != 'admin':
+        if current_user and current_user.role != 'admin':
             query = query.filter_by(business_id=current_user.business_id)
         
         # סדר לפי תאריך יצירה - החדשים ראשון
@@ -355,9 +394,11 @@ def health():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_spa(path):
-    if path and os.path.exists(os.path.join(app.static_folder, path)):
+    if app.static_folder and path and os.path.exists(os.path.join(app.static_folder, path)):
         return send_from_directory(app.static_folder, path)
-    return send_from_directory(app.static_folder, 'index.html')
+    if app.static_folder:
+        return send_from_directory(app.static_folder, 'index.html')
+    return 'Static files not configured', 404
 
 # יצירת הטבלאות ונתונים ראשוניים
 def init_database():
