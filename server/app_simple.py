@@ -107,8 +107,11 @@ def login():
     """Simple login endpoint"""
     try:
         data = request.get_json(force=True)
-        username = data.get('username', '').strip()
-        password = data.get('password', '')
+        # Support both email and username fields for frontend compatibility
+        username = (data.get('username') or data.get('email', '')).strip()
+        password = data.get('password', '') if data else ''
+        
+        print(f"DEBUG: Login attempt - username: '{username}', password: '{password}', data: {data}")
         
         if not username or not password:
             return jsonify({'success': False, 'error': 'נדרש שם משתמש וסיסמה'}), 400
