@@ -275,13 +275,14 @@ def health():
 def serve_spa(path):
     """Serve React SPA"""
     try:
-        if path and os.path.exists(os.path.join(app.static_folder, path)):
+        if app.static_folder and path and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
         
         # Serve built React app
-        index_path = os.path.join(app.static_folder, 'index.html')
-        if os.path.exists(index_path):
-            return send_from_directory(app.static_folder, 'index.html')
+        if app.static_folder:
+            index_path = os.path.join(app.static_folder, 'index.html')
+            if os.path.exists(index_path):
+                return send_from_directory(app.static_folder, 'index.html')
         
         # Fallback professional page
         return f'''<!DOCTYPE html>

@@ -1,16 +1,15 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { 
-  Building, 
-  LogOut, 
-  Phone, 
-  MessageSquare, 
-  Users, 
-  Home,
-  Activity,
-  BarChart3,
-  Lock
-} from 'lucide-react';
+// Simple icons without lucide-react dependency
+const IconBuilding = () => <span>🏢</span>;
+const IconLogOut = () => <span>⇐</span>;
+const IconPhone = () => <span>📞</span>;
+const IconMessage = () => <span>💬</span>;
+const IconUsers = () => <span>👥</span>;
+const IconHome = () => <span>🏠</span>;
+const IconActivity = () => <span>📊</span>;
+const IconChart = () => <span>📈</span>;
+const IconLock = () => <span>🔒</span>;
 
 const BusinessDashboard = () => {
   const { user, logout } = useAuth();
@@ -31,7 +30,7 @@ const BusinessDashboard = () => {
     {
       id: 'crm',
       name: 'מערכת CRM שלי',
-      icon: Users,
+      icon: IconUsers,
       description: 'ניהול הלקוחות שלי',
       businessDescription: 'רק הלקוחות של שי דירות',
       color: 'bg-blue-500 hover:bg-blue-600',
@@ -41,7 +40,7 @@ const BusinessDashboard = () => {
     {
       id: 'calls',
       name: 'שיחות שלי',
-      icon: Phone,
+      icon: IconPhone,
       description: 'השיחות של העסק שלי',
       businessDescription: 'רק השיחות של שי דירות',
       color: 'bg-green-500 hover:bg-green-600',
@@ -51,7 +50,7 @@ const BusinessDashboard = () => {
     {
       id: 'whatsapp',
       name: 'WhatsApp שלי',
-      icon: MessageSquare,
+      icon: IconMessage,
       description: 'הודעות WhatsApp שלי',
       businessDescription: 'רק הודעות WhatsApp של שי דירות',
       color: 'bg-purple-500 hover:bg-purple-600',

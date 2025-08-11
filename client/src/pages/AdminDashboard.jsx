@@ -1,19 +1,18 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { 
-  Shield, 
-  LogOut, 
-  Phone, 
-  MessageSquare, 
-  Users, 
-  Building, 
-  Settings,
-  Activity,
-  BarChart3,
-  Crown,
-  Eye,
-  UserCheck
-} from 'lucide-react';
+// Simple icons without lucide-react dependency
+const IconShield = () => <span>🛡️</span>;
+const IconLogOut = () => <span>⇐</span>;
+const IconPhone = () => <span>📞</span>;
+const IconMessage = () => <span>💬</span>;
+const IconUsers = () => <span>👥</span>;
+const IconBuilding = () => <span>🏢</span>;
+const IconSettings = () => <span>⚙️</span>;
+const IconActivity = () => <span>📊</span>;
+const IconChart = () => <span>📈</span>;
+const IconCrown = () => <span>👑</span>;
+const IconEye = () => <span>👁️</span>;
+const IconUserCheck = () => <span>✅</span>;
 
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
@@ -38,7 +37,7 @@ const AdminDashboard = () => {
     {
       id: 'crm',
       name: 'מערכת CRM',
-      icon: Users,
+      icon: IconUsers,
       description: 'ניהול לקוחות ורכישות',
       adminDescription: 'צפייה בכל הלקוחות של כל העסקים',
       color: 'bg-blue-500 hover:bg-blue-600',
@@ -47,7 +46,7 @@ const AdminDashboard = () => {
     {
       id: 'calls',
       name: 'מערכת שיחות',
-      icon: Phone,
+      icon: IconPhone,
       description: 'ניהול שיחות וטלפוניה',
       adminDescription: 'צפייה בכל השיחות של כל העסקים',
       color: 'bg-green-500 hover:bg-green-600',
