@@ -29,14 +29,10 @@ app.config['SESSION_PERMANENT'] = True
 # CORS configuration
 CORS(app, supports_credentials=True, origins=['*'])
 
-# Simple Professional Users - Easy to remember
+# Simple Professional Users - Only 2 users as requested
 USERS = {
     'admin': {'password': 'admin', 'role': 'admin', 'name': 'מנהל מערכת'},
-    'manager': {'password': '123', 'role': 'admin', 'name': 'מנהל ראשי'}, 
-    'user': {'password': 'user', 'role': 'business', 'name': 'משתמש עסק'},
-    'business': {'password': '123', 'role': 'business', 'name': 'בעל עסק'},
-    'demo': {'password': 'demo', 'role': 'business', 'name': 'משתמש דמו'},
-    'test': {'password': 'test', 'role': 'business', 'name': 'משתמש בדיקה'},
+    'shai': {'password': 'shai123', 'role': 'business', 'name': 'שי דירות ומשרדים - בעל העסק'},
 }
 
 # Professional CRM Data
@@ -258,7 +254,7 @@ def health():
         'status': 'healthy',
         'service': 'AgentLocator CRM',
         'version': '1.0.0',
-        'users_available': list(USERS.keys()),
+        'users_available': ['admin (מנהל)', 'shai (שי דירות)'],
         'timestamp': datetime.utcnow().isoformat()
     })
 
@@ -333,11 +329,9 @@ def serve_spa(path):
         <div class="status">✅ מערכת מוכנה לעבודה</div>
         
         <div class="credentials">
-            <div class="cred-header">פרטי התחברות קלים:</div>
+            <div class="cred-header">פרטי התחברות:</div>
             <div class="cred-item">admin / admin (מנהל מערכת)</div>
-            <div class="cred-item">user / user (משתמש עסק)</div>
-            <div class="cred-item">manager / 123 (מנהל ראשי)</div>
-            <div class="cred-item">business / 123 (בעל עסק)</div>
+            <div class="cred-item">shai / shai123 (שי דירות ומשרדים)</div>
         </div>
         
         <div class="note">
