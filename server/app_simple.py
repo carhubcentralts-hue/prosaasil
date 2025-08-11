@@ -142,8 +142,11 @@ def login():
 def me():
     """Get current user"""
     user = session.get('user')
+    print(f"DEBUG: /api/auth/me called, session: {dict(session)}, user: {user}")
     if user:
         return jsonify({'success': True, 'user': user})
+    
+    print("DEBUG: No user in session")
     return jsonify({'success': False, 'user': None}), 401
 
 @app.route('/api/auth/logout', methods=['POST'])

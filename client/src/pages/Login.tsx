@@ -22,10 +22,13 @@ export default function Login({ onLogin }: LoginProps) {
     setLoading(true);
 
     try {
+      console.log('🔐 Attempting login with:', { username: email, password: '***' });
+      
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
         credentials: 'include',
         body: JSON.stringify({ 
@@ -34,16 +37,26 @@ export default function Login({ onLogin }: LoginProps) {
         }),
       });
 
-      const data = await response.json();
+      console.log('📡 Response status:', response.status);
+      console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()));
 
-      if (response.ok && data.success && data.user) {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('📦 Response data:', data);
+
+      if (data.success && data.user) {
+        console.log('✅ Login successful! User:', data.user);
         onLogin(data.user);
       } else {
-        setError(data.error || 'שגיאה בהתחברות');
+        console.error('❌ Login failed:', data);
+        setError(data.error || 'שם משתמש או סיסמה שגויים');
       }
     } catch (err) {
-      console.error('Login error:', err);
-      setError('שגיאה בהתחברות לשרת');
+      console.error('💥 Login error:', err);
+      setError(`שגיאה בחיבור למערכת: ${err.message}`);
     } finally {
       setLoading(false);
     }
