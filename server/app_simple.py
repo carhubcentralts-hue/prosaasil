@@ -27,7 +27,12 @@ app.config['SESSION_COOKIE_SECURE'] = False
 app.config['SESSION_PERMANENT'] = True
 
 # CORS configuration
-CORS(app, supports_credentials=True, origins=['*'])
+CORS(app, 
+    supports_credentials=True, 
+    origins=['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'],
+    allow_headers=['Content-Type', 'Authorization', 'X-Requested-With'],
+    methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+)
 
 # Simple Professional Users - Only 2 users as requested
 USERS = {
