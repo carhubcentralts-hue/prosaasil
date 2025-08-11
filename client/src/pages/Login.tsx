@@ -28,17 +28,21 @@ export default function Login({ onLogin }: LoginProps) {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ 
+          username: email, // Send as username to match backend
+          password 
+        }),
       });
 
       const data = await response.json();
 
-      if (data.success && data.user) {
+      if (response.ok && data.success && data.user) {
         onLogin(data.user);
       } else {
         setError(data.error || 'שגיאה בהתחברות');
       }
     } catch (err) {
+      console.error('Login error:', err);
       setError('שגיאה בהתחברות לשרת');
     } finally {
       setLoading(false);
