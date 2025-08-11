@@ -486,7 +486,10 @@ def init_database():
         db.session.rollback()
 
 if __name__ == '__main__':
-    init_database()
+    # אתחול מסד הנתונים בתוך context
+    with app.app_context():
+        init_database()
+    
     port = int(os.getenv('PORT', 5000))
     debug_mode = os.getenv('FLASK_ENV') == 'development'
     
