@@ -1,68 +1,82 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authApi } from '../api/authApi';
 
-const AuthContext = createContext(null);
+const AuthContext = createContext();
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // Check if user is logged in on app start
   useEffect(() => {
     checkAuth();
   }, []);
 
   const checkAuth = async () => {
     try {
-      const userData = await authApi.getMe();
-      if (userData && userData.email) {
-        setUser(userData);
-        setIsAuthenticated(true);
+      const response = await fetch('/api/auth/me', {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.user) {
+          setUser(data.user);
+        }
       }
     } catch (error) {
-      console.log('לא מחובר');
-      setUser(null);
-      setIsAuthenticated(false);
+      console.error('Auth check failed:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const login = async (email, password) => {
+  const login = async (username, password) => {
     try {
-      setLoading(true);
-      const result = await authApi.login(email, password);
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+        credentials: 'include'
+      });
+
+      const data = await response.json();
       
-      if (result.success) {
-        const userData = result.user;
-        setUser(userData);
-        setIsAuthenticated(true);
+      if (data.success) {
+        setUser(data.user);
         return { success: true };
       } else {
-        return { success: false, error: result.error || 'שגיאה בהתחברות' };
+        return { success: false, error: data.error };
       }
     } catch (error) {
-      console.error('Login error:', error);
-      return { success: false, error: 'שגיאה בשרת' };
-    } finally {
-      setLoading(false);
+      return { success: false, error: 'שגיאת חיבור לשרת' };
     }
   };
 
   const logout = async () => {
     try {
-      await authApi.logout();
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include'
+      });
     } catch (error) {
-      console.error('Logout error:', error);
+      console.error('Logout failed:', error);
     } finally {
       setUser(null);
-      setIsAuthenticated(false);
     }
   };
 
   const value = {
     user,
-    isAuthenticated,
     loading,
     login,
     logout,
@@ -74,12 +88,4 @@ export const AuthProvider = ({ children }) => {
       {children}
     </AuthContext.Provider>
   );
-};
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 };

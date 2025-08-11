@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+
 // Simple icons without lucide-react dependency
 const IconShield = () => <span>🛡️</span>;
 const IconLogOut = () => <span>⇐</span>;
@@ -16,20 +17,38 @@ const IconUserCheck = () => <span>✅</span>;
 
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
-  const [selectedBusiness, setSelectedBusiness] = useState(null);
+  const [stats, setStats] = useState({});
+
+  useEffect(() => {
+    // Load admin stats
+    loadAdminData();
+  }, []);
+
+  const loadAdminData = async () => {
+    try {
+      const response = await fetch('/api/admin/stats', {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setStats(data);
+      }
+    } catch (error) {
+      console.error('Failed to load admin data:', error);
+    }
+  };
 
   const businesses = [
     {
       id: 1,
       name: 'שי דירות ומשרדים בע״מ',
-      hebrewName: 'שי דירות ומשרדים בע״מ',
       type: 'נדל"ן ותיווך',
       phone: '+972-3-555-7777',
       whatsapp: '+1-555-123-4567',
       status: 'פעיל',
       totalCalls: 127,
       totalContacts: 45,
-      lastActivity: 'לפני 2 שעות'
+      lastActivity: 'פעיל עכשיו'
     }
   ];
 
@@ -40,7 +59,7 @@ const AdminDashboard = () => {
       icon: IconUsers,
       description: 'ניהול לקוחות ורכישות',
       adminDescription: 'צפייה בכל הלקוחות של כל העסקים',
-      color: 'bg-blue-500 hover:bg-blue-600',
+      color: 'background: linear-gradient(135deg, #3b82f6, #1d4ed8)',
       stats: 'כל הלקוחות: 1,247'
     },
     {
@@ -49,17 +68,26 @@ const AdminDashboard = () => {
       icon: IconPhone,
       description: 'ניהול שיחות וטלפוניה',
       adminDescription: 'צפייה בכל השיחות של כל העסקים',
-      color: 'bg-green-500 hover:bg-green-600',
+      color: 'background: linear-gradient(135deg, #10b981, #059669)',
       stats: 'כל השיחות: 3,891'
     },
     {
       id: 'whatsapp',
       name: 'מערכת WhatsApp',
-      icon: MessageSquare,
+      icon: IconMessage,
       description: 'ניהול הודעות WhatsApp',
       adminDescription: 'צפייה בכל הודעות WhatsApp של כל העסקים',
-      color: 'bg-purple-500 hover:bg-purple-600',
-      stats: 'כל ההודעות: 567'
+      color: 'background: linear-gradient(135deg, #8b5cf6, #7c3aed)',
+      stats: 'כל ההודעות: 892'
+    },
+    {
+      id: 'admin',
+      name: 'ניהול מערכת',
+      icon: IconSettings,
+      description: 'הגדרות ותצורת מערכת',
+      adminDescription: 'ניהול עסקים, משתמשים ותצורות',
+      color: 'background: linear-gradient(135deg, #f59e0b, #d97706)',
+      stats: 'עסקים פעילים: 1'
     }
   ];
 
@@ -67,169 +95,175 @@ const AdminDashboard = () => {
     alert(`כניסה למערכת ${systemName} - תצוגת מנהל\nרואה את כל הנתונים של כל העסקים`);
   };
 
-  const handleTakeControl = (businessId, businessName) => {
-    alert(`השתלטות על עסק: ${businessName}\nעכשיו אתה פועל בתפקיד העסק`);
-  };
-
   const handleLogout = () => {
     logout();
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
+    <div className="dashboard-container">
       {/* Header */}
-      <header className="bg-white shadow-lg border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-gradient-to-r from-red-500 to-pink-500 rounded-lg shadow-lg">
-                  <Crown className="w-6 h-6 text-white" />
-                </div>
-                <div className="text-right">
-                  <h1 className="text-xl font-bold text-gray-800">לוח בקרה מנהל</h1>
-                  <p className="text-sm text-gray-600">גישה מלאה לכל המערכות</p>
-                </div>
-              </div>
+      <header className="dashboard-header">
+        <div className="dashboard-title">
+          <IconCrown /> מנהל מערכת - AgentLocator CRM
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontWeight: 'bold' }}>
+              {user?.name || 'מנהל מערכת'}
             </div>
-            
-            <div className="flex items-center space-x-4">
-              <div className="text-right">
-                <p className="text-sm font-semibold text-gray-700">{user?.email}</p>
-                <p className="text-xs text-gray-500">מנהל מערכת</p>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="flex items-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-200 shadow-md"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>יציאה</span>
-              </button>
+            <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>
+              רמת הרשאה: מנהל כללי
             </div>
           </div>
+          <button onClick={handleLogout} className="btn-logout">
+            <IconLogOut /> יציאה
+          </button>
         </div>
       </header>
 
       {/* Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          {[
-            { title: 'סה"כ עסקים', value: '1', icon: Building, color: 'bg-blue-500' },
-            { title: 'סה"כ שיחות', value: '3,891', icon: Phone, color: 'bg-green-500' },
-            { title: 'סה"כ לקוחות', value: '1,247', icon: Users, color: 'bg-purple-500' },
-            { title: 'הודעות WhatsApp', value: '567', icon: MessageSquare, color: 'bg-pink-500' }
-          ].map((stat, index) => (
-            <div key={index} className="bg-white rounded-xl shadow-lg p-6 hover-lift animate-fade-in-up" style={{ animationDelay: `${index * 100}ms` }}>
-              <div className="flex items-center justify-between">
-                <div className="text-right">
-                  <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                  <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                </div>
-                <div className={`p-3 rounded-lg ${stat.color}`}>
-                  <stat.icon className="w-6 h-6 text-white" />
-                </div>
-              </div>
-            </div>
-          ))}
+      <div className="dashboard-content">
+        {/* Welcome Section */}
+        <div style={{
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          borderRadius: '12px',
+          padding: '2rem',
+          color: 'white',
+          marginBottom: '2rem',
+          textAlign: 'center'
+        }}>
+          <IconCrown style={{ fontSize: '3rem', marginBottom: '1rem' }} />
+          <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>
+            ברוכים הבאים למערכת הניהול הכללית
+          </h2>
+          <p style={{ opacity: 0.9 }}>
+            אתם רואים ומנהלים את כל הנתונים של כל העסקים במערכת
+          </p>
         </div>
 
-        {/* Businesses Management */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-8 animate-slide-in-right">
-          <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
-            <Building className="w-5 h-5 ml-2 text-blue-500" />
-            ניהול עסקים
-          </h2>
-          
-          <div className="space-y-4">
-            {businesses.map((business) => (
-              <div key={business.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200">
-                <div className="flex items-center justify-between">
-                  <div className="text-right flex-1">
-                    <h3 className="text-lg font-semibold text-gray-800">{business.name}</h3>
-                    <p className="text-sm text-gray-600">סוג עסק: {business.type}</p>
-                    <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
-                      <span>📞 {business.phone}</span>
-                      <span>💬 {business.whatsapp}</span>
-                      <span className="text-green-600 font-semibold">{business.status}</span>
-                    </div>
-                    <div className="flex items-center space-x-4 mt-1 text-xs text-gray-400">
-                      <span>שיחות: {business.totalCalls}</span>
-                      <span>אנשי קשר: {business.totalContacts}</span>
-                      <span>פעילות אחרונה: {business.lastActivity}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => handleTakeControl(business.id, business.name)}
-                      className="flex items-center space-x-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-200 shadow-md"
-                    >
-                      <UserCheck className="w-4 h-4" />
-                      <span>השתלטות</span>
-                    </button>
-                    
-                    <button className="flex items-center space-x-2 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200">
-                      <Eye className="w-4 h-4" />
-                      <span>צפייה</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+        {/* Business Overview */}
+        <div style={{ marginBottom: '2rem' }}>
+          <h3 className="section-title">
+            <IconBuilding /> עסקים במערכת
+          </h3>
+          <div className="content-card">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>סטטוס</th>
+                  <th>פעילות אחרונה</th>
+                  <th>לקוחות</th>
+                  <th>שיחות</th>
+                  <th>WhatsApp</th>
+                  <th>טלפון</th>
+                  <th>סוג</th>
+                  <th>שם עסק</th>
+                </tr>
+              </thead>
+              <tbody>
+                {businesses.map(business => (
+                  <tr key={business.id}>
+                    <td>
+                      <span className="status-active">● {business.status}</span>
+                    </td>
+                    <td>{business.lastActivity}</td>
+                    <td>{business.totalContacts}</td>
+                    <td>{business.totalCalls}</td>
+                    <td>{business.whatsapp}</td>
+                    <td>{business.phone}</td>
+                    <td>{business.type}</td>
+                    <td style={{ fontWeight: 'bold' }}>{business.name}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* System Stats */}
+        <div style={{ marginBottom: '2rem' }}>
+          <h3 className="section-title">
+            <IconChart /> סטטיסטיקות המערכת
+          </h3>
+          <div className="stats-grid">
+            <div className="stat-card">
+              <div className="stat-number">1</div>
+              <div className="stat-label">עסקים פעילים</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">127</div>
+              <div className="stat-label">סה״כ שיחות</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">45</div>
+              <div className="stat-label">סה״כ לקוחות</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">23</div>
+              <div className="stat-label">הודעות WhatsApp</div>
+            </div>
           </div>
         </div>
 
         {/* System Modules */}
-        <div className="bg-white rounded-xl shadow-lg p-6 animate-slide-in-left">
-          <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
-            <Shield className="w-5 h-5 ml-2 text-purple-500" />
-            מערכות המערכת - תצוגת מנהל
-          </h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {systemModules.map((module, index) => (
-              <div key={module.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-all duration-300 hover-lift animate-fade-in-up" style={{ animationDelay: `${index * 200}ms` }}>
-                <div className="text-center">
-                  <div className={`inline-flex items-center justify-center w-16 h-16 ${module.color} rounded-full mb-4 shadow-lg`}>
-                    <module.icon className="w-8 h-8 text-white" />
-                  </div>
-                  
-                  <h3 className="text-lg font-semibold text-gray-800 mb-2">{module.name}</h3>
-                  <p className="text-sm text-gray-600 mb-4">{module.adminDescription}</p>
-                  
-                  <div className="bg-gray-50 rounded-lg p-3 mb-4">
-                    <p className="text-xs text-gray-500 font-semibold">{module.stats}</p>
-                  </div>
-                  
-                  <button
-                    onClick={() => handleSystemAccess(module.id, module.name)}
-                    className={`w-full ${module.color} text-white py-3 rounded-lg font-semibold transition-all duration-200 shadow-md hover:shadow-lg`}
-                  >
-                    כניסה למערכת
-                  </button>
-                  
-                  <p className="text-xs text-gray-500 mt-2">
-                    ⚠️ תצוגת מנהל - רואה הכל
-                  </p>
+        <div>
+          <h3 className="section-title">
+            <IconSettings /> מודולי המערכת
+          </h3>
+          <div className="stats-grid">
+            {systemModules.map(module => (
+              <div 
+                key={module.id}
+                className="stat-card"
+                style={{ 
+                  cursor: 'pointer',
+                  transition: 'transform 0.2s',
+                  border: '2px solid transparent'
+                }}
+                onClick={() => handleSystemAccess(module.id, module.name)}
+                onMouseOver={(e) => {
+                  e.target.style.transform = 'translateY(-4px)';
+                  e.target.style.borderColor = '#667eea';
+                }}
+                onMouseOut={(e) => {
+                  e.target.style.transform = 'translateY(0)';
+                  e.target.style.borderColor = 'transparent';
+                }}
+              >
+                <div style={{ 
+                  fontSize: '2rem', 
+                  marginBottom: '1rem',
+                  display: 'flex',
+                  justifyContent: 'center'
+                }}>
+                  <module.icon />
+                </div>
+                <h4 style={{ 
+                  fontSize: '1.1rem', 
+                  marginBottom: '0.5rem',
+                  color: '#2d3748'
+                }}>
+                  {module.name}
+                </h4>
+                <p style={{ 
+                  fontSize: '0.9rem', 
+                  color: '#718096',
+                  marginBottom: '1rem'
+                }}>
+                  {module.adminDescription}
+                </p>
+                <div style={{ 
+                  fontSize: '0.8rem',
+                  color: '#667eea',
+                  fontWeight: 'bold'
+                }}>
+                  {module.stats}
                 </div>
               </div>
             ))}
           </div>
         </div>
-
-        {/* Admin Notice */}
-        <div className="mt-8 bg-gradient-to-r from-red-500 to-pink-500 rounded-xl shadow-lg p-6 text-white">
-          <div className="flex items-center justify-center">
-            <Crown className="w-6 h-6 ml-3" />
-            <h3 className="text-lg font-bold">מצב מנהל מערכת</h3>
-          </div>
-          <p className="text-center mt-2 opacity-90">
-            יש לך גישה מלאה לכל הנתונים של כל העסקים במערכת. 
-            השתמש בהרשאות האלה באחריות.
-          </p>
-        </div>
-      </main>
+      </div>
     </div>
   );
 };

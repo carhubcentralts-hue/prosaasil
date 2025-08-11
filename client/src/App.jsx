@@ -1,43 +1,40 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from './contexts/AuthContext';
-import LoginPage from './pages/LoginPage';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import Login from './pages/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import BusinessDashboard from './pages/BusinessDashboard';
-import LoadingSpinner from './components/LoadingSpinner';
 
-function App() {
-  const { isAuthenticated, loading, user } = useAuth();
+function AppContent() {
+  const { user, loading } = useAuth();
 
   if (loading) {
-    return <LoadingSpinner />;
+    return (
+      <div className="loading-spinner-container">
+        <div className="loading-spinner"></div>
+        <p>טוען...</p>
+      </div>
+    );
   }
 
+  if (!user) {
+    return <Login />;
+  }
+
+  // Route based on user role
+  if (user.role === 'admin') {
+    return <AdminDashboard />;
+  } else {
+    return <BusinessDashboard />;
+  }
+}
+
+function App() {
   return (
-    <div className="App">
-      <Routes>
-        {!isAuthenticated ? (
-          <>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="*" element={<Navigate to="/login" replace />} />
-          </>
-        ) : (
-          <>
-            {user?.role === 'admin' ? (
-              <>
-                <Route path="/admin" element={<AdminDashboard />} />
-                <Route path="*" element={<Navigate to="/admin" replace />} />
-              </>
-            ) : (
-              <>
-                <Route path="/business" element={<BusinessDashboard />} />
-                <Route path="*" element={<Navigate to="/business" replace />} />
-              </>
-            )}
-          </>
-        )}
-      </Routes>
-    </div>
+    <AuthProvider>
+      <div className="App">
+        <AppContent />
+      </div>
+    </AuthProvider>
   );
 }
 
