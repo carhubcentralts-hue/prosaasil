@@ -7,10 +7,38 @@ from flask_login import UserMixin
 
 # Import db from app - fixed circular imports
 sys.path.append(os.path.dirname(__file__))
-from app import db
-from datetime import datetime
-from sqlalchemy import Text, DateTime, Integer, String, Boolean, Float, JSON, Numeric
-from flask_login import UserMixin
+from flask_sqlalchemy import SQLAlchemy
+
+db = SQLAlchemy()
+
+class User(db.Model):
+    """מודל משתמשי המערכת"""
+    __tablename__ = 'users'
+    
+    id = db.Column(Integer, primary_key=True)
+    email = db.Column(String(120), unique=True, nullable=False)
+    name = db.Column(String(100), nullable=False)
+    password_hash = db.Column(String(255), nullable=False)
+    business_id = db.Column(Integer, db.ForeignKey('businesses.id'))
+    is_active = db.Column(Boolean, default=True)
+    created_at = db.Column(DateTime, default=datetime.utcnow)
+    updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship('Business', backref='users')
+    
+    def __repr__(self):
+        return f'<User {self.email} - {self.name}>'
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'email': self.email,
+            'name': self.name,
+            'business_id': self.business_id,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat()
+        }
 
 class Customer(db.Model):
     """מודל לקוחות"""
