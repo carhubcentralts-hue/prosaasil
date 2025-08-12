@@ -36,7 +36,7 @@ def incoming_call():
     
     xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">שלום וברכה! הגעתם לשי דירות ומשרדים בעמ. אני כאן לעזור לכם למצוא את הנכס המושלם. במה אוכל לעזור לכם?</Say>
+  <Play>https://ai-crmd.replit.app/static/greeting.mp3</Play>
   <Pause length="1"/>
   <Record action="/webhook/handle_recording"
           method="POST"

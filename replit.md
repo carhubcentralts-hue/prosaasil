@@ -4,12 +4,16 @@
 **FULLY OPERATIONAL** Hebrew AI Call Center for "שי דירות ומשרדים בע״מ". Complete production-ready system with OpenAI GPT-4o integration for intelligent Hebrew conversations. Features real-time Hebrew transcription with Whisper, professional real estate responses, continuous dialogue management, and comprehensive conversation logging. All technical issues resolved - system ready for live Twilio calls.
 
 ## Recent Major Update (August 2025)
-**✅ COMPLETE SYSTEM REBUILD** - All critical technical issues resolved:
+**✅ COMPLETE SYSTEM REBUILD + TWILIO HEBREW FIX** - All critical technical issues resolved:
+- **BREAKTHROUGH**: Fixed Twilio Hebrew Error 13512 - replaced Say verb with Play verb using Hebrew MP3 files
 - Fixed httpcore/OpenAI connectivity problems through clean architecture rebuild
 - Implemented `app_final.py` with working GPT-4o and Whisper integration  
 - Created clean models (`models_clean.py`, `ai_system_clean.py`, `routes_clean.py`)
+- **Hebrew TTS System**: Using gTTS with 'iw' language code for Hebrew MP3 generation
+- **Static File Serving**: Hebrew audio files served via `/static/` routes and accessible publicly
 - **VERIFIED WORKING**: Hebrew AI conversations, intelligent real estate responses, natural conversation flow with proper "bye" detection
 - Production webhook endpoints: `/webhook/incoming_call` + `/webhook/handle_recording`
+- **TWILIO COMPATIBLE**: No more Hebrew language errors, system ready for live calls
 - Complete conversation logging system operational
 
 ## User Preferences

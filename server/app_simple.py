@@ -273,8 +273,14 @@ except Exception as e:
     def fallback_incoming_call():
         xml = '''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">שלום, מערכת הAI זמנית לא זמינה. אנא חייגו מאוחר יותר.</Say>
-  <Hangup/>
+  <Play>https://ai-crmd.replit.app/static/greeting.mp3</Play>
+  <Pause length="1"/>
+  <Record action="/webhook/handle_recording"
+          method="POST"
+          maxLength="45"
+          timeout="10"
+          finishOnKey="*"
+          transcribe="false"/>
 </Response>'''
         return Response(xml, mimetype="text/xml")
         

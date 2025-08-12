@@ -62,9 +62,8 @@ def create_final_app():
             db.session.add(business)
             db.session.commit()
     
-    # Register clean Twilio routes
+    # Register clean Twilio routes with Hebrew TTS
     app.register_blueprint(clean_twilio_bp)
-    
     logger.info("✅ Clean Twilio webhooks registered successfully")
     
     # Add authentication routes for frontend
@@ -223,7 +222,7 @@ def create_final_app():
     
     return app
 
-# Create the final clean app
+# Create the app instance
 app = create_final_app()
 
 if __name__ == "__main__":
