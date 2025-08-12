@@ -63,7 +63,7 @@ def handle_recording():
     if not recording_url:
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">לא שמעתי כלום. אנא דברו בבירור ולחצו כוכבית.</Say>
+  <Play>https://ai-crmd.replit.app/static/listening.mp3</Play>
   <Pause length="1"/>
   <Record action="/webhook/handle_recording" method="POST" maxLength="45" timeout="10" finishOnKey="*" transcribe="false"/>
 </Response>"""
@@ -86,9 +86,9 @@ def handle_recording():
         
         if not result['success']:
             # שגיאה בעיבוד - נסה שוב
-            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+            xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">{result.get('message', 'סליחה, לא שמעתי טוב. אפשר לחזור?')}</Say>
+  <Play>https://ai-crmd.replit.app/static/listening.mp3</Play>
   <Pause length="1"/>
   <Record action="/webhook/handle_recording" method="POST" maxLength="45" timeout="10" finishOnKey="*" transcribe="false"/>
 </Response>"""

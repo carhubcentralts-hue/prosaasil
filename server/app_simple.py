@@ -288,7 +288,7 @@ except Exception as e:
     def fallback_handle_recording():
         xml = '''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">תודה על הפנייה. נחזור אליכם בהקדם.</Say>
+  <Play>https://ai-crmd.replit.app/static/listening.mp3</Play>
   <Hangup/>
 </Response>'''
         return Response(xml, mimetype="text/xml")
