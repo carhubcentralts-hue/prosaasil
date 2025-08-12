@@ -18,10 +18,44 @@ class SimpleHebrewAI:
         self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
     def get_business_context(self, business_id: int = 1):
-        """קבלת הקשר העסק לתשובות AI"""
+        """קבלת הקשר העסק מהמסד נתונים"""
+        try:
+            from app_simple import app
+            from models import Business
+            
+            with app.app_context():
+                business = Business.query.filter_by(id=business_id).first()
+                if business:
+                    return {
+                        'id': business.id,
+                        'name': business.name,
+                        'type': business.business_type,
+                        'phone': business.phone,
+                        'ai_prompt': """אתה סוכן נדל"ן מקצועי וחברותי של שי דירות ומשרדים בע"מ.
+אתה מומחה בשוק הנדל"ן הישראלי, מכיר מחירים עדכניים ואזורים טובים.
+תפקידך לעזור ללקוחות למצוא נכסים מתאימים, להעריך נכסים, ולתת ייעוץ נדל"ן מקצועי.
+התנהג בצורה חמה ומקצועית. שאל שאלות רלוונטיות כמו: סוג הנכס, אזור מועדף, תקציב, מועד.
+אל תמציא מחירים או נכסים ספציפיים - הפנה לפגישה אישית לפרטים מדויקים.
+
+חוקים חשובים:
+1. ענה רק בעברית
+2. היה קצר ומדויק (עד 50 מילים)
+3. שאל שאלה אחת רלוונטית בכל תשובה  
+4. אם הלקוח רוצה לסיים ("ביי", "תודה ולהתראות", "זה הכל"), ענה בנימוס ותסיים
+5. אל תמציא פרטים ספציפיים - הפנה לפגישה או לאיש קשר
+6. היה חם ומקצועי""",
+                        'greeting': None
+                    }
+                    
+        except Exception as e:
+            logger.error(f"❌ Failed to get business from database: {e}")
+            
+        # Fallback if database fails
         return {
-            'name': 'שי דירות ומשרדים בע״מ',
+            'id': 1,
+            'name': 'שי דירות ומשרדים בע״מ', 
             'type': 'real_estate',
+            'phone': '+972-3-555-7777',
             'ai_prompt': """אתה סוכן נדל"ן מקצועי וחברותי של שי דירות ומשרדים בע"מ.
 אתה מומחה בשוק הנדל"ן הישראלי, מכיר מחירים עדכניים ואזורים טובים.
 תפקידך לעזור ללקוחות למצוא נכסים מתאימים, להעריך נכסים, ולתת ייעוץ נדל"ן מקצועי.
@@ -110,7 +144,48 @@ class SimpleHebrewAI:
         return user_wants_end or ai_says_goodbye
     
     def simple_save_conversation(self, call_sid: str, transcription: str, ai_response: str, recording_url: str):
-        """שמירה פשוטה של השיחה בקובץ JSON"""
+        """שמירה של השיחה במסד נתונים"""
+        try:
+            # Try to save to database first
+            from app_simple import app
+            from models import db, CallLog, ConversationTurn
+            from datetime import datetime
+            
+            with app.app_context():
+                # Find or create call log
+                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                if not call_log:
+                    call_log = CallLog()
+                    call_log.call_sid = call_sid
+                    call_log.business_id = 1  # Default business
+                    call_log.from_number = 'unknown'
+                    call_log.to_number = '+972-3-555-7777'
+                    call_log.call_status = 'completed'
+                    call_log.created_at = datetime.utcnow()
+                    db.session.add(call_log)
+                    db.session.commit()
+                
+                # Create conversation turn
+                turn_count = ConversationTurn.query.filter_by(call_log_id=call_log.id).count() + 1
+                
+                turn = ConversationTurn()
+                turn.call_log_id = call_log.id
+                turn.turn_number = turn_count
+                turn.user_input = transcription
+                turn.ai_response = ai_response
+                turn.recording_url = recording_url
+                turn.timestamp = datetime.utcnow()
+                
+                db.session.add(turn)
+                db.session.commit()
+                
+                logger.info(f"✅ Conversation saved to database (Call: {call_sid}, Turn: {turn_count})")
+                return
+                
+        except Exception as db_error:
+            logger.error(f"❌ Database save failed: {db_error}")
+            
+        # Fallback to JSON file if database fails
         try:
             # Create simple log structure
             conversation_data = {
