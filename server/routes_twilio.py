@@ -5,14 +5,23 @@ import os
 logger = logging.getLogger(__name__)
 twilio_bp = Blueprint("twilio_bp", __name__, url_prefix="")
 
-# Import AI conversation with error handling
-try:
-    from simple_ai_conversation import simple_ai
-    AI_AVAILABLE = True
-    logger.info("✅ Simple AI conversation system loaded")
-except Exception as e:
-    logger.error(f"❌ Failed to load simple AI conversation: {e}")
-    AI_AVAILABLE = False
+# Import AI conversation with lazy loading to avoid httpcore issues
+AI_AVAILABLE = False
+simple_ai = None
+
+def get_ai_system():
+    """Lazy load AI system to avoid initialization issues"""
+    global simple_ai, AI_AVAILABLE
+    if simple_ai is None:
+        try:
+            from simple_ai_conversation import simple_ai as ai_system
+            simple_ai = ai_system
+            AI_AVAILABLE = True
+            logger.info("✅ AI conversation system loaded on demand")
+        except Exception as e:
+            logger.error(f"❌ Failed to load AI conversation system: {e}")
+            AI_AVAILABLE = False
+    return simple_ai if AI_AVAILABLE else None
 
 @twilio_bp.route("/webhook/incoming_call", methods=['POST'])
 def incoming_call():
@@ -61,14 +70,19 @@ def handle_recording():
         return Response(xml, mimetype="text/xml")
     
     try:
-        # Check if AI is available
-        if not AI_AVAILABLE or not recording_url:
-            if not recording_url:
-                logger.warning("No recording URL provided")
+        # Check if recording URL is available
+        if not recording_url:
+            logger.warning("No recording URL provided")
             return basic_response("סליחה, לא קיבלתי את ההקלטה. אפשר לנסות שוב?")
         
+        # Get AI system on demand
+        ai_system = get_ai_system()
+        if not ai_system:
+            logger.error("AI system not available")
+            return basic_response("סליחה, המערכת זמנית לא זמינה. אפשר לנסות שוב?")
+        
         # עיבוד מלא עם AI
-        result = simple_ai.process_conversation_turn(call_sid, recording_url, turn_count)
+        result = ai_system.process_conversation_turn(call_sid, recording_url, turn_count)
         
         if not result['success']:
             # שגיאה בעיבוד - נסה שוב

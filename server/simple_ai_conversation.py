@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 
 class SimpleHebrewAI:
     def __init__(self):
-        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # Initialize without OpenAI client to avoid httpcore issues
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        self.openai_client = None
         
     def get_business_context(self, business_id: int = 1):
         """קבלת הקשר העסק מהמסד נתונים"""
@@ -72,10 +74,25 @@ class SimpleHebrewAI:
             'greeting': None
         }
     
+    def _get_openai_client(self):
+        """Get OpenAI client with error handling"""
+        if self.openai_client is None and self.api_key:
+            try:
+                self.openai_client = openai.OpenAI(api_key=self.api_key)
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenAI client: {e}")
+                return None
+        return self.openai_client
+    
     def simple_transcribe(self, recording_url: str) -> str:
         """תמלול פשוט עם OpenAI Whisper"""
         try:
             logger.info(f"🎙️ Transcribing recording: {recording_url}")
+            
+            client = self._get_openai_client()
+            if not client:
+                logger.error("OpenAI client not available")
+                return ""
             
             # Download audio file
             response = requests.get(recording_url, timeout=30)
@@ -90,7 +107,7 @@ class SimpleHebrewAI:
             
             # Transcribe with OpenAI Whisper
             with open(temp_file, 'rb') as audio_file:
-                transcript = self.openai_client.audio.transcriptions.create(
+                transcript = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio_file,
                     language="he"
@@ -110,12 +127,16 @@ class SimpleHebrewAI:
     def generate_ai_response(self, user_input: str, business_context: dict) -> str:
         """יצירת תשובת AI מותאמת אישית"""
         try:
+            client = self._get_openai_client()
+            if not client:
+                return "סליחה, המערכת זמנית לא זמינה. אפשר לנסות שוב?"
+            
             messages = [
                 {"role": "system", "content": business_context['ai_prompt']},
                 {"role": "user", "content": user_input}
             ]
             
-            response = self.openai_client.chat.completions.create(
+            response = client.chat.completions.create(
                 model="gpt-4o",  # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
                 messages=messages,
                 max_tokens=150,
