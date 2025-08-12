@@ -257,16 +257,37 @@ def get_admin_stats():
     
     return jsonify({'success': True, 'stats': stats})
 
-# Twilio webhooks - Adding according to instructions
+# Twilio webhooks registration - Fixed
 try:
     from routes_twilio import twilio_bp
-    # Register Twilio blueprint
     app.register_blueprint(twilio_bp)
-    logger.info("Twilio webhooks registered successfully")
+    logger.info("✅ Twilio webhooks registered successfully")
 except ImportError as e:
-    logger.warning(f"Could not import Twilio blueprints: {e}")
+    logger.warning(f"❌ Could not import Twilio routes: {e}")
 except Exception as e:
-    logger.error(f"Error registering Twilio blueprints: {e}")
+    logger.error(f"❌ Error registering Twilio webhooks: {e}")
+    # Create basic webhooks inline if import fails
+    from flask import Response
+    
+    @app.route('/webhook/incoming_call', methods=['POST'])
+    def fallback_incoming_call():
+        xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice" language="he-IL">שלום, מערכת הAI זמנית לא זמינה. אנא חייגו מאוחר יותר.</Say>
+  <Hangup/>
+</Response>'''
+        return Response(xml, mimetype="text/xml")
+        
+    @app.route('/webhook/handle_recording', methods=['POST'])
+    def fallback_handle_recording():
+        xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice" language="he-IL">תודה על הפנייה. נחזור אליכם בהקדם.</Say>
+  <Hangup/>
+</Response>'''
+        return Response(xml, mimetype="text/xml")
+        
+    logger.info("✅ Fallback webhooks created")
 
 # Set PUBLIC_HOST config
 app.config['PUBLIC_HOST'] = os.getenv('PUBLIC_HOST', 'https://YOUR_HOST')

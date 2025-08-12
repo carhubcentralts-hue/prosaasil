@@ -25,7 +25,7 @@ class User(db.Model):
     updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    business = db.relationship('Business', backref='users')
+    business = db.relationship('Business', back_populates='users')
     
     def __repr__(self):
         return f'<User {self.email} - {self.name}>'
@@ -68,7 +68,7 @@ class Customer(db.Model):
     updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    business = db.relationship('Business', backref='customers')
+    business = db.relationship('Business', back_populates='customers')
     
     def __repr__(self):
         return f'<Customer {self.name} - {self.phone}>'
@@ -105,6 +105,11 @@ class Business(db.Model):
     created_at = db.Column(DateTime, default=datetime.utcnow)
     updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # Relationships
+    users = db.relationship('User', back_populates='business')
+    customers = db.relationship('Customer', back_populates='business')
+    call_logs = db.relationship('CallLog', back_populates='business')
+    
     def __repr__(self):
         return f'<Business {self.id}: {self.name} ({self.business_type})>'
 
@@ -124,47 +129,32 @@ class CallLog(db.Model):
     updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     ended_at = db.Column(DateTime)
     
-    def __init__(self, business_id=None, call_sid=None, from_number=None, to_number=None, call_status=None):
-        self.business_id = business_id
-        self.call_sid = call_sid
-        self.from_number = from_number
-        self.to_number = to_number
-        self.call_status = call_status
+    # Relationships
+    business = db.relationship('Business', back_populates='call_logs')
+    conversation_turns = db.relationship('ConversationTurn', back_populates='call_log')
     
     def __repr__(self):
-        return f'<CallLog {self.id}: {self.call_sid} ({self.call_status})>'
-    
-    business = db.relationship('Business', backref=db.backref('calls', lazy=True))
+        return f'<CallLog {self.call_sid} from {self.from_number}>'
 
 class ConversationTurn(db.Model):
+    """מודל לצעדי השיחה - כל הקלטה ותשובה"""
     __tablename__ = 'conversation_turns'
+    __table_args__ = {'extend_existing': True}
     
     id = db.Column(Integer, primary_key=True)
-    call_log_id = db.Column(Integer, db.ForeignKey('call_log.id'), nullable=True)
-    call_sid = db.Column(String(50), nullable=False)  # Add call_sid field
-    speaker = db.Column(String(10), nullable=False)  # 'user' or 'ai'
-    message = db.Column(Text, nullable=False)
-    confidence_score = db.Column(Float)  # for speech recognition confidence
+    call_log_id = db.Column(Integer, db.ForeignKey('call_log.id'), nullable=False)
+    turn_number = db.Column(Integer, nullable=False)  # מספר התור בשיחה
+    user_input = db.Column(Text)  # תמלול מה שהלקוח אמר
+    ai_response = db.Column(Text)  # תשובת ה-AI
+    recording_url = db.Column(String(500))  # URL של ההקלטה
+    response_audio_url = db.Column(String(500))  # URL של תשובת ה-AI בקול
     timestamp = db.Column(DateTime, default=datetime.utcnow)
-    created_at = db.Column(DateTime, default=datetime.utcnow)
-    updated_at = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    def __init__(self, call_log_id=None, call_sid=None, speaker=None, message=None, confidence_score=None):
-        if call_log_id is not None:
-            self.call_log_id = call_log_id
-        if call_sid is not None:
-            self.call_sid = call_sid
-        if speaker is not None:
-            self.speaker = speaker
-        if message is not None:
-            self.message = message
-        if confidence_score is not None:
-            self.confidence_score = confidence_score
+    # Relationships
+    call_log = db.relationship('CallLog', back_populates='conversation_turns')
     
     def __repr__(self):
-        return f'<ConversationTurn {self.id}: {self.speaker} - {self.message[:50]}...>'
-    
-    call_log = db.relationship('CallLog', backref=db.backref('conversation_turns', lazy=True, order_by='ConversationTurn.timestamp'))
+        return f'<ConversationTurn {self.call_log_id}#{self.turn_number}>'
 
 # WhatsApp Models
 class WhatsAppConversation(db.Model):
