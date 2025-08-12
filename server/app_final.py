@@ -102,6 +102,21 @@ def create_final_app():
         session.pop('user', None)
         return jsonify({'success': True})
 
+    # Add static file serving for voice files
+    @app.route('/static/<path:filename>')
+    def serve_static(filename):
+        """Serve static files including voice responses"""
+        from flask import send_from_directory
+        static_dir = os.path.join(app.root_path, 'static')
+        return send_from_directory(static_dir, filename)
+        
+    @app.route('/static/voice_responses/<path:filename>')
+    def serve_voice_files(filename):
+        """Serve generated voice response files"""
+        from flask import send_from_directory
+        voice_dir = os.path.join(app.root_path, 'static', 'voice_responses')
+        return send_from_directory(voice_dir, filename)
+
     # Add basic CRM routes for frontend
     @app.route('/api/admin/stats', methods=['GET'])
     def admin_stats():

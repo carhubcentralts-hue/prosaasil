@@ -4,8 +4,10 @@ Clean Twilio Routes - נתיבי Twilio נקיים וללא בעיות
 """
 
 import logging
+import os
 from flask import Blueprint, request, Response
 from ai_system_clean import clean_ai
+from hebrew_tts_fixed import generate_hebrew_tts
 
 logger = logging.getLogger(__name__)
 clean_twilio_bp = Blueprint("clean_twilio", __name__, url_prefix="")
@@ -22,7 +24,7 @@ def clean_incoming_call():
     # Hebrew greeting with business name
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">שלום וברכה! הגעתם לשי דירות ומשרדים בעמ. אני כאן לעזור לכם למצוא את הנכס המושלם. במה אוכל לעזור לכם?</Say>
+  <Play>https://ai-crmd.replit.app/static/greeting.mp3</Play>
   <Pause length="1"/>
   <Record action="/webhook/handle_recording"
           method="POST"
@@ -49,9 +51,12 @@ def clean_handle_recording():
     
     def basic_response(message: str) -> Response:
         """תשובה בסיסית עם האפשרות להמשיך"""
+        # Generate Hebrew TTS audio file
+        audio_url = generate_hebrew_tts(message, f"response_{call_sid}_{turn_count}")
+        
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">{message}</Say>
+  <Play>{audio_url}</Play>
   <Pause length="1"/>
   <Record action="/webhook/handle_recording"
           method="POST"
@@ -64,9 +69,12 @@ def clean_handle_recording():
     
     def end_call_response(message: str) -> Response:
         """תשובת סיום שיחה"""
+        # Generate Hebrew TTS audio file
+        audio_url = generate_hebrew_tts(message, f"end_{call_sid}_{turn_count}")
+        
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">{message}</Say>
+  <Play>{audio_url}</Play>
   <Pause length="2"/>
   <Hangup/>
 </Response>"""
