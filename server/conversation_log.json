@@ -1,0 +1,37 @@
+[
+  {
+    "call_sid": "TEST_COMPLETE_1755033124.368026",
+    "timestamp": "2025-08-12T21:12:04.925562",
+    "transcription": "שלום, אני מחפש דירה בתל אביב",
+    "ai_response": "שלום! אשמח לעזור לך למצוא דירה. איזה תקציב יש לך?",
+    "recording_url": "https://test-recording.mp3"
+  },
+  {
+    "call_sid": "PROD_TEST_1755033170.181211",
+    "timestamp": "2025-08-12T21:12:50.192996",
+    "transcription": "שלום, אני מחפש דירה להשכרה בתל אביב",
+    "ai_response": "סליחה, המערכת זמנית לא זמינה. אפשר לנסות שוב?",
+    "recording_url": "https://fake-recording-1.mp3"
+  },
+  {
+    "call_sid": "PROD_TEST_1755033170.181211",
+    "timestamp": "2025-08-12T21:12:50.197855",
+    "transcription": "יש לי תקציב של 8000 שקל בחודש",
+    "ai_response": "סליחה, המערכת זמנית לא זמינה. אפשר לנסות שוב?",
+    "recording_url": "https://fake-recording-2.mp3"
+  },
+  {
+    "call_sid": "PROD_TEST_1755033170.181211",
+    "timestamp": "2025-08-12T21:12:50.203843",
+    "transcription": "אני מעוניין באזור הצפון של העיר",
+    "ai_response": "סליחה, המערכת זמנית לא זמינה. אפשר לנסות שוב?",
+    "recording_url": "https://fake-recording-3.mp3"
+  },
+  {
+    "call_sid": "PROD_TEST_1755033170.181211",
+    "timestamp": "2025-08-12T21:12:50.210078",
+    "transcription": "תודה רבה על העזרה, ביי",
+    "ai_response": "סליחה, המערכת זמנית לא זמינה. אפשר לנסות שוב?",
+    "recording_url": "https://fake-recording-4.mp3"
+  }
+]
