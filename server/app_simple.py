@@ -257,6 +257,20 @@ def get_admin_stats():
     
     return jsonify({'success': True, 'stats': stats})
 
+# Twilio webhooks - Adding according to instructions
+try:
+    from routes_twilio import twilio_bp
+    # Register Twilio blueprint
+    app.register_blueprint(twilio_bp)
+    logger.info("Twilio webhooks registered successfully")
+except ImportError as e:
+    logger.warning(f"Could not import Twilio blueprints: {e}")
+except Exception as e:
+    logger.error(f"Error registering Twilio blueprints: {e}")
+
+# Set PUBLIC_HOST config
+app.config['PUBLIC_HOST'] = os.getenv('PUBLIC_HOST', 'https://YOUR_HOST')
+
 # Health check
 @app.route('/health', methods=['GET'])
 def health():

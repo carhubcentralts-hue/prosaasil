@@ -73,7 +73,7 @@ def api_get_crm_customers():
                 'status_hebrew': get_status_hebrew(customer.status),
                 'source': customer.source,
                 'source_hebrew': get_source_hebrew(customer.source),
-                'created_at': customer.created_at.isoformat() if customer.created_at else None,
+                'created_at': customer.created_at.isoformat() if hasattr(customer, 'created_at') and customer.created_at else None,
                 'updated_at': customer.updated_at.isoformat() if customer.updated_at else None,
                 'notes': getattr(customer, 'notes', ''),
                 'tags': getattr(customer, 'tags', '').split(',') if getattr(customer, 'tags', '') else [],
