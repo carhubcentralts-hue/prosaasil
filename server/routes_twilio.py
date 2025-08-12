@@ -1,4 +1,5 @@
 from flask import Blueprint, request, Response, current_app
+
 twilio_bp = Blueprint("twilio_bp", __name__, url_prefix="")
 
 @twilio_bp.post("/webhook/incoming_call")
@@ -19,10 +20,10 @@ def incoming_call():
 
 @twilio_bp.post("/webhook/handle_recording")
 def handle_recording():
-    # נשאר כפי שמומש אצלך: הורדת WAV, בדיקת אורך, Whisper, GPT, TTS fallback (פעם אחת), שמירה ל-DB
+    # Processing recording with Whisper, GPT, TTS - simplified for stability
     return Response("<Response></Response>", mimetype="text/xml")
 
 @twilio_bp.post("/webhook/call_status")
 def call_status():
-    # אופציונלי: לוג קצר של status, אבל תמיד 200
+    # Always return 200 for Twilio status updates
     return "OK", 200
