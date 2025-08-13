@@ -29,16 +29,29 @@ class HebrewTTSService:
         """Check if Google Cloud TTS is available"""
         try:
             from google.cloud import texttospeech
+            import json
+            import tempfile
             
-            # Check if credentials are available
-            credentials_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-            if credentials_path and os.path.exists(credentials_path):
+            # Check if JSON credentials are available
+            credentials_json = os.environ.get('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+            if credentials_json:
+                # Create temporary credentials file from JSON
+                credentials_data = json.loads(credentials_json)
+                
+                # Create temp file for credentials
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                    json.dump(credentials_data, f)
+                    self.temp_credentials_path = f.name
+                
+                # Set environment variable for Google Cloud
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = self.temp_credentials_path
+                
                 # Test Google Cloud TTS
                 client = texttospeech.TextToSpeechClient()
-                logger.info("✅ Google Cloud TTS client initialized successfully")
+                logger.info("✅ Google Cloud TTS client initialized successfully with JSON credentials")
                 return True
             else:
-                logger.warning("⚠️ Google Cloud credentials not found, using gTTS fallback")
+                logger.warning("⚠️ Google Cloud JSON credentials not found, using gTTS fallback")
                 return False
                 
         except Exception as e:
