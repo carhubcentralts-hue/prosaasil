@@ -5,10 +5,10 @@ HEBREW AI CALL CENTER - APP FACTORY VERSION
 """
 import os
 from flask import send_from_directory, Response, request, jsonify, session
-from server.app_factory import create_app
+from app_factory import create_app
 
 # יצירת האפליקציה עם App Factory pattern
-app = create_app(env=os.getenv('FLASK_ENV', 'production'))
+app = create_app()
 
 # ============================================
 # HEBREW TWILIO WEBHOOKS - WORKING VERSION
