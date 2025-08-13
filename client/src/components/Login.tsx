@@ -94,7 +94,7 @@ export function Login() {
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
                   className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                  placeholder="הכנס את כתובת האימייל שלך"
+                  placeholder="דוא״ל"
                   data-testid="input-reset-email"
                 />
               </div>
@@ -202,11 +202,14 @@ export function Login() {
               </div>
             </div>
             
-            <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs text-gray-600" dir="rtl">
-              <div className="font-medium mb-1">פרטי התחברות לדמו:</div>
-              <div className="space-y-1">
-                <div>👤 מנהל: admin@shai-realestate.co.il</div>
-                <div>🏢 עסק: manager@shai-realestate.co.il</div>
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+              <div className="text-sm font-medium text-blue-900 mb-2" dir="rtl">
+                מערכת ניהול מתקדמת לנדל"ן
+              </div>
+              <div className="text-xs text-blue-700 space-y-1" dir="rtl">
+                <div>✓ ניהול לידים ותוכנית מכירות</div>
+                <div>✓ מערכת שיחות אוטומטית</div>
+                <div>✓ דוחות ואנליטיקה מתקדמת</div>
               </div>
             </div>
           </div>
@@ -224,8 +227,8 @@ export function Login() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="הכנס את כתובת האימייל שלך"
+                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="דוא״ל"
                 data-testid="input-email"
               />
             </div>
@@ -241,8 +244,8 @@ export function Login() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="הכנס את הסיסמא שלך"
+                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="סיסמא"
                 data-testid="input-password"
               />
             </div>
