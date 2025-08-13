@@ -215,7 +215,7 @@ def register_webhook_routes(app):
             # Return immediate TwiML response with simple instructions
             xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">אני מאזינה דבר עכשיו</Say>
+  <Play>{audio_url}</Play>
   <Pause length="1"/>
   <Record action="/webhook/conversation_turn?turn={next_turn}"
           method="POST"
@@ -230,10 +230,10 @@ def register_webhook_routes(app):
         except Exception as e:
             print(f"❌ Fast conversation error: {e}")
             # Ultra-minimal fallback
-            xml = """<?xml version="1.0" encoding="UTF-8"?>
+            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">אני מאזינה דבר עכשיו</Say>
-  <Pause length="2"/>
+  <Play>{PUBLIC_HOST}/static/voice_responses/listening_simple.mp3</Play>
+  <Pause length="1"/>
   <Record action="/webhook/conversation_turn" method="POST" maxLength="30"/>
 </Response>"""
             return Response(xml, mimetype="text/xml")
