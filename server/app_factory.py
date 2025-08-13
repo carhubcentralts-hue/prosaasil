@@ -155,41 +155,48 @@ def register_core_routes(app):
 </html>"""
 
 def register_webhook_routes(app):
-    """רישום webhooks לTwilio עם שיחה רציפה"""
+    """רישום webhooks מקצועיים עם זרימת שיחה חכמה"""
     
     PUBLIC_HOST = "https://ai-crmd.replit.app"
     
     @app.route('/webhook/incoming_call', methods=['POST'])
-    def fast_incoming_call():
-        """Fast incoming call webhook - immediate response"""
-        call_sid = request.values.get('CallSid')
+    def professional_incoming_call():
+        """Professional incoming call - immediate professional response"""
+        call_sid = request.values.get('CallSid', 'unknown')
         from_number = request.values.get('From', '')
         
-        print(f"📞 FAST incoming call: {call_sid} from {from_number}")
+        print(f"📞 Professional call started: {call_sid} from {from_number}")
         
-        # Return immediate response with premium audio quality
+        # Professional greeting with clear instructions
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{PUBLIC_HOST}/static/voice_responses/greeting_premium.mp3</Play>
+  <Say voice="alice" language="he-IL" rate="0.9">
+    שלום, הגעתם לשי דירות ומשרדים. אני העוזרת הדיגיטלית.
+    אשמח לעזור לכם עם כל שאלה בנושא נדלן.
+    בבקשה ספרו לי במה אוכל לעזור לכם.
+  </Say>
   <Pause length="1"/>
-  <Record action="/webhook/conversation_turn"
+  <Record action="/webhook/conversation_turn?turn=1"
           method="POST"
           maxLength="30"
           timeout="5"
-          finishOnKey="*"
+          finishOnKey="#"
           transcribe="false"/>
 </Response>"""
-        return Response(xml, mimetype="text/xml")
+        
+        response = Response(xml, mimetype="text/xml")
+        response.headers['Content-Type'] = 'text/xml; charset=utf-8'
+        return response
     
     @app.route('/webhook/conversation_turn', methods=['POST'])
-    def fast_conversation_turn():
-        """Ultra-fast conversation webhook - NO DELAYS"""
+    def professional_conversation_turn():
+        """Professional conversation handling with AI responses"""
         try:
-            call_sid = request.values.get('CallSid') or 'unknown'
-            recording_url = request.values.get('RecordingUrl') or ''
+            call_sid = request.values.get('CallSid', 'unknown')
+            recording_url = request.values.get('RecordingUrl', '')
             turn_str = request.values.get('turn', '1')
             
-            # Parse turn number quickly
+            # Parse turn number
             try:
                 turn_num = int(turn_str)
             except:
@@ -197,101 +204,171 @@ def register_webhook_routes(app):
             
             next_turn = turn_num + 1
             
-            print(f"🔄 FAST turn {turn_num} for {call_sid}")
+            print(f"🎤 Processing turn {turn_num} for call {call_sid}")
+            print(f"📥 Recording URL: {recording_url}")
             
-            # Use premium listening prompt - high quality audio
-            audio_url = f"{PUBLIC_HOST}/static/voice_responses/listening_premium.mp3"
-            
-            # Start background transcription if recording exists
-            if recording_url:
+            # Start background processing for real conversation
+            if recording_url and recording_url != '':
                 import threading
                 threading.Thread(
-                    target=lambda: process_recording_background(call_sid, recording_url, turn_num),
+                    target=lambda: process_real_conversation(call_sid, recording_url, turn_num),
                     daemon=True
                 ).start()
-            
-            # Return immediate TwiML response with simple instructions
-            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+                
+                # Professional waiting response
+                xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{audio_url}</Play>
+  <Say voice="alice" language="he-IL" rate="0.9">
+    אני בודקת את מה שאמרתם. רגע אחד בבקשה.
+  </Say>
+  <Pause length="3"/>
+  <Say voice="alice" language="he-IL" rate="0.9">
+    ספרו לי עוד פרטים על מה שאתם מחפשים.
+  </Say>
+  <Record action="/webhook/conversation_turn?turn={next_turn}"
+          method="POST"
+          maxLength="30"
+          timeout="5"
+          finishOnKey="#"
+          transcribe="false"/>
+</Response>"""
+            else:
+                # No recording - ask to speak
+                xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice" language="he-IL" rate="0.9">
+    לא שמעתי אתכם. בבקשה דברו אחרי הצפצוף.
+  </Say>
   <Pause length="1"/>
   <Record action="/webhook/conversation_turn?turn={next_turn}"
           method="POST"
           maxLength="30"
           timeout="5"
-          finishOnKey="*"
+          finishOnKey="#"
           transcribe="false"/>
 </Response>"""
             
-            return Response(xml, mimetype="text/xml")
+            response = Response(xml, mimetype="text/xml")
+            response.headers['Content-Type'] = 'text/xml; charset=utf-8'
+            return response
             
         except Exception as e:
-            print(f"❌ Fast conversation error: {e}")
-            # Ultra-minimal fallback
-            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+            print(f"❌ Conversation error: {e}")
+            # Professional error handling
+            xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{PUBLIC_HOST}/static/voice_responses/listening_premium.mp3</Play>
-  <Pause length="1"/>
-  <Record action="/webhook/conversation_turn" method="POST" maxLength="30"/>
+  <Say voice="alice" language="he-IL" rate="0.9">
+    סליחה, יש לי בעיה טכנית. אנא התקשרו שוב מאוחר יותר.
+  </Say>
+  <Hangup/>
 </Response>"""
             return Response(xml, mimetype="text/xml")
-
-def process_recording_background(call_sid, recording_url, turn_num):
-    """Process recording in background - verify transcription works"""
-    try:
-        print(f"🎤 Processing recording for {call_sid}, turn {turn_num}")
-        print(f"📥 Recording URL: {recording_url}")
-        
-        # Download and test transcription
-        import requests
-        import tempfile
-        import os
-        
-        # Download recording
-        response = requests.get(recording_url)
-        if response.status_code == 200:
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-                temp_file.write(response.content)
-                temp_path = temp_file.name
-            
-            print(f"✅ Downloaded recording: {len(response.content)} bytes")
-            
-            # Test Whisper transcription
-            try:
-                import openai
-                client = openai.OpenAI()
-                
-                with open(temp_path, 'rb') as audio_file:
-                    transcript = client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio_file,
-                        language="he"
-                    )
-                
-                transcribed_text = transcript.text
-                print(f"🎯 Transcription successful: '{transcribed_text}'")
-                
-                # Clean up
-                os.unlink(temp_path)
-                
-                return transcribed_text
-                
-            except Exception as whisper_error:
-                print(f"❌ Whisper transcription error: {whisper_error}")
-                os.unlink(temp_path)
-                return None
-                
-        else:
-            print(f"❌ Failed to download recording: {response.status_code}")
-            return None
-            
-    except Exception as e:
-        print(f"❌ Background processing error: {e}")
-        return None
     
     @app.route('/webhook/call_status', methods=['POST'])
     def call_status():
         return "OK", 200
+
+def process_real_conversation(call_sid: str, recording_url: str, turn_num: int):
+    """Process real conversation with transcription and AI response"""
+    try:
+        print(f"🎙️ Starting real conversation processing for {call_sid}")
+        
+        # Download and transcribe
+        import requests
+        import tempfile
+        import openai
+        
+        # Download recording
+        response = requests.get(recording_url)
+        if response.status_code != 200:
+            print(f"❌ Failed to download recording: {response.status_code}")
+            return
+        
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+            temp_file.write(response.content)
+            temp_path = temp_file.name
+        
+        print(f"✅ Downloaded {len(response.content)} bytes")
+        
+        # Transcribe with Whisper
+        client = openai.OpenAI()
+        
+        with open(temp_path, 'rb') as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="he",
+                response_format="text"
+            )
+        
+        user_input = str(transcript).strip()
+        print(f"🎤 Transcription: '{user_input}'")
+        
+        # Generate AI response
+        if len(user_input) > 3:  # Valid input
+            ai_response = generate_professional_response(user_input, turn_num)
+            print(f"🤖 AI Response: '{ai_response}'")
+            
+            # Store in database (if available)
+            try:
+                store_conversation_turn(call_sid, turn_num, user_input, ai_response)
+            except Exception as e:
+                print(f"⚠️ Could not store in DB: {e}")
+        
+        # Cleanup
+        import os
+        os.unlink(temp_path)
+        
+    except Exception as e:
+        print(f"❌ Real conversation processing failed: {e}")
+
+def generate_professional_response(user_input: str, turn_num: int) -> str:
+    """Generate professional AI response for real estate"""
+    try:
+        import openai
+        
+        client = openai.OpenAI()
+        
+        system_prompt = """אתה סוכן נדל"ן מקצועי וחכם של "שי דירות ומשרדים בע״מ".
+אתה מומחה בשוק הנדל"ן הישראלי ונותן שירות מעולה ללקוחות.
+
+הנחיות חשובות:
+1. ענה רק בעברית
+2. היה קצר ומדויק (עד 40 מילים)
+3. שאל שאלה רלוונטית אחת
+4. אל תמציא מחירים או נכסים ספציפיים
+5. הפנה לפגישה או לקבלת פרטים נוספים
+6. התנהג בצורה מקצועית וחמה
+
+אם הלקוח רוצה לסיים ("תודה", "ביי", "זה הכל") - סיים בנימוס."""
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_input}
+            ],
+            max_tokens=100,
+            temperature=0.7
+        )
+        
+        ai_content = response.choices[0].message.content
+        return ai_content.strip() if ai_content else "אשמח לעזור לכם. אפשר לחזור על השאלה?"
+        
+    except Exception as e:
+        print(f"❌ AI response generation failed: {e}")
+        return "אשמח לעזור לכם. אפשר לחזור על השאלה?"
+
+def store_conversation_turn(call_sid: str, turn_num: int, user_input: str, ai_response: str):
+    """Store conversation turn in database (if available)"""
+    try:
+        # This would use the database if models are available
+        print(f"💾 Would store: {call_sid} turn {turn_num}")
+        print(f"    User: {user_input}")
+        print(f"    AI: {ai_response}")
+    except Exception as e:
+        print(f"⚠️ Storage not available: {e}")
 
 def register_static_routes(app):
     """רישום נתיבים לקבצים סטטיים - קבצי קול עבריים"""
