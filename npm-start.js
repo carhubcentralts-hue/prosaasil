@@ -12,13 +12,33 @@ const colors = {
 );
 ));
 
-// Start Flask server from server directory
-const flaskProcess = exec("cd server && python3 main.py", (err, stdout, stderr) => {
+// Start Flask server with fallback options
+let startCommand = "cd server && python3 main.py";
+
+// Fallback to root directory if server/main.py doesn't exist
+const fs = require('fs');
+if (!fs.existsSync('server/main.py')) {
+  console.log(colors.yellow("⚠️  server/main.py not found, using root main.py"));
+  startCommand = "python3 main.py";
+}
+
+const flaskProcess = exec(startCommand, (err, stdout, stderr) => {
   if (err) {
     console.error(colors.red("❌ FLASK FAILED:"), stderr);
-    process.exit(1);
+    console.log(colors.blue("💡 Trying alternative startup method..."));
+    
+    // Try the universal startup script as fallback
+    const fallbackProcess = exec("python3 start.py", (fallbackErr, fallbackStdout, fallbackStderr) => {
+      if (fallbackErr) {
+        console.error(colors.red("❌ FALLBACK FAILED:"), fallbackStderr);
+        process.exit(1);
+      }
+      console.log(colors.green("✅ Started with fallback method:"), fallbackStdout);
+    });
+    
+    return;
   }
-  , stdout);
+  console.log(colors.green("✅ Flask started successfully:"), stdout);
 });
 
 // Forward Flask output to console

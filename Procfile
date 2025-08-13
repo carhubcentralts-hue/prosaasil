@@ -1,1 +1,1 @@
-web: python server/minimal_server.py
+web: python main.py
