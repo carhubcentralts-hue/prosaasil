@@ -155,17 +155,23 @@ def register_core_routes(app):
 </html>"""
 
 def register_webhook_routes(app):
-    """רישום webhooks לTwilio"""
+    """רישום webhooks לTwilio עם שיחה רציפה"""
     
     PUBLIC_HOST = "https://ai-crmd.replit.app"
     
     @app.route('/webhook/incoming_call', methods=['POST'])
     def incoming_call():
+        """תחילת שיחה - מענה וצפייה להקלטה ראשונה"""
+        call_sid = request.values.get('CallSid')
+        from_number = request.values.get('From', '')
+        
+        print(f"📞 New incoming call: {call_sid} from {from_number}")
+        
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{PUBLIC_HOST}/static/voice_responses/greeting.mp3</Play>
-  <Pause length="1"/>
-  <Record action="/webhook/handle_recording"
+  <Pause length="2"/>
+  <Record action="/webhook/conversation_turn"
           method="POST"
           maxLength="30"
           timeout="5"
@@ -174,14 +180,67 @@ def register_webhook_routes(app):
 </Response>"""
         return Response(xml, mimetype="text/xml")
     
-    @app.route('/webhook/handle_recording', methods=['POST'])
-    def handle_recording():
-        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+    @app.route('/webhook/conversation_turn', methods=['POST'])
+    def conversation_turn():
+        """עיבוד תור שיחה עם AI ותשובה רציפה"""
+        from ai_conversation import HebrewAIConversation
+        
+        call_sid = request.values.get('CallSid')
+        recording_url = request.values.get('RecordingUrl')
+        turn_num = int(request.values.get('turn', 1))
+        
+        print(f"🔄 Processing conversation turn {turn_num} for call {call_sid}")
+        
+        try:
+            # יצירת מופע AI conversation
+            ai_conv = HebrewAIConversation()
+            
+            # עיבוד התור (תמלול + AI + TTS)
+            result = ai_conv.process_conversation_turn(call_sid, recording_url, turn_num)
+            
+            if result.get('should_end', False):
+                # סיום שיחה
+                xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{PUBLIC_HOST}/static/voice_responses/listening.mp3</Play>
+  <Play>{result.get('response_audio_url', PUBLIC_HOST + '/static/voice_responses/listening.mp3')}</Play>
+  <Pause length="1"/>
+  <Say voice="alice" language="he-IL">להתראות ויום נעים</Say>
   <Hangup/>
 </Response>"""
-        return Response(xml, mimetype="text/xml")
+            else:
+                # המשך שיחה - AI response + חכה להקלטה הבאה
+                next_turn = turn_num + 1
+                xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>{result.get('response_audio_url', PUBLIC_HOST + '/static/voice_responses/processing.mp3')}</Play>
+  <Pause length="1"/>
+  <Record action="/webhook/conversation_turn?turn={next_turn}"
+          method="POST"
+          maxLength="30"
+          timeout="8"
+          finishOnKey="*"
+          transcribe="false"/>
+</Response>"""
+            
+            return Response(xml, mimetype="text/xml")
+            
+        except Exception as e:
+            print(f"❌ Error in conversation turn: {e}")
+            # Fallback - לא לנתק אלא לבקש שוב
+            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>{PUBLIC_HOST}/static/voice_responses/listening.mp3</Play>
+  <Pause length="1"/>
+  <Say voice="alice" language="he-IL">סליחה, לא שמעתי טוב. אפשר לחזור?</Say>
+  <Pause length="1"/>
+  <Record action="/webhook/conversation_turn?turn={turn_num}"
+          method="POST"
+          maxLength="30"
+          timeout="5"
+          finishOnKey="*"
+          transcribe="false"/>
+</Response>"""
+            return Response(xml, mimetype="text/xml")
     
     @app.route('/webhook/call_status', methods=['POST'])
     def call_status():

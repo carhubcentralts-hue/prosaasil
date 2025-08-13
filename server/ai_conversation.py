@@ -123,41 +123,101 @@ class HebrewAIConversation:
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
             if not call_log:
                 # יצירת רשומת שיחה חדשה
-                call_log = CallLog()
-                call_log.call_sid = call_sid
-                call_log.business_id = 1
-                call_log.from_number = 'unknown'
-                call_log.to_number = 'unknown'
-                call_log.call_status = 'in-progress'
-                call_log.created_at = datetime.utcnow()
+                call_log = CallLog(
+                    call_sid=call_sid,
+                    business_id=1,  # שי דירות ומשרדים בע״מ
+                    customer_phone="",
+                    call_status="in_progress",
+                    start_time=datetime.now()
+                )
                 db.session.add(call_log)
                 db.session.commit()
+                logger.info(f"📝 Created new call log for {call_sid}")
             
-            # 2. תמלול ההקלטה עם Whisper
-            logger.info("🔄 Transcribing with Whisper...")
-            transcription = transcribe_hebrew(recording_url)
-            logger.info(f"📝 Transcription: {transcription}")
+            # 2. תמלול ההקלטה
+            user_input = ""
+            if recording_url:
+                try:
+                    user_input = transcribe_hebrew(recording_url)
+                    logger.info(f"🎤 Transcription: {user_input}")
+                except Exception as e:
+                    logger.error(f"❌ Transcription failed: {e}")
+                    user_input = "[תמלול נכשל]"
             
-            if not transcription or len(transcription.strip()) < 2:
-                return {
-                    'success': False,
-                    'message': 'לא שמעתי טוב, אפשר לחזור על השאלה?',
-                    'end_conversation': False
-                }
-            
-            # 3. קבלת הקשר עסקי
-            business_context = self.get_business_context(call_log.business_id)
-            
-            # 4. קבלת היסטוריית שיחה
+            # 3. קבלת היסטוריית שיחה
             conversation_history = ConversationTurn.query.filter_by(
                 call_log_id=call_log.id
             ).order_by(ConversationTurn.turn_number).all()
             
-            # 5. יצירת תשובת AI
-            logger.info("🤖 Generating AI response...")
-            ai_response = self.generate_ai_response(
-                transcription, 
-                conversation_history, 
+            # 4. בדיקה מוקדמת לסיום שיחה
+            should_end = self.check_conversation_end(user_input, "")
+            
+            # 5. יצירת הקשר עסקי
+            business_context = self.get_business_context(call_log.business_id)
+            
+            # 6. יצירת תשובת AI
+            ai_response = ""
+            if not should_end and user_input and user_input != "[תמלול נכשל]":
+                ai_response = self.generate_ai_response(
+                    user_input, 
+                    conversation_history, 
+                    business_context
+                )
+                
+                # בדיקה נוספת לסיום לאחר תשובת AI  
+                should_end = self.check_conversation_end(user_input, ai_response)
+            
+            # 7. יצירת קובץ TTS
+            response_audio_url = None
+            if ai_response:
+                try:
+                    audio_filename = self.tts_service.create_tts_file(ai_response)
+                    if audio_filename:
+                        response_audio_url = f"https://ai-crmd.replit.app/static/voice_responses/{audio_filename}"
+                        logger.info(f"🔊 TTS created: {audio_filename}")
+                except Exception as e:
+                    logger.error(f"❌ TTS failed: {e}")
+                    response_audio_url = "https://ai-crmd.replit.app/static/voice_responses/processing.mp3"
+            
+            # 8. שמירת התור במסד נתונים
+            conversation_turn = ConversationTurn(
+                call_log_id=call_log.id,
+                turn_number=turn_number,
+                user_input=user_input,
+                ai_response=ai_response,
+                timestamp=datetime.now(),
+                audio_url=recording_url,
+                response_audio_url=response_audio_url
+            )
+            db.session.add(conversation_turn)
+            
+            # 9. עדכון סטטוס שיחה
+            if should_end:
+                call_log.call_status = "completed"
+                call_log.end_time = datetime.now()
+                logger.info(f"✅ Call {call_sid} completed after {turn_number} turns")
+            
+            db.session.commit()
+            
+            return {
+                'success': True,
+                'user_input': user_input,
+                'ai_response': ai_response,
+                'response_audio_url': response_audio_url,
+                'should_end': should_end,
+                'turn_number': turn_number,
+                'call_sid': call_sid
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error processing conversation turn: {e}")
+            db.session.rollback()
+            return {
+                'success': False,
+                'error': str(e),
+                'should_end': False,
+                'response_audio_url': 'https://ai-crmd.replit.app/static/voice_responses/processing.mp3'
+            } 
                 business_context
             )
             logger.info(f"💬 AI Response: {ai_response}")
