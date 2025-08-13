@@ -23,6 +23,17 @@ def create_app():
     register_core_routes(app)
     register_webhook_routes(app)
     
+    # Register API blueprints
+    try:
+        from api_crm_advanced import crm_api_bp
+        from api_timeline import timeline_api_bp
+        from whatsapp_api import whatsapp_api_bp
+        app.register_blueprint(crm_api_bp)
+        app.register_blueprint(timeline_api_bp)
+        app.register_blueprint(whatsapp_api_bp)
+    except ImportError as e:
+        print(f"Warning: Could not import some API blueprints: {e}")
+    
     return app
 
 def register_auth_routes(app):

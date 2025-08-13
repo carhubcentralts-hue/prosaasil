@@ -9,7 +9,15 @@ import os
 import qrcode
 import io
 import base64
-from baileys_integration import baileys_service
+# from baileys_integration import baileys_service
+# Mock service for now - replace with real Baileys integration later
+class MockBaileysService:
+    def is_authenticated(self):
+        return False
+    def get_qr_code(self):
+        return "mock_qr_code_text"
+
+baileys_service = MockBaileysService()
 
 logger = logging.getLogger(__name__)
 
