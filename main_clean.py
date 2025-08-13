@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """
-CLEAN HEBREW CALL CENTER - FINAL WORKING VERSION
+CLEAN HEBREW CALL CENTER - ABSOLUTELY NO OLD CODE
 """
 from flask import Flask, Response, request, send_from_directory
 import os
 
+# SIMPLE APP
 app = Flask(__name__)
 PUBLIC_HOST = "https://ai-crmd.replit.app"
 
-print("🎯🎯🎯 FINAL CLEAN CODE STARTING - PLAY VERBS ONLY")
+print("🚀🚀🚀 ABSOLUTELY CLEAN NEW CODE STARTING")
 
 @app.route("/webhook/incoming_call", methods=['POST'])
-def incoming_call():
-    """FINAL Hebrew webhook - PLAY ONLY"""
-    print("✅✅✅ FINAL CODE INCOMING CALL HANDLER")
-    call_sid = request.form.get('CallSid', 'FINAL_CALL')
-    print(f"✅ FINAL HANDLER PROCESSING: {call_sid}")
+def clean_incoming_call():
+    """ABSOLUTELY CLEAN Hebrew webhook - PLAY ONLY"""
+    print("🎯🎯🎯 CLEAN CODE INCOMING CALL HANDLER")
+    call_sid = request.form.get('CallSid', 'CLEAN_CALL')
+    print(f"🎯 CLEAN HANDLER PROCESSING: {call_sid}")
     
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -29,14 +30,14 @@ def incoming_call():
           transcribe="false"/>
 </Response>"""
     
-    print("✅ FINAL CODE RETURNING PLAY VERB")
-    print(f"✅ FINAL XML: {xml[:100]}...")
+    print("🎯 CLEAN CODE RETURNING PLAY VERB")
+    print(f"🎯 CLEAN XML: {xml[:100]}...")
     return Response(xml, mimetype="text/xml")
 
 @app.route("/webhook/handle_recording", methods=['POST'])
-def handle_recording():
-    """FINAL recording handler"""
-    print("🎙️ FINAL RECORDING HANDLER")
+def clean_handle_recording():
+    """CLEAN recording handler"""
+    print("🎙️ CLEAN RECORDING HANDLER")
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{PUBLIC_HOST}/static/voice_responses/listening.mp3</Play>
@@ -45,23 +46,23 @@ def handle_recording():
     return Response(xml, mimetype="text/xml")
 
 @app.route("/webhook/call_status", methods=['POST'])
-def call_status():
-    """FINAL call status"""
-    print("📞 FINAL CALL STATUS")
+def clean_call_status():
+    """CLEAN call status"""
+    print("📞 CLEAN CALL STATUS")
     return "OK", 200
 
 @app.route('/static/voice_responses/<filename>')
-def serve_voice(filename):
-    """Serve voice files FINAL"""
+def serve_clean_voice(filename):
+    """Serve voice files CLEAN"""
     voice_dir = os.path.join(os.path.dirname(__file__), 'server', 'static', 'voice_responses')
     return send_from_directory(voice_dir, filename)
 
 @app.route('/')
-def home():
-    return "FINAL Hebrew AI Call Center - PLAY VERBS ONLY"
+def clean_home():
+    return "CLEAN Hebrew AI Call Center - PLAY VERBS ONLY"
 
 if __name__ == '__main__':
-    print("🚀 STARTING FINAL CLEAN CODE")
-    print("✅ ONLY PLAY VERBS - NO SAY VERBS")
+    print("🚀 STARTING ABSOLUTELY CLEAN CODE")
+    print("🎯 ONLY PLAY VERBS - NO SAY VERBS")
     print("=" * 50)
     app.run(host='0.0.0.0', port=5000, debug=False)
