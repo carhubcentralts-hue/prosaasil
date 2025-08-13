@@ -218,50 +218,6 @@ class HebrewAIConversation:
                 'error': str(e),
                 'should_end': False,
                 'response_audio_url': 'https://ai-crmd.replit.app/static/voice_responses/processing.mp3'
-            } 
-                business_context
-            )
-            logger.info(f"💬 AI Response: {ai_response}")
-            
-            # 6. שמירת התור במסד הנתונים  
-            turn = ConversationTurn()
-            turn.call_log_id = call_log.id
-            turn.turn_number = turn_number
-            turn.user_input = transcription
-            turn.ai_response = ai_response
-            turn.recording_url = recording_url
-            turn.timestamp = datetime.utcnow()
-            db.session.add(turn)
-            
-            # 7. בדיקת סיום שיחה
-            should_end = self.check_conversation_end(transcription, ai_response)
-            
-            # 8. עדכון רשומת השיחה
-            call_log.transcription = transcription
-            call_log.ai_response = ai_response
-            call_log.updated_at = datetime.utcnow()
-            if should_end:
-                call_log.call_status = 'completed'
-                call_log.ended_at = datetime.utcnow()
-            
-            db.session.commit()
-            logger.info("✅ Turn saved to database")
-            
-            return {
-                'success': True,
-                'transcription': transcription,
-                'ai_response': ai_response,
-                'end_conversation': should_end,
-                'turn_number': turn_number
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Error processing conversation turn: {e}")
-            db.session.rollback()
-            return {
-                'success': False,
-                'message': 'סליחה, יש לי בעיה טכנית. אפשר לנסות שוב?',
-                'end_conversation': False
             }
 
 # Global instance

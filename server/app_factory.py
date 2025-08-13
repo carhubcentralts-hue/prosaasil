@@ -167,12 +167,10 @@ def register_webhook_routes(app):
         
         print(f"📞 FAST incoming call: {call_sid} from {from_number}")
         
-        # Return immediate response with simple instructions
+        # Return immediate response with premium audio quality
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{PUBLIC_HOST}/static/voice_responses/greeting_simple.mp3</Play>
-  <Pause length="1"/>
-  <Say voice="alice" language="he-IL">אני מאזינה דבר עכשיו</Say>
+  <Play>{PUBLIC_HOST}/static/voice_responses/greeting_premium.mp3</Play>
   <Pause length="1"/>
   <Record action="/webhook/conversation_turn"
           method="POST"
@@ -201,8 +199,8 @@ def register_webhook_routes(app):
             
             print(f"🔄 FAST turn {turn_num} for {call_sid}")
             
-            # Use simple listening prompt - no "processing" messages
-            audio_url = f"{PUBLIC_HOST}/static/voice_responses/listening_simple.mp3"
+            # Use premium listening prompt - high quality audio
+            audio_url = f"{PUBLIC_HOST}/static/voice_responses/listening_premium.mp3"
             
             # Start background transcription if recording exists
             if recording_url:
@@ -232,7 +230,7 @@ def register_webhook_routes(app):
             # Ultra-minimal fallback
             xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{PUBLIC_HOST}/static/voice_responses/listening_simple.mp3</Play>
+  <Play>{PUBLIC_HOST}/static/voice_responses/listening_premium.mp3</Play>
   <Pause length="1"/>
   <Record action="/webhook/conversation_turn" method="POST" maxLength="30"/>
 </Response>"""
