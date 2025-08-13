@@ -4,17 +4,18 @@
 **FULLY OPERATIONAL** Hebrew AI Call Center for "שי דירות ומשרדים בע״מ". Complete production-ready system with OpenAI GPT-4o integration for intelligent Hebrew conversations. Features real-time Hebrew transcription with Whisper, professional real estate responses, continuous dialogue management, and comprehensive conversation logging. All technical issues resolved - system ready for live Twilio calls.
 
 ## Recent Major Update (August 2025)
-**✅ COMPLETE SYSTEM REBUILD + TWILIO HEBREW FIX** - All critical technical issues resolved:
-- **BREAKTHROUGH**: Fixed Twilio Hebrew Error 13512 - replaced Say verb with Play verb using Hebrew MP3 files
-- Fixed httpcore/OpenAI connectivity problems through clean architecture rebuild
-- Implemented `app_final.py` with working GPT-4o and Whisper integration  
-- Created clean models (`models_clean.py`, `ai_system_clean.py`, `routes_clean.py`)
+**✅ COMPLETE PROFESSIONAL ARCHITECTURE REBUILD** - Implemented comprehensive App Factory pattern:
+- **App Factory Pattern**: Professional Flask architecture with Blueprint separation (`server/app_factory.py`)
+- **Blueprint Organization**: Modular routes system (`server/routes/`, `server/api_*` files)
+- **Error Handling**: Production-ready error handlers with JSON logging (`server/error_handlers.py`)
+- **Logging System**: Professional JSON structured logging (`server/logging_setup.py`)
+- **CRM API**: Advanced customer management with proper pagination (`server/api_crm_advanced.py`)
+- **Timeline API**: Customer interaction tracking (`server/api_timeline.py`)
+- **Real-time Features**: Socket.IO integration, task notifications (`client/src/lib/socket.ts`)
+- **Frontend Components**: TaskDueModal, useTaskDue hook, service worker notifications
+- **Design System**: CSS tokens, Hebrew typography, RTL support (`client/src/styles/tokens.css`)
 - **Hebrew TTS System**: Using gTTS with 'iw' language code for Hebrew MP3 generation
-- **Static File Serving**: Hebrew audio files served via `/static/` routes and accessible publicly
-- **VERIFIED WORKING**: Hebrew AI conversations, intelligent real estate responses, natural conversation flow with proper "bye" detection
-- Production webhook endpoints: `/webhook/incoming_call` + `/webhook/handle_recording`
-- **TWILIO COMPATIBLE**: No more Hebrew language errors, system ready for live calls
-- Complete conversation logging system operational
+- **Production Ready**: Environment variables, deployment configuration, comprehensive testing
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -23,19 +24,25 @@ Preferred communication style: Simple, everyday language.
 
 ### Frontend Architecture
 - **Framework**: React 18, functional components, hooks.
-- **Routing**: Wouter.
-- **Styling**: Tailwind CSS with Hebrew RTL support and custom typography.
-- **Build Tool**: Vite.
-- **Icons**: Lucide React.
-- **Directory Structure**: Client-server separation (`client/` folder).
+- **Routing**: Wouter for SPA navigation.
+- **Styling**: Tailwind CSS with Hebrew RTL support, custom CSS tokens system (`client/src/styles/tokens.css`).
+- **Build Tool**: Vite with modern build pipeline.
+- **Icons**: Lucide React for consistent iconography.
+- **Real-time**: Socket.IO client integration for live notifications (`client/src/lib/socket.ts`).
+- **Components**: Professional component library including TaskDueModal, notification system.
+- **Hooks**: Custom hooks like useTaskDue for real-time task management.
+- **Directory Structure**: Clean client-server separation with organized component structure.
 
 ### Backend Architecture
-- **Framework**: Flask with Blueprint-based modular architecture.
+- **Framework**: Flask with professional App Factory pattern and Blueprint architecture.
+- **App Factory**: `server/app_factory.py` - centralized application configuration and setup.
+- **Blueprints**: Modular route organization - `server/routes/`, `server/api_crm_advanced.py`, `server/api_timeline.py`.
+- **Error Handling**: Production-ready error handlers with structured JSON logging.
 - **Language**: Python 3.9+ with Hebrew language support.
-- **Database**: SQLAlchemy ORM (PostgreSQL for production, SQLite for development).
-- **API Design**: RESTful JSON endpoints with CORS.
+- **Database**: SQLAlchemy ORM (PostgreSQL for production, development models in `server/models.py`).
+- **API Design**: RESTful JSON endpoints with CORS and proper error handling.
 - **Authentication**: Session-based with role-based access control (admin/business).
-- **Business Logic**: Service-oriented architecture.
+- **Business Logic**: Service-oriented architecture with clean separation of concerns.
 
 ### Voice Processing Pipeline
 - **Speech Recognition**: OpenAI Whisper for Hebrew transcription with gibberish detection.

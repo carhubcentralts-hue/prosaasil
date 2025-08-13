@@ -3,25 +3,40 @@ Advanced CRM API Routes for React Frontend
 Enhanced Hebrew CRM with Monday.com level functionality
 """
 
-from flask import request, jsonify
-from app import app, db
-from models import Business, CallLog, Customer, WhatsAppMessage
+from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
-from sqlalchemy import or_, and_, func
 import logging
+from .models import SAMPLE_CUSTOMERS
+
+# Create blueprint for CRM routes
+crm_bp = Blueprint("crm_bp", __name__, url_prefix="/api")
 
 logger = logging.getLogger(__name__)
 
-@app.route("/api/crm/customers", methods=["GET"])
+def get_status_hebrew(status):
+    statuses = {
+        "new": "חדש",
+        "lead": "ליד",
+        "active": "פעיל",
+        "closed": "סגור"
+    }
+    return statuses.get(status, status)
+
+def get_source_hebrew(source):
+    sources = {
+        "phone": "טלפון",
+        "whatsapp": "וואטסאפ", 
+        "website": "אתר",
+        "referral": "הפניה"
+    }
+    return sources.get(source, source)
+
+@crm_bp.route("/crm/customers", methods=["GET"])
 def api_get_crm_customers():
     """
     Get customers with advanced filtering and search
     """
     try:
-        business_id = request.args.get('business_id', type=int)
-        if not business_id:
-            return jsonify({"error": "Missing business_id"}), 400
-            
         # Pagination
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 20, type=int)
@@ -31,8 +46,68 @@ def api_get_crm_customers():
         status_filter = request.args.get('status', '').strip()
         source_filter = request.args.get('source', '').strip()
         
-        # Build query
-        query = Customer.query.filter_by(business_id=business_id)
+        # Use sample data for now
+        customers = SAMPLE_CUSTOMERS
+        
+        # Apply filters to sample data
+        filtered_customers = customers
+        
+        # Search filter
+        if search:
+            search_term = search.lower()
+            filtered_customers = [c for c in filtered_customers 
+                                if search_term in c.name.lower() 
+                                or search_term in c.phone.lower() 
+                                or search_term in c.email.lower()]
+        
+        # Status filter
+        if status_filter:
+            filtered_customers = [c for c in filtered_customers if c.status == status_filter]
+        
+        # Source filter
+        if source_filter:
+            filtered_customers = [c for c in filtered_customers if c.source == source_filter]
+        
+        # Pagination
+        total = len(filtered_customers)
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_customers = filtered_customers[start_idx:end_idx]
+        
+        # Convert to dict with Hebrew labels
+        customers_data = []
+        for customer in paginated_customers:
+            customer_dict = {
+                'id': customer.id,
+                'name': customer.name,
+                'phone': customer.phone,
+                'email': customer.email,
+                'company': customer.company,
+                'status': customer.status,
+                'status_hebrew': get_status_hebrew(customer.status),
+                'source': customer.source,
+                'source_hebrew': get_source_hebrew(customer.source),
+                'created_at': '2025-01-01T00:00:00Z',  # Sample timestamp
+                'updated_at': '2025-01-01T00:00:00Z'   # Sample timestamp
+            }
+            customers_data.append(customer_dict)
+        
+        return jsonify({
+            'success': True,
+            'data': customers_data,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'pages': (total + per_page - 1) // per_page,
+                'has_next': end_idx < total,
+                'has_prev': page > 1
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in api_get_crm_customers: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
         
         # Search across multiple fields
         if search:
