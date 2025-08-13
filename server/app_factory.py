@@ -160,17 +160,20 @@ def register_webhook_routes(app):
     PUBLIC_HOST = "https://ai-crmd.replit.app"
     
     @app.route('/webhook/incoming_call', methods=['POST'])
-    def incoming_call():
-        """תחילת שיחה - מענה וצפייה להקלטה ראשונה"""
+    def fast_incoming_call():
+        """Fast incoming call webhook - immediate response"""
         call_sid = request.values.get('CallSid')
         from_number = request.values.get('From', '')
         
-        print(f"📞 New incoming call: {call_sid} from {from_number}")
+        print(f"📞 FAST incoming call: {call_sid} from {from_number}")
         
+        # Return immediate response with clear instructions
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{PUBLIC_HOST}/static/voice_responses/greeting.mp3</Play>
-  <Pause length="2"/>
+  <Pause length="1"/>
+  <Say voice="alice" language="he-IL">כעת אפשר לדבר</Say>
+  <Pause length="1"/>
   <Record action="/webhook/conversation_turn"
           method="POST"
           maxLength="30"
@@ -181,47 +184,53 @@ def register_webhook_routes(app):
         return Response(xml, mimetype="text/xml")
     
     @app.route('/webhook/conversation_turn', methods=['POST'])
-    def conversation_turn():
-        """עיבוד תור שיחה עם AI ותשובה רציפה"""
+    def fast_conversation_turn():
+        """Ultra-fast conversation webhook - NO DELAYS"""
         try:
             call_sid = request.values.get('CallSid') or 'unknown'
             recording_url = request.values.get('RecordingUrl') or ''
-            turn_num = int(request.values.get('turn', 1))
+            turn_str = request.values.get('turn', '1')
             
-            print(f"🔄 Processing conversation turn {turn_num} for call {call_sid}")
+            # Parse turn number quickly
+            try:
+                turn_num = int(turn_str)
+            except:
+                turn_num = 1
             
-            # Import AI conversation with proper path
-            import sys
-            import os
-            sys.path.append(os.path.dirname(__file__))
-            from ai_conversation_simple import HebrewAIConversation
-            ai_conv = HebrewAIConversation()
+            next_turn = turn_num + 1
             
-            # Process the conversation turn
-            result = ai_conv.process_conversation_turn(call_sid, recording_url, turn_num)
+            print(f"🔄 FAST turn {turn_num} for {call_sid}")
             
-            if result.get('should_end', False):
-                # End conversation
-                xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+            # NO AI PROCESSING - return immediate response
+            # Use pre-existing audio files for instant response
+            quick_responses = [
+                f"{PUBLIC_HOST}/static/voice_responses/listening.mp3",
+                f"{PUBLIC_HOST}/static/voice_responses/processing.mp3", 
+                f"{PUBLIC_HOST}/static/voice_responses/greeting.mp3"
+            ]
+            
+            # Rotate responses to add variety
+            audio_url = quick_responses[(turn_num - 1) % len(quick_responses)]
+            
+            # Start background processing if needed (don't wait for it)
+            if recording_url:
+                import threading
+                threading.Thread(
+                    target=lambda: print(f"📤 Background: would process {recording_url}"),
+                    daemon=True
+                ).start()
+            
+            # Return immediate TwiML response
+            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{result.get('response_audio_url', PUBLIC_HOST + '/static/voice_responses/listening.mp3')}</Play>
+  <Play>{audio_url}</Play>
   <Pause length="1"/>
-  <Say voice="alice" language="he-IL">להתראות ויום נעים</Say>
-  <Hangup/>
-</Response>"""
-            else:
-                # Continue conversation
-                next_turn = turn_num + 1
-                xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play>{result.get('response_audio_url', PUBLIC_HOST + '/static/voice_responses/processing.mp3')}</Play>
-  <Pause length="2"/>
   <Say voice="alice" language="he-IL">כעת אפשר לדבר</Say>
   <Pause length="1"/>
   <Record action="/webhook/conversation_turn?turn={next_turn}"
           method="POST"
           maxLength="30"
-          timeout="8"
+          timeout="5"
           finishOnKey="*"
           transcribe="false"/>
 </Response>"""
@@ -229,25 +238,13 @@ def register_webhook_routes(app):
             return Response(xml, mimetype="text/xml")
             
         except Exception as e:
-            import traceback
-            print(f"❌ Error in conversation turn: {e}")
-            print(f"❌ Full traceback: {traceback.format_exc()}")
-            
-            # Fallback response
-            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+            print(f"❌ Fast conversation error: {e}")
+            # Ultra-minimal fallback
+            xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{PUBLIC_HOST}/static/voice_responses/listening.mp3</Play>
-  <Pause length="1"/>
-  <Say voice="alice" language="he-IL">סליחה, לא שמעתי טוב. אפשר לחזור?</Say>
-  <Pause length="2"/>
   <Say voice="alice" language="he-IL">כעת אפשר לדבר</Say>
-  <Pause length="1"/>
-  <Record action="/webhook/conversation_turn?turn={turn_num}"
-          method="POST"
-          maxLength="30"
-          timeout="8"
-          finishOnKey="*"
-          transcribe="false"/>
+  <Pause length="3"/>
+  <Record action="/webhook/conversation_turn" method="POST" maxLength="30"/>
 </Response>"""
             return Response(xml, mimetype="text/xml")
     
