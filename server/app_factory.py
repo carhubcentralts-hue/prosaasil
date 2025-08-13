@@ -22,6 +22,7 @@ def create_app():
     register_auth_routes(app)
     register_core_routes(app)
     register_webhook_routes(app)
+    register_static_routes(app)
     
     # Register API blueprints
     try:
@@ -58,7 +59,7 @@ def register_auth_routes(app):
                 'isActive': True
             }
             return jsonify({'user': user, 'token': 'admin-token-secure'})
-        elif (username == 'shai' and data.get('password') == 'shai123') or (username == 'manager@shai-realestate.co.il' and data.get('password') == 'business123456'):
+        elif (email == 'shai@shai-realestate.co.il' and data.get('password') == 'shai123') or (email == 'manager@shai-realestate.co.il' and data.get('password') == 'business123456'):
             user = {
                 'id': '2',
                 'username': 'shai',
@@ -185,6 +186,25 @@ def register_webhook_routes(app):
     @app.route('/webhook/call_status', methods=['POST'])
     def call_status():
         return "OK", 200
+
+def register_static_routes(app):
+    """רישום נתיבים לקבצים סטטיים - קבצי קול עבריים"""
+    
+    @app.route('/static/voice_responses/<filename>')
+    def serve_voice_files(filename):
+        """הגשת קבצי קול עבריים"""
+        try:
+            import os
+            from pathlib import Path
+            # Get absolute path 
+            base_path = Path(__file__).parent
+            filepath = base_path / 'static' / 'voice_responses' / filename
+            if filepath.exists():
+                return send_file(str(filepath), mimetype='audio/mpeg')
+            else:
+                return f"File not found: {filepath}", 404
+        except Exception as e:
+            return f"Error serving {filename}: {e}", 500
 
 if __name__ == '__main__':
     app = create_app()
