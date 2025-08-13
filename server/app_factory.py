@@ -167,15 +167,13 @@ def register_webhook_routes(app):
         
         print(f"📞 Professional call started: {call_sid} from {from_number}")
         
-        # Professional greeting with clear instructions
+        # Direct professional greeting + immediate recording
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice" language="he-IL" rate="0.9">
     שלום, הגעתם לשי דירות ומשרדים. אני העוזרת הדיגיטלית.
-    אשמח לעזור לכם עם כל שאלה בנושא נדלן.
-    בבקשה ספרו לי במה אוכל לעזור לכם.
+    אשמח לעזור לכם עם כל שאלה בנושא נדלן. דברו אחרי הצפצוף.
   </Say>
-  <Pause length="1"/>
   <Record action="/webhook/conversation_turn?turn=1"
           method="POST"
           maxLength="30"
@@ -207,23 +205,29 @@ def register_webhook_routes(app):
             print(f"🎤 Processing turn {turn_num} for call {call_sid}")
             print(f"📥 Recording URL: {recording_url}")
             
-            # Start background processing for real conversation
+            # Generate AI response and continue conversation
             if recording_url and recording_url != '':
-                import threading
-                threading.Thread(
-                    target=lambda: process_real_conversation(call_sid, recording_url, turn_num),
-                    daemon=True
-                ).start()
+                # Process recording and get AI response
+                ai_response = process_real_conversation_sync(call_sid, recording_url, turn_num)
                 
-                # Professional waiting response
-                xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+                if ai_response and len(ai_response.strip()) > 5:
+                    # AI response + continue conversation
+                    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice" language="he-IL" rate="0.9">{ai_response}</Say>
+  <Record action="/webhook/conversation_turn?turn={next_turn}"
+          method="POST"
+          maxLength="30"
+          timeout="5"
+          finishOnKey="#"
+          transcribe="false"/>
+</Response>"""
+                else:
+                    # No valid transcription - ask again
+                    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice" language="he-IL" rate="0.9">
-    אני בודקת את מה שאמרתם. רגע אחד בבקשה.
-  </Say>
-  <Pause length="3"/>
-  <Say voice="alice" language="he-IL" rate="0.9">
-    ספרו לי עוד פרטים על מה שאתם מחפשים.
+    לא שמעתי אתכם בבירור. בבקשה דברו שוב אחרי הצפצוף.
   </Say>
   <Record action="/webhook/conversation_turn?turn={next_turn}"
           method="POST"
@@ -239,7 +243,6 @@ def register_webhook_routes(app):
   <Say voice="alice" language="he-IL" rate="0.9">
     לא שמעתי אתכם. בבקשה דברו אחרי הצפצוף.
   </Say>
-  <Pause length="1"/>
   <Record action="/webhook/conversation_turn?turn={next_turn}"
           method="POST"
           maxLength="30"
@@ -268,21 +271,22 @@ def register_webhook_routes(app):
     def call_status():
         return "OK", 200
 
-def process_real_conversation(call_sid: str, recording_url: str, turn_num: int):
-    """Process real conversation with transcription and AI response"""
+def process_real_conversation_sync(call_sid: str, recording_url: str, turn_num: int) -> str:
+    """Process real conversation synchronously and return AI response"""
     try:
-        print(f"🎙️ Starting real conversation processing for {call_sid}")
+        print(f"🎙️ Processing call {call_sid}, turn {turn_num}")
         
         # Download and transcribe
         import requests
         import tempfile
         import openai
+        import os
         
         # Download recording
         response = requests.get(recording_url)
         if response.status_code != 200:
             print(f"❌ Failed to download recording: {response.status_code}")
-            return
+            return ""
         
         # Save to temp file
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
@@ -306,6 +310,7 @@ def process_real_conversation(call_sid: str, recording_url: str, turn_num: int):
         print(f"🎤 Transcription: '{user_input}'")
         
         # Generate AI response
+        ai_response = ""
         if len(user_input) > 3:  # Valid input
             ai_response = generate_professional_response(user_input, turn_num)
             print(f"🤖 AI Response: '{ai_response}'")
@@ -317,11 +322,12 @@ def process_real_conversation(call_sid: str, recording_url: str, turn_num: int):
                 print(f"⚠️ Could not store in DB: {e}")
         
         # Cleanup
-        import os
         os.unlink(temp_path)
+        return ai_response
         
     except Exception as e:
         print(f"❌ Real conversation processing failed: {e}")
+        return ""
 
 def generate_professional_response(user_input: str, turn_num: int) -> str:
     """Generate professional AI response for real estate"""
