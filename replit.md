@@ -14,6 +14,12 @@
 - ✅ All LSP diagnostics cleared - zero code errors
 - ✅ Single entry point established (`main.py` in root directory)
 - ✅ Application successfully restarted and operational
+- ✅ **DEPLOYMENT PATH FIXES (August 13, 2025)**:
+  - Fixed npm start script path issue: Created `server/main.py` wrapper for deployment compatibility
+  - Added `server/minimal_server.py` for Procfile deployment entry point
+  - Both deployment entry points now correctly reference root `main.py` application
+  - Verified import paths and Flask app creation work from server directory
+  - All deployment scenarios now functional (npm start, Procfile, Gunicorn)
 
 **📞 CALL SYSTEM FULLY OPERATIONAL:**
 - ✅ Twilio webhooks responding with Hebrew TwiML
