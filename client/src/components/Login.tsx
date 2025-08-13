@@ -173,21 +173,45 @@ export function Login() {
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900" dir="rtl">
-            התחברות למערכת
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600" dir="rtl">
-            מערכת ניהול שיחות עברית AI
-          </p>
-          <div className="mt-4 text-center text-xs text-gray-500" dir="rtl">
-            <div>מנהל: admin@shai-realestate.co.il / admin123456</div>
-            <div>עסק: manager@shai-realestate.co.il / business123456</div>
+      <div className="max-w-md w-full">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-lg p-8">
+          <div className="text-center mb-6">
+            <div className="mb-4">
+              <span className="text-5xl">🏢</span>
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2" dir="rtl">
+              שי דירות ומשרדים בע״מ
+            </h1>
+            <h2 className="text-lg font-semibold text-gray-700 mb-4" dir="rtl">
+              מערכת ניהול מתקדמת
+            </h2>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="text-sm text-blue-800 space-y-2" dir="rtl">
+                <div className="flex items-center justify-center gap-2">
+                  <span>🔒</span>
+                  <span>מערכת אבטחה מתקדמת</span>
+                </div>
+                <div className="flex items-center justify-center gap-2">
+                  <span>📞</span>
+                  <span>ניהול שיחות חכם</span>
+                </div>
+                <div className="flex items-center justify-center gap-2">
+                  <span>🌐</span>
+                  <span>תמיכה מלאה בעברית</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs text-gray-600" dir="rtl">
+              <div className="font-medium mb-1">פרטי התחברות לדמו:</div>
+              <div className="space-y-1">
+                <div>👤 מנהל: admin@shai-realestate.co.il</div>
+                <div>🏢 עסק: manager@shai-realestate.co.il</div>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <form className="mt-8 space-y-6" onSubmit={handleLogin} dir="rtl">
+          <form className="space-y-6" onSubmit={handleLogin} dir="rtl">
           <div className="space-y-4">
             <div>
               <label htmlFor="email-address" className="block text-sm font-medium text-gray-700">
@@ -234,22 +258,23 @@ export function Login() {
             <button
               type="submit"
               disabled={isLoading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 transition-colors"
               data-testid="button-login"
             >
-              {isLoading ? 'מתחבר...' : 'התחבר'}
+              {isLoading ? 'מתחבר...' : 'התחבר למערכת'}
             </button>
 
             <button
               type="button"
               onClick={() => setShowForgotPassword(true)}
-              className="text-indigo-600 hover:text-indigo-500 text-sm font-medium"
+              className="text-blue-600 hover:text-blue-500 text-sm font-medium transition-colors"
               data-testid="button-forgot-password"
             >
               שכחת סיסמא?
             </button>
           </div>
-        </form>
+          </form>
+        </div>
       </div>
     </div>
   );
