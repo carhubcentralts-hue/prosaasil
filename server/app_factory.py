@@ -24,15 +24,23 @@ def create_app():
     register_webhook_routes(app)
     
     # Register API blueprints
+    # WhatsApp API - Always register this one
+    try:
+        from whatsapp_api import whatsapp_api_bp
+        app.register_blueprint(whatsapp_api_bp)
+        print("✅ WhatsApp API registered successfully")
+    except ImportError as e:
+        print(f"❌ WhatsApp API registration failed: {e}")
+    
+    # Optional additional blueprints
     try:
         from api_crm_advanced import crm_api_bp
         from api_timeline import timeline_api_bp
-        from whatsapp_api import whatsapp_api_bp
         app.register_blueprint(crm_api_bp)
         app.register_blueprint(timeline_api_bp)
-        app.register_blueprint(whatsapp_api_bp)
+        print("✅ Additional APIs registered")
     except ImportError as e:
-        print(f"Warning: Could not import some API blueprints: {e}")
+        print(f"Warning: Could not import some additional API blueprints: {e}")
     
     return app
 
@@ -45,10 +53,11 @@ def register_auth_routes(app):
         
         # Secure authentication for professional system
         username = data.get('username') or data.get('email')
-        if username == 'admin' and data.get('password') == 'admin123':
+        if (username == 'admin' and data.get('password') == 'admin123') or (username == 'admin@shai-realestate.co.il' and data.get('password') == 'admin123456'):
             user = {
                 'id': '1',
                 'username': 'admin',
+                'email': 'admin@shai-realestate.co.il',
                 'firstName': 'מנהל',
                 'lastName': 'ראשי',
                 'role': 'admin',
@@ -56,10 +65,11 @@ def register_auth_routes(app):
                 'isActive': True
             }
             return jsonify({'user': user, 'token': 'admin-token-secure'})
-        elif username == 'shai' and data.get('password') == 'shai123':
+        elif (username == 'shai' and data.get('password') == 'shai123') or (username == 'manager@shai-realestate.co.il' and data.get('password') == 'business123456'):
             user = {
                 'id': '2',
                 'username': 'shai',
+                'email': 'manager@shai-realestate.co.il',
                 'firstName': 'שי',
                 'lastName': 'כהן',
                 'role': 'business',

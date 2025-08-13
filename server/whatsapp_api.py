@@ -1,14 +1,15 @@
 """
-WhatsApp API endpoints for React frontend - REAL BAILEYS INTEGRATION
-API נקודות עבור WhatsApp עם React - חיבור אמיתי לBaileys
+WhatsApp API endpoints for React frontend - SIMPLIFIED VERSION
+API נקודות עבור WhatsApp עם React - גרסה מפושטת
 """
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 import logging
 import os
-import qrcode
-import io
-import base64
+# QR code functionality temporarily disabled due to PIL issues
+# import qrcode
+# import io
+# import base64
 # from baileys_integration import baileys_service
 # Mock service for now - replace with real Baileys integration later
 class MockBaileysService:
@@ -16,6 +17,10 @@ class MockBaileysService:
         return False
     def get_qr_code(self):
         return "mock_qr_code_text"
+    def start_baileys_service(self):
+        return True
+    def get_conversations(self, business_id):
+        return []
 
 baileys_service = MockBaileysService()
 
@@ -44,34 +49,23 @@ def get_whatsapp_status():
 
 @whatsapp_api_bp.route('/qr', methods=['GET'])
 def get_qr_code():
-    """קבלת QR Code אמיתי מBaileys"""
+    """קבלת QR Code - זמנית ללא תמונה (בעיית PIL)"""
     try:
         qr_text = baileys_service.get_qr_code()
         
         if not qr_text:
-            return jsonify({'error': 'QR Code לא זמין'}), 404
+            return jsonify({'error': 'QR Code לא זמין כרגע'}), 404
             
-        # יצירת QR Code כתמונה
-        qr = qrcode.QRCode(version=1, box_size=10, border=5)
-        qr.add_data(qr_text)
-        qr.make(fit=True)
-        
-        img = qr.make_image(fill_color="black", back_color="white")
-        
-        # המרה לbase64
-        img_buffer = io.BytesIO()
-        img.save(img_buffer, format='PNG')
-        img_str = base64.b64encode(img_buffer.getvalue()).decode()
-        
         return jsonify({
             'success': True,
-            'qr_code': f"data:image/png;base64,{img_str}",
-            'qr_text': qr_text
+            'qr_text': qr_text,
+            'message': 'QR Code זמין - תמונה תתווסף בהמשך',
+            'qr_available': True
         })
         
     except Exception as e:
         logger.error(f"QR Code error: {e}")
-        return jsonify({'error': 'שגיאה ביצירת QR Code'}), 500
+        return jsonify({'error': 'שגיאה זמנית בQR Code'}), 500
 
 @whatsapp_api_bp.route('/connect', methods=['POST'])
 def start_baileys_connection():
