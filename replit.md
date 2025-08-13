@@ -13,7 +13,7 @@
 - ✅ **INTELLIGENT CONVERSATION**: Context-aware responses with history tracking and variety
 - ✅ **PROFESSIONAL TTS**: High-quality Hebrew audio files (30KB+ premium quality)
 - ✅ **FAST RESPONSE SYSTEM**: incoming_call webhook: 6ms, conversation_turn: 390ms
-- ✅ **VOICE INSTRUCTIONS**: Clear "כעת אפשר לדבר" prompts in both webhooks
+- ✅ **VOICE INSTRUCTIONS**: Simple "אני מאזינה דבר עכשיו" prompts (no more "processing" messages)
 - ✅ **ERROR 11205 FIXED**: Request timeout errors eliminated with immediate webhook responses
 - ✅ **ERROR 11200 FIXED**: HTTP retrieval failures resolved with optimized response handling
 - ✅ **WARNING 12300 FIXED**: Content-Type properly set to text/xml for all TwiML responses

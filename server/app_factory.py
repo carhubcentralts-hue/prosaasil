@@ -167,12 +167,12 @@ def register_webhook_routes(app):
         
         print(f"📞 FAST incoming call: {call_sid} from {from_number}")
         
-        # Return immediate response with clear instructions
+        # Return immediate response with simple instructions
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{PUBLIC_HOST}/static/voice_responses/greeting.mp3</Play>
+  <Play>{PUBLIC_HOST}/static/voice_responses/greeting_simple.mp3</Play>
   <Pause length="1"/>
-  <Say voice="alice" language="he-IL">כעת אפשר לדבר</Say>
+  <Say voice="alice" language="he-IL">אני מאזינה דבר עכשיו</Say>
   <Pause length="1"/>
   <Record action="/webhook/conversation_turn"
           method="POST"
@@ -201,31 +201,21 @@ def register_webhook_routes(app):
             
             print(f"🔄 FAST turn {turn_num} for {call_sid}")
             
-            # NO AI PROCESSING - return immediate response
-            # Use pre-existing audio files for instant response
-            quick_responses = [
-                f"{PUBLIC_HOST}/static/voice_responses/listening.mp3",
-                f"{PUBLIC_HOST}/static/voice_responses/processing.mp3", 
-                f"{PUBLIC_HOST}/static/voice_responses/greeting.mp3"
-            ]
+            # Use simple listening prompt - no "processing" messages
+            audio_url = f"{PUBLIC_HOST}/static/voice_responses/listening_simple.mp3"
             
-            # Rotate responses to add variety
-            audio_url = quick_responses[(turn_num - 1) % len(quick_responses)]
-            
-            # Start background processing if needed (don't wait for it)
+            # Start background transcription if recording exists
             if recording_url:
                 import threading
                 threading.Thread(
-                    target=lambda: print(f"📤 Background: would process {recording_url}"),
+                    target=lambda: process_recording_background(call_sid, recording_url, turn_num),
                     daemon=True
                 ).start()
             
-            # Return immediate TwiML response
+            # Return immediate TwiML response with simple instructions
             xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{audio_url}</Play>
-  <Pause length="1"/>
-  <Say voice="alice" language="he-IL">כעת אפשר לדבר</Say>
+  <Say voice="alice" language="he-IL">אני מאזינה דבר עכשיו</Say>
   <Pause length="1"/>
   <Record action="/webhook/conversation_turn?turn={next_turn}"
           method="POST"
@@ -242,11 +232,64 @@ def register_webhook_routes(app):
             # Ultra-minimal fallback
             xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">כעת אפשר לדבר</Say>
-  <Pause length="3"/>
+  <Say voice="alice" language="he-IL">אני מאזינה דבר עכשיו</Say>
+  <Pause length="2"/>
   <Record action="/webhook/conversation_turn" method="POST" maxLength="30"/>
 </Response>"""
             return Response(xml, mimetype="text/xml")
+
+def process_recording_background(call_sid, recording_url, turn_num):
+    """Process recording in background - verify transcription works"""
+    try:
+        print(f"🎤 Processing recording for {call_sid}, turn {turn_num}")
+        print(f"📥 Recording URL: {recording_url}")
+        
+        # Download and test transcription
+        import requests
+        import tempfile
+        import os
+        
+        # Download recording
+        response = requests.get(recording_url)
+        if response.status_code == 200:
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+                temp_file.write(response.content)
+                temp_path = temp_file.name
+            
+            print(f"✅ Downloaded recording: {len(response.content)} bytes")
+            
+            # Test Whisper transcription
+            try:
+                import openai
+                client = openai.OpenAI()
+                
+                with open(temp_path, 'rb') as audio_file:
+                    transcript = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        language="he"
+                    )
+                
+                transcribed_text = transcript.text
+                print(f"🎯 Transcription successful: '{transcribed_text}'")
+                
+                # Clean up
+                os.unlink(temp_path)
+                
+                return transcribed_text
+                
+            except Exception as whisper_error:
+                print(f"❌ Whisper transcription error: {whisper_error}")
+                os.unlink(temp_path)
+                return None
+                
+        else:
+            print(f"❌ Failed to download recording: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Background processing error: {e}")
+        return None
     
     @app.route('/webhook/call_status', methods=['POST'])
     def call_status():
