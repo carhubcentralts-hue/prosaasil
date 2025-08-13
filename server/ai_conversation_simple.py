@@ -7,7 +7,7 @@ import os
 import openai
 from datetime import datetime
 from whisper_handler import transcribe_hebrew
-from hebrew_tts_fixed import HebrewTTSService
+from hebrew_tts import HebrewTTSService
 import logging
 
 logger = logging.getLogger(__name__)

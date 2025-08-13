@@ -190,7 +190,10 @@ def register_webhook_routes(app):
             
             print(f"🔄 Processing conversation turn {turn_num} for call {call_sid}")
             
-            # Import AI conversation
+            # Import AI conversation with proper path
+            import sys
+            import os
+            sys.path.append(os.path.dirname(__file__))
             from ai_conversation_simple import HebrewAIConversation
             ai_conv = HebrewAIConversation()
             
