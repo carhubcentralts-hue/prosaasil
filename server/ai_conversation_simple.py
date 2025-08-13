@@ -7,15 +7,18 @@ import os
 import openai
 from datetime import datetime
 from whisper_handler import transcribe_hebrew
-from hebrew_tts import HebrewTTSService
+from conversation_manager import AdvancedConversationManager
 import logging
 
 logger = logging.getLogger(__name__)
 
 class HebrewAIConversation:
     def __init__(self):
-        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.tts_service = HebrewTTSService()
+        # Use enhanced conversation manager
+        self.conversation_manager = AdvancedConversationManager()
+        # Keep compatibility for old methods that might still call these
+        self.openai_client = self.conversation_manager.openai_client  
+        self.tts_service = self.conversation_manager.tts_service
         
     def get_business_context(self, business_id: int = 1):
         """קבלת הקשר העסק לתשובות AI"""
@@ -38,9 +41,19 @@ class HebrewAIConversation:
         return prompts.get(business_type, prompts['real_estate'])
     
     def generate_ai_response(self, user_input: str, business_context: dict) -> str:
-        """יצירת תשובת AI מותאמת אישית"""
+        """יצירת תשובת AI מגוונת ללא לולאות"""
         try:
-            # בניית הקשר שיחה
+            # בדיקה לטקסט ריק או לא ברור
+            if not user_input or len(user_input.strip()) < 3:
+                responses = [
+                    "סליחה, לא שמעתי אותך בבירור. אפשר לחזור?",
+                    "מצטער, הקליטה לא ברורה. תוכל לדבר שוב?", 
+                    "לא הבנתי מה אמרת. אפשר לחזור על השאלה?"
+                ]
+                import random
+                return random.choice(responses)
+            
+            # בניית הקשר שיחה משופר
             messages = [
                 {
                     "role": "system", 
@@ -52,12 +65,13 @@ class HebrewAIConversation:
 חוקים חשובים:
 1. ענה רק בעברית
 2. היה קצר ומדויק (עד 50 מילים)
-3. שאל שאלה אחת רלוונטית בכל תשובה  
+3. שאל שאלה אחת ספציפית ומגוונת בכל תשובה
 4. אם הלקוח רוצה לסיים ("ביי", "תודה ולהתראות", "זה הכל"), ענה בנימוס ותסיים
 5. אל תמציא פרטים ספציפיים - הפנה לפגישה או לאיש קשר
-6. היה חמ ומקצועי"""
+6. היה חם ומקצועי ומגוון בתשובותיך
+7. אל תחזור על אותה תשובה - תן תשובות מגוונות ורלוונטיות"""
                 },
-                {"role": "user", "content": user_input}
+                {"role": "user", "content": f"הלקוח אמר: '{user_input}' - תן תשובה חדשה ומגוונת"}
             ]
             
             # קריאה ל-OpenAI
@@ -102,8 +116,8 @@ class HebrewAIConversation:
         return user_wants_end or ai_says_goodbye
     
     def process_conversation_turn(self, call_sid: str, recording_url: str, turn_number: int) -> dict:
-        """עיבוד תור שיחה מלא: תמלול → AI → TTS"""
-        logger.info(f"🎙️ Processing turn {turn_number} for call {call_sid}")
+        """עיבוד תור שיחה מלא עם מערכת מגוונת משופרת"""
+        logger.info(f"🎙️ Processing enhanced turn {turn_number} for call {call_sid}")
         
         try:
             # 1. תמלול הקלטה
@@ -114,35 +128,35 @@ class HebrewAIConversation:
                     logger.info(f"🎤 Transcribed: {user_input}")
                 except Exception as e:
                     logger.error(f"❌ Transcription failed: {e}")
-                    user_input = "לא הצלחתי לשמוע אותך, אפשר לחזור?"
+                    user_input = ""  # Empty will trigger varied fallback
             
-            # 2. בדיקה מוקדמת לסיום שיחה
-            should_end = self.check_conversation_end(user_input, "")
+            # 2. השתמש במנהל השיחות המשופר
+            result = self.conversation_manager.process_conversation_turn(
+                call_sid, recording_url, turn_number
+            )
             
-            # 3. יצירת הקשר עסקי
-            business_context = self.get_business_context()
-            
-            # 4. יצירת תשובת AI
-            ai_response = ""
-            if not should_end and user_input and len(user_input.strip()) > 1:
-                ai_response = self.generate_ai_response(user_input, business_context)
+            # 3. אם יש תמלול אמיתי, עדכן את התוצאה
+            if user_input:
+                # עדכן עם התמלול האמיתי
+                ai_response = self.conversation_manager.generate_varied_response(user_input, call_sid)
+                should_end = self.conversation_manager.check_conversation_end(user_input, ai_response)
                 
-                # בדיקה נוספת לסיום לאחר תשובת AI  
-                should_end = self.check_conversation_end(user_input, ai_response)
-            else:
-                ai_response = "לא שמעתי אותך בבירור. אפשר לחזור על השאלה?"
-            
-            # 5. יצירת קובץ TTS
-            response_audio_url = None
-            if ai_response:
+                # יצירת TTS איכותי
                 try:
-                    audio_filename = self.tts_service.synthesize_hebrew_audio(ai_response)
-                    if audio_filename:
-                        response_audio_url = f"https://ai-crmd.replit.app{audio_filename}"
-                        logger.info(f"🔊 TTS created: {audio_filename}")
+                    audio_path = self.conversation_manager.tts_service.synthesize_professional_hebrew(ai_response)
+                    response_audio_url = f"https://ai-crmd.replit.app{audio_path}" if audio_path else result.get('response_audio_url')
                 except Exception as e:
-                    logger.error(f"❌ TTS failed: {e}")
-                    response_audio_url = "https://ai-crmd.replit.app/static/voice_responses/processing.mp3"
+                    logger.error(f"❌ Enhanced TTS failed: {e}")
+                    response_audio_url = result.get('response_audio_url')
+                
+                result.update({
+                    'user_input': user_input,
+                    'ai_response': ai_response,
+                    'response_audio_url': response_audio_url,
+                    'should_end': should_end
+                })
+            
+            return result
             
             return {
                 'success': True,

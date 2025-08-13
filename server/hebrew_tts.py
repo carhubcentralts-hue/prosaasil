@@ -28,35 +28,32 @@ class HebrewTTSService:
     def _check_google_cloud_availability(self):
         """Check if Google Cloud TTS is available"""
         try:
-            from google.cloud import texttospeech
+            # Try to fix Google Cloud TTS
+            import os
             import json
             import tempfile
+            from google.cloud import texttospeech
             
-            # Check if JSON credentials are available
+            # Get credentials and create temp file
             credentials_json = os.environ.get('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
             if credentials_json:
-                # Create temporary credentials file from JSON
                 credentials_data = json.loads(credentials_json)
                 
-                # Create temp file for credentials
                 with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                     json.dump(credentials_data, f)
                     self.temp_credentials_path = f.name
                 
-                # Set environment variable for Google Cloud
                 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = self.temp_credentials_path
                 
-                # Test Google Cloud TTS
+                # Test client creation
                 client = texttospeech.TextToSpeechClient()
-                logger.info("✅ Google Cloud TTS client initialized successfully with JSON credentials")
+                logger.info("✅ Google Cloud TTS client initialized successfully")
                 return True
-            else:
-                logger.warning("⚠️ Google Cloud JSON credentials not found, using gTTS fallback")
-                return False
                 
         except Exception as e:
-            logger.warning(f"⚠️ Google Cloud TTS not available: {e}, using gTTS fallback")
-            return False
+            logger.info(f"🔄 Google Cloud TTS not available ({e}), using enhanced gTTS")
+            
+        return False
         
     def synthesize_hebrew_audio_google(self, text):
         """Synthesize Hebrew audio using Google Cloud Wavenet"""
