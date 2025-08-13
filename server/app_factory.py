@@ -24,23 +24,16 @@ def create_app():
     register_webhook_routes(app)
     
     # Register API blueprints
-    # WhatsApp API - Always register this one
     try:
-        from whatsapp_api import whatsapp_api_bp
+        from server.whatsapp_api import whatsapp_api_bp
         app.register_blueprint(whatsapp_api_bp)
         print("✅ WhatsApp API registered successfully")
-    except ImportError as e:
+    except Exception as e:
         print(f"❌ WhatsApp API registration failed: {e}")
-    
-    # Optional additional blueprints
-    try:
-        from api_crm_advanced import crm_api_bp
-        from api_timeline import timeline_api_bp
-        app.register_blueprint(crm_api_bp)
-        app.register_blueprint(timeline_api_bp)
-        print("✅ Additional APIs registered")
-    except ImportError as e:
-        print(f"Warning: Could not import some additional API blueprints: {e}")
+        # Create minimal WhatsApp status route as fallback
+        @app.route('/api/whatsapp/status', methods=['GET'])
+        def whatsapp_status_fallback():
+            return jsonify({'success': True, 'connected': False, 'status': 'disconnected'})
     
     return app
 
@@ -52,11 +45,11 @@ def register_auth_routes(app):
         data = request.get_json()
         
         # Secure authentication for professional system
-        username = data.get('username') or data.get('email')
-        if (username == 'admin' and data.get('password') == 'admin123') or (username == 'admin@shai-realestate.co.il' and data.get('password') == 'admin123456'):
+        email = data.get('email')
+        if email == 'admin@shai-realestate.co.il' and data.get('password') == 'admin123456':
             user = {
                 'id': '1',
-                'username': 'admin',
+                # 'username': 'admin',
                 'email': 'admin@shai-realestate.co.il',
                 'firstName': 'מנהל',
                 'lastName': 'ראשי',
