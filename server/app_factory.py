@@ -44,10 +44,11 @@ def register_auth_routes(app):
         data = request.get_json()
         
         # Secure authentication for professional system
-        if data.get('email') == 'admin@shai-realestate.co.il' and data.get('password') == 'admin123456':
+        username = data.get('username') or data.get('email')
+        if username == 'admin' and data.get('password') == 'admin123':
             user = {
                 'id': '1',
-                'email': 'admin@shai-realestate.co.il',
+                'username': 'admin',
                 'firstName': 'מנהל',
                 'lastName': 'ראשי',
                 'role': 'admin',
@@ -55,10 +56,10 @@ def register_auth_routes(app):
                 'isActive': True
             }
             return jsonify({'user': user, 'token': 'admin-token-secure'})
-        elif data.get('email') == 'manager@shai-realestate.co.il' and data.get('password') == 'business123456':
+        elif username == 'shai' and data.get('password') == 'shai123':
             user = {
                 'id': '2',
-                'email': 'manager@shai-realestate.co.il',
+                'username': 'shai',
                 'firstName': 'שי',
                 'lastName': 'כהן',
                 'role': 'business',
@@ -185,7 +186,7 @@ def register_webhook_routes(app):
 if __name__ == '__main__':
     app = create_app()
     print("🎯 Starting Professional Hebrew AI Call Center CRM")
-    print("🔐 Login: admin@shai-realestate.co.il / admin123456")
-    print("🏢 Business: manager@shai-realestate.co.il / business123456")
+    print("🔐 מנהל: admin / admin123")
+    print("🏢 שי: shai / shai123")
     print("=" * 50)
     app.run(host='0.0.0.0', port=5000, debug=False)
