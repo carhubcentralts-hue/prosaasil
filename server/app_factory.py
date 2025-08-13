@@ -183,23 +183,22 @@ def register_webhook_routes(app):
     @app.route('/webhook/conversation_turn', methods=['POST'])
     def conversation_turn():
         """עיבוד תור שיחה עם AI ותשובה רציפה"""
-        from ai_conversation import HebrewAIConversation
-        
-        call_sid = request.values.get('CallSid') or 'unknown'
-        recording_url = request.values.get('RecordingUrl') or ''
-        turn_num = int(request.values.get('turn', 1))
-        
-        print(f"🔄 Processing conversation turn {turn_num} for call {call_sid}")
-        
         try:
-            # יצירת מופע AI conversation
+            call_sid = request.values.get('CallSid') or 'unknown'
+            recording_url = request.values.get('RecordingUrl') or ''
+            turn_num = int(request.values.get('turn', 1))
+            
+            print(f"🔄 Processing conversation turn {turn_num} for call {call_sid}")
+            
+            # Import AI conversation
+            from ai_conversation_simple import HebrewAIConversation
             ai_conv = HebrewAIConversation()
             
-            # עיבוד התור (תמלול + AI + TTS)
+            # Process the conversation turn
             result = ai_conv.process_conversation_turn(call_sid, recording_url, turn_num)
             
             if result.get('should_end', False):
-                # סיום שיחה
+                # End conversation
                 xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{result.get('response_audio_url', PUBLIC_HOST + '/static/voice_responses/listening.mp3')}</Play>
@@ -208,11 +207,13 @@ def register_webhook_routes(app):
   <Hangup/>
 </Response>"""
             else:
-                # המשך שיחה - AI response + חכה להקלטה הבאה
+                # Continue conversation
                 next_turn = turn_num + 1
                 xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{result.get('response_audio_url', PUBLIC_HOST + '/static/voice_responses/processing.mp3')}</Play>
+  <Pause length="2"/>
+  <Say voice="alice" language="he-IL">כעת אפשר לדבר</Say>
   <Pause length="1"/>
   <Record action="/webhook/conversation_turn?turn={next_turn}"
           method="POST"
@@ -225,18 +226,23 @@ def register_webhook_routes(app):
             return Response(xml, mimetype="text/xml")
             
         except Exception as e:
+            import traceback
             print(f"❌ Error in conversation turn: {e}")
-            # Fallback - לא לנתק אלא לבקש שוב
+            print(f"❌ Full traceback: {traceback.format_exc()}")
+            
+            # Fallback response
             xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{PUBLIC_HOST}/static/voice_responses/listening.mp3</Play>
   <Pause length="1"/>
   <Say voice="alice" language="he-IL">סליחה, לא שמעתי טוב. אפשר לחזור?</Say>
+  <Pause length="2"/>
+  <Say voice="alice" language="he-IL">כעת אפשר לדבר</Say>
   <Pause length="1"/>
   <Record action="/webhook/conversation_turn?turn={turn_num}"
           method="POST"
           maxLength="30"
-          timeout="5"
+          timeout="8"
           finishOnKey="*"
           transcribe="false"/>
 </Response>"""

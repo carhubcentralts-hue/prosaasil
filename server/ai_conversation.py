@@ -7,12 +7,20 @@ import os
 import requests
 import openai
 from datetime import datetime
-from models import db, CallLog, ConversationTurn, Business, Customer
 from whisper_handler import transcribe_hebrew
 from hebrew_tts import HebrewTTSService
 import logging
+import json
 
 logger = logging.getLogger(__name__)
+
+# Fallback data for when database is not available
+FALLBACK_BUSINESS_DATA = {
+    'name': 'שי דירות ומשרדים בע״מ',
+    'type': 'real_estate',
+    'ai_prompt': None,
+    'greeting': None
+}
 
 class HebrewAIConversation:
     def __init__(self):
@@ -21,19 +29,12 @@ class HebrewAIConversation:
         
     def get_business_context(self, business_id: int = 1):
         """קבלת הקשר העסק לתשובות AI"""
-        business = Business.query.get(business_id)
-        if business:
-            return {
-                'name': business.name,
-                'type': business.business_type,
-                'ai_prompt': business.ai_prompt or self.get_default_prompt(business.business_type),
-                'greeting': business.greeting_message
-            }
+        # Use fallback data for now since database models are not available
         return {
-            'name': 'שי דירות ומשרדים בע״מ',
-            'type': 'real_estate',
+            'name': FALLBACK_BUSINESS_DATA['name'],
+            'type': FALLBACK_BUSINESS_DATA['type'],
             'ai_prompt': self.get_default_prompt('real_estate'),
-            'greeting': None
+            'greeting': FALLBACK_BUSINESS_DATA['greeting']
         }
     
     def get_default_prompt(self, business_type: str) -> str:

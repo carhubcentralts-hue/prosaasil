@@ -1,113 +1,88 @@
-#!/usr/bin/env python3
 """
-Hebrew Google Cloud TTS System
-מערכת קול עברי מקצועית עם Google Cloud
+Hebrew Text-to-Speech Service - gTTS Only
+שירות המרת טקסט לקול בעברית עם gTTS
 """
-
 import os
-import hashlib
 import logging
-from typing import Optional
+import hashlib
+import uuid
+import time
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-def generate_hebrew_tts(text: str, filename: str = None) -> str:
-    """Generate Hebrew TTS audio using Google Cloud or fallback"""
-    
-    try:
-        # Import Google Cloud TTS (optional)
-        from google.cloud import texttospeech
+class HebrewTTSService:
+    def __init__(self):
+        """Initialize Hebrew TTS Service with gTTS"""
+        self.voice_dir = Path("server/static/voice_responses")
+        self.voice_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("✅ Hebrew TTS Service initialized with gTTS")
         
-        # Initialize client
-        client = texttospeech.TextToSpeechClient()
+    def synthesize_hebrew_audio(self, text):
+        """יצירת אודיו עברי בלבד עם gTTS"""
         
-        # Configure Hebrew voice
-        input_text = texttospeech.SynthesisInput(text=text)
-        voice = texttospeech.VoiceSelectionParams(
-            language_code="he-IL",
-            name="he-IL-Standard-D",  # Female Hebrew voice
-            ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
-        )
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3,
-            speaking_rate=0.9,  # Slightly slower for clarity
-            pitch=-2.0          # Slightly lower pitch
-        )
+        # Log every TTS generation event
+        logger.info(f"🎵 TTS Request: '{text[:50]}...' ({len(text)} chars)")
         
-        # Generate speech
-        response = client.synthesize_speech(
-            input=input_text, voice=voice, audio_config=audio_config
-        )
+        # Check if text is empty or too short
+        if not text or len(text.strip()) < 1:
+            text = "סליחה, לא שמעתי אותך."
+            logger.warning("⚠️ Empty text provided, using fallback message")
         
-        # Save to file
-        if not filename:
-            filename = hashlib.md5(text.encode()).hexdigest()
-        
-        static_dir = "server/static/voice_responses"
-        os.makedirs(static_dir, exist_ok=True)
-        
-        audio_path = f"{static_dir}/{filename}.mp3"
-        with open(audio_path, "wb") as out:
-            out.write(response.audio_content)
-        
-        # Return public URL for Replit deployment  
-        return f"https://ai-crmd.replit.app/static/voice_responses/{filename}.mp3"
-        
-    except ImportError:
-        logger.warning("Google Cloud TTS not available, using gtts fallback")
-        return generate_gtts_fallback(text, filename)
-    except Exception as e:
-        logger.error(f"Error generating TTS: {e}")
-        return generate_gtts_fallback(text, filename)
-
-def generate_gtts_fallback(text: str, filename: str = None) -> str:
-    """Fallback using gTTS (Google Text-to-Speech)"""
-    try:
-        from gtts import gTTS
-        
-        if not filename:
-            filename = hashlib.md5(text.encode()).hexdigest()
-        
-        static_dir = "server/static/voice_responses"
-        os.makedirs(static_dir, exist_ok=True)
-        
-        # Generate Hebrew speech (use 'iw' for Hebrew in gTTS)
-        tts = gTTS(text=text, lang='iw', slow=False)
-        audio_path = f"{static_dir}/{filename}.mp3"
-        tts.save(audio_path)
-        
-        logger.info(f"✅ Generated Hebrew TTS: {filename}.mp3")
-        return f"https://ai-crmd.replit.app/static/voice_responses/{filename}.mp3"
-        
-    except Exception as e:
-        logger.error(f"❌ TTS fallback failed: {e}")
-        # Return pre-recorded greeting as ultimate fallback
-        return "https://ai-crmd.replit.app/static/greeting.mp3"
-
-# Pre-generate common messages
-def generate_common_messages():
-    """Generate commonly used Hebrew messages"""
-    
-    messages = {
-        "greeting": "שלום וברכה! הגעתם לשי דירות ומשרדים בע״מ. אני כאן לעזור לכם למצוא את הנכס המושלם. במה אוכל לעזור לכם?",
-        "listening": "אני מקשיב לכם, אנא דברו אחרי הצפירה",
-        "goodbye": "תודה שפניתם אלינו! נשמח לעזור לכם בעתיד. יום טוב!",
-        "error": "סליחה, יש בעיה זמנית במערכת. אפשר לנסות שוב?",
-        "no_recording": "לא קיבלתי את ההקלטה שלכם. אנא נסו שוב"
-    }
-    
-    for name, text in messages.items():
         try:
-            static_dir = "server/static"
-            os.makedirs(static_dir, exist_ok=True)
+            # Use gTTS for Hebrew synthesis
+            from gtts import gTTS
             
-            url = generate_hebrew_tts(text, name)
-            logger.info(f"✅ Generated {name}: {url}")
+            # Create Hebrew TTS with gTTS (Hebrew uses 'iw' code)
+            tts = gTTS(text=text, lang='iw', slow=False)
+            
+            # Generate unique filename
+            unique_id = str(uuid.uuid4())[:8]
+            text_hash = hashlib.md5(text.encode()).hexdigest()[:8]
+            filename = f"hebrew_{text_hash}_{unique_id}.mp3"
+            filepath = self.voice_dir / filename
+            
+            logger.info(f"🎵 Creating TTS file: {filename} for text: '{text[:50]}...'")
+            
+            # Ensure unique filenames to avoid cache issues
+            if filepath.exists():
+                timestamp = str(int(time.time()))
+                filename = f"hebrew_{text_hash}_{timestamp}.mp3"
+                filepath = self.voice_dir / filename
+                logger.info(f"🔄 File exists, using new timestamp: {filename}")
+            
+            # Save TTS to file
+            tts.save(str(filepath))
+            
+            # Add delay and verify file creation
+            time.sleep(0.5)
+            
+            # Verify file was created and has minimum size
+            if filepath.exists() and filepath.stat().st_size > 3000:
+                logger.info(f"✅ Created {filename} using gTTS Hebrew ({filepath.stat().st_size} bytes)")
+                # Return URL path for Flask routing
+                return f"/voice_responses/{filename}"
+            else:
+                logger.error(f"❌ TTS file creation failed or too small: {filepath}")
+                raise Exception("TTS file creation failed")
+            
         except Exception as e:
-            logger.error(f"❌ Error generating {name}: {e}")
-
-if __name__ == "__main__":
-    # Test Hebrew TTS
-    test_text = "שלום! זהו מבחן למערכת הקול העברי החדש"
-    url = generate_hebrew_tts(test_text, "test")
-    print(f"Generated: {url}")
+            logger.error(f"❌ gTTS Hebrew synthesis failed: {e}")
+            
+            # Final fallback - copy existing file
+            fallback_files = ["listening.mp3", "processing.mp3", "greeting.mp3"]
+            for fallback in fallback_files:
+                fallback_path = self.voice_dir / fallback
+                if fallback_path.exists():
+                    # Create new filename for fallback
+                    fallback_filename = f"fallback_{uuid.uuid4().hex[:8]}.mp3"
+                    fallback_dest = self.voice_dir / fallback_filename
+                    
+                    import shutil
+                    shutil.copy(str(fallback_path), str(fallback_dest))
+                    logger.warning(f"⚠️ Used fallback file {fallback} as {fallback_filename}")
+                    return f"/voice_responses/{fallback_filename}"
+            
+            # Ultimate fallback - return existing processing file
+            logger.error("❌ All TTS methods failed, using processing.mp3")
+            return "/voice_responses/processing.mp3"

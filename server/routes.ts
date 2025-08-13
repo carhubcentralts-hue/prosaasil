@@ -191,38 +191,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.sendFile(filename, { root: voiceDir });
   });
 
-  // Keep existing webhook routes for call center
-  app.post("/webhook/incoming_call", (req, res) => {
-    const PUBLIC_HOST = "https://ai-crmd.replit.app";
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play>${PUBLIC_HOST}/static/voice_responses/greeting.mp3</Play>
-  <Pause length="1"/>
-  <Record action="/webhook/handle_recording"
-          method="POST"
-          maxLength="30"
-          timeout="5"
-          finishOnKey="*"
-          transcribe="false"/>
-</Response>`;
-    res.set('Content-Type', 'text/xml');
-    res.send(xml);
-  });
-
-  app.post("/webhook/handle_recording", (req, res) => {
-    const PUBLIC_HOST = "https://ai-crmd.replit.app";
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play>${PUBLIC_HOST}/static/voice_responses/listening.mp3</Play>
-  <Hangup/>
-</Response>`;
-    res.set('Content-Type', 'text/xml');
-    res.send(xml);
-  });
-
-  app.post("/webhook/call_status", (req, res) => {
-    res.status(200).send("OK");
-  });
+  // Note: Twilio webhook routes are handled by app_factory.py
+  // These routes include full AI conversation, Hebrew TTS, and Whisper transcription
 
   const httpServer = createServer(app);
   return httpServer;
