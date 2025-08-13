@@ -185,8 +185,8 @@ def register_webhook_routes(app):
         """עיבוד תור שיחה עם AI ותשובה רציפה"""
         from ai_conversation import HebrewAIConversation
         
-        call_sid = request.values.get('CallSid')
-        recording_url = request.values.get('RecordingUrl')
+        call_sid = request.values.get('CallSid') or 'unknown'
+        recording_url = request.values.get('RecordingUrl') or ''
         turn_num = int(request.values.get('turn', 1))
         
         print(f"🔄 Processing conversation turn {turn_num} for call {call_sid}")
