@@ -75,6 +75,16 @@ def create_app():
     """יצירת אפליקציית Flask עם הגדרות מקצועיות"""
     app = Flask(__name__)
     
+    # Setup critical environment variables for voice system
+    if not os.getenv('HOST'):
+        replit_domain = os.getenv('REPLIT_DEV_DOMAIN')
+        if replit_domain:
+            host_url = f"https://{replit_domain}"
+            os.environ['HOST'] = host_url
+            print(f"✅ HOST set to: {host_url}")
+        else:
+            print("⚠️ REPLIT_DEV_DOMAIN not available, voice files may not serve properly")
+    
     # Load configuration
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-prod')
     app.config['DATABASE_URL'] = os.getenv('DATABASE_URL', 'sqlite:///app.db')

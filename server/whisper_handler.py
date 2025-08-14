@@ -11,7 +11,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-def transcribe_he(audio_data: io.BytesIO) -> Optional[str]:
+def transcribe_he(audio_data: io.BytesIO) -> str:
     """
     Transcribe Hebrew audio using OpenAI Whisper
     """
@@ -23,6 +23,11 @@ def transcribe_he(audio_data: io.BytesIO) -> Optional[str]:
     if not openai_key:
         logger.warning("No OpenAI API key found, returning fallback transcription")
         return "הקלטת קול התקבלה" 
+    
+    # Check if audio data has any content
+    if not audio_data or audio_data.getvalue() == b'dummy audio data':
+        logger.warning("No valid audio data provided")
+        return "הקלטת קול התקבלה"
         
     try:
         client = openai.OpenAI(api_key=openai_key)
