@@ -1,9 +1,11 @@
 # server/whatsapp_api.py
 from flask import Blueprint, request, jsonify
 from server.authz import auth_required
-import json
+from server.logging_setup import _mask_phone
+import json, logging
 
 whatsapp_api_bp = Blueprint("whatsapp_api", __name__, url_prefix="/api/whatsapp")
+log = logging.getLogger("whatsapp")
 
 @whatsapp_api_bp.route("/status", methods=["GET"])
 @auth_required
@@ -38,6 +40,9 @@ def send_message():
                 "success": False,
                 "error": "Phone and message required"
             }), 400
+        
+        masked_phone = _mask_phone(phone)
+        log.info("Send WA: to=%s len=%d", masked_phone, len(message))
             
         # In a real implementation, send via WhatsApp client
         return jsonify({
@@ -47,6 +52,7 @@ def send_message():
         }), 200
         
     except Exception as e:
+        log.error("WA send failed: %s", e, exc_info=True)
         return jsonify({
             "success": False,
             "error": str(e)

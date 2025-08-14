@@ -1,5 +1,6 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, session
 from server.authz import auth_required, roles_required
+import logging
 try:
     from server.models import db, Business
 except ImportError:
@@ -8,6 +9,7 @@ except ImportError:
     Business = None
 
 biz_bp = Blueprint("business", __name__, url_prefix="/api/businesses")
+audit = logging.getLogger("audit.business")
 
 @biz_bp.get("")
 @auth_required
@@ -30,6 +32,10 @@ def create_business():
         return jsonify({"error":"name exists"}), 409
     b = Business(name=name, domain=(data.get("domain") or "").strip() or None)
     db.session.add(b); db.session.commit()
+    
+    user_email = session.get("user", {}).get("email", "unknown")
+    audit.info("BUSINESS_CREATE id=%s name=%s by=%s", b.id, name, user_email)
+    
     return jsonify(b.to_dict()), 201
 
 @biz_bp.put("/<int:bid>")
@@ -48,6 +54,10 @@ def update_business(bid):
     if "domain" in data:
         b.domain = (data["domain"] or "").strip() or None
     db.session.commit()
+    
+    user_email = session.get("user", {}).get("email", "unknown")
+    audit.info("BUSINESS_UPDATE id=%s fields=%s by=%s", bid, list(data.keys()), user_email)
+    
     return jsonify(b.to_dict()), 200
 
 @biz_bp.post("/<int:bid>/deactivate")
@@ -56,6 +66,10 @@ def deactivate_business(bid):
     if not Business:
         return jsonify({"error": "Business model not available"}), 501
     b = Business.query.get_or_404(bid); b.active = False; db.session.commit()
+    
+    user_email = session.get("user", {}).get("email", "unknown")
+    audit.info("BUSINESS_DEACTIVATE id=%s by=%s", bid, user_email)
+    
     return jsonify(b.to_dict()), 200
 
 @biz_bp.post("/<int:bid>/reactivate")
@@ -64,6 +78,10 @@ def reactivate_business(bid):
     if not Business:
         return jsonify({"error": "Business model not available"}), 501
     b = Business.query.get_or_404(bid); b.active = True; db.session.commit()
+    
+    user_email = session.get("user", {}).get("email", "unknown")
+    audit.info("BUSINESS_REACTIVATE id=%s by=%s", bid, user_email)
+    
     return jsonify(b.to_dict()), 200
 
 @biz_bp.delete("/<int:bid>")

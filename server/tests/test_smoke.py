@@ -1,5 +1,11 @@
 # server/tests/test_smoke.py
 import pytest
+import sys
+import os
+
+# Add server directory to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from server.app_factory import create_app
 
 @pytest.fixture
@@ -26,10 +32,13 @@ def test_twilio_incoming(client):
     assert b'finishOnKey="*"' in r.data
 
 def test_auth_login(client):
+    # Test successful login with correct credentials
     r = client.post("/api/auth/login", 
                    json={"email": "admin@shai.com", "password": "admin123"})
     assert r.status_code == 200
-    assert b'"success":true' in r.data
+    data = r.get_json()
+    assert data["success"] == True
+    assert "user" in data
 
 def test_crm_requires_auth(client):
     r = client.get("/api/crm/customers")

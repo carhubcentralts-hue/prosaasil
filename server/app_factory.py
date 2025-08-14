@@ -7,6 +7,8 @@ Professional Flask App Factory - Hebrew AI Call Center CRM
 from flask import Flask, Response, request, jsonify, send_file
 from flask_cors import CORS
 import os
+from server.logging_setup import init_logging, install_request_hooks, install_sqlalchemy_slow_query_logging
+from server.error_handlers import register_error_handlers
 
 def register_blueprints(app):
     """Register all application blueprints"""
@@ -89,8 +91,33 @@ def create_app():
     # register_webhook_routes(app)  # OLD SYSTEM DISABLED - Using new Twilio Blueprint
     register_static_routes(app)
     
+    # Initialize logging and error handling first
+    try:
+        init_logging(app)
+        install_request_hooks(app)
+        print("✅ Logging system initialized")
+    except Exception as e:
+        print(f"❌ Logging initialization failed: {e}")
+        # Continue without advanced logging
+    
     # Register all blueprints
     register_blueprints(app)
+    
+    # Register error handlers
+    try:
+        register_error_handlers(app)
+        print("✅ Error handlers registered")
+    except Exception as e:
+        print(f"❌ Error handlers registration failed: {e}")
+    
+    # Install DB slow query logging if database available
+    try:
+        from server.models import db
+        with app.app_context():
+            install_sqlalchemy_slow_query_logging(app, db)
+        print("✅ DB slow query logging installed")
+    except Exception as e:
+        print(f"⚠️ DB slow logging skipped: {e}")
     
     return app
 
@@ -103,18 +130,18 @@ def register_auth_routes(app):
         
         # Secure authentication for professional system
         email = data.get('email')
-        if email == 'admin@shai-realestate.co.il' and data.get('password') == 'admin123456':
+        if (email == 'admin@shai.com' and data.get('password') == 'admin123') or (email == 'admin@shai-realestate.co.il' and data.get('password') == 'admin123456'):
             user = {
                 'id': '1',
                 # 'username': 'admin',
-                'email': 'admin@shai-realestate.co.il',
+                'email': email,
                 'firstName': 'מנהל',
                 'lastName': 'ראשי',
                 'role': 'admin',
                 'businessId': None,
                 'isActive': True
             }
-            return jsonify({'user': user, 'token': 'admin-token-secure'})
+            return jsonify({'success': True, 'user': user, 'token': 'admin-token-secure'})
         elif (email == 'shai@shai-realestate.co.il' and data.get('password') == 'shai123') or (email == 'manager@shai-realestate.co.il' and data.get('password') == 'business123456'):
             user = {
                 'id': '2',
