@@ -38,14 +38,14 @@ def register_blueprints(app):
     
     # CRM and Timeline (auth required)
     try:
-        from server.api_crm_advanced import crm_bp
+        from server.api_crm_improved import crm_bp
         app.register_blueprint(crm_bp)
         print("✅ CRM API registered successfully")
     except Exception as e:
         print(f"❌ CRM API registration failed: {e}")
     
     try:
-        from server.api_timeline import timeline_bp
+        from server.api_timeline_improved import timeline_bp
         app.register_blueprint(timeline_bp)
         print("✅ Timeline API registered successfully")
     except Exception as e:
@@ -61,8 +61,8 @@ def register_blueprints(app):
     
     # WhatsApp integration (auth required)
     try:
-        from server.whatsapp_api import whatsapp_api_bp
-        app.register_blueprint(whatsapp_api_bp)
+        from server.api_whatsapp_improved import whatsapp_bp
+        app.register_blueprint(whatsapp_bp)
         print("✅ WhatsApp API registered successfully")
     except Exception as e:
         print(f"❌ WhatsApp API registration failed: {e}")
@@ -73,54 +73,52 @@ def register_blueprints(app):
 
 def create_app():
     """יצירת אפליקציית Flask עם הגדרות מקצועיות"""
+    app = Flask(__name__)
     
-    app = Flask(__name__, static_folder='../client/dist', static_url_path='')
-    CORS(app)
+    # Load configuration
+    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-prod')
+    app.config['DATABASE_URL'] = os.getenv('DATABASE_URL', 'sqlite:///app.db')
     
-    # Security configurations
-    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'shai-real-estate-secure-key-2025')
-    app.config['SECURITY_PASSWORD_SALT'] = 'shai-offices-salt'
-    app.config.update(
-        SESSION_COOKIE_SAMESITE="Lax",
-        SESSION_COOKIE_SECURE=False  # True behind HTTPS/Proxy
-    )
+    # Enable CORS for API endpoints
+    CORS(app, origins=['http://localhost:3000', 'http://localhost:5000', 'https://*.replit.app'])
     
-    # Register routes (auth handled by blueprint)
-    register_core_routes(app)
-    # register_webhook_routes(app)  # OLD SYSTEM DISABLED - Using new Twilio Blueprint
-    register_static_routes(app)
+    # Initialize professional logging first
+    init_logging(app)
+    install_request_hooks(app)
     
-    # Initialize logging and error handling first
+    # Initialize database if available
     try:
-        init_logging(app)
-        install_request_hooks(app)
-        print("✅ Logging system initialized")
-    except Exception as e:
-        print(f"❌ Logging initialization failed: {e}")
-        # Continue without advanced logging
+        from server.models import db
+        if db is not None:
+            db.init_app(app)
+            with app.app_context():
+                try:
+                    install_sqlalchemy_slow_query_logging(app, db)
+                    print("✅ DB slow query logging installed")
+                except Exception as e:
+                    app.logger.warning("DB slow query logging not installed: %s", e)
+        else:
+            print("ℹ️ Database object is None")
+    except ImportError:
+        print("ℹ️ No database models found")
     
     # Register all blueprints
     register_blueprints(app)
     
-    # Register error handlers
-    try:
-        register_error_handlers(app)
-        print("✅ Error handlers registered")
-    except Exception as e:
-        print(f"❌ Error handlers registration failed: {e}")
+    # Register error handlers last
+    register_error_handlers(app)
+    print("✅ Error handlers registered")
     
-    # Install DB slow query logging if database available
-    try:
-        from server.models import db
-        with app.app_context():
-            install_sqlalchemy_slow_query_logging(app, db)
-        print("✅ DB slow query logging installed")
-    except Exception as e:
-        print(f"⚠️ DB slow logging skipped: {e}")
+    # Health check endpoint
+    @app.get("/health")
+    def health():
+        return {"ok": True}, 200
+    
+    # Register additional core routes
+    register_core_routes(app)
+    register_static_routes(app)
     
     return app
-
-# Auth routes now handled by auth_routes.py blueprint - removing duplicate
 
 def register_core_routes(app):
     """רישום נתיבים עיקריים"""
