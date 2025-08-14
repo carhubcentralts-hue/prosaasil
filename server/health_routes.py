@@ -14,16 +14,4 @@ def health_check():
         "version": "1.0.0"
     }), 200
 
-@health_bp.route("/", methods=["GET"])
-def root():
-    """Root endpoint"""
-    return jsonify({
-        "service": "Hebrew AI Call Center CRM",
-        "status": "running",
-        "endpoints": {
-            "health": "/health",
-            "twilio_webhooks": "/webhook/*",
-            "api": "/api/*",
-            "auth": "/api/auth/*"
-        }
-    }), 200
+# Root endpoint moved to app_factory.py to serve the frontend

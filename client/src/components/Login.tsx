@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { AuthService } from '../lib/auth';
 
 export function Login() {
   const { login } = useAuth();

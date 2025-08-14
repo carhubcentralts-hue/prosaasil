@@ -1,88 +1,90 @@
+@import url('https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;500;600;700;800&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Hebrew RTL Support */
 :root {
-  --font-family-hebrew: 'Assistant', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  font-family: 'Assistant', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  direction: rtl;
+  text-align: right;
 }
 
 * {
   box-sizing: border-box;
 }
 
-html {
-  direction: rtl;
-}
-
 body {
   margin: 0;
-  font-family: var(--font-family-hebrew);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  background-color: #ffffff;
-  color: #1f2937;
+  font-family: 'Assistant', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  direction: rtl;
+  text-align: right;
+  background-color: #fafafa;
 }
 
 #root {
   min-height: 100vh;
 }
 
-/* Hebrew RTL specific adjustments */
-.rtl {
-  direction: rtl;
-  text-align: right;
-}
-
-/* Form inputs RTL */
-input[type="text"],
-input[type="email"],
-input[type="password"],
-textarea,
-select {
-  direction: rtl;
-  text-align: right;
-}
-
-/* Button and interactive elements */
-button {
-  font-family: var(--font-family-hebrew);
-}
-
-/* Ensure proper Hebrew text rendering */
+/* Hebrew Typography */
 .hebrew-text {
-  font-family: var(--font-family-hebrew);
+  font-family: 'Assistant', sans-serif;
   direction: rtl;
   text-align: right;
 }
 
-/* Professional white background theme */
-.bg-professional {
-  background-color: #ffffff;
-  border: 1px solid #e5e7eb;
+/* Loading states */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
 }
 
-.text-professional {
-  color: #374151;
+/* Button styles */
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
-.text-professional-muted {
-  color: #6b7280;
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
-/* Custom scrollbar for Hebrew content */
-::-webkit-scrollbar {
-  width: 8px;
+/* Form styles */
+.form-input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+  direction: rtl;
+  text-align: right;
 }
 
-::-webkit-scrollbar-track {
-  background: #f1f5f9;
+.form-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
+/* Card styles */
+.card {
+  background: white;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+.card:hover {
+  box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1);
 }

@@ -152,6 +152,24 @@ def register_core_routes(app):
     @app.route('/')
     def serve_frontend():
         """הגשת הפרונטאנד המקצועי"""
+        import os
+        client_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'client', 'dist', 'index.html')
+        print(f"🔍 Looking for client at: {client_dist}")
+        try:
+            if os.path.exists(client_dist):
+                print("✅ Client dist found, serving React app")
+                with open(client_dist, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    # Fix asset paths for production
+                    content = content.replace('"/assets/', '"/static/assets/')
+                    content = content.replace('"/vite.svg', '"/static/vite.svg')
+                    return content
+            else:
+                print(f"❌ Client dist not found at {client_dist}")
+        except Exception as e:
+            print(f"Error serving frontend: {e}")
+        
+        # Fallback HTML if client dist not found
         return """<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
@@ -590,7 +608,16 @@ def store_conversation_turn(call_sid: str, turn_num: int, user_input: str, ai_re
         print(f"⚠️ Storage not available: {e}")
 
 def register_static_routes(app):
-    """רישום נתיבים לקבצים סטטיים - קבצי קול עבריים"""
+    """רישום נתיבים לקבצים סטטיים - קבצי קול עבריים ו-client assets"""
+    from flask import send_from_directory
+    
+    # Serve client assets from React build
+    @app.route('/static/assets/<path:filename>')
+    def serve_client_assets(filename):
+        """Serve client assets from client/dist/assets"""
+        import os
+        assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'client', 'dist', 'assets')
+        return send_from_directory(assets_dir, filename)
     
     @app.route('/static/voice_responses/<filename>')
     def serve_voice_files(filename):

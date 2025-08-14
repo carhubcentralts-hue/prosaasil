@@ -47,11 +47,15 @@ def login():
         if password_hash != user["password_hash"]:
             return jsonify({"error": "Invalid credentials"}), 401
             
-        # Set session
+        # Set session with all required fields for frontend
         session["user"] = {
+            "id": email.replace("@", "_").replace(".", "_"),
             "email": email,
+            "firstName": user["firstName"],
+            "lastName": user["lastName"],
             "role": user["role"],
-            "name": user["name"]
+            "businessId": None if user["role"] == "admin" else "shai_business_001",
+            "isActive": True
         }
         
         return jsonify({
@@ -72,4 +76,12 @@ def me():
     user = session.get("user")
     if not user:
         return jsonify({"error": "Not authenticated"}), 401
-    return jsonify({"user": user}), 200
+    return jsonify(user), 200
+
+@auth_bp.route("/check", methods=["GET"])
+def check():
+    """Check authentication status"""
+    user = session.get("user")
+    if not user:
+        return jsonify({"authenticated": False}), 200
+    return jsonify({"authenticated": True, "user": user}), 200
