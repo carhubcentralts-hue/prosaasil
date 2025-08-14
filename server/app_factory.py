@@ -21,8 +21,16 @@ def create_app():
     # Register routes
     register_auth_routes(app)
     register_core_routes(app)
-    register_webhook_routes(app)
+    # register_webhook_routes(app)  # OLD SYSTEM DISABLED - Using new Twilio Blueprint
     register_static_routes(app)
+    
+    # Register Twilio blueprint
+    try:
+        from server.routes_twilio import twilio_bp
+        app.register_blueprint(twilio_bp)
+        print("✅ Twilio webhooks registered successfully")
+    except Exception as e:
+        print(f"❌ Twilio webhooks registration failed: {e}")
     
     # Register API blueprints
     try:
@@ -155,12 +163,12 @@ def register_core_routes(app):
 </html>"""
 
 def register_webhook_routes(app):
-    """רישום webhooks מקצועיים עם זרימת שיחה חכמה"""
+    """רישום webhooks מקצועיים עם זרימת שיחה חכמה - LEGACY BACKUP"""
     
     PUBLIC_HOST = "https://ai-crmd.replit.app"
     
-    @app.route('/webhook/incoming_call', methods=['POST'])
-    def professional_incoming_call():
+    @app.route('/webhook/incoming_call_backup', methods=['POST'])
+    def professional_incoming_call_backup():
         """Professional incoming call - immediate professional response"""
         call_sid = request.values.get('CallSid', 'unknown')
         from_number = request.values.get('From', '')
