@@ -1,13 +1,29 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { Login } from './components/Login';
 import { SystemSelector } from './components/SystemSelector';
 import { AdminDashboard } from './components/AdminDashboard';
 import { BusinessDashboard } from './components/BusinessDashboard';
+import { TaskDueModal } from './components/TaskDueModal';
+import { useTaskDue } from './hooks/useTaskDue';
 
 function AppContent() {
   const { user, isLoading, logout } = useAuth();
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null);
+  const [dueTask, setDueTask] = useState<any>(null);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+
+  const handleTaskDue = useCallback((task: any) => {
+    setDueTask(task);
+    setIsTaskModalOpen(true);
+  }, []);
+
+  useTaskDue(handleTaskDue);
+
+  const closeTaskModal = () => {
+    setIsTaskModalOpen(false);
+    setDueTask(null);
+  };
 
   const handleSelectSystem = async (system: string) => {
     if (system === 'logout') {
@@ -50,7 +66,16 @@ function AppContent() {
     return <BusinessDashboard onBack={handleBack} />;
   }
 
-  return <SystemSelector user={user} onSelectSystem={handleSelectSystem} />;
+  return (
+    <>
+      <SystemSelector user={user} onSelectSystem={handleSelectSystem} />
+      <TaskDueModal
+        isOpen={isTaskModalOpen}
+        onClose={closeTaskModal}
+        task={dueTask}
+      />
+    </>
+  );
 }
 
 export default function App() {

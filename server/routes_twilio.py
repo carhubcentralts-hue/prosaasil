@@ -94,16 +94,20 @@ def handle_recording():
 
     return _say(ai_text)
 
-@twilio_bp.route("/call_status", methods=["POST","GET"])
+@twilio_bp.route("/call_status", methods=["POST"])
 def call_status():
+    """Handle Twilio call status callbacks"""
     call_sid = request.form.get("CallSid", "")
     call_status = request.form.get("CallStatus", "")
-    log.info("Call status update: CallSid=%s Status=%s", call_sid, call_status)
-    return ("", 200)
+    duration = request.form.get("CallDuration", "0")
+    
+    log.info("Call status update: CallSid=%s Status=%s Duration=%ss", 
+             call_sid, call_status, duration)
+    
+    return "OK", 200
 
 def _say(text_he: str):
+    """Helper to create SAY response in Hebrew"""
     vr = VoiceResponse()
     vr.say(text_he, language="he-IL")
     return Response(str(vr), mimetype="text/xml", status=200)
-
-# Hebrew AI modules are now integrated above

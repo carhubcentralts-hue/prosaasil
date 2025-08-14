@@ -77,13 +77,22 @@ def create_app():
     
     # Setup critical environment variables for voice system
     if not os.getenv('HOST'):
+        # Try production URL first, then development
         replit_domain = os.getenv('REPLIT_DEV_DOMAIN')
-        if replit_domain:
+        if replit_domain and 'ai-crmd.replit.app' in replit_domain:
+            host_url = "https://ai-crmd.replit.app"
+        elif replit_domain:
             host_url = f"https://{replit_domain}"
-            os.environ['HOST'] = host_url
-            print(f"✅ HOST set to: {host_url}")
         else:
-            print("⚠️ REPLIT_DEV_DOMAIN not available, voice files may not serve properly")
+            host_url = "https://ai-crmd.replit.app"  # Fallback to production
+        
+        os.environ['HOST'] = host_url
+        print(f"✅ HOST set to: {host_url}")
+    
+    # Also set PUBLIC_HOST for webhooks
+    public_host = os.getenv('PUBLIC_HOST', os.getenv('HOST', 'https://ai-crmd.replit.app'))
+    os.environ['PUBLIC_HOST'] = public_host
+    app.config['PUBLIC_HOST'] = public_host
     
     # Load configuration
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-prod')
@@ -120,9 +129,9 @@ def create_app():
     print("✅ Error handlers registered")
     
     # Health check endpoint
-    @app.get("/health")
+    @app.route("/health", methods=["GET"])
     def health():
-        return {"ok": True}, 200
+        return jsonify({"ok": True, "status": "healthy"}), 200
     
     # Register additional core routes
     register_core_routes(app)
