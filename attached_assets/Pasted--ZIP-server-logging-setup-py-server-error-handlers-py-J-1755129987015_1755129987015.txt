@@ -1,0 +1,275 @@
+בדקתי את ה-ZIP האחרון: לא מצאתי server/logging_setup.py ולא server/error_handlers.py וגם לא ספריות JSON-logging ב־requirements.
+כדי שיהיה לך מעקב מלא, נוח, ובטוח (calls/CRM/WhatsApp/Business), הנה הנחיה אחת באנגלית להדבקה למפתח — מוסיפה לוגים פרודים, מזהה בקשות (Request-ID), רושמת משכי זמן, מסננת פרטים רגישים, לוכדת חריגות, ואפילו מזהה שאילתות DB איטיות.
+
+⸻
+
+✅ Add Production-grade Logging & Error Handling (Flask) — with Request IDs, Redaction, Webhook & DB Slow Query Logs
+
+Do not change existing APIs/webhooks. Only add logging/error plumbing and import it in your app.
+
+0) Dependencies (optional JSON logs)
+
+# optional, if you want JSON logs; otherwise skip
+pip install python-json-logger
+
+1) Create server/logging_setup.py
+
+# server/logging_setup.py
+import os, sys, uuid, time, logging, logging.config
+from logging.handlers import RotatingFileHandler
+from flask import g, request
+
+DEFAULT_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_FORMAT    = os.getenv("LOG_FORMAT", "plain").lower()  # "plain" | "json"
+LOG_DIR       = os.getenv("LOG_DIR", "logs")
+MAX_BYTES     = int(os.getenv("LOG_MAX_BYTES", 10_000_000))
+BACKUPS       = int(os.getenv("LOG_BACKUPS", 5))
+SLOW_MS       = int(os.getenv("DB_SLOW_MS", 300))  # slow query threshold
+
+class RequestIdFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        rid = getattr(g, "request_id", "-")
+        setattr(record, "request_id", rid)
+        return True
+
+def _ensure_dir(path: str):
+    os.makedirs(path, exist_ok=True)
+
+def _build_handlers(json_enabled: bool):
+    base_fmt = '%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s'
+    if json_enabled:
+        try:
+            from pythonjsonlogger import jsonlogger
+            formatter = jsonlogger.JsonFormatter(
+                '%(asctime)s %(levelname)s %(name)s %(request_id)s %(message)s'
+            )
+        except Exception:
+            formatter = logging.Formatter(base_fmt)
+    else:
+        formatter = logging.Formatter(base_fmt)
+
+    req_filter = RequestIdFilter()
+
+    console = logging.StreamHandler(sys.stdout)
+    console.setLevel(DEFAULT_LEVEL)
+    console.setFormatter(formatter)
+    console.addFilter(req_filter)
+
+    _ensure_dir(LOG_DIR)
+    app_file = RotatingFileHandler(os.path.join(LOG_DIR, "app.log"),
+                                   maxBytes=MAX_BYTES, backupCount=BACKUPS, encoding="utf-8")
+    app_file.setLevel(DEFAULT_LEVEL)
+    app_file.setFormatter(formatter)
+    app_file.addFilter(req_filter)
+
+    err_file = RotatingFileHandler(os.path.join(LOG_DIR, "error.log"),
+                                   maxBytes=MAX_BYTES, backupCount=BACKUPS, encoding="utf-8")
+    err_file.setLevel(logging.ERROR)
+    err_file.setFormatter(formatter)
+    err_file.addFilter(req_filter)
+
+    return [console, app_file, err_file]
+
+def init_logging(app=None):
+    json_enabled = LOG_FORMAT == "json"
+    handlers = _build_handlers(json_enabled)
+    root = logging.getLogger()
+    root.setLevel(DEFAULT_LEVEL)
+    # reset handlers to avoid duplicates in dev reload
+    root.handlers = []
+    for h in handlers:
+        root.addHandler(h)
+
+    # quieter noisy libs
+    logging.getLogger("werkzeug").setLevel(os.getenv("LOG_WERKZEUG", "WARNING"))
+    logging.getLogger("urllib3").setLevel("WARNING")
+
+    logger = logging.getLogger(__name__)
+    logger.info("Logging initialized", extra={})
+
+def _mask_phone(s: str) -> str:
+    if not s: return s
+    digits = ''.join([c for c in s if c.isdigit()])
+    if len(digits) < 6: return s
+    return s[:2] + "****" + s[-2:]
+
+def install_request_hooks(app):
+    import traceback
+    log = logging.getLogger("request")
+
+    @app.before_request
+    def _before():
+        # correlate by header OR Twilio CallSid/WhatsApp MessageSid OR random
+        rid = (request.headers.get("X-Request-ID")
+               or request.form.get("CallSid")
+               or request.form.get("MessageSid")
+               or str(uuid.uuid4()))
+        g.request_id = rid
+        g._t0 = time.monotonic()
+        log.info("INCOMING %s %s ip=%s ua=%s",
+                 request.method, request.path,
+                 request.headers.get("X-Forwarded-For", request.remote_addr),
+                 request.headers.get("User-Agent"))
+
+    @app.after_request
+    def _after(resp):
+        dt = int((time.monotonic() - getattr(g, "_t0", time.monotonic())) * 1000)
+        resp.headers["X-Request-ID"] = getattr(g, "request_id", "-")
+        log.info("OUT %s %s status=%s dur_ms=%s len=%s",
+                 request.method, request.path, resp.status_code, dt, resp.content_length)
+        return resp
+
+    @app.teardown_request
+    def _teardown(exc):
+        if exc is not None:
+            log = logging.getLogger("errors")
+            log.exception("Unhandled exception: %s", exc)
+
+def install_sqlalchemy_slow_query_logging(app, db):
+    """
+    Logs queries slower than DB_SLOW_MS.
+    Call from within app.app_context().
+    """
+    try:
+        from sqlalchemy import event
+        import time as _t
+        logger = logging.getLogger("sqlalchemy.slow")
+
+        @event.listens_for(db.engine, "before_cursor_execute")
+        def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+            conn.info.setdefault('query_start_time', []).append(_t.time())
+
+        @event.listens_for(db.engine, "after_cursor_execute")
+        def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+            t0 = conn.info['query_start_time'].pop(-1)
+            total = (_t.time() - t0) * 1000
+            if total >= SLOW_MS:
+                logger.warning("SLOW_QUERY dur_ms=%d sql=%s params=%s", total, statement, parameters)
+    except Exception as e:
+        logging.getLogger(__name__).warning("Slow query logging not installed: %s", e)
+
+2) Create server/error_handlers.py
+
+# server/error_handlers.py
+import logging
+from flask import jsonify, request
+from werkzeug.exceptions import HTTPException
+
+log = logging.getLogger("errors")
+
+def register_error_handlers(app):
+    @app.errorhandler(HTTPException)
+    def handle_http(e: HTTPException):
+        # JSON for API/Webhooks; allow SPA to handle others
+        payload = {"error": e.name, "status": e.code, "path": request.path}
+        log.warning("HTTP %s %s -> %s", request.method, request.path, e.code)
+        if request.path.startswith(("/api", "/webhook")):
+            return jsonify(payload), e.code
+        return (f"{e.code} {e.name}", e.code)
+
+    @app.errorhandler(Exception)
+    def handle_exception(e: Exception):
+        log.exception("UNHANDLED %s %s", request.method, request.path)
+        payload = {"error": "internal", "status": 500, "path": request.path}
+        if request.path.startswith(("/api", "/webhook")):
+            return jsonify(payload), 500
+        return ("Internal Server Error", 500)
+
+3) Wire it in your app (once)
+
+In your app entry (server/app_factory.py or server/main.py) call:
+
+# server/main.py (example)
+from flask import Flask
+from server.logging_setup import init_logging, install_request_hooks, install_sqlalchemy_slow_query_logging
+from server.error_handlers import register_error_handlers
+from server.routes import register_blueprints  # your existing function
+from server.models import db                  # if you use SQLAlchemy
+
+def create_app():
+    app = Flask(__name__)
+    # ... your existing configuration here ...
+
+    init_logging(app)
+    install_request_hooks(app)
+    register_blueprints(app)
+    register_error_handlers(app)
+
+    try:
+        with app.app_context():
+            install_sqlalchemy_slow_query_logging(app, db)
+    except Exception as e:
+        import logging; logging.getLogger(__name__).warning("DB slow logging skipped: %s", e)
+    return app
+
+if __name__ == "__main__":
+    app = create_app()
+    app.run(host="0.0.0.0", port=5000)
+
+If you already have app_factory.create_app, just add the 3 calls (init_logging, install_request_hooks, register_error_handlers) inside it, and install the slow-query hook after app.app_context() with your db.
+
+4) Use the logger inside your modules (examples)
+
+Twilio voice (server/routes_twilio.py)
+
+import logging
+log = logging.getLogger("twilio.voice")
+
+# inside incoming_call():
+log.info("Incoming call: From=%s To=%s", _mask(request.form.get("From")), _mask(request.form.get("To")))
+# inside handle_recording():
+log.info("Handle recording: url=%s", audio_url)
+log.warning("Short recording")  # when applicable
+log.error("TTS failed", exc_info=True)  # on failure
+
+WhatsApp (server/whatsapp_api.py)
+
+log = logging.getLogger("whatsapp")
+log.info("Send WA: to=%s len=%d", _mask_phone(to), len(text))
+log.error("WA send failed: %s", err, exc_info=True)
+
+CRM & Business audit
+
+audit = logging.getLogger("audit.business")
+audit.info("BUSINESS_CREATE id=%s name=%s by=%s", b.id, b.name, session.get("user",{}).get("email"))
+audit.info("BUSINESS_UPDATE id=%s fields=%s by=%s", bid, list(data.keys()), session_user)
+audit.info("BUSINESS_DEACTIVATE id=%s by=%s", bid, session_user)
+
+Use _mask_phone() (from logging_setup.py) to avoid storing full phone numbers. Never log secrets/tokens.
+
+5) Environment knobs (no code changes)
+
+LOG_LEVEL=INFO           # DEBUG/INFO/WARNING/ERROR
+LOG_FORMAT=plain         # or "json" if python-json-logger installed
+LOG_DIR=logs             # directory for rotating files
+LOG_MAX_BYTES=10000000
+LOG_BACKUPS=5
+DB_SLOW_MS=300           # warn on queries slower than this
+
+6) Quick smoke to verify logs are emitted
+
+# startup should print "Logging initialized"
+curl -s http://localhost:5000/health
+
+# trigger Twilio endpoint:
+curl -s -X POST http://localhost:5000/webhook/incoming_call >/dev/null
+curl -s -X POST http://localhost:5000/webhook/handle_recording -d "RecordingUrl=https://example/rec/123" >/dev/null
+
+# check console and files:
+tail -n 100 logs/app.log
+tail -n 100 logs/error.log
+
+
+⸻
+
+What you get with this:
+	•	Every request has a Request-ID (also returned in X-Request-ID) → easy correlation across logs and external systems (Twilio CallSid/WA MessageSid used when present).
+	•	Structured, rotated logs to files + console; optional JSON output.
+	•	Centralized error handling for APIs & webhooks (clean JSON; SPA unaffected).
+	•	Slow DB queries are detected and logged.
+	•	Audit logs for sensitive operations (Business CRUD).
+	•	Redaction helpers to avoid leaking PII/secrets.
+
+⸻
+
+אם תרצה—אכין גם patch/PR מוכן שמוסיף את שני הקבצים, מחבר אותם ל־app_factory/main.py, ושורה-שתיים של לוגים במודולי Twilio/CRM/WhatsApp/Business כדי שתראה מיד תיעוד חכם מכל החלקים.

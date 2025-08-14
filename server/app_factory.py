@@ -8,23 +8,25 @@ from flask import Flask, Response, request, jsonify, send_file
 from flask_cors import CORS
 import os
 
-def create_app():
-    """יצירת אפליקציית Flask עם הגדרות מקצועיות"""
+def register_blueprints(app):
+    """Register all application blueprints"""
+    # Health and core routes
+    try:
+        from server.health_routes import health_bp
+        app.register_blueprint(health_bp)
+        print("✅ Health routes registered successfully")
+    except Exception as e:
+        print(f"❌ Health routes registration failed: {e}")
     
-    app = Flask(__name__, static_folder='../client/dist', static_url_path='')
-    CORS(app)
+    # Authentication
+    try:
+        from server.auth_routes import auth_bp
+        app.register_blueprint(auth_bp)
+        print("✅ Auth routes registered successfully")
+    except Exception as e:
+        print(f"❌ Auth routes registration failed: {e}")
     
-    # Security configurations
-    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'shai-real-estate-secure-key-2025')
-    app.config['SECURITY_PASSWORD_SALT'] = 'shai-offices-salt'
-    
-    # Register routes
-    register_auth_routes(app)
-    register_core_routes(app)
-    # register_webhook_routes(app)  # OLD SYSTEM DISABLED - Using new Twilio Blueprint
-    register_static_routes(app)
-    
-    # Register Twilio blueprint
+    # Twilio webhooks (no auth required)
     try:
         from server.routes_twilio import twilio_bp
         app.register_blueprint(twilio_bp)
@@ -32,7 +34,30 @@ def create_app():
     except Exception as e:
         print(f"❌ Twilio webhooks registration failed: {e}")
     
-    # Register API blueprints
+    # CRM and Timeline (auth required)
+    try:
+        from server.api_crm_advanced import crm_bp
+        app.register_blueprint(crm_bp)
+        print("✅ CRM API registered successfully")
+    except Exception as e:
+        print(f"❌ CRM API registration failed: {e}")
+    
+    try:
+        from server.api_timeline import timeline_bp
+        app.register_blueprint(timeline_bp)
+        print("✅ Timeline API registered successfully")
+    except Exception as e:
+        print(f"❌ Timeline API registration failed: {e}")
+    
+    # Business management (auth required)
+    try:
+        from server.api_business import biz_bp
+        app.register_blueprint(biz_bp)
+        print("✅ Business API registered successfully")
+    except Exception as e:
+        print(f"❌ Business API registration failed: {e}")
+    
+    # WhatsApp integration (auth required)
     try:
         from server.whatsapp_api import whatsapp_api_bp
         app.register_blueprint(whatsapp_api_bp)
@@ -43,6 +68,29 @@ def create_app():
         @app.route('/api/whatsapp/status', methods=['GET'])
         def whatsapp_status_fallback():
             return jsonify({'success': True, 'connected': False, 'status': 'disconnected'})
+
+def create_app():
+    """יצירת אפליקציית Flask עם הגדרות מקצועיות"""
+    
+    app = Flask(__name__, static_folder='../client/dist', static_url_path='')
+    CORS(app)
+    
+    # Security configurations
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'shai-real-estate-secure-key-2025')
+    app.config['SECURITY_PASSWORD_SALT'] = 'shai-offices-salt'
+    app.config.update(
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=False  # True behind HTTPS/Proxy
+    )
+    
+    # Register routes
+    register_auth_routes(app)
+    register_core_routes(app)
+    # register_webhook_routes(app)  # OLD SYSTEM DISABLED - Using new Twilio Blueprint
+    register_static_routes(app)
+    
+    # Register all blueprints
+    register_blueprints(app)
     
     return app
 

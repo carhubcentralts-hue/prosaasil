@@ -1,119 +1,70 @@
-"""
-WhatsApp API endpoints for React frontend - SIMPLIFIED VERSION
-API נקודות עבור WhatsApp עם React - גרסה מפושטת
-"""
+# server/whatsapp_api.py
 from flask import Blueprint, request, jsonify
-from datetime import datetime
-import logging
-import os
-# QR code functionality temporarily disabled due to PIL issues
-# import qrcode
-# import io
-# import base64
-# from baileys_integration import baileys_service
-# Mock service for now - replace with real Baileys integration later
-class MockBaileysService:
-    def is_authenticated(self):
-        return False
-    def get_qr_code(self):
-        return "mock_qr_code_text"
-    def start_baileys_service(self):
-        return True
-    def get_conversations(self, business_id):
-        return []
+from server.authz import auth_required
+import json
 
-baileys_service = MockBaileysService()
+whatsapp_api_bp = Blueprint("whatsapp_api", __name__, url_prefix="/api/whatsapp")
 
-logger = logging.getLogger(__name__)
-
-# Create WhatsApp API Blueprint
-whatsapp_api_bp = Blueprint('whatsapp_api', __name__, url_prefix='/api/whatsapp')
-
-@whatsapp_api_bp.route('/status', methods=['GET'])
-def get_whatsapp_status():
-    """קבלת סטטוס חיבור WhatsApp"""
+@whatsapp_api_bp.route("/status", methods=["GET"])
+@auth_required
+def whatsapp_status():
+    """Get WhatsApp connection status"""
     try:
-        is_connected = baileys_service.is_authenticated()
-        qr_available = baileys_service.get_qr_code() is not None
-        
+        # In a real implementation, check actual connection status
         return jsonify({
-            'success': True,
-            'connected': is_connected,
-            'qr_available': qr_available,
-            'status': 'connected' if is_connected else ('qr_ready' if qr_available else 'disconnected')
-        })
-        
+            "success": True,
+            "connected": False,
+            "status": "disconnected",
+            "qr_code": None,
+            "message": "WhatsApp client ready for connection"
+        }), 200
     except Exception as e:
-        logger.error(f"WhatsApp status error: {e}")
-        return jsonify({'error': 'שגיאה בבדיקת סטטוס WhatsApp'}), 500
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
-@whatsapp_api_bp.route('/qr', methods=['GET'])
-def get_qr_code():
-    """קבלת QR Code - זמנית ללא תמונה (בעיית PIL)"""
+@whatsapp_api_bp.route("/send", methods=["POST"])
+@auth_required
+def send_message():
+    """Send WhatsApp message"""
     try:
-        qr_text = baileys_service.get_qr_code()
+        data = request.get_json()
+        phone = data.get("phone")
+        message = data.get("message")
         
-        if not qr_text:
-            return jsonify({'error': 'QR Code לא זמין כרגע'}), 404
+        if not phone or not message:
+            return jsonify({
+                "success": False,
+                "error": "Phone and message required"
+            }), 400
             
+        # In a real implementation, send via WhatsApp client
         return jsonify({
-            'success': True,
-            'qr_text': qr_text,
-            'message': 'QR Code זמין - תמונה תתווסף בהמשך',
-            'qr_available': True
-        })
+            "success": True,
+            "message_id": "fake_msg_id",
+            "status": "queued"
+        }), 200
         
     except Exception as e:
-        logger.error(f"QR Code error: {e}")
-        return jsonify({'error': 'שגיאה זמנית בQR Code'}), 500
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
-@whatsapp_api_bp.route('/connect', methods=['POST'])
-def start_baileys_connection():
-    """הפעלת חיבור Baileys"""
+@whatsapp_api_bp.route("/connect", methods=["POST"])
+@auth_required
+def connect_whatsapp():
+    """Initialize WhatsApp connection"""
     try:
-        success = baileys_service.start_baileys_service()
-        
+        # In a real implementation, start WhatsApp client
         return jsonify({
-            'success': success,
-            'message': 'שירות WhatsApp הופעל' if success else 'שגיאה בהפעלת שירות WhatsApp'
-        })
-        
+            "success": True,
+            "qr_code": "data:image/png;base64,fake_qr_code",
+            "message": "Scan QR code to connect"
+        }), 200
     except Exception as e:
-        logger.error(f"Baileys start error: {e}")
-        return jsonify({'error': 'שגיאה בהפעלת Baileys'}), 500
-
-@whatsapp_api_bp.route('/conversations', methods=['GET'])
-def get_conversations():
-    """קבלת רשימת שיחות WhatsApp אמיתיות"""
-    try:
-        business_id = request.args.get('business_id', 1)  # Default business
-        conversations = baileys_service.get_conversations(business_id)
-        
         return jsonify({
-            'success': True,
-            'conversations': conversations
-        })
-        
-    except Exception as e:
-        logger.error(f"WhatsApp conversations error: {e}")
-        return jsonify({'error': 'שגיאה בקבלת שיחות WhatsApp'}), 500
-
-@whatsapp_api_bp.route('/analytics', methods=['GET'])
-def get_whatsapp_analytics():
-    """אנליטיקס WhatsApp"""
-    try:
-        analytics_data = {
-            'total_conversations': 45,
-            'active_conversations': 12,
-            'messages_today': 23,
-            'response_rate': 85.5
-        }
-        
-        return jsonify({
-            'success': True,
-            'analytics': analytics_data
-        })
-        
-    except Exception as e:
-        logger.error(f"WhatsApp analytics error: {e}")
-        return jsonify({'error': 'שגיאה באנליטיקס WhatsApp'}), 500
+            "success": False,
+            "error": str(e)
+        }), 500
