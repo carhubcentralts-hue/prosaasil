@@ -50,6 +50,13 @@ def register_blueprints(app):
         print("✅ Timeline API registered successfully")
     except Exception as e:
         print(f"❌ Timeline API registration failed: {e}")
+        # Use basic timeline if improved version fails
+        try:
+            from server.api_timeline import timeline_bp as basic_timeline_bp
+            app.register_blueprint(basic_timeline_bp)
+            print("✅ Basic Timeline API registered as fallback")
+        except Exception as e2:
+            print(f"❌ Basic Timeline API also failed: {e2}")
     
     # Business management (auth required)
     try:
@@ -61,8 +68,8 @@ def register_blueprints(app):
     
     # WhatsApp integration (auth required)
     try:
-        from server.api_whatsapp_improved import whatsapp_bp
-        app.register_blueprint(whatsapp_bp)
+        from server.whatsapp_api import whatsapp_api_bp
+        app.register_blueprint(whatsapp_api_bp)
         print("✅ WhatsApp API registered successfully")
     except Exception as e:
         print(f"❌ WhatsApp API registration failed: {e}")
