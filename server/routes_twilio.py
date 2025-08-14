@@ -50,31 +50,49 @@ def handle_recording():
         log.error("Failed to download recording: %s", e)
         return _say("תקלה זמנית בהורדת ההקלטה. כיצד לעזור?")
 
-    # === Replace these stubs with your real modules ===
+    # Hebrew transcription using Whisper
     try:
-        text_he = transcribe_he(audio_bytes)        # Whisper Hebrew
+        from server.whisper_handler import transcribe_he
+        text_he = transcribe_he(audio_bytes)
         log.info("Transcription result: %s", text_he)
     except Exception as e:
         log.error("Transcription failed: %s", e, exc_info=True)
         return _say("לא הצלחתי להבין את ההקלטה. איך לעזור?")
 
+    # Generate AI response
     try:
-        reply_he = generate_reply(text_he)          # GPT/business logic
-        log.info("Generated reply: %s", reply_he)
+        from server.ai_conversation import generate_response
+        ai_text = generate_response(text_he, call_sid)
+        log.info("AI response generated: %s", ai_text)
     except Exception as e:
-        log.error("Reply generation failed: %s", e, exc_info=True)
-        reply_he = "קיבלתי את הבקשה. לבצע כעת?"
+        log.error("AI response failed: %s", e, exc_info=True)
+        ai_text = "אני כאן לעזור בנדל״ן. איך אפשר לסייע?"
 
+    # Generate Hebrew TTS
     try:
-        tts_url = synthesize_tts_he(reply_he)       # should return a public URL or None
-        if tts_url:
-            log.info("TTS generated: %s", tts_url)
-            vr = VoiceResponse(); vr.play(tts_url)
-            return Response(str(vr), mimetype="text/xml", status=200)
+        from server.hebrew_tts_enhanced import create_hebrew_audio
+        audio_path = create_hebrew_audio(ai_text, call_sid)
+        if audio_path:
+            host = os.getenv("HOST", "").rstrip("/")
+            if host:
+                audio_url = f"{host}/{audio_path}"
+                log.info("TTS generated: %s", audio_url)
+                vr = VoiceResponse()
+                vr.play(audio_url)
+                vr.record(
+                    max_length=30,
+                    timeout=5,
+                    finish_on_key="*",
+                    play_beep=True,
+                    action="/webhook/handle_recording",
+                    method="POST",
+                    trim="do-not-trim"
+                )
+                return Response(str(vr), mimetype="text/xml", status=200)
     except Exception as e:
         log.error("TTS failed: %s", e, exc_info=True)
 
-    return _say("אוקיי. רשמתי לפני. איך עוד לעזור?")
+    return _say(ai_text)
 
 @twilio_bp.route("/call_status", methods=["POST","GET"])
 def call_status():
@@ -88,7 +106,4 @@ def _say(text_he: str):
     vr.say(text_he, language="he-IL")
     return Response(str(vr), mimetype="text/xml", status=200)
 
-# === Stubs to connect to your real code (replace) ===
-def transcribe_he(audio_bytes): return "שלום, מה הסטטוס?"
-def generate_reply(text_he: str): return "הסטטוס: הוזמן וייצא היום."
-def synthesize_tts_he(text_he: str): return None
+# Hebrew AI modules are now integrated above

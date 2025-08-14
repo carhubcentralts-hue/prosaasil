@@ -1,0 +1,535 @@
+יאללה, סוגר לך פינות 👇
+זו גרסת COPY-PASTE באנגלית, משודרגת ומדויקת — מותאמת למה שמצאתי ב-ZIP האחרון (יש server/, src/, Vite; יש server/routes_twilio.py; יש logging_setup.py/error_handlers.py; צריך לרשום את Twilio blueprint ולהבטיח שהלוגים/האֶרורים מחוברים ל-app).
+הוספתי גם את כל “השדרוגים של הקילומטר האחרון” (חתימת Twilio, idempotency, retries, Gunicorn, Cache-Control, Alembic, וכו’) — בלי לשבור שום API.
+
+⸻
+
+✅ MAKE IT PERFECT — End-to-End Hardening & Fix Plan (Copy-paste to engineer)
+
+Do NOT rename or move existing APIs/webhooks. Only add/fix registrations, wire logging/error handling, and stabilize behavior.
+
+0) Branch & Clean Env
+
+git checkout -b hardening/full-prod
+python3 -m venv .venv && source .venv/bin/activate
+python -m pip install -U pip wheel
+pip install -r server/requirements.txt 2>/dev/null || pip install -r requirements.txt
+npm ci
+
+
+⸻
+
+1) App Wiring — Blueprints + Logging + Errors (MANDATORY)
+
+1.1 Register Twilio blueprint
+
+server/routes/init.py
+
++ from server.routes_twilio import twilio_bp
+  from server.api_crm_advanced import crm_bp            # if exists
+  from server.api_timeline import timeline_bp           # if exists
+  from server.api_business import biz_bp                # if exists
+  from server.routes.frontend import frontend_bp        # SPA
+
+  def register_blueprints(app):
++     app.register_blueprint(twilio_bp)     # /webhook/*
+      if 'crm_bp' in globals():       app.register_blueprint(crm_bp)
+      if 'timeline_bp' in globals():  app.register_blueprint(timeline_bp)
+      if 'biz_bp' in globals():       app.register_blueprint(biz_bp)
+      app.register_blueprint(frontend_bp)
+
+1.2 Wire logging & error handlers once in the app factory (or main)
+
+server/app_factory.py (or your entry file)
+
+  from flask import Flask
++ from server.logging_setup import init_logging, install_request_hooks, install_sqlalchemy_slow_query_logging
++ from server.error_handlers import register_error_handlers
+  from server.routes import register_blueprints
+  try:
+      from server.models import db   # if SQLAlchemy is used
+  except Exception:
+      db = None
+
+  def create_app(config_name="development"):
+      app = Flask(__name__)
+      # ... your existing config (SECRET_KEY, DB URI, CORS, etc.) ...
+
++     init_logging(app)
++     install_request_hooks(app)
+      register_blueprints(app)
++     register_error_handlers(app)
+
++     if db:
++         try:
++             with app.app_context():
++                 install_sqlalchemy_slow_query_logging(app, db)
++         except Exception as e:
++             app.logger.warning("DB slow logging skipped: %s", e)
+
++     @app.get("/health")
++     def health(): return {"ok": True}, 200
+
+      return app
+
+If you previously added ad-hoc RotatingFileHandler to app.logger, remove it to avoid duplicate handlers — rely on logging_setup.py.
+
+⸻
+
+2) Calls (Twilio, Hebrew) — Verify Webhooks & TwiML
+
+server/routes_twilio.py must expose 3 routes and return proper TwiML:
+	•	POST /webhook/incoming_call → optional <Play> then <Record maxLength="30" timeout="5" finishOnKey="*"> with action="/webhook/handle_recording".
+	•	POST /webhook/handle_recording → Download audio, Whisper (Hebrew), generate reply (GPT/logic), TTS (single fallback), always 200.
+	•	POST/GET /webhook/call_status → always 200.
+
+If anything missing, use this skeleton (keep your internals where you already have them):
+
+from flask import Blueprint, request, Response
+from twilio.twiml.voice_response import VoiceResponse
+import os, requests, io
+
+twilio_bp = Blueprint("twilio", __name__, url_prefix="/webhook")
+
+@twilio_bp.post("/incoming_call")
+def incoming_call():
+    host = os.getenv("HOST","").rstrip("/")
+    vr = VoiceResponse()
+    if host: vr.play(f"{host}/static/voice_responses/welcome.mp3")
+    vr.record(max_length=30, timeout=5, finish_on_key="*", play_beep=True,
+              action="/webhook/handle_recording", method="POST", trim="do-not-trim")
+    return Response(str(vr), mimetype="text/xml", status=200)
+
+@twilio_bp.post("/handle_recording")
+def handle_recording():
+    rec_url = request.form.get("RecordingUrl")
+    if not rec_url:
+        return _say("סליחה, לא קיבלתי הקלטה. איך אפשר לעזור?")
+    audio_url = f"{rec_url}.mp3"
+    try:
+        r = requests.get(audio_url, timeout=20); r.raise_for_status()
+        audio_bytes = io.BytesIO(r.content)
+    except Exception:
+        return _say("תקלה זמנית בהורדת ההקלטה. כיצד לעזור?")
+
+    try:
+        text_he = transcribe_he(audio_bytes)          # ← your Whisper HE
+    except Exception:
+        return _say("לא הצלחתי להבין את ההקלטה. איך לעזור?")
+
+    try:
+        reply_he = generate_reply(text_he)            # ← your GPT/logic
+    except Exception:
+        reply_he = "קיבלתי את הבקשה. לבצע כעת?"
+
+    try:
+        tts_url = synthesize_tts_he(reply_he)         # ← return public URL or None
+        if tts_url:
+            vr = VoiceResponse(); vr.play(tts_url)
+            return Response(str(vr), mimetype="text/xml", status=200)
+    except Exception:
+        pass
+    return _say("אוקיי. רשמתי לפני. איך עוד לעזור?")
+
+@twilio_bp.route("/call_status", methods=["POST","GET"])
+def call_status(): return ("", 200)
+
+def _say(text_he: str):
+    vr = VoiceResponse(); vr.say(text_he, language="he-IL")
+    return Response(str(vr), mimetype="text/xml", status=200)
+
+# stubs – replace with your real modules
+def transcribe_he(audio_bytes): return "שלום, מה הסטטוס?"
+def generate_reply(text_he: str): return "הסטטוס: הוזמן וייצא היום."
+def synthesize_tts_he(text_he: str): return None
+
+
+⸻
+
+3) WhatsApp — Stable API + Persistence
+	•	Provide module (e.g. server/whatsapp_api.py) with:
+	•	POST /api/whatsapp/send → {to, text} → {ok, id}; persist in whatsapp_messages with direction/status.
+	•	Inbound webhook (Twilio/Meta or Baileys bridge) → always 200; persist/log.
+	•	If using Baileys (Node): persist auth state, implement reconnect, log failures.
+	•	Link messages to customers by phone when possible.
+
+⸻
+
+4) CRM — Single canonical endpoint + Search/Paging/Validation
+
+Remove any legacy customers_paginate; keep one:
+
+# server/api_crm_advanced.py
+from flask import Blueprint, request, jsonify
+from server.authz import auth_required
+from models import db, Customer
+
+crm_bp = Blueprint("crm", __name__, url_prefix="/api/crm")
+
+@crm_bp.get("/customers")
+@auth_required
+def list_customers():
+    try:
+        page  = max(int(request.args.get("page",1)),1)
+        limit = min(max(int(request.args.get("limit",25)),1), 100)
+    except ValueError:
+        return jsonify({"error":"invalid paging"}), 400
+    q = (request.args.get("q") or "").strip()
+    query = Customer.query
+    if q:
+        like = f"%{q}%"
+        query = query.filter((Customer.name.ilike(like)) |
+                             (Customer.phone.ilike(like)) |
+                             (Customer.email.ilike(like)))
+    total = query.count()
+    items = (query.order_by(Customer.created_at.desc())
+                  .offset((page-1)*limit).limit(limit).all())
+    return jsonify({"page":page,"limit":limit,"total":total,
+                    "items":[c.to_dict() for c in items]}), 200
+
+
+⸻
+
+5) Timeline — Unified per customer
+
+# server/api_timeline.py
+from flask import Blueprint, jsonify
+from server.authz import auth_required
+from models import db, CallLog, WhatsAppMsg, Task, Invoice, Contract
+
+timeline_bp = Blueprint("timeline", __name__, url_prefix="/api/customers")
+
+@timeline_bp.get("/<int:cid>/timeline")
+@auth_required
+def customer_timeline(cid):
+    items = []
+    items += [{"type":"call","at":c.created_at,"data":c.to_dict()} for c in CallLog.query.filter_by(customer_id=cid).all()]
+    items += [{"type":"whatsapp","at":w.created_at,"data":w.to_dict()} for w in WhatsAppMsg.query.filter_by(customer_id=cid).all()]
+    items += [{"type":"task","at":t.due_at,"data":t.to_dict()} for t in Task.query.filter_by(customer_id=cid).all()]
+    items += [{"type":"invoice","at":i.issued_at,"data":i.to_dict()} for i in Invoice.query.filter_by(customer_id=cid).all()]
+    items += [{"type":"contract","at":k.signed_at,"data":k.to_dict()} for k in Contract.query.filter_by(customer_id=cid).all()]
+    items.sort(key=lambda x: x["at"], reverse=True)
+    return jsonify(items), 200
+
+
+⸻
+
+6) Business Management — CRUD with permissions
+
+Models (if missing) + auth decorators:
+
+# models.py (excerpt)
+class Business(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(160), nullable=False, unique=True)
+    domain = db.Column(db.String(160))
+    active = db.Column(db.Boolean, default=True, index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    def to_dict(self): return {"id":self.id,"name":self.name,"domain":self.domain,"active":self.active}
+
+# server/authz.py
+from functools import wraps
+from flask import session, jsonify
+def auth_required(fn):
+    @wraps(fn)
+    def w(*a,**k):
+        if not session.get("user"): return jsonify({"error":"unauthorized"}), 401
+        return fn(*a,**k)
+    return w
+def roles_required(*roles):
+    def deco(fn):
+        @wraps(fn)
+        def w(*a,**k):
+            u=session.get("user")
+            if not u: return jsonify({"error":"unauthorized"}), 401
+            if u.get("role") not in roles: return jsonify({"error":"forbidden"}), 403
+            return fn(*a,**k)
+        return w
+    return deco
+
+# server/api_business.py
+from flask import Blueprint, request, jsonify
+from server.authz import auth_required, roles_required
+from models import db, Business
+
+biz_bp = Blueprint("business", __name__, url_prefix="/api/businesses")
+
+@biz_bp.get("") @auth_required
+def list_businesses():
+    items = Business.query.order_by(Business.created_at.desc()).all()
+    return jsonify([b.to_dict() for b in items]), 200
+
+@biz_bp.post("") @roles_required("admin")
+def create_business():
+    d = request.get_json(force=True)
+    name = (d.get("name") or "").strip()
+    if not name: return jsonify({"error":"name required"}), 400
+    if Business.query.filter_by(name=name).first(): return jsonify({"error":"name exists"}), 409
+    b = Business(name=name, domain=(d.get("domain") or "").strip() or None)
+    db.session.add(b); db.session.commit()
+    return jsonify(b.to_dict()), 201
+
+@biz_bp.put("/<int:bid>") @roles_required("admin")
+def update_business(bid):
+    b = Business.query.get_or_404(bid)
+    d = request.get_json(force=True)
+    if "name" in d:
+        new = (d["name"] or "").strip()
+        if not new: return jsonify({"error":"invalid name"}), 400
+        if new!=b.name and Business.query.filter_by(name=new).first():
+            return jsonify({"error":"name exists"}), 409
+        b.name = new
+    if "domain" in d: b.domain = (d["domain"] or "").strip() or None
+    db.session.commit()
+    return jsonify(b.to_dict()), 200
+
+@biz_bp.post("/<int:bid>/deactivate") @roles_required("admin")
+def deactivate_business(bid):
+    b = Business.query.get_or_404(bid); b.active=False; db.session.commit()
+    return jsonify(b.to_dict()), 200
+
+@biz_bp.post("/<int:bid>/reactivate") @roles_required("admin")
+def reactivate_business(bid):
+    b = Business.query.get_or_404(bid); b.active=True; db.session.commit()
+    return jsonify(b.to_dict()), 200
+
+@biz_bp.delete("/<int:bid>") @roles_required("admin")
+def delete_business(bid):
+    b = Business.query.get_or_404(bid); b.active=False; db.session.commit()
+    return jsonify({"ok":True}), 200
+
+
+⸻
+
+7) Logging & Errors — Already present, just ensure they’re wired
+	•	server/logging_setup.py + server/error_handlers.py exist → wired in §1.
+	•	Use LOG_FORMAT=json in prod for ELK/Datadog ingestion.
+	•	Keep audit logs for Business admin ops.
+
+ENV (logging):
+
+LOG_LEVEL=INFO
+LOG_FORMAT=plain   # or json
+LOG_DIR=logs
+DB_SLOW_MS=300
+
+
+⸻
+
+8) Frontend (React+Vite)
+	•	Dev: in vite.config.js, proxy to http://localhost:5000:
+
+server:{
+  host:'0.0.0.0', port:3000,
+  proxy:{
+    '/api':'http://localhost:5000',
+    '/webhook':'http://localhost:5000',
+    '/socket.io': { target:'http://localhost:5000', ws:true }
+  }
+}
+
+	•	Prod: SPA served by your server/routes/frontend.py from dist/.
+
+Root package.json scripts:
+
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
+    "start": "python server/main.py"
+  }
+}
+
+Build & run:
+
+npm run build
+python server/main.py    # serves API + SPA on :5000
+
+
+⸻
+
+9) Env & Secrets
+
+SECRET_KEY=...
+HOST=https://your-domain.com
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+OPENAI_API_KEY=...                                # if GPT is used
+GOOGLE_APPLICATION_CREDENTIALS=/secrets/google_tts_key.json
+
+Twilio Console → Voice:
+	•	A Call Comes In → POST https://<HOST>/webhook/incoming_call
+	•	Status Callback → POST https://<HOST>/webhook/call_status
+
+Never commit secrets.
+
+⸻
+
+10) Smoke Tests (run now)
+
+# health
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5000/health  # expect 200
+
+# calls
+curl -s -X POST http://localhost:5000/webhook/incoming_call | grep -E 'Record|maxLength="30"|timeout="5"|finishOnKey="\\*"'
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:5000/webhook/handle_recording    # expect 200
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:5000/webhook/call_status         # expect 200
+
+# CRM
+curl -s "http://localhost:5000/api/crm/customers?page=1&limit=25" | head
+
+# Timeline
+curl -s "http://localhost:5000/api/customers/1/timeline" | head
+
+# Business (as admin session, or temporarily stub auth in dev)
+curl -s -X POST http://localhost:5000/api/businesses -H "Content-Type: application/json" -d '{"name":"My Biz"}'
+curl -s http://localhost:5000/api/businesses | head
+curl -s -X POST http://localhost:5000/api/businesses/1/deactivate
+curl -s -X POST http://localhost:5000/api/businesses/1/reactivate
+
+
+⸻
+
+11) CI (GitHub Actions) — minimal
+
+.github/workflows/ci.yml
+
+name: CI
+on: [push, pull_request]
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Backend deps
+        run: |
+          python -m pip install -U pip wheel
+          pip install -r server/requirements.txt || pip install -r requirements.txt
+      - name: Backend smoke
+        run: |
+          python - <<'PY'
+          print("smoke ok")
+          PY
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Frontend build
+        run: |
+          npm ci
+          npm run build
+
+
+⸻
+
+🚀 Production “Last-Mile” Upgrades (add on top — no breaking changes)
+
+A) Verify Twilio signatures (webhook auth)
+
+# server/twilio_security.py
+import os
+from flask import request
+from twilio.request_validator import RequestValidator
+
+_validator = RequestValidator(os.getenv("TWILIO_AUTH_TOKEN",""))
+
+def is_valid_twilio_request(req: request) -> bool:
+    # Build absolute URL (behind proxy use X-Forwarded-Proto & Host)
+    scheme = req.headers.get("X-Forwarded-Proto", req.scheme)
+    host   = req.headers.get("X-Forwarded-Host", req.host)
+    url    = f"{scheme}://{host}{req.path}"
+    sig    = req.headers.get("X-Twilio-Signature", "")
+    return _validator.validate(url, req.form, sig)
+
+Guard your webhooks:
+
+from server.twilio_security import is_valid_twilio_request
+@twilio_bp.before_request
+def verify_signature():
+    if not is_valid_twilio_request(request):
+        import logging; logging.getLogger("twilio.sec").warning("Invalid signature")
+        return ("Forbidden", 403)
+
+B) Idempotency for /handle_recording (avoid duplicate processing)
+
+# inside handle_recording()
+rec_sid = request.form.get("RecordingSid") or request.form.get("CallSid")
+if os.getenv("REDIS_URL"):
+    import redis, time
+    r = redis.from_url(os.getenv("REDIS_URL"))
+    key = f"idemp:{rec_sid}"
+    # NX=only if not exists; EX=TTL seconds
+    if not r.set(key, "1", nx=True, ex=900):
+        return _say("טופל, תודה.")  # already processed
+
+C) Robust outgoing HTTP (retries + X-Request-ID)
+
+# server/http.py
+import flask, requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+_session = requests.Session()
+_retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429,500,502,503,504])
+_adapter = HTTPAdapter(max_retries=_retry)
+_session.mount("http://", _adapter)
+_session.mount("https://", _adapter)
+
+def get(url, **kw):
+    headers = kw.pop("headers", {})
+    headers.setdefault("X-Request-ID", getattr(flask.g, "request_id", "-"))
+    return _session.get(url, headers=headers, timeout=kw.pop("timeout", 15), **kw)
+
+Use from server.http import get instead of raw requests.get.
+
+D) Gunicorn + ProxyFix (prod)
+
+pip install gunicorn
+gunicorn "server.main:create_app()" -b 0.0.0.0:5000 -w 2 -k gthread --threads 8 --timeout 60
+
+# in create_app():
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
+E) Serve SPA with smart Cache-Control
+	•	For /dist/assets/*: Cache-Control: public, max-age=31536000, immutable
+	•	For index.html: Cache-Control: no-cache
+
+F) DB migrations with Alembic
+
+pip install alembic
+alembic init migrations
+# configure sqlalchemy.url in alembic.ini
+alembic revision -m "init"
+alembic upgrade head
+
+G) Optional: Rate-limit public APIs (NOT webhooks)
+	•	Use Flask-Limiter on /api/*, exclude /webhook/* (or validate Twilio then allow).
+
+H) Optional: Sentry + JSON logs
+
+LOG_FORMAT=json
+pip install sentry-sdk[flask]
+
+import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
+sentry_sdk.init(dsn=os.getenv("SENTRY_DSN",""), integrations=[FlaskIntegration()])
+
+
+⸻
+
+✅ Acceptance Checklist (mark all)
+	•	Twilio: /incoming_call, /handle_recording, /call_status → 200; TwiML contains <Record maxLength="30" timeout="5" finishOnKey="*">; idempotent processing; (optional) signature validated.
+	•	CRM: /api/crm/customers?page=1&limit=25 → 200, valid pagination and search.
+	•	Timeline: /api/customers/:id/timeline unified + sorted desc.
+	•	Business: RBAC (admin only for create/update/deactivate/reactivate/delete).
+	•	WhatsApp: /api/whatsapp/send works; inbound webhook logs; persistence of inbound/outbound + statuses.
+	•	Logging/Errors: Request-ID, entry/exit logs, 5xx captured, slow queries logged.
+	•	Frontend: npm run build; Flask serves SPA.
+	•	CI: green (build + minimal smoke).
+
+⸻
+
+אם תדביק את ההנחיה הזו כמו שהיא, המפתח יבצע בדיוק את מה שצריך כדי שהכול יעבוד חלק — עם יציבות של פרודקשן, תיעוד מעולה בלוגים, ושקט נפשי בפריסה.
+רוצה גם גרסת diff-ready לשני התיקונים הקריטיים (רישום Twilio + חיבור logging/error handlers) כדי שידביק ישירות לקבצים?

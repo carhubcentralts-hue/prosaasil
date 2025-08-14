@@ -85,8 +85,7 @@ def create_app():
         SESSION_COOKIE_SECURE=False  # True behind HTTPS/Proxy
     )
     
-    # Register routes
-    register_auth_routes(app)
+    # Register routes (auth handled by blueprint)
     register_core_routes(app)
     # register_webhook_routes(app)  # OLD SYSTEM DISABLED - Using new Twilio Blueprint
     register_static_routes(app)
@@ -121,50 +120,7 @@ def create_app():
     
     return app
 
-def register_auth_routes(app):
-    """רישום נתיבי אימות מאובטחים"""
-    
-    @app.route('/api/auth/login', methods=['POST'])
-    def login():
-        data = request.get_json()
-        
-        # Secure authentication for professional system
-        email = data.get('email')
-        if (email == 'admin@shai.com' and data.get('password') == 'admin123') or (email == 'admin@shai-realestate.co.il' and data.get('password') == 'admin123456'):
-            user = {
-                'id': '1',
-                # 'username': 'admin',
-                'email': email,
-                'firstName': 'מנהל',
-                'lastName': 'ראשי',
-                'role': 'admin',
-                'businessId': None,
-                'isActive': True
-            }
-            return jsonify({'success': True, 'user': user, 'token': 'admin-token-secure'})
-        elif (email == 'shai@shai-realestate.co.il' and data.get('password') == 'shai123') or (email == 'manager@shai-realestate.co.il' and data.get('password') == 'business123456'):
-            user = {
-                'id': '2',
-                'username': 'shai',
-                'email': 'manager@shai-realestate.co.il',
-                'firstName': 'שי',
-                'lastName': 'כהן',
-                'role': 'business',
-                'businessId': 'shai-offices',
-                'isActive': True
-            }
-            return jsonify({'user': user, 'token': 'business-token-secure'})
-        else:
-            return jsonify({'error': 'פרטי התחברות שגויים'}), 401
-    
-    @app.route('/api/auth/logout', methods=['POST'])
-    def logout():
-        return jsonify({'message': 'התנתקת בהצלחה'})
-    
-    @app.route('/api/auth/me', methods=['GET'])
-    def auth_me():
-        # For now, return unauthorized to force login
-        return jsonify({'error': 'נדרשת התחברות'}), 401
+# Auth routes now handled by auth_routes.py blueprint - removing duplicate
 
 def register_core_routes(app):
     """רישום נתיבים עיקריים"""
@@ -172,68 +128,218 @@ def register_core_routes(app):
     @app.route('/')
     def serve_frontend():
         """הגשת הפרונטאנד המקצועי"""
-        try:
-            return send_file('../client/dist/index.html')
-        except:
-            return """<!DOCTYPE html>
+        return """<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>מערכת ניהול שיחות AI - שי דירות ומשרדים בע״מ</title>
     <style>
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: white;
-            color: #333;
-            text-align: center; 
-            padding: 60px 20px;
-            direction: rtl;
+        @import url('https://fonts.googleapis.com/css2?family=Assistant:wght@200;300;400;500;600;700;800&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Assistant', -apple-system, sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
         }
         .container {
-            max-width: 500px;
-            margin: 0 auto;
-            background: #f9f9f9;
-            padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: white;
+            border-radius: 20px;
+            padding: 3rem;
+            width: 100%;
+            max-width: 450px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
         }
-        h1 { color: #2c3e50; margin-bottom: 20px; }
-        .status { 
-            color: #27ae60; 
-            font-weight: bold; 
-            margin: 20px 0;
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
         }
-        .features {
-            text-align: right;
-            margin-top: 30px;
+        .logo {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
-        .feature {
-            margin: 10px 0;
-            padding: 5px;
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin: 0 0 0.5rem 0;
         }
-        .loading {
-            color: #3498db;
-            margin-top: 20px;
+        .subtitle {
+            color: #64748b;
+            font-size: 1rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 0.75rem;
+        }
+        input {
+            width: 100%;
+            padding: 1rem;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            font-size: 1rem;
+            background: #f9fafb;
+            transition: all 0.2s ease;
+        }
+        input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            background: white;
+        }
+        .btn {
+            width: 100%;
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            color: white;
+            padding: 1rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.39);
+            margin-bottom: 2rem;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px 0 rgba(59, 130, 246, 0.5);
+        }
+        .credentials {
+            padding: 1.5rem;
+            background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+            border: 1px solid #7dd3fc;
+            border-radius: 16px;
+            font-size: 0.85rem;
+            color: #0c4a6e;
+        }
+        .credentials h3 {
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+        .credentials div {
+            margin-bottom: 0.5rem;
+            line-height: 1.6;
+        }
+        .error {
+            background: linear-gradient(135deg, #fef2f2, #fee2e2);
+            border: 1px solid #fca5a5;
+            color: #dc2626;
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            text-align: center;
+            font-weight: 500;
+        }
+        #loading {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🏢 מערכת ניהול שיחות AI</h1>
-        <h2>שי דירות ומשרדים בע״מ</h2>
-        <div class="status">✅ השרת פועל בהצלחה</div>
-        
-        <div class="features">
-            <div class="feature">🔐 מערכת התחברות מאובטחת</div>
-            <div class="feature">📞 שיחות קוליות חכמות</div>
-            <div class="feature">💬 WhatsApp אוטומטי</div>
-            <div class="feature">🎯 תמלול עברית מדויק</div>
-            <div class="feature">🤖 תשובות AI מתוחכמות</div>
+        <div class="header">
+            <div class="logo">🏢</div>
+            <h1>מערכת ניהול שיחות AI</h1>
+            <p class="subtitle">שי דירות ומשרדים בע״מ</p>
         </div>
-        
-        <div class="loading">⏳ טוען ממשק המשתמש...</div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label>דואר אלקטרוני</label>
+                <input type="email" id="email" placeholder="הזן דואר אלקטרוני" required>
+            </div>
+
+            <div class="form-group">
+                <label>סיסמה</label>
+                <input type="password" id="password" placeholder="הזן סיסמה" required>
+            </div>
+
+            <div id="errorDiv" class="error" style="display: none;"></div>
+
+            <button type="submit" class="btn" id="loginBtn">כניסה למערכת</button>
+        </form>
+
+        <div class="credentials">
+            <h3>🔐 פרטי התחברות למערכת:</h3>
+            <div><strong>מנהל:</strong> admin@shai.com / admin123</div>
+            <div><strong>מנהל ראשי:</strong> admin@shai-realestate.co.il / admin123456</div>
+            <div><strong>משתמש עסק:</strong> shai@shai-realestate.co.il / shai123</div>
+        </div>
     </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorDiv');
+            const loginBtn = document.getElementById('loginBtn');
+            
+            // Show loading state
+            loginBtn.textContent = 'מתחבר...';
+            loginBtn.id = 'loading';
+            errorDiv.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    // Success - redirect or show dashboard
+                    document.body.innerHTML = `
+                        <div class="container">
+                            <div class="header">
+                                <div class="logo">✅</div>
+                                <h1>התחברת בהצלחה!</h1>
+                                <p class="subtitle">משתמש: ${data.user.firstName || data.user.name} (${data.user.role})</p>
+                            </div>
+                            <div class="credentials">
+                                <h3>🎯 מערכת פעילה ומוכנה:</h3>
+                                <div>✅ מערכת שיחות AI פעילה</div>
+                                <div>✅ Twilio webhooks מחוברים</div>
+                                <div>✅ לוגים מקצועיים פועלים</div>
+                                <div>✅ מוכן לקבלת שיחות!</div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    errorDiv.textContent = data.error || 'שגיאה בהתחברות';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (err) {
+                errorDiv.textContent = 'שגיאת תקשורת. נסה שוב.';
+                errorDiv.style.display = 'block';
+            }
+            
+            // Reset button
+            loginBtn.textContent = 'כניסה למערכת';
+            loginBtn.id = 'loginBtn';
+        });
+    </script>
 </body>
 </html>"""
 

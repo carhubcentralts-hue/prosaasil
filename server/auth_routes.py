@@ -4,17 +4,28 @@ import hashlib
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
-# Simple user database (replace with real database)
+# Professional user database for שי דירות ומשרדים בע״מ
 USERS = {
     "admin@shai.com": {
         "password_hash": hashlib.sha256("admin123".encode()).hexdigest(),
         "role": "admin",
-        "name": "Admin User"
+        "name": "מנהל המערכת",
+        "firstName": "מנהל",
+        "lastName": "ראשי"
     },
-    "staff@shai.com": {
-        "password_hash": hashlib.sha256("staff123".encode()).hexdigest(),
-        "role": "staff",
-        "name": "Staff User"
+    "admin@shai-realestate.co.il": {
+        "password_hash": hashlib.sha256("admin123456".encode()).hexdigest(),
+        "role": "admin", 
+        "name": "מנהל ראשי",
+        "firstName": "מנהל",
+        "lastName": "ראשי"
+    },
+    "shai@shai-realestate.co.il": {
+        "password_hash": hashlib.sha256("shai123".encode()).hexdigest(),
+        "role": "business",
+        "name": "שי כהן",
+        "firstName": "שי",
+        "lastName": "כהן"
     }
 }
 

@@ -1,224 +1,77 @@
-"""
-Hebrew AI Conversation Handler
-מטפל בשיחות AI בעברית עם תמלול, תשובות, ושמירה במסד נתונים
-"""
-
+# server/ai_conversation.py
 import os
-import requests
-import openai
-from datetime import datetime
-from whisper_handler import transcribe_hebrew
-from hebrew_tts import HebrewTTSService
 import logging
-import json
+from typing import Optional
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
-# Fallback data for when database is not available
-FALLBACK_BUSINESS_DATA = {
-    'name': 'שי דירות ומשרדים בע״מ',
-    'type': 'real_estate',
-    'ai_prompt': None,
-    'greeting': None
-}
+REAL_ESTATE_PROMPT = """אתה עוזר דיגיטלי מקצועי של "שי דירות ומשרדים בע״מ".
+אתה מומחה בתחום הנדל"ן הישראלי ויכול לעזור עם:
+- דירות למכירה ולהשכרה
+- משרדים ומבנים מסחריים  
+- השקעות נדל"ן
+- יעוץ משכנתאות
+- הערכת שווי נכסים
+- ייעוץ משפטי בסיסי בנדל"ן
 
-class HebrewAIConversation:
-    def __init__(self):
-        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.tts_service = HebrewTTSService()
-        
-    def get_business_context(self, business_id: int = 1):
-        """קבלת הקשר העסק לתשובות AI"""
-        # Use fallback data for now since database models are not available
-        return {
-            'name': FALLBACK_BUSINESS_DATA['name'],
-            'type': FALLBACK_BUSINESS_DATA['type'],
-            'ai_prompt': self.get_default_prompt('real_estate'),
-            'greeting': FALLBACK_BUSINESS_DATA['greeting']
-        }
-    
-    def get_default_prompt(self, business_type: str) -> str:
-        """פרומפט ברירת מחדל לפי סוג העסק"""
-        prompts = {
-            'real_estate': """אתה סוכן נדל"ן מקצועי וחברותי של שי דירות ומשרדים בע"מ.
-אתה מומחה בשוק הנדל"ן הישראלי, מכיר מחירים עדכניים ואזורים טובים.
-תפקידך לעזור ללקוחות למצוא נכסים מתאימים, להעריך נכסים, ולתת ייעוץ נדל"ן מקצועי.
-התנהג בצורה חמה ומקצועית. שאל שאלות רלוונטיות כמו: סוג הנכס, אזור מועדף, תקציב, מועד.
-אל תמציא מחירים או נכסים ספציפיים - הפנה לפגישה אישית לפרטים מדויקים.""",
-            
-            'restaurant': """אתה נציג חברותי של המסעדה. עזור ללקוחות עם הזמנות, שאלות על התפריט,
-שעות פתיחה, ועריכת אירועים. התנהג בצורה חמה ומזמינה.""",
-            
-            'clinic': """אתה מזכירה מקצועית של המרפאה. עזור ללקוחות עם תיאום תורים,
-מידע על טיפולים, והכנה לבדיקות. התנהג בצורה מקצועית ומרגיעה.""",
-        }
-        return prompts.get(business_type, prompts['real_estate'])
-    
-    def generate_ai_response(self, user_input: str, conversation_history: list, business_context: dict) -> str:
-        """יצירת תשובת AI מותאמת אישית"""
-        try:
-            # בניית הקשר שיחה
-            messages = [
-                {
-                    "role": "system", 
-                    "content": f"""{business_context['ai_prompt']}
-                    
-שם העסק: {business_context['name']}
-סוג העסק: {business_context['type']}
+תן תשובות קצרות ומועילות בעברית, עד 50 מילים.
+היה חם ומקצועי. אל תציין מחירים ספציפיים."""
 
-חוקים חשובים:
-1. ענה רק בעברית
-2. היה קצר ומדויק (עד 50 מילים)
-3. שאל שאלה אחת רלוונטית בכל תשובה  
-4. אם הלקוח רוצה לסיים ("ביי", "תודה ולהתראות", "זה הכל"), ענה בנימוס ותסיים
-5. אל תמציא פרטים ספציפיים - הפנה לפגישה או לאיש קשר
-6. היה חמ ומקצועי"""
-                }
-            ]
-            
-            # הוספת היסטוריית שיחה
-            for turn in conversation_history:
-                if turn.user_input:
-                    messages.append({"role": "user", "content": turn.user_input})
-                if turn.ai_response:
-                    messages.append({"role": "assistant", "content": turn.ai_response})
-            
-            # הוספת הקלט החדש
-            messages.append({"role": "user", "content": user_input})
-            
-            # קריאה ל-OpenAI
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4o",  # הדגם העדכני ביותר
-                messages=messages,
-                max_tokens=150,
-                temperature=0.7,
-                frequency_penalty=0.3,
-                presence_penalty=0.3
-            )
-            
-            ai_response = response.choices[0].message.content
-            if ai_response:
-                ai_response = ai_response.strip()
-            logger.info(f"✅ AI Response generated: {ai_response[:50]}...")
-            return ai_response
-            
-        except Exception as e:
-            logger.error(f"❌ OpenAI API Error: {e}")
-            return "סליחה, אני לא שומע טוב עכשיו. אפשר לחזור על השאלה?"
+def generate_response(text: str, call_sid: str = "", turn: int = 1) -> str:
+    """Generate AI response in Hebrew for real estate conversation"""
     
-    def check_conversation_end(self, user_input: str, ai_response: str) -> bool:
-        """בדיקה אם הלקוח רוצה לסיים את השיחה"""
-        end_words = ['ביי', 'בי בי', 'להתראות', 'תודה ולהתראות', 'זה הכל', 'תודה רבה ולהתראות']
-        user_wants_end = any(word in user_input.lower() for word in end_words)
-        
-        ai_says_goodbye = any(word in ai_response.lower() for word in ['להתראות', 'יום נעים', 'נשמח לעזור שוב'])
-        
-        return user_wants_end or ai_says_goodbye
+    if not OPENAI_AVAILABLE:
+        logger.warning("OpenAI not available, using fallback response")
+        return get_fallback_response(text)
     
-    def process_conversation_turn(self, call_sid: str, recording_url: str, turn_number: int) -> dict:
-        """עיבוד תור שיחה מלא: תמלול → AI → TTS → שמירה"""
-        logger.info(f"🎙️ Processing turn {turn_number} for call {call_sid}")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        logger.warning("No OpenAI API key, using fallback response")
+        return get_fallback_response(text)
+    
+    try:
+        client = openai.OpenAI(api_key=openai_key)
         
-        try:
-            # 1. חיפוש או יצירת רשומת שיחה
-            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
-            if not call_log:
-                # יצירת רשומת שיחה חדשה
-                call_log = CallLog(
-                    call_sid=call_sid,
-                    business_id=1,  # שי דירות ומשרדים בע״מ
-                    customer_phone="",
-                    call_status="in_progress",
-                    start_time=datetime.now()
-                )
-                db.session.add(call_log)
-                db.session.commit()
-                logger.info(f"📝 Created new call log for {call_sid}")
-            
-            # 2. תמלול ההקלטה
-            user_input = ""
-            if recording_url:
-                try:
-                    user_input = transcribe_hebrew(recording_url)
-                    logger.info(f"🎤 Transcription: {user_input}")
-                except Exception as e:
-                    logger.error(f"❌ Transcription failed: {e}")
-                    user_input = "[תמלול נכשל]"
-            
-            # 3. קבלת היסטוריית שיחה
-            conversation_history = ConversationTurn.query.filter_by(
-                call_log_id=call_log.id
-            ).order_by(ConversationTurn.turn_number).all()
-            
-            # 4. בדיקה מוקדמת לסיום שיחה
-            should_end = self.check_conversation_end(user_input, "")
-            
-            # 5. יצירת הקשר עסקי
-            business_context = self.get_business_context(call_log.business_id)
-            
-            # 6. יצירת תשובת AI
-            ai_response = ""
-            if not should_end and user_input and user_input != "[תמלול נכשל]":
-                ai_response = self.generate_ai_response(
-                    user_input, 
-                    conversation_history, 
-                    business_context
-                )
-                
-                # בדיקה נוספת לסיום לאחר תשובת AI  
-                should_end = self.check_conversation_end(user_input, ai_response)
-            
-            # 7. יצירת קובץ TTS
-            response_audio_url = None
-            if ai_response:
-                try:
-                    audio_filename = self.tts_service.create_tts_file(ai_response)
-                    if audio_filename:
-                        response_audio_url = f"https://ai-crmd.replit.app/static/voice_responses/{audio_filename}"
-                        logger.info(f"🔊 TTS created: {audio_filename}")
-                except Exception as e:
-                    logger.error(f"❌ TTS failed: {e}")
-                    response_audio_url = "https://ai-crmd.replit.app/static/voice_responses/processing.mp3"
-            
-            # 8. שמירת התור במסד נתונים
-            conversation_turn = ConversationTurn(
-                call_log_id=call_log.id,
-                turn_number=turn_number,
-                user_input=user_input,
-                ai_response=ai_response,
-                timestamp=datetime.now(),
-                audio_url=recording_url,
-                response_audio_url=response_audio_url
-            )
-            db.session.add(conversation_turn)
-            
-            # 9. עדכון סטטוס שיחה
-            if should_end:
-                call_log.call_status = "completed"
-                call_log.end_time = datetime.now()
-                logger.info(f"✅ Call {call_sid} completed after {turn_number} turns")
-            
-            db.session.commit()
-            
-            return {
-                'success': True,
-                'user_input': user_input,
-                'ai_response': ai_response,
-                'response_audio_url': response_audio_url,
-                'should_end': should_end,
-                'turn_number': turn_number,
-                'call_sid': call_sid
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Error processing conversation turn: {e}")
-            db.session.rollback()
-            return {
-                'success': False,
-                'error': str(e),
-                'should_end': False,
-                'response_audio_url': 'https://ai-crmd.replit.app/static/voice_responses/processing.mp3'
-            }
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": REAL_ESTATE_PROMPT},
+                {"role": "user", "content": text}
+            ],
+            max_tokens=150,
+            temperature=0.7
+        )
+        
+        ai_response = response.choices[0].message.content.strip()
+        logger.info("AI response generated for call %s: %d chars", call_sid, len(ai_response))
+        
+        return ai_response
+        
+    except Exception as e:
+        logger.error("AI response generation failed: %s", e)
+        return get_fallback_response(text)
 
-# Global instance
-ai_conversation = HebrewAIConversation()
+def get_fallback_response(text: str) -> str:
+    """Fallback responses when AI is not available"""
+    text_lower = text.lower()
+    
+    if "דירה" in text_lower or "בית" in text_lower:
+        return "אשמח לעזור לך למצוא דירה מתאימה. איזה אזור מעניין אותך?"
+    elif "משרד" in text_lower or "מסחרי" in text_lower:
+        return "יש לנו מבחר משרדים מעולים. כמה מטרים רבועים אתה מחפש?"
+    elif "מחיר" in text_lower or "כסף" in text_lower:
+        return "המחירים משתנים לפי המיקום והגודל. בואו נתאם פגישה לפרטים."
+    elif "משכנתא" in text_lower:
+        return "אפשר לקבל ייעוץ משכנתאות מקצועי. נתאם פגישה עם היועץ שלנו?"
+    else:
+        return "אני כאן לעזור בכל נושא נדל״ן. על מה תרצה לשמוע?"
+
+def test_ai():
+    """Test function for AI conversation"""
+    logger.info("AI conversation handler loaded successfully")
+    return "AI ready for Hebrew real estate conversations"

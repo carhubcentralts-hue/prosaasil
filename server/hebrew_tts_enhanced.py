@@ -1,114 +1,90 @@
-"""
-Enhanced Hebrew TTS Service with better voice quality
-תיקון מקיף לאיכות הקול העברי
-"""
+# server/hebrew_tts_enhanced.py
 import os
-import uuid
-import hashlib
-import time
 import logging
-from pathlib import Path
-from gtts import gTTS
-import requests
-import tempfile
+from typing import Optional
+import hashlib
 
 logger = logging.getLogger(__name__)
 
-class EnhancedHebrewTTS:
-    def __init__(self):
-        """Initialize enhanced Hebrew TTS with multiple quality options"""
-        self.output_dir = Path("server/static/voice_responses")
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Clean up old files periodically
-        self._cleanup_old_files()
-        
-    def _cleanup_old_files(self):
-        """Clean up files older than 1 hour"""
-        try:
-            current_time = time.time()
-            for file_path in self.output_dir.glob("hebrew_*.mp3"):
-                if current_time - file_path.stat().st_mtime > 3600:  # 1 hour
-                    file_path.unlink()
-                    logger.info(f"🧹 Cleaned up old file: {file_path.name}")
-        except Exception as e:
-            logger.warning(f"⚠️ Cleanup failed: {e}")
+try:
+    from gtts import gTTS
+    GTTS_AVAILABLE = True
+except ImportError:
+    GTTS_AVAILABLE = False
+
+def create_hebrew_audio(text: str, call_sid: str = "", quality: str = "standard") -> Optional[str]:
+    """
+    Create Hebrew audio file from text using gTTS
+    Returns path to generated audio file
+    """
+    if not GTTS_AVAILABLE:
+        logger.warning("gTTS not available, skipping TTS")
+        return None
     
-    def synthesize_professional_hebrew(self, text: str) -> str:
-        """Create professional quality Hebrew audio with multiple fallbacks"""
-        if not text or len(text.strip()) < 1:
-            text = "סליחה, לא שמעתי אותך."
-            
-        logger.info(f"🎙️ Creating professional Hebrew TTS: '{text[:50]}...'")
-        
-        # Method 1: Try enhanced gTTS with multiple quality settings
-        for method in ['premium', 'standard', 'basic']:
-            try:
-                audio_path = self._create_gtts_audio(text, method)
-                if audio_path:
-                    return audio_path
-            except Exception as e:
-                logger.warning(f"⚠️ Method {method} failed: {e}")
-                continue
-        
-        # Ultimate fallback
-        return self._create_fallback_audio()
+    if not text or len(text.strip()) < 2:
+        logger.warning("Text too short for TTS: %s", text)
+        return None
     
-    def _create_gtts_audio(self, text: str, quality: str) -> str:
-        """Create gTTS audio with different quality settings"""
+    try:
+        # Create unique filename
+        text_hash = hashlib.md5(text.encode()).hexdigest()[:8]
+        filename = f"response_{call_sid}_{text_hash}.mp3"
         
-        # Quality configurations
-        configs = {
-            'premium': {'lang': 'iw', 'tld': 'co.il', 'slow': False},
-            'standard': {'lang': 'iw', 'tld': 'com', 'slow': False}, 
-            'basic': {'lang': 'he', 'tld': 'com', 'slow': False}
-        }
+        # Ensure voice responses directory exists
+        voice_dir = "static/voice_responses"
+        os.makedirs(voice_dir, exist_ok=True)
         
-        config = configs.get(quality, configs['standard'])
+        output_path = os.path.join(voice_dir, filename)
         
-        try:
-            # Create unique filename
-            text_hash = hashlib.md5(text.encode()).hexdigest()[:8]
-            unique_id = str(uuid.uuid4())[:8]
-            filename = f"hebrew_{quality}_{text_hash}_{unique_id}.mp3"
-            filepath = self.output_dir / filename
+        # Check if file already exists
+        if os.path.exists(output_path):
+            logger.info("Using cached TTS file: %s", filename)
+            return output_path
+        
+        # Generate Hebrew TTS
+        tts = gTTS(
+            text=text,
+            lang='iw',  # Hebrew language code
+            slow=False
+        )
+        
+        tts.save(output_path)
+        
+        # Verify file was created and has reasonable size
+        if os.path.exists(output_path):
+            file_size = os.path.getsize(output_path)
+            logger.info("Hebrew TTS generated: %s (%d bytes)", filename, file_size)
             
-            logger.info(f"🎵 Creating {quality} quality audio: {filename}")
-            
-            # Create TTS with configuration
-            tts = gTTS(text=text, **config)
-            tts.save(str(filepath))
-            
-            # Verify file creation and quality
-            time.sleep(0.3)  # Allow file to be written
-            
-            if filepath.exists() and filepath.stat().st_size > 2000:
-                logger.info(f"✅ Created {quality} Hebrew audio: {filename} ({filepath.stat().st_size} bytes)")
-                return f"/voice_responses/{filename}"
+            if file_size > 1000:  # At least 1KB
+                return output_path
             else:
-                raise Exception(f"File too small or not created: {filepath.stat().st_size if filepath.exists() else 0} bytes")
-                
-        except Exception as e:
-            logger.error(f"❌ {quality} gTTS failed: {e}")
-            raise e
-    
-    def _create_fallback_audio(self) -> str:
-        """Create fallback audio using existing files"""
-        fallback_files = ["processing.mp3", "listening.mp3", "greeting.mp3"]
-        
-        for fallback in fallback_files:
-            fallback_path = self.output_dir / fallback
-            if fallback_path.exists():
-                # Create copy with unique name
-                unique_id = str(uuid.uuid4())[:8]
-                fallback_filename = f"fallback_{unique_id}.mp3"
-                fallback_dest = self.output_dir / fallback_filename
-                
-                import shutil
-                shutil.copy(str(fallback_path), str(fallback_dest))
-                logger.warning(f"⚠️ Used fallback audio: {fallback} -> {fallback_filename}")
-                return f"/voice_responses/{fallback_filename}"
-        
-        # Ultimate fallback - return existing file
-        logger.error("❌ All TTS methods failed, using processing.mp3")
-        return "/voice_responses/processing.mp3"
+                logger.warning("TTS file too small, may be corrupted")
+                return None
+        else:
+            logger.error("TTS file not created")
+            return None
+            
+    except Exception as e:
+        logger.error("Hebrew TTS generation failed: %s", e)
+        return None
+
+def cleanup_old_audio_files():
+    """Clean up old TTS files to save space"""
+    try:
+        voice_dir = "static/voice_responses"
+        if os.path.exists(voice_dir):
+            files = [f for f in os.listdir(voice_dir) if f.startswith("response_") and f.endswith(".mp3")]
+            
+            # Keep only the 20 most recent files
+            if len(files) > 20:
+                files.sort(key=lambda x: os.path.getmtime(os.path.join(voice_dir, x)))
+                for old_file in files[:-20]:
+                    os.remove(os.path.join(voice_dir, old_file))
+                    logger.info("Cleaned up old TTS file: %s", old_file)
+    except Exception as e:
+        logger.error("TTS cleanup failed: %s", e)
+
+def test_tts():
+    """Test function for TTS"""
+    logger.info("Hebrew TTS handler loaded successfully")
+    return "TTS ready for Hebrew audio generation"
