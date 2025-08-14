@@ -1,87 +1,64 @@
-import { useState, useCallback } from 'react';
-import { AuthProvider, useAuth } from './hooks/useAuth';
-import { Login } from './components/Login';
-import { SystemSelector } from './components/SystemSelector';
-import { AdminDashboard } from './components/AdminDashboard';
+import { useState, useEffect } from 'react';
+import { ProfessionalLogin } from './components/ProfessionalLogin';
 import { BusinessDashboard } from './components/BusinessDashboard';
-import { TaskDueModal } from './components/TaskDueModal';
-import { useTaskDue } from './hooks/useTaskDue';
+import { AdminDashboard } from './components/AdminDashboard';
+import { AuthService } from './lib/auth';
 
-function AppContent() {
-  const { user, isLoading, logout } = useAuth();
-  const [selectedSystem, setSelectedSystem] = useState<string | null>(null);
-  const [dueTask, setDueTask] = useState<any>(null);
-  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+function App() {
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  const handleTaskDue = useCallback((task: any) => {
-    setDueTask(task);
-    setIsTaskModalOpen(true);
+  useEffect(() => {
+    checkAuthStatus();
   }, []);
 
-  useTaskDue(handleTaskDue);
-
-  const closeTaskModal = () => {
-    setIsTaskModalOpen(false);
-    setDueTask(null);
-  };
-
-  const handleSelectSystem = async (system: string) => {
-    if (system === 'logout') {
-      await logout();
-      setSelectedSystem(null);
-      return;
-    }
-
-    // For now, we only implement admin and business dashboards
-    if (system === 'admin-users' || system === 'admin-businesses') {
-      setSelectedSystem('admin');
-    } else if (system === 'calls' || system === 'whatsapp' || system === 'crm') {
-      setSelectedSystem('business');
-    } else {
-      setSelectedSystem(system);
+  const checkAuthStatus = async () => {
+    try {
+      const userData = await AuthService.getCurrentUser();
+      setUser(userData);
+    } catch (error) {
+      // User not authenticated
+      setUser(null);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleBack = () => {
-    setSelectedSystem(null);
+  const handleLoginSuccess = (userData: any) => {
+    setUser(userData);
   };
 
-  if (isLoading) {
+  const handleLogout = async () => {
+    try {
+      await AuthService.logout();
+      setUser(null);
+    } catch (error) {
+      console.error('Logout error:', error);
+      setUser(null); // Force logout even if API call fails
+    }
+  };
+
+  if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-xl text-gray-600" dir="rtl">טוען...</div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">טוען...</p>
+        </div>
       </div>
     );
   }
 
   if (!user) {
-    return <Login />;
+    return <ProfessionalLogin onLoginSuccess={handleLoginSuccess} />;
   }
 
-  if (selectedSystem === 'admin' && user.role === 'admin') {
-    return <AdminDashboard onBack={handleBack} />;
+  // Route based on user role
+  if (user.role === 'admin') {
+    return <AdminDashboard user={user} onLogout={handleLogout} />;
+  } else {
+    return <BusinessDashboard user={user} onLogout={handleLogout} />;
   }
-
-  if (selectedSystem === 'business') {
-    return <BusinessDashboard onBack={handleBack} />;
-  }
-
-  return (
-    <>
-      <SystemSelector user={user} onSelectSystem={handleSelectSystem} />
-      <TaskDueModal
-        isOpen={isTaskModalOpen}
-        onClose={closeTaskModal}
-        task={dueTask}
-      />
-    </>
-  );
 }
 
-export default function App() {
-  return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
-  );
-}
+export default App;

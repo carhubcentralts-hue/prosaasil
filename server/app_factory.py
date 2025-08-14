@@ -28,6 +28,14 @@ def register_blueprints(app):
     except Exception as e:
         print(f"❌ Auth routes registration failed: {e}")
     
+    # Password management (auth required)
+    try:
+        from server.password_routes import password_bp
+        app.register_blueprint(password_bp)
+        print("✅ Password routes registered successfully")
+    except Exception as e:
+        print(f"❌ Password routes registration failed: {e}")
+    
     # Twilio webhooks (no auth required)
     try:
         from server.routes_twilio import twilio_bp
@@ -169,32 +177,71 @@ def register_core_routes(app):
         except Exception as e:
             print(f"Error serving frontend: {e}")
         
-        # Fallback HTML if client dist not found
+        # Professional fallback login page if client dist not found
         return """<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>מערכת ניהול שיחות AI - שי דירות ומשרדים בע״מ</title>
+    <title>מערכת CRM - שי דירות ומשרדים בע״מ</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Assistant:wght@200;300;400;500;600;700;800&display=swap');
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        
         body {
-            font-family: 'Assistant', -apple-system, sans-serif;
-            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            font-family: 'Inter', 'Assistant', sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 1rem;
+            color: #334155;
         }
-        .container {
-            background: white;
-            border-radius: 20px;
+        
+        .login-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
             padding: 3rem;
             width: 100%;
-            max-width: 450px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            max-width: 440px;
+            box-shadow: 
+                0 20px 25px -5px rgba(0, 0, 0, 0.1),
+                0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .brand-header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+        
+        .brand-logo {
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1rem;
+            color: white;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .brand-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 0.5rem;
+        }
+        
+        .brand-subtitle {
+            font-size: 16px;
+            color: #64748b;
+            font-weight: 400;
         }
         .header {
             text-align: center;
