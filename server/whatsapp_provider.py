@@ -1,0 +1,240 @@
+"""
+WhatsApp Provider Layer - Unified Baileys and Twilio Support
+שכבת ספקי WhatsApp - תמיכה מאוחדת ב-Baileys ו-Twilio
+"""
+import os
+import json
+import time
+import pathlib
+import logging
+from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
+
+class Provider:
+    """Abstract WhatsApp provider interface"""
+    def send_text(self, to: str, text: str) -> Dict[str, Any]:
+        raise NotImplementedError
+        
+    def send_media(self, to: str, media_url: str, caption: str = "") -> Dict[str, Any]:
+        raise NotImplementedError
+
+class BaileysProvider(Provider):
+    """Baileys WebSocket client provider"""
+    
+    def __init__(self, base_dir: str = "baileys_auth_info"):
+        self.base_path = pathlib.Path(base_dir)
+        self.queue_file = self.base_path / "message_queue.json"
+        self.status_file = self.base_path / "status.json"
+        
+        # Ensure directories exist
+        self.base_path.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize queue file
+        if not self.queue_file.exists():
+            self.queue_file.write_text("[]", encoding="utf-8")
+            
+        # Initialize status file
+        if not self.status_file.exists():
+            self.status_file.write_text('{"connected": false}', encoding="utf-8")
+
+    def send_text(self, to: str, text: str) -> Dict[str, Any]:
+        """Queue text message for Baileys client"""
+        try:
+            # Load existing queue
+            queue_data = json.loads(self.queue_file.read_text("utf-8"))
+            
+            # Add new message
+            message = {
+                "to": to,
+                "message": text,
+                "type": "text",
+                "timestamp": int(time.time())
+            }
+            queue_data.append(message)
+            
+            # Save updated queue
+            self.queue_file.write_text(
+                json.dumps(queue_data, ensure_ascii=False, indent=2), 
+                encoding="utf-8"
+            )
+            
+            logger.info(f"Message queued for Baileys: {to}")
+            return {
+                "provider": "baileys",
+                "status": "queued",
+                "timestamp": message["timestamp"]
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to queue message for Baileys: {e}")
+            return {
+                "provider": "baileys", 
+                "status": "error",
+                "error": str(e)
+            }
+    
+    def send_media(self, to: str, media_url: str, caption: str = "") -> Dict[str, Any]:
+        """Queue media message for Baileys client"""
+        try:
+            # Load existing queue
+            queue_data = json.loads(self.queue_file.read_text("utf-8"))
+            
+            # Add new media message
+            message = {
+                "to": to,
+                "media_url": media_url,
+                "caption": caption,
+                "type": "media",
+                "timestamp": int(time.time())
+            }
+            queue_data.append(message)
+            
+            # Save updated queue
+            self.queue_file.write_text(
+                json.dumps(queue_data, ensure_ascii=False, indent=2), 
+                encoding="utf-8"
+            )
+            
+            logger.info(f"Media message queued for Baileys: {to}")
+            return {
+                "provider": "baileys",
+                "status": "queued",
+                "timestamp": message["timestamp"]
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to queue media message for Baileys: {e}")
+            return {
+                "provider": "baileys", 
+                "status": "error",
+                "error": str(e)
+            }
+
+class TwilioProvider(Provider):
+    """Twilio WhatsApp Business API provider"""
+    
+    def __init__(self):
+        self.account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+        self.auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+        self.from_number = os.environ.get('TWILIO_WHATSAPP_NUMBER')
+        
+        if not all([self.account_sid, self.auth_token, self.from_number]):
+            raise RuntimeError(
+                "Missing Twilio WhatsApp ENV variables: "
+                "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER"
+            )
+        
+        try:
+            from twilio.rest import Client
+            self.client = Client(self.account_sid, self.auth_token)
+        except ImportError:
+            raise RuntimeError("Twilio package not installed")
+
+    def _format_number(self, number: str) -> str:
+        """Ensure number has whatsapp: prefix"""
+        if not str(number).startswith("whatsapp:"):
+            return f"whatsapp:{number}"
+        return number
+
+    def send_text(self, to: str, text: str) -> Dict[str, Any]:
+        """Send text message via Twilio WhatsApp API"""
+        try:
+            message = self.client.messages.create(
+                body=text,
+                from_=self.from_number,
+                to=self._format_number(to)
+            )
+            
+            logger.info(f"Text message sent via Twilio: {message.sid}")
+            return {
+                "provider": "twilio",
+                "status": message.status,
+                "sid": message.sid,
+                "price": message.price
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to send message via Twilio: {e}")
+            return {
+                "provider": "twilio",
+                "status": "error", 
+                "error": str(e)
+            }
+    
+    def send_media(self, to: str, media_url: str, caption: str = "") -> Dict[str, Any]:
+        """Send media message via Twilio WhatsApp API"""
+        try:
+            message = self.client.messages.create(
+                body=caption,
+                media_url=media_url,
+                from_=self.from_number,
+                to=self._format_number(to)
+            )
+            
+            logger.info(f"Media message sent via Twilio: {message.sid}")
+            return {
+                "provider": "twilio",
+                "status": message.status,
+                "sid": message.sid,
+                "price": message.price
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to send media message via Twilio: {e}")
+            return {
+                "provider": "twilio",
+                "status": "error",
+                "error": str(e)
+            }
+
+def get_provider() -> Provider:
+    """
+    Factory function to get the configured WhatsApp provider
+    פונקציית מפעל להחזרת ספק WhatsApp מוגדר
+    """
+    provider_name = os.getenv("WHATSAPP_PROVIDER", "baileys").lower()
+    
+    if provider_name == "twilio":
+        logger.info("Using Twilio WhatsApp provider")
+        return TwilioProvider()
+    else:
+        logger.info("Using Baileys WhatsApp provider")
+        return BaileysProvider()
+
+def get_provider_status() -> Dict[str, Any]:
+    """Get status of the current provider"""
+    provider_name = os.getenv("WHATSAPP_PROVIDER", "baileys").lower()
+    
+    if provider_name == "twilio":
+        # Check Twilio credentials
+        required_vars = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_NUMBER']
+        missing = [var for var in required_vars if not os.getenv(var)]
+        
+        return {
+            "provider": "twilio",
+            "configured": len(missing) == 0,
+            "missing_vars": missing,
+            "ready": len(missing) == 0
+        }
+    else:
+        # Check Baileys status
+        status_file = pathlib.Path("baileys_auth_info/status.json")
+        if status_file.exists():
+            try:
+                status = json.loads(status_file.read_text())
+                return {
+                    "provider": "baileys",
+                    "configured": True,
+                    "connected": status.get("connected", False),
+                    "ready": status.get("connected", False)
+                }
+            except:
+                pass
+        
+        return {
+            "provider": "baileys",
+            "configured": False,
+            "connected": False,
+            "ready": False
+        }

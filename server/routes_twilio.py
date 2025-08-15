@@ -4,7 +4,7 @@ UNIFIED CLEAN FILE - לפי המפרט המקצועי
 """
 from flask import Blueprint, request, Response, current_app
 from urllib.parse import urljoin
-from server.twilio_verify import require_twilio_signature
+from server.twilio_security import require_twilio_signature
 import os, logging
 
 def _mask_phone(phone):
@@ -94,6 +94,7 @@ def handle_recording():
     return Response(xml, mimetype="text/xml", status=200)
 
 @twilio_bp.post("/webhook/call_status")
+@require_twilio_signature
 def call_status():
     """Call status updates - text/plain response (לא XML)"""
     call_sid = request.form.get("CallSid", "")

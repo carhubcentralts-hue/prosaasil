@@ -6,7 +6,7 @@ from flask import Blueprint, request, jsonify
 from server.twilio_security import require_twilio_signature
 from server.models_sql import WhatsAppMessage
 from server.db import db
-from server.whatsapp_providers import get_provider
+from server.whatsapp_provider import get_provider
 import logging
 
 whatsapp_twilio_bp = Blueprint("whatsapp_twilio", __name__, url_prefix="/webhook/whatsapp")
@@ -72,12 +72,12 @@ def whatsapp_status():
                 
                 if wa_message:
                     wa_message.status = message_status
+                    from datetime import datetime
+                    now = datetime.utcnow()
                     if message_status == "delivered":
-                        from datetime import datetime
-                        wa_message.delivered_at = datetime.utcnow()
+                        wa_message.delivered_at = now
                     elif message_status == "read":
-                        from datetime import datetime
-                        wa_message.read_at = datetime.utcnow()
+                        wa_message.read_at = now
                     
                     db.session.commit()
                     logger.info("Updated WhatsApp message %s status to %s", message_sid, message_status)

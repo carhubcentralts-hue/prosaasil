@@ -120,11 +120,34 @@ def register_blueprints(app):
         @app.route('/api/whatsapp/status', methods=['GET'])
         def whatsapp_status_fallback():
             return jsonify({'success': True, 'connected': False, 'status': 'disconnected'})
+    
+    # Unified WhatsApp API (production ready)
+    try:
+        from server.api_whatsapp_unified import whatsapp_unified_bp
+        app.register_blueprint(whatsapp_unified_bp)
+        print("✅ WhatsApp Unified API registered successfully")
+    except Exception as e:
+        print(f"❌ WhatsApp Unified API registration failed: {e}")
+    
+    # Production Health Checks
+    try:
+        from server.health_check_production import health_production_bp
+        app.register_blueprint(health_production_bp)
+        print("✅ Production Health Checks registered successfully")
+    except Exception as e:
+        print(f"❌ Production Health Checks registration failed: {e}")
 
 def create_app():
     """Production-ready app factory with comprehensive setup"""
     """יצירת אפליקציית Flask עם הגדרות מקצועיות"""
     app = Flask(__name__)
+    
+    # Environment validation and setup
+    from server.environment_validation import validate_production_environment, log_environment_status
+    
+    # Validate environment
+    validation_result = validate_production_environment()
+    log_environment_status()
     
     # Setup critical environment variables for voice system - FAIL FAST if missing
     PH = os.getenv("PUBLIC_HOST", "").rstrip("/")
@@ -132,6 +155,12 @@ def create_app():
         raise RuntimeError("PUBLIC_HOST not set – configure in Replit Secrets (Workspace + Deploy)")
     app.config["PUBLIC_HOST"] = PH
     print(f"✅ PUBLIC_HOST set to: {PH}")
+    
+    if validation_result["production_ready"]:
+        print("🎯 Environment validation: PRODUCTION READY")
+    else:
+        missing_count = len(validation_result["missing"]["core"]) + len(validation_result["missing"]["whatsapp"])
+        print(f"⚠️ Environment validation: {missing_count} critical variables missing")
     
     # Load configuration
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-prod')
