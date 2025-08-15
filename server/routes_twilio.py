@@ -20,7 +20,7 @@ def abs_url(path: str) -> str:
     """יצירת URL מוחלט עבור Twilio webhooks - FAIL FAST אם לא מוגדר HOST"""
     host = (current_app.config.get("PUBLIC_HOST") or os.getenv("PUBLIC_HOST") or "").rstrip("/")
     if not host:
-        raise RuntimeError("PUBLIC_HOST not set. Set PUBLIC_HOST in Replit Secrets")
+        raise RuntimeError("PUBLIC_HOST not configured - Hebrew fallback will be used")
     return urljoin(host + "/", path.lstrip("/"))
 
 def get_business_greeting(to_number, call_sid):
