@@ -48,4 +48,7 @@ dependencies = [
     "python-json-logger>=3.3.0",
     "pytest>=8.4.1",
     "flask-limiter>=3.12",
+    "numpy>=2.2.6",
+    "librosa>=0.11.0",
+    "soundfile>=0.13.1",
 ]

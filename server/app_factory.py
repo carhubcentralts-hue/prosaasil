@@ -134,6 +134,10 @@ def create_app():
     """יצירת אפליקציית Flask עם הגדרות מקצועיות"""
     app = Flask(__name__)
     
+    # Initialize WebSocket support for Twilio Media Streams
+    from flask_sock import Sock
+    sock = Sock(app)
+    
     # Environment validation and setup
     from server.environment_validation import validate_production_environment, log_environment_status
     
@@ -229,6 +233,13 @@ def create_app():
     
     # Register all blueprints
     register_blueprints(app)
+    
+    # Register WebSocket endpoint for Twilio Media Streams
+    @sock.route("/ws/twilio-media")
+    def twilio_media_ws(ws):
+        """WebSocket handler for Twilio Media Streams - NO MORE <Say> LANGUAGE ERRORS!"""
+        from media_ws import handle_twilio_media
+        handle_twilio_media(ws)
     
     # Register error handlers last
     register_error_handlers(app)

@@ -32,7 +32,7 @@ def get_business_greeting(to_number, call_sid):
 @twilio_bp.post("/webhook/incoming_call")
 @require_twilio_signature
 def incoming_call():
-    """Handle incoming Twilio call - MUST return TwiML XML with correct Content-Type"""
+    """Handle incoming Twilio call - MEDIA STREAMS (no more <Say> language errors!)"""
     try:
         from_number = _mask_phone(request.form.get("From", ""))
         to_number = _mask_phone(request.form.get("To", ""))
@@ -40,30 +40,41 @@ def incoming_call():
         
         log.info("Incoming call: From=%s To=%s CallSid=%s", from_number, to_number, call_sid)
         
-        # Try MP3 with PUBLIC_HOST, fallback to Hebrew <Say>
-        public_host = os.getenv("PUBLIC_HOST")
-        if public_host:
-            try:
-                greeting_path = get_business_greeting(to_number, call_sid)
-                greeting_url = abs_url(greeting_path)
-                xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+        # שמירת שיחה במסד נתונים
+        try:
+            from server.models_sql import CallLog, db
+            call_log = CallLog()
+            call_log.business_id = 1  # ברירת מחדל לעסק הראשון
+            call_log.call_sid = call_sid
+            call_log.from_number = request.form.get("From", "")
+            call_log.status = "received"
+            db.session.add(call_log)
+            db.session.commit()
+            log.info("Call logged: %s", call_sid)
+        except Exception as e:
+            log.error("Failed to log call %s: %s", call_sid, e)
+
+        # Media Streams - פותח WebSocket דו־כיווני
+        public_host = os.getenv("PUBLIC_HOST", "https://ai-crmd.replit.app").rstrip("/")
+        ws_url = public_host.replace("https://", "wss://").replace("http://", "ws://")
+        
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{greeting_url}</Play>
-  <Pause length="1"/>
-  <Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="5" finishOnKey="*" transcribe="false"/>
+  <Connect>
+    <Stream url="{ws_url}/ws/twilio-media"/>
+  </Connect>
 </Response>"""
-            except Exception as e:
-                log.warning("MP3 fallback failed: %s", e)
-                raise  # Fall through to Hebrew <Say>
-        else:
-            raise RuntimeError("PUBLIC_HOST not set")
-            
+        
     except Exception as e:
-        log.warning("Fallback to Hebrew <Say>: %s", e)
-        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        log.error("Incoming call error: %s", e)
+        # גם ה-fallback עכשיו עם Media Streams!
+        public_host = os.getenv("PUBLIC_HOST", "https://ai-crmd.replit.app").rstrip("/")
+        ws_url = public_host.replace("https://", "wss://").replace("http://", "ws://")
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say language="he-IL">שלום, השאירו הודעה אחרי הצפצוף.</Say>
-  <Record playBeep="true" maxLength="30" timeout="5" finishOnKey="*"/>
+  <Connect>
+    <Stream url="{ws_url}/ws/twilio-media"/>
+  </Connect>
 </Response>"""
     
     return Response(xml, mimetype="text/xml", status=200)

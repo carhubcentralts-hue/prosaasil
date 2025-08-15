@@ -5,15 +5,18 @@ This project is a fully operational, production-ready Hebrew AI Call Center CRM 
 
 ## Recent Changes (August 15, 2025)
 
-**🎉 PRODUCTION DEPLOYMENT COMPLETE (August 15, 2025):**
+**🎉 WARNING 13512 FIXED - PRODUCTION COMPLETE (August 15, 2025):**
 
-**🚀 LIVE DEPLOYMENT READY (100% Complete):**
-- ✅ **PUBLIC_HOST CONFIGURED**: Full MP3 playback support enabled
+**🚀 BREAKTHROUGH: Hebrew Voice Calls Working (100% Complete):**
+- ✅ **WARNING 13512 ELIMINATED**: Replaced `<Say language="he-IL">` with Media Streams
+- ✅ **MEDIA STREAMS ACTIVE**: Real-time WebSocket audio processing 
+- ✅ **HEBREW AI PIPELINE**: Whisper → GPT-4o → Google Wavenet seamless
+- ✅ **NO LANGUAGE RESTRICTIONS**: Bypassed Twilio language limitations completely
+- ✅ **LIVE CALLS READY**: System processes voice calls in real-time Hebrew
+- ✅ **PUBLIC_HOST CONFIGURED**: WebSocket streams working via wss://ai-crmd.replit.app
 - ✅ **ALL WEBHOOKS 200/204**: No more 500 errors, complete error handling
 - ✅ **PRODUCTION SECRETS**: All required environment variables set
-- ✅ **TWILIO INTEGRATION**: Voice calls, recordings, status updates working
 - ✅ **WHATSAPP READY**: Incoming messages, status tracking, database persistence
-- ✅ **HEBREW AI SYSTEM**: Complete conversational AI with voice synthesis
 - ✅ **DATABASE OPERATIONAL**: PostgreSQL with all models and relationships
 - ✅ **SECURITY HARDENED**: Signature validation, rate limiting, CORS protection
 
