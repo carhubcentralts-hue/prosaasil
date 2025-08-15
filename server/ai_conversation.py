@@ -35,6 +35,9 @@ def generate_response(text: str, call_sid: str = "", turn: int = 1) -> str:
         return get_fallback_response(text)
     
     try:
+        if not OPENAI_AVAILABLE:
+            raise ImportError("OpenAI not available")
+            
         client = openai.OpenAI(api_key=openai_key)
         
         response = client.chat.completions.create(
@@ -47,7 +50,12 @@ def generate_response(text: str, call_sid: str = "", turn: int = 1) -> str:
             temperature=0.7
         )
         
-        ai_response = response.choices[0].message.content.strip()
+        # Handle response properly with null checks
+        ai_response = ""
+        if response and response.choices and len(response.choices) > 0:
+            content = response.choices[0].message.content
+            ai_response = content.strip() if content else ""
+        
         logger.info("AI response generated for call %s: %d chars", call_sid, len(ai_response))
         
         return ai_response

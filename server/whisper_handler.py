@@ -30,6 +30,9 @@ def transcribe_he(audio_data: io.BytesIO) -> str:
         return "הקלטת קול התקבלה"
         
     try:
+        if not OPENAI_AVAILABLE:
+            raise ImportError("OpenAI not available")
+            
         client = openai.OpenAI(api_key=openai_key)
         
         # Reset audio data position
@@ -43,7 +46,8 @@ def transcribe_he(audio_data: io.BytesIO) -> str:
             response_format="text"
         )
         
-        transcription = response.strip()
+        # Handle response properly - response is already text when format is "text"
+        transcription = str(response).strip() if response else ""
         logger.info("Hebrew transcription successful: %s chars", len(transcription))
         
         # Filter out gibberish/noise
