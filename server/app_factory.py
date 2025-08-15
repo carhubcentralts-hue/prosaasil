@@ -14,6 +14,9 @@ from server.error_handlers import register_error_handlers
 from server.db import db
 from server.models_sql import *  # noqa
 
+# Import and setup Google credentials
+from server.bootstrap_secrets import ensure_google_creds_file
+
 def register_blueprints(app):
     """Register all application blueprints"""
     # Health and core routes
@@ -124,8 +127,14 @@ def register_blueprints(app):
         print(f"❌ Production Health Checks registration failed: {e}")
 
 def create_app():
+    """Create Flask application with Hebrew AI Call Center configuration"""
+    # Setup Google credentials immediately
+    try:
+        ensure_google_creds_file()
+    except Exception as e:
+        print(f"⚠️ Google credentials setup failed: {e}")
+    
     """Production-ready app factory with comprehensive setup"""
-    """יצירת אפליקציית Flask עם הגדרות מקצועיות"""
     app = Flask(__name__)
     
     # Initialize WebSocket support for Twilio Media Streams

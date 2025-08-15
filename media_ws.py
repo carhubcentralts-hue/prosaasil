@@ -6,21 +6,9 @@ from audio_utils import b64_to_mulaw, mulaw8k_to_pcm16k, pcm16k_float_to_mulaw8k
 
 log = logging.getLogger("media_ws")
 
-# Initialize Google TTS
+# Initialize Google TTS - with improved error handling
 try:
     from google.cloud import texttospeech as tts_module
-    
-    # Set up credentials from environment
-    creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if not creds_json and os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON"):
-        # Create temp file from JSON string
-        sa_json = os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
-        data = json.loads(sa_json)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(data, f)
-            f.flush()
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = f.name
-    
     tts_client = tts_module.TextToSpeechClient()
     log.info("✅ Google TTS client initialized")
 except Exception as e:
@@ -44,10 +32,10 @@ def has_voice_energy(pcm16k: np.ndarray, threshold=0.01) -> bool:
     rms = np.sqrt(np.mean(pcm16k ** 2))
     return rms > threshold
 
-def tts_he_wavenet(text: str) -> np.ndarray:
-    """Hebrew TTS using Google Cloud → PCM16@16k float32 [-1,1]"""
+def tts_he_wavenet_safe(text: str) -> np.ndarray:
+    """Hebrew TTS using Google Cloud with fallback → PCM16@16k float32 [-1,1]"""
     if not tts_client or not tts_module:
-        log.error("TTS client not available")
+        log.error("TTS client not available - returning silence")
         return np.zeros(16000, dtype=np.float32)  # 1 second of silence
         
     try:
@@ -74,11 +62,16 @@ def tts_he_wavenet(text: str) -> np.ndarray:
             import librosa
             data = librosa.resample(data, orig_sr=sr, target_sr=16000)
         
+        log.info(f"✅ TTS generated {len(data)} samples for: {text[:30]}...")
         return data.astype(np.float32)
         
     except Exception as e:
         log.error(f"TTS error: {e}")
-        return np.zeros(16000, dtype=np.float32)
+        return np.zeros(16000, dtype=np.float32)  # fallback silence
+
+# Backward compatibility alias
+def tts_he_wavenet(text: str) -> np.ndarray:
+    return tts_he_wavenet_safe(text)
 
 def transcribe_he_whisper(pcm16k: np.ndarray) -> str:
     """Hebrew transcription using OpenAI Whisper"""
@@ -170,19 +163,22 @@ def handle_twilio_media(ws):
                     # Send initial Hebrew greeting
                     try:
                         greeting = "שלום! הגעתם ל שי דירות ומשרדים בע״מ. איך אוכל לעזור לכם?"
-                        greeting_audio = tts_he_wavenet(greeting)
-                        greeting_frames = pcm16k_float_to_mulaw8k_frames(greeting_audio)
-                        
-                        for frame in greeting_frames:
-                            media_msg = {
-                                "event": "media",
-                                "streamSid": stream_sid,
-                                "media": {"payload": frame}
-                            }
-                            ws.send(json.dumps(media_msg))
-                            time.sleep(0.02)  # 20ms between frames
-                        
-                        log.info("✅ Hebrew greeting sent successfully")
+                        greeting_audio = tts_he_wavenet_safe(greeting)
+                        if greeting_audio is not None and len(greeting_audio) > 0:
+                            greeting_frames = pcm16k_float_to_mulaw8k_frames(greeting_audio)
+                            
+                            for frame in greeting_frames:
+                                media_msg = {
+                                    "event": "media",
+                                    "streamSid": stream_sid,
+                                    "media": {"payload": frame}
+                                }
+                                ws.send(json.dumps(media_msg))
+                                time.sleep(0.02)  # 20ms between frames
+                            
+                            log.info("✅ Hebrew greeting sent successfully")
+                        else:
+                            log.warning("⚠️ TTS failed, skipping greeting")
                         
                     except Exception as e:
                         log.error(f"❌ Failed to send greeting: {e}")
@@ -215,17 +211,20 @@ def handle_twilio_media(ws):
                                     log.info(f"🤖 AI Response: {ai_response}")
                                     
                                     # Convert to speech and send
-                                    response_audio = tts_he_wavenet(ai_response)
-                                    response_frames = pcm16k_float_to_mulaw8k_frames(response_audio)
-                                    
-                                    for frame in response_frames:
-                                        media_msg = {
-                                            "event": "media",
-                                            "streamSid": stream_sid,
-                                            "media": {"payload": frame}
-                                        }
-                                        ws.send(json.dumps(media_msg))
-                                        time.sleep(0.02)
+                                    response_audio = tts_he_wavenet_safe(ai_response)
+                                    if response_audio is not None and len(response_audio) > 0:
+                                        response_frames = pcm16k_float_to_mulaw8k_frames(response_audio)
+                                        
+                                        for frame in response_frames:
+                                            media_msg = {
+                                                "event": "media",
+                                                "streamSid": stream_sid,
+                                                "media": {"payload": frame}
+                                            }
+                                            ws.send(json.dumps(media_msg))
+                                            time.sleep(0.02)
+                                    else:
+                                        log.warning("⚠️ TTS failed for response, skipping audio")
                                     
                                     # Save to conversation memory
                                     conversation_memory.append({
