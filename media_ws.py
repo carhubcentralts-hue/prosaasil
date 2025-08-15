@@ -167,18 +167,26 @@ def handle_twilio_media(ws):
                 log.info("🔥 Stream started: %s call=%s", stream_sid, call_sid)
                 
                 # ברכה ראשונית
+                log.info("🎤 שולח ברכה ראשונית")
                 greeting = "שלום! אתם מדברים עם שי דירות ומשרדים. איך אוכל לעזור לכם?"
-                audio = tts_he_wavenet(greeting)
-                speaking = True
-                for frame in pcm16k_float_to_mulaw8k_frames(audio):
-                    ws.send(json.dumps({
-                        "event": "media",
-                        "streamSid": stream_sid,
-                        "media": {"payload": frame}
-                    }))
-                    time.sleep(0.02)
-                speaking = False
-                conversation_started = True
+                try:
+                    audio = tts_he_wavenet(greeting)
+                    speaking = True
+                    frame_count = 0
+                    for frame in pcm16k_float_to_mulaw8k_frames(audio):
+                        ws.send(json.dumps({
+                            "event": "media",
+                            "streamSid": stream_sid,
+                            "media": {"payload": frame}
+                        }))
+                        frame_count += 1
+                        time.sleep(0.02)
+                    log.info("✅ ברכה נשלחה: %d frames", frame_count)
+                    speaking = False
+                    conversation_started = True
+                except Exception as e:
+                    log.error("❌ שגיאה בשליחת ברכה: %s", e)
+                    speaking = False
                 continue
 
             if evt.get("event") == "stop":

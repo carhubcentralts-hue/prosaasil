@@ -138,6 +138,8 @@ def create_app():
     from flask_sock import Sock
     sock = Sock(app)
     
+    # WebSocket will be registered later with other routes
+    
     # Environment validation and setup
     from server.environment_validation import validate_production_environment, log_environment_status
     
@@ -245,11 +247,23 @@ def create_app():
     register_blueprints(app)
     
     # Register WebSocket endpoint for Twilio Media Streams
+    print("🔧 Registering WebSocket endpoint /ws/twilio-media")
+    
     @sock.route("/ws/twilio-media")
     def twilio_media_ws(ws):
-        """WebSocket handler for Twilio Media Streams - NO MORE <Say> LANGUAGE ERRORS!"""
-        from media_ws import handle_twilio_media
-        handle_twilio_media(ws)
+        """WebSocket handler for Twilio Media Streams - Hebrew real-time calls"""
+        print(f"🌐 NEW WEBSOCKET CONNECTION established: {ws}")
+        try:
+            from media_ws import handle_twilio_media
+            print("✅ Calling handle_twilio_media")
+            handle_twilio_media(ws)
+            print("✅ handle_twilio_media completed")
+        except Exception as e:
+            print(f"❌ WebSocket handler error: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    print("✅ WebSocket endpoint registered successfully")
     
     # Register error handlers last
     register_error_handlers(app)
