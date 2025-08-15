@@ -5,6 +5,10 @@ Hebrew AI Call Center CRM - Professional Main Entry Point
 """
 
 import os
+from server.bootstrap_secrets import ensure_env, ensure_google_creds_file
+ensure_env()
+ensure_google_creds_file()
+
 from server.app_factory import create_app
 
 # Create professional Flask app

@@ -94,6 +94,22 @@ def register_blueprints(app):
     except Exception as e:
         print(f"❌ CRM Basic API registration failed: {e}")
     
+    # Improved Twilio Webhooks (לפי המפרט המקצועי)
+    try:
+        from server.routes_twilio_improved import twilio_improved_bp
+        app.register_blueprint(twilio_improved_bp)
+        print("✅ Improved Twilio webhooks registered successfully")
+    except Exception as e:
+        print(f"❌ Improved Twilio webhooks registration failed: {e}")
+    
+    # CRM Unified API (לפי המפרט המקצועי)
+    try:
+        from server.api_crm_unified import crm_unified_bp
+        app.register_blueprint(crm_unified_bp)
+        print("✅ CRM Unified API registered successfully")
+    except Exception as e:
+        print(f"❌ CRM Unified API registration failed: {e}")
+    
     # WhatsApp integration (auth required)
     try:
         from server.api_whatsapp_improved import whatsapp_bp
