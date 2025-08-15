@@ -21,8 +21,8 @@ def abs_url(path):
 
 def get_business_greeting(to_number, call_sid):
     """Get business-specific greeting file"""
-    # For now, use default greeting - can be extended to DB lookup
-    return "static/voice_responses/response_welcome_9d229dd7.mp3"
+    # Use the working welcome file that exists
+    return "static/voice_responses/welcome.mp3"
 
 @twilio_bp.route("/incoming_call", methods=["POST"])
 def incoming_call():
