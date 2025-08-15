@@ -1,0 +1,13 @@
+{
+  "name": "baileys-service",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "pino": "^9.0.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
