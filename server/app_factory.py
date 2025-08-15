@@ -10,6 +10,10 @@ import os
 from server.logging_setup import init_logging, install_request_hooks, install_sqlalchemy_slow_query_logging
 from server.error_handlers import register_error_handlers
 
+# Database imports
+from server.db import db
+from server.models_sql import *  # noqa
+
 def register_blueprints(app):
     """Register all application blueprints"""
     # Health and core routes
@@ -51,6 +55,14 @@ def register_blueprints(app):
         print(f"✅ twilio_bp imported: {twilio_bp}")
         app.register_blueprint(twilio_bp)
         print("✅ Twilio webhooks registered successfully")
+    except Exception as e:
+        print(f"❌ Twilio webhooks registration failed: {e}")
+    
+    # WhatsApp Twilio webhooks (no auth required)
+    try:
+        from server.routes_whatsapp_twilio import whatsapp_twilio_bp
+        app.register_blueprint(whatsapp_twilio_bp)
+        print("✅ WhatsApp Twilio webhooks registered successfully")
         
         # DEBUG: Show registered routes
         print("🔍 DEBUG: Current Flask routes:")
@@ -110,6 +122,7 @@ def register_blueprints(app):
             return jsonify({'success': True, 'connected': False, 'status': 'disconnected'})
 
 def create_app():
+    """Production-ready app factory with comprehensive setup"""
     """יצירת אפליקציית Flask עם הגדרות מקצועיות"""
     app = Flask(__name__)
     
@@ -155,10 +168,18 @@ def create_app():
     
     # Initialize database if available
     try:
-        from server.models import db
+        # Try new SQLAlchemy models first
         if db is not None:
+            app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///./agentlocator.db")
+            app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+            
             db.init_app(app)
             with app.app_context():
+                try:
+                    db.create_all()
+                    print("✅ Production database initialized with SQLAlchemy models")
+                except Exception as e:
+                    print(f"⚠️ Database initialization warning: {e}")
                 try:
                     install_sqlalchemy_slow_query_logging(app, db)
                     print("✅ DB slow query logging installed")
@@ -166,8 +187,17 @@ def create_app():
                     app.logger.warning("DB slow query logging not installed: %s", e)
         else:
             print("ℹ️ Database object is None")
-    except ImportError:
-        print("ℹ️ No database models found")
+    except ImportError as e:
+        print(f"ℹ️ No database models found: {e}")
+        
+        # Fallback to legacy models
+        try:
+            from server.models import db as legacy_db
+            if legacy_db is not None:
+                legacy_db.init_app(app)
+                print("✅ Legacy database models loaded")
+        except ImportError:
+            print("ℹ️ No legacy database models found")
     
     # Register all blueprints
     register_blueprints(app)
