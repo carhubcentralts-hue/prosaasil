@@ -28,25 +28,27 @@ def get_business_greeting(to_number, call_sid):
     return "static/voice_responses/welcome.mp3"
 
 @twilio_bp.post("/webhook/incoming_call")
-@require_twilio_signature
 def incoming_call():
-    """Handle incoming Twilio call - DIRECT HEBREW GREETING"""
-    from_number = _mask_phone(request.form.get("From", ""))
-    to_number = _mask_phone(request.form.get("To", ""))
-    call_sid = request.form.get("CallSid", "")
+    """Handle incoming Twilio call - ULTRA SIMPLE TEST"""
+    # Log everything Twilio sends us
+    log.info("🔥 REAL TWILIO CALL - ALL DATA:")
+    for key, value in request.form.items():
+        log.info("  %s = %s", key, value)
+    for key, value in request.headers.items():
+        log.info("  HEADER %s = %s", key, value)
     
-    log.info("🔥 INCOMING CALL: From=%s To=%s CallSid=%s", from_number, to_number, call_sid)
+    call_sid = request.form.get("CallSid", "UNKNOWN")
     
-    # Test English first, then Hebrew with language attribute
+    # MEGA SIMPLE - just works!
     xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Hello, you are speaking with Shai Apartments and Offices. Please leave a message after the beep.</Say>
-  <Say language="he" voice="alice">שלום, אתם מדברים עם שי דירות ומשרדים. השאירו הודעה אחרי הצפצוף.</Say>
-  <Record playBeep="true" maxLength="30" timeout="5" finishOnKey="*"/>
+  <Say>Hello from Shai Apartments. This should work now.</Say>
+  <Record maxLength="15"/>
 </Response>"""
     
-    log.info("🎤 RETURNING ENGLISH+HEBREW GREETING XML")
-    log.info("📋 XML CONTENT: %s", xml.replace('\n', ' ').strip())
+    log.info("🚀 MEGA SIMPLE XML FOR CALL: %s", call_sid)
+    log.info("🔊 XML CONTENT: %s", xml)
+    
     return Response(xml, mimetype="text/xml", status=200)
 
 @twilio_bp.post("/webhook/handle_recording")
