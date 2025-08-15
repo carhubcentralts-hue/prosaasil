@@ -25,7 +25,7 @@ This project is a fully operational, production-ready Hebrew AI Call Center CRM 
 - **WhatsApp**: ✅ Active - QR code available for connection
 - **Web Interface**: ✅ Running - Professional login system operational
 
-**📱 READY FOR LIVE CALLS**: System verified for production Hebrew voice conversations
+**📱 CONTINUOUS VOICE CONVERSATIONS**: Real-time Hebrew conversations with AI - customers can talk as long as needed until they hang up
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.

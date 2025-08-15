@@ -53,14 +53,14 @@ def incoming_call():
     
     return Response(xml, mimetype="text/xml", status=200)
 
-def process_recording_async(rec_url, call_sid, from_number):
-    """Process recording in background thread - NO blocking operations in webhook"""
+def process_recording_sync(rec_url, call_sid, from_number):
+    """Process recording SYNCHRONOUSLY for immediate response in continuous conversation"""
     try:
-        log.info("Background processing recording: %s for call %s", rec_url, call_sid)
+        log.info("Sync processing recording: %s for call %s", rec_url, call_sid)
         
         # Download recording
         audio_url = f"{rec_url}.mp3"
-        r = requests.get(audio_url, timeout=20)
+        r = requests.get(audio_url, timeout=15)
         r.raise_for_status()
         audio_bytes = io.BytesIO(r.content)
         
@@ -77,7 +77,7 @@ def process_recording_async(rec_url, call_sid, from_number):
         from server.whisper_handler import transcribe_he
         text_he = transcribe_he(audio_bytes)
         call_data["transcription"] = text_he
-        call_data["status"] = "transcribed"
+        log.info("Hebrew transcription for %s: %s", call_sid, text_he[:100])
         
         # Generate AI response
         from server.ai_conversation import generate_response
@@ -85,34 +85,84 @@ def process_recording_async(rec_url, call_sid, from_number):
         call_data["ai_response"] = ai_text
         call_data["status"] = "completed"
         
-        log.info("Recording processed successfully for call %s", call_sid)
+        log.info("AI response for %s: %s", call_sid, ai_text[:100])
+        
+        return ai_text
         
     except Exception as e:
-        log.error("Background recording processing failed for %s: %s", call_sid, e, exc_info=True)
+        log.error("Sync recording processing failed for %s: %s", call_sid, e, exc_info=True)
+        return "מצטער, לא הצלחתי לעבד את ההקלטה. אנא חזור על השאלה."
+
+def process_recording_async(rec_url, call_sid, from_number):
+    """Process recording in background thread - for logging/storage only"""
+    try:
+        log.info("Background logging for call %s", call_sid)
+        # TODO: Save to database for analytics and history
+        
+    except Exception as e:
+        log.error("Background logging failed for %s: %s", call_sid, e, exc_info=True)
 
 @twilio_bp.route("/handle_recording", methods=["POST"])
 def handle_recording():
-    """Handle recording - MUST be fast (<15 seconds) and return TwiML XML"""
+    """Handle recording - Process immediately and continue conversation"""
     rec_url = request.form.get("RecordingUrl")
     call_sid = request.form.get("CallSid", "")
     from_number = _mask_phone(request.form.get("From", ""))
     
     log.info("Handle recording: url=%s CallSid=%s", rec_url, call_sid)
     
-    if rec_url:
-        # Process recording in background thread (NO blocking!)
-        thread = threading.Thread(
-            target=process_recording_async, 
-            args=(rec_url, call_sid, from_number)
-        )
-        thread.daemon = True
-        thread.start()
+    # Process recording IMMEDIATELY (not in background for continuous conversation)
+    ai_response_text = process_recording_sync(rec_url, call_sid, from_number)
     
-    # Return immediate TwiML response
-    xml = """<?xml version="1.0" encoding="UTF-8"?>
+    # Generate Hebrew TTS response file
+    try:
+        from server.hebrew_tts_enhanced import create_hebrew_audio
+        response_file = create_hebrew_audio(ai_response_text, f"call_{call_sid}")
+        if response_file:
+            response_url = abs_url(response_file)
+            
+            # Continue conversation - Play AI response then record again
+            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say language="he-IL">תודה, קיבלנו את ההודעה ונחזור אליך בהקדם.</Say>
-    <Hangup/>
+    <Play>{response_url}</Play>
+    <Pause length="1"/>
+    <Record action="/webhook/handle_recording"
+            method="POST"
+            maxLength="30"
+            timeout="5"
+            finishOnKey="*"
+            transcribe="false"
+            language="he-IL"/>
+</Response>"""
+        else:
+            # Fallback - use Say instead of Play
+            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say language="he-IL">{ai_response_text}</Say>
+    <Pause length="1"/>
+    <Record action="/webhook/handle_recording"
+            method="POST"
+            maxLength="30"
+            timeout="5"
+            finishOnKey="*"
+            transcribe="false"
+            language="he-IL"/>
+</Response>"""
+            
+    except Exception as e:
+        log.error("Error generating TTS response: %s", e)
+        # Fallback response
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say language="he-IL">מצטער, נתקלתי בבעיה טכנית. אנא נסה שוב.</Say>
+    <Pause length="1"/>
+    <Record action="/webhook/handle_recording"
+            method="POST"
+            maxLength="30"
+            timeout="5"
+            finishOnKey="*"
+            transcribe="false"
+            language="he-IL"/>
 </Response>"""
     
     return Response(xml, mimetype="text/xml", status=200)
