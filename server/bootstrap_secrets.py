@@ -35,36 +35,30 @@ def ensure_env():
 def ensure_google_creds_file() -> bool:
     """
     מגדיר GOOGLE_APPLICATION_CREDENTIALS כך ש-Google TTS יעבוד.
-    תומך בשלושה פורמטים:
-    1) GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON = תוכן JSON מלא
-    2) GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON = תוכן Base64 של ה-JSON
-    3) GOOGLE_APPLICATION_CREDENTIALS = נתיב לקובץ JSON קיים
+    משתמש רק ב-GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON (הסוד הנכון).
+    תומך בפורמטים: JSON ישיר או Base64.
     """
-    # אם כבר יש נתיב מוגדר – נכבד אותו
-    if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-        print(f"✅ Google credentials already set: {os.getenv('GOOGLE_APPLICATION_CREDENTIALS')}")
-        return True
-
-    raw = os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON") or os.getenv("GOOGLE_TTS_SA_JSON")
-    if not raw:
-        print("⚠️ GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_TTS_SA_JSON not set - TTS will not work")
-        return False  # לא נגדיר כלום – הקולר צריך להגדיר ידנית GOOGLE_APPLICATION_CREDENTIALS
-
-    # נסה לזהות האם זה JSON ישיר, Base64 או נתיב
-    def _set_creds_path(p: pathlib.Path) -> bool:
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(p)
-        print(f"✅ Google credentials file created: {p}")
-        return True
-
-    # 3) אולי זה נתיב לקובץ? (רק אם זה לא JSON ארוך)
-    if len(raw) < 500 and not raw.strip().startswith('{'):  # נתיב קובץ לא יהיה ארוך מ-500 תווים
+    # מחיקת כל GOOGLE_APPLICATION_CREDENTIALS ישן שגוי
+    old_creds = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if old_creds:
+        print(f"🗑️ מחיקת GOOGLE_APPLICATION_CREDENTIALS ישן שגוי: {old_creds}")
+        if 'GOOGLE_APPLICATION_CREDENTIALS' in os.environ:
+            del os.environ['GOOGLE_APPLICATION_CREDENTIALS']
+        # מחיקת קובץ ישן
         try:
-            possible_path = pathlib.Path(raw)
-            if possible_path.exists() and possible_path.is_file():
-                return _set_creds_path(possible_path)
-        except OSError:
-            # אם זה לא נתיב תקין, נמשיך לנסיונות הבאים
+            if os.path.exists(old_creds):
+                os.remove(old_creds)
+                print(f"✅ קובץ ישן נמחק")
+        except:
             pass
+
+    # משתמש רק ב-GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON (הסוד הנכון)
+    raw = os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
+    if not raw:
+        print("⚠️ GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON לא מוגדר - Google TTS לא יעבוד")
+        return False
+
+    print(f"🔧 מעבד GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON ({len(raw)} תווים)")
 
     # 1) JSON ישיר
     try:
