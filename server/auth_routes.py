@@ -4,7 +4,7 @@ import hashlib
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
-# Professional user database for שי דירות ומשרדים בע״מ
+# Professional user database for CRM system
 USERS = {
     "admin@shai.com": {
         "password_hash": hashlib.sha256("admin123".encode()).hexdigest(),

@@ -8,21 +8,27 @@ import random
 import logging
 from typing import Dict, List, Optional
 import openai
-from hebrew_tts_enhanced import EnhancedHebrewTTS
+# from server.hebrew_tts_enhanced import EnhancedHebrewTTS
 
 logger = logging.getLogger(__name__)
 
 class AdvancedConversationManager:
     def __init__(self):
         """Initialize advanced conversation manager with loop prevention"""
-        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.tts_service = EnhancedHebrewTTS()
+        if os.getenv("OPENAI_API_KEY"):
+            try:
+                self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            except:
+                self.openai_client = None
+        else:
+            self.openai_client = None
+        # self.tts_service = EnhancedHebrewTTS()  # Disabled for now
         self.conversation_history = {}  # Store conversation context
         
     def get_business_context(self) -> Dict:
         """Get enhanced business context"""
         return {
-            'name': 'שי דירות ומשרדים בע״מ',
+            'name': 'מערכת CRM',
             'type': 'real_estate',
             'specialties': ['דירות', 'משרדים', 'השקעות', 'השכרה', 'מכירה'],
             'areas': ['תל אביב', 'רמת גן', 'הרצליה', 'מרכז', 'דרום'],

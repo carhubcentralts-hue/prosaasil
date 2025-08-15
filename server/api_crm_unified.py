@@ -36,14 +36,15 @@ MOCK_WA_MESSAGES = [
 def customers_list():
     """רשימת לקוחות עם חיפוש ופאג'ינציה"""
     try:
-        params = get_pagination_params()
+        page, limit = get_pagination_params(request)
+        search_q = request.args.get('q', '')
         
         # סינון לפי חיפוש
         customers = MOCK_CUSTOMERS
-        if params["q"]:
-            customers = [c for c in customers if params["q"].lower() in c["name"].lower() or params["q"] in c["phone"]]
+        if search_q:
+            customers = [c for c in customers if search_q.lower() in c["name"].lower() or search_q in c["phone"]]
         
-        results, page, pages, total = paginate_query(customers, params["page"], params["limit"])
+        results, page, pages, total = paginate_query(customers, page, limit)
         
         return jsonify(pagination_response(results, page, pages, total))
         
@@ -56,7 +57,7 @@ def customers_list():
 def customer_timeline(customer_id):
     """Timeline מאוחד ללקוח - calls, WhatsApp, חשבוניות, וכו'"""
     try:
-        params = get_pagination_params()
+        page, limit = get_pagination_params(request)
         
         # אחד אירועים מכל המקורות
         timeline_items = []
@@ -93,7 +94,12 @@ def customer_timeline(customer_id):
         # מיין לפי זמן (הכי חדש קודם)
         timeline_items.sort(key=lambda x: x["ts"], reverse=True)
         
-        results, page, pages, total = paginate_query(timeline_items, params["page"], params["limit"])
+        # Direct pagination for timeline to avoid count() issues
+        total = len(timeline_items)
+        pages = (total + limit - 1) // limit
+        start = (page - 1) * limit
+        end = start + limit
+        results = timeline_items[start:end]
         
         return jsonify({
             "customer_id": customer_id,
@@ -109,14 +115,19 @@ def customer_timeline(customer_id):
 def calls_list():
     """רשימת שיחות עם סינון לפי לקוח"""
     try:
-        params = get_pagination_params()
+        page, limit = get_pagination_params(request)
         customer_id = request.args.get("customer_id", type=int)
         
-        calls = MOCK_CALLS
+        calls = MOCK_CALLS.copy()  # Make a copy to avoid modifying original
         if customer_id:
             calls = [c for c in calls if c["customer_id"] == customer_id]
         
-        results, page, pages, total = paginate_query(calls, params["page"], params["limit"])
+        # Direct pagination for list to avoid count() issues
+        total = len(calls)
+        pages = (total + limit - 1) // limit  # Ceiling division
+        start = (page - 1) * limit
+        end = start + limit
+        results = calls[start:end]
         
         return jsonify(pagination_response(results, page, pages, total))
         
@@ -149,7 +160,7 @@ def call_transcript(call_id):
 def wa_messages_list():
     """הודעות WhatsApp לפי לקוח"""
     try:
-        params = get_pagination_params()
+        page, limit = get_pagination_params(request)
         customer_id = request.args.get("customer_id", type=int)
         
         if not customer_id:
@@ -157,7 +168,12 @@ def wa_messages_list():
         
         messages = [msg for msg in MOCK_WA_MESSAGES if msg["customer_id"] == customer_id]
         
-        results, page, pages, total = paginate_query(messages, params["page"], params["limit"])
+        # Direct pagination for messages to avoid count() issues  
+        total = len(messages)
+        pages = (total + limit - 1) // limit
+        start = (page - 1) * limit
+        end = start + limit
+        results = messages[start:end]
         
         return jsonify(pagination_response(results, page, pages, total))
         

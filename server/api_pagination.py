@@ -16,7 +16,12 @@ def paginate_query(query, page: int, limit: int):
     limit = min(100, max(1, limit))  # Limit between 1-100
     
     # Get total count
-    total = query.count() if hasattr(query, 'count') else len(query)
+    if hasattr(query, 'count') and callable(getattr(query, 'count')):
+        # SQLAlchemy query
+        total = query.count()
+    else:
+        # List or other iterable
+        total = len(query)
     
     # Calculate pagination
     pages = (total + limit - 1) // limit  # Ceiling division

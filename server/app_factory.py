@@ -229,7 +229,7 @@ def register_core_routes(app):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>מערכת CRM - שי דירות ומשרדים בע״מ</title>
+    <title>מערכת CRM</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -391,7 +391,7 @@ def register_core_routes(app):
         <div class="header">
             <div class="logo">🏢</div>
             <h1>מערכת ניהול שיחות AI</h1>
-            <p class="subtitle">שי דירות ומשרדים בע״מ</p>
+            <p class="subtitle">מערכת CRM מתקדמת</p>
         </div>
 
         <form id="loginForm">
@@ -495,7 +495,7 @@ def register_webhook_routes(app):
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice" language="he-IL" rate="0.9">
-    שלום, הגעתם לשי דירות ומשרדים. אני העוזרת הדיגיטלית.
+    שלום, הגעתם למערכת CRM המתקדמת. אני העוזרת הדיגיטלית.
     אשמח לעזור לכם עם כל שאלה בנושא נדלן. דברו אחרי הצפצוף.
   </Say>
   <Record action="/webhook/conversation_turn?turn=1"
@@ -658,7 +658,7 @@ def generate_professional_response(user_input: str, turn_num: int) -> str:
         
         client = openai.OpenAI()
         
-        system_prompt = """אתה סוכן נדל"ן מקצועי וחכם של "שי דירות ומשרדים בע״מ".
+        system_prompt = """אתה סוכן נדל"ן מקצועי וחכם של מערכת CRM מתקדמת.
 אתה מומחה בשוק הנדל"ן הישראלי ונותן שירות מעולה ללקוחות.
 
 הנחיות חשובות:

@@ -178,7 +178,7 @@ export function Login() {
               <span className="text-5xl">🏢</span>
             </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2" dir="rtl">
-              שי דירות ומשרדים בע״מ
+              מערכת CRM
             </h1>
             <h2 className="text-lg font-semibold text-gray-700 mb-4" dir="rtl">
               מערכת ניהול מתקדמת

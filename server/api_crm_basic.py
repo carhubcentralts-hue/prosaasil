@@ -19,7 +19,12 @@ def customers_list():
         page = int(request.args.get("page", 1))
         limit = int(request.args.get("limit", 25))
         
-        results, page, pages, total = paginate_query(mock_customers, page, limit)
+        # Manual pagination for mock data
+        total = len(mock_customers)
+        start = (page - 1) * limit
+        end = start + limit
+        results = mock_customers[start:end]
+        pages = (total + limit - 1) // limit
         
         return jsonify(pagination_response(results, page, pages, total))
         

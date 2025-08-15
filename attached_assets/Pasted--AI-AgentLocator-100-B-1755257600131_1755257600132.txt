@@ -1,0 +1,528 @@
+קיבלת. הנה **הנחיה סופית, אחת־לאחת, לסוכן ה-AI** שתביא את AgentLocator ל-**100% מוכנות לפרודקשן** (Backend קודם, אח״כ נטפל ב־UI). ההנחיה כוללת **סדר ביצוע**, **שינויים בקבצים**, **קטעי קוד קופי-פייסט**, **בדיקות קבלה**, ו**ניקיון כפילויות**.
+
+---
+
+# 🧠 הנחיה לסוכן — “Production-Ready Backend” (ללא קיצורי דרך)
+
+> פעל בדיוק לפי הסדר. אל תדלג שלבים. כל שלב מסתיים בהרצת בדיקות ה-Smoke/pytest המצורפות.
+
+## 0) הכנה וענף עבודה
+
+1. צור ענף חדש: `fix/prod-ready-backend`.
+2. הפעל לוג בנוי מראש עם Request-ID (נוסיף בשלב 11).
+3. ודא שכל המפתחות נקראים מ־`.env` / Secrets בלבד.
+
+---
+
+## 1) מבנה פרויקט סופי + ניקוי כפילויות
+
+* השאר **Backend** תחת `server/…` ו־**Frontend יחיד** תחת `client/…`.
+* אם קיימת תיקיית `src/` נוספת ל־FE — **העבר ל־`legacy/`** ועדכן README שלא בשימוש.
+* ודא שה-Flask מגיש את `client/dist` (אם מוגדר כך) ושאין קבצי HTML ישנים מתנגשים.
+
+**קבצים להסרה/הקפאה (אם קיימים):**
+
+* `routes_twillo.py`, `routes_twillo_improved.py` → **אחד מאוחד**: `server/routes_twilio.py`
+* `server/whatsapp_api.py` (מוקי) → השאר בקובץ אך **אל תרשום אותו לאפליקציה**
+* שמור רק **Blueprint אחד** פעיל לווטסאפ: `server/api_whatsapp_improved.py`
+
+---
+
+## 2) קונפיג/Secrets (חובה)
+
+צור/עדכן `.env`:
+
+```
+PUBLIC_HOST=https://<דומיין/טאנל עם TLS>
+CORS_ORIGINS=https://<אותו Host של FE>
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+JWT_SECRET=<מחרוזת חזקה>
+DATABASE_URL=sqlite:///./agentlocator.db
+GOOGLE_TTS_SA_JSON=<JSON של Service Account מקודד בשורה אחת או כ-secret>
+FLASK_ENV=production
+```
+
+> אם יש `bootstrap_secrets.py` שמייצר קובץ JSON זמני ל-GCP — ודא שהוא קורא מה-env לעיל.
+
+---
+
+## 3) מסד נתונים אמיתי (SQLAlchemy + Alembic)
+
+### 3.1 יצירת שכבת ORM
+
+צור `server/db.py`:
+
+```python
+from flask_sqlalchemy import SQLAlchemy
+db = SQLAlchemy()
+```
+
+צור `server/models_sql.py`:
+
+```python
+from server.db import db
+from datetime import datetime
+
+class Business(db.Model):
+    __tablename__ = "business"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    domain = db.Column(db.String(255))
+    active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Customer(db.Model):
+    __tablename__ = "customer"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    name = db.Column(db.String(255), nullable=False)
+    phone = db.Column(db.String(64), index=True)
+    email = db.Column(db.String(255))
+    status = db.Column(db.String(64), default="new")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class CallLog(db.Model):
+    __tablename__ = "call_log"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"))
+    call_sid = db.Column(db.String(64), index=True)
+    from_number = db.Column(db.String(64), index=True)
+    recording_url = db.Column(db.String(512))
+    transcription = db.Column(db.Text)
+    status = db.Column(db.String(32), default="received")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class WhatsAppMessage(db.Model):
+    __tablename__ = "whatsapp_message"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    to_number = db.Column(db.String(64), index=True)
+    direction = db.Column(db.String(8))  # 'out'/'in'
+    body = db.Column(db.Text)
+    status = db.Column(db.String(32), default="queued")
+    provider_message_id = db.Column(db.String(128))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+```
+
+### 3.2 חיבור ה-DB באפליקציה
+
+עדכן `server/app_factory.py` (בתוך `create_app()`):
+
+```python
+import os
+from server.db import db
+from server.models_sql import *  # noqa
+
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///./agentlocator.db")
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db.init_app(app)
+with app.app_context():
+    db.create_all()
+    print("✅ DB initialized")
+```
+
+### 3.3 Alembic (מיגרציות)
+
+* הוסף Alembic לפרויקט (אם לא קיים), אתחל `alembic init` ותייצר מיגרציה ראשונה אחרי `create_all`.
+* עדכן `alembic.ini` ל־`sqlalchemy.url = ${DATABASE_URL}`.
+
+---
+
+## 4) Twilio — וובהוקים מאובטחים ומהירים
+
+### 4.1 החלת אימות חתימה על **כל** מסלולי Twilio
+
+ב־`server/routes_twilio.py` ודא:
+
+```python
+@twilio_bp.post("/webhook/incoming_call")
+@require_twilio_signature
+def incoming_call(): ...
+```
+
+```python
+@twilio_bp.post("/webhook/handle_recording")
+@require_twilio_signature
+def handle_recording(): ...
+```
+
+```python
+@twilio_bp.post("/webhook/call_status")
+@require_twilio_signature
+def call_status(): ...
+```
+
+> אם הדקורטור `require_twilio_signature` מוגדר במקום אחר—ייבא אותו לשימוש אחיד.
+
+### 4.2 תגובה מהירה ל-Twilio (Timeout-safe)
+
+ב־`handle_recording` החזר TwiML **מיד** (תוך < 2 שנ׳) והעבר הורדה/תמלול ל-Background (Thread/Task קיים אצלך). ודא שה־Task **לא** חוסם את ה-request.
+
+### 4.3 PUBLIC\_HOST
+
+במקומות שמייצרים URL להשמעת MP3, **אל תזרוק חריגה** אם חסר—במקום זה:
+
+* כתוב לוג אזהרה ברור
+* השב בברירת מחדל (למשל TTS “הקלטתך התקבלה, ניצור קשר”)
+* ציין ב-README שחובה PUBLIC\_HOST בפרודקשן
+
+---
+
+## 5) TTS — Google Cloud Wavenet + Fallback ל-gTTS
+
+עדכן `server/hebrew_tts_enhanced.py` (ליבה):
+
+```python
+import os, logging
+from typing import Optional
+from google.cloud import texttospeech
+
+logger = logging.getLogger(__name__)
+try:
+    from gtts import gTTS
+    GTTS_AVAILABLE = True
+except Exception:
+    GTTS_AVAILABLE = False
+
+def create_hebrew_audio(text: str, call_sid: str = "", quality: str = "standard") -> Optional[str]:
+    try:
+        client = texttospeech.TextToSpeechClient()
+        input_text = texttospeech.SynthesisInput(text=text)
+        voice = texttospeech.VoiceSelectionParams(
+            language_code="he-IL",
+            name="he-IL-Wavenet-A"
+        )
+        audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
+        response = client.synthesize_speech(input=input_text, voice=voice, audio_config=audio_config)
+
+        out_dir = "static/voice_responses"
+        os.makedirs(out_dir, exist_ok=True)
+        filename = f"response_{(call_sid or 'greeting')}.mp3"
+        path = os.path.join(out_dir, filename)
+        with open(path, "wb") as f:
+            f.write(response.audio_content)
+        return path
+    except Exception as e:
+        logger.error("GCP TTS failed, fallback to gTTS: %s", e)
+        if GTTS_AVAILABLE:
+            out_dir = "static/voice_responses"
+            os.makedirs(out_dir, exist_ok=True)
+            path = os.path.join(out_dir, f"response_{(call_sid or 'greeting')}.mp3")
+            gTTS(text=text, lang="he").save(path)
+            return path
+        return None
+```
+
+ודא שה־Service Account נטען (דרך `GOOGLE_TTS_SA_JSON` או קובץ ש-`bootstrap_secrets.py` יוצר זמנית).
+
+---
+
+## 6) שמירה ל-DB בכל הזרימות הקריטיות
+
+עדכן את משימות הרקע/וובהוקים כך:
+
+* בכניסת שיחה: צור/אתר Business/Customer לפי מספר, צור רשומת `CallLog(status='received')`.
+* לאחר הקלטה ותמלול: עדכן `CallLog.recording_url` ו־`transcription` ו־`status='completed'`.
+* ב־WhatsApp: כל שליחה נכנסת/יוצאת תיצור `WhatsAppMessage` עם `direction` מתאים וסטטוס.
+
+דוגמת עזרים:
+
+```python
+from server.db import db
+from server.models_sql import Business, Customer, CallLog, WhatsAppMessage
+
+def upsert_customer(business_id: int, name: str, phone: str, email: str = None) -> Customer:
+    c = Customer.query.filter_by(business_id=business_id, phone=phone).first()
+    if not c:
+        c = Customer(business_id=business_id, name=name or phone, phone=phone, email=email)
+        db.session.add(c)
+        db.session.commit()
+    return c
+```
+
+---
+
+## 7) WhatsApp אמיתי — רישום ה-Blueprint + גשר Baileys
+
+### 7.1 רישום ה-Blueprint המשופר
+
+ב־`server/app_factory.py`:
+
+```python
+# WhatsApp integration
+try:
+    from server.api_whatsapp_improved import whatsapp_bp
+    app.register_blueprint(whatsapp_bp)
+    print("✅ WhatsApp IMPROVED API registered")
+except Exception as e:
+    print(f"❌ WhatsApp API registration failed: {e}")
+```
+
+> וודא שה-prefix הוא `/api/whatsapp`.
+
+### 7.2 שירות Baileys (Node) — גשר תור
+
+צור `services/baileys/index.js`:
+
+```js
+import makeWASocket, { useMultiFileAuthState, Browsers } from '@whiskeysockets/baileys'
+import fs from 'fs'
+import path from 'path'
+
+const authDir = path.resolve(process.cwd(), '../../baileys_auth_info')
+if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true })
+const statusFile = path.join(authDir, 'status.json')
+const qrFile = path.join(authDir, 'qr_code.txt')
+const queueFile = path.join(authDir, 'message_queue.json')
+
+function writeJson(p, o){ fs.writeFileSync(p, JSON.stringify(o, null, 2)) }
+
+async function start(){
+  const { state, saveCreds } = await useMultiFileAuthState(authDir)
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: true,
+    browser: Browsers.macOS('AgentLocator')
+  })
+  sock.ev.on('creds.update', saveCreds)
+  sock.ev.on('connection.update', ({ connection, qr, lastDisconnect })=>{
+    if (qr) fs.writeFileSync(qrFile, qr)
+    writeJson(statusFile, {
+      connected: connection === 'open',
+      qr_available: !!qr,
+      last_disconnect: lastDisconnect ? String(lastDisconnect.error) : null,
+      ts: new Date().toISOString()
+    })
+  })
+
+  setInterval(async ()=>{
+    try{
+      if (!fs.existsSync(queueFile)) return
+      const q = JSON.parse(fs.readFileSync(queueFile, 'utf8'))
+      if (!Array.isArray(q) || q.length===0) return
+      const msg = q.shift()
+      if (!msg?.to || !msg?.message) return
+      await sock.sendMessage(msg.to, { text: msg.message })
+      fs.writeFileSync(queueFile, JSON.stringify(q, null, 2))
+    }catch(e){ console.error('Queue error', e) }
+  }, 2000)
+}
+start().catch(console.error)
+```
+
+ב־`services/baileys/package.json` ודא תלות: `@whiskeysockets/baileys`.
+
+**הרצה מקומית:**
+
+```bash
+cd services/baileys
+npm i
+node index.js
+```
+
+*(בריפליט/פרודקשן — נצרף מנהל תהליכים בשלב 10)*
+
+---
+
+## 8) CORS, אבטחה, Rate-Limit
+
+* הגדר CORS ל־`CORS_ORIGINS` בלבד.
+* החל Rate-Limit על `/webhook/*` ו־`/api/whatsapp/send` (למשל `20/min`).
+* חסום שגיאות מפורטות בפרודקשן (פלסקים).
+
+---
+
+## 9) לוגים ו-Request-ID
+
+הוסף Middleware:
+
+```python
+import uuid, logging
+from flask import g, request
+
+logger = logging.getLogger(__name__)
+
+@app.before_request
+def assign_request_id():
+    g.request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+
+@app.after_request
+def add_request_id(resp):
+    resp.headers["X-Request-ID"] = getattr(g, "request_id", "")
+    return resp
+```
+
+בכל לוג: `logger.info("msg", extra={"request_id": g.request_id})` (או הוסף פילטר).
+
+---
+
+## 10) תצורת ריצה מרובת תהליכים (Flask + Baileys)
+
+**אפשרות A (מומלץ):** נהל את `services/baileys/index.js` בנפרד (שרת/קונטיינר נפרד).
+**אפשרות B (יחיד):** הוסף `Procfile`:
+
+```
+web: python -m server.main
+worker: node services/baileys/index.js
+```
+
+או השתמש ב־`concurrently` דרך `npm`/`pipx` (לפי סביבת ההרצה שלך).
+
+---
+
+## 11) בדיקות Smoke ו-pytest (להרצה אחרי כל שלב)
+
+צור `tests/test_smoke.py`:
+
+```python
+import os
+os.environ["FLASK_ENV"] = "testing"
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+
+from server.app import app  # adjust if factory pattern used
+def test_health(client=None):
+    with app.test_client() as c:
+        r = c.get("/health")
+        assert r.status_code == 200
+
+def test_twilio_incoming(client=None):
+    with app.test_client() as c:
+        r = c.post("/webhook/incoming_call")  # ב-testing דלג על חתימה
+        assert r.status_code in (200, 204)
+        assert b"<Response" in r.data  # TwiML
+
+def test_whatsapp_status(client=None):
+    with app.test_client() as c:
+        r = c.get("/api/whatsapp/status")
+        assert r.status_code == 200
+```
+
+> במצב `testing`: עקוף אימות חתימה Twilio באמצעות פלג `if app.config.get("TESTING")`.
+
+**בדיקות ידניות (curl):**
+
+```bash
+# Twilio
+curl -X POST http://localhost:5000/webhook/incoming_call
+curl -X POST http://localhost:5000/webhook/handle_recording -d RecordingUrl=https://api.twilio.com/.../RExxx -d CallSid=CA_TEST_1
+curl -X POST http://localhost:5000/webhook/call_status -d CallSid=CA_TEST_1 -d CallStatus=completed
+
+# WhatsApp (אחרי שה־node רץ)
+curl http://localhost:5000/api/whatsapp/status
+curl http://localhost:5000/api/whatsapp/qr
+curl -X POST http://localhost:5000/api/whatsapp/send -H "Content-Type: application/json" -d '{"to":"+9725XXXXXXX","text":"בדיקת AgentLocator"}'
+
+# CRM (מאגר נתונים חי)
+curl http://localhost:5000/api/crm/customers
+```
+
+---
+
+## 12) רישום Blueprints סופי (בדוק שאין כפילויות)
+
+ב־`server/app_factory.py`, **רק** אלה רשומים:
+
+* Health/Debug/Auth (אם קיימים)
+* `routes_twilio.twilio_bp`
+* `api_whatsapp_improved.whatsapp_bp`
+* `crm_unified_api.crm_bp` (או המקבילה הבסיסית — אבל מחוברת ל-DB אמיתי)
+
+---
+
+## 13) ניהול שגיאות עקבי
+
+הוסף־/עדכן `server/errors.py`:
+
+```python
+from flask import Blueprint, jsonify
+
+errors_bp = Blueprint("errors", __name__)
+
+@errors_bp.app_errorhandler(404)
+def not_found(e): return jsonify(error="not_found"), 404
+
+@errors_bp.app_errorhandler(429)
+def rate_limited(e): return jsonify(error="rate_limited"), 429
+
+@errors_bp.app_errorhandler(500)
+def internal(e): return jsonify(error="internal_error"), 500
+```
+
+ורשום אותו באפליקציה.
+
+---
+
+## 14) מסמכי API / Postman
+
+* הפק OpenAPI או Postman Collection ל:
+
+  * `/webhook/incoming_call`, `/webhook/handle_recording`, `/webhook/call_status`
+  * `/api/whatsapp/status|qr|send`
+  * `/api/crm/*`
+
+---
+
+## 15) קריטריוני קבלה (Definition of Done)
+
+✅ Twilio:
+
+* כל הוובהוקים עם `@require_twilio_signature`
+* `handle_recording` מחזיר TwiML מיד, העיבוד ברקע
+* השמעת MP3 עובדת עם `PUBLIC_HOST`
+* `CallLog` נשמר/מתעדכן ב-DB
+
+✅ WhatsApp:
+
+* `/api/whatsapp/status` מחזיר `connected/qr_available`
+* `/api/whatsapp/qr` מחזיר QR תקין (כאשר לא מחובר)
+* `/api/whatsapp/send` שולח בפועל דרך Baileys (ה־queue נצרך)
+* הודעות נשמרות ל־DB (`WhatsAppMessage`)
+
+✅ CRM/DB:
+
+* `Business/Customer/CallLog/WhatsAppMessage` קיימות בטבלאות
+* יצירה/עדכון עובדים לאורך הזרימה
+
+✅ אבטחה ותצורה:
+
+* CORS לפי `CORS_ORIGINS`
+* Rate-Limit על מסלולים רגישים
+* לוגים עם `X-Request-ID`
+
+✅ בדיקות:
+
+* `pytest` ירוק
+* curl smoke עובר לכל המסלולים
+
+✅ ניקיון:
+
+* **אין** רישום כפול של Blueprints
+* **אין** תיקיית FE כפולה בשימוש (`client` בלבד)
+
+---
+
+# 🧪 סדר הרצת בדיקות אחרי כל שלב
+
+1. `pytest -q`
+2. curl לשלושת מסלולי Twilio
+3. הרץ Node של Baileys → curl ל־`/api/whatsapp/status|qr|send`
+4. ודא שנוצרו שורות ב-DB (אפשר לוגים/SQLite browser)
+
+---
+
+# 🔚 בסיום
+
+* פתח PR עם פירוט מלא של:
+
+  * קבצים ששונו
+  * תוצאות pytest
+  * תוצאות curl (עם דוגמאות JSON מקוצרות)
+  * צילום מסך של QR/Status
+* מיזג רק לאחר שעברת את קריטריוני הקבלה במלואם.
+
+---
+
+כשתסיים את שלבים 1-7 (בעיקר: DB, Twilio חתימות, WhatsApp משופר + Baileys), תגיד לי “בוצע” — ואז נעבור לשדרוג **ויזואלי מלא** (RTL, פונט Assistant, היררכיית כפתורים, טבלאות, צבעים, ותצוגות נפרדות לפי הרשאות/תפקיד).

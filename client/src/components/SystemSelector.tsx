@@ -55,7 +55,7 @@ export function SystemSelector({ user, onSelectSystem }: SystemSelectorProps) {
             שלום {user.firstName} {user.lastName}
           </p>
           <p className="text-lg text-gray-500">
-            {user.role === 'admin' ? 'מנהל מערכת' : 'מנהל עסק'} • שי דירות ומשרדים בע״מ
+            {user.role === 'admin' ? 'מנהל מערכת' : 'מנהל עסק'}
           </p>
         </div>
 

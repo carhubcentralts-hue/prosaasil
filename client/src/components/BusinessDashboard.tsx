@@ -63,7 +63,7 @@ export function BusinessDashboard({ user, onLogout }: BusinessDashboardProps) {
               </div>
               <div className="mr-3">
                 <h1 className="text-lg font-semibold text-slate-900">לוח בקרה עסקי</h1>
-                <p className="text-sm text-slate-600">שי דירות ומשרדים בע״מ</p>
+                <p className="text-sm text-slate-600">מערכת CRM</p>
               </div>
             </div>
             

@@ -6,11 +6,12 @@ try:
     import openai
     OPENAI_AVAILABLE = True
 except ImportError:
+    openai = None
     OPENAI_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
-REAL_ESTATE_PROMPT = """אתה עוזר דיגיטלי מקצועי של "שי דירות ומשרדים בע״מ".
+REAL_ESTATE_PROMPT = """אתה עוזר דיגיטלי מקצועי של מערכת CRM מתקדמת לנדלן.
 אתה מומחה בתחום הנדל"ן הישראלי ויכול לעזור עם:
 - דירות למכירה ולהשכרה
 - משרדים ומבנים מסחריים  
@@ -38,6 +39,8 @@ def generate_response(text: str, call_sid: str = "", turn: int = 1) -> str:
         if not OPENAI_AVAILABLE:
             raise ImportError("OpenAI not available")
             
+        if openai is None:
+            raise ImportError("OpenAI not available")
         client = openai.OpenAI(api_key=openai_key)
         
         response = client.chat.completions.create(
