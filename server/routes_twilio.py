@@ -33,34 +33,36 @@ def get_business_greeting(to_number, call_sid):
 @require_twilio_signature
 def incoming_call():
     """Handle incoming Twilio call - MUST return TwiML XML with correct Content-Type"""
-    from_number = _mask_phone(request.form.get("From", ""))
-    to_number = _mask_phone(request.form.get("To", ""))
-    call_sid = request.form.get("CallSid", "")
-    
-    log.info("Incoming call: From=%s To=%s CallSid=%s", from_number, to_number, call_sid)
-    
-    # Get business-specific greeting
-    greeting_path = get_business_greeting(to_number, call_sid)
-    
-    # TwiML XML response with PUBLIC_HOST robustness
     try:
-        greeting_url = abs_url(greeting_path)
-        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+        from_number = _mask_phone(request.form.get("From", ""))
+        to_number = _mask_phone(request.form.get("To", ""))
+        call_sid = request.form.get("CallSid", "")
+        
+        log.info("Incoming call: From=%s To=%s CallSid=%s", from_number, to_number, call_sid)
+        
+        # Try MP3 with PUBLIC_HOST, fallback to Hebrew <Say>
+        public_host = os.getenv("PUBLIC_HOST")
+        if public_host:
+            try:
+                greeting_path = get_business_greeting(to_number, call_sid)
+                greeting_url = abs_url(greeting_path)
+                xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{greeting_url}</Play>
   <Pause length="1"/>
-  <Record action="/webhook/handle_recording" 
-          method="POST"
-          maxLength="30" 
-          timeout="5" 
-          finishOnKey="*" 
-          transcribe="false"/>
+  <Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="5" finishOnKey="*" transcribe="false"/>
 </Response>"""
+            except Exception as e:
+                log.warning("MP3 fallback failed: %s", e)
+                raise  # Fall through to Hebrew <Say>
+        else:
+            raise RuntimeError("PUBLIC_HOST not set")
+            
     except Exception as e:
-        log.warning("PUBLIC_HOST missing or invalid, fallback to <Say>: %s", e)
+        log.warning("Fallback to Hebrew <Say>: %s", e)
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say language="he-IL">שלום, ההקלטה מתחילה עכשיו. השאירו הודעה אחרי הצפצוף.</Say>
+  <Say language="he-IL">שלום, השאירו הודעה אחרי הצפצוף.</Say>
   <Record playBeep="true" maxLength="30" timeout="5" finishOnKey="*"/>
 </Response>"""
     
@@ -70,91 +72,108 @@ def incoming_call():
 @require_twilio_signature
 def handle_recording():
     """עיבוד הקלטה - החזרת TwiML מהירה + עיבוד בbackground"""
-    recording_url = request.form.get("RecordingUrl", "")
-    call_sid = request.form.get("CallSid", "")
-    
-    log.info("Recording received: CallSid=%s RecordingUrl=%s", call_sid, recording_url)
-    
-    # שמירת הקלטה ל-DB קודם כל
     try:
-        from server.models_sql import CallLog
-        from server.db import db
+        recording_url = request.form.get("RecordingUrl", "")
+        call_sid = request.form.get("CallSid", "")
         
-        rec = CallLog.query.filter_by(call_sid=call_sid).first()
-        if not rec:
-            # יצירת רשומת שיחה חדשה עם הקלטה
-            rec = CallLog()
-            rec.call_sid = call_sid
-            rec.business_id = 1
+        log.info("Recording received: CallSid=%s RecordingUrl=%s", call_sid, recording_url)
+        
+        # Quick DB save - no heavy processing here
+        try:
+            from server.models_sql import CallLog
+            from server.db import db
+            
+            rec = CallLog.query.filter_by(call_sid=call_sid).first()
+            if not rec:
+                rec = CallLog()
+                rec.call_sid = call_sid
+                rec.business_id = 1
+                rec.status = "recorded"
+                db.session.add(rec)
+            
+            rec.recording_url = recording_url
             rec.status = "recorded"
-            db.session.add(rec)
+            db.session.commit()
+            
+            log.info("Recording saved to DB: CallSid=%s", call_sid)
+            
+        except Exception as e:
+            log.error("Failed to save recording to DB: %s", e)
         
-        # עדכון URL הקלטה
-        rec.recording_url = recording_url
-        rec.status = "recorded"
-        db.session.commit()
+        # Background processing - don't wait for it
+        try:
+            from server.tasks_recording import enqueue_recording
+            enqueue_recording(request.form.to_dict())
+            log.info("Recording enqueued for background processing")
+        except (ImportError, ModuleNotFoundError):
+            log.warning("Recording task queue not available - will process in background thread")
+            import threading
+            def process_in_background():
+                try:
+                    log.info("Background processing recording: %s", recording_url)
+                    # TODO: עיבוד אמיתי כאן (Whisper transcription, etc.)
+                except Exception as e:
+                    log.error("Background processing failed: %s", e)
+            threading.Thread(target=process_in_background, daemon=True).start()
+        except Exception as e:
+            log.error("Failed to enqueue recording: %s", e)
         
-        log.info("Recording saved to DB: CallSid=%s", call_sid)
+        # Return fast TwiML response - no waiting
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say language="he-IL">תודה. ההודעה התקבלה.</Say>
+  <Hangup/>
+</Response>"""
+        
+        return Response(xml, mimetype="text/xml", status=200)
         
     except Exception as e:
-        log.error("Failed to persist recording to DB: %s", e)
-    
-    # שלח לעיבוד ברקע (למנוע timeout) - אסינכרוני בלבד
-    try:
-        from server.tasks_recording import enqueue_recording
-        enqueue_recording(request.form.to_dict())
-        log.info("Recording enqueued for background processing")
-    except (ImportError, ModuleNotFoundError):
-        log.warning("Recording task queue not available - will process in background thread")
-        import threading
-        def process_in_background():
-            try:
-                # עיבוד minimal ברקע - ללא חסימה
-                log.info("Background processing recording: %s", recording_url)
-                # TODO: עיבוד אמיתי כאן (Whisper transcription, etc.)
-            except Exception as e:
-                log.error("Background processing failed: %s", e)
-        threading.Thread(target=process_in_background, daemon=True).start()
-    
-    # TwiML מהיר - תודה ותגובה
-    xml = '''<?xml version="1.0" encoding="UTF-8"?>
+        log.error("Error in handle_recording: %s", e)
+        # Always return valid TwiML, never 500
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say language="he-IL">תודה, קיבלנו את ההודעה שלך.</Say>
+  <Say language="he-IL">תודה.</Say>
   <Hangup/>
-</Response>'''
-    
-    return Response(xml, mimetype="text/xml", status=200)
+</Response>"""
+        return Response(xml, mimetype="text/xml", status=200)
 
 @twilio_bp.post("/webhook/call_status")
 @require_twilio_signature
 def call_status():
     """Call status updates - text/plain response (לא XML)"""
-    call_sid = request.form.get("CallSid", "")
-    call_status = request.form.get("CallStatus", "")
-    
-    log.info("Call status update: CallSid=%s Status=%s", call_sid, call_status)
-    
-    # שמירת סטטוס השיחה לDB - עדכון CallLog
     try:
-        from server.models_sql import CallLog
-        from server.db import db
+        call_sid = request.form.get("CallSid", "")
+        call_status_val = request.form.get("CallStatus", "")
         
-        rec = CallLog.query.filter_by(call_sid=call_sid).first()
-        if not rec:
-            # יצירת רשומת שיחה חדשה
-            rec = CallLog()
-            rec.call_sid = call_sid
-            rec.status = call_status
-            rec.business_id = 1
-            db.session.add(rec)
-        else:
-            # עדכון סטטוס קיים
-            rec.status = call_status
+        log.info("Call status update: CallSid=%s Status=%s", call_sid, call_status_val)
         
-        db.session.commit()
-        log.info("CallLog updated for %s: %s", call_sid, call_status)
+        # שמירת סטטוס השיחה לDB - עדכון CallLog
+        try:
+            from server.models_sql import CallLog
+            from server.db import db
+            
+            rec = CallLog.query.filter_by(call_sid=call_sid).first()
+            if not rec:
+                # יצירת רשומת שיחה חדשה
+                rec = CallLog()
+                rec.call_sid = call_sid
+                rec.status = call_status_val
+                rec.business_id = 1
+                db.session.add(rec)
+            else:
+                # עדכון סטטוס קיים
+                rec.status = call_status_val
+            
+            db.session.commit()
+            log.info("Call status saved to DB: CallSid=%s Status=%s", call_sid, call_status_val)
+            
+        except Exception as e:
+            log.error("Failed to save call status to DB: %s", e)
+        
+        # החזר תגובת סטטוס פשוטה - 204 No Content (לא TwiML)
+        return ("", 204)
         
     except Exception as e:
-        log.error("Failed to update call status: %s", e)
-    
-    return Response("OK", mimetype="text/plain", status=200)
+        log.error("Error in call_status: %s", e)
+        # Always return success to avoid retries
+        return ("", 204)

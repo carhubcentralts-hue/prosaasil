@@ -53,7 +53,8 @@ def incoming_whatsapp():
         
     except Exception as e:
         logger.error("Error processing incoming WhatsApp: %s", e)
-        return jsonify({"error": "Processing failed"}), 500
+        # Always return success to Twilio to avoid retries
+        return jsonify({"status": "received"}), 200
 
 @whatsapp_twilio_bp.post("/status")
 @require_twilio_signature 
@@ -75,6 +76,25 @@ def whatsapp_status_new():
         
         if msg:
             msg.status = status
+            if status == "delivered":
+                msg.delivered_at = now
+            elif status == "read":
+                msg.read_at = now
+            db.session.commit()
+            logger.info("Updated WhatsApp status: %s -> %s", sid, status)
+        else:
+            logger.warning("WhatsApp message not found: %s", sid)
+        
+        # Return success to Twilio
+        return ("", 204)
+        
+    except Exception as e:
+        logger.error("Error updating WhatsApp status: %s", e)
+        # Always return success to avoid retries
+        return ("", 204)
+        
+        if msg:
+            msg.status = status
             if status == "delivered" and hasattr(msg, 'delivered_at'):
                 msg.delivered_at = now
             if status == "read" and hasattr(msg, 'read_at'):
@@ -86,8 +106,6 @@ def whatsapp_status_new():
             
         return ("", 204)
         
-    except Exception as e:
-        logger.error("Error processing WhatsApp status update: %s", e)
-        return ("error", 500)
+
 
 # OLD FUNCTION REMOVED TO AVOID DUPLICATES
