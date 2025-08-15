@@ -106,6 +106,14 @@ def register_blueprints(app):
     except Exception as e:
         print(f"❌ CRM Unified API registration failed: {e}")
     
+    # Payments & CRM Extended API (100% GO)
+    try:
+        from server.api_payments import api_bp as payments_bp
+        app.register_blueprint(payments_bp)
+        print("✅ Payments & CRM API registered successfully")
+    except Exception as e:
+        print(f"❌ Payments & CRM API registration failed: {e}")
+    
     # WhatsApp Unified API (production ready) - ONLY THIS ONE
     try:
         from server.api_whatsapp_unified import whatsapp_unified_bp

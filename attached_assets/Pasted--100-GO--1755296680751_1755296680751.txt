@@ -1,0 +1,389 @@
+יאללה — סוגרים פערים עד 100%. להלן הנחיה אחת, מלאה ומדויקת, שמביאה את המערכת שלך ל־GO לפרודקשן:
+	•	שיחות טלפון דו־כיווניות בעברית בזמן אמת (Media Streams + Whisper + GPT + Wavenet)
+	•	WhatsApp (Baileys + Twilio) בספק מאוחד
+	•	CRM עם סליקה, חשבוניות וחוזים (כולל חתימה ושיוך ללקוח/דיל), אבטחה, ו־webhooks
+
+הנחיות נכתבו כדי לא לשבור כלום קיים. איפה שצריך — נוסיף מודולים/ראוטים נקודתית, ונאחד כפולים.
+
+⸻
+
+🎯 Definition of Done (ברזל)
+	1.	/webhook/incoming_call מחזיר אך ורק <Connect><Stream> ל־/ws/twilio-media.
+	2.	/ws/twilio-media מריץ: Whisper→GPT→Wavenet מחזורי, ומחזיר μ-law@8k frames בזמן אמת.
+	3.	WhatsApp: /api/whatsapp/* API מאוחד (שליחה/מדיה/סטטוס), webhook/whatsapp/* פעיל (Twilio), Baileys worker רץ ומרוקן תור.
+	4.	CRM: מודלים ל־Lead/Deal/Payment/Invoice/Contract/CallLog/WAMessage + API בסיסי.
+	5.	סליקה: Stripe PaymentIntent + webhook חתום; שמירת תשלום/קבלה וחיבור לחשבונית.
+	6.	חשבוניות: יצירת PDF/HTML עם מספר רץ, שמירת קובץ ו־metadata; קישור ללקוח/דיל/תשלום.
+	7.	חוזים: רינדור טמפלט → חתימה (Canvas/Base64) → PDF חתום ושמירת audit trail.
+	8.	אבטחה: אימות חתימת Twilio/Stripe, CORS, Rate-limit, /health, לוגים עם Request-ID.
+	9.	בדיקות smoke לכול: כולן ✅ (200/204), אין 500/403, Twilio/Stripe Debuggers נקיים.
+
+⸻
+
+0) ENV — משתנים דרושים (אחידים)
+
+PUBLIC_HOST=https://<הדומיין שלך>
+
+# Twilio Voice/WA
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+TWILIO_WA_FROM=whatsapp:+14155238886
+
+# WhatsApp Provider
+WHATSAPP_PROVIDER=baileys   # או twilio
+BAILEYS_BASE_DIR=baileys_auth_info
+
+# OpenAI
+OPENAI_API_KEY=sk-...
+
+# Google TTS
+# אחת מהשתיים (מומלץ זו):
+GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON=<Base64 של JSON השירות>
+# או:
+# GOOGLE_APPLICATION_CREDENTIALS=/abs/path/to/sa.json
+
+# Stripe
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+CURRENCY=ILS
+
+# CRM
+INVOICE_PREFIX=INV
+CONTRACT_PREFIX=AGR
+COMPANY_NAME="AgentLocator Ltd"
+COMPANY_VAT_ID="123456789"
+
+ב־server/bootstrap_secrets.py דאג ש־ensure_google_creds_file() מזהה את GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON (כבר נתתי לך מימוש קודם), וב־app_factory.py קרא לה בתחילת העלייה.
+
+⸻
+
+1) טלפון — Media Streams בזמן אמת
+
+1.1 server/routes_twilio.py → incoming_call מחזיר Stream בלבד
+
+from flask import Response
+from server.twilio_security import require_twilio_signature
+def _xml(x): return Response(x, 200, mimetype="text/xml")
+
+@twilio_bp.post("/webhook/incoming_call")
+@require_twilio_signature
+def incoming_call():
+    return _xml(f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect><Stream url="wss://{os.getenv('PUBLIC_HOST').replace('https://','')}/ws/twilio-media"/></Connect>
+</Response>""")
+
+1.2 app_factory.py → Sock ו־WS (אם לא קיים)
+	•	אתחל Sock(app) פעם אחת.
+	•	רשום @sock.route("/ws/twilio-media") ל־handler שלך (אם יש קובץ WS נפרד — ייבא אותו; אם לא, הטמע שם לולאה כמו שנתתי לך בתשובות הקודמות).
+	•	ודא שהWS:
+	•	מקבל start/media/stop
+	•	ממיר μ-law8k→PCM16k, עושה VAD קצר (timeout 0.6–0.8s), Whisper לתמלול HE, שולח לג׳יפיטי, עושה Wavenet ל־LINEAR16@8k, ממיר ל-μ-law ומחזיר ב־20ms frames.
+	•	“ביי/להתראות” → TTS “להתראות!” + ניתוק Calls.update(status="completed").
+	•	כל catch ב־try/except עם fallback שקט (לא 500).
+
+טיפ: אל תיצור קבצים כפולים; אם יש media_ws.py — השתמש בו; אם ה־handler באותו app_factory.py — השאר שם.
+
+⸻
+
+2) WhatsApp — ספק מאוחד + webhooks
+
+2.1 רישום יחיד של API
+
+ב־app_factory.py תשאיר רק Blueprint אחד ל־/api/whatsapp (המאוחד).
+אל תטען קבצי legacy/clean/backup.
+
+2.2 Twilio webhooks
+
+/webhook/whatsapp/incoming + /webhook/whatsapp/status — עם @require_twilio_signature.
+בעדכון status שמור גם delivered_at/read_at אם קיימים שדות.
+
+2.3 Baileys worker
+
+ודא ש־baileys_client.js רץ (pm2/Procfile). ה־queue ב־BAILEYS_BASE_DIR אמור להתרוקן.
+ב־API המאוחד: אם WHATSAPP_PROVIDER=baileys → כתוב לתור; אם twilio → שלח דרך Twilio.
+
+⸻
+
+3) CRM — מודלים מינימליים (השלמות מדויקות)
+
+הוסף/השלם ב־server/models/models.py (או החלוקה אצלך) — דוגמת שדות קריטית:
+
+class Customer(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    full_name = db.Column(db.String(160), nullable=False)
+    phone = db.Column(db.String(32), unique=True)
+    email = db.Column(db.String(160), unique=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Deal(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
+    title = db.Column(db.String(160))
+    stage = db.Column(db.String(40), default='new')  # new / qualified / won / lost
+    amount = db.Column(db.Integer)  # אגורות/שקלים — תואם CURRENCY
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    customer = db.relationship('Customer')
+
+class Payment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    deal_id = db.Column(db.Integer, db.ForeignKey('deal.id'), nullable=False)
+    stripe_payment_intent = db.Column(db.String(80), unique=True)
+    amount = db.Column(db.Integer, nullable=False)
+    currency = db.Column(db.String(8), default='ILS')
+    status = db.Column(db.String(32), default='created')  # created|succeeded|failed|refunded
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    deal = db.relationship('Deal')
+
+class Invoice(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    deal_id = db.Column(db.Integer, db.ForeignKey('deal.id'), nullable=False)
+    invoice_number = db.Column(db.String(40), unique=True, index=True)
+    subtotal = db.Column(db.Integer)
+    tax = db.Column(db.Integer)
+    total = db.Column(db.Integer)
+    pdf_path = db.Column(db.String(260))  # נתיב יחסי ל-static
+    issued_at = db.Column(db.DateTime, default=datetime.utcnow)
+    deal = db.relationship('Deal')
+
+class Contract(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    deal_id = db.Column(db.Integer, db.ForeignKey('deal.id'), nullable=False)
+    template_name = db.Column(db.String(80))
+    version = db.Column(db.String(20), default='v1')
+    html_path = db.Column(db.String(260))
+    pdf_path = db.Column(db.String(260))
+    signed_name = db.Column(db.String(160))
+    signed_at = db.Column(db.DateTime)
+    signed_ip = db.Column(db.String(64))
+    deal = db.relationship('Deal')
+
+class CallLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    call_sid = db.Column(db.String(64), unique=True)
+    from_number = db.Column(db.String(32))
+    to_number = db.Column(db.String(32))
+    direction = db.Column(db.String(8)) # in/out
+    status = db.Column(db.String(24))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class WhatsAppMessage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    provider = db.Column(db.String(12))    # twilio|baileys
+    direction = db.Column(db.String(3))    # in|out
+    from_number = db.Column(db.String(32))
+    to_number = db.Column(db.String(32))
+    body = db.Column(db.Text)
+    provider_message_id = db.Column(db.String(64), index=True)
+    status = db.Column(db.String(20))
+    delivered_at = db.Column(db.DateTime)
+    read_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+רוץ מיגרציה (Alembic) או db.create_all() — לפי מה שאתה כבר משתמש.
+
+⸻
+
+4) סליקה — Stripe (Payment Intent) + webhook
+
+4.1 ראוטים
+
+ב־API CRM (למשל server/api_crm_unified.py) הוסף:
+
+import stripe, os
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+
+@api_bp.post("/payments/create-intent")
+def create_payment_intent():
+    data = request.get_json() or {}
+    deal_id = int(data["deal_id"]); amount = int(data["amount"])  # בשקלים/אגורות
+    currency = (os.getenv("CURRENCY") or "ILS").lower()
+    pi = stripe.PaymentIntent.create(amount=amount, currency=currency, automatic_payment_methods={"enabled": True})
+    pay = Payment(deal_id=deal_id, stripe_payment_intent=pi["id"], amount=amount, currency=currency, status="created")
+    db.session.add(pay); db.session.commit()
+    return jsonify({"client_secret": pi["client_secret"], "payment_intent": pi["id"]})
+
+Webhook חתום:
+
+@api_bp.post("/webhook/stripe")
+def stripe_webhook():
+    payload = request.data
+    sig = request.headers.get("Stripe-Signature", "")
+    endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, endpoint_secret)
+    except Exception as e:
+        return (str(e), 400)
+
+    if event["type"] == "payment_intent.succeeded":
+        pi = event["data"]["object"]
+        pay = Payment.query.filter_by(stripe_payment_intent=pi["id"]).first()
+        if pay:
+            pay.status = "succeeded"; db.session.commit()
+            # אופציונלי: הפק חשבונית אוטומטית:
+            create_invoice_for_payment(pay)  # פונקציה בסעיף הבא
+    return ("", 204)
+
+
+⸻
+
+5) חשבוניות — יצירה ושמירה (HTML→PDF)
+
+5.1 פונקציה ב־service (למשל server/services/invoice_service.py)
+
+(אם אין קובץ כזה — צור; זו התוספת הדרושה לפיצ’ר)
+
+from jinja2 import Template
+from datetime import datetime
+import os, pdfkit  # או weasyprint אם זמין אצלך
+
+def next_invoice_number():
+    prefix = os.getenv("INVOICE_PREFIX","INV")
+    last = Invoice.query.order_by(Invoice.id.desc()).first()
+    seq = (last.id + 1) if last else 1
+    return f"{prefix}-{datetime.utcnow().strftime('%Y%m')}-{seq:04d}"
+
+def render_invoice_html(deal: Deal, payment: Payment):
+    company = os.getenv("COMPANY_NAME","AgentLocator")
+    vat = os.getenv("COMPANY_VAT_ID","")
+    t = Template("""
+    <html lang="he" dir="rtl"><meta charset="utf-8"/>
+    <body style="font-family: sans-serif">
+    <h2>חשבונית {{inv}}</h2>
+    <p>לקוח: {{deal.customer.full_name}} | טל׳: {{deal.customer.phone}} | דיל: {{deal.title}}</p>
+    <p>ח.פ/עוסק: {{vat}} | ספק: {{company}}</p>
+    <table border="1" cellspacing="0" cellpadding="6">
+      <tr><th>תיאור</th><th>סכום</th></tr>
+      <tr><td>שירות/מוצר עבור "{{deal.title}}"</td><td>{{payment.amount/100}} {{payment.currency.upper()}}</td></tr>
+    </table>
+    <p>תאריך: {{now}}</p>
+    </body></html>
+    """)
+    return t.render(inv=deal.id, deal=deal, payment=payment, company=company, vat=vat, now=datetime.utcnow())
+
+def create_invoice_for_payment(payment: Payment):
+    deal = Deal.query.get(payment.deal_id)
+    inv_no = next_invoice_number()
+    html = render_invoice_html(deal, payment)
+    out_dir = os.path.join("server","static","invoices")
+    os.makedirs(out_dir, exist_ok=True)
+    pdf_path = os.path.join(out_dir, f"{inv_no}.pdf")
+    # המרה ל-PDF (נדרש wkhtmltopdf מותקן; אם לא – שמור HTML)
+    try:
+        pdfkit.from_string(html, pdf_path)
+    except Exception:
+        # fallback: שמור HTML
+        pdf_path = os.path.join(out_dir, f"{inv_no}.html")
+        open(pdf_path,"w",encoding="utf-8").write(html)
+
+    inv = Invoice(deal_id=deal.id, invoice_number=inv_no,
+                  subtotal=payment.amount, tax=0, total=payment.amount,
+                  pdf_path=pdf_path.replace("\\","/"))
+    db.session.add(inv); db.session.commit()
+    return inv
+
+אם אתה מעדיף WeasyPrint — החלף pdfkit בהתאם (דורש Cairo/Pango).
+
+5.2 API להורדת חשבונית
+
+@api_bp.get("/invoices/<invoice_number>")
+def get_invoice(invoice_number):
+    inv = Invoice.query.filter_by(invoice_number=invoice_number).first_or_404()
+    return send_file(inv.pdf_path, as_attachment=True)
+
+
+⸻
+
+6) חוזים — טמפלט, חתימה, PDF
+
+6.1 רינדור חוזה (preview)
+
+@api_bp.get("/contracts/preview")
+def contract_preview():
+    deal_id = int(request.args["deal_id"])
+    deal = Deal.query.get_or_404(deal_id)
+    html = render_contract_html(deal)  # כתוב פונקציה כמו ב-invoice, רק לטמפלט חוזה
+    return Response(html, 200, mimetype="text/html")
+
+6.2 חתימה (Canvas → Base64 PNG) + PDF
+
+ב־FE תשלח signature_b64 (data:image/png;base64,…) ושם לקוח:
+
+import base64, pdfkit, tempfile
+
+@api_bp.post("/contracts/sign")
+def contract_sign():
+    data = request.get_json() or {}
+    deal_id = int(data["deal_id"])
+    name = data.get("name","")
+    sig_b64 = data["signature_b64"].split(",")[-1]
+    sig_bytes = base64.b64decode(sig_b64)
+
+    deal = Deal.query.get_or_404(deal_id)
+    html = render_contract_html(deal, signer_name=name, signature_png=sig_bytes)
+    out_dir = os.path.join("server","static","contracts"); os.makedirs(out_dir, exist_ok=True)
+    number = f"{os.getenv('CONTRACT_PREFIX','AGR')}-{deal_id}-{int(time.time())}"
+    pdf_path = os.path.join(out_dir, f"{number}.pdf")
+    pdfkit.from_string(html, pdf_path)
+
+    c = Contract(deal_id=deal_id, template_name="default", version="v1",
+                 html_path="", pdf_path=pdf_path.replace("\\","/"),
+                 signed_name=name, signed_at=datetime.utcnow(),
+                 signed_ip=request.remote_addr)
+    db.session.add(c); db.session.commit()
+    return jsonify({"ok": True, "contract_number": number})
+
+הערה משפטית: לחתימה “קשיחה” עם תוקף גבוה אפשר לשלב DocuSign/Dropbox Sign; לעת עתה זו חתימה ויזואלית שנשמרת עם חותמת זמן ו-IP.
+
+⸻
+
+7) אבטחה והקשחות (חובה)
+	•	Twilio: @require_twilio_signature על כל ה־webhooks (Voice/WA).
+	•	Stripe: אימות חתימת webhook עם STRIPE_WEBHOOK_SECRET.
+	•	CORS: דומיינים ספציפיים בלבד.
+	•	Rate-limit: /webhook/* 30–60/min; /api/whatsapp/send* 30/min; /payments/create-intent 30/min.
+	•	/health: 200 OK.
+	•	לוגים: Request-ID לכל בקשה; לכידת חריגות עם context.
+
+⸻
+
+8) ניקוי כפילויות (לא לשבור)
+	•	רישום Blueprints: השאר רק הקנוניים; כל “clean/old/backup” — אל תטען.
+	•	print_routes(app)//__debug/routes — וודא שאין DUPLICATE ROUTE.
+	•	אם שני קבצים עושים אותו דבר (למשל שני WhatsApp routes) — השבת import של הישן.
+
+⸻
+
+9) Smoke – תריץ עכשיו
+
+# Health
+curl -s -o /dev/null -w "HTTP %{http_code}\n" $HOST/health
+
+# Voice TwiML
+curl -s -X POST $HOST/webhook/incoming_call | grep -q "<Connect><Stream" && echo "Stream OK"
+
+# WhatsApp (Twilio)
+curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST $HOST/webhook/whatsapp/status -d 'MessageSid=SMx&MessageStatus=delivered'  # 204
+
+# Payments
+curl -s -X POST $HOST/api/payments/create-intent -H "Content-Type: application/json" -d '{"deal_id":1,"amount":9900}'
+# קבל client_secret
+
+# Contract preview
+curl -s "$HOST/api/contracts/preview?deal_id=1" | head
+
+# Invoice download (אחרי webhook הצליח)
+curl -s -I $HOST/invoices/INV-$(date +%Y%m)-0001 | head
+
+
+⸻
+
+10) מה נשאר לך “ויזואלית”
+	•	דשבורד CRM: לידים/דילים/תשלומים/חשבוניות/חוזים (טבלאות + קישורים להורדה).
+	•	מסך תשלום: שימוש ב־Stripe.js עם client_secret מהשרת.
+	•	מסך חוזה: טמפלט + Canvas חתימה + שליחה ל־/contracts/sign.
+	•	מסך WA: בחירת ספק, סטטוס Baileys (QR/connected), שליחת הודעה, תיבת נכנסות.
+
+⸻
+
+אם תיישם בדיוק את מה שמופיע פה (לפי שמות הקבצים שכבר קיימים אצלך, ואיחוד כפולים לפי סעיף 8), המערכת תהיה מוכנה לחלוטין: טלפוניה בזמן אמת בעברית, WhatsApp בשני ספקים, ו־CRM עם סליקה, חשבוניות וחוזים — ואז נעבור לעיצוב/ויזואל בלי חורים.
