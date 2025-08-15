@@ -47,4 +47,5 @@ dependencies = [
     "httpx==0.27.0",
     "python-json-logger>=3.3.0",
     "pytest>=8.4.1",
+    "flask-limiter>=3.12",
 ]

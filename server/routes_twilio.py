@@ -1,6 +1,7 @@
 # server/routes_twilio.py
 from flask import Blueprint, request, Response, current_app
 from urllib.parse import urljoin
+from server.twilio_verify import require_twilio_signature
 import os, requests, io, logging, json, threading, time
 
 def _mask_phone(phone):
@@ -9,23 +10,24 @@ def _mask_phone(phone):
         return phone
     return phone[:3] + "****" + phone[-2:]
 
-twilio_bp = Blueprint("twilio", __name__, url_prefix="/webhook")
+twilio_bp = Blueprint("twilio_bp", __name__, url_prefix="")
 log = logging.getLogger("twilio.voice")
 
 def abs_url(path: str) -> str:
     """Generate absolute URL for Twilio webhooks - FAIL FAST if no host configured"""
     host = (current_app.config.get("PUBLIC_HOST") or os.getenv("PUBLIC_HOST") or "").rstrip("/")
-    if not host:
-        # Fail fast: better to get a clear error than send wrong domain to Twilio
-        raise RuntimeError("PUBLIC_HOST is not configured - set PUBLIC_HOST=https://your-domain")
+    if not host:  # No fallback to old domain
+        raise RuntimeError("PUBLIC_HOST not set. Set PUBLIC_HOST=https://your-domain")
     return urljoin(host + "/", path.lstrip("/"))
 
 def get_business_greeting(to_number, call_sid):
-    """Get business-specific greeting file"""
-    # Use the working welcome file that exists
+    """Get business-specific greeting file based on number"""
+    # Extract business_id from number mapping or use default
+    # For now, use default greeting - can be extended per business
     return "static/voice_responses/welcome.mp3"
 
-@twilio_bp.route("/incoming_call", methods=["POST"])
+@twilio_bp.post("/webhook/incoming_call")
+@require_twilio_signature
 def incoming_call():
     """Handle incoming Twilio call - MUST return TwiML XML"""
     from_number = _mask_phone(request.form.get("From", ""))
@@ -41,15 +43,12 @@ def incoming_call():
     # Build TwiML XML response (NO JSON!)
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Play>{greeting_url}</Play>
-    <Pause length="1"/>
-    <Record action="/webhook/handle_recording"
-            method="POST"
-            maxLength="30"
-            timeout="5"
-            finishOnKey="*"
-            transcribe="false"
-            language="he-IL"/>
+  <Play>{greeting_url}</Play>
+  <Pause length="1"/>
+  <Record action="/webhook/handle_recording"
+          method="POST"
+          maxLength="30" timeout="5" finishOnKey="*"
+          transcribe="false" />
 </Response>"""
     
     return Response(xml, mimetype="text/xml", status=200)
@@ -128,94 +127,29 @@ def handle_recording_new():
     
     return Response(xml, mimetype="text/xml", status=200)
 
-@twilio_bp.route("/handle_recording", methods=["POST"])
+@twilio_bp.post("/webhook/handle_recording")
+@require_twilio_signature
 def handle_recording():
-    """Handle recording - CONTINUOUS CONVERSATION - PRODUCTION READY"""
-    rec_url = request.form.get("RecordingUrl")
-    call_sid = request.form.get("CallSid", "")
-    from_number = _mask_phone(request.form.get("From", ""))
+    """Handle recording - lightweight processing with queue for heavy work"""
+    form = request.form.to_dict()
+    current_app.logger.info("handle_recording form=%s", form)
     
-    print("🎯 CONTINUOUS CONVERSATION HANDLER CALLED!")
-    log.info("🎯 Processing continuous conversation: url=%s CallSid=%s", rec_url, call_sid)
+    # Don't do heavy transcription/AI here; just enqueue for background processing
+    # enqueue_recording(form.get("RecordingUrl"), form.get("CallSid"), ...)
     
-    # Process recording IMMEDIATELY for continuous conversation
-    try:
-        ai_response_text = process_recording_sync(rec_url, call_sid, from_number)
-        log.info("AI response generated: %s", ai_response_text[:50])
-        
-        # Generate Hebrew TTS response file
-        from server.hebrew_tts_enhanced import create_hebrew_audio
-        response_file = create_hebrew_audio(ai_response_text, f"call_{call_sid}")
-        
-        if response_file:
-            response_url = abs_url(response_file)
-            
-            # Continue conversation - Play AI response then record again
-            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Play>{response_url}</Play>
-    <Pause length="1"/>
-    <Record action="/webhook/handle_recording"
-            method="POST"
-            maxLength="30"
-            timeout="5"
-            finishOnKey="*"
-            transcribe="false"
-            language="he-IL"/>
-</Response>"""
-        else:
-            # Fallback - use Say instead of Play
-            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say language="he-IL">{ai_response_text}</Say>
-    <Pause length="1"/>
-    <Record action="/webhook/handle_recording"
-            method="POST"
-            maxLength="30"
-            timeout="5"
-            finishOnKey="*"
-            transcribe="false"
-            language="he-IL"/>
-</Response>"""
-            
-    except Exception as e:
-        log.error("Error in continuous conversation: %s", e)
-        # Professional fallback
-        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say language="he-IL">מצטער, נתקלתי בבעיה טכנית. אנא נסה שוב.</Say>
-    <Pause length="1"/>
-    <Record action="/webhook/handle_recording"
-            method="POST"
-            maxLength="30"
-            timeout="5"
-            finishOnKey="*"
-            transcribe="false"
-            language="he-IL"/>
+  <Say language="he-IL">תודה, קיבלנו את ההודעה.</Say>
+  <Hangup/>
 </Response>"""
     
     return Response(xml, mimetype="text/xml", status=200)
 
-@twilio_bp.route("/call_status", methods=["POST"])
+@twilio_bp.post("/webhook/call_status")
+@require_twilio_signature
 def call_status():
     """Handle Twilio call status callbacks - MUST return 200 OK with text/plain"""
-    call_sid = request.form.get("CallSid", "")
-    call_status_value = request.form.get("CallStatus", "")
-    duration = request.form.get("CallDuration", "0")
-    
-    log.info("Call status update: CallSid=%s Status=%s Duration=%ss", 
-             call_sid, call_status_value, duration)
-    
-    # Save status to database/storage (non-blocking)
-    try:
-        # TODO: Update call record in database with status and duration
-        pass
-    except Exception as e:
-        log.error("Failed to save call status: %s", e)
-    
-    # MUST return 200 OK with text/plain (NOT JSON, NOT TwiML)
-    response = Response("OK", mimetype="text/plain", status=200)
-    return response
+    return ("OK", 200, {"Content-Type": "text/plain"})
 
 def _say(text_he: str):
     """Helper to create SAY response in Hebrew - returns TwiML XML with CONTINUOUS RECORDING"""

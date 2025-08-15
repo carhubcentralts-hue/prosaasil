@@ -86,6 +86,14 @@ def register_blueprints(app):
     except Exception as e:
         print(f"❌ Business API registration failed: {e}")
     
+    # CRM Basic API for testing (public for development)
+    try:
+        from server.api_crm_basic import crm_basic_bp
+        app.register_blueprint(crm_basic_bp)
+        print("✅ CRM Basic API registered successfully")
+    except Exception as e:
+        print(f"❌ CRM Basic API registration failed: {e}")
+    
     # WhatsApp integration (auth required)
     try:
         from server.api_whatsapp_improved import whatsapp_bp
@@ -132,12 +140,23 @@ def create_app():
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-prod')
     app.config['DATABASE_URL'] = os.getenv('DATABASE_URL', 'sqlite:///app.db')
     
-    # Enable CORS for API endpoints
-    CORS(app, origins=['http://localhost:3000', 'http://localhost:5000', 'https://*.replit.app'])
+    # Security improvements
+    app.config.update(
+        SESSION_COOKIE_SECURE=True,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+    )
+    
+    # CORS - only your domain
+    cors_origins = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else ['http://localhost:3000', 'http://localhost:5000', 'https://*.replit.app']
+    CORS(app, origins=cors_origins, supports_credentials=True)
     
     # Initialize professional logging first
     init_logging(app)
     install_request_hooks(app)
+    
+    # Initialize rate limiting for security (after blueprints)
+    # Note: Moved to after blueprint registration for proper function access
     
     # Health endpoint
     @app.route("/api/health")
@@ -172,6 +191,19 @@ def create_app():
     # Register error handlers last
     register_error_handlers(app)
     print("✅ Error handlers registered")
+    
+    # Initialize rate limiting after blueprints are registered
+    try:
+        from flask_limiter import Limiter
+        from flask_limiter.util import get_remote_address
+        limiter = Limiter(
+            app=app,
+            key_func=get_remote_address,
+            default_limits=["200 per day", "50 per hour"]
+        )
+        print("✅ Rate limiting initialized")
+    except ImportError:
+        print("❌ Rate limiting not available")
     
     # Health endpoint already registered above as /api/health
     

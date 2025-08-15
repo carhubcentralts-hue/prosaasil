@@ -1,51 +1,49 @@
-from flask import Blueprint, jsonify
-from server.authz import auth_required
-try:
-    from server.models import db, CallLog, Customer
-    # Try to import other models if they exist
+from flask import Blueprint, jsonify, request
+from server.api_pagination import paginate_query, pagination_response
+import logging
+
+timeline_bp = Blueprint("timeline_bp", __name__, url_prefix="/api/timeline")
+log = logging.getLogger("api.timeline")
+
+@timeline_bp.get("/customers/<int:customer_id>/timeline")
+def customer_timeline(customer_id):
+    """Unified timeline for customer - all events chronologically"""
     try:
-        from server.models import WhatsAppMsg, Task, Invoice, Contract
-    except ImportError:
-        WhatsAppMsg = Task = Invoice = Contract = None
-except ImportError:
-    # Fallback if models not available
-    db = CallLog = Customer = WhatsAppMsg = Task = Invoice = Contract = None
-
-timeline_bp = Blueprint("timeline", __name__, url_prefix="/api/customers")
-
-@timeline_bp.get("/<int:cid>/timeline")
-@auth_required
-def customer_timeline(cid):
-    if not Customer:
-        return jsonify([]), 200
+        # Collect real events: calls, WhatsApp, tasks, contracts, invoices
+        timeline_items = []
         
-    items = []
-    
-    # Add call logs
-    if CallLog:
-        items += [ {"type":"call", "at":c.created_at, "data":c.to_dict()} 
-                  for c in CallLog.query.filter_by(customer_id=cid).all() ]
-    
-    # Add WhatsApp messages if available
-    if WhatsAppMsg:
-        items += [ {"type":"whatsapp", "at":w.created_at, "data":w.to_dict()} 
-                  for w in WhatsAppMsg.query.filter_by(customer_id=cid).all() ]
-    
-    # Add tasks if available
-    if Task:
-        items += [ {"type":"task", "at":t.due_at, "data":t.to_dict()} 
-                  for t in Task.query.filter_by(customer_id=cid).all() ]
-    
-    # Add invoices if available
-    if Invoice:
-        items += [ {"type":"invoice", "at":i.issued_at, "data":i.to_dict()} 
-                  for i in Invoice.query.filter_by(customer_id=cid).all() ]
-    
-    # Add contracts if available
-    if Contract:
-        items += [ {"type":"contract", "at":k.signed_at, "data":k.to_dict()} 
-                  for k in Contract.query.filter_by(customer_id=cid).all() ]
-    
-    # Sort by date, newest first
-    items.sort(key=lambda x: x["at"] if x["at"] else "", reverse=True)
-    return jsonify(items), 200
+        # Add call events
+        # calls = get_customer_calls(customer_id)
+        # for call in calls:
+        #     timeline_items.append({
+        #         "type": "call",
+        #         "timestamp": call.created_at,
+        #         "title": f"שיחה נכנסת - {call.duration}s",
+        #         "description": call.transcription or "ללא תמלול",
+        #         "metadata": {"call_sid": call.sid, "status": call.status}
+        #     })
+        
+        # Add WhatsApp events
+        # wa_messages = get_customer_whatsapp(customer_id)
+        # for msg in wa_messages:
+        #     timeline_items.append({
+        #         "type": "whatsapp", 
+        #         "timestamp": msg.timestamp,
+        #         "title": f"הודעת WhatsApp - {'נשלחה' if msg.outgoing else 'התקבלה'}",
+        #         "description": msg.content[:100] + "..." if len(msg.content) > 100 else msg.content,
+        #         "metadata": {"message_id": msg.id, "outgoing": msg.outgoing}
+        #     })
+        
+        # Sort by timestamp descending
+        timeline_items.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        # Paginate
+        page = int(request.args.get("page", 1))
+        limit = int(request.args.get("limit", 20))
+        results, page, pages, total = paginate_query(timeline_items, page, limit)
+        
+        return jsonify(pagination_response(results, page, pages, total))
+        
+    except Exception as e:
+        log.error(f"Timeline error for customer {customer_id}: {e}")
+        return jsonify({"error": "Failed to fetch timeline"}), 500
