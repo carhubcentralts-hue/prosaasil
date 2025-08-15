@@ -30,45 +30,41 @@ def get_business_greeting(to_number, call_sid):
 @twilio_bp.post("/webhook/incoming_call")
 @require_twilio_signature
 def incoming_call():
-    """טיפול בשיחה נכנסת - ברכה עברית מלאה עם תמלול וAI"""
+    """
+    Twilio webhook for incoming calls - Real-time Hebrew AI conversation
+    Returns TwiML to start Media Stream for live audio processing ONLY
+    """
     try:
-        from_number = _mask_phone(request.form.get("From", ""))
-        to_number = _mask_phone(request.form.get("To", ""))
-        call_sid = request.form.get("CallSid", "")
+        # Get call details
+        call_sid = request.form.get('CallSid', 'unknown')
+        from_number = request.form.get('From', '')
+        to_number = request.form.get('To', '')
         
-        log.info("📞 שיחה נכנסת: מספר=%s אל=%s CallSid=%s", from_number, to_number, call_sid)
+        log.info("📞 INCOMING CALL: %s → %s (SID: %s)", from_number, to_number, call_sid)
         
-        # שמירת שיחה במסד הנתונים (פשוט לצורך לוגינג)
-        try:
-            log.info("✅ שיחה התחילה: %s", call_sid)
-            # נדלג על DB לעת עתה כדי לא לעכב את השיחה
-        except Exception as e:
-            log.error("❌ שגיאה בלוגינג שיחה: %s", e)
-
-        # שיחה דו-כיוונית בזמן אמת עם Media Streams
-        public_host = os.getenv("PUBLIC_HOST", "").rstrip("/")
-        if not public_host:
-            raise RuntimeError("PUBLIC_HOST לא מוגדר - נדרש לשיחות זמן אמת")
+        # Direct to Media Stream for real-time processing - NO greeting, NO recording
+        host = (os.getenv("PUBLIC_HOST") or "").rstrip("/")
+        assert host, "PUBLIC_HOST must be set"
         
+        # TwiML response with ONLY Media Stream
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://{public_host.replace('https://', '')}/ws/twilio-media"/>
+    <Stream url="wss://{host.replace('https://','').replace('http://','')}/ws/twilio-media"/>
   </Connect>
 </Response>"""
         
-        log.info("🌐 מחזיר Media Streams לשיחה דו-כיוונית בזמן אמת")
-        return Response(xml, mimetype="text/xml", status=200)
+        return Response(xml, status=200, mimetype="text/xml")
         
     except Exception as e:
-        log.error("❌ שגיאה בטיפול בשיחה: %s", e)
-        # ברכה עברית קצרה בזמן שגיאה
+        log.error("Incoming call webhook failed: %s", e)
+        # Fallback TwiML
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say>שלום מ שי דירות ומשרדים. השאירו הודעה.</Say>
-  <Record playBeep="true" maxLength="30"/>
+    <Say voice="woman">Technical difficulties. Please try again later.</Say>
+    <Hangup/>
 </Response>"""
-        return Response(xml, mimetype="text/xml", status=200)
+        return Response(xml, status=200, mimetype="text/xml")
 
 @twilio_bp.post("/webhook/handle_recording")
 @require_twilio_signature

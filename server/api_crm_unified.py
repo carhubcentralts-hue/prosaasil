@@ -6,9 +6,16 @@ from flask import Blueprint, request, jsonify
 from server.api_pagination import paginate_query, pagination_response, get_pagination_params
 from server.rbac_permissions import require_auth, get_current_user
 import logging
+import stripe
+import os
+from server.models_sql import Deal, Payment, Invoice, Contract
+from server.db import db
 
 crm_unified_bp = Blueprint("crm_unified_bp", __name__, url_prefix="/api/crm")
 log = logging.getLogger("api.crm.unified")
+
+# Initialize Stripe
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
 # Mock data for demonstration - יוחלף בDB אמיתי
 MOCK_CUSTOMERS = [
@@ -51,6 +58,118 @@ def customers_list():
     except Exception as e:
         log.error("Error fetching customers: %s", e)
         return jsonify({"error": "Failed to fetch customers"}), 500
+
+# === PAYMENTS API ===
+
+@crm_unified_bp.post("/payments/create-intent")
+def create_payment_intent():
+    """יצירת Stripe Payment Intent"""
+    try:
+        data = request.get_json() or {}
+        deal_id = int(data["deal_id"])
+        amount = int(data["amount"])
+        currency = (os.getenv("CURRENCY") or "ils").lower()
+        
+        pi = stripe.PaymentIntent.create(
+            amount=amount, 
+            currency=currency, 
+            automatic_payment_methods={"enabled": True}
+        )
+        
+        payment = Payment()
+        payment.deal_id = deal_id
+        payment.stripe_payment_intent = pi["id"]
+        payment.amount = amount
+        payment.currency = currency
+        payment.status = "created"
+        
+        db.session.add(payment)
+        db.session.commit()
+        
+        return jsonify({
+            "client_secret": pi["client_secret"], 
+            "payment_intent": pi["id"]
+        }), 200
+        
+    except Exception as e:
+        log.error("Payment intent creation failed: %s", e)
+        return jsonify({"error": "Payment creation failed"}), 500
+
+@crm_unified_bp.post("/webhook/stripe")
+def stripe_webhook():
+    """Stripe webhook for payment status updates"""
+    try:
+        sig = request.headers.get("Stripe-Signature", "")
+        secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+        
+        if not secret:
+            return ("Webhook secret not configured", 400)
+        
+        event = stripe.Webhook.construct_event(request.data, sig, secret)
+        
+        if event["type"] == "payment_intent.succeeded":
+            pi = event["data"]["object"]
+            payment = Payment.query.filter_by(stripe_payment_intent=pi["id"]).first()
+            
+            if payment:
+                payment.status = "succeeded"
+                db.session.commit()
+                log.info("Payment succeeded: %s", pi["id"])
+                
+                # Auto-generate invoice
+                try:
+                    from server.services.invoice_service import create_invoice_for_payment
+                    create_invoice_for_payment(payment)
+                except Exception as e:
+                    log.error("Auto invoice creation failed: %s", e)
+                    
+        return ("", 204)
+        
+    except Exception as e:
+        log.error("Stripe webhook error: %s", e)
+        return (str(e), 400)
+
+# === DEALS API ===
+
+@crm_unified_bp.get("/deals") 
+def list_deals():
+    """רשימת דילים"""
+    try:
+        deals = Deal.query.all()
+        return jsonify([{
+            "id": d.id,
+            "customer_id": d.customer_id,
+            "title": d.title,
+            "stage": d.stage,
+            "amount": d.amount,
+            "created_at": d.created_at.isoformat() if d.created_at else None
+        } for d in deals])
+    except Exception as e:
+        log.error("Deals list failed: %s", e)
+        return jsonify({"error": "Failed to fetch deals"}), 500
+
+@crm_unified_bp.post("/deals")
+def create_deal():
+    """יצירת דיל חדש"""
+    try:
+        data = request.get_json() or {}
+        deal = Deal()
+        deal.customer_id = int(data["customer_id"])
+        deal.title = data.get("title", "")
+        deal.stage = data.get("stage", "new")
+        deal.amount = int(data.get("amount", 0))
+        
+        db.session.add(deal)
+        db.session.commit()
+        
+        return jsonify({
+            "id": deal.id,
+            "message": "Deal created successfully"
+        }), 201
+        
+    except Exception as e:
+        log.error("Deal creation failed: %s", e)
+        return jsonify({"error": "Deal creation failed"}), 500
 
 @crm_unified_bp.get("/customers/<int:customer_id>/timeline")
 @require_auth()

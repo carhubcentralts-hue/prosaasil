@@ -114,13 +114,20 @@ def register_blueprints(app):
     except Exception as e:
         print(f"❌ Payments & CRM API registration failed: {e}")
     
-    # WhatsApp Unified API (production ready) - ONLY THIS ONE
+    # WhatsApp APIs - both unified and improved
     try:
         from server.api_whatsapp_unified import whatsapp_unified_bp
         app.register_blueprint(whatsapp_unified_bp)
         print("✅ WhatsApp Unified API registered successfully")
     except Exception as e:
         print(f"❌ WhatsApp Unified API registration failed: {e}")
+    
+    try:
+        from server.api_whatsapp_improved import whatsapp_bp
+        app.register_blueprint(whatsapp_bp)
+        print("✅ WhatsApp Improved API registered successfully")
+    except Exception as e:
+        print(f"❌ WhatsApp Improved API registration failed: {e}")
         # Create minimal WhatsApp status route as last resort
         @app.route('/api/whatsapp/status', methods=['GET'])
         def whatsapp_status_fallback():
@@ -143,7 +150,89 @@ def create_app():
     from flask_sock import Sock
     sock = Sock(app)
     
-    # WebSocket will be registered later with other routes
+    # Register Media Stream WebSocket immediately
+    import json, base64, time, audioop, tempfile, wave, os
+    try:
+        from google.cloud import texttospeech
+    except ImportError:
+        print("⚠️ Google Cloud TTS not available")
+    
+    @sock.route("/ws/twilio-media")
+    def ws_twilio_media(ws):
+        stream_sid = None
+        buf_lin16_8k = b""
+
+        def tts_and_stream_he(text: str):
+            if not text: return
+            try:
+                client = texttospeech.TextToSpeechClient()
+                voice = texttospeech.VoiceSelectionParams(language_code="he-IL",
+                                                          name=os.getenv("TTS_VOICE","he-IL-Wavenet-A"))
+                cfg = texttospeech.AudioConfig(
+                    audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+                    sample_rate_hertz=8000
+                )
+                resp = client.synthesize_speech(texttospeech.SynthesisInput(text=text), voice, cfg)
+                lin16_8k = resp.audio_content  # bytes PCM16@8k
+                mulaw = audioop.lin2ulaw(lin16_8k, 2)
+                for i in range(0, len(mulaw), 160):  # 20ms @8k
+                    payload = base64.b64encode(mulaw[i:i+160]).decode()
+                    ws.send(json.dumps({"event":"media","streamSid": stream_sid, "media":{"payload": payload}}))
+                    time.sleep(0.02)
+            except Exception as e:
+                current_app.logger.error(f"TTS error: {e}")
+
+        def flush_and_transcribe():
+            nonlocal buf_lin16_8k
+            if not buf_lin16_8k: return ""
+            try:
+                # 8k→16k Whisper
+                converted, _ = audioop.ratecv(buf_lin16_8k, 2, 1, 8000, 16000, None)
+                fd, wav_path = tempfile.mkstemp(suffix=".wav"); os.close(fd)
+                with wave.open(wav_path, "wb") as wf:
+                    wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(16000)
+                    wf.writeframes(converted)
+                # Whisper API
+                try:
+                    import openai
+                    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                except ImportError:
+                    current_app.logger.error("OpenAI not available")
+                    return ""
+                with open(wav_path, "rb") as f:
+                    tr = client.audio.transcriptions.create(model="whisper-1", file=f, language="he")
+                text = (tr.text or "").strip()
+                os.remove(wav_path)
+                buf_lin16_8k = b""
+                return text
+            except Exception as e:
+                current_app.logger.error(f"ASR error: {e}")
+                buf_lin16_8k = b""
+                return ""
+
+        while True:
+            msg = ws.receive()
+            if msg is None: break
+            data = json.loads(msg); ev = data.get("event")
+            if ev == "start":
+                stream_sid = data["start"]["streamSid"]
+                tts_and_stream_he("שלום וברוכים הבאים לשי דירות ומשרדים")
+            elif ev == "media":
+                mulaw = base64.b64decode(data["media"]["payload"])
+                lin16_8k = audioop.ulaw2lin(mulaw, 2)
+                buf_lin16_8k += lin16_8k
+                # flush אחרי 1.2 שניות
+                if len(buf_lin16_8k) > int(1.2*8000*2):
+                    user_text = flush_and_transcribe()
+                    if user_text:
+                        # Echo בשלב הראשון - אחר כך GPT
+                        reply = f"שמעתי אותך אומר: {user_text}"
+                        tts_and_stream_he(reply)
+            elif ev == "stop":
+                user_text = flush_and_transcribe()
+                if user_text:
+                    tts_and_stream_he("תודה, נתראה!")
+                break
     
     # Environment validation and setup
     from server.environment_validation import validate_production_environment, log_environment_status
