@@ -100,15 +100,15 @@ export function ProfessionalLogin({ onLoginSuccess }: LoginProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-200 flex items-center justify-center p-4">
-      <div className="bg-white/95 backdrop-blur-sm border border-white/20 rounded-3xl p-8 w-full max-w-md shadow-2xl">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
+      <div className="bg-white/95 backdrop-blur-sm border border-white/20 rounded-3xl p-10 w-full max-w-md shadow-2xl transform transition-all duration-300 hover:shadow-3xl">
         {/* Brand Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-white text-2xl font-semibold">🏢</span>
+          <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-blue-700 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg">
+            <span className="text-white text-3xl font-semibold">📊</span>
           </div>
-          <h1 className="text-3xl font-bold text-slate-800 mb-2">מערכת CRM</h1>
-          <p className="text-slate-600 font-medium">שי דירות ומשרדים בע״מ</p>
+          <h1 className="text-4xl font-bold text-slate-800 mb-3">מערכת CRM</h1>
+          <p className="text-slate-500 text-sm">כניסה למערכת ניהול לקוחות מתקדמת</p>
         </div>
 
         {/* Login Form */}
@@ -130,8 +130,8 @@ export function ProfessionalLogin({ onLoginSuccess }: LoginProps) {
               value={formData.email}
               onChange={handleInputChange}
               required
-              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-right"
-              placeholder="your.email@company.com"
+              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-right bg-slate-50 hover:bg-white focus:bg-white"
+              placeholder="example@company.com"
             />
           </div>
 
@@ -146,7 +146,7 @@ export function ProfessionalLogin({ onLoginSuccess }: LoginProps) {
               value={formData.password}
               onChange={handleInputChange}
               required
-              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-right"
+              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-right bg-slate-50 hover:bg-white focus:bg-white"
               placeholder="••••••••"
             />
           </div>
@@ -168,7 +168,7 @@ export function ProfessionalLogin({ onLoginSuccess }: LoginProps) {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 px-4 rounded-xl font-medium hover:from-blue-700 hover:to-blue-800 transition-all duration-200 transform hover:scale-[1.02] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-4 px-4 rounded-xl font-semibold hover:from-blue-700 hover:to-purple-700 transition-all duration-300 transform hover:scale-[1.02] shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none focus:ring-4 focus:ring-blue-200"
           >
             {isLoading ? (
               <div className="flex items-center justify-center">
@@ -182,7 +182,12 @@ export function ProfessionalLogin({ onLoginSuccess }: LoginProps) {
         </form>
 
         {/* Professional Footer */}
-        <div className="mt-8 pt-6 border-t border-slate-200 text-center">
+        <div className="mt-10 pt-6 border-t border-slate-200 text-center">
+          <div className="flex items-center justify-center space-x-4 mb-3">
+            <span className="h-1 w-8 bg-gradient-to-r from-blue-400 to-purple-400 rounded"></span>
+            <span className="text-xs text-slate-400 font-medium">SECURE</span>
+            <span className="h-1 w-8 bg-gradient-to-r from-purple-400 to-blue-400 rounded"></span>
+          </div>
           <p className="text-xs text-slate-500">
             מערכת מאובטחת עם הצפנה ברמה הגבוהה ביותר
           </p>
