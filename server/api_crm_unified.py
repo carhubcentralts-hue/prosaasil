@@ -3,7 +3,7 @@ CRM API מאוחד עם Pagination עקבי
 לפי המפרט המקצועי
 """
 from flask import Blueprint, request, jsonify
-from server.api_pagination_improved import paginate_query, pagination_response, get_pagination_params
+from server.api_pagination import paginate_query, pagination_response, get_pagination_params
 from server.rbac_permissions import require_auth, get_current_user
 import logging
 

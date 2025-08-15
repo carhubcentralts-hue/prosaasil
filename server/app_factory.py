@@ -57,26 +57,13 @@ def register_blueprints(app):
         traceback.print_exc()
     
     # CRM and Timeline (auth required)
+    # Timeline API  
     try:
-        from server.api_crm_improved import crm_bp
-        app.register_blueprint(crm_bp)
-        print("✅ CRM API registered successfully")
-    except Exception as e:
-        print(f"❌ CRM API registration failed: {e}")
-    
-    try:
-        from server.api_timeline_improved import timeline_bp
+        from server.api_timeline import timeline_bp
         app.register_blueprint(timeline_bp)
         print("✅ Timeline API registered successfully")
     except Exception as e:
         print(f"❌ Timeline API registration failed: {e}")
-        # Use basic timeline if improved version fails
-        try:
-            from server.api_timeline import timeline_bp as basic_timeline_bp
-            app.register_blueprint(basic_timeline_bp)
-            print("✅ Basic Timeline API registered as fallback")
-        except Exception as e2:
-            print(f"❌ Basic Timeline API also failed: {e2}")
     
     # Business management (auth required)
     try:
@@ -94,14 +81,6 @@ def register_blueprints(app):
     except Exception as e:
         print(f"❌ CRM Basic API registration failed: {e}")
     
-    # Improved Twilio Webhooks (לפי המפרט המקצועי)
-    try:
-        from server.routes_twilio_improved import twilio_improved_bp
-        app.register_blueprint(twilio_improved_bp)
-        print("✅ Improved Twilio webhooks registered successfully")
-    except Exception as e:
-        print(f"❌ Improved Twilio webhooks registration failed: {e}")
-    
     # CRM Unified API (לפי המפרט המקצועי)
     try:
         from server.api_crm_unified import crm_unified_bp
@@ -112,22 +91,15 @@ def register_blueprints(app):
     
     # WhatsApp integration (auth required)
     try:
-        from server.api_whatsapp_improved import whatsapp_bp
-        app.register_blueprint(whatsapp_bp)
+        from server.whatsapp_api import whatsapp_api_bp
+        app.register_blueprint(whatsapp_api_bp)
         print("✅ WhatsApp API registered successfully")
     except Exception as e:
         print(f"❌ WhatsApp API registration failed: {e}")
-        # Try fallback to old whatsapp_api
-        try:
-            from server.whatsapp_api import whatsapp_api_bp
-            app.register_blueprint(whatsapp_api_bp)
-            print("✅ WhatsApp API fallback registered successfully")
-        except Exception as e2:
-            print(f"❌ WhatsApp API fallback also failed: {e2}")
-            # Create minimal WhatsApp status route as last resort
-            @app.route('/api/whatsapp/status', methods=['GET'])
-            def whatsapp_status_fallback():
-                return jsonify({'success': True, 'connected': False, 'status': 'disconnected'})
+        # Create minimal WhatsApp status route as last resort
+        @app.route('/api/whatsapp/status', methods=['GET'])
+        def whatsapp_status_fallback():
+            return jsonify({'success': True, 'connected': False, 'status': 'disconnected'})
 
 def create_app():
     """יצירת אפליקציית Flask עם הגדרות מקצועיות"""
