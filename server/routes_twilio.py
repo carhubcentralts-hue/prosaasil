@@ -30,33 +30,24 @@ def get_business_greeting(to_number, call_sid):
 @twilio_bp.post("/webhook/incoming_call")
 @require_twilio_signature
 def incoming_call():
-    """Handle incoming Twilio call - SIMPLE HEBREW GREETING THAT WORKS!"""
-    try:
-        from_number = _mask_phone(request.form.get("From", ""))
-        to_number = _mask_phone(request.form.get("To", ""))
-        call_sid = request.form.get("CallSid", "")
-        
-        log.info("Incoming call: From=%s To=%s CallSid=%s", from_number, to_number, call_sid)
-        
-        # Simple, reliable Hebrew greeting
-        xml = """<?xml version="1.0" encoding="UTF-8"?>
+    """Handle incoming Twilio call - DIRECT HEBREW GREETING"""
+    from_number = _mask_phone(request.form.get("From", ""))
+    to_number = _mask_phone(request.form.get("To", ""))
+    call_sid = request.form.get("CallSid", "")
+    
+    log.info("🔥 INCOMING CALL: From=%s To=%s CallSid=%s", from_number, to_number, call_sid)
+    
+    # Test English first, then Hebrew with language attribute
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say>שלום, אתם מדברים עם שי דירות ומשרדים. השאירו הודעה אחרי הצפצוף.</Say>
+  <Say voice="alice">Hello, you are speaking with Shai Apartments and Offices. Please leave a message after the beep.</Say>
+  <Say language="he" voice="alice">שלום, אתם מדברים עם שי דירות ומשרדים. השאירו הודעה אחרי הצפצוף.</Say>
   <Record playBeep="true" maxLength="30" timeout="5" finishOnKey="*"/>
 </Response>"""
-        
-        log.info("✅ Returning Hebrew text greeting")
-        return Response(xml, mimetype="text/xml", status=200)
-        
-    except Exception as e:
-        log.error("Call error: %s", e)
-        # Fallback
-        xml = """<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say>שלום, השאירו הודעה.</Say>
-  <Record playBeep="true" maxLength="20"/>
-</Response>"""
-        return Response(xml, mimetype="text/xml", status=200)
+    
+    log.info("🎤 RETURNING ENGLISH+HEBREW GREETING XML")
+    log.info("📋 XML CONTENT: %s", xml.replace('\n', ' ').strip())
+    return Response(xml, mimetype="text/xml", status=200)
 
 @twilio_bp.post("/webhook/handle_recording")
 @require_twilio_signature

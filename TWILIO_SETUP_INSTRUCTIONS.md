@@ -1,73 +1,67 @@
-# הנחיות הגדרת Twilio - מערכת שיחות עברית AI
+# 📞 Twilio Setup Instructions - URGENT FIX
 
-## ✅ המערכת מוכנה! צריך רק להגדיר את Twilio
+## 🚨 Current Problem
+User hears "dott" and recording but NO greeting - this means wrong webhook URL in Twilio!
 
-### 1. כתובות Webhook שצריך להגדיר ב-Twilio:
+## ✅ Solution: Fix Twilio Webhook Configuration
 
-**Voice Webhook (שיחות נכנסות):**
+### Step 1: Login to Twilio Console
+Go to: https://console.twilio.com
+
+### Step 2: Find Your Phone Number
+1. Go to **Phone Numbers** → **Manage** → **Active numbers**
+2. Click on your Israeli phone number (+972...)
+
+### Step 3: Configure Webhook URL
+In the **Voice Configuration** section:
+
+**✅ CORRECT URL:**
 ```
 https://ai-crmd.replit.app/webhook/incoming_call
-Method: POST
 ```
 
-**Status Callback (עדכוני סטטוס):**
+**❌ WRONG URLs (don't use these):**
 ```
-https://ai-crmd.replit.app/webhook/call_status
-Method: POST
-```
-
-**Recording Webhook (עיבוד הקלטות):**
-```
-https://ai-crmd.replit.app/webhook/handle_recording
-Method: POST
+https://ai-crmd.replit.app//webhook/incoming_call  (double slash)
+https://your-old-domain.com/webhook/incoming_call  (old domain)
+http://localhost:5000/webhook/incoming_call       (localhost)
 ```
 
-### 2. איך להגדיר ב-Twilio Console:
+### Step 4: Set Method to POST
+- Method: **POST**
+- Primary handler URL: `https://ai-crmd.replit.app/webhook/incoming_call`
 
-1. **היכנס ל-Twilio Console** → Phone Numbers → Manage → Active numbers
-2. **בחר את המספר** שרוצה להגדיר
-3. **Voice Configuration:**
-   - Webhook: `https://ai-crmd.replit.app/webhook/incoming_call`
-   - HTTP Method: POST
-   - Status Callback: `https://ai-crmd.replit.app/webhook/call_status`
-4. **שמור את השינויים**
+### Step 5: Save Configuration
+Click **Save Configuration**
 
-### 3. בדיקת תקינות הגדרות:
+## 🧪 Test After Setup
 
+Call your Twilio number. You should hear:
+1. **English**: "Hello, you are speaking with Shai Apartments and Offices..."
+2. **Hebrew**: "שלום, אתם מדברים עם שי דירות ומשרדים..."
+3. **Beep** for recording
+
+## 🔧 Verification
+
+Our webhook is working correctly:
 ```bash
-# בדיקת webhook שיחות נכנסות:
-curl -X POST "https://ai-crmd.replit.app/webhook/incoming_call" \
-  -d "CallSid=TEST&From=%2B972501234567&To=%2B972501234567"
-
-# בדיקת webhook סטטוס:
-curl -X POST "https://ai-crmd.replit.app/webhook/call_status" \
-  -d "CallSid=TEST&CallStatus=completed"
+curl -X POST https://ai-crmd.replit.app/webhook/incoming_call \
+  -d "From=+972501234567&CallSid=TEST"
 ```
 
-### 4. מה יקרה בשיחה:
+Returns:
+```xml
+<Response>
+  <Say voice="alice">Hello, you are speaking with Shai Apartments and Offices...</Say>
+  <Say language="he" voice="alice">שלום, אתם מדברים עם שי דירות ומשרדים...</Say>
+  <Record playBeep="true" maxLength="30" timeout="5" finishOnKey="*"/>
+</Response>
+```
 
-1. **שיחה נכנסת** → ברכה בעברית (welcome.mp3)
-2. **הקלטת לקוח** → תמלול Whisper בעברית  
-3. **תגובת AI** → GPT-4o בעברית לנדל"ן
-4. **TTS עברית** → יצירת קובץ MP3 איכותי
-5. **המשך שיחה** → העוז כל זה שוב
+## 🆘 If Still Not Working
 
-### 5. לוגים וניטור:
+1. **Check Twilio Debugger**: Go to Monitor → Debugger in Twilio Console
+2. **Look for webhook errors**: Any 404, 500, or timeout errors
+3. **Verify URL exactly**: No typos, extra slashes, or wrong domain
 
-המערכת מתעדת כל שיחה עם:
-- Request-ID tracking
-- Hebrew transcription logs  
-- AI response logs
-- TTS generation logs
-- מיסוך מספרי טלפון (9****67)
-
-### 6. אם עדיין לא עובד:
-
-- ✅ ודא שה-webhook URLs מוגדרים נכון
-- ✅ בדוק שהמספר Twilio מוגדר לשימוש
-- ✅ התקשר למספר עצמו ובדוק logs
-- ✅ ודא שהאפליקציה פועלת על ai-crmd.replit.app
-
-## 🎯 סיכום: המערכת מוכנה לשימוש!
-
-כל הרכיבים הטכניים עובדים. צריך רק להגדיר את Twilio לשלוח שיחות לכתובות הנכונות.
+The system is ready - just need correct Twilio configuration! 🎯
