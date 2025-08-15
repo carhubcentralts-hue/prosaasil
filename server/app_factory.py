@@ -38,11 +38,23 @@ def register_blueprints(app):
     
     # Twilio webhooks (no auth required)
     try:
+        print("🔧 STARTING Twilio webhooks registration...")
         from server.routes_twilio import twilio_bp
+        print(f"✅ twilio_bp imported: {twilio_bp}")
         app.register_blueprint(twilio_bp)
         print("✅ Twilio webhooks registered successfully")
+        
+        # DEBUG: Show registered routes
+        print("🔍 DEBUG: Current Flask routes:")
+        for rule in app.url_map.iter_rules():
+            if 'webhook' in rule.rule or 'handle_recording' in rule.rule:
+                print(f"   {rule.rule} -> {rule.methods} -> {rule.endpoint}")
+        
     except Exception as e:
         print(f"❌ Twilio webhooks registration failed: {e}")
+        print(f"🔍 Error details: {str(e)}")
+        import traceback
+        traceback.print_exc()
     
     # CRM and Timeline (auth required)
     try:
@@ -158,6 +170,9 @@ def create_app():
     # Register additional core routes
     register_core_routes(app)
     register_static_routes(app)
+    
+    # DISABLE OLD WEBHOOK ROUTES - they conflict with new ones!
+    # register_webhook_routes(app)  # COMMENTED OUT - using new twilio_bp instead
     
     return app
 
@@ -471,8 +486,8 @@ def register_webhook_routes(app):
         response.headers['Content-Type'] = 'text/xml; charset=utf-8'
         return response
     
-    @app.route('/webhook/conversation_turn', methods=['POST'])
-    def professional_conversation_turn():
+    @app.route('/webhook/conversation_turn_backup', methods=['POST'])
+    def professional_conversation_turn_backup():
         """Professional conversation handling with AI responses"""
         try:
             call_sid = request.values.get('CallSid', 'unknown')
@@ -552,9 +567,7 @@ def register_webhook_routes(app):
 </Response>"""
             return Response(xml, mimetype="text/xml")
     
-    @app.route('/webhook/call_status', methods=['POST'])
-    def call_status():
-        return "OK", 200
+    # REMOVED OLD @app.route('/webhook/call_status') - using twilio_bp instead!
 
 def process_real_conversation_sync(call_sid: str, recording_url: str, turn_num: int) -> str:
     """Process real conversation synchronously and return AI response"""

@@ -102,20 +102,103 @@ def process_recording_async(rec_url, call_sid, from_number):
     except Exception as e:
         log.error("Background logging failed for %s: %s", call_sid, e, exc_info=True)
 
-@twilio_bp.route("/handle_recording", methods=["POST"])
-def handle_recording():
-    """Handle recording - Process immediately and continue conversation"""
+@twilio_bp.route("/handle_recording_new", methods=["POST"])
+def handle_recording_new():
+    """NEW ROUTE - Handle recording - Process immediately and continue conversation"""
     rec_url = request.form.get("RecordingUrl")
     call_sid = request.form.get("CallSid", "")
     from_number = _mask_phone(request.form.get("From", ""))
     
-    log.info("Handle recording: url=%s CallSid=%s", rec_url, call_sid)
+    log.info("🚀 NEW HANDLER WORKS! url=%s CallSid=%s", rec_url, call_sid)
     
-    # Process recording IMMEDIATELY (not in background for continuous conversation)
-    ai_response_text = process_recording_sync(rec_url, call_sid, from_number)
+    # Simple test response
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say language="he-IL">בדיקה - זה הhandler החדש שעובד!</Say>
+    <Pause length="1"/>
+    <Record action="/webhook/handle_recording_new"
+            method="POST"
+            maxLength="30"
+            timeout="5"
+            finishOnKey="*"
+            transcribe="false"
+            language="he-IL"/>
+</Response>"""
     
-    # Generate Hebrew TTS response file
+    return Response(xml, mimetype="text/xml", status=200)
+
+@twilio_bp.route("/handle_recording", methods=["POST"])
+def handle_recording():
+    """Handle recording - CONTINUOUS CONVERSATION - PRODUCTION READY"""
+    rec_url = request.form.get("RecordingUrl")
+    call_sid = request.form.get("CallSid", "")
+    from_number = _mask_phone(request.form.get("From", ""))
+    
+    print("🎯 CONTINUOUS CONVERSATION HANDLER CALLED!")
+    log.info("🎯 Processing continuous conversation: url=%s CallSid=%s", rec_url, call_sid)
+    
+    # Process recording IMMEDIATELY for continuous conversation
     try:
+        ai_response_text = process_recording_sync(rec_url, call_sid, from_number)
+        log.info("AI response generated: %s", ai_response_text[:50])
+        
+        # Generate Hebrew TTS response file
+        from server.hebrew_tts_enhanced import create_hebrew_audio
+        response_file = create_hebrew_audio(ai_response_text, f"call_{call_sid}")
+        
+        if response_file:
+            response_url = abs_url(response_file)
+            
+            # Continue conversation - Play AI response then record again
+            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Play>{response_url}</Play>
+    <Pause length="1"/>
+    <Record action="/webhook/handle_recording"
+            method="POST"
+            maxLength="30"
+            timeout="5"
+            finishOnKey="*"
+            transcribe="false"
+            language="he-IL"/>
+</Response>"""
+        else:
+            # Fallback - use Say instead of Play
+            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say language="he-IL">{ai_response_text}</Say>
+    <Pause length="1"/>
+    <Record action="/webhook/handle_recording"
+            method="POST"
+            maxLength="30"
+            timeout="5"
+            finishOnKey="*"
+            transcribe="false"
+            language="he-IL"/>
+</Response>"""
+            
+    except Exception as e:
+        log.error("Error in continuous conversation: %s", e)
+        # Professional fallback
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say language="he-IL">מצטער, נתקלתי בבעיה טכנית. אנא נסה שוב.</Say>
+    <Pause length="1"/>
+    <Record action="/webhook/handle_recording"
+            method="POST"
+            maxLength="30"
+            timeout="5"
+            finishOnKey="*"
+            transcribe="false"
+            language="he-IL"/>
+</Response>"""
+    
+    return Response(xml, mimetype="text/xml", status=200)
+        # Process recording IMMEDIATELY (not in background for continuous conversation)
+        ai_response_text = process_recording_sync(rec_url, call_sid, from_number)
+        log.info("AI response generated: %s", ai_response_text[:50])
+        
+        # Generate Hebrew TTS response file
         from server.hebrew_tts_enhanced import create_hebrew_audio
         response_file = create_hebrew_audio(ai_response_text, f"call_{call_sid}")
         if response_file:
@@ -189,10 +272,17 @@ def call_status():
     return response
 
 def _say(text_he: str):
-    """Helper to create SAY response in Hebrew - returns TwiML XML"""
+    """Helper to create SAY response in Hebrew - returns TwiML XML with CONTINUOUS RECORDING"""
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Say language="he-IL">{text_he}</Say>
-    <Hangup/>
+    <Pause length="1"/>
+    <Record action="/webhook/handle_recording"
+            method="POST"
+            maxLength="30"
+            timeout="5"
+            finishOnKey="*"
+            transcribe="false"
+            language="he-IL"/>
 </Response>"""
     return Response(xml, mimetype="text/xml", status=200)
