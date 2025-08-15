@@ -41,10 +41,11 @@ def incoming_call():
     
     # Get business-specific greeting
     greeting_path = get_business_greeting(to_number, call_sid)
-    greeting_url = abs_url(greeting_path)
     
-    # TwiML XML response (חובה - לא JSON!)
-    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+    # TwiML XML response with PUBLIC_HOST robustness
+    try:
+        greeting_url = abs_url(greeting_path)
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{greeting_url}</Play>
   <Pause length="1"/>
@@ -54,6 +55,13 @@ def incoming_call():
           timeout="5" 
           finishOnKey="*" 
           transcribe="false"/>
+</Response>"""
+    except Exception as e:
+        log.warning("PUBLIC_HOST missing or invalid, fallback to <Say>: %s", e)
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say language="he-IL">שלום, ההקלטה מתחילה עכשיו. השאירו הודעה אחרי הצפצוף.</Say>
+  <Record playBeep="true" maxLength="30" timeout="5" finishOnKey="*"/>
 </Response>"""
     
     return Response(xml, mimetype="text/xml", status=200)
@@ -67,6 +75,30 @@ def handle_recording():
     
     log.info("Recording received: CallSid=%s RecordingUrl=%s", call_sid, recording_url)
     
+    # שמירת הקלטה ל-DB קודם כל
+    try:
+        from server.models_sql import CallLog
+        from server.db import db
+        
+        rec = CallLog.query.filter_by(call_sid=call_sid).first()
+        if not rec:
+            # יצירת רשומת שיחה חדשה עם הקלטה
+            rec = CallLog()
+            rec.call_sid = call_sid
+            rec.business_id = 1
+            rec.status = "recorded"
+            db.session.add(rec)
+        
+        # עדכון URL הקלטה
+        rec.recording_url = recording_url
+        rec.status = "recorded"
+        db.session.commit()
+        
+        log.info("Recording saved to DB: CallSid=%s", call_sid)
+        
+    except Exception as e:
+        log.error("Failed to persist recording to DB: %s", e)
+    
     # שלח לעיבוד ברקע (למנוע timeout) - אסינכרוני בלבד
     try:
         from server.tasks_recording import enqueue_recording
@@ -79,7 +111,7 @@ def handle_recording():
             try:
                 # עיבוד minimal ברקע - ללא חסימה
                 log.info("Background processing recording: %s", recording_url)
-                # TODO: עיבוד אמיתי כאן
+                # TODO: עיבוד אמיתי כאן (Whisper transcription, etc.)
             except Exception as e:
                 log.error("Background processing failed: %s", e)
         threading.Thread(target=process_in_background, daemon=True).start()
@@ -102,10 +134,26 @@ def call_status():
     
     log.info("Call status update: CallSid=%s Status=%s", call_sid, call_status)
     
-    # שמירת סטטוס השיחה לDB
+    # שמירת סטטוס השיחה לDB - עדכון CallLog
     try:
-        # TODO: עדכון DB עם סטטוס השיחה
-        pass
+        from server.models_sql import CallLog
+        from server.db import db
+        
+        rec = CallLog.query.filter_by(call_sid=call_sid).first()
+        if not rec:
+            # יצירת רשומת שיחה חדשה
+            rec = CallLog()
+            rec.call_sid = call_sid
+            rec.status = call_status
+            rec.business_id = 1
+            db.session.add(rec)
+        else:
+            # עדכון סטטוס קיים
+            rec.status = call_status
+        
+        db.session.commit()
+        log.info("CallLog updated for %s: %s", call_sid, call_status)
+        
     except Exception as e:
         log.error("Failed to update call status: %s", e)
     

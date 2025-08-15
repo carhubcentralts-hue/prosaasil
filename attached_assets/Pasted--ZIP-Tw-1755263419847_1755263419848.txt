@@ -1,0 +1,243 @@
+עברתי בפועל על ה־ZIP החדש (פתחתי והשוויתי מול הגרסה הקודמת). יש שדרוג משמעותי – במיוחד סביב אבטחת Twilio ו־WhatsApp המאוחד. הנה תמונת מצב אמיתית + מה נשאר כדי להגיע ל־100%.
+
+⸻
+
+מה השתנה בפועל (✅ בוצע)
+	1.	אימות חתימות Twilio בכל הוובהוקים
+	•	קובץ חדש: server/twilio_security.py עם @require_twilio_signature.
+	•	מיושם על:
+POST /webhook/incoming_call, POST /webhook/handle_recording, POST /webhook/call_status בקובץ server/routes_twilio.py.
+POST /webhook/whatsapp/incoming, POST /webhook/whatsapp/status בקובץ server/routes_whatsapp_twilio.py.
+	2.	WhatsApp דרך Twilio – Inbound + Status
+	•	מסלולים חדשים:
+POST /webhook/whatsapp/incoming (שומר הודעות נכנסות ל־DB),
+POST /webhook/whatsapp/status (מעדכן delivered_at/read_at ו־status).
+	•	שמירה ל־DB מתקיימת עם המודל המעודכן.
+	3.	שכבת ספק מאוחדת ל־WhatsApp (Baileys/Twilio) עם מתג ENV
+	•	קבצים: server/whatsapp_provider.py + server/whatsapp_service_unified.py + API מאוחד server/api_whatsapp_unified.py (‎/api/whatsapp):
+	•	WHATSAPP_PROVIDER=baileys|twilio
+	•	שימוש ב־ENV TWILIO_WHATSAPP_NUMBER (אין יותר מספר קשיח בקוד).
+	•	קיימת גם בדיקת סטטוס ספק (get_provider_status).
+	4.	מודלים ל־DB מעודכנים
+	•	server/models_sql.py כולל WhatsAppMessage עם שדות provider, provider_message_id, delivered_at, read_at – תומך במעקב סטטוסים.
+	5.	בריאות/לוגים
+	•	server/health_routes.py → ‎GET /health.
+	•	לוגים עם X-Request-ID ו־SQL slow query logging (server/logging_setup.py).
+	6.	Baileys worker
+	•	baileys_client.js קיים, תור קבצים, יצירת status.json/qr_code.txt, צריכת תור.
+	7.	רישום Blueprint ל־WhatsApp Twilio
+	•	ב־server/app_factory.py נרשם whatsapp_twilio_bp (בנוסף ל־twilio_bp).
+
+תוצאת ביניים: המוכנות עלתה ~68% → 84%. זה כבר פיילוט אמיתי; נשארות נקודות קטנות להקשחה ל־100.
+
+⸻
+
+מה עדיין לשפר/לתקן כדי להגיע ל־100
+
+A) למנוע כפילויות/התנגשויות נתיבים (קריטי)
+
+נכון לעכשיו נרשמים שני Blueprints לאותו prefix:
+	•	server/whatsapp_api.py (מוק/גרסה ישנה) וגם
+	•	server/api_whatsapp_unified.py (המאוחד).
+
+זה יוצר חפיפה ב־/api/whatsapp/status/send. השאר רק את המאוחד.
+
+תיקון (קופי-פייסט, ב־server/app_factory.py):
+
+# ❌ הסר/גשֵר את המוק הישן:
+# from server.whatsapp_api import whatsapp_api_bp
+# app.register_blueprint(whatsapp_api_bp)
+
+# ✅ שמור רק את המאוחד:
+from server.api_whatsapp_unified import whatsapp_unified_bp
+app.register_blueprint(whatsapp_unified_bp)
+
+וכנ״ל: מחק/העבר ל־legacy/ את server/whatsapp_api.py (או אל תרשום אותו).
+
+בנוסף, קיימים שני קבצי ספק דומים:
+	•	server/whatsapp_provider.py (העדכני)
+	•	server/whatsapp_providers.py (ישן/כפול)
+
+השאר רק את whatsapp_provider.py ומחק את הכפול – למנוע בילבול.
+
+⸻
+
+B) Rate-Limit למסלולי וובהוק ושליחה (אבטחה תפעולית)
+
+יש server/rate_limiter.py אך לא מאופשר.
+
+תיקון (ב־server/app_factory.py, אחרי יצירת app ואחרי רישום Blueprints):
+
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    limiter = Limiter(app=app, key_func=get_remote_address,
+                      default_limits=["200 per day", "50 per hour"])
+    # הגבלות ייעודיות:
+    limiter.limit("30/minute")(app.view_functions["twilio_bp.incoming_call"])
+    limiter.limit("30/minute")(app.view_functions["twilio_bp.handle_recording"])
+    limiter.limit("60/minute")(app.view_functions["twilio_bp.call_status"])
+    limiter.limit("60/minute")(app.view_functions["whatsapp_twilio.whatsapp_status"])
+    limiter.limit("30/minute")(app.view_functions["whatsapp_unified.send_message"])
+    print("✅ Rate limiting enabled")
+except Exception as e:
+    print(f"⚠️ Rate limiting not enabled: {e}")
+
+שמות ה־endpoint הם <blueprint>.<function_name> כפי שמוגדר בקבצי הנתיבים.
+
+⸻
+
+C) Persist מלא לשיחות קול – עדכון DB (CallLog)
+
+ב־server/routes_twilio.py יש TODO בעדכון סטטוס. השלם:
+
+דוגמה (בתוך call_status()):
+
+from server.models_sql import CallLog
+from server.db import db
+
+@twilio_bp.post("/webhook/call_status")
+@require_twilio_signature
+def call_status():
+    call_sid = request.form.get("CallSid", "")
+    call_status = request.form.get("CallStatus", "")
+    log.info("Call status update: CallSid=%s Status=%s", call_sid, call_status)
+    try:
+        rec = CallLog.query.filter_by(call_sid=call_sid).first()
+        if not rec:
+            rec = CallLog(call_sid=call_sid, status=call_status, business_id=1)
+            db.session.add(rec)
+        else:
+            rec.status = call_status
+        db.session.commit()
+    except Exception as e:
+        log.error("Failed to update CallLog: %s", e)
+    return Response("OK", mimetype="text/plain", status=200)
+
+ב־handle_recording() – כשתפענחו/תורידו הקלטה:
+
+from server.models_sql import CallLog
+...
+rec_url = request.form.get("RecordingUrl","")
+call_sid = request.form.get("CallSid","")
+try:
+    rec = CallLog.query.filter_by(call_sid=call_sid).first()
+    if not rec:
+        rec = CallLog(call_sid=call_sid, business_id=1, status="recorded")
+        db.session.add(rec)
+    rec.recording_url = rec_url
+    rec.status = "recorded"
+    db.session.commit()
+except Exception as e:
+    log.error("Failed to persist recording to DB: %s", e)
+
+
+⸻
+
+D) PUBLIC_HOST – קשיחות עם Fallback מבוקר
+
+כיום abs_url() זורק חריגה אם חסר PUBLIC_HOST. זה טוב לפרודקשן, אבל בפיתוח/תקלות עדיף fallback ל־<Say> במקום להפיל שיחה.
+
+שדרוג (ב־routes_twilio.py בתוך incoming_call()):
+
+try:
+    greeting_url = abs_url(greeting_path)
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>{greeting_url}</Play>
+  <Pause length="1"/>
+  <Record action="/webhook/handle_recording" method="POST" maxLength="30" timeout="5" finishOnKey="*" transcribe="false"/>
+</Response>"""
+except Exception as e:
+    log.warning("PUBLIC_HOST missing or invalid, fallback to <Say>: %s", e)
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say language="he-IL">שלום, ההקלטה מתחילה עכשיו. השאירו הודעה אחרי הצפצוף.</Say>
+  <Record playBeep="true" maxLength="30" timeout="5" finishOnKey="*"/>
+</Response>"""
+return Response(xml, mimetype="text/xml", status=200)
+
+
+⸻
+
+E) סנכרון קובץ דוגמת סודות (.env.example)
+
+כרגע הדוגמה מכילה TWILIO_SID/TWILIO_TOKEN, בעוד הקוד משתמש ב־TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN וגם דורש את:
+	•	TWILIO_WHATSAPP_NUMBER
+	•	WHATSAPP_PROVIDER
+	•	(רצוי) GOOGLE_TTS_SA_JSON
+
+עדכון מומלץ:
+
+FLASK_ENV=production
+PUBLIC_HOST=https://YOUR_PUBLIC_DOMAIN
+CORS_ORIGINS=https://YOUR_PUBLIC_DOMAIN
+DATABASE_URL=sqlite:///./agentlocator.db
+SECRET_KEY=change-me
+JWT_SECRET=change-me
+
+# Twilio Voice & WhatsApp
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxx
+TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
+WHATSAPP_PROVIDER=baileys   # or twilio
+
+# Google TTS (optional)
+GOOGLE_TTS_SA_JSON={"type":"service_account",...}
+
+וגם: הוסף TWILIO_WHATSAPP_NUMBER ל־REQUIRED ב־server/bootstrap_secrets.py.
+
+⸻
+
+F) CORS – לא להשתמש בתבנית https://*.replit.app
+
+flask-cors לא תומך ב־wildcard כזה כברירת מחדל. הצהר דומיין(ים) מלאים או Regex.
+
+דוגמה:
+
+from flask_cors import CORS
+CORS(app, resources={r"/*": {"origins": [
+  "https://your-prod-domain",
+  "https://your-preview-domain.replit.app"
+]}})
+
+
+⸻
+
+G) בדיקות – וידוא שהכול מסונכרן
+
+יש הרבה טסטים, דאג שכולם מצביעים על API העדכני:
+	•	server/tests/test_smoke.py בודק ‎/health ו־/webhook/incoming_call – תקין.
+	•	הוסף/עדכן טסט שמוודא:
+	•	שליחת הודעה דרך /api/whatsapp עובדת עם שני ספקים (env toggle).
+	•	POST /webhook/whatsapp/status מעדכן WhatsAppMessage ל־delivered ואז read.
+
+⸻
+
+Smoke קצר לוודא “ירוק”
+
+# Voice
+curl -X POST $HOST/webhook/incoming_call
+curl -X POST $HOST/webhook/handle_recording -d RecordingUrl=https://.../RExxx -d CallSid=CA_TEST_1
+curl -X POST $HOST/webhook/call_status -d CallSid=CA_TEST_1 -d CallStatus=completed
+
+# WhatsApp (provider=twilio)
+curl -X POST $HOST/api/whatsapp/send -H "Content-Type: application/json" \
+  -d '{"to":"+9725XXXXXXX","message":"בדיקה"}'
+curl -X POST $HOST/webhook/whatsapp/status -d 'MessageSid=SMxxxx' -d 'MessageStatus=delivered'
+curl -X POST $HOST/webhook/whatsapp/status -d 'MessageSid=SMxxxx' -d 'MessageStatus=read'
+
+# WhatsApp (provider=baileys)
+node baileys_client.js  # בתיקיית הפרויקט
+curl -X POST $HOST/api/whatsapp/send -H "Content-Type: application/json" \
+  -d '{"to":"+9725XXXXXXX","message":"בדיקה עם Baileys"}'
+curl $HOST/api/whatsapp/status
+
+
+⸻
+
+ציון מעודכן + מה נשאר
+	•	מוכנות נוכחית: ~84/100 (קפיצה יפה!).
+	•	כדי להגיע ל־100/100: סגור את סעיפים A–G לעיל. בעיקר: להסיר כפילויות Blueprints/ספקים, להפעיל Rate-Limit, להשלים Persist לשיחות, לסנכרן .env.example ולכוון CORS.
+
+תרצה שאכין לך patch מרוכז (diff-style) לכל הקבצים שציינתי – שתוכל להדביק אחד־לאחד?

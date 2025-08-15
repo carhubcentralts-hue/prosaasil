@@ -109,25 +109,17 @@ def register_blueprints(app):
     except Exception as e:
         print(f"❌ CRM Unified API registration failed: {e}")
     
-    # WhatsApp integration (auth required)
-    try:
-        from server.whatsapp_api import whatsapp_api_bp
-        app.register_blueprint(whatsapp_api_bp)
-        print("✅ WhatsApp API registered successfully")
-    except Exception as e:
-        print(f"❌ WhatsApp API registration failed: {e}")
-        # Create minimal WhatsApp status route as last resort
-        @app.route('/api/whatsapp/status', methods=['GET'])
-        def whatsapp_status_fallback():
-            return jsonify({'success': True, 'connected': False, 'status': 'disconnected'})
-    
-    # Unified WhatsApp API (production ready)
+    # WhatsApp Unified API (production ready) - ONLY THIS ONE
     try:
         from server.api_whatsapp_unified import whatsapp_unified_bp
         app.register_blueprint(whatsapp_unified_bp)
         print("✅ WhatsApp Unified API registered successfully")
     except Exception as e:
         print(f"❌ WhatsApp Unified API registration failed: {e}")
+        # Create minimal WhatsApp status route as last resort
+        @app.route('/api/whatsapp/status', methods=['GET'])
+        def whatsapp_status_fallback():
+            return jsonify({'success': True, 'connected': False, 'status': 'disconnected'})
     
     # Production Health Checks
     try:
@@ -173,8 +165,15 @@ def create_app():
         SESSION_COOKIE_SAMESITE="Lax",
     )
     
-    # CORS - only your domain
-    cors_origins = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else ['http://localhost:3000', 'http://localhost:5000', 'https://*.replit.app']
+    # CORS - specific domains only (no wildcard patterns)
+    cors_origins = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else [
+        'http://localhost:3000', 
+        'http://localhost:5000'
+    ]
+    # Add Replit domain if PUBLIC_HOST is set
+    if PH and '.replit.app' in PH:
+        cors_origins.append(PH)
+    
     CORS(app, origins=cors_origins, supports_credentials=True)
     
     # Initialize professional logging first
@@ -235,7 +234,7 @@ def create_app():
     register_error_handlers(app)
     print("✅ Error handlers registered")
     
-    # Initialize rate limiting after blueprints are registered
+    # Initialize rate limiting with webhook-specific limits after blueprints are registered
     try:
         from flask_limiter import Limiter
         from flask_limiter.util import get_remote_address
@@ -244,7 +243,21 @@ def create_app():
             key_func=get_remote_address,
             default_limits=["200 per day", "50 per hour"]
         )
-        print("✅ Rate limiting initialized")
+        
+        # Apply specific limits to critical webhook endpoints
+        webhook_limits = {
+            'twilio_bp.incoming_call': "30/minute",
+            'twilio_bp.handle_recording': "30/minute", 
+            'twilio_bp.call_status': "60/minute",
+            'whatsapp_twilio.whatsapp_status': "60/minute",
+            'whatsapp_unified.send_message': "30/minute"
+        }
+        
+        for endpoint, limit in webhook_limits.items():
+            if endpoint in app.view_functions:
+                limiter.limit(limit)(app.view_functions[endpoint])
+                
+        print("✅ Rate limiting initialized with webhook-specific limits")
     except ImportError:
         print("❌ Rate limiting not available")
     
