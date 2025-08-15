@@ -1,0 +1,157 @@
+בדקתי את ‎`AgentLocator (54).zip` בפועל (פתחתי את ה‑ZIP ועברתי על הקבצים). הנה ממצאים קונקרטיים + מה לעשות כדי שהשיחות יחזרו לעבוד ושלא יהיו כפילויות.
+
+# מה מצב הקוד עכשיו (נקודתי)
+
+**Twilio (שרת):**
+
+* קובץ אחד פעיל: `server/routes_twilio.py` (אין `routes_twillo_improved` בגרסה הזו — טוב).
+* יש `@twilio_bp.route("/incoming_call" ...)` שמחזיר TwiML (XML) עם `<Play>` ו־`<Record>`. זה נראה נכון.
+* יש `/call_status` שמחזיר `"OK"` עם `text/plain`. ✅
+* יש שתי פונקציות הקלטה: `handle_recording` ו‑`handle_recording_new` (האחת “אמיתית”, אחת בדיקתית). ❗️וודא שיש **רק אחת רשומה כ־route**.
+* יש `process_recording_sync` (מעבד סינכרוני במקום תור). זה עלול לעכב את Twilio ולהפיל 11200 אם התמלול/ה‑TTS איטיים.
+
+**App factory / Bootstrap:**
+
+* `server/app_factory.py` עדיין עושה **fallback אוטומטי** ל־`https://ai-crmd.replit.app` אם אין `HOST`/`PUBLIC_HOST`. זה מסוכן → עלול לשלוח את Twilio לכתובת לא עדכנית. ❗️
+* לא מצאתי `bootstrap_secrets.py`/`ensure_env()` (Fail‑Fast על Secrets). ❗️
+* אין `__debug/routes` מובנה כדי לזהות כפילויות בקלות.
+
+**Front‑end (React):**
+
+* יש דשבורדים בסיסיים (`AdminDashboard`, `BusinessDashboard`) ו־`api.ts`.
+* אין מסכי CRM מלאים (טבלת לקוחות, כרטיס לקוח עם Tabs). זה פחות דחוף לשיחות, אבל תדע שזה עדיין לא מחובר לקצה.
+
+# מה לתקן עכשיו כדי שהשיחות יעבדו בוודאות
+
+שלח לסוכן/מפתח את ההנחיות המדויקות הבאות (Copy‑Paste):
+
+---
+
+## ✅ שלב 1 — מניעת כפילויות חד־משמעית
+
+1. לעבוד על ענף חדש:
+   `git checkout -b fix/twilio-stabilize-v54`
+
+2. להישאר **עם קובץ יחיד** ל‑Twilio: `server/routes_twilio.py`.
+
+* אם קיימות פונקציות כפולות (`handle_recording_new`) — להשאיר רק אחת כ־route (האמיתית), והשנייה להשאיר **ללא decorator** או למחוק.
+
+3. ב־`create_app()`/`app_factory.register_blueprints` יש **register\_blueprint אחד**:
+
+```python
+from server.routes_twilio import twilio_bp
+app.register_blueprint(twilio_bp)
+```
+
+אין שום import/רישום של קובצי Twilio אחרים.
+
+4. הוסף ראוט דיבוג זמני כדי לאשר שאין כפילויות:
+
+```python
+# server/debug_routes.py
+from flask import Blueprint, jsonify, current_app
+debug_bp = Blueprint("debug_bp", __name__)
+@debug_bp.get("/__debug/routes")
+def list_routes():
+    items=[]
+    for r in current_app.url_map.iter_rules():
+        items.append({"rule": str(r), "endpoint": r.endpoint,
+                      "methods": sorted([m for m in r.methods if m not in ("HEAD","OPTIONS")])})
+    items.sort(key=lambda x: x["rule"])
+    return jsonify(items)
+
+# ב-create_app():
+from server.debug_routes import debug_bp
+app.register_blueprint(debug_bp)
+```
+
+אחרי פריסה: גלוש ל‑`/__debug/routes` וודא שאין `/webhook/*` כפול.
+
+---
+
+## ✅ שלב 2 — Content‑Type ותשובה מהירה (כדי למנוע 11200/12300)
+
+* ודא שב־`/webhook/incoming_call` ו־`/webhook/handle_recording` אתה מחזיר **XML** עם `mimetype="text/xml"`.
+* ודא ש־`/webhook/call_status` מחזיר `"OK"` עם `text/plain`.
+* בדיקה:
+
+```bash
+curl -sS -X POST "$PUBLIC_HOST/webhook/incoming_call" -H "Accept: text/xml" | head
+curl -sS -X POST "$PUBLIC_HOST/webhook/call_status" -o /dev/null -w "%{http_code}\n"
+curl -I "$PUBLIC_HOST/server/static/voice_responses/welcome.mp3"   # צריך Content-Type: audio/mpeg
+```
+
+---
+
+## ✅ שלב 3 — להוציא עיבוד כבד מה‑webhook (מנוע תמלול/תשובה)
+
+כרגע `process_recording_sync` עושה הכל **סינכרוני** בתוך ה‑webhook — זה מסוכן.
+תקן כך:
+
+* ב־`handle_recording`: **רק** לאסוף `RecordingUrl`, `CallSid`, `From` ולשלוח ל־Thread/Queue מקומי (למשל `tasks_recording.py`). להחזיר TwiML קצר עם `<Say>תודה...</Say><Hangup/>` תוך < 1 שניה.
+* בתור/Thread (`tasks_recording.py`): להוריד `RecordingUrl.mp3` → לתמלל (Whisper/Google) → לייצר תשובת בוט → לייצר TTS → לשמור DB.
+* אם אתה רוצה **שיחה רציפה** (Play תשובה + Record מחדש), אפשר להחזיר ב‑webhook תשובה עם `<Play>` ואז `<Record>`, אבל **התוכן לקובץ ה‑Play חייב להיות מוכן מראש** (לא לחכות לתמלול בתוך הבקשה).
+
+> עדכון מינימלי: השאר את `handle_recording` כ־route, אבל הפוך את `process_recording_sync` ל‑Thread אסינכרוני (קריאה לא חוסמת).
+> אם חייבים רצף (שאל‑תשובה‑שאל‑תשובה) — פרק לשני סבבים קצרים כדי לא לחרוג מטיימאאוט של Twilio.
+
+---
+
+## ✅ שלב 4 — ביטול Fallbacks לדומיין ישן (Fail‑Fast על PUBLIC\_HOST)
+
+ב־`server/app_factory.py` יש היום fallback ל‑`ai-crmd.replit.app`. **להסיר.**
+במקום זה, בתחילת `create_app()`:
+
+```python
+PH = os.getenv("PUBLIC_HOST","").rstrip("/")
+if not PH:
+    raise RuntimeError("PUBLIC_HOST not set – configure in Replit Secrets (Workspace + Deploy)")
+app.config["PUBLIC_HOST"] = PH
+```
+
+לא שולחים את Twilio לדומיין לא נכון יותר.
+
+---
+
+## ✅ שלב 5 — אימות חתימת Twilio (בפרוד)
+
+עטוף את שלושת ה־webhooks ב־`@require_twilio_signature` (אם הגדרת `TWILIO_AUTH_TOKEN` ב‑Secrets).
+ב‑staging אפשר לבטל.
+
+---
+
+## ✅ שלב 6 — בדיקת אמת (3 ירוקים)
+
+תדביק לי (או לעצמך) את הפלט של זה — בלי סיפורים:
+
+```bash
+# 1) TwiML + סטטוס + MP3
+curl -sS -X POST "$PUBLIC_HOST/webhook/incoming_call" -H "Accept: text/xml" | head
+curl -sS -X POST "$PUBLIC_HOST/webhook/call_status" -o /dev/null -w "%{http_code}\n"
+curl -I "$PUBLIC_HOST/server/static/voice_responses/welcome.mp3"
+
+# 2) אחרי שיחה אמיתית של ~10–20 שניות:
+curl -sS "$PUBLIC_HOST/api/calls?customer_id=<ID>" | jq '.results[0]'   # יש רשומה? (MP3 path/duration)
+curl -sS "$PUBLIC_HOST/api/calls/<CALL_ID>/transcript" | jq             # יש תמלול?
+
+# 3) אין כפילויות:
+curl -sS "$PUBLIC_HOST/__debug/routes" | jq '[.[] | select(.rule|test("^/webhook/"))]'
+```
+
+אם הראשון והשלישי ירוקים — השיחות ייכנסו. אם השני עדיין ריק — זה אומר שה‑Worker/DB/תמלול לא חויב עד הסוף.
+
+---
+
+## הערות קצרות לעתיד הקרוב
+
+* **Secrets ב‑Replit**: להגדיר אותם **גם** ב‑Workspace וגם ב‑Deploy (יש שתי לשוניות שונות).
+* **React/CRM**: כרגע אין מסכי CRM מלאים (לקוחות/כרטיס לקוח). זה לא חוסם את השיחות, אבל אל תצפה לראות תמלולים ב‑UI עד שנחבר את הדפים.
+* **WhatsApp**: ה‑API קיים בצד שרת (`api_whatsapp_improved.py`), צריך לוודא שהשירות בפועל שולח Webhook ל־`/webhook/wa/incoming` ושאתה שומר ל‑DB ומציג.
+
+---
+
+### בשורה תחתונה
+
+* **לא** ראיתי קובץ Twilio כפול בגרסה הזו (רק `routes_twilio.py`).
+* כן ראיתי נקודות שעלולות להפיל שיחות: Fallback לדומיין ישן, עיבוד כבד בתוך ה‑webhook, ואפשרות לשני handlers להקלטה אם שניהם דקורייטד.
+* בצע את 6 השלבים למעלה — זה יחזיר את השיחות לעבוד בוודאות.

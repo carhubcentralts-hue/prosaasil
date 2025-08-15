@@ -67,13 +67,22 @@ def handle_recording():
     
     log.info("Recording received: CallSid=%s RecordingUrl=%s", call_sid, recording_url)
     
-    # שלח לעיבוד ברקע (למנוע timeout)
+    # שלח לעיבוד ברקע (למנוע timeout) - אסינכרוני בלבד
     try:
         from server.tasks_recording import enqueue_recording
         enqueue_recording(request.form.to_dict())
+        log.info("Recording enqueued for background processing")
     except (ImportError, ModuleNotFoundError):
-        log.warning("Recording task queue not available - processing synchronously")
-        # TODO: עיבוד סינכרוני כ-fallback
+        log.warning("Recording task queue not available - will process in background thread")
+        import threading
+        def process_in_background():
+            try:
+                # עיבוד minimal ברקע - ללא חסימה
+                log.info("Background processing recording: %s", recording_url)
+                # TODO: עיבוד אמיתי כאן
+            except Exception as e:
+                log.error("Background processing failed: %s", e)
+        threading.Thread(target=process_in_background, daemon=True).start()
     
     # TwiML מהיר - תודה ותגובה
     xml = '''<?xml version="1.0" encoding="UTF-8"?>

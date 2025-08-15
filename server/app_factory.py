@@ -20,6 +20,14 @@ def register_blueprints(app):
     except Exception as e:
         print(f"❌ Health routes registration failed: {e}")
     
+    # Debug routes (development only)
+    try:
+        from server.debug_routes import debug_bp
+        app.register_blueprint(debug_bp)
+        print("✅ Debug routes registered successfully")
+    except Exception as e:
+        print(f"❌ Debug routes registration failed: {e}")
+    
     # Authentication
     try:
         from server.auth_routes import auth_bp
@@ -105,24 +113,12 @@ def create_app():
     """יצירת אפליקציית Flask עם הגדרות מקצועיות"""
     app = Flask(__name__)
     
-    # Setup critical environment variables for voice system
-    if not os.getenv('HOST'):
-        # Try production URL first, then development
-        replit_domain = os.getenv('REPLIT_DEV_DOMAIN')
-        if replit_domain and 'ai-crmd.replit.app' in replit_domain:
-            host_url = "https://ai-crmd.replit.app"
-        elif replit_domain:
-            host_url = f"https://{replit_domain}"
-        else:
-            host_url = "https://ai-crmd.replit.app"  # Fallback to production
-        
-        os.environ['HOST'] = host_url
-        print(f"✅ HOST set to: {host_url}")
-    
-    # Also set PUBLIC_HOST for webhooks
-    public_host = os.getenv('PUBLIC_HOST', os.getenv('HOST', 'https://ai-crmd.replit.app'))
-    os.environ['PUBLIC_HOST'] = public_host
-    app.config['PUBLIC_HOST'] = public_host
+    # Setup critical environment variables for voice system - FAIL FAST if missing
+    PH = os.getenv("PUBLIC_HOST", "").rstrip("/")
+    if not PH:
+        raise RuntimeError("PUBLIC_HOST not set – configure in Replit Secrets (Workspace + Deploy)")
+    app.config["PUBLIC_HOST"] = PH
+    print(f"✅ PUBLIC_HOST set to: {PH}")
     
     # Load configuration
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-prod')

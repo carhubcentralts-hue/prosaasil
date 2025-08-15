@@ -1,5 +1,11 @@
 """Unified pagination for all CRM endpoints"""
 
+def get_pagination_params(request):
+    """חילוץ פרמטרי pagination מהבקשה"""
+    page = int(request.args.get('page', 1))
+    limit = min(int(request.args.get('limit', 25)), 100)  # מקסימום 100
+    return page, limit
+
 def paginate_query(query, page: int, limit: int):
     """
     Unified pagination function that returns consistent structure
