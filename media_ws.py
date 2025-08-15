@@ -1,52 +1,54 @@
-# media_ws.py
-import os, json, asyncio, logging, time, tempfile, numpy as np, soundfile as sf
-from flask import current_app
+# media_ws.py - Hebrew Real-time Voice Processing for Twilio Media Streams
+import os, json, time, tempfile, logging
+import numpy as np
+import soundfile as sf
 from audio_utils import b64_to_mulaw, mulaw8k_to_pcm16k, pcm16k_float_to_mulaw8k_frames
 
-# Logger
 log = logging.getLogger("media_ws")
 
-# Google TTS
+# Initialize Google TTS
 try:
     from google.cloud import texttospeech as tts_module
     
-    # הגדרת credentials מ-environment variable
+    # Set up credentials from environment
     creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if creds_json and creds_json.startswith("{"):
-        # אם זה JSON string, כתוב לקובץ זמני
-        with open("/tmp/tts_creds.json", "w") as f:
-            f.write(creds_json)
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/tts_creds.json"
+    if not creds_json and os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON"):
+        # Create temp file from JSON string
+        sa_json = os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
+        data = json.loads(sa_json)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(data, f)
+            f.flush()
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = f.name
     
     tts_client = tts_module.TextToSpeechClient()
     log.info("✅ Google TTS client initialized")
 except Exception as e:
-    log.error("❌ Google TTS failed: %s", e)
+    log.error(f"❌ Google TTS failed: {e}")
     tts_client = None
     tts_module = None
 
-# OpenAI
+# Initialize OpenAI
 try:
     from openai import OpenAI
     gpt = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     log.info("✅ OpenAI client initialized")
 except Exception as e:
-    log.error("❌ OpenAI failed: %s", e)
+    log.error(f"❌ OpenAI failed: {e}")
     gpt = None
 
-# Simple VAD (Voice Activity Detection) 
 def has_voice_energy(pcm16k: np.ndarray, threshold=0.01) -> bool:
-    """בדיקה פשוטה - האם יש אנרגיה קולית מספיקה"""
+    """Simple voice activity detection"""
     if len(pcm16k) == 0:
         return False
     rms = np.sqrt(np.mean(pcm16k ** 2))
     return rms > threshold
 
 def tts_he_wavenet(text: str) -> np.ndarray:
-    """TTS לעברית → PCM16@16k float32 [-1,1]"""
+    """Hebrew TTS using Google Cloud → PCM16@16k float32 [-1,1]"""
     if not tts_client or not tts_module:
         log.error("TTS client not available")
-        return np.zeros(16000, dtype=np.float32)  # שקט של שנייה
+        return np.zeros(16000, dtype=np.float32)  # 1 second of silence
         
     try:
         inp = tts_module.SynthesisInput(text=text)
@@ -60,215 +62,194 @@ def tts_he_wavenet(text: str) -> np.ndarray:
         )
         res = tts_client.synthesize_speech(input=inp, voice=voice, audio_config=cfg)
         
-        # כתיבה זמנית וקריאה כ-numpy
+        # Write to temp file and read as numpy
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             f.write(res.audio_content)
             wav_path = f.name
         
         data, sr = sf.read(wav_path, dtype="float32")
-        os.unlink(wav_path)  # ניקוי
+        os.unlink(wav_path)  # cleanup
         
         if sr != 16000:
             import librosa
             data = librosa.resample(data, orig_sr=sr, target_sr=16000)
         
         return data.astype(np.float32)
+        
     except Exception as e:
-        log.error("TTS error: %s", e)
-        return np.zeros(16000, dtype=np.float32)  # שקט של שנייה
+        log.error(f"TTS error: {e}")
+        return np.zeros(16000, dtype=np.float32)
 
-def transcribe_chunk(pcm16k: np.ndarray) -> str:
-    """תמלול אודיו עברי באמצעות OpenAI Whisper"""
+def transcribe_he_whisper(pcm16k: np.ndarray) -> str:
+    """Hebrew transcription using OpenAI Whisper"""
+    if not gpt or len(pcm16k) == 0:
+        return ""
+        
     try:
-        import io
-        import soundfile as sf
-        from openai import OpenAI
+        # Save to temporary wav file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            sf.write(f.name, pcm16k, 16000, format='WAV')
+            wav_path = f.name
         
-        # בדיקה שיש אודיו בכלל
-        if len(pcm16k) == 0:
-            return ""
-            
-        # יצירת client עם API key
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # Send to Whisper API
+        with open(wav_path, "rb") as audio_file:
+            transcript = gpt.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="he"
+            )
         
-        # המרה לפורמט WAV
-        buf = io.BytesIO()
-        sf.write(buf, pcm16k, 16000, subtype="PCM_16", format="WAV")
-        buf.seek(0)
-        
-        # תמלול עם Whisper
-        response = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=("audio.wav", buf, "audio/wav"),
-            language="he"
-        )
-        
-        result = response.text.strip() if response.text else ""
-        log.info("✅ תמלול הושלם: %s", result[:50] + "..." if len(result) > 50 else result)
-        return result
+        os.unlink(wav_path)  # cleanup
+        return transcript.text.strip() if transcript.text else ""
         
     except Exception as e:
-        log.error(f"❌ שגיאה בתמלול: {e}")
+        log.error(f"Transcription error: {e}")
         return ""
 
-def llm_reply(user_text: str) -> str:
-    """תגובת AI עבור הנדל"ן"""
-    if not gpt:
-        return "שלום, אני עוזר של שי דירות ומשרדים. איך אוכל לעזור?"
+def gpt_response_he(user_input: str) -> str:
+    """Smart Hebrew response using GPT-4o"""
+    if not gpt or not user_input.strip():
+        return "שלום מ שי דירות ומשרדים בע״מ"
         
     try:
-        from typing import List, Dict, Any
-        msgs: List[Dict[str, Any]] = [
-            {"role": "system", "content": "אתה סוכן נדל\"ן מקצועי עבור שי דירות ומשרדים בע\"מ. דבר בעברית, היה קצר ומועיל. אם מישהו שואל על נכס, הציע פגישה."},
-            {"role": "user", "content": user_text}
-        ]
-        r = gpt.chat.completions.create(
-            model="gpt-4o-mini", 
-            messages=msgs,  # type: ignore
-            temperature=0.3,
-            max_tokens=100
-        )
-        response_content = r.choices[0].message.content
-        return response_content.strip() if response_content else "שלום, איך אוכל לעזור לכם עם נדל\"ן?"
-    except Exception as e:
-        log.error("AI error: %s", e)
-        return "שלום, איך אוכל לעזור לכם עם נדל\"ן?"
+        response = gpt.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system", 
+                    "content": """אתה נציג מכירות מקצועי של "שי דירות ומשרדים בע״מ" - חברת נדל״ן מובילה בישראל.
 
-def is_goodbye(text: str) -> bool:
-    """זיהוי סיום שיחה"""
-    t = text.strip().lower()
-    return any(w in t for w in ["ביי", "להתראות", "נתראה", "סגור", "bye", "goodbye", "תודה רבה"])
+תפקידך:
+- ענה בעברית בלבד
+- היה מקצועי, חברותי ועוזר
+- קדם דירות ומשרדים למכירה ולהשכרה
+- אמור "מה אוכל לעזור לכם?" בסוף
+- השאר פרטים (שם, טלפון) לחזרה מהצוות
+- תשובות קצרות עד 20 מילים"""
+                },
+                {"role": "user", "content": user_input}
+            ],
+            max_tokens=50,
+            temperature=0.7
+        )
+        
+        answer = response.choices[0].message.content
+        return answer.strip() if answer else "שלום מ שי דירות ומשרדים. מה אוכל לעזור לכם?"
+        
+    except Exception as e:
+        log.error(f"GPT error: {e}")
+        return "שלום מ שי דירות ומשרדים. השאירו הודעה ונחזור אליכם."
 
 def handle_twilio_media(ws):
     """
-    פרוטוקול Twilio Media Streams:
-    - {"event":"start","start":{"streamSid":...,"callSid":...}}
-    - {"event":"media","media":{"payload":"<b64 μ-law 8k>"}}   כל ~20ms
-    - {"event":"stop",...}
-    אנחנו מחזירים:
-    - {"event":"media","streamSid":sid,"media":{"payload":"<b64 μ-law 8k>"}}
+    Handle Twilio Media Streams WebSocket - Hebrew real-time bidirectional calls
+    טיפול בWebSocket של Twilio Media Streams - שיחות דו-כיווניות בזמן אמת בעברית
     """
-    stream_sid = call_sid = None
-    buf16k = np.zeros(0, dtype=np.float32)
-    last_voice_ts = time.time()
-    speaking = False  # האם אנחנו כרגע מנגנים TTS
-    conversation_started = False
+    log.info("🌐 WebSocket connection established for Hebrew call")
+    
+    # Buffer for accumulating audio
+    audio_buffer = np.array([], dtype=np.float32)
+    silence_counter = 0
+    conversation_memory = []
+    stream_sid = None
     
     try:
         while True:
-            raw = ws.receive()
-            if raw is None: 
+            message = ws.receive()
+            if not message:
                 break
-            evt = json.loads(raw)
-
-            if evt.get("event") == "start":
-                stream_sid = evt["start"]["streamSid"]
-                call_sid = evt["start"]["callSid"]
-                log.info("🔥 Stream started: %s call=%s", stream_sid, call_sid)
                 
-                # ברכה ראשונית
-                log.info("🎤 שולח ברכה ראשונית")
-                greeting = "שלום! אתם מדברים עם שי דירות ומשרדים. איך אוכל לעזור לכם?"
-                try:
-                    audio = tts_he_wavenet(greeting)
-                    speaking = True
-                    frame_count = 0
-                    for frame in pcm16k_float_to_mulaw8k_frames(audio):
-                        ws.send(json.dumps({
-                            "event": "media",
-                            "streamSid": stream_sid,
-                            "media": {"payload": frame}
-                        }))
-                        frame_count += 1
-                        time.sleep(0.02)
-                    log.info("✅ ברכה נשלחה: %d frames", frame_count)
-                    speaking = False
-                    conversation_started = True
-                except Exception as e:
-                    log.error("❌ שגיאה בשליחת ברכה: %s", e)
-                    speaking = False
-                continue
-
-            if evt.get("event") == "stop":
-                log.info("🛑 Stream stop: %s", stream_sid)
-                break
-
-            if evt.get("event") == "media" and conversation_started:
-                # 1) דגימה נכנסת → צבירה
-                mulaw_b64 = evt["media"]["payload"]
-                mulaw = b64_to_mulaw(mulaw_b64)
-                pcm16k = mulaw8k_to_pcm16k(mulaw)
-                buf16k = np.concatenate([buf16k, pcm16k])
-
-                # 2) בדיקת אנרגיה קולית
-                if len(buf16k) >= int(0.32 * 16000):  # 320ms
-                    chunk = buf16k[-int(0.32 * 16000):]
-                    if has_voice_energy(chunk):
-                        last_voice_ts = time.time()
+            try:
+                data = json.loads(message)
+                event = data.get("event")
+                
+                if event == "start":
+                    stream_sid = data.get("start", {}).get("streamSid", "")
+                    log.info("🔄 Media stream started")
                     
-                    # אם עברו >800ms בלי דיבור → סוף אמירה
-                    if (time.time() - last_voice_ts) > 0.8 and not speaking and len(buf16k) > int(0.5 * 16000):
-                        speaking = True
-                        utter = buf16k.copy()
-                        buf16k = np.zeros(0, dtype=np.float32)
-
-                        # 3) תמלול
-                        text = transcribe_chunk(utter)
-                        log.info("👂 User said: %s", text)
+                    # Send initial Hebrew greeting
+                    try:
+                        greeting = "שלום! הגעתם ל שי דירות ומשרדים בע״מ. איך אוכל לעזור לכם?"
+                        greeting_audio = tts_he_wavenet(greeting)
+                        greeting_frames = pcm16k_float_to_mulaw8k_frames(greeting_audio)
                         
-                        if not text or len(text.strip()) < 2:
-                            speaking = False
-                            continue
-
-                        # 4) האם לסיים שיחה?
-                        if is_goodbye(text):
-                            reply = "תודה שפניתם לשי דירות ומשרדים! נשמח לעזור בעתיד. להתראות!"
-                            audio = tts_he_wavenet(reply)
-                            for frame in pcm16k_float_to_mulaw8k_frames(audio):
-                                ws.send(json.dumps({
-                                    "event": "media",
-                                    "streamSid": stream_sid,
-                                    "media": {"payload": frame}
-                                }))
-                                time.sleep(0.02)
-                            
-                            # ניתוק השיחה
-                            try:
-                                from twilio.rest import Client
-                                client = Client(
-                                    os.getenv("TWILIO_ACCOUNT_SID"), 
-                                    os.getenv("TWILIO_AUTH_TOKEN")
-                                )
-                                if call_sid:
-                                    client.calls(call_sid).update(status="completed")
-                                    log.info("✅ Call terminated gracefully")
-                                else:
-                                    log.warning("⚠️ No call_sid to terminate")
-                            except Exception as e:
-                                log.error("❌ Failed to end call: %s", e)
-                            break
-
-                        # 5) תגובת AI
-                        reply = llm_reply(text)
-                        log.info("🤖 AI reply: %s", reply)
-
-                        # 6) TTS → שליחה לטלפון
-                        audio = tts_he_wavenet(reply)
-                        for frame in pcm16k_float_to_mulaw8k_frames(audio):
-                            ws.send(json.dumps({
+                        for frame in greeting_frames:
+                            media_msg = {
                                 "event": "media",
                                 "streamSid": stream_sid,
                                 "media": {"payload": frame}
-                            }))
-                            time.sleep(0.02)
-
-                        speaking = False
+                            }
+                            ws.send(json.dumps(media_msg))
+                            time.sleep(0.02)  # 20ms between frames
                         
+                        log.info("✅ Hebrew greeting sent successfully")
+                        
+                    except Exception as e:
+                        log.error(f"❌ Failed to send greeting: {e}")
+                
+                elif event == "media":
+                    # Receive audio from user
+                    payload = data.get("media", {}).get("payload", "")
+                    if payload:
+                        # Convert to PCM
+                        mulaw_data = b64_to_mulaw(payload)
+                        pcm_chunk = mulaw8k_to_pcm16k(mulaw_data)
+                        
+                        if len(pcm_chunk) > 0:
+                            audio_buffer = np.concatenate([audio_buffer, pcm_chunk])
+                            
+                            # Check for voice activity
+                            if has_voice_energy(pcm_chunk):
+                                silence_counter = 0
+                            else:
+                                silence_counter += 1
+                            
+                            # Process if we have enough audio and silence detected
+                            if len(audio_buffer) > 16000 and silence_counter > 10:  # ~1 sec audio + silence
+                                transcript = transcribe_he_whisper(audio_buffer)
+                                log.info(f"🎤 Transcribed: {transcript}")
+                                
+                                if transcript and len(transcript.strip()) > 2:
+                                    # Generate AI response
+                                    ai_response = gpt_response_he(transcript)
+                                    log.info(f"🤖 AI Response: {ai_response}")
+                                    
+                                    # Convert to speech and send
+                                    response_audio = tts_he_wavenet(ai_response)
+                                    response_frames = pcm16k_float_to_mulaw8k_frames(response_audio)
+                                    
+                                    for frame in response_frames:
+                                        media_msg = {
+                                            "event": "media",
+                                            "streamSid": stream_sid,
+                                            "media": {"payload": frame}
+                                        }
+                                        ws.send(json.dumps(media_msg))
+                                        time.sleep(0.02)
+                                    
+                                    # Save to conversation memory
+                                    conversation_memory.append({
+                                        "user": transcript,
+                                        "ai": ai_response,
+                                        "timestamp": time.time()
+                                    })
+                                
+                                # Reset buffer
+                                audio_buffer = np.array([], dtype=np.float32)
+                                silence_counter = 0
+                
+                elif event == "stop":
+                    log.info("🔚 Media stream stopped")
+                    break
+                    
+            except json.JSONDecodeError:
+                log.warning("Invalid JSON received")
+            except Exception as e:
+                log.error(f"Error processing message: {e}")
+                
     except Exception as e:
-        log.exception("❌ WebSocket error: %s", e)
-    finally:
-        try: 
-            ws.close()
-        except: 
-            pass
-        log.info("🔚 WebSocket closed: %s", stream_sid)
+        log.error(f"❌ WebSocket handler error: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    log.info(f"🏁 Call ended. Conversation turns: {len(conversation_memory)}")
