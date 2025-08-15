@@ -12,11 +12,12 @@ def _mask_phone(phone):
 twilio_bp = Blueprint("twilio", __name__, url_prefix="/webhook")
 log = logging.getLogger("twilio.voice")
 
-def abs_url(path):
-    """Create absolute URL for Twilio webhooks"""
-    host = current_app.config.get("PUBLIC_HOST") or os.getenv("PUBLIC_HOST") or os.getenv("HOST", "").rstrip("/")
+def abs_url(path: str) -> str:
+    """Generate absolute URL for Twilio webhooks - FAIL FAST if no host configured"""
+    host = (current_app.config.get("PUBLIC_HOST") or os.getenv("PUBLIC_HOST") or "").rstrip("/")
     if not host:
-        host = "https://ai-crmd.replit.app"  # Production fallback
+        # Fail fast: better to get a clear error than send wrong domain to Twilio
+        raise RuntimeError("PUBLIC_HOST is not configured - set PUBLIC_HOST=https://your-domain")
     return urljoin(host + "/", path.lstrip("/"))
 
 def get_business_greeting(to_number, call_sid):
@@ -180,61 +181,6 @@ def handle_recording():
     except Exception as e:
         log.error("Error in continuous conversation: %s", e)
         # Professional fallback
-        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say language="he-IL">מצטער, נתקלתי בבעיה טכנית. אנא נסה שוב.</Say>
-    <Pause length="1"/>
-    <Record action="/webhook/handle_recording"
-            method="POST"
-            maxLength="30"
-            timeout="5"
-            finishOnKey="*"
-            transcribe="false"
-            language="he-IL"/>
-</Response>"""
-    
-    return Response(xml, mimetype="text/xml", status=200)
-        # Process recording IMMEDIATELY (not in background for continuous conversation)
-        ai_response_text = process_recording_sync(rec_url, call_sid, from_number)
-        log.info("AI response generated: %s", ai_response_text[:50])
-        
-        # Generate Hebrew TTS response file
-        from server.hebrew_tts_enhanced import create_hebrew_audio
-        response_file = create_hebrew_audio(ai_response_text, f"call_{call_sid}")
-        if response_file:
-            response_url = abs_url(response_file)
-            
-            # Continue conversation - Play AI response then record again
-            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Play>{response_url}</Play>
-    <Pause length="1"/>
-    <Record action="/webhook/handle_recording"
-            method="POST"
-            maxLength="30"
-            timeout="5"
-            finishOnKey="*"
-            transcribe="false"
-            language="he-IL"/>
-</Response>"""
-        else:
-            # Fallback - use Say instead of Play
-            xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say language="he-IL">{ai_response_text}</Say>
-    <Pause length="1"/>
-    <Record action="/webhook/handle_recording"
-            method="POST"
-            maxLength="30"
-            timeout="5"
-            finishOnKey="*"
-            transcribe="false"
-            language="he-IL"/>
-</Response>"""
-            
-    except Exception as e:
-        log.error("Error generating TTS response: %s", e)
-        # Fallback response
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Say language="he-IL">מצטער, נתקלתי בבעיה טכנית. אנא נסה שוב.</Say>

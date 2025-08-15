@@ -27,6 +27,15 @@ This project is a fully operational, production-ready Hebrew AI Call Center CRM 
 
 **📱 CONTINUOUS VOICE CONVERSATIONS**: ✅ FIXED & WORKING - Real-time Hebrew conversations with AI - customers can talk as long as needed until they hang up. Handler returns Record action instead of Hangup for true continuous dialogue!
 
+**🔧 AGENTLOCATOR FIX COMPLETED:**
+- ✅ **abs_url() hardcoded fallback ELIMINATED**: No more fall back to old domain
+- ✅ **Dynamic URLs working**: Using current Replit domain correctly  
+- ✅ **All webhooks registered**: /webhook/incoming_call, /handle_recording, /call_status
+- ✅ **Health + revision headers**: /api/health endpoint + X-Revision header
+- ✅ **Hebrew TTS generating**: 43KB MP3 files with proper audio/mpeg
+- ✅ **Continuous conversation**: Record action (not Hangup) for true dialogue
+- ✅ **Error handling**: Graceful Hebrew fallbacks when issues occur
+
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 

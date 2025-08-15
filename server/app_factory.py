@@ -139,6 +139,17 @@ def create_app():
     init_logging(app)
     install_request_hooks(app)
     
+    # Health endpoint
+    @app.route("/api/health")
+    def health():
+        return {"status": "ok", "service": "Hebrew AI Call Center CRM"}
+    
+    # Add revision header to all responses
+    @app.after_request
+    def add_revision_header(response):
+        response.headers["X-Revision"] = os.getenv("APP_REV", "dev")
+        return response
+    
     # Initialize database if available
     try:
         from server.models import db
@@ -162,10 +173,7 @@ def create_app():
     register_error_handlers(app)
     print("✅ Error handlers registered")
     
-    # Health check endpoint
-    @app.route("/health", methods=["GET"])
-    def health():
-        return jsonify({"ok": True, "status": "healthy"}), 200
+    # Health endpoint already registered above as /api/health
     
     # Register additional core routes
     register_core_routes(app)
