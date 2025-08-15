@@ -1,62 +1,112 @@
 # server/api_whatsapp_improved.py
 from flask import Blueprint, request, jsonify
 from server.authz import auth_required
-import logging, uuid, datetime
+import logging, uuid, datetime, os, json
 
 whatsapp_bp = Blueprint("whatsapp", __name__, url_prefix="/api/whatsapp")
 log = logging.getLogger(__name__)
 
+def check_baileys_status():
+    """Check actual Baileys connection status"""
+    try:
+        auth_folder = "./baileys_auth_info"
+        status_file = os.path.join(auth_folder, "status.json")
+        qr_file = os.path.join(auth_folder, "qr_code.txt")
+        
+        # Check if connected
+        if os.path.exists(status_file):
+            with open(status_file, 'r') as f:
+                status = json.load(f)
+                return {
+                    "connected": status.get("connected", False),
+                    "last_connected": status.get("timestamp"),
+                    "qr_available": False
+                }
+        
+        # Check if QR available
+        if os.path.exists(qr_file):
+            with open(qr_file, 'r') as f:
+                qr_data = f.read().strip()
+                return {
+                    "connected": False,
+                    "qr_available": True,
+                    "qr_code": qr_data
+                }
+        
+        return {"connected": False, "qr_available": False}
+    except Exception as e:
+        log.error(f"Error checking Baileys status: {e}")
+        return {"connected": False, "qr_available": False}
+
 @whatsapp_bp.get("/status")
-@auth_required
 def get_status():
-    """Get WhatsApp connection status"""
-    # Mock status - replace with actual Baileys/Twilio integration
+    """Get WhatsApp connection status - NO AUTH REQUIRED FOR STATUS"""
+    status = check_baileys_status()
     return jsonify({
         "ok": True,
-        "connected": False,
-        "status": "disconnected",
-        "qr_available": True,
-        "last_connected": None
+        "connected": status.get("connected", False),
+        "status": "connected" if status.get("connected") else "disconnected",
+        "qr_available": status.get("qr_available", False),
+        "last_connected": status.get("last_connected")
     }), 200
 
 @whatsapp_bp.get("/qr")
-@auth_required  
 def get_qr():
-    """Get QR code for WhatsApp connection"""
-    # Mock QR - replace with actual Baileys QR generation
+    """Get QR code for WhatsApp connection - NO AUTH REQUIRED"""
+    status = check_baileys_status()
+    
+    if status.get("connected"):
+        return jsonify({
+            "ok": True,
+            "connected": True,
+            "message": "WhatsApp already connected"
+        }), 200
+    
+    if status.get("qr_available") and status.get("qr_code"):
+        return jsonify({
+            "ok": True,
+            "qr_code": status["qr_code"],
+            "expires_in": 45,
+            "instructions": "Scan this QR code with WhatsApp on your phone"
+        }), 200
+    
     return jsonify({
-        "ok": True,
-        "qr_code": "mock_qr_data_here",
-        "expires_in": 45  # seconds
-    }), 200
+        "ok": False,
+        "error": "QR code not available. Please wait for WhatsApp service to generate new QR.",
+        "retry_in": 5
+    }), 503
 
 @whatsapp_bp.post("/send")
 @auth_required
 def send_message():
-    """Send WhatsApp message"""
+    """Send WhatsApp message via Baileys"""
     data = request.get_json()
     if not data or not data.get("to") or not data.get("text"):
         return jsonify({"error": "to and text required"}), 400
     
     to_number = data["to"]
     message_text = data["text"]
+    customer_id = data.get("customer_id")
     
-    # Mock message sending
-    message_id = str(uuid.uuid4())
+    # Import the real WhatsApp client
+    from server.whatsapp_baileys_api import whatsapp_client
     
-    # Store in mock database
-    mock_message = {
-        "id": message_id,
-        "to": to_number,
-        "text": message_text,
-        "direction": "outbound",
-        "status": "sent",
-        "sent_at": datetime.datetime.now().isoformat(),
-        "customer_id": data.get("customer_id")  # Link to customer if provided
-    }
+    # Send via Baileys
+    result = whatsapp_client.send_message(to_number, message_text, customer_id)
     
-    log.info("WhatsApp message sent: %s to %s", message_id, to_number)
-    return jsonify({"ok": True, "message_id": message_id}), 200
+    if result.get("success"):
+        log.info("WhatsApp message sent via Baileys: %s to %s", result["message_id"], to_number)
+        return jsonify({
+            "ok": True, 
+            "message_id": result["message_id"],
+            "via": "baileys"
+        }), 200
+    else:
+        log.error("Failed to send WhatsApp message: %s", result.get("error"))
+        return jsonify({
+            "error": result.get("error", "Failed to send message"),
+            "ok": False
+        }), 503
 
 @whatsapp_bp.post("/webhook")
 def webhook():

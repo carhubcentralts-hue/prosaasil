@@ -76,15 +76,22 @@ def register_blueprints(app):
     
     # WhatsApp integration (auth required)
     try:
-        from server.whatsapp_api import whatsapp_api_bp
-        app.register_blueprint(whatsapp_api_bp)
+        from server.api_whatsapp_improved import whatsapp_bp
+        app.register_blueprint(whatsapp_bp)
         print("✅ WhatsApp API registered successfully")
     except Exception as e:
         print(f"❌ WhatsApp API registration failed: {e}")
-        # Create minimal WhatsApp status route as fallback
-        @app.route('/api/whatsapp/status', methods=['GET'])
-        def whatsapp_status_fallback():
-            return jsonify({'success': True, 'connected': False, 'status': 'disconnected'})
+        # Try fallback to old whatsapp_api
+        try:
+            from server.whatsapp_api import whatsapp_api_bp
+            app.register_blueprint(whatsapp_api_bp)
+            print("✅ WhatsApp API fallback registered successfully")
+        except Exception as e2:
+            print(f"❌ WhatsApp API fallback also failed: {e2}")
+            # Create minimal WhatsApp status route as last resort
+            @app.route('/api/whatsapp/status', methods=['GET'])
+            def whatsapp_status_fallback():
+                return jsonify({'success': True, 'connected': False, 'status': 'disconnected'})
 
 def create_app():
     """יצירת אפליקציית Flask עם הגדרות מקצועיות"""
