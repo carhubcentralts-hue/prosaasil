@@ -32,9 +32,10 @@ def ensure_env():
 
 def ensure_google_creds_file():
     """המר JSON של Service Account לקובץ זמני עבור Google TTS"""
-    sa_json = os.getenv("GOOGLE_TTS_SA_JSON")
+    # נסה קודם עם השם החדש, אז עם הישן
+    sa_json = os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON") or os.getenv("GOOGLE_TTS_SA_JSON")
     if not sa_json:
-        print("⚠️ GOOGLE_TTS_SA_JSON not set - TTS will not work")
+        print("⚠️ GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_TTS_SA_JSON not set - TTS will not work")
         return
     
     try:
@@ -46,4 +47,4 @@ def ensure_google_creds_file():
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
         print(f"✅ Google credentials file created: {tmp.name}")
     except json.JSONDecodeError as e:
-        raise RuntimeError(f"Invalid GOOGLE_TTS_SA_JSON format: {e}")
+        raise RuntimeError(f"Invalid Google TTS JSON format: {e}")
