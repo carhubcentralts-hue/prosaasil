@@ -2,7 +2,12 @@
 from flask import Blueprint, request, Response, current_app
 from urllib.parse import urljoin
 import os, requests, io, logging, json, threading, time
-from server.logging_setup import _mask_phone
+
+def _mask_phone(phone):
+    """Mask phone number for logging privacy"""
+    if not phone or len(phone) < 4:
+        return phone
+    return phone[:3] + "****" + phone[-2:]
 
 twilio_bp = Blueprint("twilio", __name__, url_prefix="/webhook")
 log = logging.getLogger("twilio.voice")
@@ -17,7 +22,7 @@ def abs_url(path):
 def get_business_greeting(to_number, call_sid):
     """Get business-specific greeting file"""
     # For now, use default greeting - can be extended to DB lookup
-    return "static/voice_responses/welcome.mp3"
+    return "static/voice_responses/response_welcome_9d229dd7.mp3"
 
 @twilio_bp.route("/incoming_call", methods=["POST"])
 def incoming_call():
