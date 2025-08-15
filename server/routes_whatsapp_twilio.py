@@ -56,36 +56,38 @@ def incoming_whatsapp():
         return jsonify({"error": "Processing failed"}), 500
 
 @whatsapp_twilio_bp.post("/status")
-@require_twilio_signature
-def whatsapp_status():
+@require_twilio_signature 
+def whatsapp_status_new():
     """Handle WhatsApp message status updates from Twilio"""
     try:
-        message_sid = request.form.get('MessageSid', '')
-        message_status = request.form.get('MessageStatus', '')
+        from datetime import datetime
         
+        sid = request.form.get("MessageSid")
+        status = request.form.get("MessageStatus")  # queued/sent/delivered/read/failed/undelivered
+        
+        if not sid or not status:
+            logger.warning("Missing MessageSid or MessageStatus in webhook")
+            return ("missing sid/status", 400)
+            
         # Update message status in database
-        if message_sid:
-            try:
-                wa_message = WhatsAppMessage.query.filter_by(
-                    provider_message_id=message_sid
-                ).first()
-                
-                if wa_message:
-                    wa_message.status = message_status
-                    from datetime import datetime
-                    now = datetime.utcnow()
-                    if message_status == "delivered":
-                        wa_message.delivered_at = now
-                    elif message_status == "read":
-                        wa_message.read_at = now
-                    
-                    db.session.commit()
-                    logger.info("Updated WhatsApp message %s status to %s", message_sid, message_status)
-            except Exception as db_error:
-                logger.error("Failed to update WhatsApp status: %s", db_error)
+        msg = WhatsAppMessage.query.filter_by(provider_message_id=sid).first()
+        now = datetime.utcnow()
         
-        return "", 204  # No content response
+        if msg:
+            msg.status = status
+            if status == "delivered" and hasattr(msg, 'delivered_at'):
+                msg.delivered_at = now
+            if status == "read" and hasattr(msg, 'read_at'):
+                msg.read_at = now
+            db.session.commit()
+            logger.info("Updated WhatsApp message status: %s -> %s", sid, status)
+        else:
+            logger.warning("WhatsApp message not found for SID: %s", sid)
+            
+        return ("", 204)
         
     except Exception as e:
-        logger.error("Error processing WhatsApp status: %s", e)
-        return "", 204  # Still return success to avoid retries
+        logger.error("Error processing WhatsApp status update: %s", e)
+        return ("error", 500)
+
+# OLD FUNCTION REMOVED TO AVOID DUPLICATES

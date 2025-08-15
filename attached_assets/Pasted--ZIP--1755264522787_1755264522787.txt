@@ -1,0 +1,224 @@
+קיבלתי את ה־ZIP החדש ובדקתי אותו בפועל (פתחתי, סרקתי קובץ־קובץ, וחיפשתי ספציפית את כל הנקודות שביקשנו). הנה האמת נכון לעכשיו:
+
+מצב אמיתי – תקין / חסר
+
+בדיקה	תוצאה
+מסלולי Twilio Voice קיימים (/twilio/incoming_call, /handle_recording, /twilio/call_status)	✅ קיים
+אימות חתימת Twilio בכל הוובהוקים (Voice + WhatsApp)	❌ חסר (ב־whatsapp_routes.py יש ולידציה אך מנוטרלת; ב־Voice אין)
+Webhook נכנס ל־WhatsApp (Twilio)	✅ קיים (/webhook/whatsapp)
+Webhook סטטוסים ל־WhatsApp (Twilio) — delivered/read/failed	❌ חסר (יש StatusCallback בשליחה, אבל אין מסלול שמטפל)
+שימוש ב־ENV למספר WhatsApp של Twilio	✅ קיים, אך…
+סיכון כפול prefix (whatsapp: פעמיים)	❗ קיים: בקוד יש from_=f"whatsapp:{os.environ.get('TWILIO_WHATSAPP_NUMBER')}" — אם ה־ENV כבר כולל whatsapp:+... זה נהיה whatsapp:whatsapp:+...
+Baileys worker	✅ קיים (baileys_client.js)
+מתג ספק אחוד (`WHATSAPP_PROVIDER=baileys	twilio`)
+CORS ממוקד	❌ חסר
+Rate-limit למסלולי webhook ושליחה	❌ חסר
+Healthcheck (/health)	❌ חסר
+שימוש ב־PUBLIC_HOST ל־<Play> בשיחות + Fallback ל־<Say>	❌ חסר
+כפילויות וואטסאפ	❗ יש שני קבצים פעילים: routes_whatsapp.py ו־whatsapp_routes.py (חופפים)
+שגיאות תחביר בקוד Python	❗ 2 קבצים: enhanced_crm_service.py שורה 355; notification_service.py שורה 394
+
+
+⸻
+
+מה לתקן כדי להיות על 100% (קופי-פייסט ממוקד)
+
+1) אימות חתימות Twilio לכל הוובהוקים
+
+צור twilio_security.py (בשורש):
+
+# twilio_security.py
+import os
+from functools import wraps
+from flask import request, abort
+from twilio.request_validator import RequestValidator
+
+def require_twilio_signature(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        token = os.environ.get("TWILIO_AUTH_TOKEN")
+        if not token:
+            return abort(401)
+        validator = RequestValidator(token)
+        signature = request.headers.get("X-Twilio-Signature", "")
+        url = request.url
+        if request.environ.get("HTTP_X_FORWARDED_PROTO") == "https":
+            url = url.replace("http://", "https://", 1)
+        params = request.form.to_dict() if request.method == "POST" else request.args.to_dict()
+        if not validator.validate(url, params, signature):
+            return abort(403)
+        return f(*args, **kwargs)
+    return wrapper
+
+החלה ב־routes_twilio.py:
+
+from twilio_security import require_twilio_signature
+
+@app.route("/twilio/incoming_call", methods=["POST"])
+@require_twilio_signature
+def incoming_call(): ...
+
+@app.route("/handle_recording", methods=["POST"])
+@require_twilio_signature
+def handle_recording(): ...
+
+@app.route("/twilio/call_status", methods=["POST"])
+@require_twilio_signature
+def call_status(): ...
+
+וב־whatsapp_routes.py (תקן גם את הטעות os.enviro... ל־os.environ והסר את ההשבתה):
+
+from twilio_security import require_twilio_signature
+
+@app.route('/webhook/whatsapp', methods=['POST'])
+@require_twilio_signature
+def whatsapp_webhook():
+    ...
+
+
+⸻
+
+2) להוסיף Webhook סטטוסים ל־Twilio WhatsApp + עדכון DB
+
+ב־routes_whatsapp.py (או בקובץ ה־routes שתשאיר פעיל):
+
+from datetime import datetime
+from models import WhatsAppMessage
+from app import db
+from twilio_security import require_twilio_signature
+
+@app.route("/webhook/whatsapp/status", methods=["POST"])
+@require_twilio_signature
+def whatsapp_status():
+    sid = request.form.get("MessageSid")
+    status = request.form.get("MessageStatus")  # queued/sent/delivered/read/failed/undelivered
+    if not sid or not status:
+        return ("missing sid/status", 400)
+    msg = WhatsAppMessage.query.filter_by(message_sid=sid).first()
+    now = datetime.utcnow()
+    if msg:
+        msg.status = status
+        if status == "delivered":
+            msg.delivered_at = now  # אם אין בעמודה – דלג/הוסף עמודה
+        if status == "read":
+            msg.read_at = now       # כנ״ל
+        db.session.commit()
+    return ("", 204)
+
+הערה: כרגע למודל שלך אין delivered_at/read_at. מומלץ להוסיף עמודות (או פשוט לעדכן רק status אם לא רוצים מיגרציה עכשיו).
+
+⸻
+
+3) לתקן את ה־prefix הכפול במספר ה־From של Twilio
+
+ב־routes_whatsapp.py (פונקציית send_twilio_whatsapp_message):
+
+from_num = os.environ.get('TWILIO_WHATSAPP_NUMBER', '')  # רצוי לשמור ב-ENV בפורמט 'whatsapp:+1415...'
+if not from_num.startswith('whatsapp:'):
+    from_num = f'whatsapp:{from_num}'
+
+message = client.messages.create(
+    body=message,
+    from_=from_num,
+    to=f"whatsapp:{to_number}" if not str(to_number).startswith("whatsapp:") else to_number,
+    status_callback=f"{os.environ.get('PUBLIC_HOST','')}/webhook/whatsapp/status" if os.environ.get('PUBLIC_HOST') else None
+)
+
+
+⸻
+
+4) לאחד את קבצי הוואטסאפ (למנוע התנגשויות)
+	•	השאר קובץ אחד של נתיבי API לוואטסאפ (מומלץ: routes_whatsapp.py), והעבר את whatsapp_routes.py ל־legacy/ או מחק אותו.
+	•	ודא שב־app.py אין רישום כפול/חופף.
+
+⸻
+
+5) PUBLIC_HOST ל־<Play> + Fallback ל־<Say>
+
+ב־routes_twilio.py בתוך incoming_call:
+
+PUBLIC_HOST = os.environ.get("PUBLIC_HOST")
+try:
+    audio_url = f"{PUBLIC_HOST}/static/voice_responses/greeting.mp3"
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>{audio_url}</Play>
+  <Record action="/handle_recording" method="POST" maxLength="30" timeout="5"/>
+</Response>"""
+except Exception as e:
+    app.logger.warning(f"PUBLIC_HOST missing, fallback to <Say>: {e}")
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say language="he-IL">שלום, השאירו הודעה אחרי הצפצוף.</Say>
+  <Record playBeep="true" maxLength="30" timeout="5"/>
+</Response>"""
+return Response(xml, mimetype="text/xml", status=200)
+
+
+⸻
+
+6) CORS + Rate-limit + Health
+
+ב־app.py (אחרי יצירת app):
+
+from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+CORS(app, resources={r"/*": {"origins": [
+  "https://your-prod-domain",
+  "https://your-preview-domain.replit.app"
+]}})
+
+limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["200/day","50/hour"])
+# דוגמאות:
+limiter.limit("30/minute")(app.view_functions.get("incoming_call"))
+limiter.limit("30/minute")(app.view_functions.get("handle_recording"))
+limiter.limit("60/minute")(app.view_functions.get("call_status"))
+limiter.limit("30/minute")(app.view_functions.get("whatsapp_webhook"))
+
+@app.route("/health")
+def health():
+    return ("ok", 200)
+
+
+⸻
+
+7) לתקן שתי שגיאות תחביר שכרגע מפילות את ה־App
+	•	enhanced_crm_service.py, שורה 355 — יש ).distinct().all() שנמצא מחוץ לפונקציה (indent לא תקין). העבר את השורה פנימה אל הבלוק שבו היא אמורה להיות או הסר אם זו טעות הדבקה.
+
+353: enhanced_crm_service = EnhancedCRMService()
+
+
+
+-355:             ).distinct().all()
+
+- `notification_service.py`, שורה **394** — בלוק `try:` מתחיל באמצע הקובץ ללא פונקציה/בלוק אב. עטוף בפונקציה/משימה מתוזמנת או הזז שמאלה ל-top level נכון.
+```diff
+392: notification_service = NotificationService()
+-394:         try:
++394: try:
+
+
+⸻
+
+Smoke מהירים לבדיקה עצמית
+
+# Voice
+curl -X POST $HOST/twilio/incoming_call
+curl -X POST $HOST/handle_recording -d RecordingUrl=https://.../RExxx -d CallSid=CA_TEST_1
+curl -X POST $HOST/twilio/call_status -d CallSid=CA_TEST_1 -d CallStatus=completed
+
+# WhatsApp (Twilio)
+curl -X POST $HOST/webhook/whatsapp -d 'From=whatsapp:+9725...' -d 'To=whatsapp:+1415...' -d 'Body=שלום'
+curl -X POST $HOST/webhook/whatsapp/status -d 'MessageSid=SMxxxx' -d 'MessageStatus=delivered'
+curl -X POST $HOST/webhook/whatsapp/status -d 'MessageSid=SMxxxx' -d 'MessageStatus=read'
+
+
+⸻
+
+פסק דין עדכני
+	•	יש התקדמות יפה, אבל זה עדיין לא 100%. חסרים: אימות חתימות Twilio בפועל, וובהוק סטטוסים של WhatsApp, איחוד קבצי וואטסאפ, CORS/Rate-limit/Health, שימוש ב־PUBLIC_HOST, ותיקון שתי שגיאות תחביר.
+	•	אחרי שתדביק את הקטעים למעלה ותסיר את הכפילויות — אתה עולה ל־90–95/100, ומשם זה “ליטוש” קטן ל־100.
+
+רוצה שאכין לך patches (diff) מדויקים לכל הקבצים הנ״ל כדי שתוכל להדביק שורה-שורה?

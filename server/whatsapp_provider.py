@@ -117,7 +117,13 @@ class TwilioProvider(Provider):
     def __init__(self):
         self.account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
         self.auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
-        self.from_number = os.environ.get('TWILIO_WHATSAPP_NUMBER')
+        raw_from_number = os.environ.get('TWILIO_WHATSAPP_NUMBER', '')
+        
+        # Ensure from_number has whatsapp: prefix (avoid double prefix)
+        if raw_from_number and not raw_from_number.startswith('whatsapp:'):
+            self.from_number = f'whatsapp:{raw_from_number}'
+        else:
+            self.from_number = raw_from_number
         
         if not all([self.account_sid, self.auth_token, self.from_number]):
             raise RuntimeError(
@@ -132,19 +138,29 @@ class TwilioProvider(Provider):
             raise RuntimeError("Twilio package not installed")
 
     def _format_number(self, number: str) -> str:
-        """Ensure number has whatsapp: prefix"""
-        if not str(number).startswith("whatsapp:"):
-            return f"whatsapp:{number}"
-        return number
+        """Ensure number has whatsapp: prefix but avoid double prefix"""
+        number_str = str(number)
+        if number_str.startswith("whatsapp:"):
+            return number_str
+        return f"whatsapp:{number_str}"
 
     def send_text(self, to: str, text: str) -> Dict[str, Any]:
         """Send text message via Twilio WhatsApp API"""
         try:
-            message = self.client.messages.create(
-                body=text,
-                from_=self.from_number,
-                to=self._format_number(to)
-            )
+            # Add status callback URL if PUBLIC_HOST is available
+            public_host = os.environ.get('PUBLIC_HOST', '').rstrip('/')
+            status_callback = f"{public_host}/webhook/whatsapp/status" if public_host else None
+            
+            message_params = {
+                'body': text,
+                'from_': self.from_number,
+                'to': self._format_number(to)
+            }
+            
+            if status_callback:
+                message_params['status_callback'] = status_callback
+                
+            message = self.client.messages.create(**message_params)
             
             logger.info(f"Text message sent via Twilio: {message.sid}")
             return {
