@@ -38,28 +38,26 @@ def incoming_call():
         
         log.info("📞 שיחה נכנסת: מספר=%s אל=%s CallSid=%s", from_number, to_number, call_sid)
         
-        # שמירת שיחה במסד הנתונים
+        # שמירת שיחה במסד הנתונים (פשוט לצורך לוגינג)
         try:
-            from server.models_sql import CallLog, db
-            call_log = CallLog()
-            call_log.business_id = 1
-            call_log.call_sid = call_sid
-            call_log.from_number = request.form.get("From", "")
-            call_log.status = "received"
-            db.session.add(call_log)
-            db.session.commit()
-            log.info("✅ שיחה נשמרה במסד נתונים: %s", call_sid)
+            log.info("✅ שיחה התחילה: %s", call_sid)
+            # נדלג על DB לעת עתה כדי לא לעכב את השיחה
         except Exception as e:
-            log.error("❌ שגיאה בשמירת שיחה: %s", e)
+            log.error("❌ שגיאה בלוגינג שיחה: %s", e)
 
-        # ברכה עברית מלאה עם הקלטה לתמלול
-        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        # שיחה דו-כיוונית בזמן אמת עם Media Streams
+        public_host = os.getenv("PUBLIC_HOST", "").rstrip("/")
+        if not public_host:
+            raise RuntimeError("PUBLIC_HOST לא מוגדר - נדרש לשיחות זמן אמת")
+        
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say>שלום, אתם מדברים עם שי דירות ומשרדים בעמ. אנא השאירו הודעה מפורטת אחרי הצפצוף ואנו נחזור אליכם בהקדם.</Say>
-  <Record action="/webhook/handle_recording" method="POST" playBeep="true" maxLength="60" timeout="10" finishOnKey="*" transcribe="false"/>
+  <Connect>
+    <Stream url="wss://{public_host.replace('https://', '')}/ws/twilio-media"/>
+  </Connect>
 </Response>"""
         
-        log.info("🎤 מחזיר ברכה עברית מלאה עם הקלטה לתמלול")
+        log.info("🌐 מחזיר Media Streams לשיחה דו-כיוונית בזמן אמת")
         return Response(xml, mimetype="text/xml", status=200)
         
     except Exception as e:

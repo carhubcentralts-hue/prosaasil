@@ -143,6 +143,16 @@ def create_app():
     
     # Validate environment
     validation_result = validate_production_environment()
+    
+    # Initialize Google TTS credentials
+    try:
+        from server.bootstrap_secrets import ensure_google_creds_file
+        ensure_google_creds_file()
+        print("✅ Google TTS credentials initialized")
+    except Exception as e:
+        print(f"⚠️ Google TTS credentials warning: {e}")
+        import logging
+        log = logging.getLogger(__name__)
     log_environment_status()
     
     # Setup critical environment variables for voice system - FAIL FAST if missing

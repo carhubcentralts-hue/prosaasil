@@ -78,10 +78,38 @@ def tts_he_wavenet(text: str) -> np.ndarray:
         return np.zeros(16000, dtype=np.float32)  # שקט של שנייה
 
 def transcribe_chunk(pcm16k: np.ndarray) -> str:
-    """תמלול פשוט - כרגע מחזיר placeholder"""
-    # TODO: להוסיף Whisper כשהחבילה תותקן
-    log.info("Transcribing %d samples...", len(pcm16k))
-    return "שלום"  # placeholder למבחן ראשוני
+    """תמלול אודיו עברי באמצעות OpenAI Whisper"""
+    try:
+        import io
+        import soundfile as sf
+        from openai import OpenAI
+        
+        # בדיקה שיש אודיו בכלל
+        if len(pcm16k) == 0:
+            return ""
+            
+        # יצירת client עם API key
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # המרה לפורמט WAV
+        buf = io.BytesIO()
+        sf.write(buf, pcm16k, 16000, subtype="PCM_16", format="WAV")
+        buf.seek(0)
+        
+        # תמלול עם Whisper
+        response = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=("audio.wav", buf, "audio/wav"),
+            language="he"
+        )
+        
+        result = response.text.strip() if response.text else ""
+        log.info("✅ תמלול הושלם: %s", result[:50] + "..." if len(result) > 50 else result)
+        return result
+        
+    except Exception as e:
+        log.error(f"❌ שגיאה בתמלול: {e}")
+        return ""
 
 def llm_reply(user_text: str) -> str:
     """תגובת AI עבור הנדל"ן"""
