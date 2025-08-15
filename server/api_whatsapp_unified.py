@@ -3,7 +3,7 @@ Unified WhatsApp API - Production Ready
 API WhatsApp מאוחד - מוכן לפרודקשן
 """
 from flask import Blueprint, request, jsonify
-from server.whatsapp_service_unified import get_whatsapp_service
+from server.whatsapp_provider import get_whatsapp_service
 from server.models_sql import WhatsAppMessage, Business
 from server.db import db
 import logging

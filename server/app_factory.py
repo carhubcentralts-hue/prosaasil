@@ -93,13 +93,7 @@ def register_blueprints(app):
     except Exception as e:
         print(f"❌ Business API registration failed: {e}")
     
-    # CRM Basic API for testing (public for development)
-    try:
-        from server.api_crm_basic import crm_basic_bp
-        app.register_blueprint(crm_basic_bp)
-        print("✅ CRM Basic API registered successfully")
-    except Exception as e:
-        print(f"❌ CRM Basic API registration failed: {e}")
+    # CRM Basic API moved to legacy - using unified only
     
     # CRM Unified API (לפי המפרט המקצועי)
     try:
@@ -199,10 +193,7 @@ def create_app():
     # Initialize rate limiting for security (after blueprints)
     # Note: Moved to after blueprint registration for proper function access
     
-    # Health endpoint
-    @app.route("/api/health")
-    def health():
-        return {"status": "ok", "service": "Hebrew AI Call Center CRM"}
+    # Health endpoint moved to health_production.py - avoiding duplicate
     
     # Add revision header to all responses
     @app.after_request

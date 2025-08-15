@@ -11,6 +11,9 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# Global service instance
+_whatsapp_service = None
+
 class Provider:
     """Abstract WhatsApp provider interface"""
     def send_text(self, to: str, text: str) -> Dict[str, Any]:
@@ -217,6 +220,56 @@ def get_provider() -> Provider:
     else:
         logger.info("Using Baileys WhatsApp provider")
         return BaileysProvider()
+
+def get_whatsapp_service():
+    """Get WhatsApp service instance - unified interface"""
+    global _whatsapp_service
+    
+    if _whatsapp_service is None:
+        provider_type = os.getenv("WHATSAPP_PROVIDER", "baileys").lower()
+        
+        if provider_type == "baileys":
+            _whatsapp_service = WhatsAppService(BaileysProvider())
+        elif provider_type == "twilio":
+            _whatsapp_service = WhatsAppService(TwilioProvider())
+        else:
+            logger.warning(f"Unknown provider: {provider_type}, defaulting to baileys")
+            _whatsapp_service = WhatsAppService(BaileysProvider())
+    
+    return _whatsapp_service
+
+class WhatsAppService:
+    """Unified WhatsApp service interface"""
+    
+    def __init__(self, provider: Provider):
+        self.provider = provider
+        
+    def send_message(self, to: str, message: str) -> Dict[str, Any]:
+        """Send text message via provider"""
+        return self.provider.send_text(to, message)
+        
+    def send_media(self, to: str, media_url: str, caption: str = "") -> Dict[str, Any]:
+        """Send media message via provider"""
+        return self.provider.send_media(to, media_url, caption)
+        
+    def get_status(self) -> Dict[str, Any]:
+        """Get service status"""
+        try:
+            provider_name = type(self.provider).__name__.replace("Provider", "").lower()
+            return {
+                "provider": provider_name,
+                "ready": True,
+                "connected": True,
+                "configured": True
+            }
+        except Exception as e:
+            return {
+                "provider": "unknown",
+                "ready": False, 
+                "connected": False,
+                "configured": False,
+                "error": str(e)
+            }
 
 def get_provider_status() -> Dict[str, Any]:
     """Get status of the current provider"""

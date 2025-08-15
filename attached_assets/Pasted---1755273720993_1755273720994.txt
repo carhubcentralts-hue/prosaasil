@@ -1,0 +1,302 @@
+להלן הנחיה מקיפה (קופי-פייסט) לסגור סופית קבצים מיותרים/כפולים, לאחד ארכיטקטורה, ולמנוע התנגשות ראוטים. היא כוללת: סדר פעולות, פקודות בדיקה, סקריפט לזיהוי כפילויות, מבנה פרויקט קנוני, וכללי “מקור אמת יחיד”.
+שלח/הדבק לסוכן הפיתוח כמו שהיא:
+
+⸻
+
+📣 משימה: איחוד וניקוי הפרויקט עד 100% (ללא כפילויות וללא נתיבים חופפים)
+
+🎯 Definition of Done
+	•	אין שום קובץ “מקביל/ישן/clean/backup” בתיקיות הפעילות.
+	•	לכל תחום יש קובץ/מודול יחיד רשמי (Twilio Voice, WhatsApp API, WhatsApp Webhooks, WS של Media Streams).
+	•	app_factory.py/app.py רושם רק את ה-Blueprints / ראוטים הקנוניים.
+	•	אין שני ראוטים לאותה דרך/שיטה; flask url_map נקי מקונפליקטים.
+	•	.env.example מסונכרן עם הקוד; אין משתני ENV שלא בשימוש.
+	•	CI נכשל אם חוזרת כפילות (בדיקת hash, בדיקת ראוטים, Vulture “dead code”).
+
+⸻
+
+1) יצירת ענף עבודה ושכבת Legacy
+	1.	git checkout -b chore/cleanup-unification
+	2.	צור תיקיה: legacy/ בשורש הריפו.
+	3.	כל קובץ מיותר/ישן/כפול — העבר ל־legacy/ (אל תמחק עדיין), והסר רישום/ייבוא שלו מהאפליקציה.
+
+⸻
+
+2) מבנה קנוני (יעד סופי)
+
+סדר את הקוד כך (התאם לשמותיך בפועל, אבל שמור על עיקרון “מקור יחיד”):
+
+server/
+  app_factory.py            # יצירת האפליקציה ורישום blueprints
+  config.py                 # קריאת ENV במקום מפוזר
+  db.py
+  models/                   # מודלים בלבד
+    __init__.py
+    models.py
+  routes/                   # ראוטים/Blueprints בלבד
+    twilio_voice.py         # /webhook/incoming_call|handle_recording|call_status
+    whatsapp_twilio.py      # /webhook/whatsapp/incoming|status
+    api_whatsapp.py         # /api/whatsapp/* (מאוחד: שליחה/מדיה/תבנית/סטטוס)
+    ws_media.py             # /ws/twilio-media (Media Streams דו-כיווני)
+    health.py               # /health
+  services/                 # לוגיקה עסקית
+    whatsapp/
+      provider.py           # מתג ספק: baileys|twilio
+      baileys/
+        index.js
+    tts.py                  # Wavenet + fallback
+    stt.py                  # Whisper (faster-whisper/OpenAI)
+    crm.py                  # CRM ורפרוז
+    twilio_security.py      # @require_twilio_signature
+    logging_setup.py        # Request-ID, slow SQL logging
+  utils/
+    audio_utils.py          # עזרי μ-law/PCM/Resample
+client/                     # FE יחיד (אם יש)
+legacy/                     # כל מה שלא פעיל (לא נרשם/לא מיובא)
+
+כל קובץ/תיקייה דומים בשם (למשל whatsapp_routes.py, whatsapp_bp.py, routes_whatsapp_twilio_clean.py) → ל־legacy/.
+
+⸻
+
+3) שמות קנוניים (מקור אמת יחיד)
+	•	WhatsApp API: קובץ יחיד server/routes/api_whatsapp.py עם prefix קבוע: url_prefix="/api/whatsapp".
+	•	WhatsApp Webhooks Twilio: קובץ יחיד server/routes/whatsapp_twilio.py עם prefix: url_prefix="/webhook/whatsapp".
+	•	Twilio Voice: server/routes/twilio_voice.py עם prefix: url_prefix="/webhook".
+	•	Media Streams (דו-כיווני): server/routes/ws_media.py, נתיב: /ws/twilio-media.
+	•	Provider מאוחד: server/services/whatsapp/provider.py – לא קיימים whatsapp_providers.py/whatsapp_service_unified.py כפולים.
+
+⸻
+
+4) רישום Blueprints – אחד ויחיד מכל סוג
+
+ב־app_factory.py השאר רק את אלה (התאם ל-imports שלך):
+
+from server.routes.twilio_voice import twilio_bp
+from server.routes.whatsapp_twilio import wa_twilio_bp
+from server.routes.api_whatsapp import whatsapp_api_bp
+from server.routes.ws_media import ws_bp
+from server.routes.health import health_bp
+
+app.register_blueprint(twilio_bp)
+app.register_blueprint(wa_twilio_bp)
+app.register_blueprint(whatsapp_api_bp)
+app.register_blueprint(ws_bp)
+app.register_blueprint(health_bp)
+
+ודא שאין ייבוא/רישום כפול של גרסאות ישנות (העבר אותן ל־legacy/ והסר import).
+
+⸻
+
+5) סקריפט לזיהוי כפילויות קבצים/תוכן (הדבק כ־tools/find_dupes.py)
+
+import hashlib, os, sys, collections, re
+
+ROOT = sys.argv[1] if len(sys.argv) > 1 else "."
+EXCLUDE_DIRS = {"legacy", ".git", "__pycache__", "node_modules", "client/dist"}
+EXCLUDE_EXT = {".png",".jpg",".jpeg",".gif",".map",".lock",".log",".ico"}
+
+def file_iter():
+    for d,_,files in os.walk(ROOT):
+        parts = set(d.replace("\\","/").split("/"))
+        if parts & EXCLUDE_DIRS: continue
+        for f in files:
+            ext = os.path.splitext(f)[1].lower()
+            if ext in EXCLUDE_EXT: continue
+            p = os.path.join(d,f)
+            try:
+                if os.path.getsize(p) == 0: continue
+                yield p
+            except: pass
+
+def md5(p):
+    h = hashlib.md5()
+    with open(p,"rb") as fh:
+        for chunk in iter(lambda: fh.read(1<<20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+by_hash = collections.defaultdict(list)
+for p in file_iter():
+    try:
+        by_hash[md5(p)].append(p)
+    except Exception as e:
+        print("ERR", p, e)
+
+print("\n# Duplicate content groups:")
+for h, plist in by_hash.items():
+    if len(plist) > 1:
+        print(f"\nMD5={h}")
+        for p in plist: print("  ", p)
+
+# שמות חשודים ("copy","clean","old","backup","bak","new","(1)")
+PAT = re.compile(r"(copy|clean|old|backup|bak|new|\(\d+\)|_old|_bak)", re.I)
+print("\n# Suspicious filenames:")
+for p in file_iter():
+    if PAT.search(os.path.basename(p)):
+        print("  ", p)
+
+הרצה:
+
+python tools/find_dupes.py .
+
+כל קבוצה שתופיע – העבר את הכפילויות ל־legacy/ והשאר רק את הגרסה הקנונית.
+
+⸻
+
+6) זיהוי ראוטים כפולים/מתנגשים
+
+הוסף route check ל־dev command קצר. ב־app_factory.py:
+
+def print_routes(app):
+    seen = {}
+    for r in sorted(app.url_map.iter_rules(), key=lambda x: (x.rule, ",".join(sorted(x.methods)))):
+        if r.endpoint.startswith("static"): continue
+        sig = (r.rule, tuple(sorted([m for m in r.methods if m in {"GET","POST","PUT","DELETE","PATCH"}])))
+        if sig in seen:
+            print("DUPLICATE ROUTE:", sig, "=>", seen[sig], "and", r.endpoint)
+        else:
+            seen[sig] = r.endpoint
+
+הרצה ידנית (ב־shell/REPL) אחרי create_app():
+
+from server.app_factory import create_app, print_routes
+app = create_app()
+print_routes(app)
+
+אם יש DUPLICATE ROUTE — אחד מהם חייב לעבור ל־legacy/ או להחלפת prefix.
+
+⸻
+
+7) כללי ENV אחידים (מקור אמת יחיד)
+
+עדכן .env.example — ושמור רק שמות אלה (דוגמה):
+
+FLASK_ENV=production
+PUBLIC_HOST=https://YOUR_DOMAIN
+CORS_ORIGINS=https://YOUR_DOMAIN
+
+DATABASE_URL=sqlite:///./agentlocator.db
+
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxx
+TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
+
+WHATSAPP_PROVIDER=baileys   # או twilio
+
+OPENAI_API_KEY=sk-xxxx
+GOOGLE_TTS_SA_JSON={"type":"service_account",...}   # או GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa.json
+
+	•	אל תשתמשו במשתנים חלופיים/שונים (למשל TWILIO_SID ו־TWILIO_ACCOUNT_SID יחד).
+	•	בקוד, טעינת קונפיג מ-server/config.py בלבד; אין os.getenv מפוזר.
+
+⸻
+
+8) ניקוי ייבוא ו”קוד מת”
+	•	התקן: pip install vulture
+	•	הרץ: vulture server | tee vulture.txt
+	•	כל מה שמופיע כ-unused — הסר/העבר ל־legacy/.
+	•	בקוד JS/TS (client): npm i -D eslint, הרץ eslint . והסר קבצים לא בשימוש.
+
+⸻
+
+9) Pre-commit (שומר על הסדר)
+
+צור .pre-commit-config.yaml:
+
+repos:
+- repo: https://github.com/psf/black
+  rev: 24.3.0
+  hooks: [{id: black}]
+- repo: https://github.com/pycqa/isort
+  rev: 5.13.2
+  hooks: [{id: isort}]
+- repo: https://github.com/PyCQA/flake8
+  rev: 7.0.0
+  hooks: [{id: flake8}]
+- repo: https://github.com/jendrikseipp/vulture
+  rev: 2.11
+  hooks: [{id: vulture, args: ["server"]}]
+
+pip install pre-commit && pre-commit install
+
+
+⸻
+
+10) CI שחוסם כפילויות/קונפליקטים (GitHub Actions)
+
+.github/workflows/quality.yml:
+
+name: Quality
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with: { python-version: "3.11" }
+    - run: pip install -r requirements.txt vulture
+    - run: python tools/find_dupes.py . | tee dupes.txt
+    - run: |
+        if grep -q "MD5=" dupes.txt; then
+          echo "Duplicate files detected"; cat dupes.txt; exit 1; fi
+    - name: Flask route map
+      run: |
+        python - <<'PY'
+        from server.app_factory import create_app, print_routes
+        app = create_app(); print_routes(app)
+        PY
+
+
+⸻
+
+11) מיפוי קונקרטי (לפי מה שראינו אצלך בעבר)
+	•	WhatsApp: השאר רק server/routes/api_whatsapp.py ו־server/routes/whatsapp_twilio.py.
+העבר ל־legacy/: whatsapp_routes.py, whatsapp_bp.py, routes_whatsapp_twilio_clean.py.
+השאר רק server/services/whatsapp/provider.py (מחק/אחד whatsapp_providers.py/whatsapp_service_unified.py).
+	•	Twilio Voice: השאר server/routes/twilio_voice.py. העבר כל “גרסאות ישנות” (למשל routes_twilio_old.py) ל־legacy/.
+	•	WS (Media Streams): השאר server/routes/ws_media.py. אם יש media_ws.py כפול – אחד.
+ודא ש־incoming_call מחזיר <Connect><Stream> ולא <Say>/<Record>.
+	•	TTS/Whisper: שמור קובץ יחיד בכל תחום: server/services/tts.py, server/services/stt.py.
+
+⸻
+
+12) בדיקות קבלה (מינימום)
+
+הרץ (או צרף בסקריפט smoke):
+
+# 1) Health
+curl -s -o /dev/null -w "HTTP %{http_code}\n" $HOST/health  # 200
+
+# 2) רשימת ראוטים (בדיקה ידנית שלא מופיע DUPLICATE ROUTE)
+python - <<'PY'
+from server.app_factory import create_app, print_routes
+app = create_app(); print_routes(app)
+PY
+
+# 3) WhatsApp Twilio webhooks
+curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST $HOST/webhook/whatsapp/incoming -d 'From=whatsapp:+9725...&Body=היי'  # 200
+curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST $HOST/webhook/whatsapp/status -d 'MessageSid=SM123&MessageStatus=delivered' # 204
+
+# 4) Voice – Media Streams TwiML
+curl -s -o /tmp/t.xml -w "HTTP %{http_code}\n" -X POST $HOST/webhook/incoming_call && head -n1 /tmp/t.xml  # 200 + <Connect><Stream>
+
+
+⸻
+
+13) דוקומנטציה סופית
+	•	עדכן README.md: עץ פרויקט, ראוטים קנוניים, ENV, איך מרימים, ואיך מריצים את בדיקות ה-smoke.
+	•	מחק/עדכן כל אזכור לקובצי legacy (ציין שאין לייבא אותם).
+
+⸻
+
+14) כללים לעתיד (Guardrails)
+	•	קובץ/מודול חדש עובר דרך server/services/* או server/routes/* בלבד – לא מפזרים שיכפולים בשורש.
+	•	אין שמות “clean/old/new/copy/bak”. במקום זה: PR עם refactor וקבצים ישנים נעים ל-legacy/ ואינם רשומים.
+	•	אין os.getenv מפוזר — הכל דרך config.py.
+	•	כל ראוט חדש נרשם תחת Blueprint עם url_prefix ברור כדי לא להתנגש.
+
+⸻
+
+בסיום: צרף פלט python tools/find_dupes.py ., פלט print_routes(app) בלי DUPLICATE, ולוג של Git שמראה אילו קבצים הועברו ל-legacy/.
+ככה נדע סופית שאין כפילויות ואפשר להשלים את שכבת ה-UI בביטחון.

@@ -4,7 +4,7 @@ Production Health Check - Comprehensive System Status
 """
 from flask import Blueprint, jsonify
 from server.environment_validation import validate_production_environment
-from server.whatsapp_service_unified import get_whatsapp_service
+from server.whatsapp_provider import get_whatsapp_service
 from server.models_sql import Business, Customer, CallLog, WhatsAppMessage
 from server.db import db
 import logging
