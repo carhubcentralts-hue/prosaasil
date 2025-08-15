@@ -128,13 +128,7 @@ def register_blueprints(app):
 
 def create_app():
     """Create Flask application with Hebrew AI Call Center configuration"""
-    # Setup Google credentials immediately
-    try:
-        ensure_google_creds_file()
-    except Exception as e:
-        print(f"⚠️ Google credentials setup failed: {e}")
-    
-    """Production-ready app factory with comprehensive setup"""
+    # Production-ready app factory with comprehensive setup
     app = Flask(__name__)
     
     # Initialize WebSocket support for Twilio Media Streams

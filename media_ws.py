@@ -6,9 +6,10 @@ from audio_utils import b64_to_mulaw, mulaw8k_to_pcm16k, pcm16k_float_to_mulaw8k
 
 log = logging.getLogger("media_ws")
 
-# Initialize Google TTS - with improved error handling
+# Initialize Google TTS - rely on bootstrap_secrets for credentials
 try:
     from google.cloud import texttospeech as tts_module
+    # אל תגדיר כאן GOOGLE_APPLICATION_CREDENTIALS שוב; תן ל-bootstrap לטפל בזה.
     tts_client = tts_module.TextToSpeechClient()
     log.info("✅ Google TTS client initialized")
 except Exception as e:
