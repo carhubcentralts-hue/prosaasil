@@ -37,20 +37,13 @@ def ensure_google_creds_file() -> bool:
     מגדיר GOOGLE_APPLICATION_CREDENTIALS כך ש-Google TTS יעבוד.
     משתמש רק ב-GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON (הסוד הנכון).
     תומך בפורמטים: JSON ישיר או Base64.
+    יוצר קובץ זמני עם hash כדי שתחלופות ייכנסו לתוקף מיד.
     """
-    # מחיקת כל GOOGLE_APPLICATION_CREDENTIALS ישן שגוי
-    old_creds = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if old_creds:
-        print(f"🗑️ מחיקת GOOGLE_APPLICATION_CREDENTIALS ישן שגוי: {old_creds}")
-        if 'GOOGLE_APPLICATION_CREDENTIALS' in os.environ:
-            del os.environ['GOOGLE_APPLICATION_CREDENTIALS']
-        # מחיקת קובץ ישן
-        try:
-            if os.path.exists(old_creds):
-                os.remove(old_creds)
-                print(f"✅ קובץ ישן נמחק")
-        except:
-            pass
+    # אם כבר יש נתיב מפורש – נשארים איתו (אלא אם זה קובץ זמני ישן)
+    existing_creds = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if existing_creds and not existing_creds.startswith("/tmp/"):
+        print(f"✅ משתמש ב-GOOGLE_APPLICATION_CREDENTIALS קיים: {existing_creds}")
+        return True
 
     # משתמש רק ב-GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON (הסוד הנכון)
     raw = os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
@@ -60,22 +53,39 @@ def ensure_google_creds_file() -> bool:
 
     print(f"🔧 מעבד GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON ({len(raw)} תווים)")
 
-    # 1) JSON ישיר
+    # נסיון 1: JSON ישיר
     try:
-        # Clean and normalize the JSON first
         cleaned_raw = raw.strip().replace('\n', '').replace('\r', '')
         obj = json.loads(cleaned_raw)
-        
-        # Use tempfile for safe file creation
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(obj, f, indent=2)
-            temp_path = f.name
-        
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_path
-        print(f"✅ Google credentials file created: {temp_path}")
-        return True
     except Exception:
-        pass
+        # נסיון 2: Base64 
+        try:
+            import base64
+            decoded = base64.b64decode(raw).decode("utf-8")
+            obj = json.loads(decoded)
+        except Exception as e:
+            print(f"❌ לא הצלחתי לפרש את GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON: {e}")
+            return False
+
+    # אימות project_id אופציונלי
+    expected_project = os.getenv("GCP_PROJECT_ID")
+    if expected_project and obj.get("project_id") != expected_project:
+        print(f"⚠️ Project ID mismatch: expected {expected_project}, got {obj.get('project_id')}")
+        return False
+
+    # יצירת קובץ זמני עם hash לפי תוכן (למניעת קונפליקטים)
+    import hashlib
+    content_hash = hashlib.sha256(json.dumps(obj, sort_keys=True).encode()).hexdigest()[:8]
+    temp_path = os.path.join(tempfile.gettempdir(), f"gcp_sa_{content_hash}.json")
+    
+    with open(temp_path, 'w', encoding='utf-8') as f:
+        json.dump(obj, f, indent=2)
+    
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_path
+    print(f"✅ Google credentials file created: {temp_path}")
+    print(f"✅ Project ID: {obj.get('project_id', 'N/A')}")
+    print(f"✅ Client email: {obj.get('client_email', 'N/A')}")
+    return True
 
     # 2) Base64 → JSON
     try:
