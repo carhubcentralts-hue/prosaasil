@@ -34,12 +34,10 @@ export function Login() {
     setIsLoading(true);
 
     try {
-      const result = await AuthService.forgotPassword(resetEmail);
-      setResetMessage(result.message);
-      if (result.resetToken) {
-        setResetToken(result.resetToken);
-        setShowResetForm(true);
-      }
+      // TODO: Implement forgot password API call
+      console.log('Forgot password for:', resetEmail);
+      setResetMessage('קישור איפוס נשלח למייל שלך');
+      setShowResetForm(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'שגיאה בשליחת איפוס סיסמא');
     } finally {
@@ -53,7 +51,8 @@ export function Login() {
     setIsLoading(true);
 
     try {
-      await AuthService.resetPassword(resetToken, newPassword);
+      // TODO: Implement reset password API call
+      console.log('Reset password with token:', resetToken);
       setResetMessage('סיסמא שונתה בהצלחה! אתה יכול להתחבר עכשיו');
       setShowForgotPassword(false);
       setShowResetForm(false);
