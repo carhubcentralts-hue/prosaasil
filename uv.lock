@@ -721,17 +721,18 @@ wheels = [
 
 [[package]]
 name = "google-api-core"
-version = "2.17.1"
+version = "2.19.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-auth" },
     { name = "googleapis-common-protos" },
+    { name = "proto-plus" },
     { name = "protobuf" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/58/e2/c2ce7bf379a7200ecab7de2cbf17dcbb3fe2ab5085925dfe6797e263a475/google-api-core-2.17.1.tar.gz", hash = "sha256:9df18a1f87ee0df0bc4eea2770ebc4228392d8cc4066655b320e2cfccb15db95", size = 147140 }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/41/42a127bf163d9bf1f21540a3bf41c69b231b88707d8d753680b8878201a6/google-api-core-2.19.1.tar.gz", hash = "sha256:f4695f1e3650b316a795108a76a1c416e6afb036199d1c1f1f110916df479ffd", size = 148925 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0f/87/373ab788a4682adc1a6900e54d54c750b7bd4be456d75b8bf64eccc23ef9/google_api_core-2.17.1-py3-none-any.whl", hash = "sha256:610c5b90092c360736baccf17bd3efbcb30dd380e7a6dc28a71059edb8bd0d8e", size = 137037 },
+    { url = "https://files.pythonhosted.org/packages/44/99/daa3541e8ecd7d8b7907b714ba92126097a976b5b3dbabdb5febdcf08554/google_api_core-2.19.1-py3-none-any.whl", hash = "sha256:f12a9b8309b5e21d92483bbd47ce2c445861ec7d269ef6784ecc0ea8c1fa6125", size = 139384 },
 ]
 
 [package.optional-dependencies]
@@ -758,16 +759,16 @@ wheels = [
 
 [[package]]
 name = "google-auth"
-version = "2.40.3"
+version = "2.31.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
     { name = "pyasn1-modules" },
     { name = "rsa" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9e/9b/e92ef23b84fa10a64ce4831390b7a4c2e53c0132568d99d4ae61d04c8855/google_auth-2.40.3.tar.gz", hash = "sha256:500c3a29adedeb36ea9cf24b8d10858e152f2412e3ca37829b3fa18e33d63b77", size = 281029 }
+sdist = { url = "https://files.pythonhosted.org/packages/62/80/e143d53aa8d02c3b468d3feaf58a0dd094a8ff1954e2500f9f68a8e8bf8f/google-auth-2.31.0.tar.gz", hash = "sha256:87805c36970047247c8afe614d4e3af8eceafc1ebba0c679fe75ddd1d575e871", size = 252986 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/17/63/b19553b658a1692443c62bd07e5868adaa0ad746a0751ba62c59568cd45b/google_auth-2.40.3-py2.py3-none-any.whl", hash = "sha256:1370d4593e86213563547f97a92752fc658456fe4514c809544f330fed45a7ca", size = 216137 },
+    { url = "https://files.pythonhosted.org/packages/41/de/cc6304d968d816def285be94d54760733574045e86368620ec5b07d83d6a/google_auth-2.31.0-py2.py3-none-any.whl", hash = "sha256:042c4702efa9f7d3c48d3a69341c209381b125faa6dbf3ebe56bc7e40ae05c23", size = 194630 },
 ]
 
 [[package]]
@@ -811,7 +812,7 @@ wheels = [
 
 [[package]]
 name = "google-cloud-texttospeech"
-version = "2.16.3"
+version = "2.16.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core", extra = ["grpc"] },
@@ -819,9 +820,9 @@ dependencies = [
     { name = "proto-plus" },
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/32/bde140c7cd6e10152ab17ea4022ca2190c4ca09f1b625316bbc59b3927eb/google-cloud-texttospeech-2.16.3.tar.gz", hash = "sha256:fabc315032d137da0710bb4c268734d336212d8fa8316b23b277dd3a84ce721c", size = 143100 }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/33/f3f47e41562ba33873644487f8601cb8270ec1337f9fdb9c1be631aaeb68/google-cloud-texttospeech-2.16.4.tar.gz", hash = "sha256:07b7e2a126e29219d2024dd69e40cb31ff0805bdae4957dcba452c6ad4862405", size = 149195 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ea/fb/9ff82d4f39f580608e73f4530493c8f0b309749f8ad82acbda6a57621124/google_cloud_texttospeech-2.16.3-py2.py3-none-any.whl", hash = "sha256:5d1e23f9270908a5d7ecf2af04105fbd3a7ddde60fe48506e397bd18c1ece499", size = 151969 },
+    { url = "https://files.pythonhosted.org/packages/fe/06/b01f29ab8169b6f98d4016e35b86a53683f03cf40ef1ecdef7ca6af80305/google_cloud_texttospeech-2.16.4-py2.py3-none-any.whl", hash = "sha256:431f3b937f6c6150b6ca559ac906f0a6796ca72fe13f8e460755d8318cc9564a", size = 155098 },
 ]
 
 [[package]]
@@ -2100,13 +2101,13 @@ requires-dist = [
     { name = "flask-session", specifier = ">=0.8.0" },
     { name = "flask-sock", specifier = ">=0.7.0" },
     { name = "flask-sqlalchemy", specifier = "==3.1.1" },
-    { name = "google-api-core", specifier = "==2.17.1" },
+    { name = "google-api-core", specifier = "==2.19.1" },
     { name = "google-api-python-client", specifier = ">=2.175.0" },
-    { name = "google-auth", specifier = ">=2.40.3" },
+    { name = "google-auth", specifier = "==2.31.0" },
     { name = "google-auth-httplib2", specifier = ">=0.2.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.2.2" },
     { name = "google-cloud-core", specifier = "==2.4.1" },
-    { name = "google-cloud-texttospeech", specifier = "==2.16.3" },
+    { name = "google-cloud-texttospeech", specifier = "==2.16.4" },
     { name = "grpcio", specifier = "==1.62.2" },
     { name = "grpcio-status", specifier = "==1.62.2" },
     { name = "gtts", specifier = ">=2.5.4" },

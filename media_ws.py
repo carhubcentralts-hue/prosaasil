@@ -6,16 +6,38 @@ from audio_utils import b64_to_mulaw, mulaw8k_to_pcm16k, pcm16k_float_to_mulaw8k
 
 log = logging.getLogger("media_ws")
 
-# Initialize Google TTS - rely on bootstrap_secrets for credentials
+# Initialize Google TTS - ensure credentials are bootstrapped first
+tts_client = None
+tts_module = None
+
+def init_tts_client():
+    """Initialize TTS client with proper credentials"""
+    global tts_client, tts_module
+    if tts_client is not None:
+        return tts_client
+        
+    try:
+        # Bootstrap credentials first
+        from server.bootstrap_secrets import ensure_google_creds_file
+        creds_result = ensure_google_creds_file()
+        if not creds_result:
+            log.warning("Google credentials not available for TTS")
+            return None
+            
+        from google.cloud import texttospeech as tts_mod
+        tts_module = tts_mod
+        tts_client = tts_mod.TextToSpeechClient()
+        log.info("✅ Google TTS client initialized with credentials")
+        return tts_client
+    except Exception as e:
+        log.error(f"❌ Google TTS failed: {e}")
+        return None
+
+# Try to initialize on import
 try:
-    from google.cloud import texttospeech as tts_module
-    # אל תגדיר כאן GOOGLE_APPLICATION_CREDENTIALS שוב; תן ל-bootstrap לטפל בזה.
-    tts_client = tts_module.TextToSpeechClient()
-    log.info("✅ Google TTS client initialized")
-except Exception as e:
-    log.error(f"❌ Google TTS failed: {e}")
-    tts_client = None
-    tts_module = None
+    init_tts_client()
+except:
+    pass  # Will retry when needed
 
 # Initialize OpenAI
 try:
@@ -35,7 +57,9 @@ def has_voice_energy(pcm16k: np.ndarray, threshold=0.01) -> bool:
 
 def tts_he_wavenet_safe(text: str) -> np.ndarray:
     """Hebrew TTS using Google Cloud with fallback → PCM16@16k float32 [-1,1]"""
-    if not tts_client or not tts_module:
+    # Try to ensure TTS client is available
+    client = init_tts_client()
+    if not client or not tts_module:
         log.error("TTS client not available - returning silence")
         return np.zeros(16000, dtype=np.float32)  # 1 second of silence
         
@@ -49,7 +73,7 @@ def tts_he_wavenet_safe(text: str) -> np.ndarray:
             audio_encoding=tts_module.AudioEncoding.LINEAR16, 
             sample_rate_hertz=16000
         )
-        res = tts_client.synthesize_speech(input=inp, voice=voice, audio_config=cfg)
+        res = client.synthesize_speech(input=inp, voice=voice, audio_config=cfg)
         
         # Write to temp file and read as numpy
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
