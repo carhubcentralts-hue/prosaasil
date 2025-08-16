@@ -45,23 +45,9 @@ def incoming_call():
         from_number = request.form.get('From', '')
         to_number = request.form.get('To', '')
         
-        # Get public host - use dynamic domain detection
-        import os
-        
-        # Try multiple domain sources in order of preference
-        replit_dev_domain = os.getenv("REPLIT_DEV_DOMAIN")
-        public_host = os.getenv("PUBLIC_HOST", "").rstrip("/")
-        
-        if replit_dev_domain:
-            host = f"https://{replit_dev_domain}"
-            log.info("Using REPLIT_DEV_DOMAIN: %s", host)
-        elif "workspace.carhubcentralts.replit.dev" in public_host:
-            host = "https://workspace.carhubcentralts.replit.dev"
-            log.info("Using workspace domain: %s", host)
-        else:
-            # Fallback to the configured PUBLIC_HOST
-            host = public_host if public_host.startswith('http') else f"https://{public_host}"
-            log.info("Using PUBLIC_HOST fallback: %s", host)
+        # Get public host - use correct production domain
+        host = "https://ai-crmd.replit.app"
+        log.info("Using production domain: %s", host)
         
         ws_host = host.replace('https://', '').replace('http://', '')
         
