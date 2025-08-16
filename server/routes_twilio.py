@@ -42,20 +42,32 @@ def incoming_call():
         
         log.info("📞 INCOMING CALL: %s → %s (SID: %s)", from_number, to_number, call_sid)
         
-        # Direct to Media Stream for real-time processing - NO greeting, NO recording
-        host = (os.getenv("PUBLIC_HOST") or "").rstrip("/")
-        assert host, "PUBLIC_HOST must be set"
+        # Get public host - use current domain if PUBLIC_HOST not set
+        host = os.getenv("PUBLIC_HOST", "").rstrip("/")
+        if not host:
+            # Fallback to request host for development/testing
+            host = f"https://{request.headers.get('Host', 'localhost:5000')}"
+            log.warning("PUBLIC_HOST not set, using request host: %s", host)
         
-        # TwiML response with Media Stream + fallback action
+        # TwiML response with greeting + Media Stream + fallback action
         business_id = "1"  # Default business - can be mapped from phone number
+        ws_host = host.replace('https://', '').replace('http://', '')
+        
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Say voice="woman" language="he-IL">שלום, אתם מדברים עם מערכת הAI של שי דירות ומשרדים. אנא המתינו רגע.</Say>
   <Connect action="/webhook/stream_ended">
-    <Stream url="wss://{host.replace('https://','').replace('http://','')}/ws/twilio-media">
+    <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="{business_id}"/>
     </Stream>
   </Connect>
 </Response>"""
+        
+        log.info("TwiML generated", extra={
+            "call_sid": call_sid,
+            "host": host,
+            "ws_url": f"wss://{ws_host}/ws/twilio-media"
+        })
         
         return Response(xml, status=200, mimetype="text/xml")
         
