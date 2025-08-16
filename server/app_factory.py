@@ -3,7 +3,7 @@ Hebrew AI Call Center CRM - App Factory (Production Ready - MINIMAL)
 גרסה מינימלית מוכנה לפרודקשן
 """
 import os
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template_string, send_from_directory
 from flask_cors import CORS
 
 def create_app():
@@ -18,6 +18,98 @@ def create_app():
     
     # CORS
     CORS(app)
+    
+    # Home page route - Basic landing page
+    @app.route('/')
+    def home():
+        """Basic home page for Hebrew AI Call Center CRM"""
+        html = """
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מערכת CRM לקריאות בעברית - שי דירות ומשרדים בע״מ</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+        .container {
+            text-align: center;
+            padding: 3rem;
+            background: rgba(255,255,255,0.1);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            max-width: 600px;
+        }
+        .logo { font-size: 3rem; margin-bottom: 1rem; }
+        .title { font-size: 2.5rem; margin-bottom: 1rem; font-weight: bold; }
+        .subtitle { font-size: 1.2rem; margin-bottom: 2rem; opacity: 0.9; }
+        .status { 
+            display: inline-block;
+            background: #28a745;
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
+            font-weight: bold;
+            margin-bottom: 2rem;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        .feature {
+            background: rgba(255,255,255,0.1);
+            padding: 1rem;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .feature-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+        .footer { margin-top: 2rem; opacity: 0.7; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">📞</div>
+        <h1 class="title">מערכת CRM לקריאות בעברית AI</h1>
+        <p class="subtitle">שי דירות ומשרדים בע״מ</p>
+        <div class="status">✅ מערכת פעילה ומוכנה</div>
+        
+        <div class="features">
+            <div class="feature">
+                <div class="feature-icon">🎙️</div>
+                <div>שיחות בזמן אמת</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">🧠</div>
+                <div>בינה מלאכותית</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">💬</div>
+                <div>תמלול עברית</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">📊</div>
+                <div>ניהול לקוחות</div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>גרסה 1.0.0 | מוכן לפרודקשן | Hebrew AI Call Center CRM</p>
+        </div>
+    </div>
+</body>
+</html>"""
+        return html
     
     # Health endpoints first
     @app.route('/healthz')
