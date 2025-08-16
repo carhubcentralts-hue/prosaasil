@@ -25,7 +25,8 @@ class MediaStreamHandler:
     def handle_connection(self):
         """Main WebSocket connection handler"""
         try:
-            log.info("Media stream connection opened")
+            log.info("🔗 Media stream connection opened")
+            print("🔗 WebSocket connection established!")
             self.is_connected = True
             self._start_heartbeat()
             
@@ -65,11 +66,13 @@ class MediaStreamHandler:
                 # Set logging context
                 set_request_context(self.call_sid, self.business_id)
                 
-                log.info("Media stream started", extra={
+                log.info("🎉 Media stream started for Shai Real Estate", extra={
                     "call_sid": self.call_sid,
                     "business_id": self.business_id,
                     "media_format": data.get('start', {}).get('mediaFormat')
                 })
+                
+                print(f"📡 WebSocket connected: {self.call_sid}")
                 
             elif event == 'media':
                 # Process audio data
@@ -123,16 +126,103 @@ class MediaStreamHandler:
             
     def _process_with_ai(self, audio_bytes):
         """Process audio with Whisper + GPT + TTS pipeline"""
-        # TODO: Implement full AI pipeline
-        # 1. Whisper transcription
-        # 2. Load business prompt from database
-        # 3. GPT-4 response generation
-        # 4. Hebrew TTS
-        log.info("AI processing placeholder", extra={
+        log.info("🎤 Processing audio chunk", extra={
             "call_sid": self.call_sid,
             "business_id": self.business_id,
             "audio_size": len(audio_bytes)
         })
+        
+        # For now, send back a simple Hebrew response to test the pipeline
+        try:
+            # Send a test Hebrew TTS response back to Twilio
+            response_text = "שלום, אני שומע אותך. זה עובד!"
+            
+            # Generate TTS audio
+            tts_audio = self._generate_hebrew_tts(response_text)
+            
+            if tts_audio:
+                # Send audio back through WebSocket 
+                self._send_audio_to_twilio(tts_audio)
+                log.info("🗣️ Sent Hebrew TTS response", extra={
+                    "call_sid": self.call_sid,
+                    "text": response_text,
+                    "audio_size": len(tts_audio)
+                })
+            else:
+                log.warning("TTS generation failed", extra={"call_sid": self.call_sid})
+                
+        except Exception as e:
+            log.error("TTS pipeline failed: %s", e, extra={"call_sid": self.call_sid})
+            
+    def _generate_hebrew_tts(self, text):
+        """Generate Hebrew TTS using Google Cloud"""
+        try:
+            import os
+            import json
+            from google.cloud import texttospeech
+            
+            # Set up Google credentials from environment
+            if os.getenv('GOOGLE_TTS_SA_JSON'):
+                creds_path = '/tmp/google_service_account.json'
+                with open(creds_path, 'w') as f:
+                    f.write(os.getenv('GOOGLE_TTS_SA_JSON'))
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = creds_path
+            
+            # Initialize TTS client
+            client = texttospeech.TextToSpeechClient()
+            
+            # Configure Hebrew voice
+            voice = texttospeech.VoiceSelectionParams(
+                language_code="he-IL",
+                name="he-IL-Wavenet-B"  # Female Hebrew voice
+            )
+            
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MULAW,
+                sample_rate_hertz=8000  # Twilio format
+            )
+            
+            synthesis_input = texttospeech.SynthesisInput(text=text)
+            
+            # Generate speech
+            response = client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice,
+                audio_config=audio_config
+            )
+            
+            return response.audio_content
+            
+        except Exception as e:
+            log.error("Hebrew TTS generation failed: %s", e)
+            return None
+            
+    def _send_audio_to_twilio(self, audio_data):
+        """Send audio back to Twilio via WebSocket"""
+        try:
+            import base64
+            
+            # Encode audio as base64
+            audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+            
+            # Create Twilio media message
+            media_message = {
+                "event": "media",
+                "streamSid": f"MZ{self.call_sid}",
+                "media": {
+                    "payload": audio_b64
+                }
+            }
+            
+            # Send via WebSocket
+            self.websocket.send(json.dumps(media_message))
+            log.info("Audio sent to Twilio", extra={
+                "call_sid": self.call_sid,
+                "payload_size": len(audio_b64)
+            })
+            
+        except Exception as e:
+            log.error("Failed to send audio to Twilio: %s", e, extra={"call_sid": self.call_sid})
         
     def _load_business_prompt(self):
         """Load business system prompt from database"""

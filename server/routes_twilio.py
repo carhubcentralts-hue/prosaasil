@@ -42,9 +42,10 @@ def incoming_call():
         
         log.info("📞 INCOMING CALL: %s → %s (SID: %s)", from_number, to_number, call_sid)
         print(f"📞 WEBHOOK HIT: Call {call_sid} from {from_number}")
+        print(f"🎯 TwiML will connect to: wss://ai-crmd.replit.app/ws/twilio-media")
         
-        # Get public host - force to use correct domain
-        host = os.getenv("PUBLIC_HOST", "https://ai-crmd.replit.app").rstrip("/")
+        # Get public host - force to use correct domain  
+        host = "https://ai-crmd.replit.app"
         log.info("Using host: %s", host)
         
         # Find business by phone number
