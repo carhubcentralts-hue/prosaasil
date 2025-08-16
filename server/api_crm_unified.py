@@ -60,7 +60,12 @@ def create_invoice_simple(amount_agorot: int) -> str:
         
         html_path.write_text(html_content, encoding='utf-8')
 
-        db.session.add(Invoice(invoice_number=inv_no, total=amount_agorot, pdf_path=str(html_path)))
+        db.session.add(Invoice(
+            deal_id=1,  # Default deal for standalone invoices
+            invoice_number=inv_no, 
+            total=amount_agorot, 
+            pdf_path=str(html_path)
+        ))
         db.session.commit()
         return inv_no
     except Exception as e:
