@@ -202,8 +202,14 @@ All components have been implemented and verified according to user requirements
 - ✅ TwiML generates proper Hebrew greeting and WebSocket connection
 - ✅ Debug logging confirms webhook entry points are reached
 
-**Required Action:** Update Twilio Console webhook URL to:
-`https://workspace.carhubcentralts.replit.dev/webhook/incoming_call`
+**CRITICAL ISSUE FOUND:** Domain routing problem - ai-crmd.replit.app does not point to our current server instance.
 
-### PRODUCTION DEPLOYMENT CONFIRMED ✅
-All components are production-ready and verified working. The only remaining step is updating the Twilio webhook URL in the Twilio Console to match the correct Replit domain.
+**Evidence:**
+- Our server runs perfectly with all routes registered ✅
+- Local tests work (localhost:5000) ✅  
+- ai-crmd.replit.app returns TwiML but debug logs show no hits ❌
+- Webhook calls never reach our server code ❌
+
+**Root Cause:** The domain ai-crmd.replit.app points to an old/cached server instance, not our current running server.
+
+**Required Action:** Deploy the application to ensure ai-crmd.replit.app points to our current server with the fixed webhook code.
