@@ -202,6 +202,13 @@ All components have been implemented and verified according to user requirements
 - ✅ TwiML generates proper Hebrew greeting and WebSocket connection
 - ✅ Debug logging confirms webhook entry points are reached
 
+**✅ CRITICAL DOMAIN ISSUE RESOLVED (August 16, 2025):**
+
+**Root Cause Found and Fixed:**
+- **Issue**: Code was hardcoded to use old domain `ai-crmd.replit.app` that returned old TwiML
+- **Solution**: Implemented dynamic domain detection using `REPLIT_DEV_DOMAIN` environment variable
+- **Result**: Now using correct domain `f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev`
+
 **✅ WEBHOOK ISSUES COMPLETELY RESOLVED (August 16, 2025):**
 
 **All 3 Critical Issues Fixed:**
