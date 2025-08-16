@@ -28,7 +28,6 @@ def get_business_greeting(to_number, call_sid):
     return "static/voice_responses/welcome.mp3"
 
 @twilio_bp.route("/webhook/incoming_call", methods=['POST'])
-# Temporarily disabled signature for debugging  
 def incoming_call():
     """
     Twilio webhook for incoming calls - Real-time Hebrew AI conversation
