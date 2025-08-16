@@ -90,6 +90,9 @@ class MediaStreamHandler:
                 
                 print(f"📡 WebSocket connected: {self.call_sid}")
                 
+                # Send automatic Hebrew greeting when stream starts
+                self._send_automatic_greeting()
+                
             elif event == 'media':
                 # Process audio data
                 self._process_audio(data.get('media', {}))
@@ -262,6 +265,43 @@ class MediaStreamHandler:
         except Exception as e:
             log.error("Failed to send audio to Twilio: %s", e, extra={"call_sid": self.call_sid})
             
+    def _send_automatic_greeting(self):
+        """Send automatic Hebrew greeting when stream starts"""
+        try:
+            # Get business-specific greeting
+            greeting_text = self._get_business_greeting()
+            
+            log.info("🎙️ Sending automatic Hebrew greeting", extra={
+                "call_sid": self.call_sid,
+                "business_id": self.business_id,
+                "greeting": greeting_text[:50]
+            })
+            
+            # Generate Hebrew TTS greeting
+            greeting_audio = self._generate_hebrew_tts(greeting_text)
+            
+            if greeting_audio:
+                # Send greeting immediately when stream starts
+                self._send_audio_to_twilio(greeting_audio)
+                log.info("✅ Automatic greeting sent successfully", extra={
+                    "call_sid": self.call_sid,
+                    "audio_size": len(greeting_audio)
+                })
+            else:
+                log.warning("❌ Failed to generate greeting audio", extra={"call_sid": self.call_sid})
+                
+        except Exception as e:
+            log.error("Failed to send automatic greeting: %s", e, extra={"call_sid": self.call_sid})
+            
+    def _get_business_greeting(self):
+        """Get business-specific Hebrew greeting"""
+        if self.business_id == "1":  # Shai Real Estate
+            return """שלום וברוכים הבאים לשי דירות ומשרדים בעמ! 
+אני העוזר הדיגיטלי שלנו ואני כאן לעזור לכם למצוא את הנכס המושלם. 
+איך אוכל לעזור לכם היום?"""
+        else:
+            return "שלום! איך אוכל לעזור לכם היום?"
+            
     def _generate_ai_response(self, transcript):
         """Generate AI response using GPT-4o for Hebrew real estate conversation"""
         try:
@@ -271,19 +311,8 @@ class MediaStreamHandler:
             if os.getenv("NLP_DISABLED", "false").lower() in ("true", "1"):
                 return "המערכת זמנית לא זמינה. אנא נסו שוב מאוחר יותר."
             
-            # Hebrew real estate prompt for Shai Apartments
-            system_prompt = """אתה עוזר AI של "שי דירות ומשרדים בע״מ" - חברת נדל״ן מובילה בישראל.
-אתה מדבר עברית בלבד ומתמחה בנדל״ן מגורים ומשרדים.
-
-התפקיד שלך:
-1. לעזור ללקוחות למצוא דירות ומשרדים
-2. לתת מידע על מחירים ואזורים
-3. לתאם פגישות עם יועצי המכירות
-4. לענות על שאלות כלליות על נדל״ן
-
-תמיד תהיה נעים, מקצועי ועוזר.
-תגיב בצורה קצרה וברורה (עד 2-3 משפטים).
-אם אתה לא יודע משהו - תפנה ללקוח לצרוך קשר עם היועץ שלנו."""
+            # Get business-specific prompt  
+            system_prompt = self._load_business_prompt()
 
             response = openai.chat.completions.create(
                 model="gpt-4o",
