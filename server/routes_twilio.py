@@ -46,16 +46,17 @@ def incoming_call():
         from_number = request.form.get('From', '')
         to_number = request.form.get('To', '')
         
+        # Get public host - use correct Replit domain
+        host = f"https://{os.getenv('REPL_SLUG', 'workspace').lower()}.{os.getenv('REPL_OWNER', 'carhubcentralts').lower()}.replit.dev"
+        ws_host = host.replace('https://', '').replace('http://', '')
+        
         log.info("📞 INCOMING CALL: %s → %s (SID: %s)", from_number, to_number, call_sid)
         print(f"🔥🔥🔥 WEBHOOK HIT: Call {call_sid} from {from_number} to {to_number}")
-        print(f"🎯 TwiML will connect to: wss://ai-crmd.replit.app/ws/twilio-media")
+        print(f"🎯 TwiML will connect to: wss://{ws_host}/ws/twilio-media")
         
         # Force logging to see if we get here at all
         with open('/tmp/webhook_debug.log', 'a') as f:
             f.write(f"WEBHOOK CALLED: {call_sid} from {from_number} to {to_number}\n")
-        
-        # Get public host - force to use correct domain  
-        host = "https://ai-crmd.replit.app"
         log.info("Using host: %s", host)
         
         # Find business by phone number
@@ -65,7 +66,6 @@ def incoming_call():
         if to_number in ["+972337636805", "+972501234567", "+97233763805"]:
             business_id = "1"
             log.info("📞 Identified business: Shai Real Estate for %s", to_number)
-        ws_host = host.replace('https://', '').replace('http://', '')
         
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
