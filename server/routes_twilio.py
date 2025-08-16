@@ -68,7 +68,6 @@ def incoming_call():
         
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="woman" language="en-US">Hello, you have reached Shai Apartments and Offices. Please wait while we connect you to our system.</Say>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="{business_id}"/>
@@ -100,7 +99,7 @@ def stream_ended():
 <Response>
   <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
           action="/webhook/handle_recording" />
-  <Say language="en-US">Thank you. Processing your message and will respond shortly.</Say>
+  <Say language="he-IL">תודה. מעבד את הודעתך וחוזר מיד.</Say>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
         
