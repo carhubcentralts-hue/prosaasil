@@ -46,8 +46,8 @@ def incoming_call():
         from_number = request.form.get('From', '')
         to_number = request.form.get('To', '')
         
-        # Get public host - use correct Replit domain
-        host = f"https://{os.getenv('REPL_SLUG', 'workspace').lower()}.{os.getenv('REPL_OWNER', 'carhubcentralts').lower()}.replit.dev"
+        # Get public host - use correct domain
+        host = "https://ai-crmd.replit.app"
         ws_host = host.replace('https://', '').replace('http://', '')
         
         log.info("📞 INCOMING CALL: %s → %s (SID: %s)", from_number, to_number, call_sid)
