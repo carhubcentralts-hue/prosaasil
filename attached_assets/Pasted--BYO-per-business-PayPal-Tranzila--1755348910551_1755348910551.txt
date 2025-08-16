@@ -1,0 +1,325 @@
+ברור. הנה הנחיה ישירה למפתח – כך בונים סליקה רב-דיירית (BYO per business) עם PayPal + Tranzila, כשכרגע לא נדרשים מפתחות (סימולציה שקטה), וכשמתישהו העסק יכניס מפתחות—זה יעבוד מייד בלי לשנות קוד.
+
+⸻
+
+🎯 היעד
+	•	לכל עסק יש הגדרות סליקה שלו (ספק, מצב Sandbox/Live, מפתחות).
+	•	אם לעסק אין מפתחות או שהמערכת/העסק כבוי → סימולציה (No-Op) בלי 500.
+	•	אותו API עובד גם בסימולציה וגם “על אמת”.
+	•	Webhooks/Returns משחזרים לנו business_id + payment_id.
+
+⸻
+
+0) דגל מערכת (כדי לא לבקש מפתחות עכשיו)
+
+ב־ENV:
+
+PAYMENTS_ENABLED=false        # עכשיו כבוי => סימולציה בלבד
+PAYMENTS_DEFAULT_PROVIDER=paypal
+CURRENCY=ILS
+
+כשתרצה להפעיל “על אמת”: תחליף ל־PAYMENTS_ENABLED=true + תכניס מפתחות אצל העסק.
+
+⸻
+
+1) DB – טבלאות עסק/אישורים/תשלומים
+
+(אם קיימות – רק הוסף שדות חסרים; לא שוברים סכמה)
+
+# server/models_sql.py
+from server.db import db
+from datetime import datetime
+
+class Business(db.Model):
+    __tablename__ = "business"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(160), nullable=False)
+    payments_enabled = db.Column(db.Boolean, default=False)      # ON/OFF פר-עסק
+    default_provider = db.Column(db.String(20), default="paypal")# 'paypal'|'tranzila'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class PaymentGateway(db.Model):
+    __tablename__ = "payment_gateway"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False)
+    provider = db.Column(db.String(20), nullable=False)          # 'paypal'|'tranzila'
+    mode = db.Column(db.String(10), default="sandbox")           # sandbox|live
+    # PayPal
+    paypal_client_id  = db.Column(db.String(200))
+    paypal_secret     = db.Column(db.String(200))
+    paypal_webhook_id = db.Column(db.String(120))
+    # Tranzila
+    tranzila_terminal = db.Column(db.String(120))
+    tranzila_secret   = db.Column(db.String(200))                # אם יש HMAC
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Payment(db.Model):
+    __tablename__ = "payment"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False)
+    provider = db.Column(db.String(20), nullable=False)          # 'paypal'|'tranzila'|'noop'
+    provider_ref = db.Column(db.String(100), index=True)         # orderId / tranId / tempref
+    amount = db.Column(db.Integer, nullable=False)               # אגורות
+    currency = db.Column(db.String(8), default="ils")
+    status = db.Column(db.String(20), default="created")         # created|approved|captured|failed|simulated
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+⸻
+
+2) שכבת ספקים עם סימולציה (לא מבקשת מפתחות)
+
+מעדיף קובץ קטן: server/providers/payments.py. אם אסור קבצים חדשים—הדבק את התוכן ב־api_crm_unified.py.
+
+# server/providers/payments.py
+import os, requests, json
+from urllib.parse import urlencode
+
+class PayResult:
+    def __init__(self, ok, data=None, error=""):
+        self.ok, self.data, self.error = ok, (data or {}), error
+
+def sys_enabled() -> bool:
+    return os.getenv("PAYMENTS_ENABLED","false").lower() in ("1","true","yes","on")
+
+def _is_on(biz) -> bool:
+    return sys_enabled() and bool(biz and biz.payments_enabled)
+
+# -------- NO-OP (סימולציה) --------
+def noop_create(amount_agorot:int, currency:str, payment_id:int) -> PayResult:
+    # עמוד סימולציה פנימי – לא צריך מפתחות ולא יוצאים החוצה
+    return PayResult(True, {
+        "redirect_url": f"/api/crm/__payments/mock?payment_id={payment_id}&amount={amount_agorot}&currency={currency}"
+    }, "payments disabled; noop")
+
+# -------- PayPal --------
+def _pp_base(mode:str):
+    return "https://api-m.sandbox.paypal.com" if mode!="live" else "https://api-m.paypal.com"
+
+def _pp_token(client_id:str, secret:str, mode:str):
+    r = requests.post(_pp_base(mode)+"/v1/oauth2/token", auth=(client_id, secret),
+                      data={"grant_type":"client_credentials"})
+    r.raise_for_status(); return r.json()["access_token"]
+
+def paypal_create_order(biz, gw, amount_agorot:int, currency:str, payment_id:int) -> PayResult:
+    if not _is_on(biz):
+        return noop_create(amount_agorot, currency, payment_id)
+    if not (gw and gw.paypal_client_id and gw.paypal_secret):
+        return PayResult(False, error="paypal keys missing for this business")
+    access = _pp_token(gw.paypal_client_id, gw.paypal_secret, gw.mode or "sandbox")
+    value = f"{amount_agorot/100:.2f}"
+    j = {
+      "intent":"CAPTURE",
+      "purchase_units":[{
+         "amount":{"currency_code":currency.upper(),"value":value},
+         "custom_id": f"{biz.id}:{payment_id}"   # נשתמש ב-webhook לשחזור
+      }],
+      "application_context":{"shipping_preference":"NO_SHIPPING"}
+    }
+    r = requests.post(_pp_base(gw.mode)+"/v2/checkout/orders",
+                      headers={"Authorization":f"Bearer {access}","Content-Type":"application/json"},
+                      json=j)
+    r.raise_for_status()
+    data = r.json()
+    approve = next((l["href"] for l in data.get("links",[]) if l.get("rel")=="approve"), None)
+    return PayResult(True, {"order_id": data["id"], "approve_url": approve})
+
+# -------- Tranzila (Redirect/iFrame) --------
+def tranzila_create_link(biz, gw, amount_agorot:int, currency:str, payment_id:int) -> PayResult:
+    if not _is_on(biz):
+        return noop_create(amount_agorot, currency, payment_id)
+    if not (gw and gw.tranzila_terminal):
+        return PayResult(False, error="tranzila terminal missing for this business")
+    base = f"https://direct.tranzila.com/{gw.tranzila_terminal}/iframenew.php"
+    params = {
+        "sum": f"{amount_agorot/100:.2f}",
+        "currency": currency,                              # עדכן לפי המסמך שלך אם נדרש קוד מספרי
+        "success_url": os.getenv("TRANZILA_RETURN_SUCCESS"),
+        "fail_url":    os.getenv("TRANZILA_RETURN_FAIL"),
+        "notify_url":  os.getenv("TRANZILA_NOTIFY_URL"),
+        "lang": "he",
+        "ordernum": str(payment_id),                      # מזהה פנימי שלנו
+        "udf": str(biz.id)                                # מזהה עסק (חופשי)
+    }
+    return PayResult(True, {"redirect_url": base + "?" + urlencode(params)})
+
+# -------- Router כללי --------
+def create_payment_link(biz, gw, provider:str, amount_agorot:int, currency:str, payment_id:int) -> PayResult:
+    p = (provider or (biz.default_provider if biz else "paypal")).lower()
+    if p == "paypal":
+        return paypal_create_order(biz, gw, amount_agorot, currency, payment_id)
+    if p == "tranzila":
+        return tranzila_create_link(biz, gw, amount_agorot, currency, payment_id)
+    return noop_create(amount_agorot, currency, payment_id)
+
+
+⸻
+
+3) API – יצירת תשלום, סימולציה, Webhooks
+
+ב־server/api_crm_unified.py (אותו BP):
+
+from flask import Blueprint, request, jsonify, Response
+from server.db import db
+from server.models_sql import Business, Payment, PaymentGateway
+from server.providers.payments import create_payment_link, sys_enabled
+from io import BytesIO
+
+crm_unified_bp = Blueprint("crm_unified_bp", __name__, url_prefix="/api/crm")
+
+@crm_unified_bp.post("/payments/create")
+def payments_create():
+    data = request.get_json() or {}
+    business_id = int(data["business_id"])       # חובה לדעת של מי התשלום
+    amount = int(data["amount"])                 # אגורות
+    currency = (data.get("currency") or "ILS").upper()
+    provider = (data.get("provider") or "").lower()
+
+    biz = Business.query.get_or_404(business_id)
+    gw  = PaymentGateway.query.filter_by(business_id=biz.id, provider=(provider or biz.default_provider)).first()
+
+    # רושמים רשומה גם אם בסימולציה
+    pay = Payment(business_id=biz.id, provider=(provider or biz.default_provider or "paypal"),
+                  amount=amount, currency=currency.lower(),
+                  status=("created" if sys_enabled() and biz.payments_enabled else "simulated"))
+    db.session.add(pay); db.session.commit()
+
+    res = create_payment_link(biz, gw, provider, amount, currency, pay.id)
+    # נשמור provider_ref אם התקבל (PayPal order_id / Tranzila tranid יגיעו אח"כ)
+    if res.data.get("order_id"): 
+        pay.provider_ref = res.data["order_id"]; db.session.commit()
+
+    return jsonify({"ok": res.ok, "payment_id": pay.id, **res.data, "note": res.error}), (200 if res.ok else 202)
+
+# ---- מסך סימולציה (כשכבוי) ----
+@crm_unified_bp.get("/__payments/mock")
+def payments_mock():
+    pid = request.args.get("payment_id")
+    return Response(f"""<html dir="rtl"><body>
+    <h3>סימולציית תשלום</h3>
+    <form method="post" action="/api/crm/payments/simulate-capture">
+      <input name="payment_id" value="{pid or ''}" />
+      <button>סמן כהושלם (captured)</button>
+    </form>
+    </body></html>""", mimetype="text/html")
+
+@crm_unified_bp.post("/payments/simulate-capture")
+def payments_simulate_capture():
+    pid = request.form.get("payment_id") or (request.get_json() or {}).get("payment_id")
+    pay = Payment.query.get_or_404(int(pid))
+    pay.status = "captured"; db.session.commit()
+    return jsonify({"ok": True, "payment_id": pay.id, "status": pay.status})
+
+Webhooks (ידידותי: כשכבוי – 204)
+
+PayPal – מאחזר business_id:payment_id מ־custom_id:
+
+@crm_unified_bp.post("/webhook/paypal")
+def paypal_webhook():
+    if not sys_enabled(): 
+        return ("", 204)
+    evt = request.get_json() or {}
+    et = evt.get("event_type","")
+    res = evt.get("resource",{}) or {}
+    # custom_id מגיע בפרטי ה-purchase unit
+    custom_id = ""
+    if "purchase_units" in res and res["purchase_units"]:
+        custom_id = (res["purchase_units"][0].get("custom_id") or "")
+    # פיענוח "biz:pay"
+    try:
+        biz_id, pid = [int(x) for x in (custom_id.split(":") if custom_id else [])]
+    except Exception:
+        return ("", 204)
+    pay = Payment.query.get(pid)
+    if not pay or pay.business_id != biz_id: 
+        return ("", 204)
+    if et in ("CHECKOUT.ORDER.APPROVED", "PAYMENT.CAPTURE.COMPLETED"):
+        pay.status = "captured" if et=="PAYMENT.CAPTURE.COMPLETED" else "approved"
+        if not pay.provider_ref: pay.provider_ref = res.get("id")
+        db.session.commit()
+    return ("", 204)
+
+Tranzila – מאחזר payment_id מ־ordernum ו־business_id מ־udf:
+
+@crm_unified_bp.get("/payments/tranzila/return/success")
+def tranzila_return_success():
+    if not sys_enabled(): 
+        return ("", 204)
+    pid = request.args.get("ordernum")
+    biz_id = request.args.get("udf")
+    resp = request.args.get("Response") or request.args.get("result")
+    tranid = request.args.get("tranid") or request.args.get("tempref")
+    if not (pid and pid.isdigit() and biz_id and biz_id.isdigit()):
+        return ("", 204)
+    pay = Payment.query.get(int(pid))
+    if not pay or pay.business_id != int(biz_id): 
+        return ("", 204)
+    if resp in ("000","0","approved","success"):
+        pay.status="captured"; pay.provider_ref = tranid or pay.provider_ref
+        db.session.commit()
+        return "OK", 200
+    pay.status="failed"; db.session.commit()
+    return "FAILED", 400
+
+@crm_unified_bp.get("/payments/tranzila/return/fail")
+def tranzila_return_fail():
+    pid = request.args.get("ordernum")
+    if pid and pid.isdigit():
+        pay = Payment.query.get(int(pid))
+        if pay: pay.status="failed"; db.session.commit()
+    return "FAILED", 400
+
+אימות חתימה (PayPal Verify / Tranzila HMAC) — אפשר להוסיף כשמדליקים LIVE; כרגע אין מפתחות, אז לא “חוסם”.
+
+⸻
+
+4) לוגיקת UI (ויזואלי) – מה רואים עכשיו
+	•	מסך הגדרות עסק:
+	•	תיבת סימון “הפעל סליקה לעסק” → כותבת Business.payments_enabled.
+	•	בחירת ספק ברירת מחדל.
+	•	שדות PayPal/Tranzila (ריקים כרגע), עם Badge “לא הוגדר”.
+	•	מסך תשלום:
+	•	כפתור “קבל תשלום” → POST /api/crm/payments/create עם {business_id, amount, provider?}.
+	•	אם כבוי/ללא מפתחות → יגיע redirect_url ל־/__payments/mock (סימולציה).
+	•	כשיוגדרו מפתחות ותדליקו – יגיע URL אמיתי (PayPal approve / Tranzila redirect), בלי לשנות UI.
+
+⸻
+
+5) הסרת Stripe בבטחה (לא שוברים)
+	•	השבת ראוטים ישנים להודעת 410:
+
+@crm_unified_bp.post("/payments/create-intent")
+def deprecated_stripe():
+    return jsonify({"ok":False,"error":"Stripe deprecated; use /api/crm/payments/create"}), 410
+
+	•	הסר חבילת stripe מהתלויות.
+	•	אל תמחק היסטוריה ב־DB (רק אל תשתמש בשדות).
+
+⸻
+
+6) בדיקות מהירות (עכשיו, בלי מפתחות)
+
+# יצירת "תשלום" בסימולציה
+curl -s -X POST https://<HOST>/api/crm/payments/create \
+  -H "Content-Type: application/json" \
+  -d '{"business_id":1,"amount":9900,"currency":"ILS","provider":"tranzila"}'
+# ← redirect_url ל/__payments/mock ... payment_id=...
+
+# סימון ידני כ-captured (סימולציה)
+curl -s -X POST https://<HOST>/api/crm/payments/simulate-capture \
+  -H "Content-Type: application/json" -d '{"payment_id":1}'
+
+כשתרצה להפעיל “על אמת”:
+	1.	קבע PAYMENTS_ENABLED=true.
+	2.	פתח במסך העסק את PayPal/Tranzila, הזן מפתחות/טרמינל.
+	3.	לחץ “שמור” → יבואו לינקים אמיתיים, וה־webhooks יעדכנו סטטוס.
+
+⸻
+
+זהו בדיוק מה שהוא צריך לעשות
+	•	להוסיף את מודלי ה-DB למעלה.
+	•	להדביק את שכבת ה-providers (עם ה-No-Op).
+	•	להוסיף את הראוטים ב-API (create + mock + webhooks).
+	•	להציג ב-UI כפתור תשלום + מסך הגדרות.
+	•	להשאיר PAYMENTS_ENABLED=false כרגע — ולכן לא יידרשו מפתחות, ולא יישבר כלום.
+	•	בעתיד: מדליקים פר-עסק, מזינים מפתחות, וזה מתחיל לעבוד בלי שינוי קוד.

@@ -9,9 +9,22 @@ class Business(db.Model):
     __tablename__ = "business"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
-    domain = db.Column(db.String(255))
-    active = db.Column(db.Boolean, default=True)
+    business_type = db.Column(db.String(255), nullable=False, default="real_estate")
+    phone_number = db.Column(db.String(255))
+    whatsapp_number = db.Column(db.String(255))
+    greeting_message = db.Column(db.Text)
+    whatsapp_greeting = db.Column(db.Text)
+    system_prompt = db.Column(db.Text)
+    whatsapp_enabled = db.Column(db.Boolean, default=False)
+    phone_permissions = db.Column(db.Boolean, default=True)
+    whatsapp_permissions = db.Column(db.Boolean, default=True)
+    is_active = db.Column(db.Boolean, default=True)
+    calls_enabled = db.Column(db.Boolean, default=True)
+    crm_enabled = db.Column(db.Boolean, default=True)
+    payments_enabled = db.Column(db.Boolean, default=False)      # Payment enablement per business
+    default_provider = db.Column(db.String(20), default="paypal")  # 'paypal'|'tranzila'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class Customer(db.Model):
     __tablename__ = "customer"
@@ -65,16 +78,32 @@ class Deal(db.Model):
 class Payment(db.Model):
     __tablename__ = "payment"
     id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)  # Business reference
     deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=True, index=True)  # Made nullable for standalone payments
-    provider = db.Column(db.String(20), nullable=False)      # 'paypal' | 'tranzila'
+    provider = db.Column(db.String(20), nullable=False)      # 'paypal' | 'tranzila' | 'noop'
     provider_ref = db.Column(db.String(100), index=True)     # orderID (PayPal), transaction id (Tranzila)
     amount = db.Column(db.Integer, nullable=False)           # באגורות
     currency = db.Column(db.String(8), default='ils')
-    status = db.Column(db.String(20), default='created')     # created|approved|captured|failed
+    status = db.Column(db.String(20), default='created')     # created|approved|captured|failed|simulated
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Legacy Stripe fields (keep for compatibility, not used)
     stripe_payment_intent = db.Column(db.String(80), unique=True, nullable=True)
+
+class PaymentGateway(db.Model):
+    __tablename__ = "payment_gateway"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False)
+    provider = db.Column(db.String(20), nullable=False)          # 'paypal'|'tranzila'
+    mode = db.Column(db.String(10), default="sandbox")           # sandbox|live
+    # PayPal
+    paypal_client_id = db.Column(db.String(200))
+    paypal_secret = db.Column(db.String(200))
+    paypal_webhook_id = db.Column(db.String(120))
+    # Tranzila
+    tranzila_terminal = db.Column(db.String(120))
+    tranzila_secret = db.Column(db.String(200))                  # For HMAC if needed
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class Invoice(db.Model):
     __tablename__ = "invoice"

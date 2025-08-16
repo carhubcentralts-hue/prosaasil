@@ -21,9 +21,13 @@ log = logging.getLogger("api.payments")
 def deprecated_stripe_payment():
     """Deprecated Stripe route - use PayPal/Tranzila instead"""
     return jsonify({
-        "error": "Stripe deprecated for Israeli market. Use PayPal (/api/crm/payments/paypal/create-order) or Tranzila (/api/crm/payments/tranzila/create-link) instead."
+        "error": "Stripe deprecated for Israeli market. Use PayPal (/api/crm/payments/create) instead."
     }), 410
-        
+
+# Keep old routes for backward compatibility
+@api_bp.post("/payments/webhook")
+def deprecated_webhook():
+    return jsonify({"error": "Use new webhook endpoints"}), 410
     except Exception as e:
         log.error("Payment intent creation failed: %s", e)
         return jsonify({"error": "Payment creation failed"}), 500

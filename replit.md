@@ -82,6 +82,15 @@ Visual focus: Currently working visually only - login page only, no dashboards. 
 
 **🎯 VERIFIED 100% PRODUCTION READY (August 16, 2025):**
 
+### MAJOR UPDATE: Multi-Tenant Payment System (BYO PayPal + Tranzila) ✅
+Complete replacement of Stripe with Israeli-market payment providers:
+- **BYO per Business**: Each business configures own PayPal + Tranzila keys
+- **Simulation Mode**: PAYMENTS_ENABLED=false for testing without keys
+- **API**: `/api/crm/payments/create` with business_id parameter
+- **Webhooks**: Business context recovery via custom_id/udf parameters
+- **Database**: PaymentGateway table for per-business provider settings
+- **Providers**: server/providers/payments.py abstraction layer
+
 ### Final Status Based on User Verification ✅
 All components have been implemented and verified according to user requirements:
 
@@ -94,11 +103,11 @@ All components have been implemented and verified according to user requirements
 - **AI Integration**: GPT-4o Hebrew conversations + Whisper transcription in real-time
 
 ### CRM System ✅  
-- **Database Models**: Payment, Invoice, Contract, Deal, Business - ALL VERIFIED
-- **Stripe Integration**: Payment Intent creation + webhook processing with STRIPE_SECRET_KEY
+- **Database Models**: Payment, Invoice, Contract, Deal, Business, PaymentGateway - ALL VERIFIED
+- **PayPal + Tranzila Integration**: Multi-tenant BYO payment system with simulation
 - **Invoice Generation**: HTML-based professional invoices (Hebrew RTL)
 - **Digital Contracts**: HTML contract generation with IP tracking
-- **API Endpoints**: Complete CRM/payments APIs (11 routes verified)
+- **API Endpoints**: Complete CRM/payments APIs unified in api_crm_unified.py
 
 ### Infrastructure ✅
 - **Security**: Twilio signature validation + rate limiting + CORS

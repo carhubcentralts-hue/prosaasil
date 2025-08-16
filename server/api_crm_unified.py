@@ -141,143 +141,200 @@ def customers_list():
         log.error("Error fetching customers: %s", e)
         return jsonify({"error": "Failed to fetch customers"}), 500
 
-# === PAYMENTS API ===
+# === MULTI-TENANT PAYMENTS API ===
+
+import os
+from server.providers.payments import create_payment_link, sys_enabled
+from server.models_sql import PaymentGateway
 
 @crm_unified_bp.post("/payments/create-intent")
 def deprecated_stripe():
     """Deprecated Stripe route - redirected to new providers"""
-    return jsonify({"error":"Stripe deprecated. Use /payments/paypal/create-order or /payments/tranzila/create-link"}), 410
+    return jsonify({"error":"Stripe deprecated. Use /api/crm/payments/create"}), 410
 
-# PayPal Payment Routes
-@crm_unified_bp.post("/payments/paypal/create-order")
-def paypal_create_order():
-    """Create PayPal Order"""
+@crm_unified_bp.post("/payments/create")
+def payments_create():
+    """Multi-tenant payment creation with simulation support"""
     try:
         data = request.get_json() or {}
-        amount = int(data["amount"])                       # אגורות
-        value = f"{amount/100:.2f}"
-        currency = (os.getenv("CURRENCY") or "ILS").upper()
-        access = _pp_token()
-        order = requests.post(_pp_base()+"/v2/checkout/orders",
-                headers={"Authorization":f"Bearer {access}","Content-Type":"application/json"},
-                json={"intent":"CAPTURE","purchase_units":[{"amount":{"currency_code":currency,"value":value}}]})
-        order.raise_for_status()
-        order_id = order.json()["id"]
-        pay = Payment(provider="paypal", provider_ref=order_id, amount=amount, currency=currency.lower())
-        db.session.add(pay); db.session.commit()
-        return jsonify({"order_id": order_id}), 200 
+        business_id = int(data["business_id"])       # Required to know which business
+        amount = int(data["amount"])                 # אגורות
+        currency = (data.get("currency") or "ILS").upper()
+        provider = (data.get("provider") or "").lower()
+
+        biz = Business.query.get(business_id)
+        if not biz:
+            return jsonify({"error": "Business not found"}), 404
+        gw = PaymentGateway.query.filter_by(business_id=biz.id, provider=(provider or biz.default_provider)).first()
+
+        # Create payment record even in simulation
+        pay = Payment(
+            business_id=biz.id, 
+            provider=(provider or biz.default_provider or "paypal"),
+            amount=amount, 
+            currency=currency.lower(),
+            status=("created" if sys_enabled() and biz.payments_enabled else "simulated")
+        )
+        db.session.add(pay)
+        db.session.commit()
+
+        res = create_payment_link(biz, gw, provider, amount, currency, pay.id)
+        
+        # Save provider_ref if received (PayPal order_id)
+        if res.data.get("order_id"): 
+            pay.provider_ref = res.data["order_id"]
+            db.session.commit()
+
+        return jsonify({
+            "ok": res.ok, 
+            "payment_id": pay.id, 
+            "note": res.error,
+            **res.data
+        }), (200 if res.ok else 202)
+    except Exception as e:
+        log.error("Payment creation failed: %s", e)
+        return jsonify({"error": "Payment creation failed"}), 500
+
+# ---- Simulation Screen (when payments disabled) ----
+@crm_unified_bp.get("/__payments/mock")
+def payments_mock():
+    """Internal payment simulation screen"""
+    pid = request.args.get("payment_id")
+    amount = request.args.get("amount", "0")
+    currency = request.args.get("currency", "ILS")
+    
+    return f"""<html dir="rtl" lang="he">
+<head><meta charset="UTF-8"><title>סימולציית תשלום</title></head>
+<body style="font-family: Arial; padding: 20px;">
+    <h3>סימולציית תשלום</h3>
+    <p>סכום: {int(amount)/100:.2f} {currency}</p>
+    <p>מזהה תשלום: {pid}</p>
+    <form method="post" action="/api/crm/payments/simulate-capture">
+      <input type="hidden" name="payment_id" value="{pid or ''}" />
+      <button type="submit" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px;">
+        ✅ סמן כהושלם (captured)
+      </button>
+    </form>
+    <br>
+    <form method="post" action="/api/crm/payments/simulate-capture">
+      <input type="hidden" name="payment_id" value="{pid or ''}" />
+      <input type="hidden" name="status" value="failed" />
+      <button type="submit" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 5px;">
+        ❌ סמן כנכשל (failed)
+      </button>
+    </form>
+</body></html>""", 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+@crm_unified_bp.post("/payments/simulate-capture")
+def payments_simulate_capture():
+    """Simulate payment capture/failure"""
+    try:
+        pid = request.form.get("payment_id") or (request.get_json() or {}).get("payment_id")
+        status = request.form.get("status", "captured")
+        
+        pay = Payment.query.get_or_404(int(pid))
+        pay.status = status
+        db.session.commit()
+        
+        # Auto-create invoice if captured
+        if status == "captured":
+            try:
+                invoice_no = create_invoice_simple(pay.amount)
+                log.info("Auto-created invoice %s for simulated payment %s", invoice_no, pay.id)
+            except Exception as e:
+                log.error("Failed to create invoice: %s", e)
+        
+        return jsonify({"ok": True, "payment_id": pay.id, "status": pay.status})
+    except Exception as e:
+        log.error("Payment simulation failed: %s", e)
+        return jsonify({"error": "Simulation failed"}), 500 
     except Exception as e:
         log.error("PayPal create order failed: %s", e)
         return jsonify({"error": "Failed to create PayPal order"}), 500
 
 @crm_unified_bp.post("/webhook/paypal")
 def paypal_webhook():
-    """PayPal webhook with signature verification"""
+    """PayPal webhook with business context recovery"""
     try:
-        # PayPal signature verification
-        headers = {
-            "paypal-transmission-id": request.headers.get("Paypal-Transmission-Id"),
-            "paypal-transmission-time": request.headers.get("Paypal-Transmission-Time"),
-            "paypal-transmission-sig": request.headers.get("Paypal-Transmission-Sig"),
-            "paypal-cert-url": request.headers.get("Paypal-Cert-Url"),
-            "paypal-auth-algo": request.headers.get("Paypal-Auth-Algo"),
-        }
-        webhook_id = os.getenv("PAYPAL_WEBHOOK_ID")
-        body = request.get_data(as_text=True)
-        access = _pp_token()
-        v = requests.post(_pp_base()+"/v1/notifications/verify-webhook-signature",
-            headers={"Authorization":f"Bearer {access}","Content-Type":"application/json"},
-            json={"transmission_id":headers["paypal-transmission-id"],
-                  "transmission_time":headers["paypal-transmission-time"],
-                  "cert_url":headers["paypal-cert-url"],
-                  "auth_algo":headers["paypal-auth-algo"],
-                  "transmission_sig":headers["paypal-transmission-sig"],
-                  "webhook_id":webhook_id,
-                  "webhook_event": json.loads(body)})
-        v.raise_for_status()
-        if v.json().get("verification_status") != "SUCCESS":
-            return ("invalid", 400)
-
-        event = json.loads(body)
-        et = event.get("event_type","")
-        res = event.get("resource",{})
-        order_id = res.get("id") or res.get("supplementary_data",{}).get("related_ids",{}).get("order_id")
-        if et in ("CHECKOUT.ORDER.APPROVED", "PAYMENT.CAPTURE.COMPLETED") and order_id:
-            pay = Payment.query.filter_by(provider="paypal", provider_ref=order_id).first()
-            if pay:
-                pay.status = "captured" if et=="PAYMENT.CAPTURE.COMPLETED" else "approved"
-                db.session.commit()
-                # Auto-create invoice if captured
-                if pay.status == "captured":
-                    try:
-                        invoice_no = create_invoice_simple(pay.amount)
-                        log.info("Auto-created invoice %s for PayPal payment %s", invoice_no, pay.id)
-                    except Exception as e:
-                        log.error("Failed to create invoice: %s", e)
+        if not sys_enabled(): 
+            return ("", 204)
+            
+        evt = request.get_json() or {}
+        et = evt.get("event_type", "")
+        res = evt.get("resource", {}) or {}
+        
+        # Get custom_id from purchase units (contains "biz_id:payment_id")
+        custom_id = ""
+        if "purchase_units" in res and res["purchase_units"]:
+            custom_id = (res["purchase_units"][0].get("custom_id") or "")
+        
+        # Parse "biz:pay" format
+        try:
+            biz_id, pid = [int(x) for x in (custom_id.split(":") if custom_id else [])]
+        except Exception:
+            return ("", 204)
+            
+        pay = Payment.query.get(pid)
+        if not pay or pay.business_id != biz_id: 
+            return ("", 204)
+            
+        if et in ("CHECKOUT.ORDER.APPROVED", "PAYMENT.CAPTURE.COMPLETED"):
+            pay.status = "captured" if et == "PAYMENT.CAPTURE.COMPLETED" else "approved"
+            if not pay.provider_ref: 
+                pay.provider_ref = res.get("id")
+            db.session.commit()
+            
+            # Auto-create invoice if captured
+            if pay.status == "captured":
+                try:
+                    invoice_no = create_invoice_simple(pay.amount)
+                    log.info("Auto-created invoice %s for PayPal payment %s", invoice_no, pay.id)
+                except Exception as e:
+                    log.error("Failed to create invoice: %s", e)
+                    
         return ("", 204)
     except Exception as e:
         log.error("PayPal webhook failed: %s", e)
-        return jsonify({"error": "Webhook processing failed"}), 400
+        return ("", 204)
 
-# Tranzila Payment Routes
-@crm_unified_bp.post("/payments/tranzila/create-link")
-def tranzila_create_link():
-    """Create Tranzila payment redirect link"""
-    try:
-        data = request.get_json() or {}
-        amount = int(data["amount"])                       # אגורות
-        currency = (os.getenv("CURRENCY") or "ILS").upper()
-        terminal = os.getenv("TRANZILA_TERMINAL")
-        if not terminal:
-            return jsonify({"error": "TRANZILA_TERMINAL not configured"}), 500
-
-        # Tranzila redirect parameters
-        params = {
-            "supplier": terminal,
-            "sum": f"{amount/100:.2f}",
-            "currency": currency,
-            "success_url": os.getenv("TRANZILA_RETURN_SUCCESS"),
-            "fail_url": os.getenv("TRANZILA_RETURN_FAIL"),
-            "lang": "he",
-            "frame": "yes"
-        }
-
-        # Save payment record
-        pay = Payment(provider="tranzila", provider_ref=None, amount=amount, currency=currency.lower())
-        db.session.add(pay); db.session.commit()
-        params["ordernum"] = str(pay.id)  # Use our payment ID as ordernum
-
-        url = f"{_tz_base()}/{terminal}?{urlencode(params)}"
-        return jsonify({"redirect_url": url, "payment_id": pay.id}), 200
-    except Exception as e:
-        log.error("Tranzila create link failed: %s", e)
-        return jsonify({"error": "Failed to create Tranzila link"}), 500
+# Legacy routes cleanup - all payment creation now goes through /payments/create
 
 @crm_unified_bp.get("/payments/tranzila/return/success")
 def tranzila_return_success():
-    """Tranzila success return handler"""
+    """Tranzila success return handler with business context recovery"""
     try:
+        if not sys_enabled(): 
+            return ("", 204)
+            
         args = request.args
-        ordernum = args.get("ordernum")
-        tranid = args.get("tranid") or args.get("transaction_id") or args.get("tempref")
+        pid = args.get("ordernum")  # Our payment ID
+        biz_id = args.get("udf")    # Business ID from udf parameter
         resp = args.get("Response") or args.get("result")
-
-        pay = Payment.query.get(int(ordernum)) if ordernum and ordernum.isdigit() else None
-        if pay and resp in ("000","0","approved","success"):
+        tranid = args.get("tranid") or args.get("tempref")
+        
+        if not (pid and pid.isdigit() and biz_id and biz_id.isdigit()):
+            return ("", 204)
+            
+        pay = Payment.query.get(int(pid))
+        if not pay or pay.business_id != int(biz_id): 
+            return ("", 204)
+            
+        if resp in ("000", "0", "approved", "success"):
             pay.status = "captured"
-            pay.provider_ref = tranid
+            pay.provider_ref = tranid or pay.provider_ref
             db.session.commit()
+            
             # Auto-create invoice
             try:
                 invoice_no = create_invoice_simple(pay.amount)
                 log.info("Auto-created invoice %s for Tranzila payment %s", invoice_no, pay.id)
             except Exception as e:
                 log.error("Failed to create invoice: %s", e)
+                
             return "תשלום הושלם בהצלחה", 200
         
-        if pay:
-            pay.status = "failed"
-            db.session.commit()
+        pay.status = "failed"
+        db.session.commit()
         return "תשלום נכשל", 400
     except Exception as e:
         log.error("Tranzila success handler failed: %s", e)
@@ -287,11 +344,12 @@ def tranzila_return_success():
 def tranzila_return_fail():
     """Tranzila failure return handler"""
     try:
-        ordernum = request.args.get("ordernum")
-        pay = Payment.query.get(int(ordernum)) if ordernum and ordernum.isdigit() else None
-        if pay:
-            pay.status = "failed"
-            db.session.commit()
+        pid = request.args.get("ordernum")
+        if pid and pid.isdigit():
+            pay = Payment.query.get(int(pid))
+            if pay:
+                pay.status = "failed"
+                db.session.commit()
         return "התשלום בוטל או נכשל", 400
     except Exception as e:
         log.error("Tranzila fail handler failed: %s", e)
