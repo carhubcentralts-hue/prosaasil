@@ -79,10 +79,10 @@ def incoming_call():
         # Create WebSocket URL
         ws_host = "ai-crmd.replit.app"
         business_id = "1"  # Default to Shai Real Estate
-        # Generate TwiML with greeting + WebSocket connection
+        # Generate TwiML with Hebrew greeting + WebSocket connection
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="en">Welcome to Shai Real Estate. Starting Hebrew conversation.</Say>
+  <Say voice="alice" language="en">שלום, ברוכים הבאים לשי דירות ומשרדים. מתחיל שיחה בעברית.</Say>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="{business_id}"/>
@@ -104,10 +104,10 @@ def incoming_call():
         
     except Exception as e:
         print(f"❌ WEBHOOK ERROR: {e}")
-        # Always return 200 to Twilio with basic TwiML + greeting
+        # Always return 200 to Twilio with basic TwiML + Hebrew greeting
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="en">Welcome to Shai Real Estate. Technical issue, connecting now.</Say>
+  <Say voice="alice" language="en">שלום, שי דירות ומשרדים. מתחבר כעת.</Say>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://ai-crmd.replit.app/ws/twilio-media">
       <Parameter name="business_id" value="1"/>
@@ -128,16 +128,16 @@ def stream_ended():
 <Response>
   <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
           action="/webhook/handle_recording" />
-  <Say>Thank you. Processing your message.</Say>
+  <Say voice="alice" language="en">תודה. מעבד את ההודעה שלך.</Say>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
         
     except Exception as e:
         log.error("Stream ended webhook failed: %s", e)
-        # Fallback TwiML
+        # Fallback TwiML - Hebrew
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say voice="woman">Technical difficulties. Please try again later.</Say>
+    <Say voice="alice" language="en">קיימת בעיה טכנית. אנא נסה שוב מאוחר יותר.</Say>
     <Hangup/>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
