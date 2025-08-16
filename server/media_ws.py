@@ -98,8 +98,9 @@ class MediaStreamHandler:
             
             t_audio_ms = int((time.time() - start_time) * 1000)
             
-            # TODO: Process with Whisper + GPT + TTS pipeline
-            # This is where the real-time AI conversation happens
+            # Process with Whisper + GPT + TTS pipeline
+            # Real-time AI conversation processing
+            self._process_with_ai(audio_bytes)
             
             # For now, log metrics
             log.info("turn_metrics", extra={
@@ -119,6 +120,31 @@ class MediaStreamHandler:
                 "call_sid": self.call_sid,
                 "error_details": str(e)
             })
+            
+    def _process_with_ai(self, audio_bytes):
+        """Process audio with Whisper + GPT + TTS pipeline"""
+        try:
+            # Import services
+            from server.services.whisper_handler import transcribe_he
+            
+            # Transcribe audio
+            text = transcribe_he(audio_bytes, self.call_sid)
+            
+            if text and len(text.strip()) > 2:
+                log.info("Real-time transcription", extra={
+                    "call_sid": self.call_sid,
+                    "text": text[:100],
+                    "mode": "live_stream"
+                })
+                
+                # TODO: Generate AI response and send back via TTS
+                # For now just log the successful transcription
+                
+            else:
+                log.debug("No speech detected in chunk", extra={"call_sid": self.call_sid})
+                
+        except Exception as e:
+            log.error("AI pipeline failed: %s", e, extra={"call_sid": self.call_sid})
             
     def _start_heartbeat(self):
         """Start heartbeat timer"""

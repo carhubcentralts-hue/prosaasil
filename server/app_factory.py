@@ -28,6 +28,28 @@ def create_app():
     # CORS
     CORS(app)
     
+    # WebSocket support for Twilio Media Streams
+    try:
+        from flask_sock import Sock
+        from server.media_ws import handle_media_stream
+        
+        sock = Sock(app)
+        
+        @sock.route('/ws/twilio-media')
+        def twilio_media_handler(ws):
+            """WebSocket endpoint for Twilio Media Streams"""
+            handle_media_stream(ws)
+            
+        print("✅ WebSocket /ws/twilio-media registered")
+        
+    except ImportError:
+        print("⚠️ flask_sock not available - WebSocket disabled")
+        
+        # Create fallback endpoint
+        @app.route('/ws/twilio-media')
+        def ws_fallback():
+            return "WebSocket not available", 501
+    
     # Register auth routes if available
     if AUTH_AVAILABLE:
         app.register_blueprint(auth_bp, url_prefix='/api/auth')
