@@ -123,6 +123,31 @@ class MediaStreamHandler:
             
     def _process_with_ai(self, audio_bytes):
         """Process audio with Whisper + GPT + TTS pipeline"""
+        # TODO: Implement full AI pipeline
+        # 1. Whisper transcription
+        # 2. Load business prompt from database
+        # 3. GPT-4 response generation
+        # 4. Hebrew TTS
+        log.info("AI processing placeholder", extra={
+            "call_sid": self.call_sid,
+            "business_id": self.business_id,
+            "audio_size": len(audio_bytes)
+        })
+        
+    def _load_business_prompt(self):
+        """Load business system prompt from database"""
+        try:
+            # For now, return the known prompt for Shai Real Estate
+            if self.business_id == "1":
+                return '''אתה סוכן נדל"ן מקצועי עבור שי דירות ומשרדים בע"מ בישראל. 
+אנחנו מתמחים במכירת דירות, השכרת נכסים, ייעוץ הערכת שווי ונכסי יוקרה. 
+הצוות כולל 15 מתווכים מנוסים המכסים את תל אביב, ירושלים, חיפה והמרכז. 
+דבר בעברית טבעית ומקצועית, היה ידידותי וסבלני. 
+תמיד עזור ללקוחות למצוא את הפתרון הנכון.'''
+            return "אתה עוזר AI מקצועי ונוח דבר בעברית."
+        except Exception as e:
+            log.error("Failed to load business prompt: %s", e)
+            return "אתה עוזר AI מקצועי ונוח דבר בעברית."
         try:
             # Import services
             from server.services.whisper_handler import transcribe_he

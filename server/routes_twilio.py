@@ -47,8 +47,13 @@ def incoming_call():
         host = os.getenv("PUBLIC_HOST", "https://ai-crmd.replit.app").rstrip("/")
         log.info("Using host: %s", host)
         
-        # TwiML response with greeting + Media Stream + fallback action
-        business_id = "1"  # Default business - can be mapped from phone number
+        # Find business by phone number
+        business_id = "1"  # Default to Shai Real Estate
+        
+        # For Shai Real Estate: +972 3 376 3805 / +972-50-123-4567
+        if to_number in ["+972337636805", "+972501234567", "+97233763805"]:
+            business_id = "1"
+            log.info("📞 Identified business: Shai Real Estate for %s", to_number)
         ws_host = host.replace('https://', '').replace('http://', '')
         
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
