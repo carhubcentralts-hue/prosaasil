@@ -1,0 +1,303 @@
+מעולה. לקחתי את ההנחיה המלאה שלך והרחבתי אותה ל־גרסת PRO סופית — הכי מפורטת, חד־משמעית וללא Stripe (IL-ready). זה נוסח שאפשר להדביק ישירות לסוכן. הוא כולל: קונסולידציה, אבטחה, Realtime+Fallback, לוגים ומדידות, דגלי פיצ’ר לפי עסק, מיגרציות DB, בדיקות פריסה אוטומטיות, ניקוי כפילויות — והכול בלי לשבור כלום.
+
+⸻
+
+✅ הנחיה לסוכן — Production-Ready (קוד בלבד, ללא UI)
+
+🛑 אל תיגע ב־UI בשלב זה. משימה: לייצב קוד, לאחד כפילויות, לאבטח Webhooks, להוסיף Fallback אוטומטי, לוגים ומדידות, דגלים לעסקים, מיגרציות DB, ובדיקות פריסה אוטומטיות. ללא Stripe (ישראל), רק PayPal/Tranzila כ־Stub נשלטים ע״י דגלים.
+
+⸻
+
+0) וידוא טעינה בסיסי
+	1.	האפליקציה רצה מ־AgentLocator/main.py, יוצרת אפליקציה דרך server/app_factory.py:create_app().
+	2.	בעת אתחול, הדפס קונסול־לוג על כל Blueprint שנרשם בפועל:
+
+✅ <blueprint_name> registered
+
+אם רישום נכשלה — תקן מיידית והשאר לוג ❌ <blueprint_name> failed: <err>.
+
+⸻
+
+1) קונסולידציה & ניקוי כפילויות (ללא שבירה)
+
+מטרה: גרסה קנונית אחת לכל רכיב; legacy/ נשאר כארכיון בלבד — אין ממנו ייבוא.
+	•	העברות (ולעדכן imports בכל המקומות):
+	•	media_ws.py → server/media_ws.py
+	•	legacy/whisper_handler.py → server/services/whisper_handler.py
+
+from server.services.whisper_handler import transcribe_he
+
+
+	•	חסימת legacy:
+	•	ודא שבקוד אין import מ־legacy/.
+	•	ניקוי רעשים (אל תמחק קבצים כרגע, רק השתקה ב־git):
+	•	עדכן .gitignore:
+
+*.pyc
+.local/
+node_modules/
+dist/
+.agent_state_*.bin
+static/voice_responses/**
+generated-icon.png
+logs/*
+
+
+	•	גלאי כפילויות (לוג בלבד, לא למחוק אוטומטית): צרף כלי:
+	•	tools/find_duplicates.py — סריקה לפי hash, פלט רשימת כפולים + “מומלץ לשימור”.
+
+# tools/find_duplicates.py
+import hashlib, os, json
+ROOT = os.path.dirname(os.path.dirname(__file__))
+seen, dups = {}, []
+for r,_,fs in os.walk(ROOT):
+    if any(skip in r for skip in ('.git','node_modules','dist','.local','static/voice_responses','logs')): 
+        continue
+    for f in fs:
+        p = os.path.join(r,f)
+        try:
+            h = hashlib.sha256(open(p,'rb').read()).hexdigest()
+        except: 
+            continue
+        if h in seen: dups.append([seen[h], p])
+        else: seen[h] = p
+print(json.dumps({"duplicates": dups}, ensure_ascii=False, indent=2))
+
+
+
+⸻
+
+2) אבטחת Webhooks – חובה בכל מסלול
+	•	עטוף כל נתיב תחת /webhook/* בדקורטור:
+
+from server.twilio_security import require_twilio_signature
+
+@twilio_bp.post("/webhook/handle_recording")
+@require_twilio_signature
+def handle_recording(): ...
+
+
+	•	זמן תגובה ל־Twilio < 2s: תמיד החזר 200/204 מיידית והעבר עיבוד ל־Thread/Task.
+	•	במקרה שגיאה: לא מחזירים 500; החזר 200/204 + לוג ERROR ברור.
+
+⸻
+
+3) Realtime קודם, Fallback אוטומטי אחר כך
+
+מטרה: אם Media Stream נופל/מסתיים — מעבר אוטומטי להקלטה + תמלול, בלי לנתק.
+
+3.1 TwiML לשיחה נכנסת
+
+ב־/webhook/incoming_call החזר TwiML עם <Connect> שמגדיר action="/webhook/stream_ended":
+
+<Response>
+  <Connect action="/webhook/stream_ended">
+    <Stream url="wss://YOUR_PUBLIC_HOST/ws/twilio-media">
+      <Parameter name="business_id" value="{BUSINESS_ID}"/>
+    </Stream>
+  </Connect>
+</Response>
+
+3.2 כאשר ה־Stream מסתיים / נכשל
+
+ב־/webhook/stream_ended החזר Fallback:
+
+<Response>
+  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
+          action="/webhook/handle_recording" />
+  <Say language="he-IL">תודה. מעבד את הודעתך וחוזר מיד.</Say>
+</Response>
+
+	•	לוג: WARN stream_failover -> recording עם call_sid, business_id.
+	•	שמור גם mode="record" ב־DB (ראה סעיף 4/8).
+
+3.3 WS Keepalive (לוג בלבד)
+
+ב־server/media_ws.py: heartbeat כל ~15s (DEBUG ws_heartbeat).
+
+⸻
+
+4) לוגים ומדידות — SLA לכל “תורן” (סבב דיבור→תגובה)
+
+ב־WS (Realtime), לכל תורן:
+	•	מדוד והדפס JSON בלוג:
+	•	t_audio_ms — Decode/Resample
+	•	t_nlp_ms — GPT
+	•	t_tts_ms — TTS
+	•	t_total_ms — סה״כ עד שליחה חזרה
+	•	פורמט מומלץ:
+
+log.info("turn_metrics", extra={
+    "call_sid": call_sid, "business_id": biz_id, "turn_id": turn_id,
+    "t_audio_ms": X, "t_nlp_ms": Y, "t_tts_ms": Z, "t_total_ms": T,
+    "mode": "stream"
+})
+
+
+	•	יעד: t_total_ms ממוצע < 2500ms.
+	•	טבלת DB חדשה CallTurn:
+	•	id, call_sid, business_id, started_at (UTC), mode (stream|record),
+t_audio_ms, t_nlp_ms, t_tts_ms, t_total_ms, error_code (nullable).
+	•	אינדקסים: (call_sid), (business_id,started_at).
+
+⸻
+
+5) צינור תמלול לאחר הקלטה (Post-Call)
+
+ב־/webhook/handle_recording:
+	•	הורדה בטוחה (timeout=10s, retry×2), טיפול בשגיאות.
+	•	transcribe_he(...) מ־server/services/whisper_handler.py (עברית, סינון ג׳יבריש).
+	•	שמירת תמלול ב־CallLog.transcript (ראה מיגרציה בסעיף 8).
+	•	לוג: INFO recording_transcribed chars=N.
+	•	לעולם לא 500; במקרה כשל — 204 + לוג ERROR.
+
+⸻
+
+6) דגלי פיצ’רים לפי עסק (Feature Flags)
+
+הוסף/אשרר בטבלת Business (מיגרציה בסעיף 8):
+	•	enable_calls_stream (bool, default=true)
+	•	enable_recording_fallback (bool, default=true)
+	•	enable_payments_paypal (bool, default=false)
+	•	enable_payments_tranzila (bool, default=false)
+
+בכל כניסה ל־WS/Webhook/API:
+	•	קרא business_id (מועבר כ־<Parameter> ב־Stream).
+	•	אם enable_calls_stream=false → דלג ישר ל־<Record ...>.
+
+⸻
+
+7) תשלומים — ללא Stripe (IL-Ready), Stub בלבד עד מפתחות
+	•	הסר ספריית Stripe ותלויותייה. אין להשתמש ב־Stripe כלל.
+	•	אם קיימים נתיבי Stripe היסטוריים — אופציונלית השאר “פקק” שמחזיר 410 GONE עם הודעה "Stripe is not supported in IL. Use PayPal or Tranzila."; אחרת מחק.
+	•	ב־server/api_crm_unified.py:
+	•	PayPal: תמיכת Token/Order base קיימת. אל תגבה בפועל עד שהוזנו מפתחות ולביזנס הופעל הדגל.
+	•	אם חסרים PAYPAL_CLIENT_ID/SECRET או הדגל כבוי → החזר 501/403 (לא 500).
+	•	אם קיים — החזר {"provider":"paypal","status":"stub_ready"} (200).
+	•	Tranzila: שמור Stub (URL בסיס לפי TRANZILA_ENV), ללא חיוב אמיתי עד שיוגדרו מפתחות.
+	•	חסר קונפיג/דגל כבוי → 501/403; קיים → {"provider":"tranzila","status":"stub_ready"} (200).
+	•	אין מצב של 500 בתשלומים — השתמש ב־400/403/409/501 לפי ההקשר.
+
+⸻
+
+8) מיגרציות DB (אדפטיביות, ללא DROP)
+
+צור server/db_migrate.py שמוסיף אם חסר:
+	•	עמודה CallLog.transcript (TEXT, nullable).
+	•	טבלה CallTurn (ע״פ סעיף 4).
+	•	עמודות דגלים בטבלת Business (ע״פ סעיף 6).
+	•	הדפס Applied migration: <name>; אם קיים — דלג (ללא DROP).
+
+⸻
+
+9) Endpoints בריאות/מוכנות/גרסה
+
+ב־create_app():
+
+@app.get("/healthz")
+def healthz(): return "ok", 200
+
+@app.get("/readyz")
+def readyz():
+    # בדיקת DB, קיום OPENAI_API_KEY, קובץ Google TTS (אם נדרש),
+    # החזר JSON { db:"ok|fail", openai:"ok|disabled", tts:"ok|disabled", payments:{paypal:"enabled|disabled", tranzila:"enabled|disabled"} }
+    ...
+
+@app.get("/version")
+def version():
+    return {"app":"AgentLocator","commit":os.getenv("GIT_COMMIT","dev"),"build_time":os.getenv("BUILD_TIME","dev")}
+
+	•	אין 500 — גם אם משהו חסר, החזר סטטוס JSON “disabled”/“fail” והמשך 200.
+
+⸻
+
+10) לוג מרכזי בפורמט JSON + Rotating Files
+
+ב־server/logging_setup.py:
+	•	Console: JSON formatter עם שדות: ts, level, module, path, call_sid, business_id, msg, extra.
+	•	קובץ מסתובב: logs/app.log (RotatingFileHandler, 10MB×5).
+	•	התקן hooks לפני/אחרי בקשה לשיוך call_sid/business_id ל־log context (אם זמין).
+
+⸻
+
+11) קונפיג סודות (Bootstrap) — Graceful Degrade
+
+ב־server/bootstrap_secrets.py:
+	•	אם חסר OPENAI_API_KEY → NLP_DISABLED=true, המערכת לא קורסת; תשובת מערכת דיפולטית: “כרגע איני פנוי”.
+	•	אם חסר GOOGLE_APPLICATION_CREDENTIALS → TTS_DISABLED=true; החזר שקט קצר במקום TTS.
+	•	הדפס WARN ברור על כל משתנה חסר.
+
+⸻
+
+12) .replit / הרצה
+
+ודא .replit:
+
+modules = ["nodejs-20","web","postgresql-16","python-3.11"]
+run = "python3 AgentLocator/main.py"
+hidden = [".config",".git","node_modules","dist",".local","static/voice_responses","logs"]
+
+	•	PORT מהסביבה; debug רק אם FLASK_ENV=development.
+
+⸻
+
+13) בדיקת פריסה (“Golden Path”) — סקריפט אוטומטי
+
+צור server/deploy_check.py — מריץ בדיקות ומדפיס דוח ✅/❌:
+	1.	GET /healthz == 200 "ok"
+	2.	GET /readyz == 200; JSON כולל סטטוסים (db, openai, tts, payments)
+	3.	POST /webhook/incoming_call (סימולציה) → מכיל <Connect><Stream> ו־action="/webhook/stream_ended"
+	4.	POST /webhook/stream_ended → מחזיר <Record ... action="/webhook/handle_recording">
+	5.	POST /webhook/handle_recording עם URL דמה → 204/200 מיידי; Thread נרשם בלוג
+	6.	POST /api/crm/payments/create:
+	•	enable_payments_paypal=false → 403/501
+	•	enable_payments_paypal=true ללא מפתח → 501 עם הודעה מסודרת (לא 500)
+	•	כנ״ל ל־Tranzila
+	7.	ודא שאין import מתוך legacy/
+	8.	בצע הדמיית turn WS (או קריאת Mock) — לוג turn_metrics נרשם, ממוצע < 2500ms
+	9.	הדפס סיכום:
+
+✅ healthz
+✅ readyz
+✅ stream->action
+✅ fallback record
+✅ whisper pipeline
+✅ payments flags (PP/TZ)
+✅ no-legacy-imports
+✅ turn_metrics logged (< 2500ms avg)
+
+
+
+⸻
+
+14) Definition of Done (Go / No-Go)
+
+“ירוק” למעבר ל־UI רק אם:
+	•	כל בדיקות סעיף 13 ✅
+	•	turn_metrics ממוצע < 2500ms
+	•	stream_failover -> recording פועל ומתועד בלוג
+	•	אין import מ־legacy/
+	•	/readyz ו־/version פועלים
+	•	תשלומים: ללא Stripe; PayPal/Tranzila מחזירים 403/501/200 Stub לפי דגלים ומפתחות (לעולם לא 500)
+	•	דו״ח כפילויות הופק; לא הוסר קובץ בלי החלפת import
+
+⸻
+
+הערות בטיחות
+	•	אין מחיקות אוטומטיות. legacy/ נשאר; רק מבוטל בייבוא.
+	•	כל שינוי משמעותי מסומן בלוג CHANGED: <file> + commit קטן ממוקד.
+	•	Webhooks לעולם לא מחזירים 500: במקרה כשל → 200/204 + לוג ERROR.
+
+⸻
+
+תוצאה צפויה
+
+אחרי יישום הנ״ל:
+	•	המערכת יציבה לחלוטין, עם לוגים מדידים לכל “תורן”.
+	•	Media Stream = ברירת מחדל, עם Fallback אוטומטי ל־Recording.
+	•	תמלול עברית, TTS עברית, אבטחה — מאומתים.
+	•	אין Stripe, רק PayPal/Tranzila כ־Stub נשלטים בדגלים.
+	•	אין כפילויות פעילות ואין ייבוא מ־legacy.
+	•	מוכנים לעבור ל־UI בביטחון.
+
+כשתאשר שהכול בוצע ועבר ירוק — אני מוכן לתת אפיון UI/UX מסך־מסך (RTL מלא, Assistant font, היררכיה, צבעים, טבלאות, והרשאות לפי עסק ותפקיד).

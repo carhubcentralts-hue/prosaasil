@@ -1,89 +1,74 @@
+"""
+Bootstrap secrets with graceful degradation
+"""
 import os
 import json
-import tempfile
-import pathlib
-import base64
+import logging
 
-REQUIRED = [
-    "TWILIO_ACCOUNT_SID",
-    "TWILIO_AUTH_TOKEN",
-    "DATABASE_URL"
-]
+log = logging.getLogger(__name__)
 
-OPTIONAL_WITH_DEFAULTS = {
-    "PUBLIC_HOST": "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev",
-    "CORS_ORIGINS": "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev",
-    "JWT_SECRET": "dev-jwt-secret-change-in-production"
-}
-
-def ensure_env():
-    """וודא שכל הסודות הנדרשים קיימים במערכת - עם defaults לפיתוח"""
-    # בדיקת סודות חובה
-    missing = [k for k in REQUIRED if not os.getenv(k)]
-    if missing:
-        print(f"⚠️  Warning: Missing required secrets: {', '.join(missing)}")
-        print("🔧 For production, set these in Replit Secrets")
+def check_secrets():
+    """Check required secrets and set flags for graceful degradation"""
     
-    # הגדרת defaults לסודות אופציונליים
-    for key, default_value in OPTIONAL_WITH_DEFAULTS.items():
-        if not os.getenv(key):
-            os.environ[key] = default_value
-            print(f"🔧 Set {key} to default value for development")
+    # OpenAI API
+    if not os.getenv("OPENAI_API_KEY"):
+        log.warning("OPENAI_API_KEY missing - NLP will be disabled")
+        os.environ["NLP_DISABLED"] = "true"
+    else:
+        log.info("OpenAI API key configured")
     
-    print("✅ Environment setup completed")
-
-def ensure_google_creds_file() -> bool:
-    """
-    מגדיר GOOGLE_APPLICATION_CREDENTIALS כך ש-Google TTS יעבוד.
-    משתמש רק ב-GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON (הסוד הנכון).
-    תומך בפורמטים: JSON ישיר או Base64.
-    יוצר קובץ זמני עם hash כדי שתחלופות ייכנסו לתוקף מיד.
-    """
-    # אם כבר יש נתיב מפורש – נשארים איתו (אלא אם זה קובץ זמני ישן)
-    existing_creds = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if existing_creds and not existing_creds.startswith("/tmp/"):
-        print(f"✅ משתמש ב-GOOGLE_APPLICATION_CREDENTIALS קיים: {existing_creds}")
-        return True
-
-    # בדיקת שני הסודות המקובלים
-    raw = os.getenv("GOOGLE_TTS_SA_JSON") or os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
-    if not raw:
-        print("⚠️ No Google SA JSON found (check GOOGLE_TTS_SA_JSON or GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON)")
-        return False
-
-    print(f"🔧 מעבד Google Service Account JSON ({len(raw)} תווים)")
-
-    # נסיון 1: JSON ישיר
-    try:
-        cleaned_raw = raw.strip().replace('\n', '').replace('\r', '')
-        obj = json.loads(cleaned_raw)
-    except Exception:
-        # נסיון 2: Base64 
+    # Google TTS
+    if not os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON"):
+        log.warning("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON missing - TTS will be disabled") 
+        os.environ["TTS_DISABLED"] = "true"
+    else:
         try:
-            import base64
-            decoded = base64.b64decode(raw).decode("utf-8")
-            obj = json.loads(decoded)
-        except Exception as e:
-            print(f"❌ Failed to parse Google SA JSON: {e}")
-            return False
-
-    # אימות project_id אופציונלי
-    expected_project = os.getenv("GCP_PROJECT_ID")
-    if expected_project and obj.get("project_id") != expected_project:
-        print(f"⚠️ Project ID mismatch: expected {expected_project}, got {obj.get('project_id')}")
-        return False
-
-    # יצירת קובץ זמני עם hash לפי תוכן (למניעת קונפליקטים)
-    import hashlib
-    content_hash = hashlib.sha256(json.dumps(obj, sort_keys=True).encode()).hexdigest()[:8]
-    temp_path = os.path.join(tempfile.gettempdir(), f"gcp_sa_{content_hash}.json")
+            # Validate JSON format
+            json.loads(os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON"))
+            log.info("Google TTS credentials configured")
+        except json.JSONDecodeError:
+            log.warning("Invalid GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON format - TTS will be disabled")
+            os.environ["TTS_DISABLED"] = "true"
     
-    with open(temp_path, 'w', encoding='utf-8') as f:
-        json.dump(obj, f, indent=2)
+    # Twilio
+    if not os.getenv("TWILIO_AUTH_TOKEN"):
+        log.warning("TWILIO_AUTH_TOKEN missing - webhook signature validation disabled")
     
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_path
-    print(f"✅ Google credentials file created: {temp_path}")
-    print(f"✅ Project ID: {obj.get('project_id', 'N/A')}")
-    print(f"✅ Client email: {obj.get('client_email', 'N/A')}")
-    return True
+    # Payment providers
+    paypal_configured = bool(os.getenv("PAYPAL_CLIENT_ID") and os.getenv("PAYPAL_CLIENT_SECRET"))
+    tranzila_configured = bool(os.getenv("TRANZILA_TERMINAL"))
+    
+    if not paypal_configured:
+        log.info("PayPal credentials missing - will use stub mode")
+    if not tranzila_configured:
+        log.info("Tranzila credentials missing - will use stub mode")
+        
+    return {
+        "openai": not os.getenv("NLP_DISABLED", "false").lower() in ("true", "1"),
+        "tts": not os.getenv("TTS_DISABLED", "false").lower() in ("true", "1"),
+        "twilio": bool(os.getenv("TWILIO_AUTH_TOKEN")),
+        "paypal": paypal_configured,
+        "tranzila": tranzila_configured
+    }
 
+def ensure_google_creds_file():
+    """Ensure Google credentials file exists if JSON is provided"""
+    json_creds = os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
+    if not json_creds:
+        return None
+        
+    try:
+        import tempfile
+        creds_data = json.loads(json_creds)
+        
+        # Create temp file
+        fd, path = tempfile.mkstemp(suffix='.json', prefix='gcp_sa_')
+        with os.fdopen(fd, 'w') as f:
+            json.dump(creds_data, f)
+            
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+        log.info(f"Google credentials file created: {path}")
+        return path
+    except Exception as e:
+        log.error(f"Failed to create Google credentials file: {e}")
+        return None

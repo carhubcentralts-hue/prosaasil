@@ -1,38 +1,48 @@
-# twilio_security.py - PROPER TESTING + PRODUCTION
+"""
+Twilio webhook signature validation for production security
+"""
 import os
+import hashlib
+import hmac
+import base64
+from flask import request
 from functools import wraps
-from flask import request, abort, current_app
 import logging
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 def require_twilio_signature(f):
+    """Decorator to validate Twilio webhook signatures"""
     @wraps(f)
-    def wrapper(*args, **kwargs):
-        # Skip in testing/development
-        if current_app.config.get("TESTING") or "curl" in request.headers.get("user-agent", "").lower():
-            logger.info("Twilio signature validation bypassed - testing mode")
+    def decorated_function(*args, **kwargs):
+        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        if not auth_token:
+            log.warning("Twilio signature validation disabled - TWILIO_AUTH_TOKEN not set")
             return f(*args, **kwargs)
             
-        # Production validation
-        token = os.getenv("TWILIO_AUTH_TOKEN")
-        if not token:
-            logger.error("TWILIO_AUTH_TOKEN not set")
-            return abort(401)
+        signature = request.headers.get('X-Twilio-Signature', '')
+        if not signature:
+            log.error("Missing Twilio signature header")
+            return ("Unauthorized", 401)
             
-        try:
-            from twilio.request_validator import RequestValidator
-            validator = RequestValidator(token)
-            sig = request.headers.get("X-Twilio-Signature", "")
-            url = request.url
-            if request.environ.get("HTTP_X_FORWARDED_PROTO") == "https":
-                url = url.replace("http://", "https://", 1)
-            params = request.form.to_dict() if request.method == "POST" else request.args.to_dict()
-            if not validator.validate(url, params, sig):
-                logger.error("Invalid Twilio signature for %s", url)
-                return abort(403)
-            return f(*args, **kwargs)
-        except Exception as e:
-            logger.error("Signature validation error: %s", e)
-            return abort(403)
-    return wrapper
+        # Compute expected signature
+        url = request.url
+        if request.form:
+            params = ''.join(f'{k}{v}' for k, v in sorted(request.form.items()))
+        else:
+            params = ''
+            
+        expected = base64.b64encode(
+            hmac.new(
+                auth_token.encode('utf-8'),
+                (url + params).encode('utf-8'),
+                hashlib.sha1
+            ).digest()
+        ).decode()
+        
+        if not hmac.compare_digest(signature, expected):
+            log.error("Invalid Twilio signature for %s", request.path)
+            return ("Unauthorized", 401)
+            
+        return f(*args, **kwargs)
+    return decorated_function

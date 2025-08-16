@@ -46,11 +46,11 @@ def incoming_call():
         host = (os.getenv("PUBLIC_HOST") or "").rstrip("/")
         assert host, "PUBLIC_HOST must be set"
         
-        # TwiML response with Media Stream + business_id parameter
+        # TwiML response with Media Stream + fallback action
         business_id = "1"  # Default business - can be mapped from phone number
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Connect>
+  <Connect action="/webhook/stream_ended">
     <Stream url="wss://{host.replace('https://','').replace('http://','')}/ws/twilio-media">
       <Parameter name="business_id" value="{business_id}"/>
     </Stream>
@@ -61,6 +61,27 @@ def incoming_call():
         
     except Exception as e:
         log.error("Incoming call webhook failed: %s", e)
+        return Response("", 200)  # Always 200 for Twilio
+
+@twilio_bp.post("/webhook/stream_ended")
+@require_twilio_signature  
+def stream_ended():
+    """Stream ended - fallback to recording"""
+    try:
+        call_sid = request.form.get('CallSid', 'unknown')
+        log.warning("Stream failover to recording", extra={"call_sid": call_sid, "mode": "record"})
+        
+        # Fallback TwiML with recording
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
+          action="/webhook/handle_recording" />
+  <Say language="he-IL">תודה. מעבד את הודעתך וחוזר מיד.</Say>
+</Response>"""
+        return Response(xml, status=200, mimetype="text/xml")
+        
+    except Exception as e:
+        log.error("Stream ended webhook failed: %s", e)
         # Fallback TwiML
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -70,53 +91,64 @@ def incoming_call():
         return Response(xml, status=200, mimetype="text/xml")
 
 @twilio_bp.post("/webhook/handle_recording")
-@require_twilio_signature
+@require_twilio_signature  
 def handle_recording():
     """עיבוד הקלטה עברית - תמלול + תשובת AI בעברית"""
-    try:
-        recording_url = request.form.get("RecordingUrl", "")
-        call_sid = request.form.get("CallSid", "")
-        
-        log.info("📝 התקבלה הקלטה לעיבוד: CallSid=%s", call_sid)
-        
-        # תשובה מהירה לטוויליו
-        xml = """<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say>תודה רבה על פנייתכם לשי דירות ומשרדים. נבדוק את הבקשה ונחזור אליכם בהקדם האפשרי.</Say>
-</Response>"""
-        
-        # עיבוד ההקלטה בbackground
-        def process_hebrew_recording():
-            try:
-                log.info("🔄 מתחיל עיבוד תמלול עברי לשיחה: %s", call_sid)
+    def process_recording_async():
+        """Process recording in background thread"""
+        try:
+            recording_url = request.form.get('RecordingUrl')
+            call_sid = request.form.get('CallSid', 'unknown')
+            
+            if not recording_url:
+                log.error("No recording URL provided", extra={"call_sid": call_sid})
+                return
                 
-                # שמירת הקלטה במסד נתונים
-                from server.models_sql import CallLog, db
+            # Download and process recording
+            import requests
+            import time
+            start_time = time.time()
+            
+            response = requests.get(recording_url, timeout=10, stream=True)
+            response.raise_for_status()
+            
+            audio_data = response.content
+            log.info("Recording downloaded", extra={
+                "call_sid": call_sid, 
+                "size_bytes": len(audio_data),
+                "download_ms": int((time.time() - start_time) * 1000)
+            })
+            
+            # Transcribe with Whisper
+            from server.services.whisper_handler import transcribe_he
+            transcript = transcribe_he(audio_data, call_sid)
+            
+            if transcript:
+                # Save to database
+                from server.models_sql import CallLog
+                from server.db import db
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 if call_log:
-                    call_log.recording_url = recording_url
-                    call_log.status = "recorded"
+                    call_log.transcript = transcript
                     db.session.commit()
-                    log.info("✅ URL הקלטה נשמר במסד נתונים")
-                
-                # כאן יתבצע תמלול עברי + תשובת AI
-                # (הקוד הקיים לתמלול ועיבוד AI)
-                log.info("✅ עיבוד הקלטה עברית הושלם בהצלחה")
-                
-            except Exception as e:
-                log.error("❌ שגיאה בעיבוד הקלטה עברית: %s", e)
-        
-        threading.Thread(target=process_hebrew_recording, daemon=True).start()
-        
-        return Response(xml, mimetype="text/xml", status=200)
-        
-    except Exception as e:
-        log.error("Recording error: %s", e)
-        xml = """<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say>תודה.</Say>
-</Response>"""
-        return Response(xml, mimetype="text/xml", status=200)
+                    log.info("Recording transcribed", extra={
+                        "call_sid": call_sid,
+                        "chars": len(transcript)
+                    })
+                    
+        except Exception as e:
+            log.error("Recording processing failed", extra={
+                "call_sid": call_sid,
+                "error": str(e)
+            })
+    
+    # Start background processing
+    thread = threading.Thread(target=process_recording_async)
+    thread.daemon = True
+    thread.start()
+    
+    # Return 204 immediately to Twilio
+    return Response("", 204)
 
 @twilio_bp.post("/webhook/call_status")
 @require_twilio_signature

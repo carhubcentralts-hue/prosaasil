@@ -21,11 +21,36 @@ def register_blueprints(app):
     """Register all application blueprints"""
     # Health and core routes
     try:
-        from server.health_routes import health_bp
+        from server.health_endpoints import health_bp
         app.register_blueprint(health_bp)
         print("✅ Health routes registered successfully")
     except Exception as e:
         print(f"❌ Health routes registration failed: {e}")
+        
+    # New production logging and migrations
+    try:
+        from server.logging_setup import setup_logging
+        from server.bootstrap_secrets import check_secrets
+        from server.db_migrate import apply_migrations
+        
+        # Setup logging
+        setup_logging()
+        print("✅ Production logging setup complete")
+        
+        # Check secrets and set flags
+        secrets_status = check_secrets()
+        print(f"✅ Secrets checked: {secrets_status}")
+        
+        # Apply database migrations
+        with app.app_context():
+            migrations = apply_migrations()
+            if migrations:
+                print(f"✅ Applied migrations: {', '.join(migrations)}")
+            else:
+                print("✅ Database up to date")
+                
+    except Exception as e:
+        print(f"❌ Production setup failed: {e}")
     
     # Debug routes (development only)
     try:
