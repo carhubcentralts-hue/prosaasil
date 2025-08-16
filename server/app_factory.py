@@ -6,6 +6,15 @@ import os
 from flask import Flask, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 
+# Import auth routes
+try:
+    from server.auth_routes import auth_bp
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
+    auth_bp = None
+    print("⚠️ Auth routes not available - creating simple fallback")
+
 def create_app():
     """Create Flask application with React frontend"""
     app = Flask(__name__)
@@ -18,6 +27,22 @@ def create_app():
     
     # CORS
     CORS(app)
+    
+    # Register auth routes if available
+    if AUTH_AVAILABLE:
+        app.register_blueprint(auth_bp, url_prefix='/api/auth')
+        print("✅ Auth routes registered")
+    else:
+        # Simple fallback auth endpoints
+        @app.route('/api/auth/me', methods=['GET'])
+        def auth_me():
+            return jsonify({"error": "Authentication not configured"}), 401
+            
+        @app.route('/api/auth/login', methods=['POST'])
+        def auth_login():
+            return jsonify({"error": "Authentication not configured"}), 501
+            
+        print("⚠️ Using fallback auth endpoints")
     
     # Static files from React build
     @app.route('/assets/<path:filename>')
