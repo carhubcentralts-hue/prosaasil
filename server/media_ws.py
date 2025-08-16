@@ -132,27 +132,49 @@ class MediaStreamHandler:
             "audio_size": len(audio_bytes)
         })
         
-        # For now, send back a simple Hebrew response to test the pipeline
         try:
-            # Send a test Hebrew TTS response back to Twilio
-            response_text = "שלום, אני שומע אותך. זה עובד!"
+            # Step 1: Transcribe Hebrew with Whisper
+            from server.services.whisper_handler import transcribe_he
+            transcript = transcribe_he(audio_bytes, self.call_sid)
             
-            # Generate TTS audio
+            if not transcript:
+                log.info("No valid transcript - ignoring audio chunk")
+                return
+                
+            log.info("🧠 Hebrew transcript received", extra={
+                "call_sid": self.call_sid,
+                "transcript": transcript[:100],
+                "chars": len(transcript)
+            })
+            
+            # Step 2: Generate Hebrew AI response using GPT
+            response_text = self._generate_ai_response(transcript)
+            
+            if not response_text:
+                response_text = "מצטער, לא הבנתי. אתה יכול לחזור על השאלה?"
+                
+            log.info("🤖 AI response generated", extra={
+                "call_sid": self.call_sid,
+                "response": response_text[:100]
+            })
+            
+            # Step 3: Generate Hebrew TTS
             tts_audio = self._generate_hebrew_tts(response_text)
             
             if tts_audio:
-                # Send audio back through WebSocket 
+                # Step 4: Send back to caller
                 self._send_audio_to_twilio(tts_audio)
-                log.info("🗣️ Sent Hebrew TTS response", extra={
+                log.info("🗣️ Hebrew AI response sent", extra={
                     "call_sid": self.call_sid,
-                    "text": response_text,
+                    "transcript": transcript[:50],
+                    "response": response_text[:50],
                     "audio_size": len(tts_audio)
                 })
             else:
                 log.warning("TTS generation failed", extra={"call_sid": self.call_sid})
                 
         except Exception as e:
-            log.error("TTS pipeline failed: %s", e, extra={"call_sid": self.call_sid})
+            log.error("AI pipeline failed: %s", e, extra={"call_sid": self.call_sid})
             
     def _generate_hebrew_tts(self, text):
         """Generate Hebrew TTS using Google Cloud"""
@@ -223,6 +245,53 @@ class MediaStreamHandler:
             
         except Exception as e:
             log.error("Failed to send audio to Twilio: %s", e, extra={"call_sid": self.call_sid})
+            
+    def _generate_ai_response(self, transcript):
+        """Generate AI response using GPT-4o for Hebrew real estate conversation"""
+        try:
+            import openai
+            import os
+            
+            if os.getenv("NLP_DISABLED", "false").lower() in ("true", "1"):
+                return "המערכת זמנית לא זמינה. אנא נסו שוב מאוחר יותר."
+            
+            # Hebrew real estate prompt for Shai Apartments
+            system_prompt = """אתה עוזר AI של "שי דירות ומשרדים בע״מ" - חברת נדל״ן מובילה בישראל.
+אתה מדבר עברית בלבד ומתמחה בנדל״ן מגורים ומשרדים.
+
+התפקיד שלך:
+1. לעזור ללקוחות למצוא דירות ומשרדים
+2. לתת מידע על מחירים ואזורים
+3. לתאם פגישות עם יועצי המכירות
+4. לענות על שאלות כלליות על נדל״ן
+
+תמיד תהיה נעים, מקצועי ועוזר.
+תגיב בצורה קצרה וברורה (עד 2-3 משפטים).
+אם אתה לא יודע משהו - תפנה ללקוח לצרוך קשר עם היועץ שלנו."""
+
+            response = openai.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": transcript}
+                ],
+                max_tokens=150,
+                temperature=0.7
+            )
+            
+            ai_response = response.choices[0].message.content.strip()
+            
+            log.info("GPT-4o Hebrew response generated", extra={
+                "call_sid": self.call_sid,
+                "input_chars": len(transcript),
+                "output_chars": len(ai_response)
+            })
+            
+            return ai_response
+            
+        except Exception as e:
+            log.error("AI response generation failed: %s", e, extra={"call_sid": self.call_sid})
+            return "מצטער, יש לי בעיה טכנית. אתה יכול לנסות שוב או להתקשר מאוחר יותר?"
         
     def _load_business_prompt(self):
         """Load business system prompt from database"""
