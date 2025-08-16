@@ -11,7 +11,7 @@ def _mask_phone(phone):
         return phone
     return phone[:3] + "****" + phone[-2:]
 
-twilio_bp = Blueprint("twilio_bp", __name__, url_prefix="")
+twilio_bp = Blueprint("twilio_bp_v2", __name__, url_prefix="")
 log = logging.getLogger("twilio.unified")
 
 def abs_url(path: str) -> str:
@@ -28,21 +28,31 @@ def get_business_greeting(to_number, call_sid):
     return "static/voice_responses/welcome.mp3"
 
 @twilio_bp.route("/webhook/incoming_call", methods=['POST'])
-# @require_twilio_signature  # Temporarily disabled for debugging  
+# Temporarily disabled signature for debugging  
 def incoming_call():
     """
     Twilio webhook for incoming calls - Real-time Hebrew AI conversation
     Returns TwiML to start Media Stream for live audio processing ONLY
     """
     try:
+        # IMMEDIATE debug log - before anything else
+        with open('/tmp/webhook_debug.log', 'a') as f:
+            f.write(f"=== WEBHOOK ENTRY POINT HIT ===\n")
+            
+        print("=== WEBHOOK ENTRY POINT HIT ===")
+        
         # Get call details
         call_sid = request.form.get('CallSid', 'unknown')
         from_number = request.form.get('From', '')
         to_number = request.form.get('To', '')
         
         log.info("📞 INCOMING CALL: %s → %s (SID: %s)", from_number, to_number, call_sid)
-        print(f"📞 WEBHOOK HIT: Call {call_sid} from {from_number}")
+        print(f"🔥🔥🔥 WEBHOOK HIT: Call {call_sid} from {from_number} to {to_number}")
         print(f"🎯 TwiML will connect to: wss://ai-crmd.replit.app/ws/twilio-media")
+        
+        # Force logging to see if we get here at all
+        with open('/tmp/webhook_debug.log', 'a') as f:
+            f.write(f"WEBHOOK CALLED: {call_sid} from {from_number} to {to_number}\n")
         
         # Get public host - force to use correct domain  
         host = "https://ai-crmd.replit.app"

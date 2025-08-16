@@ -71,6 +71,13 @@ def create_app():
         from server.routes_twilio import twilio_bp
         app.register_blueprint(twilio_bp)
         print("✅ Twilio webhook routes registered")
+        
+        # Debug: show registered routes
+        print("🔍 Registered webhook routes:")
+        for rule in app.url_map.iter_rules():
+            if 'webhook' in rule.rule:
+                print(f"  {rule.rule} -> {rule.endpoint}")
+                
     except ImportError as e:
         print(f"⚠️ Twilio routes not available: {e}")
     
