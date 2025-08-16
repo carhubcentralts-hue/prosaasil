@@ -68,7 +68,7 @@ def incoming_call():
         
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="woman" language="he-IL">שלום, הגעתם לשי דירות ומשרדים בע״מ. אנא המתינו רגע ונחבר אתכם למערכת.</Say>
+  <Say voice="woman" language="en-US">Hello, you have reached Shai Apartments and Offices. Please wait while we connect you to our system.</Say>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="{business_id}"/>
@@ -89,7 +89,6 @@ def incoming_call():
         return Response("", 200)  # Always 200 for Twilio
 
 @twilio_bp.post("/webhook/stream_ended")
-@require_twilio_signature  
 def stream_ended():
     """Stream ended - fallback to recording"""
     try:
@@ -101,7 +100,7 @@ def stream_ended():
 <Response>
   <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
           action="/webhook/handle_recording" />
-  <Say language="he-IL">תודה. מעבד את הודעתך וחוזר מיד.</Say>
+  <Say language="en-US">Thank you. Processing your message and will respond shortly.</Say>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
         
@@ -116,7 +115,6 @@ def stream_ended():
         return Response(xml, status=200, mimetype="text/xml")
 
 @twilio_bp.post("/webhook/handle_recording")
-@require_twilio_signature  
 def handle_recording():
     """עיבוד הקלטה עברית - תמלול + תשובת AI בעברית"""
     def process_recording_async():
@@ -176,7 +174,6 @@ def handle_recording():
     return Response("", 204)
 
 @twilio_bp.post("/webhook/call_status")
-@require_twilio_signature
 def call_status():
     """Call status webhook - quick response"""
     call_sid = request.form.get("CallSid", "")
