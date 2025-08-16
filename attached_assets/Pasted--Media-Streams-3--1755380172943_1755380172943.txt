@@ -1,0 +1,122 @@
+כן — Media Streams נתמך ומוגדר אצלך, אבל מהלוגים שלך רואים ש־החיבור בפועל נפל בגלל 3 בעיות ספציפיות:
+	1.	403 על webhooks (/webhook/stream_ended, /webhook/call_status)
+	2.	31924 WebSocket Protocol Error (שרת ה־WS לא באמת ענה כ־WebSocket)
+	3.	13512 language – Twilio לא תומכת ב־he-IL ב־<Say> (זו רק אזהרה, אבל כדאי לתקן)
+
+הלוגים שצירפת מוכיחים את זה:
+	•	Got HTTP 403 response to .../webhook/stream_ended + .../call_status → חתימה/אימות או נירמול כתובת לא תקינים.
+	•	Stream - Websocket - Protocol Error → נקודת wss://.../ws/twilio-media לא רצה כ־WS אמיתי (Flask רגיל לא מרים WS).
+	•	language must be ... → <Say language="he-IL"> לא נתמך ע”י Twilio.
+
+⸻
+
+מה לתקן מיד (צ׳ק-ליסט קצר ומדויק)
+
+A. לתקן את ה־403 על ה־webhooks
+	•	ודא שהדקורטור/אימות חתימה של Twilio מנרמל את ה־URL ל־https עם הדומיין המדויק של Replit:
+	•	בטוקן האימות השתמש ב־TWILIO_AUTH_TOKEN
+	•	חישוב ה־signature חייב להשתמש ב־exact URL: https://ai-crmd.replit.app/webhook/stream_ended
+	•	מאחורי פרוקסי (Replit) נרמל לפי הכותרות:
+	•	X-Forwarded-Proto=https
+	•	X-Forwarded-Host=ai-crmd.replit.app
+	•	אם יש ספק: השבת זמנית את אימות החתימה רק על stream_ended / call_status כדי לאשר שאין בעיה אחרת, ואז הפעל שוב עם נירמול נכון.
+
+B. לתקן את ה־31924 (WebSocket)
+
+Flask ב־app.run() לא מריץ WebSocket. צריך שרת/ספרייה תומכי WS:
+	•	פתרון מהיר בפייתון: flask-sock
+	1.	הוסף תלות: flask-sock
+	2.	ברישום האפליקציה:
+
+from flask_sock import Sock
+sock = Sock(app)
+
+@sock.route("/ws/twilio-media")
+def twilio_media(ws):
+    # קבל/פענח JSON frames: start/media/stop
+    while True:
+        msg = ws.receive()
+        if msg is None:
+            break
+        # כאן לקרוא ל- media_ws.process_frame(...)
+
+
+	3.	ודא שה־URL תואם בדיוק ל־TwiML: wss://ai-crmd.replit.app/ws/twilio-media
+
+	•	חלופה יציבה יותר: להריץ Uvicorn/FastAPI בשביל ה־WS, ולהשאיר את Flask ל־HTTP. (אם תרצה, אתן תבנית מוכנה.)
+
+ברגע שה־WS באמת רץ, Twilio לא יחזיר 31924.
+
+C. לתקן את ה־13512 (שפה ב־<Say>)
+
+Twilio <Say> לא תומך עברית. יש 2 אופציות:
+	•	להוריד את language="he-IL" ולהשאיר <Say> כללי (אנגלית), או
+	•	עדיף: להפיק ברקע קובץ MP3 בעברית (למשל עם Google TTS שכבר עובד אצלך) ולהשמיע עם <Play>:
+
+<Response>
+  <Play>https://ai-crmd.replit.app/static/tts/greeting_he.mp3</Play>
+  ...
+</Response>
+
+
+
+⸻
+
+תבנית TwiML תקינה לשיחה נכנסת (כולל fallback)
+
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <!-- ברכה בעברית כקובץ -->
+  <Play>https://ai-crmd.replit.app/static/tts/greeting_he.mp3</Play>
+
+  <Connect action="/webhook/stream_ended">
+    <Stream url="wss://ai-crmd.replit.app/ws/twilio-media">
+      <Parameter name="business_id" value="1"/>
+    </Stream>
+  </Connect>
+</Response>
+
+וב־/webhook/stream_ended (שכרגע מחזיר 403 — לתקן חתימה!):
+
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
+          action="/webhook/handle_recording" />
+  <Say>תודה. מעבד את הודעתך וחוזר מיד.</Say>
+</Response>
+
+
+⸻
+
+בדיקה עצמית מהירה (תעשה עכשיו)
+	1.	WS חי
+
+	•	נווט ל־wss://ai-crmd.replit.app/ws/twilio-media עם לקוח WS (לבדיקה).
+	•	ודא שמקבל/שולח frames (לפחות echo) — בלי זה Twilio יפיל 31924.
+
+	2.	webhooks חתומים
+
+	•	שלח POST ל־/webhook/stream_ended עם חתימה אמיתית/מושבתת זמנית:
+	•	אסור לקבל 403. להחזיר 200 עם TwiML fallback.
+
+	3.	TwiML
+
+	•	incoming_call מחזיר <Connect><Stream ...> ו־action="/webhook/stream_ended".
+	•	אין <Say language="he-IL">.
+
+	4.	Status Callback
+
+	•	call_status מחזיר 200 (לא 403) ומדווח ללוג.
+
+⸻
+
+תשובה לשאלה שלך, חד וברור
+	•	האם Media Streams נתמך? כן. זה מוצר Twilio, נתמך לחלוטין.
+	•	אצלך כרגע: הוגדר, אבל נפל בגלל:
+	•	חתימת Twilio שגרמה ל־403 על stream_ended ו־call_status
+	•	שרת WS לא רץ באמת (31924)
+	•	<Say he-IL> לא נתמך (אזהרה)
+
+אחרי שלושת התיקונים למעלה — השיחה תתחבר ל־WS, ה־fallback יעבוד, ולא יהיו 403.
+
+רוצה שאנסח לך פאטצ’ים דיפרנציאליים לקבצים (routes_twilio.py, twilio_security.py, app_factory.py) כדי להדביק אחד־לאחד?

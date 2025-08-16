@@ -99,7 +99,7 @@ def stream_ended():
 <Response>
   <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
           action="/webhook/handle_recording" />
-  <Say language="he-IL">תודה. מעבד את הודעתך וחוזר מיד.</Say>
+  <Say>Thank you. Processing your message.</Say>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
         

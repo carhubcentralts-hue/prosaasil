@@ -12,6 +12,24 @@ from server.logging_setup import set_request_context
 
 log = logging.getLogger(__name__)
 
+def handle_media_stream(ws):
+    """
+    Flask-Sock WebSocket handler for Twilio Media Streams
+    Entry point called from app_factory.py
+    """
+    try:
+        log.info("🔗 Media stream WebSocket connection opened")
+        print("🔗 WebSocket connection established!")
+        
+        # Create handler instance
+        handler = MediaStreamHandler(ws)
+        handler.handle_connection()
+        
+    except Exception as e:
+        log.error("WebSocket handler failed: %s", e)
+    finally:
+        log.info("🔌 Media stream WebSocket connection closed")
+
 class MediaStreamHandler:
     """Handle Twilio Media Stream WebSocket connections"""
     
@@ -25,8 +43,6 @@ class MediaStreamHandler:
     def handle_connection(self):
         """Main WebSocket connection handler"""
         try:
-            log.info("🔗 Media stream connection opened")
-            print("🔗 WebSocket connection established!")
             self.is_connected = True
             self._start_heartbeat()
             
