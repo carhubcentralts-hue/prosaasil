@@ -25,21 +25,29 @@ def create_app():
         'DATABASE_URL': os.getenv('DATABASE_URL'),
     })
     
+    # ProxyFix for proper URL handling behind proxy
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+    
     # CORS
     CORS(app)
     
-    # Add middleware to log ALL incoming requests
+    # SIMPLE BUT EFFECTIVE REQUEST/RESPONSE LOGGING
     @app.before_request
-    def log_all_requests():
-        import datetime
+    def _req_log():
         from flask import request
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        print(f"🌐 [{timestamp}] {request.method} {request.path} from {request.remote_addr}")
-        if request.method == 'POST' and 'webhook' in request.path:
-            print(f"📱 WEBHOOK POST to {request.path} - THIS IS WHAT WE WANT!")
-            # Force log to file too
-            with open('/tmp/all_webhooks.log', 'a') as f:
-                f.write(f"{timestamp} - {request.method} {request.path}\n")
+        print(f"🔥 REQ: {request.method} {request.path} from {request.remote_addr}")
+        if 'webhook' in request.path:
+            print(f"📞 WEBHOOK: {request.method} {request.path} - TWILIO CALLING!")
+            # Force webhook detection file
+            with open('/tmp/webhook_detected.log', 'w') as f:
+                f.write(f"{request.method} {request.path} at {request.remote_addr}\n")
+
+    @app.after_request
+    def _res_log(resp):
+        from flask import request
+        print(f"✅ RES: {request.path} -> {resp.status_code}")
+        return resp
     
     # WebSocket support for Twilio Media Streams
     try:
@@ -82,8 +90,11 @@ def create_app():
     # Register Twilio webhook routes
     try:
         from server.routes_twilio import twilio_bp
-        app.register_blueprint(twilio_bp)
-        print("✅ Twilio webhook routes registered")
+        if twilio_bp is not None:
+            app.register_blueprint(twilio_bp)
+            print("✅ Twilio webhook routes registered")
+        else:
+            print("⚠️ Twilio blueprint is None")
         
         # Debug: show registered routes
         print("🔍 Registered webhook routes:")

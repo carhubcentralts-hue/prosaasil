@@ -46,24 +46,22 @@ def get_business_greeting(to_number, call_sid):
     # For now, use default greeting - can be extended per business
     return "static/voice_responses/welcome.mp3"
 
-@twilio_bp.route("/webhook/incoming_call", methods=['POST'])
+@twilio_bp.route("/webhook/incoming_call", methods=['POST', 'GET'])
 def incoming_call():
     """
     Twilio webhook for incoming calls - Real-time Hebrew AI conversation
     Returns TwiML to start Media Stream for live audio processing ONLY
     """
-    # FORCE immediate debug output - simplified
-    import sys
+    # CRITICAL DEBUG - MUST SEE THIS
+    print("🚨🚨🚨 INCOMING_CALL WEBHOOK EXECUTING!", flush=True)
+    
+    # Force multiple debug outputs
     import datetime
-    print("🔥🔥🔥 WEBHOOK HIT!", flush=True)
+    now = datetime.datetime.now()
+    with open('/tmp/webhook_hit.log', 'w') as f:
+        f.write(f"WEBHOOK HIT: {now}\n")
     
-    # Write to multiple debug files
-    with open('/tmp/webhook_debug.log', 'w') as f:
-        f.write(f"WEBHOOK HIT AT: {datetime.datetime.now()}\n")
-    
-    # Also write to a different file to be sure
-    with open('/tmp/incoming_call.log', 'w') as f:
-        f.write("INCOMING CALL WEBHOOK EXECUTED\n")
+    print(f"📞 WEBHOOK DATA: method={request.method}, path={request.path}", flush=True)
     
     try:
         # Get call details
@@ -81,12 +79,16 @@ def incoming_call():
         # Create WebSocket URL
         ws_host = "ai-crmd.replit.app"
         business_id = "1"  # Default to Shai Real Estate
-        # Generate TwiML for WebSocket connection
+        # Generate TwiML with greeting + WebSocket connection
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Say voice="alice" language="en">Welcome to Shai Real Estate. Starting Hebrew conversation.</Say>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="{business_id}"/>
+      <Parameter name="from_number" value="{from_number}"/>
+      <Parameter name="to_number" value="{to_number}"/>
+      <Parameter name="call_sid" value="{call_sid}"/>
     </Stream>
   </Connect>
 </Response>"""
@@ -102,9 +104,10 @@ def incoming_call():
         
     except Exception as e:
         print(f"❌ WEBHOOK ERROR: {e}")
-        # Always return 200 to Twilio with basic TwiML
+        # Always return 200 to Twilio with basic TwiML + greeting
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Say voice="alice" language="en">Welcome to Shai Real Estate. Technical issue, connecting now.</Say>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://ai-crmd.replit.app/ws/twilio-media">
       <Parameter name="business_id" value="1"/>
@@ -144,6 +147,7 @@ def handle_recording():
     """עיבוד הקלטה עברית - תמלול + תשובת AI בעברית"""
     def process_recording_async():
         """Process recording in background thread"""
+        call_sid = "unknown"  # Initialize to avoid unbound error
         try:
             recording_url = request.form.get('RecordingUrl')
             call_sid = request.form.get('CallSid', 'unknown')
