@@ -46,11 +46,14 @@ def incoming_call():
         host = (os.getenv("PUBLIC_HOST") or "").rstrip("/")
         assert host, "PUBLIC_HOST must be set"
         
-        # TwiML response with ONLY Media Stream
+        # TwiML response with Media Stream + business_id parameter
+        business_id = "1"  # Default business - can be mapped from phone number
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://{host.replace('https://','').replace('http://','')}/ws/twilio-media"/>
+    <Stream url="wss://{host.replace('https://','').replace('http://','')}/ws/twilio-media">
+      <Parameter name="business_id" value="{business_id}"/>
+    </Stream>
   </Connect>
 </Response>"""
         

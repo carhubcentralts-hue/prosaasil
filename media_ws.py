@@ -170,6 +170,20 @@ def handle_twilio_media(ws):
     silence_counter = 0
     conversation_memory = []
     stream_sid = None
+    business_id = None
+    
+    def business_name_or_default(biz_id):
+        """Get business name for dynamic greeting"""
+        try:
+            from server.models_sql import Business
+            from server.db import db
+            from server.app_factory import create_app
+            app = create_app()
+            with app.app_context():
+                b = Business.query.get(int(biz_id)) if biz_id else None
+                return b.name if b and b.active else "העסק שלכם"
+        except:
+            return "שי דירות ומשרדים בע״מ"
     
     try:
         while True:
@@ -183,11 +197,13 @@ def handle_twilio_media(ws):
                 
                 if event == "start":
                     stream_sid = data.get("start", {}).get("streamSid", "")
-                    log.info("🔄 Media stream started")
+                    business_id = data.get("start", {}).get("customParameters", {}).get("business_id")
+                    log.info(f"🔄 Media stream started for business_id: {business_id}")
                     
-                    # Send initial Hebrew greeting
+                    # Send dynamic Hebrew greeting based on business
                     try:
-                        greeting = "שלום! הגעתם ל שי דירות ומשרדים בע״מ. איך אוכל לעזור לכם?"
+                        business_name = business_name_or_default(business_id)
+                        greeting = f"שלום! הגעתם ל{business_name}. איך אוכל לעזור לכם?"
                         greeting_audio = tts_he_wavenet_safe(greeting)
                         if greeting_audio is not None and len(greeting_audio) > 0:
                             greeting_frames = pcm16k_float_to_mulaw8k_frames(greeting_audio)
