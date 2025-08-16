@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "asyncio>=3.4.3",
     "email-validator>=2.2.0",
-    "flask-sock>=0.7.0",
+    "flask-sock==0.6.0",
     "flask>=3.1.1",
     "gunicorn>=23.0.0",
     "openai==1.12.0",
@@ -57,4 +57,6 @@ dependencies = [
     "google-cloud-texttospeech==2.16.4",
     "jinja2>=3.1.6",
     "pdfkit>=1.0.0",
+    "simple-websocket==1.0.0",
+    "eventlet==0.36.1",
 ]

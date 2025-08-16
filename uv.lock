@@ -502,6 +502,19 @@ wheels = [
 ]
 
 [[package]]
+name = "eventlet"
+version = "0.36.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dnspython" },
+    { name = "greenlet" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1b/df/f441947eef23192c9f179e46868ee8510a6f7b6627b76b88f07692f9c706/eventlet-0.36.1.tar.gz", hash = "sha256:d227fe76a63d9e6a6cef53beb8ad0b2dc40a5e7737c801f4b474cfae1db07bc5", size = 552863 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/75/af/73efcf654d8875febc6599f5a3d1eed043c1ca34a9b12950208cbf710d2a/eventlet-0.36.1-py3-none-any.whl", hash = "sha256:e42d0f73b718e654c223a033b8692d1a94d778a6c1deb6c3d21442746f3f727f", size = 360472 },
+]
+
+[[package]]
 name = "flask"
 version = "3.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -618,15 +631,15 @@ wheels = [
 
 [[package]]
 name = "flask-sock"
-version = "0.7.0"
+version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "flask" },
     { name = "simple-websocket" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8d/8f/c6ab717dc90f4e46d1430335cd4ab13e3629410bb760c0ead6de476760fb/flask-sock-0.7.0.tar.gz", hash = "sha256:e023b578284195a443b8d8bdb4469e6a6acf694b89aeb51315b1a34fcf427b7d", size = 4334 }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/aa/b58d00b096c3e59c7c5c043ae22d487f273d7ee3de9ff4fe16f92bc792ab/flask-sock-0.6.0.tar.gz", hash = "sha256:435cf81bb497ac7622cd1dda554fbfa3e369e629daea0a1d21b73a24f1bd6229", size = 3984 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/98/107728ce3f430b5481eb426ccc5e1f7c8ab0bd01eaf231c62a8d528ff721/flask_sock-0.7.0-py3-none-any.whl", hash = "sha256:caac4d679392aaf010d02fabcf73d52019f5bdaf1c9c131ec5a428cb3491204a", size = 3982 },
+    { url = "https://files.pythonhosted.org/packages/9a/74/f36e2882d19f0f3e99ec43fe8d2c599f674f332c3ed9bb94cd3c6b987573/flask_sock-0.6.0-py3-none-any.whl", hash = "sha256:593fffb186928080a5b5b03d717efc56dac2d5ed690ce6bfff333b3597a2f518", size = 3945 },
 ]
 
 [[package]]
@@ -2044,6 +2057,7 @@ dependencies = [
     { name = "chardet" },
     { name = "charset-normalizer" },
     { name = "email-validator" },
+    { name = "eventlet" },
     { name = "flask" },
     { name = "flask-bcrypt" },
     { name = "flask-cors" },
@@ -2086,6 +2100,7 @@ dependencies = [
     { name = "requests" },
     { name = "schedule" },
     { name = "sift-stack-py" },
+    { name = "simple-websocket" },
     { name = "soundfile" },
     { name = "sqlalchemy" },
     { name = "twilio" },
@@ -2101,6 +2116,7 @@ requires-dist = [
     { name = "chardet", specifier = ">=5.2.0" },
     { name = "charset-normalizer", specifier = "==3.4.1" },
     { name = "email-validator", specifier = ">=2.2.0" },
+    { name = "eventlet", specifier = "==0.36.1" },
     { name = "flask", specifier = ">=3.1.1" },
     { name = "flask-bcrypt", specifier = ">=1.0.1" },
     { name = "flask-cors", specifier = ">=6.0.1" },
@@ -2109,7 +2125,7 @@ requires-dist = [
     { name = "flask-login", specifier = ">=0.6.3" },
     { name = "flask-mail", specifier = ">=0.10.0" },
     { name = "flask-session", specifier = ">=0.8.0" },
-    { name = "flask-sock", specifier = ">=0.7.0" },
+    { name = "flask-sock", specifier = "==0.6.0" },
     { name = "flask-sqlalchemy", specifier = "==3.1.1" },
     { name = "google-api-core", specifier = "==2.19.1" },
     { name = "google-api-python-client", specifier = ">=2.175.0" },
@@ -2143,6 +2159,7 @@ requires-dist = [
     { name = "requests", specifier = "==2.32.4" },
     { name = "schedule", specifier = ">=1.2.2" },
     { name = "sift-stack-py", specifier = ">=0.7.0" },
+    { name = "simple-websocket", specifier = "==1.0.0" },
     { name = "soundfile", specifier = ">=0.13.1" },
     { name = "sqlalchemy", specifier = "==2.0.35" },
     { name = "twilio", specifier = ">=9.6.4" },
@@ -2351,14 +2368,14 @@ wheels = [
 
 [[package]]
 name = "simple-websocket"
-version = "1.1.0"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "wsproto" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b0/d4/bfa032f961103eba93de583b161f0e6a5b63cebb8f2c7d0c6e6efe1e3d2e/simple_websocket-1.1.0.tar.gz", hash = "sha256:7939234e7aa067c534abdab3a9ed933ec9ce4691b0713c78acb195560aa52ae4", size = 17300 }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/82/3cf87d317911864a2f2a8daf1779fc7f82d5d55e6a8aaa0315f8209047a7/simple-websocket-1.0.0.tar.gz", hash = "sha256:17d2c72f4a2bd85174a97e3e4c88b01c40c3f81b7b648b0cc3ce1305968928c8", size = 13071 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/52/59/0782e51887ac6b07ffd1570e0364cf901ebc36345fea669969d2084baebb/simple_websocket-1.1.0-py3-none-any.whl", hash = "sha256:4af6069630a38ed6c561010f0e11a5bc0d4ca569b36306eb257cd9a192497c8c", size = 13842 },
+    { url = "https://files.pythonhosted.org/packages/6d/ea/288a8ac1d9551354488ff60c0ac6a76acc3b6b60f0460ac1944c75e240da/simple_websocket-1.0.0-py3-none-any.whl", hash = "sha256:1d5bf585e415eaa2083e2bcf02a3ecf91f9712e7b3e6b9fa0b461ad04e0837bc", size = 13712 },
 ]
 
 [[package]]
