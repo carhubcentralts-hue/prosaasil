@@ -119,13 +119,13 @@ def create_app():
 </body>
 </html>""", 200
     
-    # Catch-all route for React Router
+    # Catch-all route for React Router - DON'T interfere with webhooks
     @app.route('/<path:path>')
     def catch_all(path):
         """Catch all routes for React Router"""
-        if path.startswith('api/') or path.startswith('webhook/'):
-            # Let API routes handle themselves
+        if path.startswith('api/'):
             return "API endpoint", 404
+        # Let webhook routes be handled by blueprints - no special handling needed
         return home()
     
     # Health endpoints

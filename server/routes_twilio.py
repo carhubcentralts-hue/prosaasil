@@ -1,9 +1,12 @@
-# routes_twilio.py - FIXED VERSION
+# routes_twilio.py - DEBUG VERSION
 import threading
 from flask import Blueprint, request, Response, current_app
 from urllib.parse import urljoin
-from server.twilio_security import require_twilio_signature
 import os, logging
+
+# Force immediate debug output
+print("🚀 ROUTES_TWILIO.PY LOADED!")
+logging.basicConfig(level=logging.DEBUG)
 
 def _mask_phone(phone):
     """Mask phone number for logging privacy"""
@@ -12,6 +15,22 @@ def _mask_phone(phone):
     return phone[:3] + "****" + phone[-2:]
 
 twilio_bp = Blueprint("twilio_bp_v2", __name__, url_prefix="")
+
+# Simple test endpoint to verify Flask routing works
+@twilio_bp.route("/webhook/test", methods=['GET', 'POST'])
+def test_endpoint():
+    print("🧪 TEST ENDPOINT HIT!")
+    with open('/tmp/test_debug.log', 'w') as f:
+        f.write("TEST ENDPOINT WAS CALLED\n")
+    return "TEST OK", 200
+
+# Test endpoint NOT under /webhook/ path
+@twilio_bp.route("/twilio-test", methods=['GET', 'POST'])
+def twilio_test():
+    print("🧪 TWILIO-TEST ENDPOINT HIT!")
+    with open('/tmp/twilio_test.log', 'w') as f:
+        f.write("TWILIO TEST ENDPOINT WAS CALLED\n")
+    return "TWILIO TEST OK", 200
 log = logging.getLogger("twilio.unified")
 
 def abs_url(path: str) -> str:
@@ -33,41 +52,36 @@ def incoming_call():
     Twilio webhook for incoming calls - Real-time Hebrew AI conversation
     Returns TwiML to start Media Stream for live audio processing ONLY
     """
+    # FORCE immediate debug output - simplified
+    import sys
+    import datetime
+    print("🔥🔥🔥 WEBHOOK HIT!", flush=True)
+    
+    # Write to multiple debug files
+    with open('/tmp/webhook_debug.log', 'w') as f:
+        f.write(f"WEBHOOK HIT AT: {datetime.datetime.now()}\n")
+    
+    # Also write to a different file to be sure
+    with open('/tmp/incoming_call.log', 'w') as f:
+        f.write("INCOMING CALL WEBHOOK EXECUTED\n")
+    
     try:
-        # IMMEDIATE debug log - before anything else
-        with open('/tmp/webhook_debug.log', 'a') as f:
-            f.write(f"=== WEBHOOK ENTRY POINT HIT ===\n")
-            
-        print("=== WEBHOOK ENTRY POINT HIT ===")
-        
         # Get call details
         call_sid = request.form.get('CallSid', 'unknown')
         from_number = request.form.get('From', '')
         to_number = request.form.get('To', '')
         
-        # Get public host - use correct production domain
-        host = "https://ai-crmd.replit.app"
-        log.info("Using production domain: %s", host)
+        print(f"📞 CALL RECEIVED: {from_number} → {to_number} (SID: {call_sid})", flush=True)
         
-        ws_host = host.replace('https://', '').replace('http://', '')
-        
-        log.info("📞 INCOMING CALL: %s → %s (SID: %s)", from_number, to_number, call_sid)
-        print(f"🔥🔥🔥 WEBHOOK HIT: Call {call_sid} from {from_number} to {to_number}")
-        print(f"🎯 TwiML will connect to: wss://{ws_host}/ws/twilio-media")
-        
-        # Force logging to see if we get here at all
+        # Write to debug file  
         with open('/tmp/webhook_debug.log', 'a') as f:
-            f.write(f"WEBHOOK CALLED: {call_sid} from {from_number} to {to_number}\n")
-        log.info("Using host: %s", host)
+            f.write(f"CALL: {call_sid} from {from_number} to {to_number}\n")
+            f.flush()
         
-        # Find business by phone number
+        # Create WebSocket URL
+        ws_host = "ai-crmd.replit.app"
         business_id = "1"  # Default to Shai Real Estate
-        
-        # For Shai Real Estate: +972 3 376 3805 / +972-50-123-4567
-        if to_number in ["+972337636805", "+972501234567", "+97233763805"]:
-            business_id = "1"
-            log.info("📞 Identified business: Shai Real Estate for %s", to_number)
-        
+        # Generate TwiML for WebSocket connection
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect action="/webhook/stream_ended">
@@ -77,17 +91,27 @@ def incoming_call():
   </Connect>
 </Response>"""
         
-        log.info("TwiML generated", extra={
-            "call_sid": call_sid,
-            "host": host,
-            "ws_url": f"wss://{ws_host}/ws/twilio-media"
-        })
+        print(f"✅ TwiML generated for call {call_sid}", flush=True)
         
+        # Final debug write
+        with open('/tmp/webhook_debug.log', 'a') as f:
+            f.write(f"SUCCESS: TwiML returned for {call_sid}\n")
+            f.flush()
+            
         return Response(xml, status=200, mimetype="text/xml")
         
     except Exception as e:
-        log.error("Incoming call webhook failed: %s", e)
-        return Response("", 200)  # Always 200 for Twilio
+        print(f"❌ WEBHOOK ERROR: {e}")
+        # Always return 200 to Twilio with basic TwiML
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect action="/webhook/stream_ended">
+    <Stream url="wss://ai-crmd.replit.app/ws/twilio-media">
+      <Parameter name="business_id" value="1"/>
+    </Stream>
+  </Connect>
+</Response>"""
+        return Response(xml, status=200, mimetype="text/xml")
 
 @twilio_bp.post("/webhook/stream_ended")
 def stream_ended():
