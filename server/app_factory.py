@@ -66,6 +66,14 @@ def create_app():
             
         print("⚠️ Using fallback auth endpoints")
     
+    # Register Twilio webhook routes
+    try:
+        from server.routes_twilio import twilio_bp
+        app.register_blueprint(twilio_bp)
+        print("✅ Twilio webhook routes registered")
+    except ImportError as e:
+        print(f"⚠️ Twilio routes not available: {e}")
+    
     # Static files from React build
     @app.route('/assets/<path:filename>')
     def assets(filename):
@@ -134,33 +142,7 @@ def create_app():
             "status": "production-ready"
         }), 200
     
-    # Twilio webhooks
-    @app.route('/webhook/incoming_call', methods=['POST'])
-    def incoming_call():
-        xml = '''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Connect action="/webhook/stream_ended">
-    <Stream url="wss://localhost/ws/twilio-media">
-      <Parameter name="business_id" value="1"/>
-    </Stream>
-  </Connect>
-</Response>'''
-        return xml, 200, {'Content-Type': 'text/xml'}
-        
-    @app.route('/webhook/stream_ended', methods=['POST'])
-    def stream_ended():
-        xml = '''<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
-          action="/webhook/handle_recording" />
-  <Say language="he-IL">תודה. מעבד את הודעתך וחוזר מיד.</Say>
-</Response>'''
-        return xml, 200, {'Content-Type': 'text/xml'}
-        
-    @app.route('/webhook/handle_recording', methods=['POST'])
-    def handle_recording():
-        # Return 204 immediately to Twilio (background processing)
-        return "", 204
+    # Twilio webhooks handled by routes_twilio.py blueprint
         
     # CRM Payment API
     @app.route('/api/crm/payments/create', methods=['POST'])

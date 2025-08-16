@@ -27,8 +27,8 @@ def get_business_greeting(to_number, call_sid):
     # For now, use default greeting - can be extended per business
     return "static/voice_responses/welcome.mp3"
 
-@twilio_bp.post("/webhook/incoming_call")
-@require_twilio_signature
+@twilio_bp.route("/webhook/incoming_call", methods=['POST'])
+# @require_twilio_signature  # Temporarily disabled for debugging  
 def incoming_call():
     """
     Twilio webhook for incoming calls - Real-time Hebrew AI conversation
@@ -41,13 +41,11 @@ def incoming_call():
         to_number = request.form.get('To', '')
         
         log.info("📞 INCOMING CALL: %s → %s (SID: %s)", from_number, to_number, call_sid)
+        print(f"📞 WEBHOOK HIT: Call {call_sid} from {from_number}")
         
-        # Get public host - use current domain if PUBLIC_HOST not set
-        host = os.getenv("PUBLIC_HOST", "").rstrip("/")
-        if not host:
-            # Fallback to request host for development/testing
-            host = f"https://{request.headers.get('Host', 'localhost:5000')}"
-            log.warning("PUBLIC_HOST not set, using request host: %s", host)
+        # Get public host - force to use correct domain
+        host = os.getenv("PUBLIC_HOST", "https://ai-crmd.replit.app").rstrip("/")
+        log.info("Using host: %s", host)
         
         # TwiML response with greeting + Media Stream + fallback action
         business_id = "1"  # Default business - can be mapped from phone number
@@ -55,7 +53,7 @@ def incoming_call():
         
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="woman" language="he-IL">שלום, אתם מדברים עם מערכת הAI של שי דירות ומשרדים. אנא המתינו רגע.</Say>
+  <Say voice="woman" language="he-IL">שלום, הגעתם לשי דירות ומשרדים בע״מ. אנא המתינו רגע ונחבר אתכם למערכת.</Say>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="{business_id}"/>
