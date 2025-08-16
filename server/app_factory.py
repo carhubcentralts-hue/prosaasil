@@ -28,6 +28,19 @@ def create_app():
     # CORS
     CORS(app)
     
+    # Add middleware to log ALL incoming requests
+    @app.before_request
+    def log_all_requests():
+        import datetime
+        from flask import request
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        print(f"🌐 [{timestamp}] {request.method} {request.path} from {request.remote_addr}")
+        if request.method == 'POST' and 'webhook' in request.path:
+            print(f"📱 WEBHOOK POST to {request.path} - THIS IS WHAT WE WANT!")
+            # Force log to file too
+            with open('/tmp/all_webhooks.log', 'a') as f:
+                f.write(f"{timestamp} - {request.method} {request.path}\n")
+    
     # WebSocket support for Twilio Media Streams
     try:
         from flask_sock import Sock
