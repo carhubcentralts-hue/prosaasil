@@ -1,48 +1,63 @@
 """
-Twilio webhook signature validation for production security
+Twilio Webhook Security Validation
+אבטחת webhooks של Twilio - PRODUCTION READY
 """
 import os
 import hashlib
 import hmac
 import base64
-from flask import request
 from functools import wraps
-import logging
-
-log = logging.getLogger(__name__)
+from flask import request, abort
 
 def require_twilio_signature(f):
     """Decorator to validate Twilio webhook signatures"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-        if not auth_token:
-            log.warning("Twilio signature validation disabled - TWILIO_AUTH_TOKEN not set")
+        # In development, skip validation
+        if os.getenv('FLASK_ENV') == 'development':
             return f(*args, **kwargs)
             
-        signature = request.headers.get('X-Twilio-Signature', '')
-        if not signature:
-            log.error("Missing Twilio signature header")
-            return ("Unauthorized", 401)
-            
-        # Compute expected signature
-        url = request.url
-        if request.form:
-            params = ''.join(f'{k}{v}' for k, v in sorted(request.form.items()))
-        else:
-            params = ''
-            
-        expected = base64.b64encode(
-            hmac.new(
-                auth_token.encode('utf-8'),
-                (url + params).encode('utf-8'),
-                hashlib.sha1
-            ).digest()
-        ).decode()
+        # Get Twilio auth token
+        auth_token = os.getenv('TWILIO_AUTH_TOKEN')
+        if not auth_token:
+            # If no auth token, log warning but continue (graceful degradation)
+            print("⚠️ TWILIO_AUTH_TOKEN not set - signature validation skipped")
+            return f(*args, **kwargs)
         
-        if not hmac.compare_digest(signature, expected):
-            log.error("Invalid Twilio signature for %s", request.path)
-            return ("Unauthorized", 401)
+        # Get signature from header
+        signature = request.headers.get('X-Twilio-Signature')
+        if not signature:
+            print("❌ Missing X-Twilio-Signature header")
+            abort(403)
+        
+        # Validate signature
+        url = request.url
+        if not validate_signature(auth_token, signature, url, request.form):
+            print("❌ Invalid Twilio signature")
+            abort(403)
             
         return f(*args, **kwargs)
     return decorated_function
+
+def validate_signature(auth_token, signature, url, params):
+    """Validate Twilio webhook signature"""
+    try:
+        # Create the string to sign
+        string_to_sign = url
+        if params:
+            sorted_params = sorted(params.items())
+            for key, value in sorted_params:
+                string_to_sign += f"{key}{value}"
+        
+        # Create HMAC-SHA1 signature
+        mac = hmac.new(
+            auth_token.encode('utf-8'),
+            string_to_sign.encode('utf-8'),
+            hashlib.sha1
+        )
+        computed_signature = base64.b64encode(mac.digest()).decode('utf-8')
+        
+        return hmac.compare_digest(signature, computed_signature)
+    except Exception as e:
+        print(f"❌ Signature validation error: {e}")
+        return False
