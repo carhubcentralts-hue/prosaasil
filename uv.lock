@@ -2088,7 +2088,6 @@ dependencies = [
     { name = "sift-stack-py" },
     { name = "soundfile" },
     { name = "sqlalchemy" },
-    { name = "stripe" },
     { name = "twilio" },
     { name = "urllib3" },
     { name = "websockets" },
@@ -2146,7 +2145,6 @@ requires-dist = [
     { name = "sift-stack-py", specifier = ">=0.7.0" },
     { name = "soundfile", specifier = ">=0.13.1" },
     { name = "sqlalchemy", specifier = "==2.0.35" },
-    { name = "stripe", specifier = ">=12.4.0" },
     { name = "twilio", specifier = ">=9.6.4" },
     { name = "urllib3", specifier = "==2.3.0" },
     { name = "websockets", specifier = ">=15.0.1" },
@@ -2482,19 +2480,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/66/e3/ce8d38cb2d70e05ffeddc28bb09bad77cfef979eb0a299c9117f7ed4e6a9/standard_sunau-3.13.0.tar.gz", hash = "sha256:b319a1ac95a09a2378a8442f403c66f4fd4b36616d6df6ae82b8e536ee790908", size = 9368 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/34/ae/e3707f6c1bc6f7aa0df600ba8075bfb8a19252140cd595335be60e25f9ee/standard_sunau-3.13.0-py3-none-any.whl", hash = "sha256:53af624a9529c41062f4c2fd33837f297f3baa196b0cfceffea6555654602622", size = 7364 },
-]
-
-[[package]]
-name = "stripe"
-version = "12.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ed/48/98caed87572968a6f4077507080b64d21763e2b6109c26e7e994a65dbcb2/stripe-12.4.0.tar.gz", hash = "sha256:1cd1f5b0579867923081bacf594959d1f403f218223a06dc38273beb07d01567", size = 1414724 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/23/75/a513c6e3262e31d55b93d073629aaf6667c39ca3c00ff3d2e3cfc2d5cff1/stripe-12.4.0-py2.py3-none-any.whl", hash = "sha256:10720fcbf075a0b4e3eefb209a005c94564ac0f6166d284ff3164439f39af86c", size = 1654255 },
 ]
 
 [[package]]

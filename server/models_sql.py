@@ -65,12 +65,16 @@ class Deal(db.Model):
 class Payment(db.Model):
     __tablename__ = "payment"
     id = db.Column(db.Integer, primary_key=True)
-    deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=False, index=True)
-    stripe_payment_intent = db.Column(db.String(80), unique=True)
-    amount = db.Column(db.Integer, nullable=False)
-    currency = db.Column(db.String(8), default='ILS')
-    status = db.Column(db.String(32), default='created')  # created|succeeded|failed|refunded
+    deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=True, index=True)  # Made nullable for standalone payments
+    provider = db.Column(db.String(20), nullable=False)      # 'paypal' | 'tranzila'
+    provider_ref = db.Column(db.String(100), index=True)     # orderID (PayPal), transaction id (Tranzila)
+    amount = db.Column(db.Integer, nullable=False)           # באגורות
+    currency = db.Column(db.String(8), default='ils')
+    status = db.Column(db.String(20), default='created')     # created|approved|captured|failed
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Legacy Stripe fields (keep for compatibility, not used)
+    stripe_payment_intent = db.Column(db.String(80), unique=True, nullable=True)
 
 class Invoice(db.Model):
     __tablename__ = "invoice"

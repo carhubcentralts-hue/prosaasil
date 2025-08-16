@@ -1,10 +1,10 @@
 """
 Payments & CRM API - תשלומים, חשבוניות וחוזים לפי הנחיות 100% GO
+NOTE: Stripe deprecated - use PayPal + Tranzila in api_crm_unified.py
 """
 from flask import Blueprint, request, jsonify, send_file
 import logging
 import os
-import stripe
 import time
 import base64
 from datetime import datetime
@@ -15,44 +15,14 @@ from server.services.invoice_service import create_invoice_for_payment
 api_bp = Blueprint("api_payments", __name__, url_prefix="/api")
 log = logging.getLogger("api.payments")
 
-# Initialize Stripe
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
-
-# === PAYMENTS ===
+# === DEPRECATED STRIPE ROUTES ===
 
 @api_bp.post("/payments/create-intent")
-def create_payment_intent():
-    """יצירת Stripe Payment Intent"""
-    try:
-        data = request.get_json() or {}
-        deal_id = int(data["deal_id"])
-        amount = int(data["amount"])  # בשקלים/אגורות
-        currency = (os.getenv("CURRENCY") or "ILS").lower()
-        
-        # יצירת Payment Intent בStripe
-        pi = stripe.PaymentIntent.create(
-            amount=amount,
-            currency=currency,
-            automatic_payment_methods={"enabled": True}
-        )
-        
-        # שמירת התשלום במסד הנתונים
-        payment = Payment()
-        payment.deal_id = deal_id
-        payment.stripe_payment_intent = pi["id"]
-        payment.amount = amount
-        payment.currency = currency
-        payment.status = "created"
-        db.session.add(payment)
-        db.session.commit()
-        
-        log.info("Payment intent created: %s for deal %s", pi["id"], deal_id)
-        
-        return jsonify({
-            "client_secret": pi["client_secret"],
-            "payment_intent": pi["id"],
-            "payment_id": payment.id
-        })
+def deprecated_stripe_payment():
+    """Deprecated Stripe route - use PayPal/Tranzila instead"""
+    return jsonify({
+        "error": "Stripe deprecated for Israeli market. Use PayPal (/api/crm/payments/paypal/create-order) or Tranzila (/api/crm/payments/tranzila/create-link) instead."
+    }), 410
         
     except Exception as e:
         log.error("Payment intent creation failed: %s", e)

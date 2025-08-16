@@ -1,0 +1,271 @@
+סגור—נעשה PayPal + Tranzila, נסיר את Stripe, ונשמור על הקוד קיים בלי לשבור כלום. הנה הנחיה אחת מסודרת (עם קוד הדבקה) שתביא אותך לשלם בבטחה בשני הספקים ולשמר את מבנה ה-CRM.
+
+⸻
+
+0) עקרונות ושמירת תאימות
+	•	לא מוחקים ראוטים קיימים מיידית—מסמנים אותם “מושבתים”/ממופים לחדשים, כדי לא לשבור קליינט.
+	•	שכבת התשלום תהיה Provider-agnostic: רשומת Payment מכילה provider + provider_ref.
+	•	תומכים PayPal Orders API (זמין בישראל) ו-Tranzila (ישראלי, Redirect/iFrame/Hosted Fields).  ￼ ￼
+
+⸻
+
+1) ENV — מפתחות וסודות
+
+# בחשיפה ל-frontend (רק ה-publishable של PayPal):
+PAYPAL_ENV=sandbox     # או live
+PAYPAL_CLIENT_ID=...
+PAYPAL_SECRET=...
+PAYPAL_WEBHOOK_ID=...  # אחרי יצירה בדשבורד
+
+# Tranzila (דוגמה; התאמה לפי החשבון שלך)
+TRANZILA_TERMINAL=your_terminal_name
+TRANZILA_APP_KEY=...
+TRANZILA_SECRET=...
+TRANZILA_ENV=sandbox   # או production
+TRANZILA_RETURN_SUCCESS=https://<host>/payments/tranzila/return/success
+TRANZILA_RETURN_FAIL=https://<host>/payments/tranzila/return/fail
+
+# כללי
+CURRENCY=ILS
+
+PayPal: יוצרים Order בצד שרת, הלקוח מאשר ומבצע capture; אימות חתימה דרך Verify Webhook Signature.  ￼
+Tranzila: יש Redirect/iFrame/Hosted Fields; בדוגמה נתחיל ב-Redirect/ iFrame כי זה המהיר וה-PCI-friendly.  ￼
+
+⸻
+
+2) DB — הפיכת Payment לגנרי (בלי לשבור קיים)
+
+ב־server/models_sql.py הוסף/עדכן כך (לא מוחק שדות ישנים אם יש—רק מוסיף):
+
+from server.db import db
+from datetime import datetime
+
+class Payment(db.Model):
+    __tablename__ = "payment"
+    id = db.Column(db.Integer, primary_key=True)
+    provider = db.Column(db.String(20), nullable=False)      # 'paypal' | 'tranzila'
+    provider_ref = db.Column(db.String(100), index=True)      # orderID (PayPal), transaction id / tempref (Tranzila)
+    amount = db.Column(db.Integer, nullable=False)            # באגורות
+    currency = db.Column(db.String(8), default="ils")
+    status = db.Column(db.String(20), default="created")      # created|approved|captured|failed
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+אם יש כבר טבלת payment — עשה מיגרציה להוספת עמודות (provider, provider_ref, status) ולא לשנות קיימות.
+
+⸻
+
+3) API — מסלולים חדשים, ותאימות לאחור
+
+ב־server/api_crm_unified.py (או ה-BP שלך ל-CRM), הוסף:
+
+3.1 PayPal – יצירת הזמנה + webhook אימות
+
+# ---- PayPal provider ----
+import os, requests, json
+from flask import Blueprint, request, jsonify
+from server.db import db
+from server.models_sql import Payment
+
+def _pp_base():
+    return "https://api-m.sandbox.paypal.com" if os.getenv("PAYPAL_ENV","sandbox")=="sandbox" else "https://api-m.paypal.com"
+
+def _pp_token():
+    r = requests.post(_pp_base()+"/v1/oauth2/token",
+                      auth=(os.getenv("PAYPAL_CLIENT_ID"), os.getenv("PAYPAL_SECRET")),
+                      data={"grant_type":"client_credentials"})
+    r.raise_for_status()
+    return r.json()["access_token"]
+
+@crm_unified_bp.post("/payments/paypal/create-order")
+def paypal_create_order():
+    data = request.get_json() or {}
+    amount = int(data["amount"])                       # אגורות
+    value = f"{amount/100:.2f}"
+    currency = (os.getenv("CURRENCY") or "ILS").upper()
+    access = _pp_token()
+    order = requests.post(_pp_base()+"/v2/checkout/orders",
+            headers={"Authorization":f"Bearer {access}","Content-Type":"application/json"},
+            json={"intent":"CAPTURE","purchase_units":[{"amount":{"currency_code":currency,"value":value}}]})
+    order.raise_for_status()
+    order_id = order.json()["id"]
+    pay = Payment(provider="paypal", provider_ref=order_id, amount=amount, currency=currency.lower())
+    db.session.add(pay); db.session.commit()
+    return jsonify({"order_id": order_id}), 200
+
+Webhook אימות חתימה (PayPal Verify Webhook Signature):
+
+@crm_unified_bp.post("/webhook/paypal")
+def paypal_webhook():
+    # PayPal שולח כותרות אימות; מאמתים מול /v1/notifications/verify-webhook-signature
+    headers = {
+        "paypal-transmission-id": request.headers.get("Paypal-Transmission-Id"),
+        "paypal-transmission-time": request.headers.get("Paypal-Transmission-Time"),
+        "paypal-transmission-sig": request.headers.get("Paypal-Transmission-Sig"),
+        "paypal-cert-url": request.headers.get("Paypal-Cert-Url"),
+        "paypal-auth-algo": request.headers.get("Paypal-Auth-Algo"),
+    }
+    webhook_id = os.getenv("PAYPAL_WEBHOOK_ID")
+    body = request.get_data(as_text=True)
+    access = _pp_token()
+    v = requests.post(_pp_base()+"/v1/notifications/verify-webhook-signature",
+        headers={"Authorization":f"Bearer {access}","Content-Type":"application/json"},
+        json={"transmission_id":headers["paypal-transmission-id"],
+              "transmission_time":headers["paypal-transmission-time"],
+              "cert_url":headers["paypal-cert-url"],
+              "auth_algo":headers["paypal-auth-algo"],
+              "transmission_sig":headers["paypal-transmission-sig"],
+              "webhook_id":webhook_id,
+              "webhook_event": json.loads(body)})
+    v.raise_for_status()
+    if v.json().get("verification_status") != "SUCCESS":
+        return ("invalid", 400)
+
+    event = json.loads(body)
+    et = event.get("event_type","")
+    res = event.get("resource",{})
+    order_id = res.get("id") or res.get("supplementary_data",{}).get("related_ids",{}).get("order_id")
+    if et in ("CHECKOUT.ORDER.APPROVED", "PAYMENT.CAPTURE.COMPLETED") and order_id:
+        pay = Payment.query.filter_by(provider="paypal", provider_ref=order_id).first()
+        if pay:
+            pay.status = "captured" if et=="PAYMENT.CAPTURE.COMPLETED" else "approved"
+            db.session.commit()
+            # כאן לקרוא ליצירת חשבונית (אם תרצה) – ראו סעיף 5
+    return ("", 204)
+
+זה ה-flow התקני של Orders API (יצירת הזמנה, אישור/כבילה, אימות חתימה).  ￼
+
+⸻
+
+3.2 Tranzila – Redirect/iFrame + חיווי חזרה
+
+הפשטנו ל-Redirect (אפשר גם iFrame/Hosted Fields בהמשך). בפועל שולחים POST/GET לעמוד התשלום של Tranzila עם פרמטרים, ומקבלים חזרה Redirect/Webhook עם מזהה עסקה/סטטוס.
+
+# ---- Tranzila provider ----
+from urllib.parse import urlencode
+
+def _tz_base():
+    return "https://direct.tranzila.com" if os.getenv("TRANZILA_ENV","sandbox")=="production" \
+           else "https://direct.tranzila.com"  # לרוב גם sandbox שם; ודא לפי החשבון שלך
+
+@crm_unified_bp.post("/payments/tranzila/create-link")
+def tranzila_create_link():
+    data = request.get_json() or {}
+    amount = int(data["amount"])                       # אגורות
+    currency = (os.getenv("CURRENCY") or "ILS").upper()
+    terminal = os.getenv("TRANZILA_TERMINAL")
+    assert terminal, "TRANZILA_TERMINAL not set"
+
+    # פרמטרים נפוצים ל-Redirect/iFrame. ודא מול המסמך שלך מהם השדות המדויקים הדרושים בחשבון.
+    params = {
+        "supplier": terminal,                          # שם הטראמינל
+        "sum": f"{amount/100:.2f}",                    # סכום בש"ח
+        "currency": currency,                          # ILS/ILS numeric - לפי הגדרה בחשבון
+        "success_url": os.getenv("TRANZILA_RETURN_SUCCESS"),
+        "fail_url": os.getenv("TRANZILA_RETURN_FAIL"),
+        "lang": "he",
+        "frame": "yes"                                 # אם עובדים ב-iFrame
+        # אפשר להוסיף: contact, email, phone, ordernum וכו'
+    }
+
+    # שומר רשומת תשלום (status: created)
+    pay = Payment(provider="tranzila", provider_ref=None, amount=amount, currency=currency.lower())
+    db.session.add(pay); db.session.commit()
+    # מייעד ordernum לזהות את התשלום שלך (לא חובה, עוזר בהתאמה חזרה):
+    params["ordernum"] = str(pay.id)
+
+    # מחזירים קישור תשלום
+    url = f"{_tz_base()}/{terminal}?{urlencode(params)}"
+    return jsonify({"redirect_url": url, "payment_id": pay.id}), 200
+
+Return/Callback מ-Tranzila (סטטוס התשלום):
+
+Tranzila מחזירה פרמטרים ב-Redirect/Callback. המפתחות המדויקים תלויים בהגדרות (iframe/hosted/redirect, API V1/V2). להלן עיבוד כללי: קרא Response/result/Tempref/tranid/ordernum ושדרג מצב. הסתכל במסמך הרשמי לחשבון שלך לשמות המדויקים.  ￼
+
+@crm_unified_bp.get("/payments/tranzila/return/success")
+def tranzila_return_success():
+    # דוגמה: ?ordernum=123&tranid=XXXX&Response=000&tempref=YYYY
+    args = request.args
+    ordernum = args.get("ordernum")
+    tranid = args.get("tranid") or args.get("transaction_id") or args.get("tempref")
+    resp = args.get("Response") or args.get("result")
+
+    # אימות בסיסי: מזהה פנימי שלנו
+    pay = Payment.query.get(int(ordernum)) if ordernum and ordernum.isdigit() else None
+    if pay and resp in ("000","0","approved","success"):
+        pay.status = "captured"; pay.provider_ref = tranid
+        db.session.commit()
+        # כאן: יצירת חשבונית אוטומטית אם רוצים
+        # redirect לדף "תודה"
+        return "OK", 200
+    # אם לא ברור – מסמנים כ-failed
+    if pay:
+        pay.status = "failed"; db.session.commit()
+    return "FAILED", 400
+
+@crm_unified_bp.get("/payments/tranzila/return/fail")
+def tranzila_return_fail():
+    ordernum = request.args.get("ordernum")
+    pay = Payment.query.get(int(ordernum)) if ordernum and ordernum.isdigit() else None
+    if pay:
+        pay.status = "failed"; db.session.commit()
+    return "FAILED", 400
+
+אם אצלך מופעל API V2 עם HMAC (“Handshake”)—בצע אימות חתימה מול הסוד (TRANZILA_SECRET) בהתאם למסמך ה-V2 (בנוסח HMAC-SHA256 על סטרינג פרמטרים קנוני).  ￼
+
+⸻
+
+4) הסרת Stripe—בלי לשבור
+	1.	קוד:
+	•	חפש stripe בכל הפרויקט.
+	•	השבת/מפה את הראוטים הישנים ל-410/Redirect:
+
+@crm_unified_bp.post("/payments/create-intent")
+def deprecated_stripe():
+    return jsonify({"error":"Stripe deprecated. Use /payments/paypal/create-order or /payments/tranzila/create-link"}), 410
+
+
+	•	הסר import stripe וכל שימוש בו.
+
+	2.	תלויות: הסר מה-requirements.txt/pyproject.toml את חבילת stripe.
+	3.	ENV: מחק STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET מסודות.
+	4.	DB: אם יש רשומות ישנות של Stripe — השאר; לא נוגעים (היסטוריה).
+	5.	FE: החלף כפתורי תשלום ל-PayPal SDK (client side) או Redirect ל-Tranzila.
+
+⸻
+
+5) חשבוניות (אותו קוד כמו קודם—לא תלוי ספק)
+
+ברגע שתשלום captured (ב-PayPal webhook או ב-Tranzila success), צור PDF ושמור Invoice.
+הקטע המצומצם מוכן לשימוש (ReportLab) — אם כבר הוספת, אתה מסודר.
+
+⸻
+
+6) בדיקות Smoke
+
+# PayPal
+POST /payments/paypal/create-order  {"amount": 9900}  ->  {order_id}
+# פרונט יעשה approve/capture; או תריץ דרך Postman + Dashboard
+# אחרי ההשלמה: מגיע webhook -> Payment.status='captured'
+
+# Tranzila
+POST /payments/tranzila/create-link {"amount": 9900} -> redirect_url
+# פתח את הקישור, השלם תשלום טסט -> חזרה ל-.../return/success?ordernum=...
+# Payment.status='captured', provider_ref=tranid/tempref
+
+
+⸻
+
+שאלות נפוצות / טעויות קלאסיות
+	•	PayPal: אל תשכח PAYPAL_WEBHOOK_ID ו-Verify Signature; אחרת תקבל success מזויף.  ￼
+	•	Tranzila: התאמת שמות פרמטרים (supplier/sum/currency/ordernum/Response/tranid/tempref) לפי החשבון וה־mode (Redirect/iFrame/API v2). שמות ודפוס החתימה רשומים במסמך Tranzila; ציינתי כאן דפוס כללי בטוח.  ￼
+	•	PCI: Redirect/iFrame עדיף על איסוף כרטיס בשרת ללא SAQ מתאים.
+
+⸻
+
+סיכום
+	•	הוספת שני ספקים PayPal + Tranzila בלי לשנות ארכיטקטורה.
+	•	הסרת Stripe בצורה בטוחה.
+	•	שמירה על דגם Payment אחד עם provider/provider_ref + אותם Hooks לחשבוניות.
+	•	כל הדוגמאות ניתנות להדבקה ישירה; תצטרך רק להתאים את שמות הפרמטרים המדויקים ב-Tranzila לפי מסמכיהם (קישורים מצורפים).  ￼ ￼
+
+אם תרצה—אכין גם גרסת Hosted Fields של Tranzila (טופס מוטמע במקום Redirect) כשלב הבא.
