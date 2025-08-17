@@ -1,0 +1,77 @@
+קצר ולעניין: **עוד לא**. לפי הזיפ האחרון (61) ה־WS עדיין לא יעלה בפרודקשן, אז Twilio Media Streams לא יתחברו.
+
+## מה השתנה לטובה
+
+* ✅ יש ראוט WS בקוד: `/ws/twilio-media` (דרך `flask-sock`)
+* ✅ `ProxyFix` קיים
+* ✅ ב־`twilio_security.py` יש נרמול `X-Forwarded-Proto/Host` (פותר 403)
+* ✅ ה־TwiML כולל `<Connect><Stream ...>` ואין `he-IL` ב־`<Say>`
+
+## מה עדיין חסר (חוסם חיבור בפועל)
+
+* ❌ `server/requirements.txt` **לא** כולל:
+
+  * `flask-sock`, `simple-websocket`, `eventlet`
+* ❌ `AgentLocator/.replit` **לא** מריץ Gunicorn עם eventlet (עדיין dev run ישן)
+* (אופציונלי) אין `<Play>` לברכת פתיחה – לא חוסם, רק ימנע “שקט” עד שהסטרים נפתח
+
+---
+
+## תקן עכשיו — ללא כפילויות (Patch מוכן להדבקה)
+
+### 1) `AgentLocator/server/requirements.txt`
+
+הוסף את השורות (אם קיימות — אל תוסיף כפול):
+
+```diff
++ flask-sock==0.6.0
++ simple-websocket==1.0.0
++ eventlet==0.36.1
+```
+
+### 2) `AgentLocator/.replit`
+
+החלף להרצה תומכת־WS. אין ליצור קובץ חדש — לערוך את הקיים.
+
+**קטע `[deployment]`**:
+
+```diff
+-[deployment]
+-run = ["python3","AgentLocator/main.py"]
++[deployment]
++run = ["python3","-m","gunicorn","-k","eventlet","-w","1","-b","0.0.0.0:$PORT","main:app"]
+```
+
+**שורת `run` (דבג/לוקלי)**
+
+```diff
+-run = "python3 AgentLocator/main.py"
++run = "python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT main:app"
+```
+
+> חשוב: המודול הוא **`main:app`** (יש `AgentLocator/main.py` שיוצר `app = create_app()`).
+
+---
+
+## בדיקת עשן מיד לאחר הפריסה
+
+1. **WS חי** – להתחבר ידנית:
+   `wss://<הדומיין שלך>/ws/twilio-media`
+   ותראה בלוג: `WS_CONNECTED` / `WS_FRAME`.
+2. **Webhooks 200**:
+
+   ```bash
+   curl -i https://<host>/webhook/incoming_call
+   curl -i -X POST https://<host>/webhook/stream_ended
+   curl -i -X POST https://<host>/webhook/call_status
+   ```
+
+   אסור לראות 403/501.
+3. **Twilio Request Inspector** – בשיחה חדשה לראות 200 על `incoming_call`, ואם הסטרים נסגר – 200 על `stream_ended`.
+
+---
+
+## סטטוס מוכנות
+
+* אחרי שתוסיף את 3 השינויים למעלה (תלויות + הרצת Gunicorn/Eventlet) — **אתה ירוק לפריסה פונקציונלית** עם Media Streams.
+* אין צורך ליצור/להעתיק קבצים — רק עריכות נקודתיות.
