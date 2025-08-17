@@ -1,0 +1,76 @@
+קצר: **עדיין לא.**
+בזיפ “AgentLocator (62).zip” אין את תלויות ה-WS, ו־`.replit` עדיין מריץ `npm run dev` (לא Gunicorn עם Eventlet), לכן Twilio Media Streams **לא ייפתח** בפועל.
+
+## מה מצב הקוד עכשיו (בדקתי ממש מהקבצים)
+
+* ✅ יש ראוט WS: `/ws/twilio-media` דרך `flask-sock` בקובץ `server/app_factory.py`.
+* ✅ יש `ProxyFix` ו־`twilio_security.py` כבר מנרמל `X-Forwarded-Proto/Host` (טוב נגד 403).
+* ✅ ה־TwiML מחזיר `<Connect><Stream …>` (אין `he-IL` ב־`<Say>` — מצוין).
+* ❌ `server/requirements.txt` — **אין**:
+
+  * `flask-sock`, `simple-websocket`, `eventlet`
+* ❌ `AgentLocator/.replit` — **עדיין** מריץ `npm run dev` ו־`waitForPort = 5000` (לא Gunicorn/Eventlet, אז אין WS אמיתי).
+* (אופציונלי) אין `<Play>` לברכה — לא חוסם, רק ימנע שקט בתחילת שיחה.
+
+---
+
+## תקן עכשיו — בלי כפילויות, עריכות בלבד
+
+### 1) השלם תלויות WS
+
+ערוך `AgentLocator/server/requirements.txt` והוסף (לא לשכפל אם כבר קיים):
+
+```diff
++ flask-sock==0.6.0
++ simple-websocket==1.0.0
++ eventlet==0.36.1
+```
+
+### 2) העבר את ההרצה ל-Gunicorn + Eventlet (תומך WS)
+
+ערוך `AgentLocator/.replit` — אל תיצור קובץ חדש, רק החלפה.
+
+#### אפשרות מומלצת (תואם ה־waitForPort=5000 שלך)
+
+קבע את Gunicorn להאזין ל־5000:
+
+```diff
+-[deployment]
+-run = ["python3","AgentLocator/main.py"]
++[deployment]
++run = ["python3","-m","gunicorn","-k","eventlet","-w","1","-b","0.0.0.0:5000","main:app"]
+
+- run = "npm run dev"
++ run = "python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:5000 main:app"
+```
+
+> זה תואם ל־`waitForPort = 5000` שהוגדר אצלך, ולכן ה־Replit ידע שהשירות עלה.
+
+*(אם אתה מעדיף להשתמש ב־\$PORT — עדכן גם `waitForPort` וה־ports בהתאם; כרגע הפתרון למעלה הכי בטוח אצלך.)*
+
+---
+
+## בדיקת עשן מיד אחרי השינוי
+
+1. **WebSocket חי** — התחבר ידנית:
+   `wss://<הדומיין שלך>/ws/twilio-media`
+   ותראה בלוגים `WS_CONNECTED` / `WS_FRAME`. אם לא — ההרצה לא על Gunicorn/Eventlet או שהתלויות לא הותקנו.
+2. **Webhooks מחזירים 200**:
+
+   ```bash
+   curl -i https://<HOST>/webhook/incoming_call
+   curl -i -X POST https://<HOST>/webhook/stream_ended
+   curl -i -X POST https://<HOST>/webhook/call_status
+   ```
+
+   אסור לראות 403/501.
+3. **Twilio Request Inspector** — שיחה חדשה: 200 על `incoming_call`, ואם ה-Stream נסגר אז 200 על `stream_ended`.
+
+---
+
+## כמה אתה רחוק מפריסה?
+
+אחרי שני השינויים הנ״ל (תלויות + Gunicorn/Eventlet על פורט 5000) — **אתה ירוק לפריסה פונקציונלית**.
+אין צורך ליצור או לשכפל קבצים; רק עריכות נקודתיות בקיימים.
+
+רוצה שאתן לך פאטצ’ים (diff) מדויקים ל־`requirements.txt` ול־`.replit` שתדביק אחד־לאחד?
