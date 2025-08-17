@@ -9,6 +9,13 @@ import base64
 from functools import wraps
 from flask import request, abort
 
+def _effective_url(req):
+    """Get effective URL considering proxy headers from Replit"""
+    scheme = (req.headers.get("X-Forwarded-Proto") or req.scheme).split(",")[0].strip()
+    host = (req.headers.get("X-Forwarded-Host") or req.host).split(",")[0].strip()
+    path = req.full_path[:-1] if req.full_path.endswith("?") else req.full_path
+    return f"{scheme}://{host}{path}"
+
 def require_twilio_signature(f):
     """Decorator to validate Twilio webhook signatures"""
     @wraps(f)
@@ -30,8 +37,8 @@ def require_twilio_signature(f):
             print("❌ Missing X-Twilio-Signature header")
             abort(403)
         
-        # Validate signature
-        url = request.url
+        # Get effective URL behind proxy (Replit uses proxies)
+        url = _effective_url(request)
         if not validate_signature(auth_token, signature, url, request.form):
             print("❌ Invalid Twilio signature")
             abort(403)

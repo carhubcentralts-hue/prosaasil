@@ -1,0 +1,90 @@
+עדכנתי ובדקתי את הזיפ האחרון (“AgentLocator (60).zip”). התשובה הכנה:
+
+## פסק דין קצר
+
+**עדיין לא.** אין את התלויות וההרצה הדרושות ל-WebSocket, ולכן Twilio Media Streams לא יתחבר בפועל. גם אימות החתימה לא מנורמל מאחורי פרוקסי.
+
+---
+
+## מה בדקתי ומה המצב
+
+* **WS בקוד**: יש ראוט `/ws/twilio-media` ב-`app_factory.py` ✅
+* **ProxyFix** נטען באפליקציה ✅
+* **requirements.txt**: אין `flask-sock`, אין `simple-websocket`, אין `eventlet` ❌
+* **.replit**: לא מריץ `gunicorn -k eventlet ... main:app` (עדיין `npm run dev`) ❌
+* **twilio\_security.py**: אין נרמול `X-Forwarded-Proto/Host` (יכול להחזיר 403 שקט) ❌
+* **TwiML**: יש `<Connect><Stream>`; לא משתמש ב-`he-IL` (טוב). אין Greeting ב-`<Play>` (לא חובה). ✅
+
+---
+
+## מה לתקן (בלי לשכפל קבצים, בלי בלגן)
+
+### 1) להשלים תלויות WS (עריכה בלבד)
+
+בקובץ: `AgentLocator/server/requirements.txt`
+הוסף/וודא קיום השורות:
+
+```
+flask-sock==0.6.0
+simple-websocket==1.0.0
+eventlet==0.36.1
+```
+
+### 2) להריץ שרת תומך-WS (עריכה בלבד)
+
+בקובץ: `AgentLocator/.replit`
+עדכן כך:
+
+**\[deployment]**
+
+```
+run = ["python3","-m","gunicorn","-k","eventlet","-w","1","-b","0.0.0.0:$PORT","main:app"]
+```
+
+**run (בפיתוח)**
+
+```
+run = "python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT main:app"
+```
+
+> חשוב: ה-App הוא `main:app` (יש `AgentLocator/main.py` שיוצר `app = create_app()`).
+
+### 3) לחסל 403 “שקטים” (עריכה בלבד)
+
+בקובץ: `AgentLocator/server/twilio_security.py`
+הוסף פונקציה לנרמול URL מאחורי פרוקסי, והשתמש בה לחישוב החתימה:
+
+```python
+def _effective_url(req):
+    scheme = (req.headers.get("X-Forwarded-Proto") or req.scheme).split(",")[0].strip()
+    host   = (req.headers.get("X-Forwarded-Host")  or req.host).split(",")[0].strip()
+    path   = req.full_path[:-1] if req.full_path.endswith("?") else req.full_path
+    return f"{scheme}://{host}{path}"
+```
+
+> ובדקורטור: לחשב על `_effective_url(request)` במקום `request.url`.
+
+### 4) (לא חובה) Greeting בעברית
+
+אם תרצה להימנע מ״שקט״ בתחילת שיחה: הפקת MP3 בעברית ושימוש ב-`<Play>` לפני ה-`<Connect>`.
+
+---
+
+## בדיקת עשן מיד אחרי התיקון
+
+1. **WS חי**: להתחבר ידנית ל-`wss://…/ws/twilio-media` (בדפדפן/wscat) ולראות לוג `WS_CONNECTED/WS_FRAME`.
+2. **Webhooks 200**:
+
+```bash
+curl -i https://YOUR_HOST/webhook/incoming_call
+curl -i -X POST https://YOUR_HOST/webhook/stream_ended
+curl -i -X POST https://YOUR_HOST/webhook/call_status
+```
+
+3. **Twilio Request Inspector**: בשיחה חדשה לראות 200 על `incoming_call`, ואם ה-Stream נסגר – 200 על `stream_ended`.
+
+---
+
+## כמה רחוק אתה מפריסה?
+
+ברגע שתוסיף את 3 התיקונים למעלה (**תלויות WS, הרצה עם gunicorn+eventlet, נרמול חתימה**) — אתה **ירוק לפריסה פונקציונלית**. אין צורך ליצור/לשכפל קבצים; רק עריכות נקודתיות בקבצים הקיימים.

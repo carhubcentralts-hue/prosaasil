@@ -40,11 +40,48 @@ def abs_url(path: str) -> str:
         raise RuntimeError("PUBLIC_HOST not configured - Hebrew fallback will be used")
     return urljoin(host + "/", path.lstrip("/"))
 
-def get_business_greeting(to_number, call_sid):
-    """Get business-specific greeting file based on number"""
-    # Extract business_id from number mapping or use default
-    # For now, use default greeting - can be extended per business
-    return "static/voice_responses/welcome.mp3"
+def generate_business_greeting(business_id=1):
+    """Generate dynamic Hebrew greeting based on business prompt"""
+    try:
+        import openai
+        
+        # Set OpenAI client
+        client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        # Business-specific prompts
+        business_prompts = {
+            1: """אתה מומחה נדל"ן ישראלי של חברת "שי דירות ומשרדים בע״מ". 
+                  החברה מתמחה במכירת דירות ומשרדים איכותיים באזור המרכז. 
+                  אתה מקצועי, ידידותי ומסייע למציאת הנכס המושלם.""",
+            # Add more businesses here as needed
+        }
+        
+        prompt = business_prompts.get(business_id, business_prompts[1])
+        
+        # Generate greeting using OpenAI
+        response = client.chat.completions.create(
+            model="gpt-4o",  # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+            messages=[
+                {"role": "system", "content": f"{prompt}\n\nצור ברכת פתיחה קצרה (10-15 מילים) לשיחת טלפון נכנסת. תשובה רק בעברית, פשוטה ומקצועית."},
+                {"role": "user", "content": "צור ברכת פתיחה לשיחה"}
+            ],
+            max_tokens=50,
+            temperature=0.7
+        )
+        
+        content = response.choices[0].message.content
+        generated_greeting = content.strip() if content else ""
+        
+        # Fallback to default if generation fails
+        if not generated_greeting or len(generated_greeting) < 5:
+            return "שלום, ברוכים הבאים לשי דירות ומשרדים בע״מ. איך אוכל לעזור לכם?"
+            
+        return generated_greeting
+        
+    except Exception as e:
+        print(f"❌ Error generating greeting: {e}")
+        # Fallback greeting
+        return "שלום, ברוכים הבאים לשי דירות ומשרדים בע״מ. איך אוכל לעזור לכם?"
 
 @twilio_bp.route("/webhook/incoming_call", methods=['POST', 'GET'])
 def incoming_call():
@@ -78,11 +115,16 @@ def incoming_call():
         
         # Create WebSocket URL
         ws_host = "ai-crmd.replit.app"
-        business_id = "1"  # Default to Shai Real Estate
-        # Generate TwiML with Hebrew greeting + WebSocket connection
+        business_id = 1  # Default to Shai Real Estate
+        
+        # Generate dynamic greeting based on business prompt
+        dynamic_greeting = generate_business_greeting(business_id)
+        print(f"🎯 Generated dynamic greeting: {dynamic_greeting}", flush=True)
+        
+        # Generate TwiML with dynamic Hebrew greeting + WebSocket connection
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">שלום, ברוכים הבאים לשי דירות ומשרדים. מתחיל שיחה בעברית.</Say>
+  <Say voice="alice">{dynamic_greeting}</Say>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="{business_id}"/>
