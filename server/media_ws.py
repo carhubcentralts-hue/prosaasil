@@ -154,7 +154,8 @@ class MediaStreamHandler:
         try:
             # Step 1: Transcribe Hebrew with Whisper
             from server.services.whisper_handler import transcribe_he
-            transcript = transcribe_he(audio_bytes, self.call_sid)
+            call_sid = self.call_sid or "unknown"
+            transcript = transcribe_he(audio_bytes, call_sid)
             
             if not transcript:
                 log.info("No valid transcript - ignoring audio chunk")
@@ -203,10 +204,11 @@ class MediaStreamHandler:
             from google.cloud import texttospeech
             
             # Set up Google credentials from environment
-            if os.getenv('GOOGLE_TTS_SA_JSON'):
+            sa_json = os.getenv('GOOGLE_TTS_SA_JSON')
+            if sa_json:
                 creds_path = '/tmp/google_service_account.json'
                 with open(creds_path, 'w') as f:
-                    f.write(os.getenv('GOOGLE_TTS_SA_JSON'))
+                    f.write(sa_json)
                 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = creds_path
             
             # Initialize TTS client
@@ -324,7 +326,11 @@ class MediaStreamHandler:
                 temperature=0.7
             )
             
-            ai_response = response.choices[0].message.content.strip()
+            ai_response = response.choices[0].message.content
+            if ai_response:
+                ai_response = ai_response.strip()
+            else:
+                ai_response = "מצטער, לא הבנתי."
             
             log.info("GPT-4o Hebrew response generated", extra={
                 "call_sid": self.call_sid,
@@ -352,28 +358,6 @@ class MediaStreamHandler:
         except Exception as e:
             log.error("Failed to load business prompt: %s", e)
             return "אתה עוזר AI מקצועי ונוח דבר בעברית."
-        try:
-            # Import services
-            from server.services.whisper_handler import transcribe_he
-            
-            # Transcribe audio
-            text = transcribe_he(audio_bytes, self.call_sid)
-            
-            if text and len(text.strip()) > 2:
-                log.info("Real-time transcription", extra={
-                    "call_sid": self.call_sid,
-                    "text": text[:100],
-                    "mode": "live_stream"
-                })
-                
-                # TODO: Generate AI response and send back via TTS
-                # For now just log the successful transcription
-                
-            else:
-                log.debug("No speech detected in chunk", extra={"call_sid": self.call_sid})
-                
-        except Exception as e:
-            log.error("AI pipeline failed: %s", e, extra={"call_sid": self.call_sid})
             
     def _start_heartbeat(self):
         """Start heartbeat timer"""
@@ -394,7 +378,4 @@ class MediaStreamHandler:
             self.heartbeat_timer.cancel()
         log.info("Media stream connection closed", extra={"call_sid": self.call_sid})
 
-def handle_media_stream(websocket):
-    """Main entry point for media stream WebSocket"""
-    handler = MediaStreamHandler(websocket)
-    handler.handle_connection()
+# Main entry point is already defined at top of file
