@@ -1,2 +1,19 @@
+modules = ["python-3.11", "postgresql-16"]
+run = "python3 -m pip install --upgrade pip wheel setuptools && python3 -m pip install 'flask==3.*' 'gunicorn==21.*' 'eventlet==0.36.1' 'fla==0.6.0' 'simple-websocket==1.0.0' 'twilio==9.*' 'openai>=1.30.0' 'google-cloud-texttospeech>=2.16.3' 'requests>=2.32.3' && python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:5000 AgentLocator.main:app"
+
+[deployment]
+deploymentTarget = "autoscale"
+build = ["bash","-lc","python3 -m pip install --upgrade pip wheel setuptools && python3 -m pip install 'flask==3.*' 'gunicorn==21.*' 'eventlet==0.36.1' 'flask-sock==0.6.0' 'simple-websocket==1.0.0' 'twilio==9.*' 'openai>=1.30.0' 'google-cloud-texttospeech>=2.16.3' 'requests>=2.32.3'"]
+run   = ["python3","-m","gunicorn","-k","eventlet","-w","1","-b","0.0.0.0:5000","AgentLocator.main:app"]
+
+[env]
+PORT = "5000"
+PYTHONUNBUFFERED = "1"
+PYTHONPATH = "."
+
 [agent]
-integrations = ["javascript_websocket==1.0.0", "javascript_openai==1.0.0", "javascript_paypal==1.0.0"]
+integrations = ["javascript_openai==1.0.0", "javascript_websocket==1.0.0", "javascript_paypal==1.0.0"]
+
+[nix]
+channel = "stable-25_05"
+packages = ["c-ares", "cargo", "ffmpeg-full", "freetype", "grpc", "iana-etc", "lcms2", "libiconv", "libimagequant", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "zlib"]
