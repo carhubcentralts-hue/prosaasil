@@ -1,0 +1,2 @@
+[agent]
+integrations = ["javascript_websocket==1.0.0", "javascript_openai==1.0.0", "javascript_paypal==1.0.0"]
