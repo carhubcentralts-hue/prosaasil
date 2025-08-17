@@ -121,10 +121,13 @@ def incoming_call():
         dynamic_greeting = generate_business_greeting(business_id)
         print(f"🎯 Generated dynamic greeting: {dynamic_greeting}", flush=True)
         
-        # Generate TwiML with dynamic Hebrew greeting + WebSocket connection
+        # Use Play with Hebrew TTS file instead of Say (which doesn't support Hebrew properly)
+        greeting_url = f"https://{ws_host}/static/tts/greeting_he.mp3"
+        
+        # Generate TwiML with Hebrew Play + WebSocket connection
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">{dynamic_greeting}</Say>
+  <Play>{greeting_url}</Play>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="{business_id}"/>
@@ -148,10 +151,10 @@ def incoming_call():
         
     except Exception as e:
         print(f"❌ WEBHOOK ERROR: {e}")
-        # Always return 200 to Twilio with basic TwiML + Hebrew greeting
+        # Always return 200 to Twilio with basic TwiML + Hebrew greeting via Play
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">שלום, שי דירות ומשרדים. מתחבר כעת.</Say>
+  <Play>https://ai-crmd.replit.app/static/tts/fallback_he.mp3</Play>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://ai-crmd.replit.app/ws/twilio-media">
       <Parameter name="business_id" value="1"/>
@@ -172,7 +175,7 @@ def stream_ended():
 <Response>
   <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
           action="/webhook/handle_recording" />
-  <Say voice="alice">תודה. מעבד את ההודעה שלך.</Say>
+  <Play>https://ai-crmd.replit.app/static/tts/fallback_he.mp3</Play>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
         
@@ -181,7 +184,7 @@ def stream_ended():
         # Fallback TwiML - Hebrew
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say voice="alice">קיימת בעיה טכנית. אנא נסה שוב מאוחר יותר.</Say>
+    <Play>https://ai-crmd.replit.app/static/tts/fallback_he.mp3</Play>
     <Hangup/>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")

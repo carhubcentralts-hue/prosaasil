@@ -184,6 +184,15 @@ def create_app():
             "error": "Payments disabled - no PayPal/Tranzila keys configured"
         }), 403
     
+    # Serve static files for TTS audio
+    @app.route('/static/tts/<filename>')
+    def serve_tts_file(filename):
+        """Serve TTS audio files"""
+        import os
+        tts_dir = os.path.join(os.getcwd(), 'static', 'tts')
+        return send_from_directory(tts_dir, filename)
+    
+    print("✅ Static TTS file serving configured")
     print("✅ Minimal Flask app ready")
     return app
 
