@@ -82,7 +82,7 @@ def incoming_call():
         # Generate TwiML with Hebrew greeting + WebSocket connection
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="en">שלום, ברוכים הבאים לשי דירות ומשרדים. מתחיל שיחה בעברית.</Say>
+  <Say voice="alice">שלום, ברוכים הבאים לשי דירות ומשרדים. מתחיל שיחה בעברית.</Say>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="{business_id}"/>
@@ -94,6 +94,8 @@ def incoming_call():
 </Response>"""
         
         print(f"✅ TwiML generated for call {call_sid}", flush=True)
+        print(f"🔍 DEBUG: XML contains Say tag: {'Say' in xml}", flush=True)
+        print(f"🔍 DEBUG: Full XML: {xml[:200]}...", flush=True)
         
         # Final debug write
         with open('/tmp/webhook_debug.log', 'a') as f:
@@ -107,7 +109,7 @@ def incoming_call():
         # Always return 200 to Twilio with basic TwiML + Hebrew greeting
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="en">שלום, שי דירות ומשרדים. מתחבר כעת.</Say>
+  <Say voice="alice">שלום, שי דירות ומשרדים. מתחבר כעת.</Say>
   <Connect action="/webhook/stream_ended">
     <Stream url="wss://ai-crmd.replit.app/ws/twilio-media">
       <Parameter name="business_id" value="1"/>
@@ -128,7 +130,7 @@ def stream_ended():
 <Response>
   <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
           action="/webhook/handle_recording" />
-  <Say voice="alice" language="en">תודה. מעבד את ההודעה שלך.</Say>
+  <Say voice="alice">תודה. מעבד את ההודעה שלך.</Say>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
         
@@ -137,7 +139,7 @@ def stream_ended():
         # Fallback TwiML - Hebrew
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say voice="alice" language="en">קיימת בעיה טכנית. אנא נסה שוב מאוחר יותר.</Say>
+    <Say voice="alice">קיימת בעיה טכנית. אנא נסה שוב מאוחר יותר.</Say>
     <Hangup/>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
