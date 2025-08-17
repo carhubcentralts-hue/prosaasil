@@ -1,14 +1,9 @@
-modules = ["nodejs-20", "web", "postgresql-16", "python-3.11", "python3"]
+modules = ["python-3.11"]
 run = "python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:5000 main:app"
-hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
-
-[nix]
-channel = "stable-24_05"
-packages = ["c-ares","cargo","ffmpeg-full","freetype","glibcLocales","grpc","iana-etc","lcms2","libiconv","libimagequant","libjpeg","libsndfile","libtiff","libwebp","libxcrypt","openjpeg","openssl","pkg-config","rustc","tcl","tk","zlib"]
 
 [deployment]
 deploymentTarget = "autoscale"
-build = ["bash","-lc","python3 -m pip install --upgrade pip wheel setuptools && python3 -m pip install 'flask==3.*' 'gunicorn==21.*' 'eventlet==0.36.1' 'fla==0.6.0' 'simple-websocket==1.0.0' 'twilio==9.*' 'openai>=1.30.0' 'google-cloud-texttospeech>=2.16.3' 'requests>=2.32.3'"]
+build = ["pip","install","-r","requirements.txt"]
 run   = ["python3","-m","gunicorn","-k","eventlet","-w","1","-b","0.0.0.0:5000","main:app"]
 
 [env]
@@ -16,34 +11,5 @@ PORT = "5000"
 PYTHONUNBUFFERED = "1"
 PYTHONPATH = "."
 
-[workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Start application"
-
-[[workflows.workflow]]
-name = "Start application"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:5000 main:app"
-waitForPort = 5000
-
 [agent]
-integrations = ["javascript_paypal==1.0.0","javascript_openai==1.0.0","javascript_object_storage==1.0.0","javascript_database==1.0.0","javascript_websocket==1.0.0","javascript_log_in_with_replit==1.0.0"]
-
-[[ports]]
-localPort = 5000
-externalPort = 80
-
-[[ports]]
-localPort = 8000
-externalPort = 8000
+integrations = ["javascript_paypal==1.0.0", "javascript_openai==1.0.0", "javascript_websocket==1.0.0"]
