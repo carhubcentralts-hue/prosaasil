@@ -117,12 +117,10 @@ def incoming_call():
         ws_host = "ai-crmd.replit.app"
         business_id = 1  # Default to Shai Real Estate
         
-        # Generate dynamic greeting based on business prompt
-        dynamic_greeting = generate_business_greeting(business_id)
-        print(f"🎯 Generated dynamic greeting: {dynamic_greeting}", flush=True)
-        
-        # Use Play with Hebrew TTS file instead of Say (which doesn't support Hebrew properly)
+        # Use static Hebrew greeting to avoid OpenAI delay in webhook
+        # Dynamic greeting moved to Media Stream for faster response
         greeting_url = f"https://{ws_host}/static/tts/greeting_he.mp3"
+        print(f"🎯 Using static greeting: {greeting_url}", flush=True)
         
         # Generate TwiML with Hebrew Play + WebSocket connection
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>

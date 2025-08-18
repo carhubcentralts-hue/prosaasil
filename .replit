@@ -1,4 +1,4 @@
-modules = ["python-3.11"]
+modules = ["python-3.11", "postgresql-16"]
 run = "python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:5000 main:app"
 
 [deployment]
@@ -13,3 +13,6 @@ PYTHONPATH = "."
 
 [agent]
 integrations = ["javascript_paypal==1.0.0", "javascript_openai==1.0.0", "javascript_websocket==1.0.0"]
+
+[nix]
+channel = "stable-25_05"
