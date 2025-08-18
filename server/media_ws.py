@@ -204,7 +204,7 @@ class MediaStreamHandler:
             from google.cloud import texttospeech
             
             # Set up Google credentials from environment
-            sa_json = os.getenv('GOOGLE_TTS_SA_JSON')
+            sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
             if sa_json:
                 creds_path = '/tmp/google_service_account.json'
                 with open(creds_path, 'w') as f:
