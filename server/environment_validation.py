@@ -31,7 +31,7 @@ def validate_production_environment() -> Dict[str, Any]:
     # Optional but recommended
     recommended = [
         "OPENAI_API_KEY",
-        "GOOGLE_TTS_SA_JSON",
+        "GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON",
         "DATABASE_URL"
     ]
     
