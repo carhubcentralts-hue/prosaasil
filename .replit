@@ -16,3 +16,8 @@ integrations = ["javascript_paypal==1.0.0", "javascript_openai==1.0.0", "javascr
 
 [nix]
 channel = "stable-25_05"
+packages = ["iana-etc"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80
