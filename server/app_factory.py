@@ -218,10 +218,31 @@ def create_app():
         
     @app.route('/readyz')
     def readyz():
+        """Enhanced health check - shows secret availability for debugging"""
+        try:
+            import psycopg2
+            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+            conn.close()
+            db_status = "ok"
+        except Exception as e:
+            db_status = f"error: {str(e)}"
+        
+        # Check critical secrets for Watchdog system
+        secrets = {
+            'twilio_sid': "ok" if os.getenv('TWILIO_ACCOUNT_SID') else "missing", 
+            'twilio_token': "ok" if os.getenv('TWILIO_AUTH_TOKEN') else "missing",
+            'openai': "ok" if os.getenv('OPENAI_API_KEY') else "missing",
+            'gcp_tts': "ok" if os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') else "missing"
+        }
+        
+        watchdog_enabled = secrets['twilio_sid'] == 'ok' and secrets['twilio_token'] == 'ok'
+        
         return jsonify({
             "status": "ready",
-            "db": "ok",
-            "version": "1.0.0"
+            "version": "1.0.0",
+            "db": db_status,
+            "secrets": secrets,
+            "watchdog": "enabled" if watchdog_enabled else "disabled - missing Twilio credentials"
         }), 200
         
     @app.route('/version')

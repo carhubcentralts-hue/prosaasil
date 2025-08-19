@@ -15,6 +15,7 @@ app = create_app()
 print("🚀 Hebrew AI Call Center - Full WebSocket Media Streams Version")
 print("✅ WebSocket bidirectional conversations enabled")
 print("✅ Hebrew TTS with proper secrets")
+print("🐕 WATCHDOG SYSTEM ENABLED - Will redirect calls to Record if WebSocket fails")
 
 # Test endpoints are now in app_factory.py with WebSocket support
 # This file just imports the full app
