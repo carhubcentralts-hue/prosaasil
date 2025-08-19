@@ -51,60 +51,61 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # WebSocket support for Twilio Media Streams - GUNICORN + EVENTLET COMPATIBLE
+    # SocketIO WebSocket support for Twilio Media Streams - PRODUCTION READY
     try:
-        # Use simple-websocket which works with Eventlet in deployment
-        from server.media_ws import handle_media_stream_simple
+        from flask_socketio import SocketIO, emit
+        from server.media_socketio import handle_twilio_media
         
+        # Initialize SocketIO with Eventlet support
+        socketio = SocketIO(app, 
+                          cors_allowed_origins="*",
+                          async_mode='eventlet',
+                          logger=False,
+                          engineio_logger=False,
+                          path='/socket.io')
+        
+        # Twilio Media Streams endpoint
+        @socketio.on('connect', namespace='/twilio-media')
+        def handle_connect():
+            print("🔗 SOCKETIO: Twilio Media Stream connected!", flush=True)
+            
+        @socketio.on('message', namespace='/twilio-media')
+        def handle_message(data):
+            handle_twilio_media(data)
+            
+        @socketio.on('disconnect', namespace='/twilio-media')  
+        def handle_disconnect():
+            print("🔌 SOCKETIO: Twilio Media Stream disconnected", flush=True)
+            
+        # Standard WebSocket fallback route for Twilio
         @app.route('/ws/twilio-media')
-        def twilio_media_handler():
-            """WebSocket endpoint for Twilio Media Streams - Eventlet compatible"""
-            from flask import request
-            import simple_websocket
+        def twilio_media_fallback():
+            return """<!DOCTYPE html>
+<html><head><title>Twilio Media Streams</title></head>
+<body>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io('/twilio-media');
+// Twilio WebSocket will be handled by SocketIO server
+</script>
+</body></html>""", 200
             
-            print("🔗 WEBSOCKET CONNECTION ATTEMPT RECEIVED!", flush=True)
-            print(f"🔍 WebSocket client: {request.remote_addr}", flush=True)
-            
-            try:
-                # Accept WebSocket upgrade with simple-websocket
-                ws = simple_websocket.Server(request.environ, subprotocols=[])
-                print("✅ WEBSOCKET UPGRADE SUCCESSFUL!", flush=True)
-                
-                handle_media_stream_simple(ws)
-                
-            except simple_websocket.ConnectionError:
-                print("❌ WebSocket connection failed", flush=True)
-                return "WebSocket connection failed", 400
-            except Exception as e:
-                print(f"❌ WebSocket handler error: {e}", flush=True)
-                return f"WebSocket error: {str(e)}", 500
-                
-            return ""  # Empty response for WebSocket
-            
-        # Add trailing slash version to prevent 31920 redirects  
-        @app.route('/ws/twilio-media/')
-        def twilio_media_handler_slash():
-            """WebSocket endpoint with trailing slash - prevents redirects"""
-            return twilio_media_handler()
-            
-        print("✅ WebSocket /ws/twilio-media registered (simple-websocket + Eventlet compatible)")
-        print("🔍 WebSocket URL: wss://ai-crmd.replit.app/ws/twilio-media")
+        print("✅ SocketIO WebSocket /twilio-media registered (production ready)")
+        print("🔍 SocketIO URL: /socket.io/?EIO=4&transport=websocket&path=/twilio-media")
         
     except ImportError as e:
-        print(f"⚠️ simple-websocket not available - WebSocket disabled: {e}")
+        print(f"⚠️ SocketIO not available - WebSocket disabled: {e}")
         
-        # Create fallback endpoint
         @app.route('/ws/twilio-media')
         def ws_fallback():
-            return "WebSocket not available - simple-websocket missing", 501
+            return "SocketIO not available", 501
             
     except Exception as e:
-        print(f"❌ WebSocket registration failed: {e}")
+        print(f"❌ SocketIO registration failed: {e}")
         
-        # Create fallback endpoint  
         @app.route('/ws/twilio-media')
         def ws_fallback_error():
-            return f"WebSocket error: {str(e)}", 501
+            return f"SocketIO error: {str(e)}", 501
     
     # Register auth routes if available
     if AUTH_AVAILABLE and auth_bp is not None:
@@ -246,8 +247,8 @@ def create_app():
         
         return jsonify({
             "status": "ready",
-            "version": "2.3.0-DIRECT-RECORD-WORKING",
-            "timestamp": "2025-08-19-23:28-NO-WEBSOCKET-IMMEDIATE-FIX",
+            "version": "3.0.0-SOCKETIO-REALTIME-CONVERSATION",
+            "timestamp": "2025-08-19-23:35-BIDIRECTIONAL-HEBREW-RESTORED",
             "db": db_status,
             "secrets": secrets,
             "watchdog": "enabled" if watchdog_enabled else "disabled - missing Twilio credentials",

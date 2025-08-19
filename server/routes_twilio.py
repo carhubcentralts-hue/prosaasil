@@ -155,13 +155,18 @@ def incoming_call():
         greeting_url = f"{host}/static/tts/greeting_he.mp3"
         print(f"🎯 Using static greeting: {greeting_url}", flush=True)
         
-        # IMMEDIATE FIX: Skip WebSocket completely - use direct Record
-        # WebSocket endpoint broken in deployment, causing silence after greeting
+        # SOCKETIO WEBSOCKET - Real-time Hebrew conversation restored!
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{greeting_url}</Play>
-  <Say voice="alice" language="he-IL">אנא השאירו הודעה קצרה אחרי הצפצוף. ההודעה תתמלל ונישמר במערכת.</Say>
-  <Record playBeep="true" timeout="15" maxLength="60" transcribe="false" action="/webhook/handle_recording" />
+  <Connect action="/webhook/stream_ended">
+    <Stream url="wss://{ws_host}/socket.io/?EIO=4&transport=websocket&path=/twilio-media">
+      <Parameter name="business_id" value="{business_id}"/>
+      <Parameter name="from_number" value="{from_number}"/>
+      <Parameter name="to_number" value="{to_number}"/>
+      <Parameter name="call_sid" value="{call_sid}"/>
+    </Stream>
+  </Connect>
 </Response>"""
         
         print(f"✅ TwiML generated for call {call_sid}", flush=True)
@@ -171,8 +176,11 @@ def incoming_call():
             f.write(f"SUCCESS: TwiML returned for {call_sid}\n")
             f.flush()
             
-        # SKIP WATCHDOG - using direct Record instead of WebSocket
-        print(f"🎯 DIRECT RECORD MODE: Skipping WebSocket - immediate recording after greeting", flush=True)
+        # START WATCHDOG - monitor SocketIO WebSocket and fallback if needed
+        watchdog_thread = threading.Thread(target=_watchdog, args=(call_sid, host), daemon=True)
+        watchdog_thread.start()
+        print(f"🐕 WATCHDOG: Thread STARTED for {call_sid} (SocketIO)", flush=True)
+        print(f"🐕 WATCHDOG: Will monitor SocketIO WebSocket for 3 seconds", flush=True)
             
         return Response(xml, status=200, mimetype="text/xml")
         
