@@ -171,12 +171,15 @@ def incoming_call():
         
     except Exception as e:
         print(f"❌ WEBHOOK ERROR: {e}")
-        # Always return 200 to Twilio with basic TwiML + Hebrew greeting via Play
-        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        # Always return 200 to Twilio with WebSocket Media Stream fallback
+        host = os.getenv("PUBLIC_HOST", "ai-crmd.replit.app")
+        ws_host = host.replace('https://', '').replace('http://', '')
+        
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>https://ai-crmd.replit.app/static/tts/fallback_he.mp3</Play>
+  <Play>{host}/static/tts/fallback_he.mp3</Play>
   <Connect action="/webhook/stream_ended">
-    <Stream url="wss://ai-crmd.replit.app/ws/twilio-media">
+    <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="1"/>
     </Stream>
   </Connect>
