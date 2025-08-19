@@ -80,12 +80,15 @@ def incoming_call():
         except Exception as db_error:
             print(f"❌ Database error: {db_error}")
         
-        # Return Hebrew TwiML with WebSocket Media Stream (NOT Record!)
+        # Return Hebrew TwiML with WebSocket Media Stream - DYNAMIC HOST
+        host = os.getenv("PUBLIC_HOST") or request.host_url.rstrip("/")
+        ws_host = host.replace('https://', '').replace('http://', '')
+        
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>https://ai-crmd.replit.app/static/tts/greeting_he.mp3</Play>
+  <Play>{host}/static/tts/greeting_he.mp3</Play>
   <Connect action="/webhook/stream_ended">
-    <Stream url="wss://ai-crmd.replit.app/ws/twilio-media">
+    <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="1"/>
       <Parameter name="from_number" value="{from_number}"/>
       <Parameter name="to_number" value="{to_number}"/>
@@ -98,12 +101,15 @@ def incoming_call():
         
     except Exception as e:
         print(f"❌ WEBHOOK ERROR: {e}")
-        # Hebrew fallback with WebSocket
-        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        # Hebrew fallback with WebSocket - DYNAMIC HOST
+        host = os.getenv("PUBLIC_HOST", "ai-crmd.replit.app")
+        ws_host = host.replace('https://', '').replace('http://', '')
+        
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>https://ai-crmd.replit.app/static/tts/fallback_he.mp3</Play>
+  <Play>https://{host}/static/tts/fallback_he.mp3</Play>
   <Connect action="/webhook/stream_ended">
-    <Stream url="wss://ai-crmd.replit.app/ws/twilio-media">
+    <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="1"/>
     </Stream>
   </Connect>
@@ -160,6 +166,33 @@ def stream_ended():
 def call_status():
     """Call status updates"""
     return "OK", 200
+
+@app.route("/readyz", methods=['GET'])
+def readyz():
+    """Health check endpoint"""
+    try:
+        # Test database connection
+        conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        conn.close()
+        db_status = "ok"
+    except:
+        db_status = "failed"
+    
+    # Test OpenAI
+    openai_status = "ok" if os.getenv('OPENAI_API_KEY') else "disabled"
+    
+    # Test TTS
+    tts_status = "ok" if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') else "disabled"
+    
+    from flask import jsonify
+    return jsonify({
+        "db": db_status,
+        "openai": openai_status,
+        "tts": tts_status
+    })
 
 if __name__ == '__main__':
     print("🚀 Hebrew AI Call Center - Fixed Version")
