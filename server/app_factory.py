@@ -72,7 +72,7 @@ def create_app():
             return "WebSocket not available", 501
     
     # Register auth routes if available
-    if AUTH_AVAILABLE:
+    if AUTH_AVAILABLE and auth_bp is not None:
         app.register_blueprint(auth_bp, url_prefix='/api/auth')
         print("✅ Auth routes registered")
     else:
@@ -143,13 +143,17 @@ def create_app():
 </body>
 </html>""", 200
     
-    # Catch-all route for React Router - DON'T interfere with webhooks
+    # Catch-all route for React Router - DON'T interfere with webhooks or WebSocket
     @app.route('/<path:path>')
     def catch_all(path):
         """Catch all routes for React Router"""
         if path.startswith('api/'):
             return "API endpoint", 404
-        # Let webhook routes be handled by blueprints - no special handling needed
+        if path.startswith('webhook/'):
+            return "Webhook handled by blueprint", 404
+        if path.startswith('ws/'):
+            return "WebSocket handled separately", 404
+        # Let other routes be handled by React Router
         return home()
     
     # Health endpoints
