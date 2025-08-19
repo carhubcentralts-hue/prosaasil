@@ -93,6 +93,32 @@ def create_app():
         if twilio_bp is not None:
             app.register_blueprint(twilio_bp)
             print("✅ Twilio webhook routes registered")
+            
+            # Test database connection for call recording
+            print("🔄 Testing database for call recording...")
+            import psycopg2
+            import datetime
+            try:
+                conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+                cur = conn.cursor()
+                cur.execute("SELECT COUNT(*) FROM call_log")
+                call_count = cur.fetchone()[0]
+                cur.close()
+                conn.close()
+                print(f"✅ Database ready - {call_count} existing calls")
+                
+                # Apply database recording patch
+                try:
+                    from database_fix import apply_patch
+                    if apply_patch():
+                        print("✅ DATABASE RECORDING PATCH APPLIED TO SERVER")
+                    else:
+                        print("❌ DATABASE PATCH FAILED")
+                except Exception as patch_err:
+                    print(f"❌ Patch import failed: {patch_err}")
+                    
+            except Exception as db_err:
+                print(f"❌ Database test failed: {db_err}")
         else:
             print("⚠️ Twilio blueprint is None")
         

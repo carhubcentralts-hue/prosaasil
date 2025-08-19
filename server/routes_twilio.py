@@ -108,6 +108,29 @@ def incoming_call():
         
         print(f"📞 CALL RECEIVED: {from_number} → {to_number} (SID: {call_sid})", flush=True)
         
+        # ✅ CRITICAL: RECORD CALL TO DATABASE IMMEDIATELY
+        try:
+            import psycopg2
+            import datetime
+            
+            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+            cur = conn.cursor()
+            
+            # Insert call record
+            cur.execute("""
+                INSERT INTO call_log (call_sid, from_number, to_number, business_id, created_at, call_status, transcription)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (call_sid, from_number, to_number, 1, datetime.datetime.now(), 'incoming', 'Live call started'))
+            
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+            print(f"✅ CALL RECORDED TO DATABASE: {call_sid}", flush=True)
+            
+        except Exception as db_error:
+            print(f"❌ Database error: {db_error}", flush=True)
+        
         # Write to debug file  
         with open('/tmp/webhook_debug.log', 'a') as f:
             f.write(f"CALL: {call_sid} from {from_number} to {to_number}\n")
@@ -137,8 +160,6 @@ def incoming_call():
 </Response>"""
         
         print(f"✅ TwiML generated for call {call_sid}", flush=True)
-        print(f"🔍 DEBUG: XML contains Say tag: {'Say' in xml}", flush=True)
-        print(f"🔍 DEBUG: Full XML: {xml[:200]}...", flush=True)
         
         # Final debug write
         with open('/tmp/webhook_debug.log', 'a') as f:
