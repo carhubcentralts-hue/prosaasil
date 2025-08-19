@@ -8,7 +8,9 @@ import logging
 import time
 import threading
 from typing import Optional
+from flask import current_app
 from server.logging_setup import set_request_context
+from server.stream_state import stream_registry
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +42,7 @@ class MediaStreamHandler:
         self.business_id = None
         self.is_connected = False
         self.heartbeat_timer = None
+        current_app.logger.info("WS_CONNECTED")
         
     def handle_connection(self):
         """Main WebSocket connection handler"""
@@ -95,6 +98,11 @@ class MediaStreamHandler:
                     "media_format": data.get('start', {}).get('mediaFormat')
                 })
                 
+                # Mark stream as started in registry
+                if self.call_sid:
+                    stream_registry.mark_start(self.call_sid)
+                    print(f"✅ Stream registry marked start for {self.call_sid}", flush=True)
+                
                 print(f"📡 WebSocket START: call={self.call_sid}, streamSid={self.stream_sid}", flush=True)
                 print(f"🔍 EXACT streamSid from Twilio: '{self.stream_sid}'", flush=True)
                 
@@ -102,11 +110,15 @@ class MediaStreamHandler:
                 self._send_automatic_greeting()
                 
             elif event == 'media':
+                # Touch media activity in registry
+                if self.call_sid:
+                    stream_registry.touch_media(self.call_sid)
                 # Process audio data
                 self._process_audio(data.get('media', {}))
                 
             elif event == 'stop':
                 log.info("Media stream stopped", extra={"call_sid": self.call_sid})
+                current_app.logger.info("WS_STOP", extra={"call_sid": self.call_sid})
                 self.is_connected = False
                 
         except json.JSONDecodeError as e:

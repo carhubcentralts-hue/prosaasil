@@ -32,11 +32,12 @@ def create_app():
     # CORS
     CORS(app)
     
-    # SIMPLE BUT EFFECTIVE REQUEST/RESPONSE LOGGING
+    # COMPREHENSIVE LOGGING FOR WATCHDOG SYSTEM
     @app.before_request
     def _req_log():
         from flask import request
         print(f"🔥 REQ: {request.method} {request.path} from {request.remote_addr}")
+        current_app.logger.info("REQ", extra={"path": request.path, "method": request.method})
         if 'webhook' in request.path:
             print(f"📞 WEBHOOK: {request.method} {request.path} - TWILIO CALLING!")
             # Force webhook detection file
@@ -47,6 +48,7 @@ def create_app():
     def _res_log(resp):
         from flask import request
         print(f"✅ RES: {request.path} -> {resp.status_code}")
+        current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
     # WebSocket support for Twilio Media Streams

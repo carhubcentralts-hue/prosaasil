@@ -218,4 +218,45 @@ Visual focus: Currently working visually only - login page only, no dashboards. 
 - Implemented dynamic host resolution for deployment flexibility
 - Verified Eventlet worker (-k eventlet) properly configured
 
-**Final Step: Click Deploy button to activate fixed WebSocket bidirectional Hebrew AI conversations**
+**COMPREHENSIVE WATCHDOG SYSTEM IMPLEMENTED - AUGUST 19, 21:40 ✅**
+**Complete Solution for "Greeting then Silence" Issue:**
+
+**Root Cause Analysis:**
+- WebSocket connects but fails/closes immediately after greeting
+- stream_ended arrives too late (after call ends)  
+- No fallback to Record during active call
+- Result: Greeting plays, then silence, no transcription
+
+**Technical Solution Implemented:**
+1. **Stream Registry System** (`stream_state.py`)
+   - Tracks WebSocket connection status per call
+   - Monitors media frame activity in real-time
+   - Thread-safe state management
+
+2. **Enhanced Media WebSocket Handler** (`media_ws.py`)
+   - Registers stream start events
+   - Tracks media activity timestamps
+   - Comprehensive logging (WS_START, WS_STOP, WS_FRAME)
+
+3. **Watchdog System** (`routes_twilio.py`)
+   - Monitors WebSocket health for 8 seconds after call starts
+   - Detects if WebSocket never starts or stops receiving media
+   - Performs immediate Twilio REST redirect to Record fallback
+   - Operates during active call (not dependent on stream_ended)
+
+4. **Dual WebSocket Routes** (`app_factory.py`)
+   - `/ws/twilio-media` and `/ws/twilio-media/`
+   - Prevents 404/redirect issues during handshake
+
+**Expected Behavior After Deploy:**
+- Hebrew greeting plays → WebSocket attempts connection
+- If WebSocket succeeds: Real-time Hebrew transcription + AI responses  
+- If WebSocket fails: Watchdog redirects to Record within 8 seconds
+- Result: Every call gets transcription (either live or recorded)
+
+**Environment Requirements:**
+- TWILIO_ACCOUNT_SID (for Watchdog redirects)
+- TWILIO_AUTH_TOKEN (for Watchdog redirects)
+- Existing: DATABASE_URL, OPENAI_API_KEY, GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
+
+**Final Step: Click Deploy button to activate comprehensive Hebrew call system with guaranteed transcription**
