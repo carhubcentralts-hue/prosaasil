@@ -136,13 +136,14 @@ def incoming_call():
             f.write(f"CALL: {call_sid} from {from_number} to {to_number}\n")
             f.flush()
         
-        # Create WebSocket URL
-        ws_host = "ai-crmd.replit.app"
+        # Create WebSocket URL - DYNAMIC HOST
+        host = os.getenv("PUBLIC_HOST") or request.host_url.rstrip("/")
+        ws_host = host.replace('https://', '').replace('http://', '')
         business_id = 1  # Default to Shai Real Estate
         
         # Use static Hebrew greeting to avoid OpenAI delay in webhook
         # Dynamic greeting moved to Media Stream for faster response
-        greeting_url = f"https://{ws_host}/static/tts/greeting_he.mp3"
+        greeting_url = f"{host}/static/tts/greeting_he.mp3"
         print(f"🎯 Using static greeting: {greeting_url}", flush=True)
         
         # Generate TwiML with Hebrew Play + WebSocket connection

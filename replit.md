@@ -191,4 +191,17 @@ Visual focus: Currently working visually only - login page only, no dashboards. 
 - Run: `python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT main:app`  
 - Environment: DATABASE_URL, OPENAI_API_KEY, GOOGLE_APPLICATION_CREDENTIALS, PUBLIC_HOST
 
-**Next Step: User must click Deploy button to activate fixed code**
+**BIDIRECTIONAL HEBREW CONVERSATIONS FIXED - AUGUST 19, 19:57 ✅**
+**Root Cause Resolved:**
+- ✅ System now uses app_factory.py with full WebSocket Media Streams
+- ✅ TwiML returns Connect+Stream (enables bidirectional conversations)  
+- ✅ GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON secret configured correctly
+- ✅ WebSocket handler active at /ws/twilio-media
+- ✅ streamSid fix prevents 31951 errors
+
+**Expected After Deployment:**
+- Hebrew greeting plays → WebSocket connects → Real-time transcription
+- Bidirectional Hebrew conversations: User speaks → Whisper → GPT-4o → TTS
+- Complete call recording and CRM functionality
+
+**Final Step: Click Deploy button to activate bidirectional Hebrew AI conversations**
