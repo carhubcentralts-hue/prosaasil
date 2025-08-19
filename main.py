@@ -15,6 +15,7 @@ try:
 except ImportError:
     print("⚠️ Force DB recording not available")
     def force_record_call():
+        """Fallback function when force_db_recording is not available"""
         return False
 
 app = Flask(__name__)
@@ -34,7 +35,8 @@ def force_test_endpoint():
         conn = psycopg2.connect(os.getenv('DATABASE_URL'))
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM call_log")
-        count = cur.fetchone()[0]
+        result = cur.fetchone()
+        count = result[0] if result else 0
         cur.close()
         conn.close()
         return f"NEW_CODE_WITH_DB_ACCESS_WORKS_{count}", 200
@@ -175,17 +177,18 @@ def readyz():
         conn = psycopg2.connect(os.getenv('DATABASE_URL'))
         cur = conn.cursor()
         cur.execute("SELECT 1")
+        result = cur.fetchone()
         cur.close()
         conn.close()
-        db_status = "ok"
-    except:
+        db_status = "ok" if result else "failed"
+    except Exception:
         db_status = "failed"
     
     # Test OpenAI
     openai_status = "ok" if os.getenv('OPENAI_API_KEY') else "disabled"
     
-    # Test TTS
-    tts_status = "ok" if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') else "disabled"
+    # Test TTS  
+    tts_status = "ok" if os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') else "disabled"
     
     from flask import jsonify
     return jsonify({
