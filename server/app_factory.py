@@ -51,45 +51,52 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # WebSocket support for Twilio Media Streams
+    # WebSocket support for Twilio Media Streams - GUNICORN + EVENTLET COMPATIBLE
     try:
-        from flask_sock import Sock
-        from server.media_ws import handle_media_stream
+        # Use simple-websocket which works with Eventlet in deployment
+        from server.media_ws import handle_media_stream_simple
         
-        # Initialize Flask-Sock with app
-        sock = Sock()
-        sock.init_app(app)
-        
-        @sock.route('/ws/twilio-media')
-        def twilio_media_handler(ws):
-            """WebSocket endpoint for Twilio Media Streams"""
-            print("🔗 WEBSOCKET CONNECTION RECEIVED!", flush=True)
-            print(f"🔍 WebSocket client: {ws.environ.get('REMOTE_ADDR', 'unknown')}", flush=True)
-            try:
-                handle_media_stream(ws)
-            except Exception as e:
-                print(f"❌ WebSocket handler error: {e}")
-        
-        # Add trailing slash version to prevent 31920 redirects 
-        @sock.route('/ws/twilio-media/')
-        def twilio_media_handler_slash(ws):
-            """WebSocket endpoint with trailing slash - prevents redirects"""
-            print("🔗 WEBSOCKET CONNECTION (/) RECEIVED!", flush=True)
-            try:
-                handle_media_stream(ws)
-            except Exception as e:
-                print(f"❌ WebSocket handler (/) error: {e}")
+        @app.route('/ws/twilio-media')
+        def twilio_media_handler():
+            """WebSocket endpoint for Twilio Media Streams - Eventlet compatible"""
+            from flask import request
+            import simple_websocket
             
-        print("✅ WebSocket /ws/twilio-media registered (both variants)")
+            print("🔗 WEBSOCKET CONNECTION ATTEMPT RECEIVED!", flush=True)
+            print(f"🔍 WebSocket client: {request.remote_addr}", flush=True)
+            
+            try:
+                # Accept WebSocket upgrade with simple-websocket
+                ws = simple_websocket.Server(request.environ, subprotocols=[])
+                print("✅ WEBSOCKET UPGRADE SUCCESSFUL!", flush=True)
+                
+                handle_media_stream_simple(ws)
+                
+            except simple_websocket.ConnectionError:
+                print("❌ WebSocket connection failed", flush=True)
+                return "WebSocket connection failed", 400
+            except Exception as e:
+                print(f"❌ WebSocket handler error: {e}", flush=True)
+                return f"WebSocket error: {str(e)}", 500
+                
+            return ""  # Empty response for WebSocket
+            
+        # Add trailing slash version to prevent 31920 redirects  
+        @app.route('/ws/twilio-media/')
+        def twilio_media_handler_slash():
+            """WebSocket endpoint with trailing slash - prevents redirects"""
+            return twilio_media_handler()
+            
+        print("✅ WebSocket /ws/twilio-media registered (simple-websocket + Eventlet compatible)")
         print("🔍 WebSocket URL: wss://ai-crmd.replit.app/ws/twilio-media")
         
     except ImportError as e:
-        print(f"⚠️ flask_sock not available - WebSocket disabled: {e}")
+        print(f"⚠️ simple-websocket not available - WebSocket disabled: {e}")
         
         # Create fallback endpoint
         @app.route('/ws/twilio-media')
         def ws_fallback():
-            return "WebSocket not available - flask-sock missing", 501
+            return "WebSocket not available - simple-websocket missing", 501
             
     except Exception as e:
         print(f"❌ WebSocket registration failed: {e}")
@@ -239,8 +246,8 @@ def create_app():
         
         return jsonify({
             "status": "ready",
-            "version": "2.1.0-FAST-WATCHDOG-FIXED",
-            "timestamp": "2025-08-19-22:18-FAST-RESPONSE",
+            "version": "2.2.0-WEBSOCKET-GUNICORN-FIXED",
+            "timestamp": "2025-08-19-22:25-EVENTLET-COMPATIBLE",
             "db": db_status,
             "secrets": secrets,
             "watchdog": "enabled" if watchdog_enabled else "disabled - missing Twilio credentials",

@@ -14,11 +14,8 @@ from server.stream_state import stream_registry
 
 log = logging.getLogger(__name__)
 
-def handle_media_stream(ws):
-    """
-    Flask-Sock WebSocket handler for Twilio Media Streams
-    Entry point called from app_factory.py
-    """
+def handle_media_stream_simple(ws):
+    """Handle Twilio Media Stream WebSocket - simple-websocket compatible"""
     try:
         log.info("🔗 Media stream WebSocket connection opened")
         print("🔗 WebSocket connection established!")
