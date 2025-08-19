@@ -80,22 +80,33 @@ def incoming_call():
         except Exception as db_error:
             print(f"❌ Database error: {db_error}")
         
-        # Return Hebrew TwiML with recording for transcription  
+        # Return Hebrew TwiML with WebSocket Media Stream (NOT Record!)
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>https://ai-crmd.replit.app/static/tts/greeting_he.mp3</Play>
-  <Record playBeep="false" timeout="10" maxLength="30" transcribe="false" action="/webhook/handle_recording" />
-  <Say voice="alice" language="he-IL">תודה שהתקשרתם לשי דירות ומשרדים בע״מ</Say>
+  <Connect action="/webhook/stream_ended">
+    <Stream url="wss://ai-crmd.replit.app/ws/twilio-media">
+      <Parameter name="business_id" value="1"/>
+      <Parameter name="from_number" value="{from_number}"/>
+      <Parameter name="to_number" value="{to_number}"/>
+      <Parameter name="call_sid" value="{call_sid}"/>
+    </Stream>
+  </Connect>
 </Response>"""
         
         return Response(xml, status=200, mimetype="text/xml")
         
     except Exception as e:
         print(f"❌ WEBHOOK ERROR: {e}")
-        # Hebrew fallback
+        # Hebrew fallback with WebSocket
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">שלום ותודה שהתקשרתם</Say>  
+  <Play>https://ai-crmd.replit.app/static/tts/fallback_he.mp3</Play>
+  <Connect action="/webhook/stream_ended">
+    <Stream url="wss://ai-crmd.replit.app/ws/twilio-media">
+      <Parameter name="business_id" value="1"/>
+    </Stream>
+  </Connect>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
 
@@ -135,10 +146,14 @@ def handle_recording():
 
 @app.route("/webhook/stream_ended", methods=['POST'])
 def stream_ended():
-    """Stream ended handler"""  
+    """Stream ended - fallback to recording"""
+    call_sid = request.form.get('CallSid', 'unknown')
+    print(f"📞 WebSocket stream ended for {call_sid}, switching to recording fallback")
+    
     return """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">השיחה הסתיימה</Say>
+  <Record playBeep="false" timeout="10" maxLength="30" transcribe="false" action="/webhook/handle_recording" />
+  <Say voice="alice" language="he-IL">תודה שהתקשרתם לשי דירות ומשרדים בע״מ</Say>
 </Response>"""
 
 @app.route("/webhook/call_status", methods=['POST'])

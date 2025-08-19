@@ -163,7 +163,22 @@ Visual focus: Currently working visually only - login page only, no dashboards. 
 - ✅ Mark events now use correct streamSid format
 - ✅ Code ready for deployment with streamSid fix
 
-**DEPLOYMENT REQUIRED:**
-- 🚀 User must click Deploy button to activate fixed code
-- 🎯 After deployment: WebSocket will stay open, 31951 error eliminated
-- 📱 Hebrew AI conversations will resume working with proper Media Streams
+**CODE ISSUE IDENTIFIED - AUGUST 19, 19:37 ❌**
+**ROOT CAUSE: Deployment runs main.py with old Record TwiML instead of Connect+Stream**
+
+**TwiML Response Issue:**
+- ❌ Current TwiML returns: Play + Record + Say (no WebSocket!)
+- ✅ Should return: Play + Connect + Stream (WebSocket Media Streams)
+- ❌ WebSocket never connects because TwiML doesn't include <Stream>
+- ❌ All calls go directly to recording fallback
+
+**Technical Details:**
+- Call Details show wrong TwiML: `<Record playBeep="false" timeout="10">`  
+- Should show: `<Connect><Stream url="wss://...">` 
+- Fixed main.py but deployment still runs old code
+- Database recording works (shows calls in DB) but WebSocket disabled
+
+**CRITICAL DEPLOYMENT ISSUE:**
+- 🚀 Multiple redeploys attempted but old TwiML persists
+- 🔄 Code updates not taking effect in live system
+- 📞 WebSocket Media Streams completely bypassed
