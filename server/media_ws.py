@@ -14,8 +14,8 @@ from server.stream_state import stream_registry
 
 log = logging.getLogger(__name__)
 
-def handle_media_stream_simple(ws):
-    """Handle Twilio Media Stream WebSocket - simple-websocket compatible"""
+def handle_media_stream(ws):
+    """Handle Twilio Media Stream WebSocket - RAW WebSocket compatible"""
     try:
         log.info("🔗 Media stream WebSocket connection opened")
         print("🔗 WebSocket connection established!")

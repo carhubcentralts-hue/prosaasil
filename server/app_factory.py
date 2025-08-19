@@ -51,61 +51,53 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # SocketIO WebSocket support for Twilio Media Streams - PRODUCTION READY
+    # RAW WEBSOCKET support for Twilio Media Streams - PRODUCTION READY
     try:
-        from flask_socketio import SocketIO, emit
-        from server.media_socketio import handle_twilio_media
+        from flask_sock import Sock
+        from server.media_ws import handle_media_stream
         
-        # Initialize SocketIO with Eventlet support
-        socketio = SocketIO(app, 
-                          cors_allowed_origins="*",
-                          async_mode='eventlet',
-                          logger=False,
-                          engineio_logger=False,
-                          path='/socket.io')
+        # Initialize Flask-Sock with app (RAW WebSocket, not Socket.IO!)
+        sock = Sock()
+        sock.init_app(app)
         
-        # Twilio Media Streams endpoint
-        @socketio.on('connect', namespace='/twilio-media')
-        def handle_connect():
-            print("🔗 SOCKETIO: Twilio Media Stream connected!", flush=True)
+        @sock.route('/ws/twilio-media')
+        def twilio_media_handler(ws):
+            """RAW WebSocket endpoint for Twilio Media Streams - NO Socket.IO!"""
+            print("🔗 RAW WEBSOCKET CONNECTION RECEIVED!", flush=True)
+            print(f"🔍 WebSocket client: {ws.environ.get('REMOTE_ADDR', 'unknown')}", flush=True)
+            try:
+                handle_media_stream(ws)
+            except Exception as e:
+                print(f"❌ WebSocket handler error: {e}")
+        
+        # Add trailing slash version to prevent 31920 redirects 
+        @sock.route('/ws/twilio-media/')
+        def twilio_media_handler_slash(ws):
+            """RAW WebSocket endpoint with trailing slash - prevents redirects"""
+            print("🔗 RAW WEBSOCKET CONNECTION (/) RECEIVED!", flush=True)
+            try:
+                handle_media_stream(ws)
+            except Exception as e:
+                print(f"❌ WebSocket handler (/) error: {e}")
             
-        @socketio.on('message', namespace='/twilio-media')
-        def handle_message(data):
-            handle_twilio_media(data)
-            
-        @socketio.on('disconnect', namespace='/twilio-media')  
-        def handle_disconnect():
-            print("🔌 SOCKETIO: Twilio Media Stream disconnected", flush=True)
-            
-        # Standard WebSocket fallback route for Twilio
-        @app.route('/ws/twilio-media')
-        def twilio_media_fallback():
-            return """<!DOCTYPE html>
-<html><head><title>Twilio Media Streams</title></head>
-<body>
-<script src="/socket.io/socket.io.js"></script>
-<script>
-const socket = io('/twilio-media');
-// Twilio WebSocket will be handled by SocketIO server
-</script>
-</body></html>""", 200
-            
-        print("✅ SocketIO WebSocket /twilio-media registered (production ready)")
-        print("🔍 SocketIO URL: /socket.io/?EIO=4&transport=websocket&path=/twilio-media")
+        print("✅ RAW WebSocket /ws/twilio-media registered (both variants)")
+        print("🔍 WebSocket URL: wss://ai-crmd.replit.app/ws/twilio-media")
         
     except ImportError as e:
-        print(f"⚠️ SocketIO not available - WebSocket disabled: {e}")
+        print(f"⚠️ flask_sock not available - WebSocket disabled: {e}")
         
+        # Create fallback endpoint
         @app.route('/ws/twilio-media')
         def ws_fallback():
-            return "SocketIO not available", 501
+            return "WebSocket not available - flask-sock missing", 501
             
     except Exception as e:
-        print(f"❌ SocketIO registration failed: {e}")
+        print(f"❌ WebSocket registration failed: {e}")
         
+        # Create fallback endpoint  
         @app.route('/ws/twilio-media')
         def ws_fallback_error():
-            return f"SocketIO error: {str(e)}", 501
+            return f"WebSocket error: {str(e)}", 501
     
     # Register auth routes if available
     if AUTH_AVAILABLE and auth_bp is not None:
@@ -247,8 +239,8 @@ const socket = io('/twilio-media');
         
         return jsonify({
             "status": "ready",
-            "version": "3.0.0-SOCKETIO-REALTIME-CONVERSATION",
-            "timestamp": "2025-08-19-23:35-BIDIRECTIONAL-HEBREW-RESTORED",
+            "version": "4.0.0-RAW-WEBSOCKET-TWILIO-COMPATIBLE",
+            "timestamp": "2025-08-19-23:45-NO-SOCKETIO-PURE-WEBSOCKET",
             "db": db_status,
             "secrets": secrets,
             "watchdog": "enabled" if watchdog_enabled else "disabled - missing Twilio credentials",

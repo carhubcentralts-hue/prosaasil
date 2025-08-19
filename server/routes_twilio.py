@@ -155,12 +155,12 @@ def incoming_call():
         greeting_url = f"{host}/static/tts/greeting_he.mp3"
         print(f"🎯 Using static greeting: {greeting_url}", flush=True)
         
-        # SOCKETIO WEBSOCKET - Real-time Hebrew conversation restored!
+        # RAW WEBSOCKET - Real-time Hebrew conversation (NO Socket.IO!)
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{greeting_url}</Play>
   <Connect action="/webhook/stream_ended">
-    <Stream url="wss://{ws_host}/socket.io/?EIO=4&transport=websocket&path=/twilio-media">
+    <Stream url="wss://{ws_host}/ws/twilio-media">
       <Parameter name="business_id" value="{business_id}"/>
       <Parameter name="from_number" value="{from_number}"/>
       <Parameter name="to_number" value="{to_number}"/>
@@ -176,11 +176,11 @@ def incoming_call():
             f.write(f"SUCCESS: TwiML returned for {call_sid}\n")
             f.flush()
             
-        # START WATCHDOG - monitor SocketIO WebSocket and fallback if needed
+        # START WATCHDOG - monitor RAW WebSocket and fallback if needed
         watchdog_thread = threading.Thread(target=_watchdog, args=(call_sid, host), daemon=True)
         watchdog_thread.start()
-        print(f"🐕 WATCHDOG: Thread STARTED for {call_sid} (SocketIO)", flush=True)
-        print(f"🐕 WATCHDOG: Will monitor SocketIO WebSocket for 3 seconds", flush=True)
+        print(f"🐕 WATCHDOG: Thread STARTED for {call_sid} (RAW WebSocket)", flush=True)
+        print(f"🐕 WATCHDOG: Will monitor RAW WebSocket for 3 seconds", flush=True)
             
         return Response(xml, status=200, mimetype="text/xml")
         

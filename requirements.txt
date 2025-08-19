@@ -10,5 +10,3 @@ requests>=2.32.3
 numpy
 websocket-client
 psycopg2-binary
-flask-socketio==5.3.4
-python-socketio==5.8.0
