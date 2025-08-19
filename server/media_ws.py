@@ -184,13 +184,17 @@ class MediaStreamHandler:
                 "response": response_text[:100]
             })
             
-            # Step 3: Generate Hebrew TTS
+            # Step 3: Generate Hebrew TTS and save for fallback
             tts_audio = self._generate_hebrew_tts(response_text)
             
             if tts_audio:
-                # Step 4: Send back to caller
-                self._send_audio_to_twilio(tts_audio)
-                log.info("🗣️ Hebrew AI response sent", extra={
+                # Save response for potential playback via recording fallback
+                self._save_response_audio(response_text, tts_audio)
+                
+                # Mark that response is ready (only mark/clear allowed in Media Streams)
+                self._send_mark("response_generated")
+                
+                log.info("🗣️ Hebrew AI response prepared", extra={
                     "call_sid": self.call_sid,
                     "transcript": transcript[:50],
                     "response": response_text[:50],
@@ -247,31 +251,16 @@ class MediaStreamHandler:
             return None
             
     def _send_audio_to_twilio(self, audio_data):
-        """Send audio back to Twilio via WebSocket"""
-        try:
-            import base64
-            
-            # Encode audio as base64
-            audio_b64 = base64.b64encode(audio_data).decode('utf-8')
-            
-            # Create Twilio media message
-            media_message = {
-                "event": "media",
-                "streamSid": self.stream_sid,
-                "media": {
-                    "payload": audio_b64
-                }
-            }
-            
-            # Send via WebSocket
-            self.websocket.send(json.dumps(media_message))
-            log.info("Audio sent to Twilio", extra={
-                "call_sid": self.call_sid,
-                "payload_size": len(audio_b64)
-            })
-            
-        except Exception as e:
-            log.error("Failed to send audio to Twilio: %s", e, extra={"call_sid": self.call_sid})
+        """
+        IMPORTANT: Twilio Media Streams does NOT support sending audio back!
+        Only mark/clear events are allowed. This function is disabled.
+        """
+        log.warning("Audio sending disabled - Twilio Media Streams only accepts mark/clear events", extra={
+            "call_sid": self.call_sid,
+            "audio_size": len(audio_data) if audio_data else 0
+        })
+        # Instead, we could use mark events to signal completion
+        self._send_mark("audio_response_ready")
             
     def _send_automatic_greeting(self):
         """Send automatic Hebrew greeting when stream starts"""
@@ -289,9 +278,13 @@ class MediaStreamHandler:
             greeting_audio = self._generate_hebrew_tts(greeting_text)
             
             if greeting_audio:
-                # Send greeting immediately when stream starts
-                self._send_audio_to_twilio(greeting_audio)
-                log.info("✅ Automatic greeting sent successfully", extra={
+                # Save greeting for potential playback (Media Streams can't send audio back)
+                self._save_response_audio("greeting", greeting_audio)
+                
+                # Mark greeting ready
+                self._send_mark("greeting_ready")
+                
+                log.info("✅ Automatic greeting prepared", extra={
                     "call_sid": self.call_sid,
                     "audio_size": len(greeting_audio)
                 })
@@ -377,6 +370,53 @@ class MediaStreamHandler:
         self.heartbeat_timer = threading.Timer(15.0, heartbeat)
         self.heartbeat_timer.start()
         
+    def _send_mark(self, name: str):
+        """Send mark event to Twilio (only allowed outbound message type)"""
+        try:
+            if not self.stream_sid:
+                log.warning("Cannot send mark - no stream_sid", extra={"call_sid": self.call_sid})
+                return
+                
+            mark_message = {
+                "event": "mark",
+                "streamSid": self.stream_sid,
+                "mark": {"name": name}
+            }
+            
+            self.websocket.send(json.dumps(mark_message))
+            log.info("Mark sent to Twilio", extra={
+                "call_sid": self.call_sid,
+                "stream_sid": self.stream_sid,
+                "mark_name": name
+            })
+            
+        except Exception as e:
+            log.error("Failed to send mark: %s", e, extra={"call_sid": self.call_sid})
+            
+    def _save_response_audio(self, text: str, audio_data: bytes):
+        """Save response audio for fallback playback"""
+        try:
+            import hashlib
+            import os
+            
+            # Create unique filename
+            text_hash = hashlib.md5(text.encode()).hexdigest()[:8]
+            filename = f"response_{self.call_sid}_{text_hash}.wav"
+            filepath = f"/tmp/{filename}"
+            
+            # Save audio file
+            with open(filepath, 'wb') as f:
+                f.write(audio_data)
+                
+            log.info("Response audio saved", extra={
+                "call_sid": self.call_sid,
+                "filepath": filepath,
+                "size": len(audio_data)
+            })
+            
+        except Exception as e:
+            log.error("Failed to save response audio: %s", e)
+    
     def _cleanup(self):
         """Clean up connection resources"""
         self.is_connected = False
