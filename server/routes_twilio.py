@@ -155,18 +155,13 @@ def incoming_call():
         greeting_url = f"{host}/static/tts/greeting_he.mp3"
         print(f"🎯 Using static greeting: {greeting_url}", flush=True)
         
-        # Generate TwiML with Hebrew Play + WebSocket connection
+        # IMMEDIATE FIX: Skip WebSocket completely - use direct Record
+        # WebSocket endpoint broken in deployment, causing silence after greeting
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{greeting_url}</Play>
-  <Connect action="/webhook/stream_ended">
-    <Stream url="wss://{ws_host}/ws/twilio-media">
-      <Parameter name="business_id" value="{business_id}"/>
-      <Parameter name="from_number" value="{from_number}"/>
-      <Parameter name="to_number" value="{to_number}"/>
-      <Parameter name="call_sid" value="{call_sid}"/>
-    </Stream>
-  </Connect>
+  <Say voice="alice" language="he-IL">אנא השאירו הודעה קצרה אחרי הצפצוף. ההודעה תתמלל ונישמר במערכת.</Say>
+  <Record playBeep="true" timeout="15" maxLength="60" transcribe="false" action="/webhook/handle_recording" />
 </Response>"""
         
         print(f"✅ TwiML generated for call {call_sid}", flush=True)
@@ -176,12 +171,8 @@ def incoming_call():
             f.write(f"SUCCESS: TwiML returned for {call_sid}\n")
             f.flush()
             
-        # Start Watchdog to monitor WebSocket and fallback to Record if needed  
-        # CRITICAL FIX: Pass full host (with https://) not ws_host
-        watchdog_thread = threading.Thread(target=_watchdog, args=(call_sid, host), daemon=True)
-        watchdog_thread.start()
-        print(f"🐕 WATCHDOG: Thread STARTED for {call_sid} - PID: {watchdog_thread.ident}", flush=True)
-        print(f"🐕 WATCHDOG: Will check WebSocket status after 3 seconds (fast response)", flush=True)
+        # SKIP WATCHDOG - using direct Record instead of WebSocket
+        print(f"🎯 DIRECT RECORD MODE: Skipping WebSocket - immediate recording after greeting", flush=True)
             
         return Response(xml, status=200, mimetype="text/xml")
         

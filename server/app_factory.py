@@ -246,8 +246,8 @@ def create_app():
         
         return jsonify({
             "status": "ready",
-            "version": "2.2.0-WEBSOCKET-GUNICORN-FIXED",
-            "timestamp": "2025-08-19-22:25-EVENTLET-COMPATIBLE",
+            "version": "2.3.0-DIRECT-RECORD-WORKING",
+            "timestamp": "2025-08-19-23:28-NO-WEBSOCKET-IMMEDIATE-FIX",
             "db": db_status,
             "secrets": secrets,
             "watchdog": "enabled" if watchdog_enabled else "disabled - missing Twilio credentials",
