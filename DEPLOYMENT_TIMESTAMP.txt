@@ -1,0 +1,9 @@
+DEPLOYMENT UPDATE: 2025-08-19 22:11 UTC
+CLEAN SYSTEM WITH WATCHDOG
+FILES CLEANED: 
+- Removed server/main.py (conflicting)
+- Removed app_factory_clean.py (duplicate)
+- Fixed requirements.txt (no duplicates)
+- All imports working correctly
+VERSION: 2.0.0-WATCHDOG-SYSTEM-CLEANED
+WATCHDOG: Enabled with Twilio credentials
