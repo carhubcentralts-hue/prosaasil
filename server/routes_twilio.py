@@ -176,9 +176,10 @@ def incoming_call():
             f.write(f"SUCCESS: TwiML returned for {call_sid}\n")
             f.flush()
             
-        # Start Watchdog to monitor WebSocket and fallback to Record if needed
-        threading.Thread(target=_watchdog, args=(call_sid, ws_host), daemon=True).start()
-        print(f"🐕 WATCHDOG: Started monitoring {call_sid}", flush=True)
+        # Start Watchdog to monitor WebSocket and fallback to Record if needed  
+        # CRITICAL FIX: Pass full host (with https://) not ws_host
+        threading.Thread(target=_watchdog, args=(call_sid, host), daemon=True).start()
+        print(f"🐕 WATCHDOG: Started monitoring {call_sid} (host: {host})", flush=True)
             
         return Response(xml, status=200, mimetype="text/xml")
         
@@ -326,25 +327,35 @@ def _redirect_to_record(call_sid, host):
         print(f"❌ WATCHDOG: Failed to redirect {call_sid}: {e}", flush=True)
 
 def _watchdog(call_sid, host, start_timeout=8, no_media_timeout=6):
-    """Watch WebSocket stream and redirect to Record if needed"""
+    """Watch WebSocket stream and redirect to Record if needed - ENHANCED VERSION"""
     try:
+        print(f"🐕 WATCHDOG: Started monitoring {call_sid} (wait {start_timeout}s)", flush=True)
+        
         # Wait for stream to start
         time.sleep(start_timeout)
         st = stream_registry.get(call_sid)
         
+        print(f"🐕 WATCHDOG: After {start_timeout}s, stream state: {st}", flush=True)
+        
         if not st.get("started"):
-            print(f"⚠️ WATCHDOG: No stream start for {call_sid} - redirecting to Record", flush=True)
+            print(f"⚠️ WATCHDOG: No WebSocket stream for {call_sid} - redirecting to Record!", flush=True)
             _redirect_to_record(call_sid, host)
             return
 
         # Check if there's media activity
         last = st.get("last_media_at", 0)
-        if time.time() - last > no_media_timeout:
-            print(f"⚠️ WATCHDOG: No media for {call_sid} - redirecting to Record", flush=True) 
+        current_time = time.time()
+        
+        print(f"🐕 WATCHDOG: Media check - last: {last}, current: {current_time}, diff: {current_time - last}", flush=True)
+        
+        if current_time - last > no_media_timeout:
+            print(f"⚠️ WATCHDOG: No media activity for {call_sid} - redirecting to Record!", flush=True) 
             _redirect_to_record(call_sid, host)
             return
             
-        print(f"✅ WATCHDOG: Stream healthy for {call_sid}", flush=True)
+        print(f"✅ WATCHDOG: Stream healthy for {call_sid} - no intervention needed", flush=True)
         
     except Exception as e:
-        print(f"❌ WATCHDOG: Error monitoring {call_sid}: {e}", flush=True)
+        print(f"❌ WATCHDOG: Critical error monitoring {call_sid}: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
