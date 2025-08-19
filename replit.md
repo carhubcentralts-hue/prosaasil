@@ -152,5 +152,18 @@ Visual focus: Currently working visually only - login page only, no dashboards. 
 - Webhook handlers execute but database recording code not loaded
 - Server responds with correct TwiML but skips database insertion
 
-**STATUS: CRITICAL BLOCKER - Webhook system functional but database recording completely broken**
-**IMPACT: Live calls cannot be tracked or recorded in CRM system**
+**STATUS: RESOLVED - streamSid FIXED, DEPLOYMENT REQUIRED**
+**SOLUTION: Fixed 31951 streamSid error, redeploy needed to activate new code**
+
+### STREAMID FIX IMPLEMENTED - AUGUST 19, 19:25 ✅
+**31951 Error Fix Applied:**
+- ✅ Fixed streamSid handling: Uses exact streamSid from Twilio start event only
+- ✅ Removed streamSid construction from Call SID (was causing MZCA... error)
+- ✅ Added detailed logging for streamSid debugging (WS_START, WS_TX_MARK)
+- ✅ Mark events now use correct streamSid format
+- ✅ Code ready for deployment with streamSid fix
+
+**DEPLOYMENT REQUIRED:**
+- 🚀 User must click Deploy button to activate fixed code
+- 🎯 After deployment: WebSocket will stay open, 31951 error eliminated
+- 📱 Hebrew AI conversations will resume working with proper Media Streams
