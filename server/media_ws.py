@@ -36,6 +36,7 @@ class MediaStreamHandler:
     def __init__(self, websocket):
         self.websocket = websocket
         self.call_sid = None
+        self.stream_sid = None
         self.business_id = None
         self.is_connected = False
         self.heartbeat_timer = None
@@ -70,12 +71,16 @@ class MediaStreamHandler:
             data = json.loads(message)
             event = data.get('event')
             
+            print(f"🔥 WebSocket message: {event}", flush=True)
+            
             if event == 'connected':
                 log.info("Media stream connected", extra={"protocol_version": data.get('protocol')})
+                print(f"✅ WebSocket connected successfully", flush=True)
                 
             elif event == 'start':
                 # Extract parameters
                 self.call_sid = data.get('start', {}).get('callSid')
+                self.stream_sid = data.get('start', {}).get('streamSid')
                 custom_params = data.get('start', {}).get('customParameters', {})
                 self.business_id = custom_params.get('business_id', '1')
                 
@@ -84,11 +89,12 @@ class MediaStreamHandler:
                 
                 log.info("🎉 Media stream started for Shai Real Estate", extra={
                     "call_sid": self.call_sid,
+                    "stream_sid": self.stream_sid,
                     "business_id": self.business_id,
                     "media_format": data.get('start', {}).get('mediaFormat')
                 })
                 
-                print(f"📡 WebSocket connected: {self.call_sid}")
+                print(f"📡 WebSocket connected: call={self.call_sid}, stream={self.stream_sid}", flush=True)
                 
                 # Send automatic Hebrew greeting when stream starts
                 self._send_automatic_greeting()
@@ -251,7 +257,7 @@ class MediaStreamHandler:
             # Create Twilio media message
             media_message = {
                 "event": "media",
-                "streamSid": f"MZ{self.call_sid}",
+                "streamSid": self.stream_sid,
                 "media": {
                     "payload": audio_b64
                 }
