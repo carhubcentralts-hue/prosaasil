@@ -78,23 +78,25 @@ class MediaStreamHandler:
                 print(f"✅ WebSocket connected successfully", flush=True)
                 
             elif event == 'start':
-                # Extract parameters
+                # Extract parameters - CRITICAL: Use exact streamSid from Twilio
                 self.call_sid = data.get('start', {}).get('callSid')
-                self.stream_sid = data.get('start', {}).get('streamSid')
+                self.stream_sid = data.get('start', {}).get('streamSid')  # ← Must be EXACT from Twilio
                 custom_params = data.get('start', {}).get('customParameters', {})
                 self.business_id = custom_params.get('business_id', '1')
                 
                 # Set logging context
                 set_request_context(self.call_sid, self.business_id)
                 
-                log.info("🎉 Media stream started for Shai Real Estate", extra={
+                # CRITICAL: Log exact streamSid received from Twilio
+                log.info("WS_START", extra={
                     "call_sid": self.call_sid,
-                    "stream_sid": self.stream_sid,
+                    "stream_sid": self.stream_sid,  # ← This must be used exactly for all mark/clear
                     "business_id": self.business_id,
                     "media_format": data.get('start', {}).get('mediaFormat')
                 })
                 
-                print(f"📡 WebSocket connected: call={self.call_sid}, stream={self.stream_sid}", flush=True)
+                print(f"📡 WebSocket START: call={self.call_sid}, streamSid={self.stream_sid}", flush=True)
+                print(f"🔍 EXACT streamSid from Twilio: '{self.stream_sid}'", flush=True)
                 
                 # Send automatic Hebrew greeting when stream starts
                 self._send_automatic_greeting()
@@ -377,16 +379,21 @@ class MediaStreamHandler:
                 log.warning("Cannot send mark - no stream_sid", extra={"call_sid": self.call_sid})
                 return
                 
+            # CRITICAL: Use EXACT streamSid from Twilio start event
             mark_message = {
                 "event": "mark",
-                "streamSid": self.stream_sid,
+                "streamSid": self.stream_sid,  # ← Must be EXACT from start event
                 "mark": {"name": name}
             }
             
+            # CRITICAL: Log exact streamSid being sent back to Twilio
+            print(f"🔍 SENDING MARK streamSid: '{self.stream_sid}' (call: {self.call_sid})", flush=True)
+            
             self.websocket.send(json.dumps(mark_message))
-            log.info("Mark sent to Twilio", extra={
+            
+            log.info("WS_TX_MARK", extra={
                 "call_sid": self.call_sid,
-                "stream_sid": self.stream_sid,
+                "stream_sid": self.stream_sid,  # ← This should match exactly what we got in start
                 "mark_name": name
             })
             

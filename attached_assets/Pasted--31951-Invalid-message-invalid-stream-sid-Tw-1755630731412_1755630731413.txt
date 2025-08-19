@@ -1,0 +1,136 @@
+הצלחתי לזהות את התקלה לפי השגיאה:
+**31951 – Invalid message (invalid stream sid)** = אתם שולחים ל-Twilio הודעה שיוצאת *מהשרת שלכם חזרה לוובסוקט* עם `streamSid` **שגוי**.
+ה-Twilio ציפה ל-`MZda2168…` אבל קיבל `MZCA27c2…` — רואים שה“streamSid” שבשליחה הורכב בטעות מ־**Call SID** (`CA…`) עם “MZ” מקדימה. לכן הזרם נסגר מיד אחרי הברכה → שקט → ואז `stream_ended` (200).
+
+ב־Media Streams **אסור** לנחש/להרכיב `streamSid`. חייבים להשתמש *בדיוק* ב־`streamSid` שמגיע מאירוע ה-`start` הראשון של Twilio, ולשמור אותו **פר-חיבור** בלבד.
+
+---
+
+## התיקון (מדויק, נקי, בלי לשבור כלום)
+
+### 1) שמור `streamSid` מה־start בפר־חיבור (לא גלובלי)
+
+ב־`server/media_ws.py` בלולאת ה־WS:
+
+```python
+import json
+from flask import current_app
+
+def handle_media_stream(ws):
+    stream_sid = None   # ← פר-חיבור
+    try:
+        current_app.logger.info("WS_CONNECTED")
+
+        while True:
+            msg = ws.receive()
+            if msg is None:
+                current_app.logger.info("WS_CLOSED")
+                break
+
+            try:
+                data = json.loads(msg)
+            except Exception:
+                current_app.logger.warning("WS_BAD_JSON")
+                continue
+
+            ev = data.get("event")
+
+            if ev == "start":
+                stream_sid = data["start"]["streamSid"]   # ← שמור את המקורי מטוויליו
+                current_app.logger.info("WS_START", extra={"streamSid": stream_sid})
+                # מפה והלאה – כל הודעה החוצה (mark/clear) חייבת להשתמש ב-stream_sid הזה.
+
+            elif ev == "media":
+                # עיבוד אודיו... (VAD/סגמנטציה/שליחה ל-STT)
+                pass
+
+            elif ev == "stop":
+                current_app.logger.info("WS_STOP")
+                break
+
+            # ... שאר האירועים
+    except Exception as e:
+        current_app.logger.exception("WS_HANDLER_ERROR")
+```
+
+### 2) אם אתם שולחים הודעות החוצה (מותר רק MARK/CLEAR) – השתמשו ב־streamSid הנכון
+
+לעולם **אל** תייצרו `streamSid` מ־Call SID או מכל מזהה אחר.
+
+```python
+def send_mark(ws, stream_sid: str, name: str):
+    if not stream_sid:
+        return
+    payload = {
+        "event": "mark",
+        "streamSid": stream_sid,
+        "mark": {"name": name}
+    }
+    ws.send(json.dumps(payload))
+
+def send_clear(ws, stream_sid: str):
+    if not stream_sid:
+        return
+    payload = {
+        "event": "clear",
+        "streamSid": stream_sid
+    }
+    ws.send(json.dumps(payload))
+```
+
+> אם יש אצלך פונקציות קיימות ששולחות `{"event":"mark","streamSid": "MZ" + call_sid ...}` — **להסיר** מיד. זה בדיוק מה שמייצר את `MZCA…` בשגיאה.
+
+### 3) אל תשתפו `streamSid` גלובלי
+
+* אין משתני מודול/Singleton שמחזיקים `streamSid`.
+* אם אתם מריצים Thread/Task נוסף שכותב ל־WS — תנו לו **עותק** של ה־`streamSid` שנקלט ב-start לאותו חיבור בלבד.
+* עם כמה שיחות במקביל, ערבוב גלובלי יגרום למיסמצ’ כמו שקורה עכשיו.
+
+### 4) אל תשלחו אירועי `media`/`start` חזרה ל-Twilio
+
+הודעות **מהשרת** ל-Twilio מותרות רק `mark`/`clear` (ואופציונלית `stop`), בפורמט התקני.
+שליחת אובייקטים אחרים או בלי `streamSid` תקין → 31951.
+
+### 5) לוגים שיעזרו לאמת את התיקון
+
+הוסף/השאר:
+
+```python
+current_app.logger.info("WS_START", extra={"streamSid": stream_sid})
+# בכל שליחה החוצה:
+current_app.logger.info("WS_TX_MARK", extra={"streamSid": stream_sid, "name": name})
+current_app.logger.info("WS_TX_CLEAR", extra={"streamSid": stream_sid})
+```
+
+כך תוכל לראות שה־streamSid שאתם שולחים **זהה** לזה שקיבלתם ב־start (למשל `MZda2168…`), ולא `MZCA…`.
+
+---
+
+## למה עכשיו יש ברכה אבל אין תמלול/לוגים?
+
+* ה־TwiML וה־MP3 תקינים (לכן יש Greeting).
+* מיד אחרי ה־`<Connect><Stream>` השרת שלכם שולח **מסר שגוי** (mark/clear עם streamSid לא נכון) → Twilio זורקת 31951 וסוגרת את ה־WS → אין אודיו נכנס, אין תמלול, שקט.
+* בסוף מתקבלת קריאה ל־`/webhook/stream_ended` (200) — רואים ב-Inspector.
+
+---
+
+## בדיקת עשן אחרי התיקון
+
+1. בצד השרת, בשיחה חדשה:
+
+   * לוג `WS_START streamSid=MZxxxxx`
+   * אם אתם שולחים mark → לוג `WS_TX_MARK streamSid=MZxxxxx` **עם אותו ערך**.
+   * אסור שיופיע `MZCA...` יותר.
+2. ב-Twilio Request Inspector:
+
+   * לא אמור להופיע שוב 31951.
+   * ה־Stream יישאר פתוח ותקבלו `media` frames (ואז תמלול יתחיל).
+3. אם (בינתיים) ה־WS שוב נסגר — ודאו שה־fallback `/webhook/stream_ended` מחזיר `<Record ... action="/webhook/handle_recording">` וש־`/handle_recording` אכן רץ (לוג).
+
+---
+
+## סיכום חד:
+
+* השורש: **streamSid שגוי בהודעות OUTBOUND** (מחושבות מ־Call SID).
+* הפתרון: לשמור את ה־`streamSid` מה־`start` **פר-חיבור** ולהשתמש רק בו עבור `mark/clear`.
+* אחרי התיקון, 31951 ייעלם, הסטרים יישאר פתוח, ויגיעו פריימי `media` → תמלול חוזר לעבוד.

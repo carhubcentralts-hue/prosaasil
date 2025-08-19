@@ -59,12 +59,17 @@ def create_app():
         @sock.route('/ws/twilio-media')
         def twilio_media_handler(ws):
             """WebSocket endpoint for Twilio Media Streams"""
+            print("🔗 WEBSOCKET CONNECTION RECEIVED!", flush=True)
+            print(f"🔍 WebSocket client: {ws.environ.get('REMOTE_ADDR', 'unknown')}", flush=True)
             handle_media_stream(ws)
             
         print("✅ WebSocket /ws/twilio-media registered")
+        print("🔍 WebSocket URL: wss://ai-crmd.replit.app/ws/twilio-media")
         
-    except ImportError:
-        print("⚠️ flask_sock not available - WebSocket disabled")
+    except ImportError as e:
+        print(f"⚠️ flask_sock not available - WebSocket disabled: {e}")
+    except Exception as e:
+        print(f"❌ WebSocket registration failed: {e}")
         
         # Create fallback endpoint
         @app.route('/ws/twilio-media')
@@ -102,7 +107,8 @@ def create_app():
                 conn = psycopg2.connect(os.getenv('DATABASE_URL'))
                 cur = conn.cursor()
                 cur.execute("SELECT COUNT(*) FROM call_log")
-                call_count = cur.fetchone()[0]
+                result = cur.fetchone()
+                call_count = result[0] if result else 0
                 cur.close()
                 conn.close()
                 print(f"✅ Database ready - {call_count} existing calls")
