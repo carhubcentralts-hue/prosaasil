@@ -136,8 +136,11 @@ def incoming_call():
             f.write(f"CALL: {call_sid} from {from_number} to {to_number}\n")
             f.flush()
         
-        # Create WebSocket URL - DYNAMIC HOST
-        host = os.getenv("PUBLIC_HOST") or request.host_url.rstrip("/")
+        # Create WebSocket URL - DYNAMIC HOST (תיקון 31920)
+        host = os.getenv("PUBLIC_HOST") or request.host
+        if not host.startswith('http'):
+            host = f"https://{host}" if 'replit.app' in host else f"http://{host}"
+        host = host.rstrip('/')  # Remove trailing slash to prevent double slash
         ws_host = host.replace('https://', '').replace('http://', '')
         business_id = 1  # Default to Shai Real Estate
         
@@ -173,6 +176,9 @@ def incoming_call():
         print(f"❌ WEBHOOK ERROR: {e}")
         # Always return 200 to Twilio with WebSocket Media Stream fallback
         host = os.getenv("PUBLIC_HOST", "ai-crmd.replit.app")
+        if not host.startswith('http'):
+            host = f"https://{host}" if 'replit.app' in host else f"http://{host}"
+        host = host.rstrip('/')  # Remove trailing slash to prevent double slash
         ws_host = host.replace('https://', '').replace('http://', '')
         
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>

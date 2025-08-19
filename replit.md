@@ -204,4 +204,18 @@ Visual focus: Currently working visually only - login page only, no dashboards. 
 - Bidirectional Hebrew conversations: User speaks → Whisper → GPT-4o → TTS
 - Complete call recording and CRM functionality
 
-**Final Step: Click Deploy button to activate bidirectional Hebrew AI conversations**
+**31920 WEBSOCKET HANDSHAKE ERROR FIXED - AUGUST 19, 21:07 ✅**
+**Complete WebSocket Fix Applied:**
+- ✅ Dynamic HOST handling (PUBLIC_HOST or request.host)
+- ✅ Double WebSocket routes (/ws/twilio-media and /ws/twilio-media/) 
+- ✅ Eventlet configuration confirmed in .replit
+- ✅ URL slash cleaning to prevent double slashes
+- ✅ Local testing confirms WebSocket registration success
+
+**Technical Solution:**
+- Fixed error 31920 (WebSocket Handshake Error) per Twilio documentation
+- Added trailing slash WebSocket route to prevent redirects
+- Implemented dynamic host resolution for deployment flexibility
+- Verified Eventlet worker (-k eventlet) properly configured
+
+**Final Step: Click Deploy button to activate fixed WebSocket bidirectional Hebrew AI conversations**

@@ -67,8 +67,18 @@ def create_app():
                 handle_media_stream(ws)
             except Exception as e:
                 print(f"❌ WebSocket handler error: {e}")
+        
+        # Add trailing slash version to prevent 31920 redirects 
+        @sock.route('/ws/twilio-media/')
+        def twilio_media_handler_slash(ws):
+            """WebSocket endpoint with trailing slash - prevents redirects"""
+            print("🔗 WEBSOCKET CONNECTION (/) RECEIVED!", flush=True)
+            try:
+                handle_media_stream(ws)
+            except Exception as e:
+                print(f"❌ WebSocket handler (/) error: {e}")
             
-        print("✅ WebSocket /ws/twilio-media registered")
+        print("✅ WebSocket /ws/twilio-media registered (both variants)")
         print("🔍 WebSocket URL: wss://ai-crmd.replit.app/ws/twilio-media")
         
     except ImportError as e:
