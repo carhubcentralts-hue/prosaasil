@@ -54,27 +54,38 @@ def create_app():
         from flask_sock import Sock
         from server.media_ws import handle_media_stream
         
-        sock = Sock(app)
+        # Initialize Flask-Sock with app
+        sock = Sock()
+        sock.init_app(app)
         
         @sock.route('/ws/twilio-media')
         def twilio_media_handler(ws):
             """WebSocket endpoint for Twilio Media Streams"""
             print("🔗 WEBSOCKET CONNECTION RECEIVED!", flush=True)
             print(f"🔍 WebSocket client: {ws.environ.get('REMOTE_ADDR', 'unknown')}", flush=True)
-            handle_media_stream(ws)
+            try:
+                handle_media_stream(ws)
+            except Exception as e:
+                print(f"❌ WebSocket handler error: {e}")
             
         print("✅ WebSocket /ws/twilio-media registered")
         print("🔍 WebSocket URL: wss://ai-crmd.replit.app/ws/twilio-media")
         
     except ImportError as e:
         print(f"⚠️ flask_sock not available - WebSocket disabled: {e}")
-    except Exception as e:
-        print(f"❌ WebSocket registration failed: {e}")
         
         # Create fallback endpoint
         @app.route('/ws/twilio-media')
         def ws_fallback():
-            return "WebSocket not available", 501
+            return "WebSocket not available - flask-sock missing", 501
+            
+    except Exception as e:
+        print(f"❌ WebSocket registration failed: {e}")
+        
+        # Create fallback endpoint  
+        @app.route('/ws/twilio-media')
+        def ws_fallback_error():
+            return f"WebSocket error: {str(e)}", 501
     
     # Register auth routes if available
     if AUTH_AVAILABLE and auth_bp is not None:
