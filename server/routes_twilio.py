@@ -181,7 +181,7 @@ def incoming_call():
         watchdog_thread = threading.Thread(target=_watchdog, args=(call_sid, host), daemon=True)
         watchdog_thread.start()
         print(f"🐕 WATCHDOG: Thread STARTED for {call_sid} - PID: {watchdog_thread.ident}", flush=True)
-        print(f"🐕 WATCHDOG: Will check WebSocket status after 8 seconds", flush=True)
+        print(f"🐕 WATCHDOG: Will check WebSocket status after 3 seconds (fast response)", flush=True)
             
         return Response(xml, status=200, mimetype="text/xml")
         
@@ -321,12 +321,12 @@ def _redirect_to_record(call_sid, host):
         # Clean host URL for TwiML  
         clean_host = host.replace('https://', '').replace('http://', '')
         
-        # TwiML Fallback direct (not dependent on stream_ended)
+        # TwiML Fallback direct (not dependent on stream_ended) - IMMEDIATE RECORD
         twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
+  <Say voice="alice" language="he-IL">אנא השאירו הודעה קצרה. ההודעה תתמלל ונישמר במערכת.</Say>
+  <Record playBeep="true" timeout="10" maxLength="60" transcribe="false"
           action="/webhook/handle_recording" />
-  <Play>https://{clean_host}/static/tts/fallback_he.mp3</Play>
 </Response>"""
         
         print(f"📞 WATCHDOG: Attempting Twilio REST redirect for {call_sid}", flush=True)
@@ -338,7 +338,7 @@ def _redirect_to_record(call_sid, host):
         import traceback
         traceback.print_exc()
 
-def _watchdog(call_sid, host, start_timeout=8, no_media_timeout=6):
+def _watchdog(call_sid, host, start_timeout=3, no_media_timeout=2):
     """Watch WebSocket stream and redirect to Record if needed - ENHANCED VERSION"""
     try:
         print(f"🐕 WATCHDOG: Started monitoring {call_sid} (wait {start_timeout}s)", flush=True)

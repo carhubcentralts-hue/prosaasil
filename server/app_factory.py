@@ -239,8 +239,8 @@ def create_app():
         
         return jsonify({
             "status": "ready",
-            "version": "2.0.0-WATCHDOG-SYSTEM-CLEANED",
-            "timestamp": "2025-08-19-22:11-FORCE-UPDATE",
+            "version": "2.1.0-FAST-WATCHDOG-FIXED",
+            "timestamp": "2025-08-19-22:18-FAST-RESPONSE",
             "db": db_status,
             "secrets": secrets,
             "watchdog": "enabled" if watchdog_enabled else "disabled - missing Twilio credentials",
