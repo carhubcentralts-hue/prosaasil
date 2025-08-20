@@ -16,29 +16,33 @@ class MediaStreamHandler:
                 if raw is None:
                     current_app.logger.info("WS_CLOSED")
                     break
-                    
                 try:
                     data = json.loads(raw)
-                except:
+                except Exception:
                     current_app.logger.warning("WS_BAD_JSON")
                     continue
 
                 ev = data.get("event")
                 if ev == "start":
-                    self.stream_sid = data["start"]["streamSid"]
-                    # Extract call_sid from parameters if available
-                    parameters = data["start"].get("customParameters", {})
-                    self.call_sid = parameters.get("call_sid")
-                    
+                    start = data.get("start", {})
+                    cp = start.get("customParameters") or {}
+                    # לפעמים Twilio שולחת customParameters כמחרוזת JSON
+                    if isinstance(cp, str):
+                        try: 
+                            cp = json.loads(cp)
+                        except: 
+                            cp = {}
+                    self.call_sid = cp.get("call_sid") or cp.get("CallSid") or cp.get("CALL_SID")
+                    self.stream_sid = start.get("streamSid")
                     current_app.logger.info("WS_START", extra={"streamSid": self.stream_sid, "call_sid": self.call_sid})
-                    
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
 
                 elif ev == "media":
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
-                    # TODO: Accumulate and send to STT (Hebrew), then NLP+TTS
+                    # כאן אפשר לוג קצר: אורך payload
+                    # current_app.logger.debug("WS_FRAME", extra={"len": len(data.get("media",{}).get("payload",""))})
 
                 elif ev == "stop":
                     current_app.logger.info("WS_STOP")

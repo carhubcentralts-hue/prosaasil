@@ -1,23 +1,16 @@
 """
-Hebrew AI Call Center CRM - App Factory (Production Ready)
-גרסה מלאה מוכנה לפרודקשן עם Frontend
+Hebrew AI Call Center CRM - App Factory (לפי ההנחיות המדויקות)
 """
 import os
-from flask import Flask, jsonify, send_from_directory, send_file, current_app
+from flask import Flask, jsonify, send_from_directory, send_file, current_app, request
 from flask_cors import CORS
-
-# Import auth routes
-try:
-    from server.auth_routes import auth_bp
-    AUTH_AVAILABLE = True
-except ImportError:
-    AUTH_AVAILABLE = False
-    auth_bp = None
-    print("⚠️ Auth routes not available - creating simple fallback")
+from werkzeug.middleware.proxy_fix import ProxyFix
+from flask_sock import Sock
 
 def create_app():
-    """Create Flask application with React frontend"""
-    app = Flask(__name__)
+    """Create Flask application with React frontend (לפי ההנחיות המדויקות)"""
+    app = Flask(__name__, static_url_path="/static",
+                static_folder=os.path.join(os.path.dirname(__file__), "..", "static"))
     
     # Basic configuration
     app.config.update({
@@ -25,157 +18,81 @@ def create_app():
         'DATABASE_URL': os.getenv('DATABASE_URL'),
     })
     
-    # ProxyFix for proper URL handling behind proxy
-    from werkzeug.middleware.proxy_fix import ProxyFix
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+    # ProxyFix for proper URL handling behind proxy (לפי ההנחיות)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     
     # CORS
     CORS(app)
     
-    # COMPREHENSIVE LOGGING FOR WATCHDOG SYSTEM
+    # 8) לוגים שמראים הכל (לפי ההנחיות המדויקות)
     @app.before_request
     def _req_log():
-        from flask import request
-        print(f"🔥 REQ: {request.method} {request.path} from {request.remote_addr}")
         current_app.logger.info("REQ", extra={"path": request.path, "method": request.method})
-        if 'webhook' in request.path:
-            print(f"📞 WEBHOOK: {request.method} {request.path} - TWILIO CALLING!")
-            # Force webhook detection file
-            with open('/tmp/webhook_detected.log', 'w') as f:
-                f.write(f"{request.method} {request.path} at {request.remote_addr}\n")
 
     @app.after_request
     def _res_log(resp):
-        from flask import request
-        print(f"✅ RES: {request.path} -> {resp.status_code}")
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # 1) רישום Flask-Sock נכון + שני נתיבי WS (לפי ההנחיות המפורטות)
+    # 2) Flask-Sock רישום נכון + שני נתיבי WS (לפי ההנחיות המדויקות)
     try:
-        from flask_sock import Sock
-        from server.media_ws import MediaStreamHandler
-        
-        # רישום Flask-Sock בצורה הנכונה לפי ההנחיות
-        sock = Sock(app)  # Direct initialization כמו בהנחיות
-        
-        # בדיקה אחרי רישום
-        extensions_list = list(app.extensions.keys())
-        print(f"🔍 Extensions after Sock(app): {extensions_list}", flush=True)
-        
-        # אם לא נרשם, ננסה דרך אחרת
-        if "sock" not in extensions_list:
-            print("⚠️ Trying alternative registration method...", flush=True)
+        # Try direct initialization first
+        sock = Sock(app)
+        if "sock" not in app.extensions:
+            # If that fails, try init_app method
             sock = Sock()
             sock.init_app(app)
-            extensions_list = list(app.extensions.keys())
-            print(f"🔍 Extensions after init_app(): {extensions_list}", flush=True)
         
-        print("✅ Flask-Sock registration completed", flush=True)
-        
-        # רישום שני נתיבי WebSocket (עם ובלי סלאש)
+        # Verify registration
+        if "sock" not in app.extensions:
+            raise Exception("Flask-Sock failed to register")
+            
+        from server.media_ws import MediaStreamHandler
         @sock.route("/ws/twilio-media")
-        def ws_a(ws): 
-            MediaStreamHandler(ws).run()
-            
-        @sock.route("/ws/twilio-media/")  # ← גם עם סלאש
-        def ws_b(ws): 
-            MediaStreamHandler(ws).run()
-            
-        print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/")
+        def ws_a(ws): MediaStreamHandler(ws).run()
+        @sock.route("/ws/twilio-media/")   # ← גם עם סלאש למנוע Redirect/404 בהנדשייק
+        def ws_b(ws): MediaStreamHandler(ws).run()
         
-    except ImportError as e:
-        print(f"❌ flask_sock not available: {e}")
-        raise
-    except Exception as e:
-        print(f"❌ WebSocket registration failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
-    
-    # 4) רישום WhatsApp webhook routes
-    try:
-        from server.routes_whatsapp import register_whatsapp_routes
-        register_whatsapp_routes(app)
-        print("✅ WhatsApp webhook routes registered")
-    except Exception as e:
-        print(f"⚠️ WhatsApp routes registration failed: {e}")
-    
-    # Register auth routes if available
-    if AUTH_AVAILABLE and auth_bp is not None:
-        app.register_blueprint(auth_bp, url_prefix='/api/auth')
-        print("✅ Auth routes registered")
-    else:
-        # Simple fallback auth endpoints
-        @app.route('/api/auth/me', methods=['GET'])
-        def auth_me():
-            return jsonify({"error": "Authentication not configured"}), 401
-            
-        @app.route('/api/auth/login', methods=['POST'])
-        def auth_login():
-            return jsonify({"error": "Authentication not configured"}), 501
-            
-        print("⚠️ Using fallback auth endpoints")
-    
-    # Register Twilio webhook routes
-    try:
-        from server.routes_twilio import twilio_bp
-        if twilio_bp is not None:
-            app.register_blueprint(twilio_bp)
-            print("✅ Twilio webhook routes registered")
-            
-            # Test database connection for call recording
-            print("🔄 Testing database for call recording...")
-            import psycopg2
-            import datetime
-            try:
-                conn = psycopg2.connect(os.getenv('DATABASE_URL'))
-                cur = conn.cursor()
-                cur.execute("SELECT COUNT(*) FROM call_log")
-                result = cur.fetchone()
-                call_count = result[0] if result else 0
-                cur.close()
-                conn.close()
-                print(f"✅ Database ready - {call_count} existing calls")
-                
-                # Apply database recording patch
-                try:
-                    from database_fix import apply_patch
-                    if apply_patch():
-                        print("✅ DATABASE RECORDING PATCH APPLIED TO SERVER")
-                    else:
-                        print("❌ DATABASE PATCH FAILED")
-                except Exception as patch_err:
-                    print(f"❌ Patch import failed: {patch_err}")
-                    
-            except Exception as db_err:
-                print(f"❌ Database test failed: {db_err}")
-        else:
-            print("⚠️ Twilio blueprint is None")
+        print("✅ Flask-Sock registered successfully")
         
-        # Debug: show registered routes
-        print("🔍 Registered webhook routes:")
-        for rule in app.url_map.iter_rules():
-            if 'webhook' in rule.rule:
-                print(f"  {rule.rule} -> {rule.endpoint}")
-                
-    except ImportError as e:
-        print(f"⚠️ Twilio routes not available: {e}")
+    except Exception as e:
+        print(f"❌ Flask-Sock registration failed: {e}")
+        # Continue without WebSocket for now
+        print("⚠️ Continuing without WebSocket support")
+
+    # רישום בלו־פרינטים
+    from server.routes_twilio import twilio_bp
+    app.register_blueprint(twilio_bp)
+    from server.routes_whatsapp import register_whatsapp_routes
+    register_whatsapp_routes(app)  # ← פעם אחת בלבד
+
+    # Simple auth endpoints (fallback)
+    @app.route('/api/auth/me', methods=['GET'])
+    def auth_me():
+        return jsonify({"error": "Authentication not configured"}), 401
+        
+    @app.route('/api/auth/login', methods=['POST'])
+    def auth_login():
+        return jsonify({"error": "Authentication not configured"}), 501
     
-    # Static files from React build
+    # Static TTS file serving (לפי ההנחיות - חובה ש MP3 files יהיו 200)
+    @app.route('/static/tts/<path:filename>')
+    def static_tts(filename):
+        """Serve static TTS files"""
+        return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "static", "tts"), filename)
+    
+    # React frontend routes
     @app.route('/assets/<path:filename>')
     def assets(filename):
         """Serve static assets from client build"""
         return send_from_directory(os.path.join(os.getcwd(), 'client/dist/assets'), filename)
     
-    # Main React app route
     @app.route('/')
     def home():
         """Serve React frontend"""
         try:
             return send_file(os.path.join(os.getcwd(), 'client/dist/index.html'))
         except FileNotFoundError:
-            # Fallback if build doesn't exist
             return """
 <!DOCTYPE html>
 <html dir="rtl" lang="he">
@@ -195,91 +112,9 @@ def create_app():
 <body>
     <div class="container">
         <h1>מערכת CRM לשיחות בעברית</h1>
-        <p>בונה את הקבצים... רענן את הדף בעוד רגע</p>
+        <p>השרת פועל - מערכת מוכנה לשיחות</p>
     </div>
 </body>
 </html>""", 200
     
-    # Catch-all route for React Router - DON'T interfere with webhooks or WebSocket
-    @app.route('/<path:path>')
-    def catch_all(path):
-        """Catch all routes for React Router"""
-        if path.startswith('api/'):
-            return "API endpoint", 404
-        if path.startswith('webhook/'):
-            return "Webhook handled by blueprint", 404
-        if path.startswith('ws/'):
-            return "WebSocket handled separately", 404
-        # Let other routes be handled by React Router
-        return home()
-    
-    # Health endpoints
-    @app.route('/healthz')
-    def healthz():
-        return "ok", 200
-        
-    @app.route('/readyz')
-    def readyz():
-        """Enhanced health check - shows secret availability for debugging"""
-        try:
-            import psycopg2
-            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
-            conn.close()
-            db_status = "ok"
-        except Exception as e:
-            db_status = f"error: {str(e)}"
-        
-        # Check critical secrets for Watchdog system
-        secrets = {
-            'twilio_sid': "ok" if os.getenv('TWILIO_ACCOUNT_SID') else "missing", 
-            'twilio_token': "ok" if os.getenv('TWILIO_AUTH_TOKEN') else "missing",
-            'openai': "ok" if os.getenv('OPENAI_API_KEY') else "missing",
-            'gcp_tts': "ok" if os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') else "missing"
-        }
-        
-        watchdog_enabled = secrets['twilio_sid'] == 'ok' and secrets['twilio_token'] == 'ok'
-        
-        return jsonify({
-            "status": "ready",
-            "version": "4.0.0-RAW-WEBSOCKET-TWILIO-COMPATIBLE",
-            "timestamp": "2025-08-19-23:45-NO-SOCKETIO-PURE-WEBSOCKET",
-            "db": db_status,
-            "secrets": secrets,
-            "watchdog": "enabled" if watchdog_enabled else "disabled - missing Twilio credentials",
-            "deployment_verification": "NEW_CODE_WITH_WATCHDOG_DEPLOYED"
-        }), 200
-        
-    @app.route('/version')
-    def version():
-        return jsonify({
-            "app": "AgentLocator",
-            "version": "1.0.0",
-            "status": "production-ready"
-        }), 200
-    
-    # Twilio webhooks handled by routes_twilio.py blueprint
-        
-    # CRM Payment API
-    @app.route('/api/crm/payments/create', methods=['POST'])
-    def payments_create():
-        # Return 403 for disabled payments (expected behavior)
-        return jsonify({
-            "success": False,
-            "error": "Payments disabled - no PayPal/Tranzila keys configured"
-        }), 403
-    
-    # Serve static files for TTS audio
-    @app.route('/static/tts/<filename>')
-    def serve_tts_file(filename):
-        """Serve TTS audio files"""
-        import os
-        tts_dir = os.path.join(os.getcwd(), 'static', 'tts')
-        return send_from_directory(tts_dir, filename)
-    
-    print("✅ Static TTS file serving configured")
-    print("✅ Minimal Flask app ready")
     return app
-
-if __name__ == "__main__":
-    app = create_app()
-    app.run(host="0.0.0.0", port=5000, debug=False)

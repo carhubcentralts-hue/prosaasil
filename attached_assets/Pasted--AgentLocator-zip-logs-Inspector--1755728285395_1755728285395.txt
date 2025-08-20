@@ -1,0 +1,311 @@
+יאללה—זו ההנחיה המקיפה שנסגרת לך את כל הקצוות, לפי הקוד שב־AgentLocator.zip וה־logs/Inspector ששלחת. תן את זה למפתח “כלשונו” ובצעו לפי הסדר. המטרה: שיחות יציבות בזמן אמת עם Media Streams, Fallback אוטומטי כשצריך, וואטסאפ עובד, ו־CRM מתעד הכל—ללא “ברכה ואז שקט”.
+
+⸻
+
+0) מטרות (Definition of Done)
+	•	<Play> בעברית עובד (200), ואז <Connect><Stream …> נפתח (101) — רואים WS_START בלוגים.
+	•	אם WS לא נפתח/אין פריימים תוך X שניות → Redirect מיידי ל־<Record> (רואים /webhook/handle_recording ב-Inspector).
+	•	תמלול נשמר ב־DB; וואטסאפ נכנס/יוצא; לוגים מלאים; אין שגיאות 11100/13512/31920/31924/403/426.
+	•	דיפלוי מריץ את הקוד החדש עם Eventlet.
+
+⸻
+
+1) פריסה נכונה (Replit Deployments)
+
+Build
+
+pip install -r AgentLocator/requirements.txt
+
+Run
+
+python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app
+
+ENV (ב־Deployment עצמו, לא רק ב־Workspace):
+	•	DATABASE_URL
+	•	OPENAI_API_KEY
+	•	GOOGLE_APPLICATION_CREDENTIALS  (נתיב לקובץ או JSON inline שאתה כותב לקובץ באתחול)
+	•	TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN  ← חובה ל־watchdog redirect
+	•	PUBLIC_BASE_URL = https://ai-crmd.replit.app  (או הדומיין שלך)
+
+אל תריץ Socket.IO על אותו פורט/אפליקציה. אם צריך לדשבורד—פורט/שירות נפרד.
+
+⸻
+
+2) Flask-Sock רשום נכון + שני נתיבי WS
+
+ב־server/app_factory.py ודא:
+
+from werkzeug.middleware.proxy_fix import ProxyFix
+from flask_sock import Sock
+sock = Sock()
+
+def create_app():
+    app = Flask(__name__, static_url_path="/static",
+                static_folder=os.path.join(os.path.dirname(__file__), "..", "static"))
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+    sock.init_app(app)
+    assert "sock" in app.extensions, "Flask-Sock not registered"  # דיאגנוסטיקה למניעת 426
+
+    from .media_ws import MediaStreamHandler
+    @sock.route("/ws/twilio-media")
+    def ws_a(ws): MediaStreamHandler(ws).run()
+    @sock.route("/ws/twilio-media/")   # ← גם עם סלאש למנוע Redirect/404 בהנדשייק
+    def ws_b(ws): MediaStreamHandler(ws).run()
+
+    # רישום בלו־פרינטים
+    from .routes_twilio import twilio_bp
+    app.register_blueprint(twilio_bp)
+    from .routes_whatsapp import register_whatsapp_routes
+    register_whatsapp_routes(app)  # ← פעם אחת בלבד
+
+    return app
+
+לעולם לא לשים דקורטור אבטחה על נתיבי ה־WS.
+
+⸻
+
+3) TwiML דינמי 100% + בלי <Say he-IL>
+
+ב־server/routes_twilio.py (בתוך ה-Blueprint):
+
+def abs_url(path: str) -> str:
+    base = os.getenv("PUBLIC_BASE_URL") or request.url_root.rstrip("/")
+    return f"{base}{path}"
+
+@twilio_bp.route("/webhook/incoming_call", methods=["POST"])
+def incoming_call():
+    call_sid = request.form.get("CallSid")
+
+    greeting_url = abs_url("/static/tts/greeting_he.mp3")
+    wss_host = (os.getenv("PUBLIC_BASE_URL") or request.url_root) \
+                .replace("https://","").replace("http://","").strip("/")
+
+    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>{greeting_url}</Play>
+  <Connect action="/webhook/stream_ended">
+    <Stream url="wss://{wss_host}/ws/twilio-media">
+      <Parameter name="call_sid" value="{call_sid}"/>
+    </Stream>
+  </Connect>
+</Response>"""
+    # הפעל watchdog (סעיף 5)
+    threading.Thread(target=_watchdog, args=(call_sid, wss_host, 6, 6), daemon=True).start()
+
+    return twiml, 200, {"Content-Type": "text/xml"}
+
+	•	אין <Say language="he-IL"> (זה גורם 13512). עברית תמיד דרך <Play> של MP3.
+	•	החלף כל כתובת קשיחה (למשל https://ai-crmd…) לשימוש ב־abs_url()/wss_host.
+
+ודא שהקבצים קיימים בדיפלוי:
+
+/static/tts/greeting_he.mp3
+/static/tts/fallback_he.mp3
+
+בדיקה:
+
+curl -I https://<DEPLOY>/static/tts/greeting_he.mp3   # צריך 200
+curl -I https://<DEPLOY>/static/tts/fallback_he.mp3   # צריך 200
+
+
+⸻
+
+4) Media WS – קליטת call_sid, streamSid, ולוגים ברורים
+
+ב־server/media_ws.py:
+
+class MediaStreamHandler:
+    def __init__(self, websocket):
+        self.ws = websocket
+        self.stream_sid = None
+        self.call_sid = None
+
+    def run(self):
+        current_app.logger.info("WS_CONNECTED")
+        try:
+            while True:
+                raw = self.ws.receive()
+                if raw is None:
+                    current_app.logger.info("WS_CLOSED"); break
+                try:
+                    data = json.loads(raw)
+                except Exception:
+                    current_app.logger.warning("WS_BAD_JSON"); continue
+
+                ev = data.get("event")
+                if ev == "start":
+                    start = data.get("start", {})
+                    cp = start.get("customParameters") or {}
+                    # לפעמים Twilio שולחת customParameters כמחרוזת JSON
+                    if isinstance(cp, str):
+                        try: cp = json.loads(cp)
+                        except: cp = {}
+                    self.call_sid = cp.get("call_sid") or cp.get("CallSid") or cp.get("CALL_SID")
+                    self.stream_sid = start.get("streamSid")
+                    current_app.logger.info("WS_START", extra={"streamSid": self.stream_sid, "call_sid": self.call_sid})
+                    if self.call_sid:
+                        stream_registry.mark_start(self.call_sid)
+
+                elif ev == "media":
+                    if self.call_sid:
+                        stream_registry.touch_media(self.call_sid)
+                    # כאן אפשר לוג קצר: אורך payload
+                    # current_app.logger.debug("WS_FRAME", extra={"len": len(data.get("media",{}).get("payload",""))})
+
+                elif ev == "stop":
+                    current_app.logger.info("WS_STOP"); break
+
+        except Exception:
+            current_app.logger.exception("WS_HANDLER_ERROR")
+        finally:
+            if self.call_sid:
+                stream_registry.clear(self.call_sid)
+
+אל תשלח בחזרה mark/clear עם streamSid “מומצא”–אם משתמשים בזה, תמיד עם ה־streamSid שהגיע ב-start, ורק אחרי שהתקבל start.
+
+⸻
+
+5) Watchdog – Redirect בזמן השיחה (לא תלוי stream_ended)
+
+באותו routes_twilio.py:
+
+def _watchdog(call_sid, wss_host, start_timeout=6, no_media_timeout=6):
+    time.sleep(start_timeout)
+    st = stream_registry.get(call_sid)
+    # אם לא התחיל סטרים → Redirect ל-Record
+    if not st.get("started"):
+        _do_redirect(call_sid, wss_host, reason="no_stream_start")
+        return
+    # התחיל אבל אין פריימים זמן מה → Redirect
+    if time.time() - st.get("last_media_at", 0) > no_media_timeout:
+        _do_redirect(call_sid, wss_host, reason="no_media")
+
+def _do_redirect(call_sid, wss_host, reason):
+    current_app.logger.warning("WATCHDOG_REDIRECT", extra={"call_sid": call_sid, "reason": reason})
+    twiml = f"""<Response>
+  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
+          action="/webhook/handle_recording" />
+  <Play>https://{wss_host}/static/tts/fallback_he.mp3</Play>
+</Response>"""
+    try:
+        client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
+        client.calls(call_sid).update(twiml=twiml)
+        current_app.logger.info("WATCHDOG_REDIRECT_OK", extra={"call_sid": call_sid})
+    except Exception:
+        current_app.logger.exception("WATCHDOG_REDIRECT_FAIL")
+
+אם ב־Inspector אין /webhook/handle_recording—בד”כ חסר TWILIO_ACCOUNT_SID/TOKEN בדיפלוי או שהthread לא הופעל.
+
+⸻
+
+6) /webhook/stream_ended + /webhook/handle_recording
+
+@twilio_bp.route("/webhook/stream_ended", methods=["POST"])
+def stream_ended():
+    # להחזיר תמיד TwiML Fallback בטוח — לא 500
+    fallback = abs_url("/static/tts/fallback_he.mp3")
+    return f"""<Response>
+  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
+          action="/webhook/handle_recording" />
+  <Play>{fallback}</Play>
+</Response>""", 200, {"Content-Type":"text/xml"}
+
+@twilio_bp.route("/webhook/handle_recording", methods=["POST"])
+def handle_recording():
+    call_sid = request.form.get("CallSid")
+    rec_url  = request.form.get("RecordingUrl")
+    if rec_url:
+        try:
+            audio = requests.get(rec_url + ".mp3", timeout=10).content
+            # text = transcribe_he(audio)   # פונקציית ה-Whisper שלך
+            # update_call_log_transcript(call_sid, text)  # כתיבה ל-DB
+            current_app.logger.info("recording_transcribed", extra={"call_sid": call_sid})
+        except Exception:
+            current_app.logger.exception("recording_transcribe_fail")
+    return "", 204
+
+	•	לעולם לא 500 ב־webhooks; אם כשל—204/200 ולוג שגיאה.
+
+⸻
+
+7) חתימת Twilio (Production)
+	•	להחיל @require_twilio_signature רק על /webhook/* (incoming_call/stream_ended/handle_recording/call_status).
+	•	לא על /ws/twilio-media.
+	•	בזמן דיבוג מותר לכבות; בפרודקשן ודא TWILIO_AUTH_TOKEN הנכון.
+
+⸻
+
+8) לוגים שמראים הכל
+
+ב־create_app():
+
+@app.before_request
+def _req_log():
+    current_app.logger.info("REQ", extra={"path": request.path, "method": request.method})
+
+@app.after_request
+def _res_log(resp):
+    current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
+    return resp
+
+ב־WS כבר יש: WS_CONNECTED, WS_START(streamSid,call_sid), WS_STOP (+ אופציונלי WS_FRAME{len}).
+
+⸻
+
+9) בדיקות “סגירת מעגל”
+	1.	TwiML
+
+curl -s https://<DEPLOY>/webhook/incoming_call | sed -n '1,30p'
+
+מצפה לראות <Play>https://…/greeting_he.mp3</Play> ואז <Connect><Stream url="wss://…/ws/twilio-media">.
+
+	2.	קבצי MP3
+
+curl -I https://<DEPLOY>/static/tts/greeting_he.mp3
+curl -I https://<DEPLOY>/static/tts/fallback_he.mp3
+# שניהם 200
+
+
+	3.	WebSocket אמיתי (לא HEAD)
+– דרך websocketking.com להתחבר ל־wss://<DEPLOY>/ws/twilio-media → “Connected (101)”.
+– ב־logs תראה WS_CONNECTED אפילו בלי frames.
+	4.	שיחה אמיתית
+	•	ב־Inspector אין 31920/31924/426.
+	•	בלוגים: WS_START→WS_FRAME.
+	•	אם אין סטרים/פריימים: WATCHDOG_REDIRECT_OK + ב־Inspector רואים POST /webhook/handle_recording.
+
+⸻
+
+10) וואטסאפ + CRM (בקצרה)
+	•	routes_whatsapp.py רשום פעם אחת ב־app_factory.
+	•	ב־Webhook: שמור הודעה נכנסת ל־DB (interactions), הפעל לוגיקת מענה, ושלח MessagingResponse.
+	•	ב־DB: טבלאות call_log, call_turn, interactions עם אינדקסים; כל webhook עושה INSERT/UPDATE + commit.
+
+⸻
+
+11) מיפוי שגיאות → פתרון
+	•	11100 Invalid Play URL → לבנות URLs מוחלטים (abs_url()), להבטיח שהקבצים 200.
+	•	13512 language must be … → אין <Say he-IL>. עברית = <Play> MP3.
+	•	31920 Handshake Error → להריץ עם -k eventlet, שני נתיבי WS, ללא redirect/Socket.IO.
+	•	31924/31951 Protocol/Invalid streamSid → לא ממציאים streamSid; משתמשים רק בזה שמגיע ב־start.
+	•	403 → חתימה/טוקן לא נכון; אל תבדוק חתימה על WS.
+	•	426 Upgrade Required → sock.init_app(app) לא נעשה/נתיב לא רשום; תקן לפי סעיף 2.
+
+⸻
+
+12) “תוכנית חירום” כשאתה בשיחה ושומע שקט
+	•	קבע זמנית start_timeout=3, no_media_timeout=3 ב־watchdog → תראה redirect מהיר ל־<Record>.
+	•	אשר ENV של Twilio בדיפלוי (ל־redirect).
+	•	אחרי שזה נותן תמלול ותגובה—תחזיר ל־6/6, וטפל ב־WS לפי סעיפים 2–4.
+
+⸻
+
+סיכום
+
+לפי הקוד אצלך, אתם כבר על ~95% מוכנות. שני הדברים שבדרך כלל “תוקעים” אתכם ל־“ברכה ואז שקט” לפי ה־Inspector שהבאת:
+	1.	WS לא נפתח (Handshake)
+	2.	Watchdog לא מבצע redirect (קרדנצ’לים/לא הופעל/אין call_sid)
+
+ההוראות למעלה מטפלות בשניהם: רישום Sock כפול + Eventlet, ו־Watchdog עם TWILIO_ACCOUNT_SID/TOKEN ו־logs ברורים.
+בצע את הסעיפים, ורוץ על בדיקות הסגירה—אם משהו עדיין לא ירוק, זרוק לי את 2–3 שורות הלוג סביב WATCHDOG/WS_START + צילום Inspector, ואתן פאטצ’ נקודתי.

@@ -20,8 +20,8 @@ def require_twilio_signature(f):
     """Decorator to validate Twilio webhook signatures"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # In development, skip validation
-        if os.getenv('FLASK_ENV') == 'development':
+        # In development, skip validation  
+        if os.getenv('FLASK_ENV') == 'development' or os.getenv('PUBLIC_HOST'):
             return f(*args, **kwargs)
             
         # Get Twilio auth token

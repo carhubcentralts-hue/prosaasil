@@ -1,2 +1,1 @@
-web: python main.py
-worker: node baileys_client.js
+web: python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT main:app
