@@ -305,6 +305,15 @@ def handle_recording():
             import traceback
             traceback.print_exc()
 
+    # Start background processing
+    import threading
+    thread = threading.Thread(target=process_recording_async)
+    thread.daemon = True
+    thread.start()
+    
+    # Return 200 immediately to Twilio
+    return Response("", 200)
+
 def _generate_ai_response_recording(transcription, call_sid, from_number):
     """Generate AI response for recording"""
     try:
@@ -379,9 +388,10 @@ def _redirect_to_record(call_sid, host):
         clean_host = host.replace('https://', '').replace('http://', '')
         
         # TwiML Fallback direct (not dependent on stream_ended) - IMMEDIATE RECORD
+        fallback_url = f"https://{clean_host}/static/tts/fallback_he.mp3"
         twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice" language="he-IL">אנא השאירו הודעה קצרה. ההודעה תתמלל ונישמר במערכת.</Say>
+  <Play>{fallback_url}</Play>
   <Record playBeep="true" timeout="10" maxLength="60" transcribe="false"
           action="/webhook/handle_recording" />
 </Response>"""

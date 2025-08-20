@@ -57,7 +57,8 @@ def create_app():
         from server.media_ws import handle_media_stream
         
         # Initialize Flask-Sock with app (RAW WebSocket, not Socket.IO!)
-        sock = Sock(app)  # Direct initialization
+        sock = Sock()
+        sock.init_app(app)  # Proper initialization
         
         @sock.route('/ws/twilio-media')
         def twilio_media_handler(ws):

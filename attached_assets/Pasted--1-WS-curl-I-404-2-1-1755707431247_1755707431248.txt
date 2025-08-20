@@ -1,0 +1,175 @@
+סבבה — בוא נסגור שתי החזיתות שאתה רואה עכשיו:
+
+1. בדיקת ה-WS עם `curl -I` החזירה 404
+2. בטוויליו: `11100 Invalid play URL` ו-`13512 language must be ...`
+
+להלן מה זה אומר ואיך מתקנים — צעד-צעד, עם קטעים להדבקה.
+
+---
+
+# 1) בדיקת WebSocket עם `curl -I` → **404 זה צפוי**
+
+`-I` שולח **HEAD**. הנדשייק של WebSocket דורש **GET + Upgrade**; ל-HEAD תקבל 404/200 רגיל — זה לא אינדיקציה.
+כדי לבדוק שה-WS באמת עובד:
+
+* כלי דפדפן: [https://www.websocketking.com/](https://www.websocketking.com/) → התחבר ל
+  `wss://ai-crmd.replit.app/ws/twilio-media`
+  צריך “Connected (101)”.
+* או `wscat`:
+
+  ```bash
+  npx wscat -c wss://ai-crmd.replit.app/ws/twilio-media
+  ```
+* או לכל הפחות ודא שרץ עם Eventlet:
+
+  ```
+  python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app
+  ```
+
+> בנוסף, ודא שב־`app_factory.py` יש שני נתיבים:
+
+```python
+@sock.route('/ws/twilio-media')
+def ws_a(ws): MediaStreamHandler(ws).run()
+
+@sock.route('/ws/twilio-media/')
+def ws_b(ws): MediaStreamHandler(ws).run()
+```
+
+---
+
+# 2) Twilio 11100 — **Invalid Play URL**
+
+Twilio ניסה לנגן `<Play>` וקיבל URL לא חוקי/לא נגיש (404/403/302/לא https). לכן הוא “נפל” חזרה ל-`/webhook/incoming_call`.
+
+### בדיקות מיידיות
+
+```bash
+# שני הקבצים שחייבים לעבוד
+curl -I https://ai-crmd.replit.app/static/tts/greeting_he.mp3
+curl -I https://ai-crmd.replit.app/static/tts/fallback_he.mp3
+# שניהם צריכים 200 + Content-Type: audio/mpeg
+```
+
+אם אחד מהם לא 200 → או שהקובץ לא קיים בתיקיית `static/tts/` בדיפלוי, או שהנתיב/ה-host שב-TwiML לא נכון.
+
+### תיקן פעם אחת ולתמיד — מחולל URL אבסולוטי
+
+ב־`routes_twilio.py`, בתוך `incoming_call()` (וגם בקוד ה-watchdog אם יש):
+
+```python
+from flask import request
+import os
+
+def abs_url(path: str) -> str:
+    base = os.getenv("PUBLIC_BASE_URL")  # דוגמה: https://ai-crmd.replit.app
+    if not base:
+        base = request.url_root.rstrip("/")  # מחלץ https://host
+    return f"{base}{path}"  # path תמיד מתחיל ב-/
+
+# שימוש:
+greeting_url = abs_url("/static/tts/greeting_he.mp3")
+wss_host = abs_url("/")  # מחזיר https://host
+wss_host = wss_host.replace("https://", "").replace("http://", "").rstrip("/")
+twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>{greeting_url}</Play>
+  <Connect action="/webhook/stream_ended">
+    <Stream url="wss://{wss_host}/ws/twilio-media">
+      <Parameter name="call_sid" value="{call_sid}"/>
+    </Stream>
+  </Connect>
+</Response>"""
+return twiml, 200, {"Content-Type":"text/xml"}
+```
+
+וב-**Watchdog Redirect** (אם מופעלת הפעלה ל-`<Record>` בזמן שיחה):
+
+```python
+fallback_url = abs_url("/static/tts/fallback_he.mp3")
+twiml_redirect = f"""<Response>
+  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
+          action="/webhook/handle_recording" />
+  <Play>{fallback_url}</Play>
+</Response>"""
+client.calls(call_sid).update(twiml=twiml_redirect)
+```
+
+> כך אנחנו **תמיד** בונים URL מלא עם `https://...`, ללא דומיין קשיח ישן, וללא טעויות `http`/חוסר slash.
+
+---
+
+# 3) Twilio 13512 — **language must be …**
+
+זה קורה כשיש `<Say language="he-IL">` או פרמטר `language` לא נתמך. Twilio **לא תומכת בעברית ב-Say**.
+
+### תיקון:
+
+* חפש והסר:
+
+  ```bash
+  grep -R --line-number "<Say" AgentLocator
+  grep -R --line-number "language=\"he-IL\"" AgentLocator
+  ```
+* מחליפים **כל** `<Say language="he-IL">...` ב-`<Play>` עם קובץ MP3 בעברית (GCP TTS).
+* אם יש לך טקסט קצר באנגלית — אפשר להשאיר `<Say voice="alice">` (בלי `language=`). אחרת עדיף גם Play.
+
+---
+
+# 4) דברים שבקלות מפילים streaming (ועוצרים אחרי הברכה) — בדוק וסגור
+
+* **Eventlet לא בשימוש**
+  ריצה/דיפלוי *חייבים*:
+
+  ```
+  pip install -r AgentLocator/requirements.txt
+  python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app
+  ```
+
+* **Socket.IO חוסם את ה-WS**
+  ודא שאין `flask_socketio / python-socketio / engineio` במסלול השרת של המדיה (מחק מה-requirements אם מיותר, או הרץ אותו על פורט/אפליקציה אחרים בלבד).
+  אין `socketio.run(app)` בכלל.
+
+* **חתימה/אבטחה על WS**
+  דקורטור `@require_twilio_signature` מיועד ל-`/webhook/*` בלבד. **לא** על `/ws/twilio-media`.
+
+* **נתיב עם/בלי סלאש**
+  שמור גם `/ws/twilio-media` וגם `/ws/twilio-media/` (ראה סעיף 1).
+
+* **דגל זרימה/ענף קוד**
+  אין מצב ש-incoming\_call מחזיר `<Record>` במקום `<Connect><Stream>` בגלל flag (`enable_calls_stream=false`) או ענף ישן. בדוק עם:
+
+  ```bash
+  curl -s https://ai-crmd.replit.app/webhook/incoming_call | sed -n '1,30p'
+  ```
+
+  חייב להכיל `<Connect><Stream …>`.
+
+---
+
+# 5) לוודא שתמיד יש תמלול גם אם ה-WS לא מצליח
+
+כדי שלא תישאר “ברכה ואז שקט”, שמור את **Watchdog Redirect**:
+אם אין `WS_START` תוך \~8 שנ׳ או אין frames תוך \~6 שנ׳, בצע `calls.update(twiml=<Record+Play>)` בזמן אמת.
+(כבר נתתי קוד מלא; רק ודא שיש `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN` ב-ENV של ה-Deployment.)
+
+---
+
+# 6) צ’ק-ליסט קצר לסגירה
+
+* [ ] `curl -I` לשני קבצי ה-MP3 מחזירים 200.
+* [ ] `curl -s /webhook/incoming_call` מציג `<Connect><Stream wss://…/ws/twilio-media>`.
+* [ ] בדיקת WS אמיתית (websocketking / wscat) מתחברת (101).
+* [ ] אין `<Say language="he-IL">` בקוד.
+* [ ] ריצה עם Eventlet, בלי Socket.IO במסלול המדיה.
+* [ ] אם אין סטרים — Watchdog מפעיל `<Record>` ותראה ב-Inspector קריאה ל-`/webhook/handle_recording` + תמלול נשמר.
+
+אם תרצה, תדביק פה את הפלט של:
+
+```bash
+curl -I https://ai-crmd.replit.app/static/tts/greeting_he.mp3
+curl -I https://ai-crmd.replit.app/static/tts/fallback_he.mp3
+curl -s https://ai-crmd.replit.app/webhook/incoming_call | sed -n '1,30p'
+```
+
+ואבדוק מיד אם ה-URLs ב-TwiML/הקבצים תקינים או שצריך לכוון את בניית ה-host בקוד.
