@@ -9,6 +9,7 @@ from flask import Blueprint, request, Response, current_app
 from urllib.parse import urljoin
 from twilio.rest import Client
 from server.stream_state import stream_registry
+from server.twilio_security import require_twilio_signature
 
 # Force immediate debug output
 print("🚀 ROUTES_TWILIO.PY LOADED!")
@@ -90,6 +91,7 @@ def generate_business_greeting(business_id=1):
         return "שלום, ברוכים הבאים לשי דירות ומשרדים בע״מ. איך אוכל לעזור לכם?"
 
 @twilio_bp.route("/webhook/incoming_call", methods=['POST', 'GET'])
+@require_twilio_signature  # 5) אבטחת Webhooks - PRODUCTION READY
 def incoming_call():
     """
     Twilio webhook for incoming calls - Real-time Hebrew AI conversation
@@ -183,7 +185,8 @@ def incoming_call():
     except Exception as e:
         print(f"❌ WEBHOOK ERROR: {e}")
         # Always return 200 to Twilio with WebSocket Media Stream fallback
-        host = os.getenv("PUBLIC_HOST", "ai-crmd.replit.app")
+        # Dynamic host resolution - no hardcoded addresses
+        host = os.getenv("PUBLIC_HOST") or os.getenv("PUBLIC_BASE_URL") or request.url_root.rstrip("/") or f"https://{request.host}"
         if not host.startswith('http'):
             host = f"https://{host}" if 'replit.app' in host else f"http://{host}"
         host = host.rstrip('/')  # Remove trailing slash to prevent double slash
@@ -201,33 +204,48 @@ def incoming_call():
         return Response(xml, status=200, mimetype="text/xml")
 
 @twilio_bp.post("/webhook/stream_ended")
+@require_twilio_signature  # אבטחת Webhooks
 def stream_ended():
     """Stream ended - fallback to recording"""
     try:
         call_sid = request.form.get('CallSid', 'unknown')
         log.warning("Stream failover to recording", extra={"call_sid": call_sid, "mode": "record"})
         
-        # Fallback TwiML with recording - RECORD FIRST!
-        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        # Fallback TwiML with recording - RECORD FIRST! (Dynamic URLs)
+        def abs_url(path: str) -> str:
+            base = os.getenv("PUBLIC_BASE_URL") or request.url_root.rstrip("/")
+            return f"{base}{path}"
+        
+        fallback_url = abs_url("/static/tts/fallback_he.mp3")
+        recording_action = abs_url("/webhook/handle_recording")
+        
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record playBeep="false" timeout="8" maxLength="30" transcribe="false"
-          action="/webhook/handle_recording" />
-  <Play>https://ai-crmd.replit.app/static/tts/fallback_he.mp3</Play>
+          action="{recording_action}" />
+  <Play>{fallback_url}</Play>
   <Hangup/>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
         
     except Exception as e:
         log.error("Stream ended webhook failed: %s", e)
-        # Fallback TwiML - Hebrew
-        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        # Fallback TwiML - Hebrew (Dynamic URL)
+        def abs_url(path: str) -> str:
+            base = os.getenv("PUBLIC_BASE_URL") or request.url_root.rstrip("/")
+            return f"{base}{path}"
+        
+        fallback_url = abs_url("/static/tts/fallback_he.mp3")
+        
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Play>https://ai-crmd.replit.app/static/tts/fallback_he.mp3</Play>
+    <Play>{fallback_url}</Play>
     <Hangup/>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
 
 @twilio_bp.post("/webhook/handle_recording")
+@require_twilio_signature  # אבטחת Webhooks
 def handle_recording():
     """עיבוד הקלטה עברית - תמלול + תשובת AI בעברית"""
     recording_url = request.form.get('RecordingUrl')
@@ -460,7 +478,7 @@ def _do_redirect(call_sid, wss_host, reason):
             
         client = Client(account_sid, auth_token)
         
-        # CANONICAL TwiML: Record FIRST, then Play, then Hangup
+        # CANONICAL TwiML: Record FIRST, then Play, then Hangup (Dynamic URLs)
         twiml = f"""<Response>
   <Record playBeep="false" timeout="8" maxLength="30" transcribe="false"
           action="https://{wss_host}/webhook/handle_recording" />
