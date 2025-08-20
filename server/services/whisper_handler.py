@@ -9,7 +9,7 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-def transcribe_he(audio_bytes: bytes, call_sid: str = None) -> Optional[str]:
+def transcribe_he(audio_bytes: bytes, call_sid: Optional[str] = None) -> Optional[str]:
     """
     Transcribe Hebrew audio using OpenAI Whisper
     

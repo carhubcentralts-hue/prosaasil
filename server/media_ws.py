@@ -41,8 +41,14 @@ class MediaStreamHandler:
                 elif ev == "media":
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
-                    # כאן אפשר לוג קצר: אורך payload
-                    # current_app.logger.debug("WS_FRAME", extra={"len": len(data.get("media",{}).get("payload",""))})
+                    
+                    # TODO: Live transcription של audio frames
+                    # media_payload = data.get("media", {}).get("payload", "")
+                    # if media_payload:
+                    #     # Decode base64 → PCM audio → Whisper
+                    #     pass
+                    
+                    current_app.logger.debug("WS_FRAME", extra={"len": len(data.get("media",{}).get("payload",""))})
 
                 elif ev == "stop":
                     current_app.logger.info("WS_STOP")

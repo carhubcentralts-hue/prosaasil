@@ -73,9 +73,61 @@ def download_recording(recording_url, call_sid):
         return None
 
 def transcribe_hebrew(audio_file):
-    """תמלול עברית באמצעות Whisper/Google"""
-    if not audio_file:
+    """תמלול עברית עם OpenAI Whisper"""
+    if not audio_file or not os.path.exists(audio_file):
+        log.error("Audio file not found: %s", audio_file)
         return ""
+    
+    try:
+        from server.services.whisper_handler import transcribe_he
+        
+        with open(audio_file, "rb") as f:
+            audio_bytes = f.read()
+            
+        transcription = transcribe_he(audio_bytes)
+        log.info("Transcription completed: %d chars", len(transcription or ""))
+        return transcription or ""
+        
+    except Exception as e:
+        log.error("Transcription failed: %s", e)
+        return ""
+
+def save_call_to_db(call_sid, from_number, recording_url, transcription):
+    """שמור שיחה ותמלול ל-DB"""
+    try:
+        # Import here to avoid circular imports
+        import sqlite3
+        
+        # Use simple SQLite for now (later PostgreSQL)
+        db_path = "database.db"
+        conn = sqlite3.connect(db_path)
+        
+        # Create table if not exists
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS call_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                call_sid TEXT UNIQUE,
+                from_number TEXT,
+                recording_url TEXT,
+                transcription TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Insert/update call
+        conn.execute("""
+            INSERT OR REPLACE INTO call_logs 
+            (call_sid, from_number, recording_url, transcription)
+            VALUES (?, ?, ?, ?)
+        """, (call_sid, from_number, recording_url, transcription))
+        
+        conn.commit()
+        conn.close()
+        
+        log.info("Call saved to DB: %s", call_sid)
+        
+    except Exception as e:
+        log.error("DB save failed: %s", e)
     
     try:
         # נסה Google Speech-to-Text אם מוגדר

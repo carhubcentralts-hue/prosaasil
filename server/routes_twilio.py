@@ -94,13 +94,12 @@ def handle_recording():
     rec_url  = request.form.get("RecordingUrl")
     if rec_url:
         try:
-            import requests
-            audio = requests.get(rec_url + ".mp3", timeout=10).content
-            # text = transcribe_he(audio)   # פונקציית ה-Whisper שלך
-            # update_call_log_transcript(call_sid, text)  # כתיבה ל-DB
-            current_app.logger.info("recording_transcribed", extra={"call_sid": call_sid})
+            # 1) הורד הקלטה + תמלול בזמן אמת
+            from server.tasks_recording import enqueue_recording
+            enqueue_recording(request.form)
+            current_app.logger.info("recording_queued", extra={"call_sid": call_sid})
         except Exception:
-            current_app.logger.exception("recording_transcribe_fail")
+            current_app.logger.exception("recording_queue_fail")
     return "", 204
 
 @twilio_bp.route("/webhook/call_status", methods=["POST"])
