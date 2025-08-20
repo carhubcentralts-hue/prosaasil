@@ -1,0 +1,53 @@
+[2025-08-20 16:17:34 +0000] [1046] [INFO] Starting gunicorn 21.2.0
+[2025-08-20 16:17:34 +0000] [1046] [INFO] Listening at: http://0.0.0.0:5000 (1046)
+[2025-08-20 16:17:34 +0000] [1046] [INFO] Using worker: eventlet
+[2025-08-20 16:17:34 +0000] [1046] [INFO] Handling signal: winchd: 1057
+✅ RAW WebSocket /ws/twilio-media registered (both variants)
+🔍 WebSocket URL: wss://ai-crmd.replit.app/ws/twilio-media
+✅ Auth routes registered
+🚀 ROUTES_TWILIO.PY LOADED!
+✅ Twilio webhook routes registered
+🔄 Testing database for call recording...
+[2025-08-20 16:17:35 +0000] [1046] [INFO] Handling signal: winch
+[2025-08-20 16:17:35 +0000] [1046] [INFO] Handling signal: winch
+[2025-08-20 16:17:35 +0000] [1046] [INFO] Handling signal: winch
+[2025-08-20 16:17:35 +0000] [1046] [INFO] Handling signal: winch
+✅ Database ready - 73 existing calls
+❌ PATCH FAILED: 'Blueprint' object has no attribute 'url_map'
+❌ DATABASE PATCH FAILED
+🔍 Registered webhook routes:
+  /webhook/test -> twilio_bp_v2.test_endpoint
+  /webhook/incoming_call -> twilio_bp_v2.incoming_call
+  /webhook/stream_ended -> twilio_bp_v2.stream_ended
+  /webhook/handle_recording -> twilio_bp_v2.handle_recording
+  /webhook/call_status -> twilio_bp_v2.call_status
+✅ Static TTS file serving configured
+✅ Minimal Flask app ready
+🚀 Hebrew AI Call Center - Full WebSocket Media Streams Version
+✅ WebSocket bidirectional conversations enabled
+✅ Hebrew TTS with proper secrets
+🐕 WATCHDOG SYSTEM ENABLED - Will redirect calls to Record if WebSocket fails
+🔄 DEPLOYMENT UPDATE: 2025-08-19 23:46 - RAW WebSocket FIXED! No more Socket.IO!
+[2025-08-20 16:17:35 +0000] [1046] [INFO] Handling signal: winch
+[2025-08-20 16:17:35 +0000] [1046] [INFO] Handling signal: winch
+[2025-08-20 16:17:35 +0000] [1046] [INFO] Handling signal: winch
+[2025-08-20 16:17:35 +0000] [1046] [INFO] Handling signal: winch
+[2025-08-20 16:17:35 +0000] [1046] [INFO] Handling signal: winch
+[2025-08-20 16:17:35 +0000] [1046] [INFO] Handling signal: winch
+[2025-08-20 16:17:35 +0000] [1046] [INFO] Handling signal: winch
+🔥 REQ: GET / from 10.81.7.140
+INFO:server.app_factory:REQ
+✅ RES: / -> 200
+INFO:server.app_factory:RES
+🔥 REQ: GET /assets/index-BZ7xuu4I.css from 10.81.7.140
+INFO:server.app_factory:REQ
+✅ RES: /assets/index-BZ7xuu4I.css -> 304
+INFO:server.app_factory:RES
+🔥 REQ: GET /assets/index-D0TbrNkG.js from 10.81.8.131
+INFO:server.app_factory:REQ
+✅ RES: /assets/index-D0TbrNkG.js -> 304
+INFO:server.app_factory:RES
+🔥 REQ: GET /api/auth/me from 10.81.7.140
+INFO:server.app_factory:REQ
+✅ RES: /api/auth/me -> 401
+INFO:server.app_factory:RES
