@@ -128,88 +128,18 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription):
         
     except Exception as e:
         log.error("DB save failed: %s", e)
-    
-    try:
-        # נסה Google Speech-to-Text אם מוגדר
-        if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-            return transcribe_with_google(audio_file)
-        else:
-            # Fallback ל-Whisper מקומי
-            return transcribe_with_whisper(audio_file)
-            
-    except Exception as e:
-        log.error("Transcription failed: %s", e)
-        return "תמלול נכשל"
 
-def transcribe_with_google(audio_file):
-    """תמלול עם Google Cloud Speech-to-Text"""
+def transcribe_with_whisper_api(audio_file):
+    """תמלול עם OpenAI Whisper API (לא מקומי)"""
     try:
-        try:
-            from google.cloud import speech
-            client = speech.SpeechClient()
-        except ImportError:
-            log.error("google-cloud-speech not installed")
-            return "Google TTS לא מותקן"
-        except Exception as e:
-            log.error("Failed to create Google Speech client: %s", e)
-            return "Google TTS לא זמין"
+        from server.services.whisper_handler import transcribe_he
         
         with open(audio_file, "rb") as f:
-            audio_content = f.read()
-        
-        audio = speech.RecognitionAudio(content=audio_content)
-        config = speech.RecognitionConfig(  # type: ignore
-            encoding=speech.RecognitionConfig.AudioEncoding.MP3,
-            sample_rate_hertz=8000,  # Twilio recordings
-            language_code="he-IL",
-        )
-        
-        response = client.recognize(config=config, audio=audio)
-        
-        transcript = " ".join([result.alternatives[0].transcript for result in response.results])
-        return transcript or "לא זוהה טקסט"
+            audio_bytes = f.read()
+            
+        return transcribe_he(audio_bytes) or "לא זוהה טקסט"
         
     except Exception as e:
-        log.error("Google transcription failed: %s", e)
-        return "תמלול Google נכשל"
-
-def transcribe_with_whisper(audio_file):
-    """תמלול עם Whisper מקומי"""
-    try:
-        try:
-            import whisper
-            model = whisper.load_model("base")
-        except ImportError:
-            log.error("whisper not installed")
-            return "Whisper לא מותקן"
-        except Exception as e:
-            log.error("Failed to load Whisper model: %s", e)
-            return "Whisper לא זמין"
-        result = model.transcribe(audio_file, language="he")  # type: ignore
-        return result["text"].strip() or "לא זוהה טקסט"
-        
-    except Exception as e:
-        log.error("Whisper transcription failed: %s", e)
+        log.error("Whisper API transcription failed: %s", e)
         return "תמלול Whisper נכשל"
 
-def save_call_to_db(call_sid, from_number, recording_url, transcription):
-    """שמור נתוני השיחה לבסיס הנתונים"""
-    try:
-        # TODO: שמירה לDB אמיתי
-        # כרגע רק לוג
-        call_data = {
-            "call_sid": call_sid,
-            "from_number": from_number,
-            "recording_url": recording_url,
-            "transcription": transcription,
-            "created_at": datetime.now().isoformat()
-        }
-        
-        log.info("Call data to save: %s", call_data)
-        
-        # כאן תהיה השמירה לטבלת calls
-        # db.session.add(Call(**call_data))
-        # db.session.commit()
-        
-    except Exception as e:
-        log.error("Failed to save call to DB: %s", e)
