@@ -54,54 +54,40 @@ def create_app():
     # RAW WEBSOCKET support for Twilio Media Streams - PRODUCTION READY
     try:
         from flask_sock import Sock
-        from server.media_ws import handle_media_stream
+        from server.media_ws import MediaStreamHandler
         
-        # Initialize Flask-Sock with app (RAW WebSocket, not Socket.IO!)
-        sock = Sock(app)  # Direct initialization registers as extension!
+        # Initialize Flask-Sock with app - CORRECT WAY (per user guide)
+        sock = Sock(app)  # Direct initialization as per guide
         
+        # Verify extension registration (will show in logs)
+        extensions_after = list(app.extensions.keys())
+        print(f"🔍 Extensions after sock init: {extensions_after}", flush=True)
+        
+        if "sock" in extensions_after:
+            print("✅ flask-sock registered successfully as extension!", flush=True)
+        else:
+            print("⚠️ flask-sock not in extensions but continuing (may still work)", flush=True)
+        
+        # WS routes (with and without slash - prevents 404/Redirect in handshake)
         @sock.route('/ws/twilio-media')
-        def twilio_media_handler(ws):
-            """RAW WebSocket endpoint for Twilio Media Streams - NO Socket.IO!"""
-            print("🔗 RAW WEBSOCKET CONNECTION RECEIVED!", flush=True)
-            print(f"🔍 WebSocket client: {ws.environ.get('REMOTE_ADDR', 'unknown')}", flush=True)
-            try:
-                handle_media_stream(ws)
-            except Exception as e:
-                print(f"❌ WebSocket handler error: {e}")
-        
-        # Add trailing slash version to prevent 31920 redirects 
-        @sock.route('/ws/twilio-media/')
-        def twilio_media_handler_slash(ws):
-            """RAW WebSocket endpoint with trailing slash - prevents redirects"""
-            print("🔗 RAW WEBSOCKET CONNECTION (/) RECEIVED!", flush=True)
-            try:
-                handle_media_stream(ws)
-            except Exception as e:
-                print(f"❌ WebSocket handler (/) error: {e}")
-                
-        # Add HTTP fallback route to help debug
-        @app.route('/ws/twilio-media')
-        def ws_debug():
-            return "This is a WebSocket endpoint. Use WebSocket protocol to connect.", 426
+        def ws_a(ws):  # Don't wrap with signature decorator!
+            MediaStreamHandler(ws).run()
             
+        @sock.route('/ws/twilio-media/')
+        def ws_b(ws):
+            MediaStreamHandler(ws).run()
+            
+        print(f"✅ Flask-Sock registered: {list(app.extensions.keys())}")
         print("✅ RAW WebSocket /ws/twilio-media registered (both variants)")
-        print("🔍 WebSocket URL: wss://ai-crmd.replit.app/ws/twilio-media")
+        print(f"🔍 WebSocket URL: wss://{os.getenv('PUBLIC_HOST', 'ai-crmd.replit.app')}/ws/twilio-media")
         
     except ImportError as e:
         print(f"⚠️ flask_sock not available - WebSocket disabled: {e}")
         
-        # Create fallback endpoint
-        @app.route('/ws/twilio-media')
-        def ws_fallback():
-            return "WebSocket not available - flask-sock missing", 501
-            
     except Exception as e:
         print(f"❌ WebSocket registration failed: {e}")
-        
-        # Create fallback endpoint  
-        @app.route('/ws/twilio-media')
-        def ws_fallback_error():
-            return f"WebSocket error: {str(e)}", 501
+        import traceback
+        traceback.print_exc()
     
     # Register auth routes if available
     if AUTH_AVAILABLE and auth_bp is not None:

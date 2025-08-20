@@ -410,20 +410,24 @@ def _redirect_to_record(call_sid, host):
         import traceback
         traceback.print_exc()
 
-def _watchdog(call_sid, host, start_timeout=3, no_media_timeout=2):
-    """Watch WebSocket stream and redirect to Record if needed - ENHANCED VERSION"""
+def _watchdog(call_sid, wss_host, start_timeout=8, no_media_timeout=6):
+    """Watch WebSocket stream and redirect to Record if needed - CANONICAL VERSION"""
     try:
         print(f"🐕 WATCHDOG: Started monitoring {call_sid} (wait {start_timeout}s)", flush=True)
         
         # Wait for stream to start
         time.sleep(start_timeout)
+        
+        # Import here to avoid circular imports
+        from server.stream_state import stream_registry
         st = stream_registry.get(call_sid)
         
         print(f"🐕 WATCHDOG: After {start_timeout}s, stream state: {st}", flush=True)
         
+        # Check if stream started
         if not st.get("started"):
             print(f"⚠️ WATCHDOG: No WebSocket stream for {call_sid} - redirecting to Record!", flush=True)
-            _redirect_to_record(call_sid, host)
+            _do_redirect(call_sid, wss_host, reason="no_stream_start")
             return
 
         # Check if there's media activity
@@ -434,12 +438,44 @@ def _watchdog(call_sid, host, start_timeout=3, no_media_timeout=2):
         
         if current_time - last > no_media_timeout:
             print(f"⚠️ WATCHDOG: No media activity for {call_sid} - redirecting to Record!", flush=True) 
-            _redirect_to_record(call_sid, host)
+            _do_redirect(call_sid, wss_host, reason="no_media")
             return
             
         print(f"✅ WATCHDOG: Stream healthy for {call_sid} - no intervention needed", flush=True)
         
     except Exception as e:
         print(f"❌ WATCHDOG: Critical error monitoring {call_sid}: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+
+def _do_redirect(call_sid, wss_host, reason):
+    """Execute the redirect to Record fallback"""
+    from twilio.rest import Client
+    
+    try:
+        current_app.logger.warning("WATCHDOG_REDIRECT", extra={"call_sid": call_sid, "reason": reason})
+        
+        account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+        auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+        
+        if not account_sid or not auth_token:
+            print(f"❌ WATCHDOG: Cannot redirect {call_sid} - missing Twilio credentials!", flush=True)
+            return
+            
+        client = Client(account_sid, auth_token)
+        
+        # CANONICAL TwiML: Record FIRST, then Play, then Hangup
+        twiml = f"""<Response>
+  <Record playBeep="false" timeout="8" maxLength="30" transcribe="false"
+          action="https://{wss_host}/webhook/handle_recording" />
+  <Play>https://{wss_host}/static/tts/fallback_he.mp3</Play>
+  <Hangup/>
+</Response>"""
+
+        client.calls(call_sid).update(twiml=twiml)
+        print(f"✅ WATCHDOG: Successfully redirected {call_sid} to Record fallback!", flush=True)
+        
+    except Exception as e:
+        print(f"❌ WATCHDOG: Failed to redirect {call_sid}: {e}", flush=True)
         import traceback
         traceback.print_exc()
