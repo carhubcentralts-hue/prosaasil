@@ -41,11 +41,18 @@ def twilio_test():
 log = logging.getLogger("twilio.unified")
 
 def abs_url(path: str) -> str:
-    """יצירת URL מוחלט עבור Twilio webhooks - FAIL FAST אם לא מוגדר HOST"""
-    host = (current_app.config.get("PUBLIC_HOST") or os.getenv("PUBLIC_HOST") or "").rstrip("/")
-    if not host:
-        raise RuntimeError("PUBLIC_HOST not configured - Hebrew fallback will be used")
-    return urljoin(host + "/", path.lstrip("/"))
+    """יצירת URL מוחלט עבור Twilio webhooks - PRODUCTION READY"""
+    # Always use external domain for Twilio - never localhost!
+    host = os.getenv("PUBLIC_HOST", "https://ai-crmd.replit.app")
+    
+    # Clean up host URL
+    host = host.rstrip("/")
+    if not host.startswith('http'):
+        host = f"https://{host}"
+    
+    # Ensure no double slashes
+    path = path.lstrip("/")
+    return f"{host}/{path}"
 
 def generate_business_greeting(business_id=1):
     """Generate dynamic Hebrew greeting based on business prompt"""
@@ -144,13 +151,12 @@ def incoming_call():
             f.write(f"CALL: {call_sid} from {from_number} to {to_number}\n")
             f.flush()
         
-        # 2) TwiML עם URLs מוחלטים (סוגר 11100 "Invalid Play URL")
-        def abs_url(path: str) -> str:
-            base = os.getenv("PUBLIC_BASE_URL") or request.url_root.rstrip("/")
-            return f"{base}{path}"
+        # 2) TwiML עם URLs מוחלטים (סוגר 11100 "Invalid Play URL") - PRODUCTION READY
+        greeting_url = abs_url("/static/tts/greeting_he.mp3")  # Use global abs_url function
         
-        greeting_url = abs_url("/static/tts/greeting_he.mp3")
-        wss_host = (os.getenv("PUBLIC_BASE_URL") or request.url_root).replace("https://","").replace("http://","").strip("/")
+        # Use external domain for WebSocket - never localhost!
+        host = os.getenv("PUBLIC_HOST", "https://ai-crmd.replit.app")
+        wss_host = host.replace("https://","").replace("http://","").strip("/")
         business_id = 1  # Default to Shai Real Estate
         
         print(f"🎯 Using absolute greeting URL: {greeting_url}", flush=True)
@@ -211,13 +217,10 @@ def stream_ended():
         call_sid = request.form.get('CallSid', 'unknown')
         log.warning("Stream failover to recording", extra={"call_sid": call_sid, "mode": "record"})
         
-        # Fallback TwiML with recording - RECORD FIRST! (Dynamic URLs)
-        def abs_url(path: str) -> str:
-            base = os.getenv("PUBLIC_BASE_URL") or request.url_root.rstrip("/")
-            return f"{base}{path}"
-        
-        fallback_url = abs_url("/static/tts/fallback_he.mp3")
-        recording_action = abs_url("/webhook/handle_recording")
+        # Fallback TwiML with recording - RECORD FIRST! (Production URLs)
+        host = os.getenv("PUBLIC_HOST", "https://ai-crmd.replit.app")
+        fallback_url = f"{host}/static/tts/fallback_he.mp3"
+        recording_action = f"{host}/webhook/handle_recording"
         
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
