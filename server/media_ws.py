@@ -33,7 +33,7 @@ class MediaStreamHandler:
                         except: 
                             cp = {}
                     self.call_sid = cp.get("call_sid") or cp.get("CallSid") or cp.get("CALL_SID")
-                    self.stream_sid = start.get("streamSid")
+                    self.stream_sid = start.get("streamSid")  # לא ממציאים streamSid - לוקחים רק מה שבא מstart
                     current_app.logger.info("WS_START", extra={"streamSid": self.stream_sid, "call_sid": self.call_sid})
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)

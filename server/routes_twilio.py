@@ -39,6 +39,7 @@ def _do_redirect(call_sid, wss_host, reason):
   <Play>https://{wss_host}/static/tts/fallback_he.mp3</Play>
 </Response>"""
     try:
+        # משתמשים בקרדנצ'לים מ־ENV (בדיפלוי!)
         client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
         client.calls(call_sid).update(twiml=twiml)
         current_app.logger.info("WATCHDOG_REDIRECT_OK", extra={"call_sid": call_sid})
@@ -98,6 +99,19 @@ def handle_recording():
             current_app.logger.info("recording_transcribed", extra={"call_sid": call_sid})
         except Exception:
             current_app.logger.exception("recording_transcribe_fail")
+    return "", 204
+
+@twilio_bp.route("/webhook/call_status", methods=["POST"])
+@require_twilio_signature  # 7) חתימת Twilio (Production)
+def call_status():
+    """Handle call status updates from Twilio"""
+    call_sid = request.form.get("CallSid")
+    call_status = request.form.get("CallStatus")  # queued|ringing|in-progress|completed...
+    try:
+        current_app.logger.info("CALL_STATUS", extra={"call_sid": call_sid, "status": call_status})
+        # TODO: update DB status if needed
+    except Exception:
+        current_app.logger.exception("CALL_STATUS_HANDLER_ERROR")
     return "", 204
 
 # Test endpoint (לא עם חתימת Twilio)

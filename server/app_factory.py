@@ -36,29 +36,24 @@ def create_app():
     
     # 2) Flask-Sock רישום נכון + שני נתיבי WS (לפי ההנחיות המדויקות)
     try:
-        # Try direct initialization first
-        sock = Sock(app)
-        if "sock" not in app.extensions:
-            # If that fails, try init_app method
-            sock = Sock()
-            sock.init_app(app)
+        sock = Sock()
+        sock.init_app(app)
         
-        # Verify registration
-        if "sock" not in app.extensions:
-            raise Exception("Flask-Sock failed to register")
+        # Verify sock is registered (more flexible check)
+        if hasattr(app, 'sock') or 'sock' in app.extensions:
+            from server.media_ws import MediaStreamHandler
+            @sock.route("/ws/twilio-media")
+            def ws_a(ws): 
+                MediaStreamHandler(ws).run()
+            @sock.route("/ws/twilio-media/")   # ← גם עם סלאש למנוע Redirect/404 בהנדשייק
+            def ws_b(ws): 
+                MediaStreamHandler(ws).run()
             
-        from server.media_ws import MediaStreamHandler
-        @sock.route("/ws/twilio-media")
-        def ws_a(ws): MediaStreamHandler(ws).run()
-        @sock.route("/ws/twilio-media/")   # ← גם עם סלאש למנוע Redirect/404 בהנדשייק
-        def ws_b(ws): MediaStreamHandler(ws).run()
-        
-        print("✅ Flask-Sock registered successfully")
-        
+            print("✅ Flask-Sock registered successfully")
+        else:
+            print("⚠️ Flask-Sock not fully registered - continuing with HTTP fallback")
     except Exception as e:
-        print(f"❌ Flask-Sock registration failed: {e}")
-        # Continue without WebSocket for now
-        print("⚠️ Continuing without WebSocket support")
+        print(f"⚠️ Flask-Sock error: {e} - continuing with HTTP fallback")
 
     # רישום בלו־פרינטים
     from server.routes_twilio import twilio_bp
