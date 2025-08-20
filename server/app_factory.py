@@ -35,25 +35,27 @@ def create_app():
         return resp
     
     # 2) Flask-Sock רישום נכון + שני נתיבי WS (לפי ההנחיות המדויקות)
-    try:
-        sock = Sock()
-        sock.init_app(app)
+    # Initialize Flask-Sock BEFORE registering routes
+    sock = Sock()
+    sock.init_app(app)
+    
+    # Force registration verification
+    print(f"🔍 App extensions after Sock init: {list(app.extensions.keys())}")
+    
+    # Register WebSocket routes directly
+    from server.media_ws import MediaStreamHandler
+    
+    @sock.route("/ws/twilio-media")
+    def ws_twilio_media(ws): 
+        print(f"🔗 WebSocket connection established: /ws/twilio-media")
+        MediaStreamHandler(ws).run()
         
-        # Verify sock is registered (more flexible check)
-        if hasattr(app, 'sock') or 'sock' in app.extensions:
-            from server.media_ws import MediaStreamHandler
-            @sock.route("/ws/twilio-media")
-            def ws_a(ws): 
-                MediaStreamHandler(ws).run()
-            @sock.route("/ws/twilio-media/")   # ← גם עם סלאש למנוע Redirect/404 בהנדשייק
-            def ws_b(ws): 
-                MediaStreamHandler(ws).run()
-            
-            print("✅ Flask-Sock registered successfully")
-        else:
-            print("⚠️ Flask-Sock not fully registered - continuing with HTTP fallback")
-    except Exception as e:
-        print(f"⚠️ Flask-Sock error: {e} - continuing with HTTP fallback")
+    @sock.route("/ws/twilio-media/")   # ← גם עם סלאש למנוע Redirect/404 בהנדשייק
+    def ws_twilio_media_slash(ws): 
+        print(f"🔗 WebSocket connection established: /ws/twilio-media/")
+        MediaStreamHandler(ws).run()
+    
+    print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/")
 
     # רישום בלו־פרינטים
     from server.routes_twilio import twilio_bp

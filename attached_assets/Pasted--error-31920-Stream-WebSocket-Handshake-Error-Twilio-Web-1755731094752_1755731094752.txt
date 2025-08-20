@@ -1,0 +1,77 @@
+קיבלתי. ה־error “31920 – Stream WebSocket Handshake Error” אומר בפשטות: בזמן ש-Twilio ניסה לפתוח WebSocket עבור Media Streams – השרת שלך לא החזיר 101 Switching Protocols (החזיר 200/404/500 וכו’), ולכן ההנדשייק נכשל.  ￼ ￼
+
+למה זה קורה אצלך (סביר לפי הלוגים)
+	•	ה־POST ל־/webhook/incoming_call הוא תקין (זה ה־webhook הרגיל), אבל איפשהו ב־TwiML שלך יש <Start><Stream url="wss://..."> שמפנה לנתיב שאינו שרת WebSocket אמיתי (למשל HTTPS רגיל או נתיב שלא מאזין ל־WS). במצב כזה Twilio יקבל 200/404 במקום 101 → 31920.  ￼
+	•	בנוסף, אם יש לך גם 11205 לפעמים (timeout), זה אומר שה־webhook הרגיל לא ענה תוך 15 שניות. ודא שכל נתיב מחזיר 200 מהר.  ￼
+
+⸻
+
+תיקון מהיר – צ’ק־ליסט בול־פגיעה
+	1.	תקן את ה-TwiML
+ודא שאתה מחזיר TwiML שמפריד בין ה־webhook הרגיל לבין ה־WebSocket של ה־Stream. לדוגמה:
+
+<Response>
+  <Say language="he-IL">שלום! מחברים סטרים…</Say>
+  <Start>
+    <Stream url="wss://ai-crmd.replit.app/media-stream"/>
+  </Start>
+  <Pause length="60"/>
+</Response>
+
+ה־url כאן חייב להיות wss:// לשרת WebSocket אמיתי שמחזיר 101.  ￼ ￼
+	2.	הפעל שרת WebSocket אמיתי ל־/media-stream
+ב־Flask הכי פשוט להשתמש ב־Flask-Sock (מאחורי הקלעים מחזיר 101 אוטומטית):
+
+# app.py
+from flask import Flask, Response
+from flask_sock import Sock
+
+app = Flask(__name__)
+sock = Sock(app)
+
+@app.route("/webhook/incoming_call", methods=["POST"])
+def incoming_call():
+    # החזר TwiML תוך <1 שניה
+    twiml = """<Response>
+      <Start><Stream url="wss://ai-crmd.replit.app/media-stream"/></Start>
+      <Pause length="60"/>
+    </Response>"""
+    return Response(twiml, mimetype="text/xml")
+
+@sock.route('/media-stream')
+def media_stream(ws):
+    # Twilio ישלח JSON frames של Media Streams
+    while True:
+        msg = ws.receive()
+        if msg is None:
+            break
+        # כאן תוכל לעבד/לוג/Forward ל־AI
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
+חשוב: הנתיב /media-stream חייב להיות WebSocket (ws/wss) – לא HTTP. כש-Twilio יתחבר, הוא מצפה ל־HTTP 101 Switching Protocols – אחרת 31920.  ￼ ￼
+
+	3.	וודא TLS ונתיב ציבורי תקין
+
+	•	wss:// ב-port 443 עם תעודה תקפה (Replit בדרך כלל מסודר).
+	•	אל תעביר דרך פרוקסי ששובר WS (למשל הגדרות Cloudflare/Tunnel בעייתיות יכולות להפיל 31920).  ￼ ￼
+
+	4.	בדיקות עצמיות
+
+	•	פתח את קונסולת השרת ובדוק בלוג: בזמן חיבור Twilio ל־/media-stream אמור להופיע לוג של פתיחת WebSocket.
+	•	אם אתה לא צריך Media Streams כרגע – פשוט הסר את ה־<Start><Stream …/> מה־TwiML, ואז 31920 ייעלם לגמרי.  ￼
+
+	5.	טיפול ב־webhooks רגילים (מונע 11205/404)
+
+	•	ודא שכל הנתיבים שהוגדרו בטוויליו קיימים ומחזירים 200 מהר:
+	•	/webhook/incoming_call – מחזיר TwiML מייד.
+	•	/webhook/call_status – קיים ומחזיר 200 (גם אם רק return "OK", 200).
+Twilio ממתין עד ~15 שניות – מעבר לזה תקבל 11205.  ￼ ￼
+
+⸻
+
+למה זה בדיוק ה־error
+	•	31920 מוגדר רשמית כששרת החזיר קוד שונה מ־101 בזמן הניסיון לפתוח WebSocket עבור Stream. כלומר – זה לא “באג אקראי”, אלא קונפיגורציה: כתובת wss://... לא מצביעה על endpoint שפותח WS אמיתי.  ￼
+
+אם תרצה, אנסח לך עכשיו Patch מוכן ל־app.py/routes.py בסגנון הקוד שלך (Flask) עם Flask-Sock, כולל לוגים ו-JSON parsing של ה-Media Streams—כדי שתוכל להדביק ולהריץ.

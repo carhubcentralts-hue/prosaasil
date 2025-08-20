@@ -57,14 +57,16 @@ def incoming_call():
                 .replace("https://","").replace("http://","").strip("/")
 
     # אין <Say language="he-IL"> (זה גורם 13512). עברית תמיד דרך <Play> של MP3.
+    # WebSocket URL חייב להיות מדויק - wss:// + domain + port אם צריך
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{greeting_url}</Play>
-  <Connect action="/webhook/stream_ended">
+  <Start>
     <Stream url="wss://{wss_host}/ws/twilio-media">
       <Parameter name="call_sid" value="{call_sid}"/>
     </Stream>
-  </Connect>
+  </Start>
+  <Pause length="60"/>
 </Response>"""
     
     # הפעל watchdog (סעיף 5)
