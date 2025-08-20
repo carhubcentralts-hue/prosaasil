@@ -211,12 +211,13 @@ def stream_ended():
         call_sid = request.form.get('CallSid', 'unknown')
         log.warning("Stream failover to recording", extra={"call_sid": call_sid, "mode": "record"})
         
-        # Fallback TwiML with recording
+        # Fallback TwiML with recording - RECORD FIRST!
         xml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
+  <Record playBeep="false" timeout="8" maxLength="30" transcribe="false"
           action="/webhook/handle_recording" />
   <Play>https://ai-crmd.replit.app/static/tts/fallback_he.mp3</Play>
+  <Hangup/>
 </Response>"""
         return Response(xml, status=200, mimetype="text/xml")
         
@@ -384,16 +385,20 @@ def _redirect_to_record(call_sid, host):
             
         client = Client(account_sid, auth_token)
         
-        # Clean host URL for TwiML  
-        clean_host = host.replace('https://', '').replace('http://', '')
+        # Build absolute URLs properly
+        if not host.startswith(('http://', 'https://')):
+            host = f"https://{host}"
         
-        # TwiML Fallback direct (not dependent on stream_ended) - IMMEDIATE RECORD
-        fallback_url = f"https://{clean_host}/static/tts/fallback_he.mp3"
+        fallback_url = f"{host}/static/tts/fallback_he.mp3"
+        recording_action = f"{host}/webhook/handle_recording"
+        
+        # TwiML Fallback - RECORD FIRST, then play message
         twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Record playBeep="false" timeout="8" maxLength="30" transcribe="false"
+          action="{recording_action}" />
   <Play>{fallback_url}</Play>
-  <Record playBeep="true" timeout="10" maxLength="60" transcribe="false"
-          action="/webhook/handle_recording" />
+  <Hangup/>
 </Response>"""
         
         print(f"📞 WATCHDOG: Attempting Twilio REST redirect for {call_sid}", flush=True)
