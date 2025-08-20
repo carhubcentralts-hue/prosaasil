@@ -57,8 +57,7 @@ def create_app():
         from server.media_ws import handle_media_stream
         
         # Initialize Flask-Sock with app (RAW WebSocket, not Socket.IO!)
-        sock = Sock()
-        sock.init_app(app)
+        sock = Sock(app)  # Direct initialization
         
         @sock.route('/ws/twilio-media')
         def twilio_media_handler(ws):
@@ -79,6 +78,11 @@ def create_app():
                 handle_media_stream(ws)
             except Exception as e:
                 print(f"❌ WebSocket handler (/) error: {e}")
+                
+        # Add HTTP fallback route to help debug
+        @app.route('/ws/twilio-media')
+        def ws_debug():
+            return "This is a WebSocket endpoint. Use WebSocket protocol to connect.", 426
             
         print("✅ RAW WebSocket /ws/twilio-media registered (both variants)")
         print("🔍 WebSocket URL: wss://ai-crmd.replit.app/ws/twilio-media")

@@ -233,54 +233,112 @@ def stream_ended():
 @twilio_bp.post("/webhook/handle_recording")
 def handle_recording():
     """עיבוד הקלטה עברית - תמלול + תשובת AI בעברית"""
+    recording_url = request.form.get('RecordingUrl')
+    call_sid = request.form.get('CallSid', 'unknown')
+    from_number = request.form.get('From', 'unknown')
+    
+    print(f"📹 RECORDING RECEIVED: {call_sid} -> {recording_url}")
+    
     def process_recording_async():
         """Process recording in background thread"""
-        call_sid = "unknown"  # Initialize to avoid unbound error
         try:
-            recording_url = request.form.get('RecordingUrl')
-            call_sid = request.form.get('CallSid', 'unknown')
-            
             if not recording_url:
-                log.error("No recording URL provided", extra={"call_sid": call_sid})
+                print(f"❌ No recording URL for {call_sid}")
                 return
                 
+            print(f"🎤 PROCESSING: {recording_url}")
+            
             # Download and process recording
             import requests
-            import time
-            start_time = time.time()
+            import tempfile
+            import os
+            from openai import OpenAI
             
-            response = requests.get(recording_url, timeout=10, stream=True)
-            response.raise_for_status()
+            response = requests.get(recording_url, timeout=30)
+            if response.status_code != 200:
+                print(f"❌ Failed to download recording: {response.status_code}")
+                return
+                
+            print(f"📁 Downloaded: {len(response.content)} bytes")
             
-            audio_data = response.content
-            log.info("Recording downloaded", extra={
-                "call_sid": call_sid, 
-                "size_bytes": len(audio_data),
-                "download_ms": int((time.time() - start_time) * 1000)
-            })
+            # Save to temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
+                temp_file.write(response.content)
+                temp_path = temp_file.name
+                
+            print(f"💾 Temp file: {temp_path}")
             
-            # Transcribe with Whisper
-            from server.services.whisper_handler import transcribe_he
-            transcript = transcribe_he(audio_data, call_sid)
-            
-            if transcript:
-                # Save to database
-                from server.models_sql import CallLog
-                from server.db import db
-                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
-                if call_log:
-                    call_log.transcript = transcript
-                    db.session.commit()
-                    log.info("Recording transcribed", extra={
-                        "call_sid": call_sid,
-                        "chars": len(transcript)
-                    })
+            try:
+                # Transcribe with Whisper
+                client = OpenAI()
+                with open(temp_path, "rb") as audio_file:
+                    transcript = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        language="he"  # Hebrew language
+                    )
+                    
+                transcription = transcript.text.strip()
+                print(f"🎤 TRANSCRIPTION: '{transcription}' ({len(transcription)} chars)")
+                
+                if transcription and len(transcription) > 2:
+                    # Generate AI response
+                    print(f"🤖 Generating AI response...")
+                    _generate_ai_response_recording(transcription, call_sid, from_number)
+                else:
+                    print(f"⚠️ Transcription too short: '{transcription}'")
+                    
+            except Exception as e:
+                print(f"❌ WHISPER ERROR: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                # Clean up
+                try:
+                    os.unlink(temp_path)
+                    print(f"🗑️ Cleaned temp file")
+                except:
+                    pass
                     
         except Exception as e:
-            log.error("Recording processing failed", extra={
-                "call_sid": call_sid,
-                "error": str(e)
-            })
+            print(f"❌ RECORDING PROCESSING ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+
+def _generate_ai_response_recording(transcription, call_sid, from_number):
+    """Generate AI response for recording"""
+    try:
+        from openai import OpenAI
+        
+        client = OpenAI()
+        
+        print(f"🤖 Generating AI response for: '{transcription}'")
+        
+        response = client.chat.completions.create(
+            model="gpt-4o",  # the newest OpenAI model is "gpt-4o" which was released May 13, 2024
+            messages=[
+                {"role": "system", "content": "אתה עוזר וירטואלי של 'שי דירות ומשרדים בע״מ' - חברת נדל״ן מובילה. ענה בעברית בצורה מקצועית, עוזרת וידידותית. התמחה בנושאי דירות, משרדים, השכרות ומכירות בישראל."},
+                {"role": "user", "content": transcription}
+            ]
+        )
+        
+        ai_response = response.choices[0].message.content
+        print(f"🤖 AI RESPONSE: '{ai_response}'")
+        
+        # Log the complete interaction
+        print(f"💾 INTERACTION COMPLETE:")
+        print(f"   Call: {call_sid}")
+        print(f"   From: {from_number}")
+        print(f"   Customer: '{transcription}'")
+        print(f"   AI: '{ai_response}'")
+        
+        return ai_response
+        
+    except Exception as e:
+        print(f"❌ AI RESPONSE ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
     
     # Start background processing
     thread = threading.Thread(target=process_recording_async)
