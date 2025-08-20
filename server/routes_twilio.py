@@ -142,28 +142,24 @@ def incoming_call():
             f.write(f"CALL: {call_sid} from {from_number} to {to_number}\n")
             f.flush()
         
-        # Create WebSocket URL - DYNAMIC HOST (תיקון 31920)
-        host = os.getenv("PUBLIC_HOST") or request.host
-        if not host.startswith('http'):
-            host = f"https://{host}" if 'replit.app' in host else f"http://{host}"
-        host = host.rstrip('/')  # Remove trailing slash to prevent double slash
-        ws_host = host.replace('https://', '').replace('http://', '')
+        # 2) TwiML עם URLs מוחלטים (סוגר 11100 "Invalid Play URL")
+        def abs_url(path: str) -> str:
+            base = os.getenv("PUBLIC_BASE_URL") or request.url_root.rstrip("/")
+            return f"{base}{path}"
+        
+        greeting_url = abs_url("/static/tts/greeting_he.mp3")
+        wss_host = (os.getenv("PUBLIC_BASE_URL") or request.url_root).replace("https://","").replace("http://","").strip("/")
         business_id = 1  # Default to Shai Real Estate
         
-        # Use static Hebrew greeting to avoid OpenAI delay in webhook
-        # Dynamic greeting moved to Media Stream for faster response
-        greeting_url = f"{host}/static/tts/greeting_he.mp3"
-        print(f"🎯 Using static greeting: {greeting_url}", flush=True)
+        print(f"🎯 Using absolute greeting URL: {greeting_url}", flush=True)
+        print(f"🔗 WebSocket URL: wss://{wss_host}/ws/twilio-media", flush=True)
         
         # RAW WEBSOCKET - Real-time Hebrew conversation (NO Socket.IO!)
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Play>{greeting_url}</Play>
   <Connect action="/webhook/stream_ended">
-    <Stream url="wss://{ws_host}/ws/twilio-media">
-      <Parameter name="business_id" value="{business_id}"/>
-      <Parameter name="from_number" value="{from_number}"/>
-      <Parameter name="to_number" value="{to_number}"/>
+    <Stream url="wss://{wss_host}/ws/twilio-media">
       <Parameter name="call_sid" value="{call_sid}"/>
     </Stream>
   </Connect>
@@ -177,10 +173,10 @@ def incoming_call():
             f.flush()
             
         # START WATCHDOG - monitor RAW WebSocket and fallback if needed
-        watchdog_thread = threading.Thread(target=_watchdog, args=(call_sid, host), daemon=True)
+        watchdog_thread = threading.Thread(target=_watchdog, args=(call_sid, wss_host), daemon=True)
         watchdog_thread.start()
         print(f"🐕 WATCHDOG: Thread STARTED for {call_sid} (RAW WebSocket)", flush=True)
-        print(f"🐕 WATCHDOG: Will monitor RAW WebSocket for 3 seconds", flush=True)
+        print(f"🐕 WATCHDOG: Will monitor RAW WebSocket for 8 seconds", flush=True)
             
         return Response(xml, status=200, mimetype="text/xml")
         

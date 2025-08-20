@@ -51,43 +51,55 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # RAW WEBSOCKET support for Twilio Media Streams - PRODUCTION READY
+    # 1) רישום Flask-Sock נכון + שני נתיבי WS (לפי ההנחיות המפורטות)
     try:
         from flask_sock import Sock
         from server.media_ws import MediaStreamHandler
         
-        # Initialize Flask-Sock with app - CORRECT WAY (per user guide)
-        sock = Sock(app)  # Direct initialization as per guide
+        # רישום Flask-Sock בצורה הנכונה לפי ההנחיות
+        sock = Sock(app)  # Direct initialization כמו בהנחיות
         
-        # Verify extension registration (will show in logs)
-        extensions_after = list(app.extensions.keys())
-        print(f"🔍 Extensions after sock init: {extensions_after}", flush=True)
+        # בדיקה אחרי רישום
+        extensions_list = list(app.extensions.keys())
+        print(f"🔍 Extensions after Sock(app): {extensions_list}", flush=True)
         
-        if "sock" in extensions_after:
-            print("✅ flask-sock registered successfully as extension!", flush=True)
-        else:
-            print("⚠️ flask-sock not in extensions but continuing (may still work)", flush=True)
+        # אם לא נרשם, ננסה דרך אחרת
+        if "sock" not in extensions_list:
+            print("⚠️ Trying alternative registration method...", flush=True)
+            sock = Sock()
+            sock.init_app(app)
+            extensions_list = list(app.extensions.keys())
+            print(f"🔍 Extensions after init_app(): {extensions_list}", flush=True)
         
-        # WS routes (with and without slash - prevents 404/Redirect in handshake)
-        @sock.route('/ws/twilio-media')
-        def ws_a(ws):  # Don't wrap with signature decorator!
+        print("✅ Flask-Sock registration completed", flush=True)
+        
+        # רישום שני נתיבי WebSocket (עם ובלי סלאש)
+        @sock.route("/ws/twilio-media")
+        def ws_a(ws): 
             MediaStreamHandler(ws).run()
             
-        @sock.route('/ws/twilio-media/')
-        def ws_b(ws):
+        @sock.route("/ws/twilio-media/")  # ← גם עם סלאש
+        def ws_b(ws): 
             MediaStreamHandler(ws).run()
             
-        print(f"✅ Flask-Sock registered: {list(app.extensions.keys())}")
-        print("✅ RAW WebSocket /ws/twilio-media registered (both variants)")
-        print(f"🔍 WebSocket URL: wss://{os.getenv('PUBLIC_HOST', 'ai-crmd.replit.app')}/ws/twilio-media")
+        print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/")
         
     except ImportError as e:
-        print(f"⚠️ flask_sock not available - WebSocket disabled: {e}")
-        
+        print(f"❌ flask_sock not available: {e}")
+        raise
     except Exception as e:
         print(f"❌ WebSocket registration failed: {e}")
         import traceback
         traceback.print_exc()
+        raise
+    
+    # 4) רישום WhatsApp webhook routes
+    try:
+        from server.routes_whatsapp import register_whatsapp_routes
+        register_whatsapp_routes(app)
+        print("✅ WhatsApp webhook routes registered")
+    except Exception as e:
+        print(f"⚠️ WhatsApp routes registration failed: {e}")
     
     # Register auth routes if available
     if AUTH_AVAILABLE and auth_bp is not None:
