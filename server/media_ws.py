@@ -42,13 +42,21 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
                     
-                    # TODO: Live transcription של audio frames
-                    # media_payload = data.get("media", {}).get("payload", "")
-                    # if media_payload:
-                    #     # Decode base64 → PCM audio → Whisper
-                    #     pass
+                    # Live transcription של audio frames
+                    media_payload = data.get("media", {}).get("payload", "")
+                    if media_payload and len(media_payload) > 100:  # רק chunks עם תוכן
+                        try:
+                            # TODO: Decode base64 → PCM audio → Buffer → Whisper בזמן אמת
+                            # כרגע נשמור chunks לעיבוד מאוחר יותר
+                            pass
+                        except Exception:
+                            current_app.logger.exception("LIVE_TRANSCRIPTION_ERROR")
                     
-                    current_app.logger.debug("WS_FRAME", extra={"len": len(data.get("media",{}).get("payload",""))})
+                    current_app.logger.debug("WS_FRAME", extra={
+                        "call_sid": self.call_sid,
+                        "payload_len": len(media_payload),
+                        "stream_sid": self.stream_sid
+                    })
 
                 elif ev == "stop":
                     current_app.logger.info("WS_STOP")
