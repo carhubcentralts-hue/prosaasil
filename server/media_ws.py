@@ -15,6 +15,8 @@ try:
     from .services.gcp_tts_live import generate_hebrew_response
     HEBREW_REALTIME_ENABLED = True
 except ImportError:
+    GcpHebrewStreamer = None
+    generate_hebrew_response = None
     HEBREW_REALTIME_ENABLED = False
 
 class MediaStreamHandler:
@@ -26,7 +28,7 @@ class MediaStreamHandler:
         self.call_sid = None
         
         # Real-time Hebrew components
-        if HEBREW_REALTIME_ENABLED:
+        if HEBREW_REALTIME_ENABLED and GcpHebrewStreamer:
             self.stt = GcpHebrewStreamer(sample_rate_hz=8000)
         else:
             self.stt = None
@@ -167,7 +169,7 @@ class MediaStreamHandler:
                 # Generate Hebrew AI response
                 response_text = self._get_ai_response(user_text)
                 
-                if response_text:
+                if response_text and generate_hebrew_response:
                     # Generate Hebrew TTS
                     audio_url = generate_hebrew_response(response_text, self.call_sid)
                     
@@ -250,7 +252,8 @@ class MediaStreamHandler:
 </Response>"""
             
             # Update the call to play response and continue conversation
-            client.calls(self.call_sid).update(twiml=twiml)
+            if self.call_sid:
+                client.calls(self.call_sid).update(twiml=twiml)
             
             current_app.logger.info("CONTINUOUS_PING_PONG_ACTIVE", extra={
                 "call_sid": self.call_sid,
