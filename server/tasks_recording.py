@@ -129,6 +129,36 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription):
     except Exception as e:
         log.error("DB save failed: %s", e)
 
+def save_call_status(call_sid, status):
+    """Update call status in database"""
+    try:
+        import sqlite3
+        
+        # Update call status in SQLite
+        db_path = "database.db"
+        conn = sqlite3.connect(db_path)
+        
+        # Add status column if it doesn't exist
+        try:
+            conn.execute("ALTER TABLE call_logs ADD COLUMN call_status TEXT DEFAULT 'unknown'")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        # Update call status
+        conn.execute("""
+            UPDATE call_logs 
+            SET call_status = ?
+            WHERE call_sid = ?
+        """, (status, call_sid))
+            
+        conn.commit()
+        conn.close()
+        
+        log.info("Call status updated: %s -> %s", call_sid, status)
+        
+    except Exception as e:
+        log.error("Failed to update call status: %s", e)
+
 def transcribe_with_whisper_api(audio_file):
     """תמלול עם OpenAI Whisper API (לא מקומי)"""
     try:

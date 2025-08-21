@@ -110,7 +110,10 @@ def call_status():
     call_status = request.form.get("CallStatus")  # queued|ringing|in-progress|completed...
     try:
         current_app.logger.info("CALL_STATUS", extra={"call_sid": call_sid, "status": call_status})
-        # TODO: update DB status if needed
+        # Update DB status if needed - saves call lifecycle
+        if call_status in ["completed", "busy", "no-answer", "failed", "canceled"]:
+            from server.tasks_recording import save_call_status
+            save_call_status(call_sid, call_status)
     except Exception:
         current_app.logger.exception("CALL_STATUS_HANDLER_ERROR")
     return "", 204

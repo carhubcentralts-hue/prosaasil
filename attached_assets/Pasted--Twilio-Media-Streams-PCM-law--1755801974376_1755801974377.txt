@@ -1,0 +1,263 @@
+חד וחלק:
+
+* **כן — Twilio Media Streams עצמו “שקוף לשפה”** (מעביר אודיו PCM/µ-law). עברית נתמכת כל עוד יש לך **מנוע זיהוי דיבור בזמן אמת (ASR)** שתומך בעברית.
+* **ב־ZIP האחרון (69)** אין אצלך רכיב **ASR סטרימי** ולא רכיב **TTS לגוגל**—יש רק `whisper_handler.py` (תמלול אחרי הקלטה). לכן “לייב” לא יעבוד עד שתוסיף את שני הרכיבים ותחבר אותם ל־WS.
+
+להלן תכנית פעולה ממוקדת לפי הקוד שב־AgentLocator (69) כדי להגיע לשיחה דו־כיוונית בזמן אמת בעברית:
+
+---
+
+# מה חסר כרגע (ב־ZIP 69)
+
+1. ❌ **Streaming ASR** — אין `gcp_stt_stream.py`/חיבור ל־Google Speech-to-Text Streaming (או Deepgram/AssemblyAI).
+2. ❌ **TTS בזמן אמת** — אין `gcp_tts.py` (או מקבילה) ליצירת תשובה קולית (he-IL) ולהזריק אותה לשיחה.
+3. ⚠️ **Eventlet בדיפלוי** – אם הדיפלוי לא רץ עם `-k eventlet`, ה־WS ייכשל (31920).
+4. ⚠️ **/webhook/call\_status** – ראינו 404; חייב מסלול קיים שיחזיר 204.
+
+---
+
+# מה להוסיף/לשנות – צעד־צעד
+
+## 1) תלותים (requirements)
+
+הוסף ל־`AgentLocator/requirements.txt` (השאר מה שיש):
+
+```
+google-cloud-speech==2.26.0
+google-cloud-texttospeech==2.14.1
+numpy==1.26.4
+```
+
+> אם אתה מעדיף ספק אחר ל־ASR: Deepgram/AssemblyAI—אבל ל־GCP יש עברית **גם בסטרים**.
+
+## 2) GCP – סט־אפ סודות
+
+ENV שחייבים בדיפלוי:
+
+* `GOOGLE_APPLICATION_CREDENTIALS` (נתיב לקובץ JSON) **או** `GCP_CREDENTIALS_JSON` (ואז תכתוב לקובץ באתחול).
+* `OPENAI_API_KEY` (אם התשובה נבנית ע״י LLM).
+* `PUBLIC_BASE_URL`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `DATABASE_URL` (כבר דיברנו).
+
+## 3) Streaming ASR מודול (חדש): `server/services/gcp_stt_stream.py`
+
+מימוש מינימלי שתואם עברית, 8kHz µ-law:
+
+```python
+# server/services/gcp_stt_stream.py
+from google.cloud import speech
+import base64, audioop
+
+class GcpHebrewStreamer:
+    def __init__(self, sample_rate_hz=8000):
+        self.client = speech.SpeechClient()
+        self.rate = sample_rate_hz
+        self._requests = []
+        self._stream = None
+
+    def start(self):
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            language_code="he-IL",
+            sample_rate_hertz=self.rate,
+            enable_automatic_punctuation=True,
+            model="latest_long", # או מתאים ל-v2, לפי זמינות
+        )
+        streaming_config = speech.StreamingRecognitionConfig(
+            config=config,
+            interim_results=True,
+            single_utterance=False,
+        )
+        def gen():
+            for chunk in self._requests:
+                yield speech.StreamingRecognizeRequest(audio_content=chunk)
+                # ריקון מהר מאוד לשמירת latency
+            self._requests.clear()
+        self._stream = self.client.streaming_recognize(streaming_config, gen())
+
+    def push_ulaw_base64(self, b64):
+        # Twilio שולחת µ-law 8kHz; ממיר ל-L16 8kHz
+        mulaw = base64.b64decode(b64)
+        pcm16 = audioop.ulaw2lin(mulaw, 2)  # ל-16bit
+        self._requests.append(pcm16)
+
+    def read_results_nonblock(self):
+        """קרא תוצאות זמינות בלי לחסום; החזר [(text, is_final)]"""
+        out = []
+        try:
+            responses = next(self._stream)  # פריים אחד
+            for res in responses.results:
+                if res.alternatives:
+                    out.append((res.alternatives[0].transcript, res.is_final))
+        except StopIteration:
+            pass
+        except Exception:
+            pass
+        return out
+```
+
+## 4) TTS מודול (חדש): `server/services/gcp_tts.py`
+
+```python
+# server/services/gcp_tts.py
+from google.cloud import texttospeech
+
+def synth_he(text, out_path):
+    client = texttospeech.TextToSpeechClient()
+    synthesis_input = texttospeech.SynthesisInput(text=text)
+    voice = texttospeech.VoiceSelectionParams(
+        language_code="he-IL",
+        name="he-IL-Wavenet-A"  # או Neural2 אם זמין אצלך
+    )
+    audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
+    resp = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+    with open(out_path, "wb") as f:
+        f.write(resp.audio_content)
+    return out_path
+```
+
+## 5) חיווט ב־WS: `server/media_ws.py`
+
+* את ה־`"media"` כבר אתה קולט—חבר ל־Streamer:
+
+```python
+from .services.gcp_stt_stream import GcpHebrewStreamer
+from flask import current_app
+import time, threading, os
+
+class MediaStreamHandler:
+    def __init__(self, websocket):
+        self.ws = websocket
+        self.stream_sid = None
+        self.call_sid = None
+        self.stt = GcpHebrewStreamer(sample_rate_hz=8000)
+        self.started_at = time.time()
+        self.last_speech_at = self.started_at
+        self.buffer_text = ""
+
+    def run(self):
+        current_app.logger.info("WS_CONNECTED")
+        self.stt.start()
+        try:
+            while True:
+                raw = self.ws.receive()
+                if raw is None:
+                    current_app.logger.info("WS_CLOSED"); break
+                data = json.loads(raw)
+                ev = data.get("event")
+                if ev == "start":
+                    start = data.get("start", {})
+                    cp = start.get("customParameters") or {}
+                    if isinstance(cp, str):
+                        try: cp = json.loads(cp)
+                        except: cp = {}
+                    self.call_sid = cp.get("call_sid") or cp.get("CallSid") or cp.get("CALL_SID")
+                    self.stream_sid = start.get("streamSid")
+                    current_app.logger.info("WS_START", extra={"streamSid": self.stream_sid, "call_sid": self.call_sid})
+                    if self.call_sid: stream_registry.mark_start(self.call_sid)
+
+                elif ev == "media":
+                    payload = data.get("media", {}).get("payload")
+                    if payload:
+                        self.stt.push_ulaw_base64(payload)
+                        # קרא תוצאות מהר כדי לשמור latency
+                        for text, is_final in self.stt.read_results_nonblock():
+                            if text.strip():
+                                self.buffer_text = text
+                                if is_final:
+                                    self.last_speech_at = time.time()
+                                    threading.Thread(target=self._on_user_utterance, args=(text,), daemon=True).start()
+
+                elif ev == "stop":
+                    current_app.logger.info("WS_STOP"); break
+
+        except Exception:
+            current_app.logger.exception("WS_HANDLER_ERROR")
+        finally:
+            if self.call_sid: stream_registry.clear(self.call_sid)
+
+    def _on_user_utterance(self, text):
+        """כאן המוח: NLP→TTS→השמעה למתקשר"""
+        try:
+            # 1) NLP (דוגמה): הפעל LLM לבניית תשובה קצרה
+            reply = nlp_hebrew_brief_reply(text)  # תממש או קרא שירות קיים אצלך
+
+            # 2) TTS → MP3
+            fname = f"{self.call_sid}_{int(time.time())}.mp3"
+            out_path = os.path.join(os.path.dirname(__file__), "..", "static", "tts", fname)
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            from .services.gcp_tts import synth_he
+            synth_he(reply, out_path)
+
+            # 3) הזרקה לשיחה: calls.update(twiml=<Play>)
+            from twilio.rest import Client
+            client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
+            host = (os.getenv("PUBLIC_BASE_URL") or request.url_root).rstrip("/")
+            play_url = f"{host}/static/tts/{fname}"
+            twiml = f"<Response><Play>{play_url}</Play></Response>"
+            client.calls(self.call_sid).update(twiml=twiml)
+
+            current_app.logger.info("PING_PONG_TX", extra={"call_sid": self.call_sid, "reply_secs": len(reply)})
+        except Exception:
+            current_app.logger.exception("PING_PONG_FAIL")
+```
+
+> זה מייצר “פינג־פונג” של 1.5–3 שנ׳ לטורן, תלוי ב־TTS/LLM.
+> אם תרצה “דיבור רציף” (barge-in), תצטרך ניהול תור, קיצוץ השמעה, ו־VAD מתקדם—מתקדם יותר, אפשר אחרכך.
+
+## 6) Redirect בטוח (כבר יש) – ודא ENV של Twilio
+
+ב־`routes_twilio.py` ודא שב־`_do_redirect` אתה יוצר `<Record … action="/webhook/handle_recording">` + `<Play>fallback_he.mp3</Play>` ומשתמש:
+
+```python
+client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
+```
+
+> אם אלה לא מוגדרים ב־**Deployment**, לא יהיה Redirect → “ברכה ואז שקט”.
+
+## 7) `/webhook/call_status` (סוגר 15003/404)
+
+הוסף/אשרר (בתוך ה־Blueprint):
+
+```python
+@twilio_bp.route("/webhook/call_status", methods=["POST"])
+def call_status():
+    call_sid = request.form.get("CallSid")
+    status = request.form.get("CallStatus")
+    current_app.logger.info("CALL_STATUS", extra={"call_sid": call_sid, "status": status})
+    return "", 204
+```
+
+## 8) דיפלוי נכון ל־WS
+
+ב־Replit **Deployments**:
+
+* **Build:** `pip install -r AgentLocator/requirements.txt`
+* **Run:** `python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app`
+
+---
+
+# בדיקות מהירות (שאתה יכול להריץ עכשיו)
+
+1. **TwiML**
+   `curl -s https://<DEPLOY>/webhook/incoming_call | sed -n '1,30p'`
+   אמור להראות `<Play>.../greeting_he.mp3</Play>` ואז `<Connect><Stream wss://.../ws/twilio-media>`.
+
+2. **MP3**
+   `curl -I https://<DEPLOY>/static/tts/greeting_he.mp3` ו־`fallback_he.mp3` → 200.
+
+3. **WS אמיתי**
+   דרך websocketking/wscat: התחבר ל־`wss://<DEPLOY>/ws/twilio-media` → **Connected (101)** (לא HEAD!).
+
+4. **שיחה**
+
+   * בלוגים: `WS_START` → מיד `buffer_text` מתמלא, `PING_PONG_TX` נשלח.
+   * אם ה־WS לא קם/אין פריימים: תוך ≤6ש׳ יופיע ב־Inspector: `POST /webhook/handle_recording` (Redirect הצליח).
+
+---
+
+## שאלתך המקורית – “בטוח יש מדיה סטרים בעברית?”
+
+* **כן.** Media Streams הם צינור אודיו; עברית נמדדת ברמת ה־ASR. Google STT Streaming, Deepgram, AssemblyAI—תומכים בעברית/איכות טובה.
+* **התנאי להצלחה**: להוסיף את רכיבי ה־ASR/‏TTS ולחברם ל־WS (כמו למעלה).
+
+אם תרצה, אני אנסח לך דיפ (patch) קצר לכל קובץ חדש/שינוי (‎`gcp_stt_stream.py`, ‎`gcp_tts.py`, חתיכות ל־`media_ws.py`/`routes_twilio.py`) כדי שתדביק “כמו שהוא”.
