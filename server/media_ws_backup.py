@@ -1,6 +1,6 @@
 """
-Real-time Hebrew WebSocket Media Stream Handler with Continuous Ping-Pong
-Handles bidirectional Hebrew conversations via Twilio Media Streams per guidelines
+Real-time Hebrew WebSocket Media Stream Handler
+Handles bidirectional Hebrew conversations via Twilio Media Streams
 """
 import json
 import time
@@ -15,10 +15,11 @@ try:
     from .services.gcp_tts_live import generate_hebrew_response
     HEBREW_REALTIME_ENABLED = True
 except ImportError:
+    current_app.logger.warning("Hebrew real-time components not available")
     HEBREW_REALTIME_ENABLED = False
 
 class MediaStreamHandler:
-    """Enhanced WebSocket handler with continuous Hebrew conversations"""
+    """Enhanced WebSocket handler with real-time Hebrew processing"""
     
     def __init__(self, websocket):
         self.ws = websocket
@@ -156,7 +157,7 @@ class MediaStreamHandler:
         thread.start()
 
     def _generate_hebrew_response(self, user_text):
-        """Generate and play Hebrew AI response with continuous conversation"""
+        """Generate and play Hebrew AI response"""
         if self.processing_response or not HEBREW_REALTIME_ENABLED:
             return
             
@@ -172,14 +173,13 @@ class MediaStreamHandler:
                     audio_url = generate_hebrew_response(response_text, self.call_sid)
                     
                     if audio_url:
-                        # Play response and continue conversation
-                        self._play_response_and_continue(audio_url)
+                        # Play response in call
+                        self._play_response_in_call(audio_url)
                         
-                        current_app.logger.info("CONTINUOUS_HEBREW_RESPONSE", extra={
+                        current_app.logger.info("HEBREW_RESPONSE_SENT", extra={
                             "call_sid": self.call_sid,
                             "user_said": user_text[:50],
-                            "bot_said": response_text[:50],
-                            "flow": "continuous_ping_pong"
+                            "bot_said": response_text[:50]
                         })
                     
             except Exception:
@@ -208,16 +208,14 @@ class MediaStreamHandler:
                 return "תל אביב זה שוק חם! יש לנו דירות מצוינות באזור. כמה חדרים אתה מחפש?"
             elif any(word in user_lower for word in ["ירושלים", "י-ם"]):
                 return "ירושלים זה מקום נהדר! איזה חלק בעיר אתה מעדיף?"
-            elif any(word in user_lower for word in ["בית", "בתים"]):
-                return "בית פרטי זה השקעה מצוינת! איזה אזור אתה מעדיף?"
             else:
                 return "אני כאן לעזור לך עם כל מה שקשור לנדל\"ן. אתה יכול לספר לי יותר?"
                 
         except Exception:
             return "סליחה, לא הבנתי. אתה יכול לחזור על זה?"
 
-    def _play_response_and_continue(self, audio_url):
-        """Play Hebrew response and return to WebSocket for continuous conversation"""
+    def _play_response_in_call(self, audio_url):
+        """Play Hebrew response and continue conversation (continuous ping-pong)"""
         try:
             from twilio.rest import Client
             
@@ -226,19 +224,19 @@ class MediaStreamHandler:
             auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
             
             if not account_sid or not auth_token:
-                current_app.logger.error("Missing Twilio credentials for continuous conversation")
+                current_app.logger.error("Missing Twilio credentials for live response")
                 return
                 
             client = Client(account_sid, auth_token)
             
             # Build full audio URL
-            public_base = os.environ.get("PUBLIC_BASE_URL") or os.environ.get("PUBLIC_HOST", "https://ai-crmd.replit.app")
+            public_base = os.environ.get("PUBLIC_BASE_URL", "https://ai-crmd.replit.app")
             full_audio_url = f"{public_base.rstrip('/')}{audio_url}"
             
-            # Get WebSocket host for continuous conversation
+            # Get WebSocket host for continuation
             wss_host = public_base.replace("https://", "").replace("http://", "").strip("/")
             
-            # Create TwiML to play response AND return to WebSocket (continuous ping-pong)
+            # Create TwiML to play response AND return to WebSocket for continuous conversation
             twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Play>{full_audio_url}</Play>
@@ -252,10 +250,10 @@ class MediaStreamHandler:
             # Update the call to play response and continue conversation
             client.calls(self.call_sid).update(twiml=twiml)
             
-            current_app.logger.info("CONTINUOUS_PING_PONG_ACTIVE", extra={
+            current_app.logger.info("CONTINUOUS_HEBREW_CONVERSATION", extra={
                 "call_sid": self.call_sid,
                 "audio_url": full_audio_url,
-                "next_step": "return_to_websocket_after_play"
+                "flow": "play_response_then_continue_listening"
             })
             
         except Exception:
