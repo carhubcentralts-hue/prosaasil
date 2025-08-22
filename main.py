@@ -2,8 +2,19 @@
 """
 Hebrew AI Call Center CRM - Full WebSocket Version
 Fixed for bidirectional Hebrew conversations and Media Streams
+AgentLocator 71 - Production Ready
 """
 import os
+import json
+import tempfile
+
+# CRITICAL: Setup GCP credentials FIRST (per guidelines §3.2)
+creds = os.getenv("GCP_CREDENTIALS_JSON") or os.getenv("GOOGLE_TTS_SA_JSON")
+if creds and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+    p = os.path.join(tempfile.gettempdir(), "gcp.json")
+    with open(p, "w") as f: f.write(creds)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = p
+    print(f"🔐 GCP credentials file created: {p}")
 
 # Import the full app factory with WebSocket support
 from server.app_factory import create_app
@@ -12,11 +23,11 @@ from server.app_factory import create_app
 app = create_app()
 
 # App is created by app_factory with all features
-print("🚀 Hebrew AI Call Center - Full WebSocket Media Streams Version")
+print("🚀 AgentLocator 71 - Hebrew AI Call Center")
 print("✅ WebSocket bidirectional conversations enabled")
-print("✅ Hebrew TTS with proper secrets")
-print("🐕 WATCHDOG SYSTEM ENABLED - Will redirect calls to Record if WebSocket fails")
-print("🔄 DEPLOYMENT UPDATE: 2025-08-19 23:46 - RAW WebSocket FIXED! No more Socket.IO!")
+print("✅ Hebrew TTS/STT with proper GCP credentials") 
+print("🐕 WATCHDOG SYSTEM ENABLED - Record fallback on WS failure")
+print("🔄 DEPLOYMENT: AgentLocator 71 - Production Ready per Guidelines")
 
 # Test endpoints are now in app_factory.py with WebSocket support
 # This file just imports the full app

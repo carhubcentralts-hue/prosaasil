@@ -117,3 +117,40 @@ def call_status():
 def test_webhook():
     """Test webhook endpoint"""
     return "TEST OK", 200
+
+# Health endpoints per guidelines §9
+@twilio_bp.route("/healthz", methods=["GET"])
+def healthz():
+    """Basic health check"""
+    return "ok", 200
+
+@twilio_bp.route("/readyz", methods=["GET"])
+def readyz():
+    """Readiness check with service status"""
+    import json
+    try:
+        status = {
+            "db": bool(os.getenv("DATABASE_URL")),
+            "openai": bool(os.getenv("OPENAI_API_KEY")),
+            "tts": bool(os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("GOOGLE_TTS_SA_JSON")),
+            "twilio_secrets": bool(os.getenv("TWILIO_ACCOUNT_SID") and os.getenv("TWILIO_AUTH_TOKEN"))
+        }
+        return json.dumps(status), 200, {"Content-Type": "application/json"}
+    except Exception:
+        return '{"error": "readiness check failed"}', 500, {"Content-Type": "application/json"}
+
+@twilio_bp.route("/version", methods=["GET"])
+def version():
+    """Version information"""
+    import json
+    import time
+    try:
+        version_info = {
+            "app": "AgentLocator",
+            "version": "71",
+            "build_time": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+            "status": "production_ready"
+        }
+        return json.dumps(version_info), 200, {"Content-Type": "application/json"}
+    except Exception:
+        return '{"error": "version check failed"}', 500, {"Content-Type": "application/json"}

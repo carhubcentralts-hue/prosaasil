@@ -66,11 +66,19 @@ def create_app():
     
     print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/")
 
-    # רישום בלו־פרינטים
+    # רישום בלו־פרינטים - AgentLocator 71
     from server.routes_twilio import twilio_bp
     app.register_blueprint(twilio_bp)
     from server.routes_whatsapp import register_whatsapp_routes
     register_whatsapp_routes(app)  # ← פעם אחת בלבד
+    
+    # Debug routes לפריסה
+    try:
+        from server.debug_routes import debug_bp
+        app.register_blueprint(debug_bp)
+        print("✅ Debug routes registered")
+    except ImportError:
+        print("⚠️ Debug routes not available")
 
     # Simple auth endpoints (fallback)
     @app.route('/api/auth/me', methods=['GET'])
