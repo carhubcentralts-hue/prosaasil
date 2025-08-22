@@ -16,7 +16,7 @@ class GcpHebrewStreamer:
     """Real-time Hebrew speech recognition for Twilio Media Streams"""
     
     def __init__(self, sample_rate_hz=8000):
-        self.client = speech.SpeechClient()
+        self.client = None
         self.rate = sample_rate_hz
         self._audio_queue = queue.Queue()
         self._results_queue = queue.Queue()
@@ -24,10 +24,23 @@ class GcpHebrewStreamer:
         self._stream = None
         self._thread = None
         
+    def _ensure_client(self):
+        """Lazy initialization of Speech client"""
+        if self.client is None:
+            try:
+                self.client = speech.SpeechClient()
+                log.info("Google Cloud Speech client initialized")
+            except Exception as e:
+                log.error(f"Failed to initialize Speech client: {e}")
+                raise
+        
     def start(self):
         """Start streaming recognition"""
         if self._streaming:
             return
+            
+        # Ensure client is initialized
+        self._ensure_client()
             
         self._streaming = True
         self._thread = threading.Thread(target=self._stream_worker, daemon=True)

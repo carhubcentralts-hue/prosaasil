@@ -17,17 +17,29 @@ def check_secrets():
     else:
         log.info("OpenAI API key configured")
     
-    # Google TTS
-    if not os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON"):
-        log.warning("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON missing - TTS will be disabled") 
+    # Google TTS - handle both JSON and credentials file
+    google_json = os.getenv("GOOGLE_TTS_SA_JSON") or os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
+    if not google_json:
+        log.warning("Google TTS credentials missing - TTS will be disabled") 
         os.environ["TTS_DISABLED"] = "true"
     else:
         try:
-            # Validate JSON format
-            json.loads(os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON"))
-            log.info("Google TTS credentials configured")
+            # Validate JSON format and create credentials file
+            creds_data = json.loads(google_json)
+            
+            # Create credentials file if GOOGLE_APPLICATION_CREDENTIALS not set
+            if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+                creds_path = ensure_google_creds_file()
+                if creds_path:
+                    log.info(f"Google TTS credentials file created: {creds_path}")
+                else:
+                    log.warning("Failed to create Google credentials file")
+                    os.environ["TTS_DISABLED"] = "true"
+            else:
+                log.info("Google TTS credentials configured")
+                
         except json.JSONDecodeError:
-            log.warning("Invalid GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON format - TTS will be disabled")
+            log.warning("Invalid Google credentials JSON format - TTS will be disabled")
             os.environ["TTS_DISABLED"] = "true"
     
     # Twilio
@@ -53,7 +65,8 @@ def check_secrets():
 
 def ensure_google_creds_file():
     """Ensure Google credentials file exists if JSON is provided"""
-    json_creds = os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
+    # Try both possible environment variable names
+    json_creds = os.getenv("GOOGLE_TTS_SA_JSON") or os.getenv("GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON")
     if not json_creds:
         return None
         
@@ -61,14 +74,14 @@ def ensure_google_creds_file():
         import tempfile
         creds_data = json.loads(json_creds)
         
-        # Create temp file
-        fd, path = tempfile.mkstemp(suffix='.json', prefix='gcp_sa_')
-        with os.fdopen(fd, 'w') as f:
+        # Create persistent file in /tmp for deployment
+        creds_path = "/tmp/google_service_account.json"
+        with open(creds_path, 'w') as f:
             json.dump(creds_data, f)
             
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
-        log.info(f"Google credentials file created: {path}")
-        return path
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+        log.info(f"Google credentials file created: {creds_path}")
+        return creds_path
     except Exception as e:
         log.error(f"Failed to create Google credentials file: {e}")
         return None

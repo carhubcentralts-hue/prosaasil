@@ -9,6 +9,15 @@ from flask_sock import Sock
 
 def create_app():
     """Create Flask application with React frontend (לפי ההנחיות המדויקות)"""
+    
+    # CRITICAL: Setup Google credentials FIRST, before any imports
+    try:
+        from server.bootstrap_secrets import check_secrets, ensure_google_creds_file
+        ensure_google_creds_file()  # Create credentials file before TTS/STT imports
+        check_secrets()  # Check all secrets
+    except Exception as e:
+        print(f"⚠️ Credential setup warning: {e}")
+    
     app = Flask(__name__, static_url_path="/static",
                 static_folder=os.path.join(os.path.dirname(__file__), "..", "static"))
     

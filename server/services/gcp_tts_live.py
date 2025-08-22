@@ -14,7 +14,7 @@ class HebrewTTSLive:
     """Real-time Hebrew TTS for live call responses"""
     
     def __init__(self):
-        self.client = texttospeech.TextToSpeechClient()
+        self.client = None
         self.voice = texttospeech.VoiceSelectionParams(
             language_code="he-IL",
             name="he-IL-Wavenet-A"  # High quality Hebrew voice
@@ -23,6 +23,16 @@ class HebrewTTSLive:
             audio_encoding=texttospeech.AudioEncoding.MP3,
             speaking_rate=1.1,  # Slightly faster for real-time feel
         )
+        
+    def _ensure_client(self):
+        """Lazy initialization of TTS client"""
+        if self.client is None:
+            try:
+                self.client = texttospeech.TextToSpeechClient()
+                log.info("Google Cloud TTS client initialized")
+            except Exception as e:
+                log.error(f"Failed to initialize TTS client: {e}")
+                raise
         
     def synthesize_hebrew(self, text, output_path=None):
         """
@@ -38,6 +48,9 @@ class HebrewTTSLive:
         try:
             if not text.strip():
                 return None
+                
+            # Ensure client is initialized
+            self._ensure_client()
                 
             # Generate output path if not provided
             if not output_path:
@@ -99,9 +112,20 @@ class HebrewTTSLive:
             log.error(f"Quick Hebrew response failed: {e}")
             return None
 
-# Global instance
-hebrew_tts = HebrewTTSLive()
+# Global instance - lazy initialization
+_hebrew_tts = None
+
+def get_hebrew_tts():
+    """Get the global Hebrew TTS instance"""
+    global _hebrew_tts
+    if _hebrew_tts is None:
+        _hebrew_tts = HebrewTTSLive()
+    return _hebrew_tts
 
 def generate_hebrew_response(text, call_sid):
     """Convenience function for generating Hebrew speech responses"""
-    return hebrew_tts.quick_response(text, call_sid)
+    try:
+        return get_hebrew_tts().quick_response(text, call_sid)
+    except Exception as e:
+        log.error(f"Hebrew TTS failed, falling back: {e}")
+        return None
