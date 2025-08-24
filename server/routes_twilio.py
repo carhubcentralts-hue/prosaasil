@@ -14,6 +14,7 @@ twilio_bp = Blueprint("twilio", __name__)
 def abs_url(path: str) -> str:
     """Generate absolute URL for TwiML"""
     base = os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_HOST") or request.url_root.rstrip("/")
+    base = base.rstrip('/')  # Prevent double slashes
     return f"{base}{path}"
 
 def _watchdog(call_sid, wss_host, start_timeout=6, no_media_timeout=6):
@@ -35,6 +36,7 @@ def _do_redirect(call_sid, wss_host, reason):
   <Play>https://{wss_host}/static/tts/fallback_he.mp3</Play>
 </Response>"""
     try:
+        # Use Deployment ENV vars (critical for production)
         client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
         client.calls(call_sid).update(twiml=twiml)
         current_app.logger.info("WATCHDOG_REDIRECT_OK", extra={"call_sid": call_sid})
@@ -62,8 +64,8 @@ def incoming_call():
   </Connect>
 </Response>"""
     
-    # Start watchdog
-    threading.Thread(target=_watchdog, args=(call_sid, wss_host, 6, 6), daemon=True).start()
+    # Start watchdog - TESTING MODE: 3s for immediate verification
+    threading.Thread(target=_watchdog, args=(call_sid, wss_host, 3, 3), daemon=True).start()
 
     current_app.logger.info("TWIML_GENERATED", extra={
         "call_sid": call_sid, 
