@@ -1,0 +1,29 @@
+🚀 DEPLOYMENT COMMANDS for AgentLocator 71
+
+## Build Command:
+pip install --no-cache-dir -r AgentLocator/requirements.txt
+
+## Run Command:
+python3 -m gunicorn -k eventlet -w 1 --bind 0.0.0.0:$PORT --access-logfile - --error-logfile - --timeout 60 --graceful-timeout 30 AgentLocator.main:app
+
+## Environment Variables (SET IN DEPLOYMENT, NOT WORKSPACE):
+PUBLIC_BASE_URL=https://ai-crmd.replit.app
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+OPENAI_API_KEY=sk-...
+GCP_CREDENTIALS_JSON={"type":"service_account",...}
+DATABASE_URL=postgresql://...
+
+# Version tracking:
+DEPLOY_ID=RPLT-$(date +%Y%m%d-%H%M)
+GIT_COMMIT=AgentLocator-71-HealthCheckFixed
+BUILD_TIME=$(date -u +%Y-%m-%dT%H:%MZ)
+
+## Health Check Path:
+/ (returns "ok" in <50ms)
+
+## Verification:
+curl https://ai-crmd.replit.app/
+curl https://ai-crmd.replit.app/healthz
+curl https://ai-crmd.replit.app/readyz
+curl -s https://ai-crmd.replit.app/version | jq

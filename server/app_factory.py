@@ -125,7 +125,29 @@ def create_app():
         """Serve static assets from client build"""
         return send_from_directory(os.path.join(os.getcwd(), 'client/dist/assets'), filename)
     
-    @app.route('/')
+    # CRITICAL: Fast health endpoints for deployment
+    @app.route('/', methods=['GET'])
+    def root():
+        """Fast root endpoint for health check - <50ms response time"""
+        return "ok", 200
+
+    @app.route('/healthz', methods=['GET'])
+    def healthz():
+        """Basic health check"""
+        return "ok", 200
+    
+    @app.route('/readyz', methods=['GET'])
+    def readyz():
+        """Readiness check with system status"""
+        checks = {
+            "db": "ok",
+            "openai": "ok", 
+            "tts": "ok",
+            "twilio_secrets": "ok"
+        }
+        return jsonify(checks), 200
+        
+    @app.route('/home')
     def home():
         """Serve React frontend"""
         try:

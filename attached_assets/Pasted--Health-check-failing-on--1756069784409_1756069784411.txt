@@ -1,0 +1,190 @@
+מובן. השגיאה של הדיפלוי (“Health check failing on /”) אומרת בפשטות: השירות לא עונה מהר ב־`/` או נפל עוד לפני שעלה. הנה סט הנחיות *מדויקות* שיסגור את זה עכשיו — גם אם Gunicorn+eventlet התרסק באמצע, וגם אם ה-healthcheck של Replit מכוון לנתיב הלא נכון.
+
+---
+
+## מה לתקן בקוד (דקה עבודה)
+
+### 1) ודא שיש endpoint מהיר ל־`/` וגם `/healthz` `/readyz`
+
+ב־`AgentLocator/server/app_factory.py`:
+
+```python
+from flask import Flask, jsonify
+import os, time
+
+def create_app():
+    app = Flask(__name__)
+    # ... כל ההרשמות/Blueprints/Socket ו-ProxyFix שכבר יש ...
+
+    @app.get("/")
+    def root():
+        # שומר על זמן תגובה <50ms כדי לעבור healthcheck
+        return "ok", 200
+
+    @app.get("/healthz")
+    def healthz():
+        return "ok", 200
+
+    @app.get("/readyz")
+    def readyz():
+        checks = {
+            "db": "ok",            # אם אין DB – החזר "disabled" אבל לא תקרוס
+            "openai": "ok",
+            "tts": "ok",
+            "twilio_secrets": "ok",
+        }
+        return jsonify(checks), 200
+
+    @app.get("/version")
+    def version():
+        return {
+            "app": "AgentLocator",
+            "commit": os.getenv("GIT_COMMIT","dev"),
+            "build_time": os.getenv("BUILD_TIME","dev"),
+            "deploy_id": os.getenv("DEPLOY_ID","dev"),
+            "ts": int(time.time())
+        }, 200
+
+    return app
+```
+
+> חשוב: **אל** תעטוף את הנתיבים האלה בדקורטור חתימה של Twilio. הם צריכים להיות ציבוריים ומהירים.
+
+### 2) ודא שמוגדר `app` נכון (בשימוש Gunicorn)
+
+ב־`AgentLocator/main.py`:
+
+```python
+import os, json, tempfile
+from server.app_factory import create_app
+
+# תמיכה באופציית GCP_CREDENTIALS_JSON אם קיימת
+creds = os.getenv("GCP_CREDENTIALS_JSON")
+if creds and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+    p = os.path.join(tempfile.gettempdir(), "gcp.json")
+    with open(p, "w") as f: f.write(creds)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = p
+
+app = create_app()
+
+if __name__ == "__main__":
+    # להרצה מקומית בלבד; בדיפלוי Gunicorn ירים app
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+```
+
+> ודא שה-import הוא בדיוק `from server.app_factory import create_app` וששם ה-אפליקציה הוא `AgentLocator.main:app`.
+
+---
+
+## מה לתקן ב־Deployment (Replit)
+
+### 3) פקודות Build/Run נכונות (Eventlet חובה ל-WS)
+
+* **Build**:
+
+  ```
+  pip install -r AgentLocator/requirements.txt
+  ```
+* **Run**:
+
+  ```
+  python3 -m gunicorn -k eventlet -w 1 --bind 0.0.0.0:$PORT \
+    --access-logfile - --error-logfile - --timeout 60 --graceful-timeout 30 \
+    AgentLocator.main:app
+  ```
+
+> בלי `-k eventlet` ה-WebSocket ייכשל (31920), ולעיתים גם ה-healthcheck לא יחזור.
+
+### 4) הגדר Health Check לנתיב חי/מהיר
+
+במסך ה-Deployments, אם יש אפשרות להגדיר Health Check Path:
+
+* עדיף להצביע ל־`/healthz`.
+* אם לא ניתן לשנות — השאר `/`, אבל דאג ש־`/` מחזיר `"ok"` מהר (סעיף 1).
+
+### 5) ודא ENV ב-Deployment (לא רק ב-Workspace)
+
+הזן/עדכן ב־**Deployment**:
+
+* `PUBLIC_BASE_URL` = `https://ai-crmd.replit.app`
+* `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`
+* `GOOGLE_APPLICATION_CREDENTIALS` או `GCP_CREDENTIALS_JSON`
+* `OPENAI_API_KEY`, `DATABASE_URL`
+* (אופציונלי, לזיהוי גרסה) `GIT_COMMIT`, `BUILD_TIME`, `DEPLOY_ID`
+
+### 6) סגור ראנרים ישנים
+
+* ודא ש־**Run** של ה-Workspace לא רץ במקביל ל-Deployment.
+* אם יש Deployments ישנים “חיים” — השבת/מחק. תן שיהיה **שירות פעיל אחד**.
+
+---
+
+## בדיקות מהירות (לפני ניסיון דיפלוי נוסף)
+
+1. **אימות אימפורטים**
+
+   ```bash
+   python3 - << 'PY'
+   import importlib
+   m=importlib.import_module("AgentLocator.main")
+   print("app exists:", hasattr(m,"app"))
+   PY
+   ```
+
+2. **הרצה לוקלית עם Gunicorn (Consoles / Shell)**
+
+   ```bash
+   python3 -m gunicorn -k eventlet -w 1 --bind 0.0.0.0:5000 AgentLocator.main:app
+   ```
+
+   פתח בדפדפן/`curl`:
+
+   * `GET http://localhost:5000/` → ok
+   * `GET http://localhost:5000/healthz` → ok
+   * `GET http://localhost:5000/version` → מחזיר JSON
+
+3. **בדיקת ריגר איטי/קריסה בזמן עלייה**
+   אם השירות קורס מיד אחרי עלייה (רואים בלוגים של Gunicorn שגיאת import/ENV):
+
+   * שים לב שלא יוצר “לקוחות כבדים” (GCP/OpenAI) בזמן import, אלא בזמן שימוש.
+   * אם יש Exception באתחול, הדפס/טפל ולא תקרוס (עדיף להשיב `"tts":"disabled"` ב־`/readyz` מאשר למות).
+
+---
+
+## תלותים שכדאי לוודא (requirements)
+
+וודא שהחבילות קיימות וגרסאות תואמות:
+
+```
+flask==2.3.*
+flask-sock==0.6.0
+simple-websocket==1.0.0
+gunicorn==21.2.0
+eventlet==0.36.1
+# ועוד החבילות שלך (google-cloud-speech, google-cloud-texttospeech, וכו')
+```
+
+> אם מופיעה שגיאה על greenlet/ssl/dns, לפעמים מועיל להוסיף:
+> `dnspython<2.3` (רק אם אתה רואה שגיאת eventlet+dns בפועל).
+
+---
+
+## אם עדיין ה-healthcheck נכשל
+
+* **בדוק שהפורט נכון**: אנחנו מאזינים ל־`$PORT` שה-Replit מספק (אל תכריח `5000` בדיפלוי).
+* **העלה את timeout** בצד Replit לבריאות (אם אפשר), ל־15–20 שנ׳.
+* **בדוק לוגים של Gunicorn**: אם יש traceback — תקן את הקריסה במקום.
+* **הקשח no-cache** (פחות קריטי ל-health אבל טוב ל-TwiML):
+  החזר כותרות `Cache-Control: no-store` ב־`incoming_call/stream_ended/handle_recording/call_status`.
+
+---
+
+## למה זה יפתור את הבעיה שלך
+
+* Replit healthcheck פוגע ב־`/` כברירת מחדל. אם `/` לא קיים/כבד – הוא מסיק שהאפליקציה לא עלתה → נכשל.
+* הגדרה מדויקת של Gunicorn עם **eventlet** מבטיחה שהשרת עולה מהר ומגיב ל־WS/HTTP.
+* הכרזת `app = create_app()` במקום הנכון מבטיחה ש־Gunicorn יודע מאיפה להרים.
+* endpoints מהירים ו־no-cache מונעים השהיות וקאש מטעה.
+
+אם תרצה, אנסח לך patch מוכן (“הדבק והרץ”) עבור שלושת הקבצים:
+`server/app_factory.py` (שלושת הנתיבים וה־version), `main.py` (GCP JSON + app), ותוספת no-cache ל־routes של Twilio.

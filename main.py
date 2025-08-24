@@ -20,7 +20,10 @@ if creds and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
 from server.app_factory import create_app
 
 # Create app with full WebSocket Media Streams support
+# This is the app instance that Gunicorn will use
 app = create_app()
+
+print(f"🚀 AgentLocator-71 app created successfully for Gunicorn")
 
 # App is created by app_factory with all features
 print("🚀 AgentLocator 71 - Hebrew AI Call Center")
