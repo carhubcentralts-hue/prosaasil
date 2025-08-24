@@ -21,6 +21,17 @@ def create_app():
     app = Flask(__name__, static_url_path="/static",
                 static_folder=os.path.join(os.path.dirname(__file__), "..", "static"))
     
+    # הדגל השחור - לוג זיהוי לקוד ישן/חדש (שלב 7)
+    import time
+    version_info = {
+        "app": "AgentLocator-71",
+        "commit": os.getenv("GIT_COMMIT", "dev"),
+        "build_time": os.getenv("BUILD_TIME", "dev"),
+        "deploy_id": os.getenv("DEPLOY_ID", "dev"),
+        "startup_ts": int(time.time())
+    }
+    print(f"🚩 APP_START {version_info}")
+    
     # Basic configuration
     app.config.update({
         'SECRET_KEY': os.getenv('SECRET_KEY', 'dev-key'),
@@ -79,6 +90,19 @@ def create_app():
         print("✅ Debug routes registered")
     except ImportError:
         print("⚠️ Debug routes not available")
+
+    # Version endpoint for deployment verification
+    @app.route('/version', methods=['GET'])
+    def version():
+        """Return version info to verify deployment"""
+        import os, time
+        return jsonify({
+            "app": "AgentLocator-71",
+            "commit": os.getenv("GIT_COMMIT","dev"),
+            "build_time": os.getenv("BUILD_TIME","dev"),
+            "deploy_id": os.getenv("DEPLOY_ID","dev"),
+            "ts": int(time.time())
+        }), 200
 
     # Simple auth endpoints (fallback)
     @app.route('/api/auth/me', methods=['GET'])

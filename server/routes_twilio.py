@@ -4,7 +4,7 @@ Hebrew AI Call Center - Twilio Routes FIXED לפי ההנחיות המדויקו
 import os
 import time
 import threading
-from flask import Blueprint, request, current_app
+from flask import Blueprint, request, current_app, make_response
 from twilio.rest import Client
 from server.stream_state import stream_registry
 from server.twilio_security import require_twilio_signature
@@ -73,18 +73,28 @@ def incoming_call():
         "wss_url": f"wss://{wss_host}/ws/twilio-media"
     })
     
-    return twiml, 200, {"Content-Type": "text/xml"}
+    # Return TwiML with cache-busting headers
+    resp = make_response(twiml, 200)
+    resp.headers["Content-Type"] = "text/xml"
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
 @require_twilio_signature
 def stream_ended():
     """Handle stream ended event"""
     fallback = abs_url("/static/tts/fallback_he.mp3")
-    return f"""<Response>
+    twiml = f"""<Response>
   <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
           action="/webhook/handle_recording" />
   <Play>{fallback}</Play>
-</Response>""", 200, {"Content-Type":"text/xml"}
+</Response>"""
+    resp = make_response(twiml, 200)
+    resp.headers["Content-Type"] = "text/xml"
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 @twilio_bp.route("/webhook/handle_recording", methods=["POST"])
 @require_twilio_signature
@@ -98,7 +108,10 @@ def handle_recording():
             enqueue_recording(request.form)
         except Exception:
             current_app.logger.exception("recording_queue_fail")
-    return "", 204
+    resp = make_response("", 204)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 @twilio_bp.route("/webhook/stream_status", methods=["POST"])
 def stream_status():
@@ -107,7 +120,10 @@ def stream_status():
         current_app.logger.info("STREAM_STATUS", extra={"form": dict(request.form)})
     except Exception:
         current_app.logger.exception("STREAM_STATUS_ERROR")
-    return "", 204
+    resp = make_response("", 204)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 @twilio_bp.route("/webhook/call_status", methods=["POST"])
 @require_twilio_signature
@@ -122,7 +138,10 @@ def call_status():
             save_call_status(call_sid, call_status)
     except Exception:
         current_app.logger.exception("CALL_STATUS_HANDLER_ERROR")
-    return "", 204
+    resp = make_response("", 204)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 @twilio_bp.route("/webhook/test", methods=["POST", "GET"])
 def test_webhook():

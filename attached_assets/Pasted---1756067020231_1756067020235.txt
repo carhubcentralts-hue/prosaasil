@@ -1,0 +1,229 @@
+קיבלתי. הנה הנחיה אחת, מלאה ומדויקת, לבוט/סוכן שלך — כדי לפתור סופית את הבעיה: “הדיפלוי מריץ קוד ישן ולא טוען את הקוד החדש”. זה מכסה את **כל הסיבות השכיחות** ואת **כל התיקונים** – צעד-צעד, כולל בדיקות אימות.
+
+---
+
+# 🎯 היעד
+
+כשאתה עושה Deploy:
+
+* השרת החדש עולה עם הגרסה האחרונה מה־repo.
+* **אין** ראנרים ישנים שחיים ברקע.
+* Twilio צורכת **את אותה גרסה** שפרסת הרגע (TwiML לא בקאש).
+* `/version` ו־`/readyz` מחזירים **מספר בנייה/commit** תואם.
+* שיחה אמיתית משקפת את הקוד החדש.
+
+---
+
+## 1) “אמת מידה” לגרסה – הזרקת מזהה Build והצגתו
+
+כדי לדעת בוודאות **איזו גרסה רצה**, מוסיפים מזהים ל־ENV ומחזירים אותם ב־API:
+
+**ב־Deployments → Environment Variables**
+הוסף/עדכן בכל פריסה:
+
+* `GIT_COMMIT` = ה־SHA/Tag של הקומיט שאתה בונה ממנו
+* `BUILD_TIME` = תאריך־שעה (למשל `2025-08-24T20:15Z`)
+* `DEPLOY_ID` = מחרוזת ייחודית (למשל `RPLT-20250824-2015`)
+
+**ב־`AgentLocator/server/app_factory.py`** הוסף אם אין:
+
+```python
+@app.get("/version")
+def version():
+    import os, time
+    return {
+        "app": "AgentLocator",
+        "commit": os.getenv("GIT_COMMIT","dev"),
+        "build_time": os.getenv("BUILD_TIME","dev"),
+        "deploy_id": os.getenv("DEPLOY_ID","dev"),
+        "ts": int(time.time())
+    }, 200
+```
+
+**בדיקת אימות (אחרי Deploy):**
+
+```
+curl -s https://<PUBLIC_BASE_URL>/version
+# חייב להחזיר את ה-GIT_COMMIT/BUILD_TIME/DEPLOY_ID העדכניים
+```
+
+---
+
+## 2) ודא שהדיפלוי מריץ את **הקוד שאתה רוצה** (ולא Run ישן)
+
+ב־**Replit → Deployments → Service**:
+
+**Build (חד-חד ערכי)**
+
+```bash
+pip install -r AgentLocator/requirements.txt
+```
+
+**Run (WS מחייב Eventlet)**
+
+```bash
+python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app
+```
+
+**ביטול ראנרים ישנים:**
+
+* ודא שב־Workspace “Run” לא רץ במקביל (סגור את ה־Run).
+* אם יש **Deployments ישנים פעילים** – דכא/מחק אותם (שיישאר אחד פעיל).
+* במידת הצורך, שנה זמנית את `DEPLOY_ID` כדי לאלץ קונטיינר חדש (מונע reuse של ישן).
+
+**אימות:**
+
+* בלוגי ה־Deployment אמור להופיע `gunicorn` עם `-k eventlet`.
+* `/version` מחזיר את ה־DEPLOY\_ID החדש.
+
+---
+
+## 3) נטרול קאש על ה־TwiML (שלא “יעקוף” קוד חדש)
+
+כדי לוודא שטוויליו **לא צורכת TwiML ישן מהקאש של פרוקסי/לב**:
+
+ב־`routes_twilio.py` – ב־`incoming_call`, `stream_ended`, `handle_recording`, `call_status`:
+
+```python
+resp = make_response(twiml_or_empty, 200)  # או 204
+resp.headers["Content-Type"] = "text/xml"  # כשמתאים
+resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+resp.headers["Pragma"] = "no-cache"
+return resp
+```
+
+*ל־`call_status`/`stream_ended` החזר 204 עם אותם כותרי no-cache.*
+
+**אימות:**
+`curl -i https://<PUBLIC_BASE_URL>/webhook/incoming_call | head` – תראה `Cache-Control: no-store…`.
+
+---
+
+## 4) ודא שטוויליו מצביעה לדומיין הנכון
+
+בטוויליו **מספר הטלפון** חייב להצביע ל־`https://<PUBLIC_BASE_URL>/webhook/incoming_call`
+ושורת ה־Status Callback ל־`/webhook/call_status`.
+
+טעויות שכיחות:
+
+* המספר מצביע ל־TwiML App/Studio Flow ישן.
+* מצביעים ל־דומיין ישן (sandbox/קודם).
+* HTTP לא HTTPS (יגרום לבעיות WS).
+
+**אימות:**
+
+* ב־Request Inspector תראה שהקריאות הן לדומיין הנוכחי בלבד.
+* אין שום בקשות לדומיין ישן/שונה.
+
+---
+
+## 5) נטרול “התנגשויות” ריצה (רב שרתים או פיצול פורטים)
+
+גורמים שגורמים לדיפלוי לשרת קוד ישן:
+
+* Runner ישן מאזין על אותו פורט (5000) → החדש לא באמת חשוף.
+* .replit מריץ `npm run dev` או משהו נפרד במקביל.
+
+הנחיות:
+
+* בפרויקטים Replit: **אל תריץ Run** בזמן ש־Deployment פעיל.
+* שמור על **פורט יחיד** (לנו 5000) ושני חוקים ב־ports שממפים נכון.
+* אם יש Socket.IO/Next.js וכו’ – הפרד לשירות נפרד/פורט אחר, לא על אותו `app` שמגיש WS לטוויליו.
+
+---
+
+## 6) Force Rebuild כשצריך (שובר קאש בנייה)
+
+לפעמים קורה שהקונטיינר נשמר מקאש. כדי לאלץ בנייה נקייה:
+
+* עדכן `DEPLOY_ID` (ENV) לערך חדש בכל פריסה.
+* או הוסף בבילד:
+
+  ```bash
+  pip install --no-cache-dir -r AgentLocator/requirements.txt
+  ```
+* ודא שהנתיב לקובץ requirements **קיים** (לא `AgentLocator/server/requirements.txt` דמיוני).
+
+---
+
+## 7) לוג “הדגל השחור” – לזיהוי מיידי של קוד ישן
+
+ב־`create_app()` הדפס ב־INFO בתחילת עלייה:
+
+```
+APP_START {"commit":..., "build_time":..., "deploy_id":...}
+```
+
+אם אתה רואה בלוג Commit/Deploy ישן – אתה לא על הקוד הנכון → חזור לסעיפים 2/6.
+
+---
+
+## 8) בדיקות אימות אחרי פריסה (חובה)
+
+1. גרסה:
+
+```
+curl -s https://<PUBLIC_BASE_URL>/version
+# מחזיר DEPLOY_ID/GIT_COMMIT/BUILD_TIME החדשים
+```
+
+2. TwiML:
+
+```
+curl -s https://<PUBLIC_BASE_URL>/webhook/incoming_call | sed -n '1,30p'
+# <Play> .../greeting_he.mp3  ואז <Connect><Stream ... action="/webhook/stream_ended">
+# כותרות: Cache-Control: no-store
+```
+
+3. סטטיים:
+
+```
+curl -I https://<PUBLIC_BASE_URL>/static/tts/greeting_he.mp3 | head -1   # 200
+curl -I https://<PUBLIC_BASE_URL>/static/tts/fallback_he.mp3 | head -1   # 200
+```
+
+4. WebSocket (בדפדפן/כלי WS, לא ב־curl):
+
+* התחבר ל־`wss://<PUBLIC_BASE_URL>/ws/twilio-media` → **Connected (101)**.
+  אם לא: בדוק שאתה רץ עם `-k eventlet`, שיש שני נתיבי WS (עם/בלי `/`), ואין אבטחה/Socket.IO על ה־WS.
+
+5. שיחה אמיתית:
+
+* בלוגים: `WS_START` → `HEBREW_SPEECH` → `PING_PONG_TX`.
+* אם WS לא קם: תוך ≤6 שניות `POST /webhook/handle_recording` (watchdog).
+
+---
+
+## 9) “חסמים” טיפוסיים שמביאים קוד ישן — ופתרונות
+
+* **“Run” של ה־Workspace רץ במקביל** → סגור Run; השאר רק Deployment פעיל.
+* **Deploy לא בנה מהקומיט הנכון** → הזרק `GIT_COMMIT` ובדוק `/version`.
+* **שורת Run לא נכונה** (`main:app` במקום `AgentLocator.main:app`) → תקן.
+* **Requirements מצביע לקובץ לא קיים** → ודא `AgentLocator/requirements.txt` קיים (לא ב־`server/`).
+* **WS בלי Eventlet** → הוסף `-k eventlet`.
+* **דומיין Twilio לא נכון** → עדכן Number/Flow ל־`PUBLIC_BASE_URL` הנוכחי.
+* **קאש על TwiML** → החזר `Cache-Control: no-store`.
+* **Socket.IO/engine.io** יושב על אותו app/פורט → העבר לשירות/פורט נפרד.
+
+---
+
+## 10) Rollback בטוח (אם משהו נשבר)
+
+* שמור את DEPLOY\_ID הקודם.
+* אם צריך, פרוס שוב עם `GIT_COMMIT`/`DEPLOY_ID` הקודם (אותה שורת Run).
+* אימות: `/version` חוזר לערכים הקודמים.
+
+---
+
+### TL;DR – מה הבוט עושה עכשיו
+
+1. מוסיף/מאשר `/version` עם `GIT_COMMIT/BUILD_TIME/DEPLOY_ID`.
+2. מגדיר ב־Deployment Build/Run נכונים (requirements + `-k eventlet`).
+3. סוגר כל Runner ישן, נשאר עם Deployment יחיד.
+4. מוסיף `Cache-Control: no-store` על כל ה־TwiML endpoints.
+5. בודק שהמספר בטוויליו מצביע לדומיין הנוכחי.
+6. מבצע **Force Rebuild** ע”י שינוי `DEPLOY_ID`/`--no-cache-dir`.
+7. מריץ את בדיקות האימות (גרסה, TwiML, סטטיים, WS 101, שיחה אמיתית).
+8. מדווח “ירוק/אדום” עם לוגים, ומחזיר את רשימת התיקונים שבוצעו.
+
+תן לו להריץ את זה אחד-לאחד — ואז נבדוק את `/version` ואת שיחה אחת כדי לוודא שהפריסה **באמת** עלתה עם הקוד החדש.
