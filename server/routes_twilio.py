@@ -58,7 +58,7 @@ def incoming_call():
 <Response>
   <Play>{greeting_url}</Play>
   <Connect action="/webhook/stream_ended">
-    <Stream url="wss://{wss_host}/ws/twilio-media">
+    <Stream url="wss://{wss_host}/ws/twilio-media" statusCallback="/webhook/stream_status">
       <Parameter name="call_sid" value="{call_sid}"/>
     </Stream>
   </Connect>
@@ -98,6 +98,15 @@ def handle_recording():
             enqueue_recording(request.form)
         except Exception:
             current_app.logger.exception("recording_queue_fail")
+    return "", 204
+
+@twilio_bp.route("/webhook/stream_status", methods=["POST"])
+def stream_status():
+    """Handle stream status events for diagnostics"""
+    try:
+        current_app.logger.info("STREAM_STATUS", extra={"form": dict(request.form)})
+    except Exception:
+        current_app.logger.exception("STREAM_STATUS_ERROR")
     return "", 204
 
 @twilio_bp.route("/webhook/call_status", methods=["POST"])
