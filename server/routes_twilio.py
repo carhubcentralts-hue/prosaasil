@@ -115,15 +115,14 @@ def handle_recording():
 
 @twilio_bp.route("/webhook/stream_status", methods=["POST"])
 def stream_status():
-    """Handle stream status events for diagnostics"""
+    """Handle stream status events for diagnostics - NO signature required for Stream callbacks"""
     try:
-        current_app.logger.info("STREAM_STATUS", extra={"form": dict(request.form)})
-    except Exception:
-        current_app.logger.exception("STREAM_STATUS_ERROR")
-    resp = make_response("", 204)
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    return resp
+        form_data = request.form.to_dict() if request.form else {}
+        current_app.logger.info("STREAM_STATUS", extra={"form": form_data})
+        return "", 204  # Simple 204 response - no cache headers needed for status callbacks
+    except Exception as e:
+        current_app.logger.error(f"STREAM_STATUS_ERROR: {e}")
+        return "", 204  # Still return 204 even on error
 
 @twilio_bp.route("/webhook/call_status", methods=["POST"])
 @require_twilio_signature
