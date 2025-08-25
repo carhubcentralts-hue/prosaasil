@@ -1,1 +1,1 @@
-web: python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app
+web: bash start_all.sh

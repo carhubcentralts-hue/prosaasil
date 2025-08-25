@@ -52,11 +52,7 @@ def send_message():
             }), 400
         
         # Send via service (עם provider per-request לפי הדו"ח)
-        if provider == "twilio":
-            from server.whatsapp_provider import WhatsAppService, TwilioProvider
-            service = WhatsAppService(TwilioProvider())
-        else:
-            service = get_whatsapp_service()
+        service = get_whatsapp_service(provider)
         result = service.send_message(to_number, message)
         
         # Save to database

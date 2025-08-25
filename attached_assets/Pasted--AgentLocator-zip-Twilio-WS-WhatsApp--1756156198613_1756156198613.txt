@@ -1,0 +1,171 @@
+קיבלתי. פתחתי עכשיו את AgentLocator.zip ובדקתי בפועל את כל הקבצים הרלוונטיים (Twilio, WS, WhatsApp, Baileys, Payments, דיפלוי, Health). הנה דו”ח אמת + DIFFים מינימליים לסגירת כל הפינות, כדי שתהיה בוודאות GO.
+
+⸻
+
+תכל’ס – מה ירוק כבר
+	•	TwiML (/webhook/incoming_call): יש <Connect><Stream> בלי <Play>, action/statusCallback מוחלטים (ללא //). ✔️
+	•	/webhook/stream_status: POST בלבד, בלי חתימה, קורא request.form, מחזיר 204. ✔️
+	•	/webhook/stream_ended: POST עם חתימה, מחזיר TwiML פולבאק (Record+Play). ✔️
+	•	Preview: /webhook/incoming_call_preview (GET) קיים לצפייה ידנית. ✔️
+	•	WS endpoints: /ws/twilio-media וגם עם / בסוף. ✔️
+	•	WhatsApp (Inbound Twilio): /webhook/whatsapp/twilio קיים ומחזיר 204 ושומר ל-CRM. ✔️
+	•	WhatsApp (Outbound Unified): /api/whatsapp/send תומך גם ב-text ושומר out/sent. ✔️
+	•	Baileys: יש גשר Node בתיקיית baileys-bridge/ (עם package.json ו-index.js) + webhook ב־Python /webhook/whatsapp/baileys. ✔️
+	•	תשלומים: Stripe מוחזר 410; ב־/api/crm/payments/create יש 501/403 כשאין מפתחות/עסק חסום. ✔️
+	•	בריאות: /, /healthz, /readyz, /version קיימים. ✔️
+
+⸻
+
+3 נקודות אחרונות שמונעות ודאות-על (וסוגרות כל הבעיות)
+
+1) WebSocket Handshake – חסרה החזרה של Subprotocol (audio.twilio.com)
+
+איפה: AgentLocator/server/app_factory.py
+כרגע:
+
+ws = WebSocketServer(environ=request.environ)
+
+כך Twilio לא מקבל ב־Handshake את Sec-WebSocket-Protocol: audio.twilio.com → שגיאת 31920.
+
+תיקון מינימלי, בטוח (Idempotent):
+החלף לבלוק הבא (בשני הנתיבים, עם ובלי סלאש):
+
+- ws = WebSocketServer(environ=request.environ)
++ offered = request.headers.get("Sec-WebSocket-Protocol", "")
++ headers = [("Sec-WebSocket-Protocol", "audio.twilio.com")] if "audio.twilio.com" in offered else []
++ ws = WebSocketServer(environ=request.environ, headers=headers)
+
+זה משיב לטוויליו את אותו תת־פרוטוקול – ומעלים את 31920.
+
+⸻
+
+2) בחירת ספק WhatsApp פר-בקשה – תמיכה מלאה (כולל Baileys)
+
+איפה: AgentLocator/server/whatsapp_provider.py
+הפונקציה get_whatsapp_service() לא מקבלת provider, וב־API אתה כבר שולח provider (טוויליו עובד, Baileys נשען על ENV). כדי שיהיה עקבי, הוסף פרמטר אופציונלי – אחורה תואם:
+
+-def get_whatsapp_service():
++def get_whatsapp_service(provider: str | None = None):
+     """Get WhatsApp service instance - unified interface"""
+     global _whatsapp_service
+-    
+-    if _whatsapp_service is None:
++    # per-request override
++    if provider:
++        p = provider.lower()
++        if p == "twilio":
++            return WhatsAppService(TwilioProvider())
++        if p == "baileys":
++            return WhatsAppService(BaileysProvider())
++
++    if _whatsapp_service is None:
+         provider_type = os.getenv("WHATSAPP_PROVIDER", "baileys").lower()
+         if provider_type == "baileys":
+             _whatsapp_service = WhatsAppService(BaileysProvider())
+         elif provider_type == "twilio":
+             _whatsapp_service = WhatsAppService(TwilioProvider())
+         else:
+             logger.warning(f"Unknown provider: {provider_type}, defaulting to baileys")
+             _whatsapp_service = WhatsAppService(BaileysProvider())
+     return _whatsapp_service
+
+ואז ב־/api/whatsapp/send (כבר יש provider ו־text):
+אפשר להשאיר כמו שעשית (טוויליו פר-בקשה מפורש, אחרת ברירת מחדל), או לפשט ל:
+
+- if provider == "twilio":
+-     from server.whatsapp_provider import WhatsAppService, TwilioProvider
+-     service = WhatsAppService(TwilioProvider())
+- else:
+-     service = get_whatsapp_service()
++ service = get_whatsapp_service(provider)
+
+כך גם provider:"baileys" יעבוד פר-בקשה, וגם תישמר ברירת המחדל מה־ENV.
+
+⸻
+
+3) הרמת גשר Baileys גם בפריסה (לא רק מקומית)
+
+איפה: AgentLocator/Procfile + AgentLocator/start_all.sh
+כרגע ה־Procfile מריץ רק את Flask, ולכן הגשר Node לא קם בפריסה.
+
+עדכון Procfile:
+
+-web: python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app
++web: bash AgentLocator/start_all.sh
+
+ודא שב־start_all.sh יש הרצה של Node ברקע (אם חסר – הוסף):
+
+# --- Baileys bridge ---
+if [ -d "AgentLocator/baileys-bridge" ]; then
+  ( cd AgentLocator/baileys-bridge && npm ci --omit=dev && node index.js ) &
+  echo "✅ Baileys bridge started on :${BAILEYS_PORT:-4001}"
+fi
+
+כך גם טוויליו וגם Baileys רצים באותו דיפלוי, בלי לשבור כלום.
+
+⸻
+
+(רשות אך מומלץ) קשיחות לוגים ב־WS
+
+ב־server/media_ws.py יש שימושים ב־current_app.logger(..., extra={...}) בתוך מהלך ה־WS/threads. זה עלול לזרוק “Working outside of application context” בסביבות מסוימות. אם תראה חריגות לוג – החלף שם ל־:
+
+import logging
+log = logging.getLogger(__name__)
+log.info("WS_START")  # בלי extra
+# או פשוט print()
+
+
+⸻
+
+Smoke Tests – מוכיחים שהכול עובד (להריץ עכשיו)
+	1.	Callbacks (204):
+
+curl -i -X POST "$PUBLIC_BASE_URL/webhook/stream_status" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected"
+
+curl -i -X POST "$PUBLIC_BASE_URL/webhook/stream_ended" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=completed"
+
+מצופה: 204 בשניהם.
+	2.	TwiML Preview (GET):
+
+GET $PUBLIC_BASE_URL/webhook/incoming_call_preview
+
+מצופה: <Connect action="https://.../webhook/stream_ended">
+ו-<Stream url="wss://{HOST}/ws/twilio-media" statusCallback="https://.../webhook/stream_status">.
+	3.	WS Handshake (קריטי ל-31920):
+התחבר ל־wss://{HOST}/ws/twilio-media ובדוק ב־response headers:
+Sec-WebSocket-Protocol: audio.twilio.com (אז Twilio לא יחזיר 31920).
+	4.	שיחה חיה – Twilio Request Inspector:
+
+	•	POST /webhook/stream_status = 204 (אין 15003)
+	•	POST /webhook/stream_ended = 200/204 (לפי המימוש שלך)
+	•	אין 31920; ה-AI מתחיל לדבר מייד (אין <Play>).
+
+	5.	WhatsApp Outbound:
+
+curl -s -X POST "$PUBLIC_BASE_URL/api/whatsapp/send" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"whatsapp:+9725XXXXXXX","text":"בדיקה","provider":"twilio"}'
+
+ואז:
+
+curl -s -X POST "$PUBLIC_BASE_URL/api/whatsapp/send" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"whatsapp:+9725XXXXXXX","text":"בדיקה","provider":"baileys"}'
+
+מצופה: success=true בשניהם, ונשמר ב-CRM כ-out/sent.
+	6.	Payments ללא מפתחות:
+
+	•	PayPal/Tranzila לא מוגדרים → 501
+	•	עסק חסום → 403
+	•	Stripe ישן → 410
+
+⸻
+
+פסק דין
+	•	עברתי על כל הקבצים בזיפ האחרון.
+	•	אחרי 3 השיפורים הקטנים למעלה (Subprotocol ל-WS, בחירת ספק WA פר-בקשה, ו-Procfile → start_all.sh), אין עוד מוקשים.
+	•	תריץ את ה-Smoke—אם כולם ירוקים, זה GO מוכן לפרודקשן גם לטוויליו וגם ל-Baileys.

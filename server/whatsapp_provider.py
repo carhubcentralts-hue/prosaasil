@@ -221,9 +221,17 @@ def get_provider() -> Provider:
         logger.info("Using Baileys WhatsApp provider")
         return BaileysProvider()
 
-def get_whatsapp_service():
+def get_whatsapp_service(provider: str | None = None):
     """Get WhatsApp service instance - unified interface"""
     global _whatsapp_service
+    
+    # per-request override
+    if provider:
+        p = provider.lower()
+        if p == "twilio":
+            return WhatsAppService(TwilioProvider())
+        if p == "baileys":
+            return WhatsAppService(BaileysProvider())
     
     if _whatsapp_service is None:
         provider_type = os.getenv("WHATSAPP_PROVIDER", "baileys").lower()
