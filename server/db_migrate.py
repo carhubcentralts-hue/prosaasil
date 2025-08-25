@@ -74,6 +74,45 @@ def apply_migrations():
             migrations_applied.append(f"add_business_{flag}")
             log.info(f"Applied migration: add_business_{flag}")
     
+    # Migration 4: Create threads table for unified messaging
+    if not check_table_exists('threads'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE threads (
+                id SERIAL PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                type VARCHAR(16) NOT NULL,
+                provider VARCHAR(16) NOT NULL,
+                peer_number VARCHAR(32) NOT NULL,
+                title VARCHAR(120),
+                last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_threads_biz_last ON threads(business_id, last_message_at DESC)"))
+        migrations_applied.append("create_threads_table")
+        log.info("Applied migration: create_threads_table")
+    
+    # Migration 5: Create messages table for unified messaging
+    if not check_table_exists('messages'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE messages (
+                id SERIAL PRIMARY KEY,
+                thread_id INTEGER NOT NULL REFERENCES threads(id),
+                direction VARCHAR(4) NOT NULL,
+                message_type VARCHAR(16) NOT NULL,
+                content_text TEXT,
+                media_url TEXT,
+                provider_msg_id VARCHAR(64),
+                status VARCHAR(16) DEFAULT 'received',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_msgs_thread_time ON messages(thread_id, created_at)"))
+        migrations_applied.append("create_messages_table")
+        log.info("Applied migration: create_messages_table")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")

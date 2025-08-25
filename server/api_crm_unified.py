@@ -22,6 +22,9 @@ from server.db import db
 crm_unified_bp = Blueprint("crm_unified_bp", __name__, url_prefix="/api/crm")
 log = logging.getLogger("api.crm.unified")
 
+# Create unified API blueprint for new endpoints
+api_bp = Blueprint("api", __name__, url_prefix="/api")
+
 # PayPal Configuration
 def _pp_base():
     return "https://api-m.sandbox.paypal.com" if os.getenv("PAYPAL_ENV","sandbox")=="sandbox" else "https://api-m.paypal.com"
@@ -592,3 +595,69 @@ def wa_messages_list():
     except Exception as e:
         log.error("Error fetching WhatsApp messages: %s", e)
         return jsonify({"error": "Failed to fetch messages"}), 500
+
+# === UNIFIED API ENDPOINTS ===
+
+@api_bp.route("/threads", methods=["GET"])
+def list_threads():
+    """Get threads with optional filtering"""
+    try:
+        from server.dao_crm import get_threads
+        business_id = request.args.get('business_id', 1, type=int)
+        type_ = request.args.get('type')  # whatsapp or call
+        limit = request.args.get('limit', 50, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        
+        threads = get_threads(business_id=business_id, type_=type_, limit=limit, offset=offset)
+        return jsonify({"threads": threads, "count": len(threads)}), 200
+        
+    except Exception as e:
+        log.error(f"Error listing threads: {e}")
+        return jsonify({"error": "Failed to list threads"}), 500
+
+@api_bp.route("/threads/<int:thread_id>/messages", methods=["GET"])
+def get_thread_messages(thread_id: int):
+    """Get messages for a specific thread"""
+    try:
+        from server.dao_crm import get_thread_messages
+        limit = request.args.get('limit', 100, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        
+        messages = get_thread_messages(thread_id=thread_id, limit=limit, offset=offset)
+        return jsonify({"messages": messages, "count": len(messages)}), 200
+        
+    except Exception as e:
+        log.error(f"Error getting thread messages: {e}")
+        return jsonify({"error": "Failed to get messages"}), 500
+
+@api_bp.route("/whatsapp/send", methods=["POST"])
+def whatsapp_send():
+    """Send WhatsApp message through unified provider system"""
+    try:
+        data = request.get_json(force=True)
+        to = data.get("to")
+        text = data.get("text")
+        media_url = data.get("media_url")
+        provider = data.get("provider", "auto").lower()
+        business_id = data.get("business_id", 1)
+        
+        if not to:
+            return jsonify({"error": "'to' field is required"}), 400
+        
+        from server.whatsapp_outbound import send_and_record
+        result = send_and_record(
+            to=to, 
+            text=text, 
+            media_url=media_url, 
+            provider=provider, 
+            business_id=business_id
+        )
+        
+        if result["ok"]:
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 500
+            
+    except Exception as e:
+        log.error(f"WhatsApp send error: {e}")
+        return jsonify({"error": "Failed to send message"}), 500

@@ -1,29 +1,65 @@
-🚀 DEPLOYMENT COMMANDS for AgentLocator 71
+🚀 DEPLOYMENT COMMANDS for AgentLocator 72 - UNIFIED SYSTEM
 
 ## Build Command:
-pip install --no-cache-dir -r requirements.txt
+bash -lc 'pip install --no-cache-dir -r requirements.txt && cd baileys-bridge && npm ci'
 
 ## Run Command:
-python3 -m gunicorn -k eventlet -w 1 --bind 0.0.0.0:$PORT --access-logfile - --error-logfile - --timeout 60 --graceful-timeout 30 main:app
+bash -lc './start_all.sh'
 
 ## Environment Variables (SET IN DEPLOYMENT, NOT WORKSPACE):
 PUBLIC_BASE_URL=https://ai-crmd.replit.app
 TWILIO_ACCOUNT_SID=AC...
 TWILIO_AUTH_TOKEN=...
+TWILIO_WA_FROM=whatsapp:+1...
 OPENAI_API_KEY=sk-...
+GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-credentials.json
 GCP_CREDENTIALS_JSON={"type":"service_account",...}
 DATABASE_URL=postgresql://...
 
+# WhatsApp Configuration:
+ENABLE_WA_TWILIO=true
+ENABLE_WA_BAILEYS=true
+WA_BAILEYS_PORT=8000
+WA_SHARED_SECRET=<random-secret-key>
+WA_SESSION_DIR=./baileys-bridge/session
+WA_PROVIDER_PRIORITY=baileys,twilio
+PYTHON_WEBHOOK_URL=http://127.0.0.1:5000/webhook/whatsapp/baileys
+
 # Version tracking:
 DEPLOY_ID=RPLT-$(date +%Y%m%d-%H%M)
-GIT_COMMIT=AgentLocator-71-HealthCheckFixed
+GIT_COMMIT=AgentLocator-72-UnifiedSystem
 BUILD_TIME=$(date -u +%Y-%m-%dT%H:%MZ)
 
 ## Health Check Path:
 / (returns "ok" in <50ms)
 
-## Verification:
+## GO/NO-GO Verification Checklist:
+
+# 1. Health endpoints
 curl https://ai-crmd.replit.app/
 curl https://ai-crmd.replit.app/healthz
 curl https://ai-crmd.replit.app/readyz
 curl -s https://ai-crmd.replit.app/version | jq
+
+# 2. TwiML structure
+curl -s https://ai-crmd.replit.app/webhook/incoming_call | grep "Connect.*Stream.*statusCallback"
+
+# 3. Static files
+curl -I https://ai-crmd.replit.app/static/tts/greeting_he.mp3
+curl -I https://ai-crmd.replit.app/static/tts/fallback_he.mp3
+
+# 4. WhatsApp webhooks
+curl -X POST https://ai-crmd.replit.app/webhook/whatsapp/twilio -d "From=whatsapp:+1234&Body=test" -H "Content-Type: application/x-www-form-urlencoded"
+
+# 5. API endpoints
+curl -s https://ai-crmd.replit.app/api/threads
+curl -X POST https://ai-crmd.replit.app/api/whatsapp/send -H "Content-Type: application/json" -d '{"to":"whatsapp:+1234","text":"test","provider":"auto"}'
+
+# 6. Baileys bridge (internal)
+curl -s http://127.0.0.1:8000/healthz
+
+## Expected Results:
+- Phone calls: Bidirectional Hebrew conversations + watchdog fallback
+- WhatsApp: Both Twilio and Baileys providers working
+- CRM: Unified threads and messages storage
+- API: All endpoints responding correctly
