@@ -116,16 +116,22 @@ def handle_recording():
 @twilio_bp.route("/webhook/stream_status", methods=["POST"])
 def stream_status():
     """Handle stream status events for diagnostics - NO signature required for Stream callbacks"""
+    # אולטרה-סלחני: לא חותמת, לא JSON, לא extra בלוגים - בלי שום סיכוי ל-500
     try:
-        # Twilio sends form-encoded, not JSON
-        payload = request.form.to_dict()
-        # Safe logging without extra (extra can fail with some formatters)
-        current_app.logger.info("STREAM_STATUS %s", payload)
-    except Exception:
-        current_app.logger.exception("STREAM_STATUS_HANDLER_FAILED")
-    # Always 204; no crashes
+        form = request.form.to_dict()  # Twilio שולחת form-encoded
+        # חשוב: בלי extra= בלוגים (פורמטרים רבים נופלים מזה)
+        current_app.logger.info(
+            "STREAM_STATUS call=%s stream=%s event=%s",
+            form.get("CallSid"), form.get("StreamSid"), form.get("Status")
+        )
+    except Exception as e:
+        # לעולם לא להפיל את הבקשה בגלל לוג
+        try:
+            current_app.logger.exception("STREAM_STATUS_HANDLER_FAILED: %s", e)
+        except Exception:
+            pass
+    # תמיד 204 ומהר
     resp = make_response("", 204)
-    # No cache:
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
     return resp
