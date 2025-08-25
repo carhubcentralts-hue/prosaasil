@@ -54,9 +54,12 @@ def incoming_call_preview():
     public_base = os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_HOST") or request.url_root.rstrip("/")
     wss_host = public_base.replace("https://","").replace("http://","").strip("/")
     
-    # URLs מוחלטים ב-TwiML
-    stream_ended_url = f"{public_base}/webhook/stream_ended"
-    stream_status_url = f"{public_base}/webhook/stream_status"
+    # Fix URLs - prevent // double slash  
+    def abs_url(path):
+        return f"{public_base.rstrip('/')}/{path.lstrip('/')}"
+    
+    stream_ended_url = abs_url("/webhook/stream_ended")
+    stream_status_url = abs_url("/webhook/stream_status")
 
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -81,9 +84,12 @@ def incoming_call():
     public_base = os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_HOST") or request.url_root.rstrip("/")
     wss_host = public_base.replace("https://","").replace("http://","").strip("/")
     
-    # 1) URLs מוחלטים ב-TwiML (פוליש)
-    stream_ended_url = f"{public_base}/webhook/stream_ended"
-    stream_status_url = f"{public_base}/webhook/stream_status"
+    # 1) Fix URLs - prevent // double slash
+    def abs_url(path):
+        return f"{public_base.rstrip('/')}/{path.lstrip('/')}"
+    
+    stream_ended_url = abs_url("/webhook/stream_ended")
+    stream_status_url = abs_url("/webhook/stream_status")
 
     # CRITICAL: Use <Connect><Stream> without greeting - AI starts immediately!
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>

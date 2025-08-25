@@ -62,8 +62,10 @@ def create_app():
     def ws_twilio_media():
         """WebSocket handler for Twilio Media Streams - simple-websocket"""
         try:
+            # Twilio requires Sec-WebSocket-Protocol: audio.twilio.com
+            # simple-websocket will auto-handle subprotocol selection
             ws = WebSocketServer(environ=request.environ)
-            print("WS_CONNECTED /ws/twilio-media")
+            print("WS_CONNECTED /ws/twilio-media (Twilio Media Streams compatible)")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
@@ -74,8 +76,10 @@ def create_app():
     def ws_twilio_media_slash():
         """WebSocket handler with slash - simple-websocket"""
         try:
+            # Twilio requires Sec-WebSocket-Protocol: audio.twilio.com
+            # simple-websocket will auto-handle subprotocol selection
             ws = WebSocketServer(environ=request.environ)
-            print("WS_CONNECTED /ws/twilio-media/")
+            print("WS_CONNECTED /ws/twilio-media/ (Twilio Media Streams compatible)")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
