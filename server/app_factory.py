@@ -142,15 +142,47 @@ def create_app():
         """Serve static assets from client build"""
         return send_from_directory(os.path.join(os.getcwd(), 'client/dist/assets'), filename)
     
-    # CRITICAL: Fast health endpoints for deployment
+    # CRITICAL: Serve React frontend on root path
     @app.route('/', methods=['GET'])
     def root():
-        """Fast root endpoint for health check - <50ms response time"""
-        return "ok", 200
+        """Serve React frontend as main page"""
+        try:
+            return send_file(os.path.join(os.getcwd(), 'client/dist/index.html'))
+        except FileNotFoundError:
+            # Fallback if React app not built
+            return """
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מערכת CRM עברית - שי דירות ומשרדים</title>
+    <style>
+        body { font-family: Assistant, sans-serif; direction: rtl; 
+               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+               min-height: 100vh; display: flex; align-items: center; 
+               justify-content: center; color: white; margin: 0; }
+        .container { text-align: center; max-width: 600px; padding: 40px; }
+        h1 { font-size: 2.5rem; margin-bottom: 20px; }
+        p { font-size: 1.2rem; opacity: 0.9; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏢 מערכת CRM עברית</h1>
+        <p>שי דירות ומשרדים בע״מ</p>
+        <p>מערכת ניהול שיחות עם בינה מלאכותית בעברית</p>
+        <div style="margin-top: 30px; padding: 20px; background: rgba(255,255,255,0.1); border-radius: 10px;">
+            <p>✅ המערכת פעילה ומוכנה לשיחות</p>
+            <p>📞 קו חם: +972-3-376-3805</p>
+        </div>
+    </div>
+</body>
+</html>""", 200
 
     @app.route('/healthz', methods=['GET'])
     def healthz():
-        """Basic health check"""
+        """Basic health check - fast endpoint for deployment"""
         return "ok", 200
     
     @app.route('/readyz', methods=['GET'])
