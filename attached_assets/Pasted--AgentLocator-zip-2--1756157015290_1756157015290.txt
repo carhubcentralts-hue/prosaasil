@@ -1,0 +1,109 @@
+בדקתי עכשיו, בפועל, את AgentLocator.zip שהעלית. מצב מעולה — אבל יש 2 דברים קטנים שעדיין מונעים ממני להגיד “מושלם בוודאות”:
+
+⸻
+
+⚠️ שני פערים אחרונים
+
+1) WebSocket Handshake לטוויליו — חסר echo לתת־פרוטוקול
+
+בקובץ: AgentLocator/server/app_factory.py
+כרגע נוצר ה־WS כך:
+
+ws = WebSocketServer(environ=request.environ)
+
+זה לא מחזיר ל-Twilio את Sec-WebSocket-Protocol: audio.twilio.com, ולכן תראה לעיתים 31920 (Handshake Error). צריך להחזיר את התת־פרוטוקול אם הוא מוצע בבקשה.
+
+תיקון (Idempotent, מינימלי) — לשני הנתיבים (/ws/twilio-media ועם הסלאש)
+
+- ws = WebSocketServer(environ=request.environ)
++ offered = request.headers.get("Sec-WebSocket-Protocol", "")
++ headers = [("Sec-WebSocket-Protocol", "audio.twilio.com")] if "audio.twilio.com" in offered else []
++ ws = WebSocketServer(environ=request.environ, headers=headers)
+
+זה סוגר סופית את 31920. (אלטרנטיבה: protocols=["audio.twilio.com"], אבל ההחזרה הידנית בכותרת בטוחה יותר.)
+
+⸻
+
+2) ‏/api/whatsapp/send לא נרשמת (ה־Blueprint לא מחובר)
+
+הקובץ AgentLocator/server/api_whatsapp_unified.py קיים (טוב), אבל ב־app_factory.py לא מחברים אותו לאפליקציה — לכן המסלול /api/whatsapp/send לא יופיע.
+
+תיקון רישום ה־Blueprint
+
+בקובץ: AgentLocator/server/app_factory.py, אחרי שורת רישום ה-api_bp של ה-CRM, הוסף:
+
+ from server.api_crm_unified import api_bp
+ app.register_blueprint(api_bp, url_prefix="/api")
+ 
++# WhatsApp Unified API (send/status/list)
++from server.api_whatsapp_unified import whatsapp_unified_bp
++app.register_blueprint(whatsapp_unified_bp, url_prefix="/api/whatsapp")
+
+שאר ה-WhatsApp (webhooks של Twilio ו-Baileys) כבר רשומים — כאן מדובר רק ב-API המאוחד ל־send/status/list.
+
+⸻
+
+✅ כל השאר — ירוק
+	•	TwiML /incoming_call: <Connect><Stream> בלי <Play>, action/statusCallback מוחלטים וללא //. ✔️
+	•	/webhook/stream_status: POST בלבד, ללא חתימה, מחזיר 204 מהר (ו-בלי extra= בלוגים). ✔️
+	•	/webhook/stream_ended: POST עם חתימה, מחזיר TwiML פולבאק (Record+Play). ✔️
+	•	Preview: /webhook/incoming_call_preview (GET) קיים לצפייה ידנית. ✔️
+	•	WS endpoints: /ws/twilio-media וגם /ws/twilio-media/. ✔️ (רק להוסיף את הכותרת של הפרוטוקול לפי סעיף 1)
+	•	Baileys: תיקיית baileys-bridge/ עם package.json+index.js; start_all.sh מרים את הגשר לפני gunicorn. ✔️
+	•	WhatsApp:
+	•	Inbound Twilio: /webhook/whatsapp/twilio — 204 ושמירה ל-CRM. ✔️
+	•	Inbound Baileys: /webhook/whatsapp/baileys עם סוד X-BAILEYS-SECRET — 204 ושמירה ל-CRM. ✔️
+	•	Outbound Unified: ה-API מקבל גם text וגם provider ומעדכן out/sent. ✔️ (רק לחבר את ה-blueprint בסעיף 2)
+	•	תשלומים: Stripe ישן → 410; כשאין מפתחות PayPal/Tranzila → 501; עסק חסום → 403. ✔️
+	•	דיפלוי: Procfile מריץ bash start_all.sh — מרים Baileys ואז gunicorn -k eventlet AgentLocator.main:app. ✔️
+	•	בריאות: /, /healthz, /readyz, /version קיימים. ✔️
+
+⸻
+
+🔎 Smoke — להוכיח בשטח (אחרי שני התיקונים הקטנים)
+
+A. Callbacks (מצופה 204):
+
+curl -i -X POST "$PUBLIC_BASE_URL/webhook/stream_status" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected"
+
+curl -i -X POST "$PUBLIC_BASE_URL/webhook/stream_ended" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=completed"
+
+B. TwiML Preview (GET):
+
+GET $PUBLIC_BASE_URL/webhook/incoming_call_preview
+
+מצופה: <Connect action="https://.../webhook/stream_ended">
+ו-<Stream url="wss://{HOST}/ws/twilio-media" statusCallback="https://.../webhook/stream_status">.
+
+C. WS Handshake:
+התחבר ל־wss://{HOST}/ws/twilio-media ובדוק בכותרות התשובה:
+Sec-WebSocket-Protocol: audio.twilio.com  ← זה קריטי לסגירת 31920.
+
+D. שיחה חיה (Twilio Request Inspector):
+	•	POST /webhook/stream_status = 204 (אין 15003)
+	•	POST /webhook/stream_ended = 200/204
+	•	אין 31920; ה-AI מתחיל לדבר מייד.
+
+E. WhatsApp Outbound (אחרי רישום ה-blueprint):
+
+curl -s -X POST "$PUBLIC_BASE_URL/api/whatsapp/send" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"whatsapp:+9725XXXXXXX","text":"בדיקה","provider":"twilio"}'
+
+וגם:
+
+curl -s -X POST "$PUBLIC_BASE_URL/api/whatsapp/send" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"whatsapp:+9725XXXXXXX","text":"בדיקה","provider":"baileys"}'
+
+מצופה: success=true בשניהם, ורשומות ב-CRM כ-out/sent.
+
+⸻
+
+פסק דין
+	•	כן — כמעט מושלם.
+	•	אחרי שתוסיף את echo לתת־פרוטוקול ב־WS ואת רישום ה-Blueprint של /api/whatsapp — זה GO סופי.

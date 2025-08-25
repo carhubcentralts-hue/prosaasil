@@ -63,8 +63,9 @@ def create_app():
         """WebSocket handler for Twilio Media Streams - simple-websocket"""
         try:
             # תיקון קריטי: החזרת audio.twilio.com subprotocol
-            # simple-websocket יטפל אוטומטית ב-subprotocol negotiation
-            ws = WebSocketServer(environ=request.environ)
+            offered = request.headers.get("Sec-WebSocket-Protocol", "")
+            subprotocols = ["audio.twilio.com"] if "audio.twilio.com" in offered else None
+            ws = WebSocketServer(environ=request.environ, subprotocols=subprotocols)
             print("WS_CONNECTED /ws/twilio-media with audio.twilio.com subprotocol")
             MediaStreamHandler(ws).run()
         except Exception as e:
@@ -77,8 +78,9 @@ def create_app():
         """WebSocket handler with slash - simple-websocket"""
         try:
             # תיקון קריטי: החזרת audio.twilio.com subprotocol
-            # simple-websocket יטפל אוטומטית ב-subprotocol negotiation
-            ws = WebSocketServer(environ=request.environ)
+            offered = request.headers.get("Sec-WebSocket-Protocol", "")
+            subprotocols = ["audio.twilio.com"] if "audio.twilio.com" in offered else None
+            ws = WebSocketServer(environ=request.environ, subprotocols=subprotocols)
             print("WS_CONNECTED /ws/twilio-media/ with audio.twilio.com subprotocol")
             MediaStreamHandler(ws).run()
         except Exception as e:
@@ -96,6 +98,10 @@ def create_app():
     app.register_blueprint(whatsapp_bp)  # ← New unified WhatsApp routes
     from server.api_crm_unified import api_bp
     app.register_blueprint(api_bp, url_prefix="/api")
+    
+    # WhatsApp Unified API (send/status/list)
+    from server.api_whatsapp_unified import whatsapp_unified_bp
+    app.register_blueprint(whatsapp_unified_bp)
     
     # Baileys WhatsApp bridge routes 
     try:
