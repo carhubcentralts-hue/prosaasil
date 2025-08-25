@@ -608,7 +608,7 @@ def list_threads():
     try:
         from server.dao_crm import get_threads
         business_id = request.args.get('business_id', 1, type=int)
-        type_ = request.args.get('type')  # whatsapp or call
+        type_ = request.args.get('type') or None  # whatsapp or call
         limit = request.args.get('limit', 50, type=int)
         offset = request.args.get('offset', 0, type=int)
         
