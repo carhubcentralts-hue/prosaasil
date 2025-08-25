@@ -54,42 +54,35 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # 2) Flask-Sock רישום נכון + שני נתיבי WS (לפי ההנחיות המדויקות)
-    # Initialize Flask-Sock BEFORE registering routes
-    sock = Sock()
-    sock.init_app(app)
-    
-    # Force registration verification
-    print(f"🔍 App extensions after Sock init: {list(app.extensions.keys())}")
-    
-    # Register WebSocket routes directly
+    # 2) WebSocket עם simple-websocket ישירות - יציב יותר מFlask-Sock
+    from simple_websocket import Server as WebSocketServer
     from server.media_ws import MediaStreamHandler
     
-    @sock.route("/ws/twilio-media")
-    def ws_twilio_media(ws): 
-        """WebSocket handler for Twilio Media Streams - אולטרה סלחני"""
+    @app.route("/ws/twilio-media", methods=["GET"])
+    def ws_twilio_media():
+        """WebSocket handler for Twilio Media Streams - simple-websocket"""
         try:
-            current_app.logger.info("WS_START /ws/twilio-media")
+            ws = WebSocketServer(environ=request.environ)
+            print("WS_CONNECTED /ws/twilio-media")
             MediaStreamHandler(ws).run()
         except Exception as e:
-            try:
-                current_app.logger.exception("WS_HANDLER_CRASH: %s", e)
-            except Exception:
-                print(f"❌ WS_HANDLER_CRASH: {e}")
+            print(f"❌ WS_ERROR: {e}")
+            return "WebSocket Error", 500
+        return "WebSocket Closed", 200
         
-    @sock.route("/ws/twilio-media/")   # ← גם עם סלאש למנוע Redirect/404 בהנדשייק
-    def ws_twilio_media_slash(ws): 
-        """WebSocket handler for Twilio Media Streams with slash - אולטרה סלחני"""
+    @app.route("/ws/twilio-media/", methods=["GET"])  
+    def ws_twilio_media_slash():
+        """WebSocket handler with slash - simple-websocket"""
         try:
-            current_app.logger.info("WS_START /ws/twilio-media/")
+            ws = WebSocketServer(environ=request.environ)
+            print("WS_CONNECTED /ws/twilio-media/")
             MediaStreamHandler(ws).run()
         except Exception as e:
-            try:
-                current_app.logger.exception("WS_HANDLER_CRASH: %s", e)
-            except Exception:
-                print(f"❌ WS_HANDLER_CRASH: {e}")
+            print(f"❌ WS_ERROR: {e}")
+            return "WebSocket Error", 500
+        return "WebSocket Closed", 200
     
-    print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/")
+    print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (simple-websocket)")
 
     # רישום בלו־פרינטים - AgentLocator 71
     from server.routes_twilio import twilio_bp

@@ -39,13 +39,7 @@ class MediaStreamHandler:
 
     def run(self):
         """Main WebSocket event loop with Hebrew real-time processing"""
-        try:
-            from flask import current_app
-            current_app.logger.info("WS_CONNECTED", extra={
-                "hebrew_realtime": HEBREW_REALTIME_ENABLED
-            })
-        except Exception:
-            print(f"WS_CONNECTED hebrew_realtime={HEBREW_REALTIME_ENABLED}")
+        print(f"WS_CONNECTED hebrew_realtime={HEBREW_REALTIME_ENABLED}")
         
         # Start Hebrew transcription if available
         if self.stt:
@@ -56,19 +50,13 @@ class MediaStreamHandler:
             while True:
                 raw = self.ws.receive()
                 if raw is None:
-                    try:
-                        current_app.logger.info("WS_CLOSED")
-                    except Exception:
-                        print("WS_CLOSED")
+                    print("WS_CLOSED")
                     break
                     
                 try:
                     data = json.loads(raw)
                 except Exception:
-                    try:
-                        current_app.logger.warning("WS_BAD_JSON")
-                    except Exception:
-                        print("WS_BAD_JSON")
+                    print("WS_BAD_JSON")
                     continue
 
                 ev = data.get("event")
@@ -78,17 +66,11 @@ class MediaStreamHandler:
                 elif ev == "media":
                     self._handle_media(data)
                 elif ev == "stop":
-                    try:
-                        current_app.logger.info("WS_STOP")
-                    except Exception:
-                        print("WS_STOP")
+                    print("WS_STOP")
                     break
 
-        except Exception:
-            try:
-                current_app.logger.exception("WS_HANDLER_ERROR")
-            except Exception as e:
-                print(f"WS_HANDLER_ERROR: {e}")
+        except Exception as e:
+            print(f"WS_HANDLER_ERROR: {e}")
         finally:
             self._cleanup()
 
@@ -107,11 +89,7 @@ class MediaStreamHandler:
         self.call_sid = cp.get("call_sid") or cp.get("CallSid") or cp.get("CALL_SID")
         self.stream_sid = start.get("streamSid")
         
-        current_app.logger.info("WS_START", extra={
-            "streamSid": self.stream_sid, 
-            "call_sid": self.call_sid,
-            "hebrew_asr": "active" if self.stt else "fallback"
-        })
+        print(f"WS_START streamSid={self.stream_sid} call_sid={self.call_sid} hebrew_asr={'active' if self.stt else 'fallback'}")
         
         if self.call_sid:
             stream_registry.mark_start(self.call_sid)
@@ -127,14 +105,10 @@ class MediaStreamHandler:
             try:
                 # Send audio to Hebrew ASR stream
                 self.stt.push_ulaw_base64(media_payload)
-            except Exception:
-                current_app.logger.exception("REAL_TIME_ASR_ERROR")
+            except Exception as e:
+                print(f"REAL_TIME_ASR_ERROR: {e}")
         
-        current_app.logger.debug("WS_FRAME", extra={
-            "call_sid": self.call_sid,
-            "payload_len": len(media_payload),
-            "hebrew_processing": bool(self.stt)
-        })
+        # Debug frame (optional): call_sid={self.call_sid} payload_len={len(media_payload)} hebrew_processing={bool(self.stt)}
 
     def _start_result_processor(self):
         """Start background thread to process Hebrew transcription results"""
