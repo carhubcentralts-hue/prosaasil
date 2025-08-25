@@ -1,0 +1,209 @@
+מעולה—עברתי על AgentLocator (76) בפועל. להלן בדיקת קוד מלאה + הנחיה “אפס־תקלות” כדי שסופית יהיה GO. ציינתי גם הבדלים/שיפורים מדויקים בקבצים.
+
+⸻
+
+אבחון ממוקד לפי קבצים
+
+1) WebSocket (חיוני ל-Twilio Media Streams)
+
+נמצא בקובץ: server/app_factory.py
+סטטוס: יש מעבר ל-simple-websocket ונתיבים /ws/twilio-media ו־/ws/twilio-media/. כרגע נוצרת הסשן כך:
+
+ws = WebSocketServer(environ=request.environ)
+
+בעיה: Twilio שולחת תת־פרוטוקול Sec-WebSocket-Protocol: audio.twilio.com. אם לא מחזירים אותו ב־Handshake → מתקבל 31920 (Handshake Error).
+
+תיקון בטוח (Idempotent):
+החלף את יצירת הסשן לאחת מהאפשרויות הבטוחות—(A) מועדפת, ואם לא עובד אצלך השתמש ב-(B):
+
+A) עם ניהול פרוטוקול (אם נתמך ע״י simple-websocket אצלך):
+
+- ws = WebSocketServer(environ=request.environ)
++ ws = WebSocketServer(environ=request.environ, protocols=["audio.twilio.com"])
+
+B) הזרקת כותרת ידנית ב-Handshake (אלטרנטיבה):
+
+- ws = WebSocketServer(environ=request.environ)
++ proto_hdr = []
++ offered = request.headers.get("Sec-WebSocket-Protocol")
++ if offered and "audio.twilio.com" in offered:
++     proto_hdr = [("Sec-WebSocket-Protocol", "audio.twilio.com")]
++ ws = WebSocketServer(environ=request.environ, headers=proto_hdr)
+
+פוליש מומלץ: לוגים פשוטים בלבד סביב ה־WS:
+
+print("WS_CONNECTED /ws/twilio-media")
+# ... לולאה ...
+print("WS_END")
+
+ולשמור Keepalive (יש לך כבר ב־server/media_ws.py), מספיק ping פעם ~25s.
+
+⸻
+
+2) TwiML / חיבור מדיה
+
+נמצא בקובץ: server/routes_twilio.py
+סטטוס: TwiML נבנה עם URLs מוחלטים (מצוין), בלי <Play> (ה-AI מתחיל לדבר מיד ✅), ויש watchdog.
+
+ודא:
+	•	מחולל ה־URL שלך לא מייצר // כפול. אצלך מחושב public_base ונעשה .../webhook/...—זה נראה תקין.
+	•	שדה wss_host נטול פרוטוקול ונטול / בסוף (נראה שעשית strip – טוב).
+	•	@twilio_bp.route("/webhook/incoming_call", methods=["POST"]) נשאר POST + חתימה (טוב לאבטחה).
+
+מסלול לתצוגה ידנית (אופציונלי לבדיקות עשן):
+כדי לא לפתוח את incoming_call ל-GET, אפשר להוסיף Preview:
+
+@twilio_bp.get("/webhook/incoming_call_preview")
+def incoming_call_preview():
+    return incoming_call()  # מחזיר את אותה TwiML לצפייה ידנית
+
+
+⸻
+
+3) stream_status / stream_ended
+
+נמצא בקובץ: server/routes_twilio.py
+	•	@twilio_bp.route("/webhook/stream_status", methods=["POST"]) ללא חתימה, קורא request.form, מחזיר 204 מהר → ✔️ בדיוק מה שביקשת.
+	•	@twilio_bp.route("/webhook/stream_ended", methods=["POST"]) עם חתימה ומחזיר TwiML של פולבאק הקלטה → ✔️ נכון למקרה שה־WS נופל.
+
+הערת יציבות: בתוך stream_status אתה משתמש ב־current_app.logger.info(...) (בלי extra=) – זה בסדר. אם אי פעם תראה חריגות לוג, עבור ל־print().
+
+⸻
+
+4) WhatsApp (Twilio) → CRM
+
+Inbound: server/routes_whatsapp_twilio.py – חתימה, קריאה ל-DB, מחזיר 204 → ✔️
+Outbound: server/api_whatsapp_unified.py – היום מקבל {to, message} ושולח ע״י get_whatsapp_service() (לפי ENV), לא פר-בקשה.
+
+התאמה מלאה למה שביקשת (מינימום שינוי):
+
+ from server.whatsapp_provider import get_whatsapp_service
++from server.whatsapp_provider import WhatsAppService, TwilioProvider
+
+ @whatsapp_unified_bp.route("/send", methods=["POST"])
+ def send_message():
+     data = request.get_json() or {}
+-    to_number = data.get("to")
+-    message = data.get("message")
++    to_number = data.get("to")
++    message = data.get("message") or data.get("text")
++    provider = (data.get("provider") or "").lower()
+
+     if not to_number or not message:
+         return jsonify({"success": False, "error": "Missing to/message"}), 400
+
+-    service = get_whatsapp_service()
++    if provider == "twilio":
++        service = WhatsAppService(TwilioProvider())
++    else:
++        service = get_whatsapp_service()
+
+     result = service.send_message(to_number, message)
+     # שמירה ל-CRM (יש לך כבר)
+     # ודא שה-status נרשם כ-out/sent כשה-SID קיים.
+
+בדיקת עשן:
+
+curl -X POST https://{HOST}/api/whatsapp/send \
+  -H "Content-Type: application/json" \
+  -d '{"to":"whatsapp:+9725XXXXXXX","text":"בדיקה","provider":"twilio"}'
+
+מצופה: success=true + רשומה ב-CRM כ-out/sent.
+
+⸻
+
+5) תשלומים – קודי שגיאה כשאין מפתחות
+
+קבצים:
+	•	API: server/api_crm_unified.py (endpoint: /api/crm/payments/create)
+	•	ספקים: server/providers/payments.py
+
+היום payments/create מחזיר 200/202/500. לפי המפרט שלך:
+	•	Stripe ישן → 410 (כבר אצלך ✔️)
+	•	כשאין מפתחות/קונפיגורציה → 501
+	•	כשלעסק אין הרשאה → 403
+
+שינוי מינימלי (בתוך payments_create() לפני create_payment_link(...)):
+
++        from server.providers.payments import sys_enabled
++        # Global off
++        if not sys_enabled():
++            return jsonify({"error":"Payments system disabled"}), 501
++        # Business off
++        if not getattr(biz, "payments_enabled", False):
++            return jsonify({"error":"Payments disabled for this business"}), 403
++
++        eff_provider = (provider or biz.default_provider or "paypal").lower()
++        if eff_provider == "paypal":
++            if not (gw and gw.paypal_client_id and gw.paypal_secret):
++                return jsonify({"error":"PayPal not configured"}), 501
++        if eff_provider == "tranzila":
++            if not (gw and gw.tranzila_terminal):
++                return jsonify({"error":"Tranzila not configured"}), 501
+
+
+⸻
+
+6) דיפלוי (Gunicorn + Eventlet)
+
+קבצים: Procfile, start_all.sh, main.py
+אצלך קיים main:app בשניהם, ו-main.py בשורש – זה בסדר כל עוד ה-cwd הוא תקיית הפרויקט. אם יש ספק—החלף ל-AgentLocator.main:app או הוסף בתחילת start_all.sh:
+
+cd "$(dirname "$0")"
+
+כך תבטיח cwd נכון.
+
+⸻
+
+צ׳ק־ליסט GO/NO-GO (בדיקות עשן מדויקות)
+	1.	stream_status (צפוי 204):
+
+curl -i -X POST https://{HOST}/webhook/stream_status \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected"
+
+	2.	stream_ended (צפוי 204 או TwiML 200 – לפי המימוש שלך):
+
+curl -i -X POST https://{HOST}/webhook/stream_ended \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=completed"
+
+	3.	TwiML Preview (אופציונלי):
+
+GET https://{HOST}/webhook/incoming_call_preview
+
+שיהיה <Connect><Stream> עם statusCallback ו-action מוחלטים.
+	4.	WS Handshake (קריטי ל-31920):
+התחבר ל־wss://{HOST}/ws/twilio-media בכל כלי WS. בדוק ב-response headers שמוחזר:
+
+Sec-WebSocket-Protocol: audio.twilio.com
+
+אם קיים → Twilio לא יחזיר 31920.
+	5.	שיחה חיה – Request Inspector בת’וויליו:
+
+	•	POST /webhook/stream_status = 204 (אין 15003)
+	•	POST /webhook/stream_ended = 204/200 (לפי המימוש שלך)
+	•	בלי 31920; ה־AI מתחיל לדבר מייד (אין <Play>)
+
+	6.	WhatsApp Outbound:
+כמו הפקודה לעיל—שנשלח ונשמר ב-CRM כ-out/sent.
+	7.	בריאות כללית:
+/, /healthz, /readyz, /version → 200, ו-/version מחזיר מזהה דיפלוי/commit מעודכן.
+
+⸻
+
+למה זה מכסה “הכול”
+	•	405 → נגרם משיטת HTTP/נתיב שגויים: ודא שה-routes ל-callbacks הם POST בדיוק כפי שהוגדר (אתה כבר שם).
+	•	// כפול → נטרלנו באמצעות בניית URL נכונה (אצלך כבר טופל).
+	•	31920 → מכוסה בהחזרת תת־הפרוטוקול audio.twilio.com ב-Handshake.
+	•	“שקט פתיחה” → בוטל כי אין <Play>, החיבור ל-WS מתחיל מיד.
+	•	קריסות לוגים → שימוש ב-print()/לוג ללא extra= במסלולי ה־WS/Stream_Status.
+	•	תשלומים ללא מפתחות → 501/403 ולא 500.
+	•	וואטסאפ → תואם מפרט API (כולל text/provider) ושמירה ב-CRM.
+
+⸻
+
+בשורה תחתונה
+	•	עברתי על כל הקבצים הרלוונטיים (WS, Twilio routes, WhatsApp, Payments, דיפלוי).
+	•	אם תיישם את ה־diffים המינימליים למעלה (בעיקר ה-WS subprotocol ו-WhatsApp outbound/Payments קודי שגיאה), אתה עומד 1:1 בדרישות ה-GO/NO-GO שלך.
+	•	תרצה? אכין לך patch אחד (‎.patch) מאוחד ל-git apply + smoke.sh שמריץ את כל בדיקות העשן בלחיצה.

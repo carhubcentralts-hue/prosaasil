@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🚀 Starting AgentLocator 73 - Complete System"
+# Ensure correct working directory
+cd "$(dirname "$0")"
+
+echo "🚀 Starting AgentLocator 76 - Complete System"
 
 # Create necessary directories
 mkdir -p baileys-bridge/session

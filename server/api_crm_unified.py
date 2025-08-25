@@ -170,13 +170,9 @@ def payments_create():
         provider = (data.get("provider") or "").lower()
         
         # 4) תשלומים ללא מפתחות = קודי שגיאה נכונים (פוליש)
-        # Check if payment provider is configured
-        if provider == 'paypal':
-            if not os.getenv("PAYPAL_CLIENT_ID") or not os.getenv("PAYPAL_SECRET"):
-                return jsonify({"error": "PayPal not configured on this server"}), 501
-        elif provider == 'tranzila':
-            if not os.getenv("TRANZILA_ACCOUNT") or not os.getenv("TRANZILA_KEY"):
-                return jsonify({"error": "Tranzila not configured on this server"}), 501
+        # Global system check first
+        if not sys_enabled():
+            return jsonify({"error": "Payments system disabled"}), 501
 
         biz = Business.query.get(business_id)
         if not biz:
@@ -185,7 +181,17 @@ def payments_create():
         # Check business authorization for payments
         if not getattr(biz, 'payments_enabled', True):
             return jsonify({"error": "Payment processing not authorized for this business"}), 403
+            
         gw = PaymentGateway.query.filter_by(business_id=biz.id, provider=(provider or biz.default_provider)).first()
+        
+        # Check provider-specific configuration
+        eff_provider = (provider or biz.default_provider or "paypal").lower()
+        if eff_provider == "paypal":
+            if not (gw and getattr(gw, 'paypal_client_id', None) and getattr(gw, 'paypal_secret', None)):
+                return jsonify({"error": "PayPal not configured"}), 501
+        elif eff_provider == "tranzila":
+            if not (gw and getattr(gw, 'tranzila_terminal', None)):
+                return jsonify({"error": "Tranzila not configured"}), 501
 
         # Create payment record even in simulation
         pay = Payment(

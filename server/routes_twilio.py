@@ -43,7 +43,7 @@ def _do_redirect(call_sid, wss_host, reason):
     except Exception:
         current_app.logger.exception("WATCHDOG_REDIRECT_FAIL")
 
-# 1) Smoke test ל-TwiML דרך GET (פוליש)
+# 1) TwiML Preview endpoint (אופציונלי לבדיקות עשן)
 @twilio_bp.route("/webhook/incoming_call_preview", methods=["GET"])
 def incoming_call_preview():
     """GET endpoint for TwiML preview (no signature required)"""
