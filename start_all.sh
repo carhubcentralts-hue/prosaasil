@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure correct working directory
-cd "$(dirname "$0")"
+# Ensure correct working directory - fix for Replit
+echo "🔧 Current directory: $(pwd)"
+echo "🚀 Starting from: $(dirname "$0")"
 
 echo "🚀 Starting AgentLocator 76 - Complete System with Baileys"
 
@@ -22,9 +23,11 @@ export PYTHON_WEBHOOK_URL=${PYTHON_WEBHOOK_URL:-$BAILEYS_WEBHOOK}
 export WA_SHARED_SECRET=${WA_SHARED_SECRET:-$BAILEYS_SECRET}
 
 # Install Baileys dependencies if needed
-if [ ! -d "baileys-bridge/node_modules" ]; then
+if [ -d "baileys-bridge" ] && [ ! -d "baileys-bridge/node_modules" ]; then
     echo "📦 Installing Baileys dependencies..."
     cd baileys-bridge && npm ci --omit=dev && cd ..
+else
+    echo "⚠️ Baileys bridge directory not found or already installed"
 fi
 
 # Set up GCP credentials if provided
@@ -35,7 +38,7 @@ if [ -n "${GCP_CREDENTIALS_JSON:-}" ]; then
 fi
 
 # Start Baileys bridge if enabled
-if [ "${ENABLE_WA_BAILEYS:-true}" = "true" ]; then
+if [ "${ENABLE_WA_BAILEYS:-true}" = "true" ] && [ -d "baileys-bridge" ]; then
     echo "🟢 Starting Baileys bridge on port $BAILEYS_PORT..."
     cd baileys-bridge
     node index.js &
@@ -46,7 +49,7 @@ if [ "${ENABLE_WA_BAILEYS:-true}" = "true" ]; then
     sleep 3
     echo "✅ Baileys bridge started (PID: $BAILEYS_PID)"
 else
-    echo "⚪ Baileys bridge disabled"
+    echo "⚪ Baileys bridge disabled or directory not found"
 fi
 
 echo "🚀 Starting Flask API with Eventlet (WebSocket support)..."
@@ -61,4 +64,4 @@ exec python3 -m gunicorn \
     --error-logfile - \
     --timeout 60 \
     --graceful-timeout 30 \
-    AgentLocator.main:app
+    main:app

@@ -11,3 +11,5 @@ numpy
 websocket-client
 psycopg2-binary
 google-cloud-speech==2.26.0
+eventlet
+gunicorn
