@@ -52,12 +52,16 @@ def incoming_call():
     # NO greeting - AI starts immediately  
     public_base = os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_HOST") or request.url_root.rstrip("/")
     wss_host = public_base.replace("https://","").replace("http://","").strip("/")
+    
+    # 1) URLs מוחלטים ב-TwiML (פוליש)
+    stream_ended_url = f"{public_base}/webhook/stream_ended"
+    stream_status_url = f"{public_base}/webhook/stream_status"
 
     # CRITICAL: Use <Connect><Stream> without greeting - AI starts immediately!
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Connect action="/webhook/stream_ended">
-    <Stream url="wss://{wss_host}/ws/twilio-media" statusCallback="/webhook/stream_status">
+  <Connect action="{stream_ended_url}">
+    <Stream url="wss://{wss_host}/ws/twilio-media" statusCallback="{stream_status_url}">
       <Parameter name="call_sid" value="{call_sid}"/>
     </Stream>
   </Connect>

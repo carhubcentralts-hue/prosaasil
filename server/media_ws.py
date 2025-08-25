@@ -46,12 +46,22 @@ class MediaStreamHandler:
             self.stt.start()
             self._start_result_processor()
         
+        # 3) WS Keepalive (פוליש)
+        self._start_keepalive()
+        
         try:
             while True:
-                raw = self.ws.receive()
-                if raw is None:
-                    print("WS_CLOSED")
-                    break
+                try:
+                    raw = self.ws.receive()
+                    if raw is None:
+                        print("WS_CLOSED")
+                        break
+                except Exception as e:
+                    # 3) WS Connection cleanup (פוליש)
+                    if "ConnectionClosed" in str(e) or "Connection" in str(e):
+                        print(f"WS_CONNECTION_CLOSED: {e}")
+                        break
+                    raise
                     
                 try:
                     data = json.loads(raw)
@@ -315,6 +325,20 @@ class MediaStreamHandler:
         except Exception:
             current_app.logger.exception("CONTINUOUS_CONVERSATION_ERROR")
 
+    def _start_keepalive(self):
+        """3) WS Keepalive (פוליש)"""
+        def keepalive():
+            import time
+            while True:
+                try:
+                    time.sleep(25)  # Ping every 25 seconds
+                    if hasattr(self.ws, 'ping'):
+                        self.ws.ping()
+                except Exception:
+                    break
+        
+        threading.Thread(target=keepalive, daemon=True).start()
+        
     def _cleanup(self):
         """Clean up resources when WebSocket closes"""
         if self.stt:
@@ -323,6 +347,4 @@ class MediaStreamHandler:
         if self.call_sid:
             stream_registry.clear(self.call_sid)
             
-        current_app.logger.info("WS_CLEANUP_COMPLETE", extra={
-            "call_sid": self.call_sid
-        })
+        print(f"WS_CLEANUP_COMPLETE call_sid={self.call_sid}")
