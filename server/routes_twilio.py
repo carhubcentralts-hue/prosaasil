@@ -49,7 +49,7 @@ def incoming_call():
     """Generate TwiML with <Connect><Stream> structure per guidelines"""
     call_sid = request.form.get("CallSid")
     
-    greeting_url = abs_url("/static/tts/greeting_he.mp3")
+    # NO greeting - AI starts immediately  
     public_base = os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_HOST") or request.url_root.rstrip("/")
     wss_host = public_base.replace("https://","").replace("http://","").strip("/")
 
