@@ -39,8 +39,10 @@ def send_message():
         if not data:
             return jsonify({"success": False, "error": "No data provided"}), 400
         
+        # 3) WhatsApp outbound תואם מפרט (פוליש)
         to_number = data.get("to")
-        message = data.get("message")
+        message = data.get("message") or data.get("text")  # Support text alias
+        provider = data.get("provider")  # Per-request provider
         business_id = data.get("business_id", 1)
         
         if not to_number or not message:
@@ -49,8 +51,8 @@ def send_message():
                 "error": "to and message are required"
             }), 400
         
-        # Send via service
-        service = get_whatsapp_service()
+        # Send via service (with per-request provider if specified)
+        service = get_whatsapp_service(provider=provider)
         result = service.send_message(to_number, message)
         
         # Save to database
@@ -59,11 +61,11 @@ def send_message():
             wa_message = WhatsAppMessage()
             wa_message.business_id = business_id
             wa_message.to_number = to_number
-            wa_message.direction = "out"
+            wa_message.direction = "out/sent"  # שמירה ב-CRM כ-out/sent
             wa_message.body = message
             wa_message.message_type = "text"
-            wa_message.status = result.get("status", "queued")
-            wa_message.provider = result.get("provider", "unknown")
+            wa_message.status = result.get("status", "sent")  # Default to sent
+            wa_message.provider = result.get("provider", provider or "unknown")
             wa_message.provider_message_id = result.get("sid")
             
             db.session.add(wa_message)

@@ -55,4 +55,4 @@ exec python3 -m gunicorn \
     --error-logfile - \
     --timeout 60 \
     --graceful-timeout 30 \
-    main:app
+    AgentLocator.main:app

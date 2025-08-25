@@ -1,0 +1,41 @@
+כן—גרסת **AgentLocator (76)** נראית טובה מאוד ומיישרת קו עם רוב הדרישות. בדקתי את הקבצים בפועל. זה הסטטוס:
+
+# מה ירוק כבר
+
+* **WS = simple-websocket** פעיל ב־`/ws/twilio-media` ו־`/ws/twilio-media/` עם keepalive. טוב.
+* **TwiML (incoming\_call)** בלי `<Play>` ועם **URLs מוחלטים** ל־`action` ול־`statusCallback`. מצוין.
+* **`/webhook/stream_status`**: תמיד 204, ללא חתימה וללא `extra=` בלוגים. ✅
+* **WhatsApp inbound (Twilio)**: `/webhook/whatsapp/twilio` מחזיר 204 ושומר ל־CRM. ✅
+* **בריאות**: ה־blueprints וה־endpoints המרכזיים רשומים; אין כפילויות.
+
+# מה נשאר להשלים כדי שיהיה “מושלם” (4 נקודות קטנות)
+
+1. **Smoke test ל־TwiML דרך GET**
+   כרגע `incoming_call` הוא `POST` בלבד עם חתימת Twilio. בבדיקות העשן שלך יש ציפייה ל־**GET**.
+   → הוסף נתיב תצוגה ללא חתימה, למשל: `/webhook/incoming_call_preview` (GET) שמחזיר את אותה ה־TwiML לקריאה ידנית.
+
+2. **פקודת דיפלוי חסינה**
+   גם `Procfile` וגם `start_all.sh` עדיין מפעילים `main:app`.
+   → עדכן ל־**`AgentLocator.main:app`** כדי שלא להיות תלוי ב־cwd.
+
+3. **WhatsApp outbound תואם מפרט**
+   `/api/whatsapp/send` מקבל כיום `{to, message}` ובוחר ספק לפי ENV.
+   → הוסף תמיכה גם ב־`text` (alias) ופר־בקשה `provider:"twilio"`, ושמור סטטוס **`out/sent`** עם ה־SID.
+
+4. **תשלומים ללא מפתחות = קודי שגיאה נכונים**
+   כרגע `create` מחזיר 200/202 או 500.
+   → כשאין קונפיגורציית **PayPal/Tranzila**: החזר **501**; אם לעסק אין הרשאה: **403**; Stripe הישן כבר מחזיר **410** (תקין).
+
+> בונוס יציבות: בתוך תהליכי WS שרצים ב־thread, עדיף לא להשתמש ב־`current_app.logger` (שדורש app context); עבר ל־`print()` או `logging.getLogger(__name__)` שם.
+
+# “בוודאות עובד” — צ’ק־ליסט קצר
+
+אם 5 הסעיפים הבאים יוצאים חיוביים, זה **GO** מובהק:
+
+1. ב־Twilio Request Inspector: `POST /webhook/stream_status` = **204** (לא 500).
+2. חיבור ל־`wss://…/ws/twilio-media` מקבל **101**.
+3. אין “שקט פתיחה” — ה־AI מדבר בעברית מיד.
+4. `POST /api/whatsapp/send` עם `{"to":"whatsapp:+9725…","text":"בדיקה","provider":"twilio"}` נשלח ונשמר ב־CRM כ־`out/sent`.
+5. `/ , /healthz , /readyz , /version` מחזירים 200.
+
+לסיכום: **כמעט מושלם**. בצע את 4 השינויים הקטנים למעלה, תריץ את הצ’ק־ליסט — וזה GO.

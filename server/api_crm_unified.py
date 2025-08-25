@@ -168,10 +168,23 @@ def payments_create():
         amount = int(data["amount"])                 # אגורות
         currency = (data.get("currency") or "ILS").upper()
         provider = (data.get("provider") or "").lower()
+        
+        # 4) תשלומים ללא מפתחות = קודי שגיאה נכונים (פוליש)
+        # Check if payment provider is configured
+        if provider == 'paypal':
+            if not os.getenv("PAYPAL_CLIENT_ID") or not os.getenv("PAYPAL_SECRET"):
+                return jsonify({"error": "PayPal not configured on this server"}), 501
+        elif provider == 'tranzila':
+            if not os.getenv("TRANZILA_ACCOUNT") or not os.getenv("TRANZILA_KEY"):
+                return jsonify({"error": "Tranzila not configured on this server"}), 501
 
         biz = Business.query.get(business_id)
         if not biz:
             return jsonify({"error": "Business not found"}), 404
+            
+        # Check business authorization for payments
+        if not getattr(biz, 'payments_enabled', True):
+            return jsonify({"error": "Payment processing not authorized for this business"}), 403
         gw = PaymentGateway.query.filter_by(business_id=biz.id, provider=(provider or biz.default_provider)).first()
 
         # Create payment record even in simulation

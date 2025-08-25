@@ -43,6 +43,34 @@ def _do_redirect(call_sid, wss_host, reason):
     except Exception:
         current_app.logger.exception("WATCHDOG_REDIRECT_FAIL")
 
+# 1) Smoke test ל-TwiML דרך GET (פוליש)
+@twilio_bp.route("/webhook/incoming_call_preview", methods=["GET"])
+def incoming_call_preview():
+    """GET endpoint for TwiML preview (no signature required)"""
+    # Use fake CallSid for preview
+    call_sid = "CA_PREVIEW_" + str(int(time.time()))
+    
+    # Same logic as incoming_call but without signature verification
+    public_base = os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_HOST") or request.url_root.rstrip("/")
+    wss_host = public_base.replace("https://","").replace("http://","").strip("/")
+    
+    # URLs מוחלטים ב-TwiML
+    stream_ended_url = f"{public_base}/webhook/stream_ended"
+    stream_status_url = f"{public_base}/webhook/stream_status"
+
+    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect action="{stream_ended_url}">
+    <Stream url="wss://{wss_host}/ws/twilio-media" statusCallback="{stream_status_url}">
+      <Parameter name="call_sid" value="{call_sid}"/>
+    </Stream>
+  </Connect>
+</Response>"""
+    
+    resp = make_response(twiml, 200)
+    resp.headers["Content-Type"] = "text/xml"
+    return resp
+
 @twilio_bp.route("/webhook/incoming_call", methods=["POST"])
 @require_twilio_signature
 def incoming_call():
