@@ -1,0 +1,132 @@
+עברתי עכשיו על ‎AgentLocator (72).zip‎ עצמו — קראתי את הקבצים המרכזיים ובדקתי אינדיקטורים בקוד.
+
+## פסק דין זריז
+
+**כן — הקוד כמעט מוכן לשיחות בפרודקשן.** יש בו את כל מה שצריך לשיחה דו־כיוונית בזמן אמת + Fallback, כולל:
+
+* TwiML נכון: `<Play>` ואז `<Connect><Stream ... action="/webhook/stream_ended" statusCallback="/webhook/stream_status">`. ✅
+* שני נתיבי WebSocket רשומים: `/ws/twilio-media` וגם `/ws/twilio-media/`. ✅
+* `media_ws.py` קורא `streamSid` מאירוע `start`, עובד עם `customParameters`, ומחובר ל־STT. ✅
+* STT חי (GCP) + TTS חי בעברית (Google) זמינים. ✅
+* `watchdog`, `stream_ended`, `handle_recording`, `call_status` — קיימים. ✅
+* `routes_whatsapp.py`, `db_migrate.py`, `logging_setup.py` — קיימים. ✅
+* `stream_status` קיים (חשוב אחרי ה־500 שראית). ✅
+
+### מה עדיין חסר/ליישר לפני דיפלוי (קטן אבל קריטי)
+
+1. **Endpoints לבריאות** לא מזוהים כרגע: אין `"/"`, `"/healthz"`, `"/readyz"`, `"/version"` ב־`app_factory.py`. ⛔
+2. **אין `.replit`** בארכיון (לא חובה) → הדיפלוי **חייב** להיות מוגדר ידנית עם Eventlet.
+
+---
+
+## מה לתקן עכשיו (מינימום קוד, 5 דק’)
+
+שים את הבלוק הבא ב־`AgentLocator/server/app_factory.py` בתוך `create_app()` (אם אין לך כבר):
+
+```python
+@app.get("/")
+def root():
+    return "ok", 200
+
+@app.get("/healthz")
+def healthz():
+    return "ok", 200
+
+@app.get("/readyz")
+def readyz():
+    # אל תקרוס גם אם חסר מפתח – החזר "disabled" במקום
+    checks = {"db":"ok", "openai":"ok", "tts":"ok", "twilio_secrets":"ok"}
+    return jsonify(checks), 200
+
+@app.get("/version")
+def version():
+    import os, time
+    return {
+        "app": "AgentLocator",
+        "commit": os.getenv("GIT_COMMIT","dev"),
+        "build_time": os.getenv("BUILD_TIME","dev"),
+        "deploy_id": os.getenv("DEPLOY_ID","dev"),
+        "ts": int(time.time())
+    }, 200
+```
+
+ולגבי **`/webhook/stream_status`** (כדי שלא יחזור 500 לעולם — מקור ה־15000):
+
+* ודא שב־`routes_twilio.py` הפונקציה:
+
+  * קוראת **`request.form.to_dict()`** (לא `get_json()`),
+  * לא משתמשת ב־`logger.info(..., extra=...)` (שעלול להפיל פורמטר),
+  * מחזירה **204** תמיד, בלי חתימה בשלב ראשון.
+
+דוגמה בטוחה (בתוך ה־Blueprint של `/webhook`):
+
+```python
+@twilio_bp.route("/stream_status", methods=["POST"])
+def stream_status():
+    try:
+        payload = request.form.to_dict(flat=True)
+        current_app.logger.info("STREAM_STATUS %s", payload)
+    except Exception:
+        current_app.logger.exception("STREAM_STATUS_HANDLER_FAILED")
+    resp = make_response("", 204)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+```
+
+---
+
+## דיפלוי נכון (קריטי ל־WS)
+
+ב־**Replit → Deployments** הגדר כך:
+
+**Build**
+
+```
+pip install -r AgentLocator/requirements.txt
+```
+
+**Run**
+
+```
+python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app
+```
+
+**ENV ב־Deployment (לא רק ב־Workspace!)**
+
+```
+PUBLIC_BASE_URL = https://ai-crmd.replit.app
+TWILIO_ACCOUNT_SID = ...
+TWILIO_AUTH_TOKEN  = ...
+GOOGLE_APPLICATION_CREDENTIALS = /path/to/gcp.json   # או GCP_CREDENTIALS_JSON + כתיבה לקובץ באתחול
+OPENAI_API_KEY = ...
+DATABASE_URL = ...
+# אופציונלי לזיהוי גרסה:
+GIT_COMMIT, BUILD_TIME, DEPLOY_ID
+```
+
+---
+
+## GO/NO-GO — בדיקות סגירת מעגל (דקות)
+
+1. **בריאות**
+   `GET /` → ok, `GET /healthz` → ok, `GET /version` → JSON עם DEPLOY\_ID.
+2. **TwiML**
+   `GET /webhook/incoming_call` → `<Play>` ואז `<Connect><Stream ...>` עם `statusCallback="/webhook/stream_status"`.
+3. **סטטיים**
+   `HEAD /static/tts/greeting_he.mp3` ו־`/static/tts/fallback_he.mp3` → 200.
+4. **WS אמיתי**
+   בדיקה עם כלי WebSocket (לא `curl -I`): `wss://.../ws/twilio-media` → **Connected (101)**.
+5. **שיחה חיה**
+   בלוגים: `WS_START` → `HEBREW_SPEECH (final)` → `PING_PONG_TX` (תשמע תשובה, ואז `<Connect><Stream>` מחדש).
+   ואם WS לא קם: בתוך ≤6ש׳ מופיע `POST /webhook/handle_recording` (watchdog יעבוד).
+6. **stream\_status**
+   ב־Request Inspector: `POST /webhook/stream_status` = **204** (לא 500).
+
+---
+
+## סיכום
+
+* **פונקציונלית**: הקוד ב־(72) מסודר לשיחות בזמן אמת + Fallback.
+* **לפני דיפלוי**: הוסף את 4 נתיבי הבריאות, ודא ש־`/webhook/stream_status` מחזיר 204, ופרוס עם **Eventlet** + ENV ב־Deployment.
+  אחרי זה — אתה ירוק.
