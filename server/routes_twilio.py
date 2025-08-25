@@ -91,9 +91,10 @@ def incoming_call():
     stream_ended_url = abs_url("/webhook/stream_ended")
     stream_status_url = abs_url("/webhook/stream_status")
 
-    # CRITICAL: Use <Connect><Stream> without greeting - AI starts immediately!
+    # החזרת ברכה לפני AI (לפי הבקשה החדשה)
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Play>{abs_url('/static/greeting_he.mp3')}</Play>
   <Connect action="{stream_ended_url}">
     <Stream url="wss://{wss_host}/ws/twilio-media" statusCallback="{stream_status_url}">
       <Parameter name="call_sid" value="{call_sid}"/>

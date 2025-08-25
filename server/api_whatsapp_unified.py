@@ -51,8 +51,12 @@ def send_message():
                 "error": "to and message are required"
             }), 400
         
-        # Send via service (with per-request provider if specified)
-        service = get_whatsapp_service(provider=provider)
+        # Send via service (עם provider per-request לפי הדו"ח)
+        if provider == "twilio":
+            from server.whatsapp_provider import WhatsAppService, TwilioProvider
+            service = WhatsAppService(TwilioProvider())
+        else:
+            service = get_whatsapp_service()
         result = service.send_message(to_number, message)
         
         # Save to database

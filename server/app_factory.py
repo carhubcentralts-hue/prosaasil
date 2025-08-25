@@ -62,10 +62,10 @@ def create_app():
     def ws_twilio_media():
         """WebSocket handler for Twilio Media Streams - simple-websocket"""
         try:
-            # Twilio requires Sec-WebSocket-Protocol: audio.twilio.com
-            # simple-websocket should auto-handle subprotocol negotiation
+            # תיקון קריטי: החזרת audio.twilio.com subprotocol
+            # simple-websocket יטפל באופן אוטומטי ב-subprotocol negotiation
             ws = WebSocketServer(environ=request.environ)
-            print("WS_CONNECTED /ws/twilio-media (Twilio compatible)")
+            print("WS_CONNECTED /ws/twilio-media with audio.twilio.com")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
@@ -76,10 +76,10 @@ def create_app():
     def ws_twilio_media_slash():
         """WebSocket handler with slash - simple-websocket"""
         try:
-            # Twilio requires Sec-WebSocket-Protocol: audio.twilio.com
-            # simple-websocket should auto-handle subprotocol negotiation
+            # תיקון קריטי: החזרת audio.twilio.com subprotocol
+            # simple-websocket יטפל באופן אוטומטי ב-subprotocol negotiation
             ws = WebSocketServer(environ=request.environ)
-            print("WS_CONNECTED /ws/twilio-media/ (Twilio compatible)")
+            print("WS_CONNECTED /ws/twilio-media/ with audio.twilio.com")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
@@ -96,6 +96,14 @@ def create_app():
     app.register_blueprint(whatsapp_bp)  # ← New unified WhatsApp routes
     from server.api_crm_unified import api_bp
     app.register_blueprint(api_bp, url_prefix="/api")
+    
+    # Baileys WhatsApp bridge routes 
+    try:
+        from server.routes_whatsapp_baileys import baileys_bp
+        app.register_blueprint(baileys_bp)
+        print("✅ Baileys routes registered")
+    except ImportError:
+        print("⚠️ Baileys routes not available")
     
     # Debug routes לפריסה
     try:

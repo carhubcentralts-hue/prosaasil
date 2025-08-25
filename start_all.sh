@@ -4,24 +4,27 @@ set -euo pipefail
 # Ensure correct working directory
 cd "$(dirname "$0")"
 
-echo "🚀 Starting AgentLocator 76 - Complete System"
+echo "🚀 Starting AgentLocator 76 - Complete System with Baileys"
 
-# Create necessary directories
-mkdir -p baileys-bridge/session
+# Create necessary directories  
+mkdir -p baileys-bridge/auth
 mkdir -p static/tts
 mkdir -p logs
 
 # Set environment defaults
 export PORT=${PORT:-5000}
-export WA_BAILEYS_PORT=${WA_BAILEYS_PORT:-8000}
-export WA_SESSION_DIR=${WA_SESSION_DIR:-./baileys-bridge/session}
-export PYTHON_WEBHOOK_URL=${PYTHON_WEBHOOK_URL:-http://127.0.0.1:5000/webhook/whatsapp/baileys}
-export WA_SHARED_SECRET=${WA_SHARED_SECRET:-default-secret-key}
+export BAILEYS_PORT=${BAILEYS_PORT:-4001}
+export BAILEYS_WEBHOOK=${BAILEYS_WEBHOOK:-http://127.0.0.1:5000/webhook/whatsapp/baileys}
+export BAILEYS_SECRET=${BAILEYS_SECRET:-default-baileys-secret}
+export WA_BAILEYS_PORT=${WA_BAILEYS_PORT:-4001}  # Legacy support
+export WA_SESSION_DIR=${WA_SESSION_DIR:-./baileys-bridge/auth}
+export PYTHON_WEBHOOK_URL=${PYTHON_WEBHOOK_URL:-$BAILEYS_WEBHOOK}
+export WA_SHARED_SECRET=${WA_SHARED_SECRET:-$BAILEYS_SECRET}
 
-# Install dependencies if needed
+# Install Baileys dependencies if needed
 if [ ! -d "baileys-bridge/node_modules" ]; then
-    echo "📦 Installing Node.js dependencies..."
-    cd baileys-bridge && npm ci && cd ..
+    echo "📦 Installing Baileys dependencies..."
+    cd baileys-bridge && npm ci --omit=dev && cd ..
 fi
 
 # Set up GCP credentials if provided
@@ -31,9 +34,9 @@ if [ -n "${GCP_CREDENTIALS_JSON:-}" ]; then
     export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-credentials.json
 fi
 
-# Check if Baileys should be enabled
+# Start Baileys bridge if enabled
 if [ "${ENABLE_WA_BAILEYS:-true}" = "true" ]; then
-    echo "🟢 Starting Baileys bridge on port $WA_BAILEYS_PORT..."
+    echo "🟢 Starting Baileys bridge on port $BAILEYS_PORT..."
     cd baileys-bridge
     node index.js &
     BAILEYS_PID=$!
