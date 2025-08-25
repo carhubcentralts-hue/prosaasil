@@ -3,13 +3,13 @@
   "private": true,
   "type": "module",
   "version": "1.0.0",
-  "description": "WhatsApp bridge using Baileys for AgentLocator",
+  "description": "WhatsApp bridge using Baileys for AgentLocator 73",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@adiwajshing/baileys": "^6.6.0",
+    "@whiskeysockets/baileys": "^6.6.0",
     "express": "^4.19.2",
     "pino": "^9.0.0",
     "pino-pretty": "^11.0.0",

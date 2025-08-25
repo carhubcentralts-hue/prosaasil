@@ -1,6 +1,6 @@
 /**
- * Baileys WhatsApp Bridge for AgentLocator
- * Listens on local port, communicates with Python via webhooks
+ * Baileys WhatsApp Bridge for AgentLocator 73
+ * Connects to WhatsApp Web and forwards messages to Python backend
  */
 import express from 'express';
 import { Boom } from '@hapi/boom';
@@ -8,7 +8,7 @@ import makeWASocket, {
     DisconnectReason, 
     useMultiFileAuthState, 
     fetchLatestBaileysVersion 
-} from '@adiwajshing/baileys';
+} from '@whiskeysockets/baileys';
 import pino from 'pino';
 import fetch from 'node-fetch';
 import crypto from 'crypto';

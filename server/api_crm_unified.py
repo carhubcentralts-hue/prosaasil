@@ -30,8 +30,12 @@ def _pp_base():
     return "https://api-m.sandbox.paypal.com" if os.getenv("PAYPAL_ENV","sandbox")=="sandbox" else "https://api-m.paypal.com"
 
 def _pp_token():
+    client_id = os.getenv("PAYPAL_CLIENT_ID")
+    client_secret = os.getenv("PAYPAL_SECRET")
+    if not client_id or not client_secret:
+        raise ValueError("PayPal credentials not configured")
     r = requests.post(_pp_base()+"/v1/oauth2/token",
-                      auth=(os.getenv("PAYPAL_CLIENT_ID"), os.getenv("PAYPAL_SECRET")),
+                      auth=(client_id, client_secret),
                       data={"grant_type":"client_credentials"})
     r.raise_for_status()
     return r.json()["access_token"]

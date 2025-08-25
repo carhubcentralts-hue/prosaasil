@@ -100,10 +100,10 @@ def create_app():
         """Return version info to verify deployment"""
         import os, time
         return jsonify({
-            "app": "AgentLocator-71",
-            "commit": os.getenv("GIT_COMMIT","dev"),
-            "build_time": os.getenv("BUILD_TIME","dev"),
-            "deploy_id": os.getenv("DEPLOY_ID","dev"),
+            "app": os.getenv("GIT_COMMIT", "AgentLocator-73-dev"),
+            "commit": os.getenv("GIT_COMMIT", "dev"),
+            "build_time": os.getenv("BUILD_TIME", "dev"),
+            "deploy_id": os.getenv("DEPLOY_ID", "dev"),
             "ts": int(time.time())
         }), 200
 

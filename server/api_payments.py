@@ -27,52 +27,17 @@ def deprecated_stripe_payment():
 # Keep old routes for backward compatibility
 @api_bp.post("/payments/webhook")
 def deprecated_webhook():
+    """Deprecated webhook - use PayPal/Tranzila webhooks instead"""
     return jsonify({"error": "Use new webhook endpoints"}), 410
-    except Exception as e:
-        log.error("Payment intent creation failed: %s", e)
-        return jsonify({"error": "Payment creation failed"}), 500
 
 @api_bp.post("/webhook/stripe")
 def stripe_webhook():
-    """Stripe webhook לעדכון סטטוס תשלומים"""
-    try:
-        payload = request.data
-        sig = request.headers.get("Stripe-Signature", "")
-        endpoint_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
-        
-        if not endpoint_secret:
-            log.warning("Stripe webhook secret not configured")
-            return ("", 400)
-        
-        try:
-            event = stripe.Webhook.construct_event(payload, sig, endpoint_secret)
-        except Exception as e:
-            log.error("Stripe webhook signature verification failed: %s", e)
-            return (str(e), 400)
-
-        if event["type"] == "payment_intent.succeeded":
-            pi = event["data"]["object"]
-            payment = Payment.query.filter_by(stripe_payment_intent=pi["id"]).first()
-            
-            if payment:
-                payment.status = "succeeded"
-                db.session.commit()
-                log.info("Payment succeeded: %s", pi["id"])
-                
-                # יצירת חשבונית אוטומטית
-                try:
-                    invoice = create_invoice_for_payment(payment)
-                    log.info("Invoice created automatically: %s", invoice.invoice_number)
-                except Exception as e:
-                    log.error("Auto invoice creation failed: %s", e)
-            else:
-                log.warning("Payment not found for intent: %s", pi["id"])
-                
-        return ("", 204)
-        
-    except Exception as e:
-        log.error("Stripe webhook error: %s", e)
-        return ("", 400)
+    """Deprecated Stripe webhook - all Stripe functionality disabled"""
+    log.warning("Stripe webhook called but Stripe is deprecated")
+    return jsonify({
+        "error": "Stripe deprecated - use PayPal or Tranzila webhooks instead",
+        "status": "deprecated"
+    }), 410
 
 # === INVOICES ===
 

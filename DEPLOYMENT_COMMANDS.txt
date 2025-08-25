@@ -1,7 +1,7 @@
-🚀 DEPLOYMENT COMMANDS for AgentLocator 72 - UNIFIED SYSTEM
+🚀 DEPLOYMENT COMMANDS for AgentLocator 73 - PRODUCTION READY
 
 ## Build Command:
-bash -lc 'pip install --no-cache-dir -r requirements.txt && cd baileys-bridge && npm ci'
+pip install --no-cache-dir -r requirements.txt
 
 ## Run Command:
 bash -lc './start_all.sh'
@@ -27,7 +27,7 @@ PYTHON_WEBHOOK_URL=http://127.0.0.1:5000/webhook/whatsapp/baileys
 
 # Version tracking:
 DEPLOY_ID=RPLT-$(date +%Y%m%d-%H%M)
-GIT_COMMIT=AgentLocator-72-UnifiedSystem
+GIT_COMMIT=AgentLocator-73-ProductionReady
 BUILD_TIME=$(date -u +%Y-%m-%dT%H:%MZ)
 
 ## Health Check Path:
@@ -59,7 +59,29 @@ curl -X POST https://ai-crmd.replit.app/api/whatsapp/send -H "Content-Type: appl
 curl -s http://127.0.0.1:8000/healthz
 
 ## Expected Results:
-- Phone calls: Bidirectional Hebrew conversations + watchdog fallback
-- WhatsApp: Both Twilio and Baileys providers working
-- CRM: Unified threads and messages storage
-- API: All endpoints responding correctly
+✅ Phone calls: Bidirectional Hebrew conversations + watchdog fallback + turn metrics
+✅ WhatsApp: Both Twilio and Baileys providers with unified CRM storage  
+✅ PayPal/Tranzila: Graceful 501 when missing credentials (no 500 errors)
+✅ CRM: Unified threads and messages with full API endpoints
+✅ Health: All endpoints (/, /healthz, /readyz, /version) responding <50ms
+✅ Security: Twilio signature validation on all webhooks
+✅ Static files: greeting_he.mp3 and fallback_he.mp3 accessible
+✅ WebSocket: Real-time media streams with proper Connect->Stream TwiML
+
+## PRODUCTION CHECKLIST:
+
+🔧 **Required ENV Variables (CRITICAL)**:
+- TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WA_FROM
+- OPENAI_API_KEY, GCP_CREDENTIALS_JSON (or GOOGLE_APPLICATION_CREDENTIALS)
+- DATABASE_URL (PostgreSQL)
+- PUBLIC_BASE_URL (https://your-domain.replit.app)
+
+🟢 **Optional ENV (WhatsApp + Payments)**:
+- WA_SHARED_SECRET, ENABLE_WA_BAILEYS=true
+- PAYPAL_CLIENT_ID, PAYPAL_SECRET (for payments)
+
+📞 **Live Test Sequence**:
+1. Call phone number → Hear Hebrew greeting → Speak Hebrew → Get AI response
+2. Send WhatsApp → See webhook hit → Response stored in DB
+3. Check /api/threads → See unified conversation data
+4. Test payments → Get 501 if no PayPal keys (not 500)

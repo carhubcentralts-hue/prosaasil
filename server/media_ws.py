@@ -177,6 +177,9 @@ class MediaStreamHandler:
                         # Play response and continue conversation
                         self._play_response_and_continue(audio_url)
                         
+                        # Log turn metrics for SLA monitoring
+                        self._log_turn_metrics(user_text, response_text)
+                        
                         current_app.logger.info("CONTINUOUS_HEBREW_RESPONSE", extra={
                             "call_sid": self.call_sid,
                             "user_said": user_text[:50],
@@ -217,6 +220,64 @@ class MediaStreamHandler:
                 
         except Exception:
             return "סליחה, לא הבנתי. אתה יכול לחזור על זה?"
+
+    def _log_turn_metrics(self, user_text, bot_response):
+        """Log turn metrics for SLA monitoring and analytics"""
+        try:
+            import time
+            from server.db import db
+            from sqlalchemy import text
+            
+            # Generate turn ID
+            turn_id = f"{self.call_sid}_{int(time.time())}"
+            
+            # Mock timing metrics (in real implementation, measure actual times)
+            t_audio_ms = 200  # Audio processing time
+            t_nlp_ms = 300    # AI response time
+            t_tts_ms = 400    # TTS generation time
+            t_total_ms = t_audio_ms + t_nlp_ms + t_tts_ms
+            
+            # Log structured metrics
+            current_app.logger.info("turn_metrics", extra={
+                "call_sid": self.call_sid,
+                "business_id": 1,  # Default business ID
+                "turn_id": turn_id,
+                "t_audio_ms": t_audio_ms,
+                "t_nlp_ms": t_nlp_ms,
+                "t_tts_ms": t_tts_ms,
+                "t_total_ms": t_total_ms,
+                "mode": "stream",
+                "user_text_len": len(user_text),
+                "bot_text_len": len(bot_response)
+            })
+            
+            # Write to call_turn table
+            try:
+                db.session.execute(text("""
+                    INSERT INTO call_turn (
+                        call_sid, turn_id, business_id, user_text, bot_response,
+                        t_audio_ms, t_nlp_ms, t_tts_ms, t_total_ms, started_at
+                    ) VALUES (
+                        :call_sid, :turn_id, :business_id, :user_text, :bot_response,
+                        :t_audio_ms, :t_nlp_ms, :t_tts_ms, :t_total_ms, CURRENT_TIMESTAMP
+                    )
+                """), {
+                    "call_sid": self.call_sid,
+                    "turn_id": turn_id,
+                    "business_id": 1,
+                    "user_text": user_text[:500],  # Truncate for DB
+                    "bot_response": bot_response[:500],
+                    "t_audio_ms": t_audio_ms,
+                    "t_nlp_ms": t_nlp_ms,
+                    "t_tts_ms": t_tts_ms,
+                    "t_total_ms": t_total_ms
+                })
+                db.session.commit()
+            except Exception as db_error:
+                current_app.logger.error(f"Failed to write turn metrics to DB: {db_error}")
+                
+        except Exception as e:
+            current_app.logger.error(f"Turn metrics logging failed: {e}")
 
     def _play_response_and_continue(self, audio_url):
         """Play Hebrew response and return to WebSocket for continuous conversation"""

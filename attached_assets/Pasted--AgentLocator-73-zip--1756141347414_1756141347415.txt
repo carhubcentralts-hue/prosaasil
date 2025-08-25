@@ -1,0 +1,158 @@
+עברתי על ‎AgentLocator (73).zip‎ עצמו (פתחתי וקראתי את הקוד). הנה מצב אמיתי לפי מה שיש **בקוד כרגע** ומה עוד צריך כדי שהמערכת תהיה “מושלמת” — שיחות, וואטסאפ (Twilio וגם Baileys), CRM ותשלומים — בלי לשבור כלום ובלי כפילויות.
+
+---
+
+# מה יש בפנים (בדוק)
+
+* **שיחות טלפון (Twilio Media Streams)**
+  ✓ TwiML נכון: `<Play>` ואז `<Connect><Stream … action="/webhook/stream_ended" statusCallback="/webhook/stream_status">`
+  ✓ שרתי WS רשומים: `/ws/twilio-media` וגם עם הסלאש `/ws/twilio-media/`
+  ✓ `media_ws.py` קורא `streamSid` מאירוע `start` ו־`customParameters`
+  ✓ **STT GCP** לעברית קיים (`gcp_stt_stream.py`)
+  ✓ **TTS GCP עברית** קיים (`gcp_tts_live.py`, `he-IL-Wavenet-A`)
+  ✓ `stream_status` קיים ומחזיר 204 (לא אמור להפיל יותר)
+  ✓ `watchdog`, `stream_ended`, `call_status` קיימים
+
+* **WhatsApp**
+  ✓ `routes_whatsapp.py` כולל שני נתיבים:
+    → `/webhook/whatsapp/twilio` (עם חתימת Twilio)
+    → `/webhook/whatsapp/baileys` (HMAC)
+  ✓ `dao_crm.py` עם `upsert_thread / insert_message` קיים (איחוד CRM)
+
+* **CRM API**
+  ✓ `api_crm_unified.py` כולל endpoints ל־threads/messages/calls ועוד
+  ✓ מיגרציות DB “הוסף אם חסר” קיימות (`db_migrate.py`: threads/messages/call\_turn/דגלים בעסק)
+
+* **תשלומים**
+  ✓ יש קוד ל־PayPal ו־Tranzila (ב־`api_crm_unified.py`)
+  ⚠ קיימת מעטפת ישנה של Stripe ב־`api_payments.py` (מוגדרת כ־deprecated, אבל עדיין יש שם route שעלול לקרוא לקוד שלא מיובא)
+
+* **סטטים**
+  ✓ `static/tts/greeting_he.mp3` ו־`fallback_he.mp3` נמצאים
+
+---
+
+# מה חסר / לשפר (חשוב!)
+
+1. **נתיב שורש “/”**
+   כרגע יש `/healthz`, `/readyz`, `/version`, אבל **אין “/”**. בהרבה פריסות ברירת המחדל בודקת `/`.
+   ➜ הוסף ב־`app_factory.py`:
+
+   ```python
+   @app.route('/', methods=['GET'])
+   def root():
+       return "ok", 200
+   ```
+
+2. **/version קשיח**
+   מחזיר `"app": "AgentLocator-71"` → עדכן לשימוש ב־ENV (GIT\_COMMIT/BUILD\_TIME/DEPLOY\_ID) בלבד.
+
+3. **אין Baileys Bridge בפועל**
+   בקוד יש webhook ל־Baileys, אבל **אין תיקיית `baileys-bridge/`** ולא סקריפט שמריץ Node.
+   ➜ אם אתה רוצה תמיכה אמיתית ב־Baileys בנוסף ל־Twilio WA, צריך להוסיף (חד־פעמי, לא מוחק כלום):
+
+   * תיקייה `baileys-bridge/` עם `package.json` ו־`index.js` (השלד נתתי לך בהודעה קודמת; אם תרצה — אתן שוב 1:1).
+   * HMAC עם `WA_SHARED_SECRET` ולוקאל־פורט `WA_BAILEYS_PORT=8000`.
+   * להריץ את הגשר **במקביל** ל־API (ראה סעיף “Run/Deploy” בהמשך).
+
+4. **Deployment/Run**
+   לא מצאתי `.replit` / `start_all.sh` בארכיון, אז דאג שהדיפלוי שלך אכן מריץ **Eventlet**:
+
+   * **Build**: `pip install -r AgentLocator/requirements.txt`
+   * **Run (לשיחות WS)**:
+
+     ```
+     python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app
+     ```
+   * אם מפעילים גם Baileys באותו דיפלוי: כתוב `start_all.sh` שמריץ `npm ci` ב־`baileys-bridge`, מעלה `node baileys-bridge/index.js &`, ואז את gunicorn (נתתי שלד).
+
+5. **ENV — חשוב לשים ב־Deployment עצמו**
+
+   ```
+   PUBLIC_BASE_URL=https://ai-...          # כתובת ציבורית
+   TWILIO_ACCOUNT_SID=...
+   TWILIO_AUTH_TOKEN=...
+   OPENAI_API_KEY=...
+   DATABASE_URL=...                        # אם יש
+   GOOGLE_APPLICATION_CREDENTIALS=/path/to/gcp.json   # או GCP_CREDENTIALS_JSON
+   # WhatsApp:
+   TWILIO_WA_FROM=whatsapp:+1XXXXXXXXXX
+   ENABLE_WA_TWILIO=true
+   ENABLE_WA_BAILEYS=true                  # רק אם הוספת את הגשר
+   WA_BAILEYS_PORT=8000
+   WA_SHARED_SECRET=<random>
+   WA_SESSION_DIR=./baileys-bridge/session
+   WA_PROVIDER_PRIORITY=baileys,twilio
+   # גרסה:
+   GIT_COMMIT, BUILD_TIME, DEPLOY_ID
+   ```
+
+6. **תשלומים – עמידות ללא מפתחות**
+
+   * ב־`api_crm_unified.py`: עטוף את קריאות PayPal/Tranzila:
+     • אם חסר `PAYPAL_CLIENT_ID/SECRET` → החזר **501** (“PayPal disabled / missing keys”), לא 500.
+     • אם חסר קונפיג של Tranzila → **501**.
+   * ב־`api_payments.py` (הישן): או השבת routes לגמרי, או ודא שהם מחזירים **410**/“deprecated” בלי לגעת ב־`stripe` (אין import; אחרת NameError). כרגע ראיתי route `/api/webhook/stripe` שעלול לנסות להשתמש ב־`stripe` — **תעטוף אותו שיחזיר 410** בלי שימוש ב־stripe.
+
+7. **מדדי Turn (SLA) בלוגים**
+   ב־`media_ws.py` לא ראיתי לוג `turn_metrics`. מומלץ להוסיף:
+
+   ```python
+   log.info("turn_metrics", extra={
+       "call_sid": call_sid, "business_id": biz_id, "turn_id": turn_id,
+       "t_audio_ms": X, "t_nlp_ms": Y, "t_tts_ms": Z, "t_total_ms": T,
+       "mode": "stream"
+   })
+   ```
+
+   * כתיבה ל־`call_turn` (הטבלאות קיימות במיגרציה).
+
+8. **איחוד כתובת ה־Play**
+   ב־TwiML הקפדתם על `base.rstrip('/')` (טוב). דאג תמיד להשתמש ב־`abs_url('/static/tts/greeting_he.mp3')` כדי למנוע `//static` כפול (ראינו אצלך בעבר 11100 Twilio “Invalid play URL”).
+
+9. **אבטחה – חתימות**
+
+   * `require_twilio_signature` על כל `/webhook/*` של Twilio (טלפון + WhatsApp).
+   * **לא** על `/webhook/stream_status` (שם זה טריוויה; השאר פתוח או בדגל).
+   * `/webhook/whatsapp/baileys` מאובטח ב־HMAC (כבר עשיתם).
+
+10. **DB מיגרציות**
+    קיימות וטובות (additive only). הריץ אותן באתחול (ב־`create_app()`), ולוג “Applied migration: …”.
+
+---
+
+## בדיקות GO/NO-GO קצרות (תריץ עכשיו)
+
+1. `/` → 200 `"ok"`
+   `/healthz`, `/readyz`, `/version` → 200/JSON (ללא עיכוב)
+2. `GET /webhook/incoming_call` → רואה `<Play>` ואז `<Connect><Stream … statusCallback="/webhook/stream_status">`
+3. סטטיים: `HEAD /static/tts/greeting_he.mp3` + `fallback_he.mp3` → 200
+4. **WS אמיתי** (לא `curl -I`): כלי WebSocket ל־`wss://<PUBLIC_BASE_URL>/ws/twilio-media` → 101 Connected
+5. שיחה אמיתית: ב־Request Inspector יופיע `POST /webhook/stream_status` = **204**, ובלוגים `WS_START`→תמלול סופי→תגובה (או Fallback להקלטה תוך ≤6ש׳)
+6. WhatsApp Twilio: שלח הודעת בדיקה → `POST /webhook/whatsapp/twilio` = **204**, נשמר `thread+message`
+7. (אם הפעלת Baileys) QR → התחברות → הודעת בדיקה → `POST /webhook/whatsapp/baileys` = **204**, נשמר ב־DB
+8. שליחה אחידה: `POST /api/whatsapp/send {"to":"whatsapp:+9725...","text":"בדיקה","provider":"auto"}` → נשלח לפי עדיפות ENV, נשמר `sent`
+
+---
+
+## תוספות “כדי שיהיה הכל” ב־CRM
+
+* **Endpoints ל־Calls** ל־UI:
+  `GET /api/crm/calls` (עם פילטרים), `GET /api/crm/calls/<call_sid>` (כולל transcript ו־turns)
+* **Invoices/Contracts/Deals**: כבר קיימים חלקית; וודא שכל אחד:
+
+  * לא מחזיר 500 לעולם → 400/403/404/409/501 בהתאם
+  * מוודא הרשאות (`@require_auth()`) על endpoints לניהול
+* **Audit Logs**: לוג INFO על כל יצירת מסמך/תשלום/הודעה (JSON)
+
+---
+
+### שורה תחתונה
+
+* **שיחות עברית בזמן אמת**: ✅ (בתנאי Run עם Eventlet + בריאות כנ”ל)
+* **WhatsApp Twilio**: ✅ (Webhook מכוון ו־ENV)
+* **WhatsApp Baileys**: ⛔ חסר הגשר (Node) והרצה במקביל — הוסף `baileys-bridge/` + `start_all.sh`
+* **תשלומים**: יש בסיס PayPal/Tranzila — תעטוף בחן דגלים/מפתחות ותחזיר 501/403 כשחסר, ותנטרל סופית את Stripe הישן (410 בלבד).
+* **Root /**: חסר — תוסיף.
+
+ברגע שתיישם את הסעיפים הקטנים האלה, אתה “ירוק” טכנית ומוכן לסגירת UI. אם תרצה, אשלח לך עכשיו **בלוקים מדויקים** ל־`baileys-bridge/package.json`, `baileys-bridge/index.js` ו־`start_all.sh` שתוכל להדביק כמו שהם — בלי לגעת בשאר הקבצים.
