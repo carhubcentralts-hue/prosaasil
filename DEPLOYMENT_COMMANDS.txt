@@ -1,10 +1,10 @@
 🚀 DEPLOYMENT COMMANDS for AgentLocator 71
 
 ## Build Command:
-pip install --no-cache-dir -r AgentLocator/requirements.txt
+pip install --no-cache-dir -r requirements.txt
 
 ## Run Command:
-python3 -m gunicorn -k eventlet -w 1 --bind 0.0.0.0:$PORT --access-logfile - --error-logfile - --timeout 60 --graceful-timeout 30 AgentLocator.main:app
+python3 -m gunicorn -k eventlet -w 1 --bind 0.0.0.0:$PORT --access-logfile - --error-logfile - --timeout 60 --graceful-timeout 30 main:app
 
 ## Environment Variables (SET IN DEPLOYMENT, NOT WORKSPACE):
 PUBLIC_BASE_URL=https://ai-crmd.replit.app

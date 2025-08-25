@@ -1,0 +1,75 @@
+כמעט—אבל לא רק.
+מהלוג ששלחת עכשיו הבעיה הבוערת היא **500 על ‎/webhook/stream\_status** (זה מסביר את Warning-15000). אבל לפי הקוד שבארכיון האחרון שבדקתי, יש עוד 3–4 נקודות שעלולות להשאיר “ברכה ואז שקט” גם אם תתקן את ה־500. הנה הרשימה הקצרה, לפי סדר עדיפות:
+
+## מה לתקן/לאשר עכשיו
+
+1. **/webhook/stream\_status – אסור שיחזיר 500**
+   בתוך ה-Blueprint `twilio_bp` (עם `url_prefix="/webhook"`):
+
+   ```python
+   @twilio_bp.route("/stream_status", methods=["POST"])
+   def stream_status():
+       try:
+           payload = request.form.to_dict(flat=True)   # לא get_json()
+           current_app.logger.info("STREAM_STATUS %s", payload)  # בלי extra
+       except Exception:
+           current_app.logger.exception("STREAM_STATUS_HANDLER_FAILED")
+       resp = make_response("", 204)
+       resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+       resp.headers["Pragma"] = "no-cache"
+       return resp
+   ```
+
+   *בשלב ראשון אל תשים חתימת Twilio על המסלול הזה. אחרי שזה יציב תחזיר `@require_twilio_signature`.*
+
+2. **דיפלוי עם Eventlet (קריטי ל-WebSocket)**
+   ב-Deployments:
+
+   * **Build:** `pip install -r AgentLocator/requirements.txt`
+   * **Run:**
+     `python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app`
+     וודא שאין Runner ישן שרץ במקביל.
+
+3. **Health endpoints מהירים (לתקן את Health-check שנפל לך קודם)**
+   ב-`app_factory.py` חייב להיות:
+
+   * `/` → מחזיר `"ok"` 200
+   * `/healthz` → `"ok"` 200
+   * `/readyz` → JSON מצב (אל תקרוס גם אם חסר מפתח—תחזיר `"disabled"`)
+
+4. **ENV ב-Deployment (לא רק ב-Workspace!)**
+   `PUBLIC_BASE_URL`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
+   `GOOGLE_APPLICATION_CREDENTIALS` (או `GCP_CREDENTIALS_JSON` שנכתב לקובץ באתחול),
+   `OPENAI_API_KEY`, `DATABASE_URL`.
+
+5. **TwiML – שים לב למסלול ה-statusCallback**
+   ב-`incoming_call` ודא שזה בדיוק:
+
+   ```xml
+   <Connect action="/webhook/stream_ended">
+     <Stream url="wss://ai-crmd.replit.app/ws/twilio-media"
+             statusCallback="/webhook/stream_status">
+       <Parameter name="call_sid" value="{call_sid}"/>
+     </Stream>
+   </Connect>
+   ```
+
+   אם ה-Blueprint כבר עם `url_prefix="/webhook"`, אל תכפיל `/webhook` פעמיים בהגדרת ה-route.
+
+6. **watchdog להצלה במקרה של WS שלא קם**
+   ודא שהוא מופעל ב-`incoming_call` (אפשר זמנית `3,3` לשניות כדי לראות מיידית שזה עובד), ושה-ENV של Twilio קיימים בדיפלוי כדי ש־`_do_redirect()` יצליח.
+
+## בדיקות שמאשרות שהכול באמת ירוק
+
+* `GET /webhook/incoming_call` → רואה `<Play>` ואז `<Connect><Stream …>` (עם `statusCallback` כמו למעלה).
+* `HEAD /static/tts/greeting_he.mp3` ו-`/static/tts/fallback_he.mp3` → 200.
+* **WS אמיתי** (עם כלי WS, לא `curl -I`): `wss://ai-crmd.replit.app/ws/twilio-media` → Connected (101).
+* שיחה חיה: בלוגים תראה `WS_START` → `HEBREW_SPEECH (final)` → `PING_PONG_TX`.
+* ב-Request Inspector: `POST /webhook/stream_status` = **204** (לא 500), ואז `stream_ended` 200, `call_status` 204.
+* אם WS לא קם—תוך ≤6ש׳ תראה `POST /webhook/handle_recording` (watchdog עובד).
+
+### סיכום
+
+* **כן**, 500 על ‎`/webhook/stream_status` הוא כרגע הבאג היחיד שנראה ישיר בלוגים.
+* **נוסף לכך**, לפי הקוד/היסטוריית התקלות שלך יש עוד נקודות תצורה שעלולות לתקוע שיחה (Eventlet, Health, ENV, prefix של ה-route).
+  טפל בשש הנקודות למעלה—ואתה מסודר לפריסה יציבה ולשיחות דו־כיווניות בעברית בזמן אמת.
