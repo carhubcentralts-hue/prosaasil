@@ -39,9 +39,13 @@ class MediaStreamHandler:
 
     def run(self):
         """Main WebSocket event loop with Hebrew real-time processing"""
-        current_app.logger.info("WS_CONNECTED", extra={
-            "hebrew_realtime": HEBREW_REALTIME_ENABLED
-        })
+        try:
+            from flask import current_app
+            current_app.logger.info("WS_CONNECTED", extra={
+                "hebrew_realtime": HEBREW_REALTIME_ENABLED
+            })
+        except Exception:
+            print(f"WS_CONNECTED hebrew_realtime={HEBREW_REALTIME_ENABLED}")
         
         # Start Hebrew transcription if available
         if self.stt:
@@ -52,13 +56,19 @@ class MediaStreamHandler:
             while True:
                 raw = self.ws.receive()
                 if raw is None:
-                    current_app.logger.info("WS_CLOSED")
+                    try:
+                        current_app.logger.info("WS_CLOSED")
+                    except Exception:
+                        print("WS_CLOSED")
                     break
                     
                 try:
                     data = json.loads(raw)
                 except Exception:
-                    current_app.logger.warning("WS_BAD_JSON")
+                    try:
+                        current_app.logger.warning("WS_BAD_JSON")
+                    except Exception:
+                        print("WS_BAD_JSON")
                     continue
 
                 ev = data.get("event")
@@ -68,11 +78,17 @@ class MediaStreamHandler:
                 elif ev == "media":
                     self._handle_media(data)
                 elif ev == "stop":
-                    current_app.logger.info("WS_STOP")
+                    try:
+                        current_app.logger.info("WS_STOP")
+                    except Exception:
+                        print("WS_STOP")
                     break
 
         except Exception:
-            current_app.logger.exception("WS_HANDLER_ERROR")
+            try:
+                current_app.logger.exception("WS_HANDLER_ERROR")
+            except Exception as e:
+                print(f"WS_HANDLER_ERROR: {e}")
         finally:
             self._cleanup()
 

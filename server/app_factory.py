@@ -67,13 +67,27 @@ def create_app():
     
     @sock.route("/ws/twilio-media")
     def ws_twilio_media(ws): 
-        print(f"🔗 WebSocket connection established: /ws/twilio-media")
-        MediaStreamHandler(ws).run()
+        """WebSocket handler for Twilio Media Streams - אולטרה סלחני"""
+        try:
+            current_app.logger.info("WS_START /ws/twilio-media")
+            MediaStreamHandler(ws).run()
+        except Exception as e:
+            try:
+                current_app.logger.exception("WS_HANDLER_CRASH: %s", e)
+            except Exception:
+                print(f"❌ WS_HANDLER_CRASH: {e}")
         
     @sock.route("/ws/twilio-media/")   # ← גם עם סלאש למנוע Redirect/404 בהנדשייק
     def ws_twilio_media_slash(ws): 
-        print(f"🔗 WebSocket connection established: /ws/twilio-media/")
-        MediaStreamHandler(ws).run()
+        """WebSocket handler for Twilio Media Streams with slash - אולטרה סלחני"""
+        try:
+            current_app.logger.info("WS_START /ws/twilio-media/")
+            MediaStreamHandler(ws).run()
+        except Exception as e:
+            try:
+                current_app.logger.exception("WS_HANDLER_CRASH: %s", e)
+            except Exception:
+                print(f"❌ WS_HANDLER_CRASH: {e}")
     
     print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/")
 
