@@ -58,12 +58,15 @@ def create_app():
     from flask_sock import Sock
     from server.media_ws import MediaStreamHandler
     
-    # CRITICAL FIX: Initialize Flask-Sock with proper registration
-    sock = Sock()
-    sock.init_app(app)
+    # FORCED FIX: Force Flask-Sock registration
+    sock = Sock(app)
     
-    # VERIFICATION: Ensure Flask-Sock is properly registered
-    print(f"🔧 Flask-Sock extensions check: {'sock' in app.extensions}")
+    # Manual registration if needed
+    if 'sock' not in app.extensions:
+        app.extensions['sock'] = sock
+        print("🔧 Flask-Sock manually registered")
+    
+    print(f"🔧 Flask-Sock in extensions: {'sock' in app.extensions}")
     
     @sock.route('/ws/twilio-media')
     def ws_twilio_media(ws):
@@ -72,12 +75,16 @@ def create_app():
             print("🚨 WEBSOCKET_DEBUG_CONNECTION: /ws/twilio-media with Flask-Sock")
             print(f"🚨 WS_DEBUG: Connection from {ws} at {__import__('time').time()}")
             
-            # CRITICAL DEBUG: Write to file immediately
+            # CRITICAL DEBUG: Write to file immediately  
             with open("/tmp/websocket_debug.txt", "a") as f:
                 f.write(f"WEBSOCKET_CONNECTED: /ws/twilio-media time={__import__('time').time()}\n")
                 f.flush()
+                
+            print("🚨 CALLING MediaStreamHandler!")
             
-            MediaStreamHandler(ws).run()
+            # Call the handler directly
+            from server.media_ws import run_media_stream
+            run_media_stream(ws)
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
             with open("/tmp/websocket_debug.txt", "a") as f:
@@ -96,8 +103,12 @@ def create_app():
             with open("/tmp/websocket_debug.txt", "a") as f:
                 f.write(f"WEBSOCKET_CONNECTED: /ws/twilio-media/ time={__import__('time').time()}\n")
                 f.flush()
+                
+            print("🚨 CALLING MediaStreamHandler! (slash)")
             
-            MediaStreamHandler(ws).run()
+            # Call the handler directly
+            from server.media_ws import run_media_stream  
+            run_media_stream(ws)
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
             with open("/tmp/websocket_debug.txt", "a") as f:
