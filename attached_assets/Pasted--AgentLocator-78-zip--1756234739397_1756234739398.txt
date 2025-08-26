@@ -1,0 +1,107 @@
+עברתי עכשיו על **AgentLocator (78).zip** בפועל. הקוד אצלך כמעט מדויק – אבל הסיבה לשקט היא פשוטה:
+ברירת המחדל של ה־WS אצלך היא **SINK** (קולט פריימים ולא מחזיר כלום), לכן תשמע “שקט מוחלט” גם כשכל ה־HTTP ירוק.
+בנוסף, ראיתי שה־WS מחזיר את תת־הפרוטוקול כמו שצריך (טוב), ויש כבר ECHO/AI בקוד — רק צריך להדליק אותם.
+
+להלן הנחיה **מדויקת ועדכנית לקובץ (78)** שתגרום לזה לעבוד עכשיו:
+
+---
+
+## 1) הפוך את מצב ה־WS ל־ECHO (הוכחה חיה שהצנרת דו־כיוונית עובדת)
+
+**קובץ:** `AgentLocator/start_all.sh`
+הוסף את השורה הזו באזור ה־ENV (ממש ליד `export PORT=...`):
+
+```bash
+# === WebSocket mode: SINK | ECHO | AI ===
+export WS_MODE=${WS_MODE:-ECHO}
+```
+
+> המשמעות: אם לא הגדרת WS\_MODE בסביבה – נריץ **ECHO** כברירת מחדל, ותשמע הד מיידי בטלפון.
+> אחרי שמאשרים שההד עובד, תוכל לעבור ל־`WS_MODE=AI` (ראה סעיף 3).
+
+הרץ דיפלוי מחדש (כבר יש לך `Procfile: web: bash start_all.sh` ✔).
+
+---
+
+## 2) ודא שה־Handshake תקין (כבר אצלך בקוד – טוב)
+
+**קובץ:** `server/app_factory.py`
+יש אצלך:
+
+```python
+def _open_ws():
+    offered = request.headers.get("Sec-WebSocket-Protocol", "")
+    headers = [("Sec-WebSocket-Protocol","audio.twilio.com")] if "audio.twilio.com" in offered else []
+    return WebSocketServer(environ=request.environ, headers=headers)
+```
+
+ושני נתיבים: `/ws/twilio-media` ו־`/ws/twilio-media/` שמפעילים `run_media_stream(ws)` ✔
+זה פותר 31924/Handshake.
+
+---
+
+## 3) ה־Handler עצמו: יש SINK/ECHO/AI כבר – תפעיל לפי מצב
+
+**קובץ:** `server/media_ws.py` – קיימים אצלך:
+
+* `mode = os.getenv("WS_MODE", "SINK")`
+* בלוק **SINK** (לא שולח כלום)
+* בלוק **ECHO** (שולח `clear` על פריים ראשון + `media` עם ה־payload שקיבלת → שומעים הד)
+* סימון `mark` כל 50 פריימים.
+  כל זה כבר נמצא (בדקתי). לכן מספיק לעבור ל־ECHO כדי לשמוע.
+
+> בלוגים בזמן שיחה תחפש:
+>
+> * `WS_CONNECTED mode=ECHO`
+> * `WS_START sid=...`
+> * בסוף: `WS_STOP ... frames=NN` ו/או `WS_DONE ... rx=NN tx=NN` (שניהם >0).
+
+אם תרצה לעבור ל־**AI** אחרי שההד עובד:
+
+* הגדר `WS_MODE=AI` בסביבה,
+* ודא שמופעלים המודולים של STT/TTS אצלך (לפי הקוד שלך: `GcpHebrewStreamer` ו־`generate_hebrew_response`),
+* המרות אודיו:
+
+  * נכנס: Base64 → µ-law → `audioop.ulaw2lin(..., 2)` → **PCM16 8kHz** ל־ASR
+  * יוצא: **PCM16 8kHz** מה־TTS → `audioop.lin2ulaw(..., 2)` → לפרוס ל־**20ms** (160 בייט) → לשלוח `"event":"media"` ברצף.
+
+---
+
+## 4) TwiML/Webhooks – כבר תקין אצלך (אל תשנה)
+
+* `/webhook/incoming_call` מחזיר מהר `text/xml` עם `<Connect><Stream>` ✔
+* **אין `<Play>`** (אין 404) ✔
+* `/webhook/stream_status` ו־`/webhook/stream_ended` הם **POST** ומחזירים **204** מייד ✔
+
+---
+
+## 5) Smoke מהירים לוודאות
+
+1. **Echo עובד** – בצע שיחה:
+
+   * תשמע **הד** מייד כשאתה מדבר (כי ECHO).
+   * ב־Request Inspector לא יופיעו 31924/12100.
+   * בלוגים: `rx>0` ו־`tx≈rx`.
+
+2. **Handshake ידני (לא חובה):**
+
+```bash
+wscat -c "wss://{HOST}/ws/twilio-media" -s "audio.twilio.com"
+# מצופה: connected (subprotocol: audio.twilio.com)
+```
+
+3. **ואז AI** – שנה ל־`WS_MODE=AI`, ודא תמלול/מענה נשמע. אם שקט:
+
+   * הדפס אורך PCM שה־TTS מחזיר,
+   * ודא דגימה 8kHz מונו,
+   * חתוך ל־20ms (160 בייט) לפני שליחה.
+
+---
+
+## למה זה פותר את ה“שקט”
+
+* עד עכשיו רצתם ב־**SINK** → קיבלתי פריימים אבל לא שלחתם כלום חזרה.
+* **ECHO** מוכיח שה־WS דו־כיווני ושהשליחה מאותו פורמט (µ-law 8kHz, 20ms, JSON) עובדת.
+* אחרי שיש ECHO – המעבר ל־AI הוא רק המרות אודיו (Whisper/TTS) במקום echo.
+
+אם אחרי שינוי ל־ECHO **עדיין שקט**: שלח לי 3–4 שורות לוג סביב ה־WS (WS\_CONNECTED/WS\_START/WS\_STOP ו־rx/tx), ואצביע לך בדיוק על השורה שחוסמת.

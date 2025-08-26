@@ -15,6 +15,9 @@ mkdir -p logs
 # Set environment defaults
 export PORT=${PORT:-5000}
 export BAILEYS_PORT=${BAILEYS_PORT:-4001}
+
+# === WebSocket mode: SINK | ECHO | AI ===
+export WS_MODE=${WS_MODE:-ECHO}
 export BAILEYS_WEBHOOK=${BAILEYS_WEBHOOK:-http://127.0.0.1:5000/webhook/whatsapp/baileys}
 export BAILEYS_SECRET=${BAILEYS_SECRET:-default-baileys-secret}
 export WA_BAILEYS_PORT=${WA_BAILEYS_PORT:-4001}  # Legacy support
