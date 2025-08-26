@@ -102,10 +102,16 @@ def incoming_call():
 
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
 def stream_ended():
-    """POST callback - מחזיר 204 מיד (One True Path)"""
+    """POST callback - return minimal TwiML to avoid 12100 parse failure"""
     form = request.form.to_dict()
     print(f"STREAM_ENDED call={form.get('CallSid')} stream={form.get('StreamSid')} status={form.get('Status')}")
-    return ("", 204)
+    
+    # Twilio expects TwiML here (action of <Connect/>). Return empty <Response/>.
+    twiml = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+    resp = make_response(twiml, 200)
+    resp.headers["Content-Type"] = "text/xml"
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 @twilio_bp.route("/webhook/handle_recording", methods=["POST"])
 @require_twilio_signature
