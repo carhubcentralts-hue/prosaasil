@@ -86,9 +86,10 @@ def run_media_stream(ws):
                         }))
                         
                 elif mode == "AI" and HEBREW_REALTIME_ENABLED:
-                    # AI mode: process with Hebrew STT/TTS
-                    # TODO: Implement after ECHO works
-                    pass
+                    # AI mode: Use the full MediaStreamHandler for real AI processing
+                    # Switch to MediaStreamHandler.run() for complete AI functionality
+                    handler = MediaStreamHandler(ws)
+                    return handler.run()
                     
             elif event_type == "mark":
                 mark_name = evt.get("mark", {}).get("name", "")
@@ -199,7 +200,7 @@ class MediaStreamHandler:
                         pass
                         
                     elif mode == "AI":
-                        # AI mode: Hebrew STT → AI → TTS pipeline
+                        # AI mode: Hebrew STT → AI → TTS pipeline (DEBUG ENABLED)
                         if not self.speaking:  # Only collect audio when not playing TTS
                             # Convert µ-law to PCM16 and add to buffer
                             mulaw_data = base64.b64decode(b64_payload)
@@ -207,13 +208,17 @@ class MediaStreamHandler:
                             self.audio_buffer.extend(pcm16_data)
                             self.last_audio_time = time.time()
                             
-                            # Check for end of utterance
+                            # Check for end of utterance (DEBUG LOGGING)
                             buffer_duration = len(self.audio_buffer) / (2 * 8000)  # PCM16 8kHz
                             silence_duration = time.time() - self.last_audio_time
                             
-                            # Process if we have enough silence or buffer is too long
-                            if ((silence_duration >= 0.8 and buffer_duration > 0.3) or 
-                                buffer_duration >= 6.0) and not self.speaking:
+                            # DEBUG: Log audio accumulation every 50 frames
+                            if frames % 50 == 0:
+                                print(f"AI_DEBUG: frames={frames} buffer={buffer_duration:.2f}s silence={silence_duration:.2f}s")
+                            
+                            # Process if we have enough silence or buffer is too long (RELAXED for testing)
+                            if ((silence_duration >= 0.4 and buffer_duration > 0.2) or 
+                                buffer_duration >= 3.0) and not self.speaking:
                                 self._process_hebrew_utterance(bytes(self.audio_buffer))
                                 self.audio_buffer.clear()
                         
