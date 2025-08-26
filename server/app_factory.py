@@ -65,7 +65,8 @@ def create_app():
     def ws_twilio_media(ws):
         """WebSocket handler - Flask-Sock יציב עם ECHO mode"""
         try:
-            print("WS_CONNECTED /ws/twilio-media with Flask-Sock")
+            print("🚨 WEBSOCKET_DEBUG_CONNECTION: /ws/twilio-media with Flask-Sock")
+            print(f"🚨 WS_DEBUG: Connection from {ws} at {__import__('time').time()}")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
@@ -75,7 +76,8 @@ def create_app():
     def ws_twilio_media_slash(ws):
         """WebSocket handler with slash - Flask-Sock יציב"""
         try:
-            print("WS_CONNECTED /ws/twilio-media/ with Flask-Sock")
+            print("🚨 WEBSOCKET_DEBUG_CONNECTION: /ws/twilio-media/ with Flask-Sock")
+            print(f"🚨 WS_DEBUG: Connection from {ws} at {__import__('time').time()}")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")

@@ -32,7 +32,8 @@ def run_media_stream(ws):
     frames = 0
     mode = os.getenv("WS_MODE", "AI")  # SINK, ECHO, or AI - DEFAULT AI
     
-    print(f"WS_CONNECTED mode={mode} hebrew_realtime={HEBREW_REALTIME_ENABLED}")
+    print(f"🚨 MEDIA_WS_DEBUG_START: mode={mode} hebrew_realtime={HEBREW_REALTIME_ENABLED}")
+    print(f"🚨 MEDIA_WS_DEBUG: WebSocket object={ws} at {__import__('time').time()}")
     
     try:
         while True:
@@ -145,7 +146,12 @@ class MediaStreamHandler:
         mode = os.getenv("WS_MODE", "AI")  # Default to AI now
         frames = 0
         
-        print(f"WS_CONNECTED mode={mode} hebrew_realtime={HEBREW_REALTIME_ENABLED}")
+        print(f"🚨 MEDIA_WS_DEBUG_START: mode={mode} hebrew_realtime={HEBREW_REALTIME_ENABLED}")
+        print(f"🚨 MEDIA_WS_DEBUG: WebSocket object={self.ws} at {__import__('time').time()}")
+        
+        # CRITICAL DEBUG: Log every major step
+        with open("/tmp/websocket_debug.txt", "a") as f:
+            f.write(f"WEBSOCKET_START: mode={mode} time={__import__('time').time()}\n")
         
         try:
             while True:
@@ -169,6 +175,12 @@ class MediaStreamHandler:
                     b64_payload = evt["media"]["payload"]
                     frames += 1
                     self.rx += 1
+                    
+                    # CRITICAL DEBUG: Log media received
+                    if frames == 1:
+                        print(f"🚨 FIRST_MEDIA_FRAME: mode={mode} payload_len={len(b64_payload)}")
+                        with open("/tmp/websocket_debug.txt", "a") as f:
+                            f.write(f"FIRST_MEDIA: mode={mode} payload_len={len(b64_payload)} time={__import__('time').time()}\n")
                     
                     if mode == "ECHO":
                         # Send clear on first frame to empty buffers
@@ -201,6 +213,10 @@ class MediaStreamHandler:
                         
                     elif mode == "AI":
                         # AI mode: Hebrew STT → AI → TTS pipeline (DEBUG ENABLED)
+                        print(f"🚨 AI_MODE_FRAME: frame={frames} speaking={self.speaking}")
+                        with open("/tmp/websocket_debug.txt", "a") as f:
+                            f.write(f"AI_FRAME: frame={frames} speaking={self.speaking} time={__import__('time').time()}\n")
+                        
                         if not self.speaking:  # Only collect audio when not playing TTS
                             # Convert µ-law to PCM16 and add to buffer
                             mulaw_data = base64.b64decode(b64_payload)
