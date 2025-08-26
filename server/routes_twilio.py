@@ -53,18 +53,24 @@ def incoming_call_preview():
     base = base.rstrip("/")
     host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # TwiML מינימלי ללא Play
-    twiml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        "<Response>"
-        f'  <Connect action="{base}/webhook/stream_ended">'
-        f'    <Stream url="wss://{host}/ws/twilio-media" '
-        f'            statusCallback="{base}/webhook/stream_status">'
-        f'      <Parameter name="call_sid" value="{call_sid}"/>'
-        f'    </Stream>'
-        f'  </Connect>'
-        "</Response>"
-    )
+    # TwiML מינימלי ללא Play (אותו לוגיק כמו incoming_call)
+    play_greeting = os.getenv("TWIML_PLAY_GREETING", "false").lower() == "true"
+    
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<Response>',
+    ]
+    if play_greeting:
+        parts.append(f'  <Play>{base}/static/tts/greeting_he.mp3</Play>')
+    parts += [
+        f'  <Connect action="{base}/webhook/stream_ended">',
+        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
+        f'      <Parameter name="call_sid" value="{call_sid}"/>',
+        f'    </Stream>',
+        f'  </Connect>',
+        '</Response>',
+    ]
+    twiml = "".join(parts)
     
     resp = make_response(twiml, 200)
     resp.headers["Content-Type"] = "text/xml"
@@ -81,19 +87,25 @@ def incoming_call():
     base = base.rstrip("/")
     host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # TwiML עם ברכה עברית לפני Connect - זה מה שחסר!
-    twiml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        "<Response>"
-        f'  <Play>{base}/static/greeting_he.mp3</Play>'
-        f'  <Connect action="{base}/webhook/stream_ended">'
-        f'    <Stream url="wss://{host}/ws/twilio-media" '
-        f'            statusCallback="{base}/webhook/stream_status">'
-        f'      <Parameter name="call_sid" value="{call_sid}"/>'
-        f'    </Stream>'
-        f'  </Connect>'
-        "</Response>"
-    )
+    # שליטה בברכה דרך ENV, ברירת מחדל: בלי ברכה כדי לפתוח WS מיד
+    play_greeting = os.getenv("TWIML_PLAY_GREETING", "false").lower() == "true"
+    
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<Response>',
+    ]
+    if play_greeting:
+        # רק אם בטוח שהקובץ קיים; אחרת עדיף בלי Play בכלל
+        parts.append(f'  <Play>{base}/static/tts/greeting_he.mp3</Play>')
+    parts += [
+        f'  <Connect action="{base}/webhook/stream_ended">',
+        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
+        f'      <Parameter name="call_sid" value="{call_sid}"/>',
+        f'    </Stream>',
+        f'  </Connect>',
+        '</Response>',
+    ]
+    twiml = "".join(parts)
     
     # החזרה מיידית ללא עיכובים
     resp = make_response(twiml, 200)
