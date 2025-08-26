@@ -203,7 +203,7 @@ class MediaStreamHandler:
                         "content": hebrew_text
                     }
                 ],
-                max_tokens=100,
+                max_completion_tokens=100,
                 temperature=0.7
             )
             
