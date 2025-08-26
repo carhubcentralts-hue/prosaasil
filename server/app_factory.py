@@ -56,7 +56,7 @@ def create_app():
     
     # 2) WebSocket עם Flask-Sock - יציב יותר לTwilio (תיקון 500 Error)
     from flask_sock import Sock
-    from server.media_ws import MediaStreamHandler
+    from server.media_ws_ai import MediaStreamHandler
     
     # FORCED FIX: Force Flask-Sock registration
     sock = Sock(app)
@@ -126,21 +126,21 @@ def create_app():
     from server.api_whatsapp_unified import whatsapp_unified_bp
     app.register_blueprint(whatsapp_unified_bp)
     
-    # Baileys WhatsApp bridge routes 
-    try:
-        from server.routes_whatsapp_baileys import baileys_bp
-        app.register_blueprint(baileys_bp)
-        print("✅ Baileys routes registered")
-    except ImportError:
-        print("⚠️ Baileys routes not available")
+    # Baileys WhatsApp bridge routes (DISABLED - cleanup)
+    # try:
+    #     from server.routes_whatsapp_baileys import baileys_bp
+    #     app.register_blueprint(baileys_bp)
+    #     print("✅ Baileys routes registered")
+    # except ImportError:
+    #     print("⚠️ Baileys routes not available")
     
-    # Debug routes לפריסה
-    try:
-        from server.debug_routes import debug_bp
-        app.register_blueprint(debug_bp)
-        print("✅ Debug routes registered")
-    except ImportError:
-        print("⚠️ Debug routes not available")
+    # Debug routes לפריסה (DISABLED - cleanup)
+    # try:
+    #     from server.debug_routes import debug_bp
+    #     app.register_blueprint(debug_bp)
+    #     print("✅ Debug routes registered")
+    # except ImportError:
+    #     print("⚠️ Debug routes not available")
 
     # Version endpoint for deployment verification
     @app.route('/version', methods=['GET'])
