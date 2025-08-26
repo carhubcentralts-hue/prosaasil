@@ -91,10 +91,10 @@ def incoming_call():
     stream_ended_url = abs_url("/webhook/stream_ended")
     stream_status_url = abs_url("/webhook/stream_status")
 
-    # החזרת ברכה לפני AI (לפי הבקשה החדשה)
+    # ברכה בטוחה (נשענת על ראוט /static/tts/* שקיים בוודאות)
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{abs_url('/static/greeting_he.mp3')}</Play>
+  <Play>{abs_url('/static/tts/greeting_he.mp3')}</Play>
   <Connect action="{stream_ended_url}">
     <Stream url="wss://{wss_host}/ws/twilio-media" statusCallback="{stream_status_url}">
       <Parameter name="call_sid" value="{call_sid}"/>

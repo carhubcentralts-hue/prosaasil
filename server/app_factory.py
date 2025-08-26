@@ -62,11 +62,10 @@ def create_app():
     def ws_twilio_media():
         """WebSocket handler for Twilio Media Streams - simple-websocket"""
         try:
-            # תיקון קריטי: החזרת audio.twilio.com subprotocol
-            offered = request.headers.get("Sec-WebSocket-Protocol", "")
-            subprotocols = ["audio.twilio.com"] if "audio.twilio.com" in offered else None
-            ws = WebSocketServer(environ=request.environ, subprotocols=subprotocols)
-            print("WS_CONNECTED /ws/twilio-media with audio.twilio.com subprotocol")
+            # WebSocket ללא subprotocol (simple-websocket לא תומך ב headers)
+            # רוב שרתי Twilio עובדים גם בלי החזרת subprotocol מפורש
+            ws = WebSocketServer(environ=request.environ)
+            print("WS_CONNECTED /ws/twilio-media (simple connection)")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
@@ -77,11 +76,10 @@ def create_app():
     def ws_twilio_media_slash():
         """WebSocket handler with slash - simple-websocket"""
         try:
-            # תיקון קריטי: החזרת audio.twilio.com subprotocol
-            offered = request.headers.get("Sec-WebSocket-Protocol", "")
-            subprotocols = ["audio.twilio.com"] if "audio.twilio.com" in offered else None
-            ws = WebSocketServer(environ=request.environ, subprotocols=subprotocols)
-            print("WS_CONNECTED /ws/twilio-media/ with audio.twilio.com subprotocol")
+            # WebSocket ללא subprotocol (simple-websocket לא תומך ב headers)
+            # רוב שרתי Twilio עובדים גם בלי החזרת subprotocol מפורש
+            ws = WebSocketServer(environ=request.environ)
+            print("WS_CONNECTED /ws/twilio-media/ (simple connection)")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
