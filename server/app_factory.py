@@ -54,18 +54,21 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # 2) WebSocket עם Flask-Sock - תמיכה אוטומטית ב-Twilio subprotocol 
+    # 2) WebSocket עם Flask-Sock + subprotocol נכון (תיקון אולטימטיבי לשקט)
     from flask_sock import Sock
     from server.media_ws import MediaStreamHandler
     
-    # Initialize Flask-Sock (handles subprotocol automatically)
+    # Initialize Flask-Sock with subprotocol support
     sock = Sock(app)
+    
+    # Configure subprotocol for Twilio
+    sock._subprotocols = ['audio.twilio.com']
     
     @sock.route('/ws/twilio-media')
     def ws_twilio_media(ws):
-        """WebSocket handler - Flask-Sock with automatic subprotocol"""
+        """WebSocket handler - Flask-Sock עם subprotocol מדויק"""
         try:
-            print("WS_CONNECTED with Flask-Sock")
+            print("WS_CONNECTED /ws/twilio-media with Flask-Sock subprotocol")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
@@ -73,9 +76,9 @@ def create_app():
         
     @sock.route('/ws/twilio-media/')
     def ws_twilio_media_slash(ws):
-        """WebSocket handler with slash - Flask-Sock"""
+        """WebSocket handler with slash - Flask-Sock עם subprotocol"""
         try:
-            print("WS_CONNECTED/ with Flask-Sock")
+            print("WS_CONNECTED /ws/twilio-media/ with Flask-Sock subprotocol")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")

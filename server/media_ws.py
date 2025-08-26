@@ -6,6 +6,8 @@ import json
 import time
 import threading
 import os
+import base64
+import traceback
 from flask import current_app
 from .stream_state import stream_registry
 
@@ -27,6 +29,11 @@ class MediaStreamHandler:
         self.stream_sid = None
         self.call_sid = None
         
+        # Echo mode counters (לאבחון חיבור)
+        self.rx = 0  # Received frames
+        self.tx = 0  # Transmitted frames  
+        self.sent_clear = False
+        
         # Real-time Hebrew components
         if HEBREW_REALTIME_ENABLED and GcpHebrewStreamer:
             self.stt = GcpHebrewStreamer(sample_rate_hz=8000)
@@ -38,13 +45,10 @@ class MediaStreamHandler:
         self.processing_response = False
 
     def run(self):
-        """Main WebSocket event loop with Hebrew real-time processing"""
+        """Main WebSocket event loop - Echo Mode לאבחון + Hebrew AI"""
         # Check for Echo Mode first (for testing)
         if os.getenv("ECHO_TEST", "0") == "1":
-            from .echo_mode import EchoModeHandler
-            print("ECHO_MODE_ACTIVATED")
-            EchoModeHandler(self.ws).run()
-            return
+            return self._run_echo_mode()
             
         print(f"WS_CONNECTED hebrew_realtime={HEBREW_REALTIME_ENABLED}")
         
@@ -88,8 +92,54 @@ class MediaStreamHandler:
 
         except Exception as e:
             print(f"WS_HANDLER_ERROR: {e}")
+            traceback.print_exc()
         finally:
             self._cleanup()
+            
+    def _run_echo_mode(self):
+        """Echo Mode - מחזיר כל פריים שמקבל (הוכחת צינור דו-כיווני)"""
+        print("ECHO_MODE_ACTIVATED - תשמע את עצמך חוזר")
+        try:
+            while True:
+                msg = self.ws.receive()
+                if msg is None:
+                    break
+                evt = json.loads(msg)
+                et = evt.get("event")
+
+                if et == "start":
+                    self.stream_sid = evt["start"]["streamSid"]
+                    print(f"WS_START sid={self.stream_sid}")
+                    continue
+
+                if et == "media":
+                    b64 = evt["media"]["payload"]  # µ-law 8kHz Base64
+                    self.rx += 1
+                    # שלח CLEAR בפעם הראשונה לרוקן באפרים
+                    if not self.sent_clear and self.stream_sid:
+                        self.ws.send(json.dumps({"event":"clear","streamSid": self.stream_sid}))
+                        self.sent_clear = True
+                    # ECHO: החזר את אותו פריים חזרה - תשמע את עצמך
+                    self.ws.send(json.dumps({
+                        "event": "media",
+                        "streamSid": self.stream_sid,
+                        "media": {"payload": b64}
+                    }))
+                    self.tx += 1
+                    continue
+
+                if et == "mark":
+                    print(f"WS_MARK name={evt.get('mark',{}).get('name')}")
+                    continue
+
+                if et == "stop":
+                    print(f"WS_STOP sid={self.stream_sid}")
+                    break
+        except Exception as e:
+            print("WS_ECHO_ERR:", e)
+            traceback.print_exc()
+        finally:
+            print(f"WS_ECHO_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
 
     def _handle_start(self, data):
         """Handle WebSocket stream start event"""
