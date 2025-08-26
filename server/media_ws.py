@@ -134,5 +134,83 @@ class MediaStreamHandler:
         self.processing_response = False
 
     def run(self):
-        """Delegate to the new run_media_stream function"""
-        return run_media_stream(self.ws)
+        """Main WebSocket handler with ECHO mode support"""
+        mode = os.getenv("WS_MODE", "ECHO")  # Default to ECHO now
+        frames = 0
+        
+        print(f"WS_CONNECTED mode={mode} hebrew_realtime={HEBREW_REALTIME_ENABLED}")
+        
+        try:
+            while True:
+                raw = self.ws.receive()
+                if raw is None:
+                    break
+                    
+                try:
+                    evt = json.loads(raw)
+                except json.JSONDecodeError:
+                    print("WS_BAD_JSON")
+                    continue
+                    
+                event_type = evt.get("event")
+                
+                if event_type == "start":
+                    self.stream_sid = evt["start"]["streamSid"]
+                    print(f"WS_START sid={self.stream_sid}")
+                    
+                elif event_type == "media":
+                    b64_payload = evt["media"]["payload"]
+                    frames += 1
+                    self.rx += 1
+                    
+                    if mode == "ECHO":
+                        # Send clear on first frame to empty buffers
+                        if not self.sent_clear and self.stream_sid:
+                            self.ws.send(json.dumps({
+                                "event": "clear", 
+                                "streamSid": self.stream_sid
+                            }))
+                            self.sent_clear = True
+                        
+                        # Echo the frame back - you should hear yourself
+                        self.ws.send(json.dumps({
+                            "event": "media",
+                            "streamSid": self.stream_sid,
+                            "media": {"payload": b64_payload}
+                        }))
+                        self.tx += 1
+                        
+                        # Send mark every ~1 second (50 frames) for debugging
+                        if frames % 50 == 0 and self.stream_sid:
+                            self.ws.send(json.dumps({
+                                "event": "mark",
+                                "streamSid": self.stream_sid,
+                                "mark": {"name": f"f{frames}"}
+                            }))
+                            
+                    elif mode == "SINK":
+                        # SINK mode: receive only, don't send anything
+                        pass
+                        
+                    elif mode == "AI" and HEBREW_REALTIME_ENABLED:
+                        # AI mode: process with Hebrew STT/TTS
+                        # TODO: Implement after ECHO works
+                        pass
+                        
+                elif event_type == "mark":
+                    mark_name = evt.get("mark", {}).get("name", "")
+                    print(f"WS_MARK name={mark_name}")
+                    
+                elif event_type == "stop":
+                    print(f"WS_STOP sid={self.stream_sid} frames={frames}")
+                    break
+                    
+        except Exception as e:
+            print(f"WS_ERR: {e}")
+            traceback.print_exc()
+        finally:
+            print(f"WS_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
+            try:
+                self.ws.close()
+            except:
+                pass
