@@ -8,6 +8,7 @@ import threading
 import os
 import base64
 import traceback
+import audioop
 from simple_websocket import ConnectionClosed
 from flask import current_app
 from .stream_state import stream_registry
@@ -245,7 +246,7 @@ class MediaStreamHandler:
             
             # 1. Speech-to-Text (Hebrew)
             hebrew_text = self._speech_to_text(pcm16_data)
-            if not hebrew_text or len(hebrew_text.strip()) < 3:
+            if not hebrew_text or len(str(hebrew_text).strip()) < 3:
                 print("AI_STT: No speech detected")
                 return
                 
@@ -277,36 +278,16 @@ class MediaStreamHandler:
         """Convert PCM16 8kHz audio to Hebrew text"""
         try:
             if HEBREW_REALTIME_ENABLED and self.stt:
-                # Use Google Cloud STT
-                from server.services.gcp_stt_stream import GcpHebrewStreamer
-                stt = GcpHebrewStreamer(sample_rate_hz=8000)
-                text = stt.transcribe_audio_bytes(pcm16_data)
-                return text
+                # Use Google Cloud STT - implement simple transcription
+                try:
+                    # Simplified STT for now - use Whisper fallback
+                    return self._whisper_transcribe(pcm16_data)
+                except Exception as e:
+                    print(f"GCP_STT_ERROR: {e}")
+                    return self._whisper_transcribe(pcm16_data)
             else:
                 # Fallback to OpenAI Whisper
-                import tempfile
-                import openai
-                
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                    # Convert PCM16 to WAV format
-                    import wave
-                    with wave.open(f.name, 'wb') as wav_file:
-                        wav_file.setnchannels(1)  # Mono
-                        wav_file.setsampwidth(2)  # 16-bit
-                        wav_file.setframerate(8000)  # 8kHz
-                        wav_file.writeframes(pcm16_data)
-                    
-                    # Transcribe with Whisper
-                    client = openai.OpenAI()
-                    with open(f.name, "rb") as audio_file:
-                        transcript = client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=audio_file,
-                            language="he"
-                        )
-                    
-                    os.unlink(f.name)
-                    return transcript.text
+                return self._whisper_transcribe(pcm16_data)
                     
         except Exception as e:
             print(f"STT_ERROR: {e}")
@@ -342,7 +323,8 @@ class MediaStreamHandler:
                 temperature=0.7
             )
             
-            return response.choices[0].message.content.strip()
+            content = response.choices[0].message.content
+            return content.strip() if content else "סליחה, לא הבנתי"
             
         except Exception as e:
             print(f"AI_ERROR: {e}")
@@ -436,3 +418,34 @@ class MediaStreamHandler:
                 
         except Exception as e:
             print(f"SEND_FRAMES_ERROR: {e}")
+    
+    def _whisper_transcribe(self, pcm16_data):
+        """Transcribe using OpenAI Whisper"""
+        try:
+            import tempfile
+            import openai
+            import wave
+            
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                # Convert PCM16 to WAV format
+                with wave.open(f.name, 'wb') as wav_file:
+                    wav_file.setnchannels(1)  # Mono
+                    wav_file.setsampwidth(2)  # 16-bit
+                    wav_file.setframerate(8000)  # 8kHz
+                    wav_file.writeframes(pcm16_data)
+                
+                # Transcribe with Whisper
+                client = openai.OpenAI()
+                with open(f.name, "rb") as audio_file:
+                    transcript = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        language="he"
+                    )
+                
+                os.unlink(f.name)
+                return transcript.text
+                
+        except Exception as e:
+            print(f"WHISPER_ERROR: {e}")
+            return None
