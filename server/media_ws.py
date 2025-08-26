@@ -1,6 +1,6 @@
 """
-Real-time Hebrew WebSocket Media Stream Handler with Continuous Ping-Pong
-Handles bidirectional Hebrew conversations via Twilio Media Streams per guidelines
+WebSocket Media Stream Handler - תיקון Error 31924
+Implements Twilio Media Streams protocol exactly per specifications
 """
 import json
 import time
@@ -8,6 +8,7 @@ import threading
 import os
 import base64
 import traceback
+from simple_websocket import ConnectionClosed
 from flask import current_app
 from .stream_state import stream_registry
 
@@ -21,8 +22,96 @@ except ImportError:
     generate_hebrew_response = None
     HEBREW_REALTIME_ENABLED = False
 
+def run_media_stream(ws):
+    """
+    Main WebSocket handler - תיקון 31924 Protocol Error
+    Two-phase approach: SINK mode first, then ECHO mode
+    """
+    stream_sid = None
+    frames = 0
+    mode = os.getenv("WS_MODE", "SINK")  # SINK, ECHO, or AI
+    
+    print(f"WS_CONNECTED mode={mode} hebrew_realtime={HEBREW_REALTIME_ENABLED}")
+    
+    try:
+        while True:
+            raw = ws.receive()
+            if raw is None:
+                break
+                
+            try:
+                evt = json.loads(raw)
+            except json.JSONDecodeError:
+                print("WS_BAD_JSON")
+                continue
+                
+            event_type = evt.get("event")
+            
+            if event_type == "start":
+                stream_sid = evt["start"]["streamSid"]
+                print(f"WS_START sid={stream_sid}")
+                
+            elif event_type == "media":
+                b64_payload = evt["media"]["payload"]  # µ-law 8kHz Base64
+                frames += 1
+                
+                if mode == "SINK":
+                    # SINK mode: receive only, don't send anything back
+                    # This tests if the connection stays stable without protocol errors
+                    pass
+                    
+                elif mode == "ECHO":
+                    # ECHO mode: send back the exact same frame
+                    if frames == 1 and stream_sid:
+                        # Send clear on first frame to empty buffers
+                        ws.send(json.dumps({
+                            "event": "clear", 
+                            "streamSid": stream_sid
+                        }))
+                    
+                    # Echo the frame back - you should hear yourself
+                    ws.send(json.dumps({
+                        "event": "media",
+                        "streamSid": stream_sid,
+                        "media": {"payload": b64_payload}
+                    }))
+                    
+                    # Send mark every ~1 second (50 frames) for debugging
+                    if frames % 50 == 0 and stream_sid:
+                        ws.send(json.dumps({
+                            "event": "mark",
+                            "streamSid": stream_sid,
+                            "mark": {"name": f"f{frames}"}
+                        }))
+                        
+                elif mode == "AI" and HEBREW_REALTIME_ENABLED:
+                    # AI mode: process with Hebrew STT/TTS
+                    # TODO: Implement after ECHO works
+                    pass
+                    
+            elif event_type == "mark":
+                mark_name = evt.get("mark", {}).get("name", "")
+                print(f"WS_MARK name={mark_name}")
+                
+            elif event_type == "stop":
+                print(f"WS_STOP sid={stream_sid} frames={frames}")
+                break
+                
+    except ConnectionClosed:
+        print(f"WS_CLOSED sid={stream_sid} frames={frames}")
+    except Exception as e:
+        print(f"WS_ERR: {e}")
+        traceback.print_exc()
+    finally:
+        try:
+            ws.close()
+        except:
+            pass
+            
+    return ("", 204)
+
 class MediaStreamHandler:
-    """Enhanced WebSocket handler with continuous Hebrew conversations"""
+    """Legacy handler - maintained for compatibility"""
     
     def __init__(self, websocket):
         self.ws = websocket
@@ -45,363 +134,5 @@ class MediaStreamHandler:
         self.processing_response = False
 
     def run(self):
-        """Main WebSocket event loop - Echo Mode לאבחון + Hebrew AI"""
-        # Check for Echo Mode first (for testing)
-        if os.getenv("ECHO_TEST", "0") == "1":
-            return self._run_echo_mode()
-            
-        print(f"WS_CONNECTED hebrew_realtime={HEBREW_REALTIME_ENABLED}")
-        
-        # Start Hebrew transcription if available
-        if self.stt:
-            self.stt.start()
-            self._start_result_processor()
-        
-        # 3) WS Keepalive (פוליש)
-        self._start_keepalive()
-        
-        try:
-            while True:
-                try:
-                    raw = self.ws.receive()
-                    if raw is None:
-                        print("WS_CLOSED")
-                        break
-                except Exception as e:
-                    # 3) WS Connection cleanup (פוליש)
-                    if "ConnectionClosed" in str(e) or "Connection" in str(e):
-                        print(f"WS_CONNECTION_CLOSED: {e}")
-                        break
-                    raise
-                    
-                try:
-                    data = json.loads(raw)
-                except Exception:
-                    print("WS_BAD_JSON")
-                    continue
-
-                ev = data.get("event")
-                
-                if ev == "start":
-                    self._handle_start(data)
-                elif ev == "media":
-                    self._handle_media(data)
-                elif ev == "stop":
-                    print("WS_STOP")
-                    break
-
-        except Exception as e:
-            print(f"WS_HANDLER_ERROR: {e}")
-            traceback.print_exc()
-        finally:
-            self._cleanup()
-            
-    def _run_echo_mode(self):
-        """Echo Mode - מחזיר כל פריים שמקבל (הוכחת צינור דו-כיווני)"""
-        print("ECHO_MODE_ACTIVATED - תשמע את עצמך חוזר")
-        try:
-            while True:
-                msg = self.ws.receive()
-                if msg is None:
-                    break
-                evt = json.loads(msg)
-                et = evt.get("event")
-
-                if et == "start":
-                    self.stream_sid = evt["start"]["streamSid"]
-                    print(f"WS_START sid={self.stream_sid}")
-                    continue
-
-                if et == "media":
-                    b64 = evt["media"]["payload"]  # µ-law 8kHz Base64
-                    self.rx += 1
-                    # שלח CLEAR בפעם הראשונה לרוקן באפרים
-                    if not self.sent_clear and self.stream_sid:
-                        self.ws.send(json.dumps({"event":"clear","streamSid": self.stream_sid}))
-                        self.sent_clear = True
-                    # ECHO: החזר את אותו פריים חזרה - תשמע את עצמך
-                    self.ws.send(json.dumps({
-                        "event": "media",
-                        "streamSid": self.stream_sid,
-                        "media": {"payload": b64}
-                    }))
-                    self.tx += 1
-                    continue
-
-                if et == "mark":
-                    print(f"WS_MARK name={evt.get('mark',{}).get('name')}")
-                    continue
-
-                if et == "stop":
-                    print(f"WS_STOP sid={self.stream_sid}")
-                    break
-        except Exception as e:
-            print("WS_ECHO_ERR:", e)
-            traceback.print_exc()
-        finally:
-            print(f"WS_ECHO_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
-
-    def _handle_start(self, data):
-        """Handle WebSocket stream start event"""
-        start = data.get("start", {})
-        cp = start.get("customParameters") or {}
-        
-        # Parse custom parameters
-        if isinstance(cp, str):
-            try: 
-                cp = json.loads(cp)
-            except: 
-                cp = {}
-                
-        self.call_sid = cp.get("call_sid") or cp.get("CallSid") or cp.get("CALL_SID")
-        self.stream_sid = start.get("streamSid")
-        
-        print(f"WS_START streamSid={self.stream_sid} call_sid={self.call_sid} hebrew_asr={'active' if self.stt else 'fallback'}")
-        
-        if self.call_sid:
-            stream_registry.mark_start(self.call_sid)
-
-    def _handle_media(self, data):
-        """Handle real-time audio media frames"""
-        if self.call_sid:
-            stream_registry.touch_media(self.call_sid)
-        
-        # Real-time Hebrew transcription
-        media_payload = data.get("media", {}).get("payload", "")
-        if media_payload and self.stt:
-            try:
-                # Send audio to Hebrew ASR stream
-                self.stt.push_ulaw_base64(media_payload)
-            except Exception as e:
-                print(f"REAL_TIME_ASR_ERROR: {e}")
-        
-        # Debug frame (optional): call_sid={self.call_sid} payload_len={len(media_payload)} hebrew_processing={bool(self.stt)}
-
-    def _start_result_processor(self):
-        """Start background thread to process Hebrew transcription results"""
-        def process_results():
-            while True:
-                try:
-                    if not self.stt:
-                        time.sleep(1)
-                        continue
-                        
-                    # Get Hebrew transcription results
-                    results = self.stt.get_results()
-                    
-                    for text, is_final in results:
-                        if text.strip():
-                            current_app.logger.info("HEBREW_SPEECH", extra={
-                                "call_sid": self.call_sid,
-                                "text": text,
-                                "final": is_final
-                            })
-                            
-                            # Update conversation buffer
-                            self.conversation_buffer = text
-                            self.last_speech_time = time.time()
-                            
-                            # Generate response for final utterances
-                            if is_final and len(text.strip()) > 3:
-                                self._generate_hebrew_response(text)
-                    
-                    time.sleep(0.1)  # Process results every 100ms
-                    
-                except Exception:
-                    current_app.logger.exception("RESULT_PROCESSOR_ERROR")
-                    time.sleep(1)
-        
-        thread = threading.Thread(target=process_results, daemon=True)
-        thread.start()
-
-    def _generate_hebrew_response(self, user_text):
-        """Generate and play Hebrew AI response with continuous conversation"""
-        if self.processing_response or not HEBREW_REALTIME_ENABLED:
-            return
-            
-        self.processing_response = True
-        
-        def async_response():
-            try:
-                # Generate Hebrew AI response
-                response_text = self._get_ai_response(user_text)
-                
-                if response_text and generate_hebrew_response:
-                    # Generate Hebrew TTS
-                    audio_url = generate_hebrew_response(response_text, self.call_sid)
-                    
-                    if audio_url:
-                        # Play response and continue conversation
-                        self._play_response_and_continue(audio_url)
-                        
-                        # Log turn metrics for SLA monitoring
-                        self._log_turn_metrics(user_text, response_text)
-                        
-                        current_app.logger.info("CONTINUOUS_HEBREW_RESPONSE", extra={
-                            "call_sid": self.call_sid,
-                            "user_said": user_text[:50],
-                            "bot_said": response_text[:50],
-                            "flow": "continuous_ping_pong"
-                        })
-                    
-            except Exception:
-                current_app.logger.exception("HEBREW_RESPONSE_ERROR")
-            finally:
-                self.processing_response = False
-        
-        # Run in background
-        threading.Thread(target=async_response, daemon=True).start()
-
-    def _get_ai_response(self, user_text):
-        """Generate Hebrew AI response for real estate context"""
-        try:
-            user_lower = user_text.lower()
-            
-            # Hebrew real estate conversation logic
-            if any(word in user_lower for word in ["שלום", "היי", "הי"]):
-                return "שלום! איך אני יכול לעזור לך היום?"
-            elif any(word in user_lower for word in ["דירה", "דירות"]):
-                return "מעולה! אני יכול לעזור לך למצוא דירה. איזה אזור אתה מחפש?"
-            elif any(word in user_lower for word in ["משרד", "משרדים"]):
-                return "אני אשמח לעזור לך למצוא משרד מתאים. באיזה גודל אתה מעוניין?"
-            elif any(word in user_lower for word in ["מחיר", "עלות", "כסף"]):
-                return "המחירים משתנים לפי האזור והגודל. איזה תקציב יש לך?"
-            elif any(word in user_lower for word in ["תל אביב", "תא", "גוש דן"]):
-                return "תל אביב זה שוק חם! יש לנו דירות מצוינות באזור. כמה חדרים אתה מחפש?"
-            elif any(word in user_lower for word in ["ירושלים", "י-ם"]):
-                return "ירושלים זה מקום נהדר! איזה חלק בעיר אתה מעדיף?"
-            elif any(word in user_lower for word in ["בית", "בתים"]):
-                return "בית פרטי זה השקעה מצוינת! איזה אזור אתה מעדיף?"
-            else:
-                return "אני כאן לעזור לך עם כל מה שקשור לנדל\"ן. אתה יכול לספר לי יותר?"
-                
-        except Exception:
-            return "סליחה, לא הבנתי. אתה יכול לחזור על זה?"
-
-    def _log_turn_metrics(self, user_text, bot_response):
-        """Log turn metrics for SLA monitoring and analytics"""
-        try:
-            import time
-            from server.db import db
-            from sqlalchemy import text
-            
-            # Generate turn ID
-            turn_id = f"{self.call_sid}_{int(time.time())}"
-            
-            # Mock timing metrics (in real implementation, measure actual times)
-            t_audio_ms = 200  # Audio processing time
-            t_nlp_ms = 300    # AI response time
-            t_tts_ms = 400    # TTS generation time
-            t_total_ms = t_audio_ms + t_nlp_ms + t_tts_ms
-            
-            # Log structured metrics
-            current_app.logger.info("turn_metrics", extra={
-                "call_sid": self.call_sid,
-                "business_id": 1,  # Default business ID
-                "turn_id": turn_id,
-                "t_audio_ms": t_audio_ms,
-                "t_nlp_ms": t_nlp_ms,
-                "t_tts_ms": t_tts_ms,
-                "t_total_ms": t_total_ms,
-                "mode": "stream",
-                "user_text_len": len(user_text),
-                "bot_text_len": len(bot_response)
-            })
-            
-            # Write to call_turn table
-            try:
-                db.session.execute(text("""
-                    INSERT INTO call_turn (
-                        call_sid, turn_id, business_id, user_text, bot_response,
-                        t_audio_ms, t_nlp_ms, t_tts_ms, t_total_ms, started_at
-                    ) VALUES (
-                        :call_sid, :turn_id, :business_id, :user_text, :bot_response,
-                        :t_audio_ms, :t_nlp_ms, :t_tts_ms, :t_total_ms, CURRENT_TIMESTAMP
-                    )
-                """), {
-                    "call_sid": self.call_sid,
-                    "turn_id": turn_id,
-                    "business_id": 1,
-                    "user_text": user_text[:500],  # Truncate for DB
-                    "bot_response": bot_response[:500],
-                    "t_audio_ms": t_audio_ms,
-                    "t_nlp_ms": t_nlp_ms,
-                    "t_tts_ms": t_tts_ms,
-                    "t_total_ms": t_total_ms
-                })
-                db.session.commit()
-            except Exception as db_error:
-                current_app.logger.error(f"Failed to write turn metrics to DB: {db_error}")
-                
-        except Exception as e:
-            current_app.logger.error(f"Turn metrics logging failed: {e}")
-
-    def _play_response_and_continue(self, audio_url):
-        """Play Hebrew response and return to WebSocket for continuous conversation"""
-        try:
-            from twilio.rest import Client
-            
-            # Get Twilio credentials
-            account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
-            auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
-            
-            if not account_sid or not auth_token:
-                current_app.logger.error("Missing Twilio credentials for continuous conversation")
-                return
-                
-            client = Client(account_sid, auth_token)
-            
-            # Build full audio URL
-            public_base = os.environ.get("PUBLIC_BASE_URL") or os.environ.get("PUBLIC_HOST", "https://ai-crmd.replit.app")
-            full_audio_url = f"{public_base.rstrip('/')}{audio_url}"
-            
-            # Get WebSocket host for continuous conversation
-            wss_host = public_base.replace("https://", "").replace("http://", "").strip("/")
-            
-            # Create TwiML to play response AND return to WebSocket (continuous ping-pong)
-            twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Play>{full_audio_url}</Play>
-    <Connect action="/webhook/stream_ended">
-        <Stream url="wss://{wss_host}/ws/twilio-media">
-            <Parameter name="call_sid" value="{self.call_sid}"/>
-        </Stream>
-    </Connect>
-</Response>"""
-            
-            # Update the call to play response and continue conversation
-            if self.call_sid:
-                client.calls(self.call_sid).update(twiml=twiml)
-            
-            current_app.logger.info("CONTINUOUS_PING_PONG_ACTIVE", extra={
-                "call_sid": self.call_sid,
-                "audio_url": full_audio_url,
-                "next_step": "return_to_websocket_after_play"
-            })
-            
-        except Exception:
-            current_app.logger.exception("CONTINUOUS_CONVERSATION_ERROR")
-
-    def _start_keepalive(self):
-        """3) WS Keepalive (פוליש)"""
-        def keepalive():
-            import time
-            while True:
-                try:
-                    time.sleep(25)  # Ping every 25 seconds
-                    if hasattr(self.ws, 'ping'):
-                        self.ws.ping()
-                except Exception:
-                    break
-        
-        threading.Thread(target=keepalive, daemon=True).start()
-        
-    def _cleanup(self):
-        """Clean up resources when WebSocket closes"""
-        if self.stt:
-            self.stt.stop()
-            
-        if self.call_sid:
-            stream_registry.clear(self.call_sid)
-            
-        print(f"WS_CLEANUP_COMPLETE call_sid={self.call_sid}")
+        """Delegate to the new run_media_stream function"""
+        return run_media_stream(self.ws)

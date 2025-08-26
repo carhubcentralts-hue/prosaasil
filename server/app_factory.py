@@ -54,35 +54,31 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # 2) WebSocket עם Flask-Sock + subprotocol נכון (תיקון אולטימטיבי לשקט)
-    from flask_sock import Sock
-    from server.media_ws import MediaStreamHandler
+    # 2) WebSocket עם simple-websocket + Subprotocol נכון (תיקון 31924)
+    from simple_websocket import Server as WebSocketServer, ConnectionClosed
+    from server.media_ws import run_media_stream
     
-    # Initialize Flask-Sock with subprotocol support
-    sock = Sock(app)
-    
-    # Configure subprotocol for Twilio
-    sock._subprotocols = ['audio.twilio.com']
-    
-    @sock.route('/ws/twilio-media')
-    def ws_twilio_media(ws):
-        """WebSocket handler - Flask-Sock עם subprotocol מדויק"""
-        try:
-            print("WS_CONNECTED /ws/twilio-media with Flask-Sock subprotocol")
-            MediaStreamHandler(ws).run()
-        except Exception as e:
-            print(f"❌ WS_ERROR: {e}")
-        print("WS_CLOSED")
-        
-    @sock.route('/ws/twilio-media/')
-    def ws_twilio_media_slash(ws):
-        """WebSocket handler with slash - Flask-Sock עם subprotocol"""
-        try:
-            print("WS_CONNECTED /ws/twilio-media/ with Flask-Sock subprotocol")
-            MediaStreamHandler(ws).run()
-        except Exception as e:
-            print(f"❌ WS_ERROR: {e}")
-        print("WS_CLOSED/")
+    def _open_ws():
+        """יצירת WebSocket עם subprotocol נכון לTwilio"""
+        offered = request.headers.get("Sec-WebSocket-Protocol", "")
+        if "audio.twilio.com" in offered:
+            # Return the subprotocol in response headers - CRITICAL for 31924 fix
+            response_headers = [("Sec-WebSocket-Protocol", "audio.twilio.com")]
+            return WebSocketServer(environ=request.environ, headers=response_headers)
+        else:
+            return WebSocketServer(environ=request.environ)
+
+    @app.route("/ws/twilio-media", methods=["GET"])
+    def ws_twilio_media():
+        """WebSocket handler עם תיקון 31924"""
+        ws = _open_ws()
+        return run_media_stream(ws)
+
+    @app.route("/ws/twilio-media/", methods=["GET"])
+    def ws_twilio_media_slash():
+        """WebSocket handler with slash - תיקון 31924"""
+        ws = _open_ws()
+        return run_media_stream(ws)
     
     print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (One True Path)")
 

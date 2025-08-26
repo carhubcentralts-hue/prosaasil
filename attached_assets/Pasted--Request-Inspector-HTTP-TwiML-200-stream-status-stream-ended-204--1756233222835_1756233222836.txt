@@ -1,0 +1,226 @@
+ראיתי את ה־Request Inspector האחרון: כל ה־HTTP ירוק (TwiML=200, stream\_status/stream\_ended=204), אבל יש **31924 – WebSocket Protocol Error** ו־**12100 – fallback**. זה אומר: ה־WS נפתח, אבל *מה שאנחנו שולחים/לא שולחים עליו* לא עומד בפרוטוקול של Twilio Media Streams — ואז Twilio סוגרת ונופלת חזרה ל־/incoming\_call.
+
+כדי לסגור את זה בוודאות, תן למפתח שלך את ההנחיה הבאה, 1:1. זה מכסה *הכול* ומגיע ל“קול” על הקו תוך דקות.
+
+---
+
+# הנחיה סופית — לגרום למדיה סטרים לעבוד בלי שקט ובלי 31924
+
+## 0) כללים מחייבים של Twilio Media Streams (לזכור!)
+
+* השרת **חייב** להחזיר את תת־הפרוטוקול בהנדשייק: `Sec-WebSocket-Protocol: audio.twilio.com`.
+* מקבלים מאת Twilio: אירועים `start`, `media` (payload: Base64 של PCMU/µ-law 8kHz 20ms=160 בייט), `stop`.
+* מותר לשלוח לטוויליו רק: `clear`, `media`, `mark` (עם אותו `streamSid`). **אסור** לשלוח `start/stop`.
+* כל מסר ב־WS הוא **טקסט JSON** (לא בינארי).
+* אם שולחים אודיו חזרה: זה **µ-law 8kHz**, פרוס ל־**פריימים של 20ms (160 בייט)**, Base64.
+* אל תשלחו כלום לפני שקיבלתם `start`, ואל תשלחו אחרי `stop`.
+
+---
+
+## 1) TwiML — כבר תקין, השאר ככה
+
+* כבר מחזיר מהר **`text/xml`** עם `<Connect><Stream>` (ללא `//` כפול).
+* אם יש `<Play>` — ודאו שהקובץ קיים (או הסירו אותו אם רוצים מענה מיידי של ה־AI).
+
+---
+
+## 2) WebSocket – הנדשייק תקין + “מצב בדיקה” אמין (SINK → ECHO)
+
+### 2.1 החזרת Subprotocol בהנדשייק (קריטי! סוגר 31924 מקורות רבים)
+
+במקום שבו אתה יוצר את ה־WS (למשל `AgentLocator/server/app_factory.py`):
+
+```python
+from simple_websocket import Server as WebSocketServer
+from flask import request
+
+def _open_ws():
+    offered = request.headers.get("Sec-WebSocket-Protocol", "")
+    headers = [("Sec-WebSocket-Protocol", "audio.twilio.com")] if "audio.twilio.com" in offered else []
+    return WebSocketServer(environ=request.environ, headers=headers)
+```
+
+ושני הנתיבים:
+
+```python
+@app.route("/ws/twilio-media", methods=["GET"])
+def ws_twilio_media():
+    ws = _open_ws()
+    return run_media_stream(ws)
+
+@app.route("/ws/twilio-media/", methods=["GET"])
+def ws_twilio_media_slash():
+    ws = _open_ws()
+    return run_media_stream(ws)
+```
+
+### 2.2 “מצב בדיקה” דו־שלבי — קודם SINK (לא שולח כלום), ואז ECHO
+
+**למה**: 31924 עלול להגיע ממה שאנחנו *שולחים* (JSON לא תקין, סדר לא נכון, שדות חסרים). קודם מוכיחים שהחיבור יציב כשלא שולחים כלום; אם יציב — עוברים ל־ECHO בטוח.
+
+#### (A) SINK — קולט הכל ולא שולח כלום
+
+```python
+import json
+from simple_websocket import ConnectionClosed
+
+def run_media_stream(ws):
+    stream_sid, frames = None, 0
+    try:
+        while True:
+            raw = ws.receive()
+            if raw is None:
+                break
+            evt = json.loads(raw)
+            et = evt.get("event")
+
+            if et == "start":
+                stream_sid = evt["start"]["streamSid"]
+                print(f"WS_START sid={stream_sid}")
+            elif et == "media":
+                frames += 1
+                # לא שולחים שום דבר בשלב SINK
+            elif et == "stop":
+                print(f"WS_STOP sid={stream_sid} frames={frames}")
+                break
+    except ConnectionClosed:
+        print(f"WS_CLOSED sid={stream_sid} frames={frames}")
+    except Exception as e:
+        print("WS_ERR:", e)
+    finally:
+        try: ws.close()
+        except: pass
+    return ("", 204)
+```
+
+תריץ שיחה: אם **אין** 31924 וה־stream נמשך (לא נופל לפולבאק), עברנו את שלב הידוק ההנדשייק/קבלה.
+
+#### (B) ECHO — מוכיח שחזרת האודיו עובדת (תשמע הד)
+
+החלף את בלוק `media` בלבד:
+
+```python
+elif et == "media":
+    b64 = evt["media"]["payload"]  # Base64 של µ-law 8kHz 20ms
+    frames += 1
+
+    # בשידור ראשון נקה באפרים – מומלץ:
+    if frames == 1 and stream_sid:
+        ws.send(json.dumps({"event": "clear", "streamSid": stream_sid}))
+
+    # החזר את אותו פריים — תשמע את עצמך
+    ws.send(json.dumps({
+        "event": "media",
+        "streamSid": stream_sid,
+        "media": {"payload": b64}
+    }))
+
+    # פעם ב־1–2 שניות, שלח mark (לא חובה; עוזר לדיבאג):
+    if frames % 50 == 0 and stream_sid:
+        ws.send(json.dumps({"event": "mark", "streamSid": stream_sid, "mark": {"name": f"f{frames}"}}))
+```
+
+אם אתה **שומע הד** — הצינור דו־כיווני עובד בוודאות. מכאן קל להחליף את ה־ECHO לתמלול+TTS.
+
+> אם ב־SINK אין 31924, אבל ב־ECHO כן — הבעיה היא *בדיוק* במה שאתה שולח. ודא:
+>
+> * יש `streamSid` אמיתי על כל הודעה,
+> * השדות כתובים בדיוק כמו בדוגמה (שם מפתח מדויק),
+> * זה **מחרוזת JSON** (לא bytes),
+> * אין שליחה לפני `start` ולא אחרי `stop`.
+
+---
+
+## 3) תמלול + TTS — תבנית נכונה (אחרי שיש ECHO עובד)
+
+### 3.1 פענוח אודיו נכנס → PCM16 8kHz (לתמלול)
+
+```python
+import base64, audioop
+
+mulaw = base64.b64decode(b64)   # מהאירוע של media
+pcm16 = audioop.ulaw2lin(mulaw, 2)  # 16-bit PCM
+# צבור ~0.6–1.0 שנ' ואז שלח ל-ASR (Whisper וכו')
+```
+
+### 3.2 דיבור חזרה → µ-law 8kHz 20ms frames
+
+קבל מ־TTS **PCM16 8kHz מונו**. אם יצא 16k/22k — המרת דגימה ל־8k. ואז:
+
+```python
+def send_tts(ws, stream_sid, pcm16_8k: bytes):
+    mulaw = audioop.lin2ulaw(pcm16_8k, 2)   # PCM16 → µ-law
+    # חיתוך ל־20ms: 160 סמפלים ב־8kHz (160 בייט ב-µ-law)
+    for i in range(0, len(mulaw), 160):
+        frame = mulaw[i:i+160]
+        if len(frame) < 160:
+            break
+        payload = base64.b64encode(frame).decode("ascii")
+        ws.send(json.dumps({
+            "event": "media",
+            "streamSid": stream_sid,
+            "media": {"payload": payload}
+        }))
+    # לא חובה, אך טוב:
+    ws.send(json.dumps({"event":"mark","streamSid":stream_sid,"mark":{"name":"tts_done"}}))
+```
+
+> **אל תשלח** גושים גדולים בבת אחת. תמיד 20ms־20ms, אחרת תקבל קפיצות או 31924.
+
+---
+
+## 4) callbacks — השאר 204 מיידי (כבר תקין)
+
+```python
+@twilio_bp.post("/webhook/stream_status")
+def stream_status():
+    form = request.form.to_dict(flat=True)
+    print("STREAM_STATUS", form.get("Status"), form.get("StreamSid"))
+    return ("", 204)
+
+@twilio_bp.post("/webhook/stream_ended")
+def stream_ended():
+    form = request.form.to_dict(flat=True)
+    print("STREAM_ENDED", form.get("Status"), form.get("StreamSid"))
+    return ("", 204)
+```
+
+---
+
+## 5) דיפלוי — ודא שאין הפתעות
+
+* הרצה: `gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app`
+* אם יש Baileys: `Procfile` → `web: bash AgentLocator/start_all.sh` (שמרים Node ואז gunicorn).
+* `PUBLIC_BASE_URL` בלי `/` בסוף.
+
+---
+
+# Smoke סופיות (סמן ✓ על כל סעיף)
+
+1. **Handshake**
+   התחבר עם כלי WS שמבקש סאב־פרוטוקול (למשל `wscat`):
+   `wscat -c "wss://{HOST}/ws/twilio-media" -s "audio.twilio.com"`
+   מצופה: connected (subprotocol: audio.twilio.com).
+
+2. **SINK** – שיחה אמיתית
+   אין 31924; ב־stdout: `WS_START ...` ואז `WS_STOP/WS_CLOSED` עם `frames>0`.
+
+3. **ECHO** – שיחה אמיתית
+   אתה שומע הד בטלפון. ב־stdout: `rx>0` ו־`tx≈rx` (או קרוב).
+
+4. **ASR/TTS**
+   אחרי החלפת ECHO ל־ASR/TTS, אתה שומע תגובה. אם שקט — הדפס את אורך ה־PCM, ודא דגימה ל־8k, חיתוך ל־20ms.
+
+5. **Twilio Request Inspector**
+   אין 12100/31924; יש `stream_status=connected/disconnected`=204; `stream_ended`=204.
+
+---
+
+## למה עכשיו זה יעבוד
+
+* חזרת תת־הפרוטוקול בהנדשייק → אין 31924 בגלל negotiation.
+* SINK קודם → מאמת שהקבלה לא מפילה את המערכת.
+* ECHO מדויק עם `clear`/`media`/`mark` → מוכיח שההחזרה תקינה.
+* כשה־ECHO עובד — תמלול/־TTS זה רק המרות אודיו וקיטוע 20ms, לא WS.
+
+אם אחרי זה עדיין תראה 31924 — תדביק כאן את *שורת ה־log הראשונה של השגיאה* ו־3–5 שורות `print` סביב ה־send הראשון, ואני אתן פאטצ’ של כמה שורות בדיוק למקום שעוד חורג מהפורמט.
