@@ -1,0 +1,231 @@
+מבין אותך – יש כאן **שרת ישן** שרץ ברקע במצב **ECHO** + הרצה שלא עוברת דרך `start_all.sh`, ולכן ה־WS ריק/400 וה־WS\_MODE לא AI. הנה **הנחיה אחת סופר-מדויקת** (מבוססת על הקוד מ־AgentLocator ‎(79)‎) שמנתקת את הישן, מרימה חדש ונועלת שהכול רץ ב-**AI** ושה-WS באמת פעיל.
+
+---
+
+# 0) מה קורה עכשיו (לפי מה ששלחת)
+
+* TwiML ו־webhooks = ירוק (200/204) ✔
+* `/webhook/stream_ended` כבר מחזיר TwiML 200 ✔ (אין 12100)
+* אתה שומע את עצמך → השרת הישן רץ ב־**ECHO** ❌
+* בדיקת WS עם `curl` החזירה **400** → זה תקין, כי `curl` **לא** עושה WebSocket Upgrade (נבדוק עם כלי WS; ראה בדיקות למטה)
+
+---
+
+# 1) ודא שכולם רצים דרך `start_all.sh` (לא “Run” ישן)
+
+## א. ב־**Replit** (או כל סביבת Run שמחליפה Procfile), ודא שהפקודה היחידה שמרימה את השרת היא:
+
+**`.replit`**
+
+```ini
+run = "bash AgentLocator/start_all.sh"
+```
+
+(אם אין `.replit`, תעדכן בלשונית ה-Run של Replit להריץ בדיוק את השורה הזו.)
+
+**Procfile** (אם יש — טוב שיש, אבל Replit מתעלם מזה):
+
+```
+web: bash AgentLocator/start_all.sh
+```
+
+> המטרה: למנוע מצב שבו Replit מפעיל `python main.py` ישן במקביל ל־gunicorn שלנו.
+
+---
+
+# 2) עדכון `start_all.sh` – ברירת מחדל **AI**, ניהול תהליכים, וניקיון
+
+החלף את הסקריפט ל־גרסה זו (בטוחה, אטומית, ונוחה לדיבאג):
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+# ---- נעילת ריצה למניעת כפילויות ----
+LOCK="/tmp/agentlocator.lock"
+if [[ -f "$LOCK" ]]; then
+  echo "⚠️ LOCK exists; killing previous pids..."
+  pkill -9 -f "gunicorn|AgentLocator.main:app" || true
+  pkill -9 -f "node .*baileys" || true
+  rm -f "$LOCK"
+fi
+touch "$LOCK"
+
+# ---- ENV יציב ----
+export PUBLIC_BASE_URL="${PUBLIC_BASE_URL%/}"
+export PORT="${PORT:-5000}"
+
+# מצב ברירת מחדל: AI (אפשר לעקוף מבחוץ)
+export WS_MODE="${WS_MODE:-AI}"
+export HEBREW_REALTIME_ENABLED="${HEBREW_REALTIME_ENABLED:-true}"
+
+echo "🔧 ENV:"
+echo "PUBLIC_BASE_URL=$PUBLIC_BASE_URL"
+echo "PORT=$PORT"
+echo "WS_MODE=$WS_MODE"
+echo "HEBREW_REALTIME_ENABLED=$HEBREW_REALTIME_ENABLED"
+
+# ---- הרמת Baileys (אם קיים) ----
+NODE_PID=""
+if [[ -d "AgentLocator/baileys-bridge" ]]; then
+  echo "🚀 starting Baileys bridge..."
+  ( cd AgentLocator/baileys-bridge && npm ci --omit=dev && node index.js ) &
+  NODE_PID=$!
+  echo "Baileys PID=$NODE_PID"
+fi
+
+# ---- Flask+WS עם Eventlet ----
+echo "🚀 starting gunicorn (eventlet)…"
+python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:${PORT} AgentLocator.main:app &
+GUNI_PID=$!
+echo "Gunicorn PID=$GUNI_PID"
+
+# ---- טרפ לסגירה מסודרת ----
+cleanup() {
+  echo "🧹 cleanup..."
+  [[ -n "${GUNI_PID:-}" ]] && kill "$GUNI_PID" 2>/dev/null || true
+  [[ -n "${NODE_PID:-}" ]] && kill "$NODE_PID" 2>/dev/null || true
+  rm -f "$LOCK" || true
+}
+trap cleanup EXIT
+
+# ---- המתנה; אם אחד נופל – ניקוי ----
+wait -n || true
+cleanup
+```
+
+מה זה נותן?
+
+* **WS\_MODE=AI** כברירת מחדל (אין יותר הד).
+* אין כפילויות – אם משהו ישן רץ, נהרג.
+* גם Baileys וגם gunicorn עולים, ונסגרים מסודר.
+
+---
+
+# 3) קבע סופית את מצב ה-WS ל-AI
+
+אין override חיצוני? בסדר – כבר קבענו ברירת מחדל AI.
+אם יש לך Secrets/ENV חיצוניים שמציבים `WS_MODE=ECHO/SINK`, **מחק** אותם או עדכן ל-`AI`.
+
+כדי לוודא בזמן ריצה, בלוגים תחפש:
+
+```
+WS_START sid=... mode=AI
+```
+
+---
+
+# 4) ה־WebSocket עצמו – צ’ק מינימום
+
+ב־`server/app_factory.py`/`server/media_ws.py` ודא (לפי גרסאות קוד אחרונות שלך – כבר ראיתי שזה בפנים):
+
+* פתיחת WS מחזירה:
+  `Sec-WebSocket-Protocol: audio.twilio.com` אם התבקש.
+* ה-handler במצב **AI** **לא** עושה echo; הוא:
+
+  1. מצבור PCM16 8kHz נכנס (`ulaw2lin`) עד סוף-מבע,
+  2. ASR → טקסט,
+  3. LLM → תשובה,
+  4. TTS → PCM16 8kHz,
+  5. `clear` ואז שליחה ב־20ms פריימים µ-law (`lin2ulaw` + 160-byte frames) עם `"event":"media"`.
+
+> אם בקוד נשאר echo במסלול AI – מחק אותו. echo מותר רק במצב ECHO.
+
+---
+
+# 5) `/webhook/stream_ended` חייב להחזיר TwiML (כבר תיקנת ✔)
+
+השאר כך:
+
+```python
+return Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+                mimetype="text/xml", status=200)
+```
+
+---
+
+# 6) “Restart מלא” נכון (חד-פעמי) – להרוג את הישן ולהרים חדש
+
+במסוף/SSH של הסביבה (לא דרך HTTP):
+
+```bash
+# עצירת ישנים (בטוח להריץ עד 2–3 פעמים)
+pkill -9 -f "gunicorn|AgentLocator.main:app" || true
+pkill -9 -f "node .*baileys" || true
+pkill -9 -f "python .*main.py" || true
+sleep 2
+
+# הרמה נקייה דרך הסקריפט היחיד שלנו
+bash AgentLocator/start_all.sh
+```
+
+> אם אתה ב-Replit, פשוט **Stop** ואז **Run** (אחרי עדכון `.replit` והרצת start\_all.sh בלבד).
+> חשוב: לא להריץ במקביל `python main.py` במסך נוסף.
+
+---
+
+# 7) בדיקות GO (ממש חשובות)
+
+**A. TwiML (לא השתנה – לוודא 200/text-xml):**
+
+```bash
+curl -i -X POST "$PUBLIC_BASE_URL/webhook/incoming_call" \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     --data "CallSid=CA_TEST" | head -n 10
+```
+
+**B. callbacks (204):**
+
+```bash
+curl -i -X POST "$PUBLIC_BASE_URL/webhook/stream_status" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected"
+
+curl -i -X POST "$PUBLIC_BASE_URL/webhook/stream_ended" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=completed"
+```
+
+**C. Handshake (לא עם curl!) – חייב כלי WS שמבקש subprotocol:**
+
+```bash
+# פעם אחת במחשב שלך:
+npm i -g wscat
+wscat -c "wss://$(echo $PUBLIC_BASE_URL | sed 's#https\?://##')/ws/twilio-media" -s "audio.twilio.com"
+# צריך לראות: connected (subprotocol: audio.twilio.com)
+```
+
+**D. שיחה אמיתית:**
+
+* ב-Request Inspector:
+
+  * `incoming_call`=200 מהר
+  * `stream_status`=204 (“connected”, “disconnected”)
+  * `stream_ended`=200 (לא 204)
+  * **אין** 12100/31920
+* באוזן: **אין יותר הד**; תשמע תשובות בעברית.
+* בלוגים:
+
+  * `WS_START sid=... mode=AI`
+  * בסוף: `WS_DONE ... rx>0 tx>0`
+
+---
+
+## אם אחרי זה עדיין שקט / יש הד
+
+* **עדיין הד** → מישהו עדיין מריץ ECHO. חפש בלוג: `mode=ECHO`. תקן ENV/סקריפט.
+* **שקט** → הדפס ב-AI את אורך ה-PCM של ה-TTS לפני שליחה:
+
+  ```python
+  print("TTS_LEN_BYTES", len(pcm16_reply_8k))
+  ```
+
+  אם 0 → בעיית TTS/ASR.
+  אם >0 ועדיין שקט → ודא חיתוך ל־20ms (160 בייט) ושליחה ברצף `"event":"media"`; שלח `clear` לפני הפריים הראשון.
+
+---
+
+### שורה תחתונה
+
+* עוצרים כל ישן → מרימים **רק** דרך `start_all.sh` → **WS\_MODE=AI** כברירת מחדל → מאמתים Handshake בכלי WS (לא curl) → שיחה אמיתית.
+* עם זה, לא תשמע את עצמך יותר — תשמע **תשובות AI בעברית**.
