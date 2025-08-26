@@ -58,8 +58,12 @@ def create_app():
     from flask_sock import Sock
     from server.media_ws import MediaStreamHandler
     
-    # Initialize Flask-Sock with proper subprotocol handling
-    sock = Sock(app)
+    # CRITICAL FIX: Initialize Flask-Sock with proper registration
+    sock = Sock()
+    sock.init_app(app)
+    
+    # VERIFICATION: Ensure Flask-Sock is properly registered
+    print(f"🔧 Flask-Sock extensions check: {'sock' in app.extensions}")
     
     @sock.route('/ws/twilio-media')
     def ws_twilio_media(ws):
@@ -67,9 +71,18 @@ def create_app():
         try:
             print("🚨 WEBSOCKET_DEBUG_CONNECTION: /ws/twilio-media with Flask-Sock")
             print(f"🚨 WS_DEBUG: Connection from {ws} at {__import__('time').time()}")
+            
+            # CRITICAL DEBUG: Write to file immediately
+            with open("/tmp/websocket_debug.txt", "a") as f:
+                f.write(f"WEBSOCKET_CONNECTED: /ws/twilio-media time={__import__('time').time()}\n")
+                f.flush()
+            
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
+            with open("/tmp/websocket_debug.txt", "a") as f:
+                f.write(f"WEBSOCKET_ERROR: {e} time={__import__('time').time()}\n")
+                f.flush()
         print("WS_CLOSED")
         
     @sock.route('/ws/twilio-media/')
@@ -78,9 +91,18 @@ def create_app():
         try:
             print("🚨 WEBSOCKET_DEBUG_CONNECTION: /ws/twilio-media/ with Flask-Sock")
             print(f"🚨 WS_DEBUG: Connection from {ws} at {__import__('time').time()}")
+            
+            # CRITICAL DEBUG: Write to file immediately
+            with open("/tmp/websocket_debug.txt", "a") as f:
+                f.write(f"WEBSOCKET_CONNECTED: /ws/twilio-media/ time={__import__('time').time()}\n")
+                f.flush()
+            
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
+            with open("/tmp/websocket_debug.txt", "a") as f:
+                f.write(f"WEBSOCKET_ERROR: {e} time={__import__('time').time()}\n")
+                f.flush()
         print("WS_CLOSED/")
     
     print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (One True Path)")
