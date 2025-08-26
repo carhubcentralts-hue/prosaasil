@@ -212,18 +212,41 @@ class MediaStreamHandler:
                         pass
                         
                     elif mode == "AI":
-                        # AI mode: SUPER SIMPLE VERSION - JUST BEEP EVERY 50 FRAMES
-                        print(f"🚨 AI_MODE_FRAME: frame={frames}")
-                        with open("/tmp/websocket_debug.txt", "a") as f:
-                            f.write(f"AI_FRAME: frame={frames} time={__import__('time').time()}\n")
+                        # AI mode: Real STT + AI + TTS with fallback beeps
+                        if frames % 20 == 0:  # Log every 20 frames to reduce spam
+                            print(f"🚨 AI_MODE_FRAME: frame={frames} speaking={self.speaking}")
+                            with open("/tmp/websocket_debug.txt", "a") as f:
+                                f.write(f"AI_FRAME: frame={frames} speaking={self.speaking} time={__import__('time').time()}\n")
                         
-                        # Super simple: beep every 50 frames (about 1 second)
+                        # Welcome beep on first frame
                         if frames == 1:
                             print("🔊 AI_MODE: Sending welcome beep!")
                             self._send_simple_beep()
-                        elif frames % 50 == 0:
-                            print(f"🔊 AI_MODE: Sending periodic beep at frame {frames}")  
-                            self._send_simple_beep()
+                        
+                        # Only collect audio when not speaking (prevent echo)
+                        if not self.speaking:
+                            # Convert µ-law to PCM16 and add to buffer
+                            mulaw_data = base64.b64decode(b64_payload)
+                            pcm16_data = audioop.ulaw2lin(mulaw_data, 2)
+                            self.audio_buffer.extend(pcm16_data)
+                            self.last_audio_time = time.time()
+                            
+                            # Check for end of utterance
+                            buffer_duration = len(self.audio_buffer) / (2 * 8000)  # PCM16 8kHz
+                            silence_duration = time.time() - self.last_audio_time
+                            
+                            # Process utterance when we have enough audio and silence
+                            if buffer_duration >= 0.5 and (silence_duration >= 1.0 or buffer_duration >= 6.0):
+                                print(f"🎤 Processing utterance: {buffer_duration:.1f}s duration")
+                                with open("/tmp/websocket_debug.txt", "a") as f:
+                                    f.write(f"PROCESSING_UTTERANCE: duration={buffer_duration:.1f}s\n")
+                                
+                                # Process the audio buffer
+                                audio_data = bytes(self.audio_buffer)
+                                self.audio_buffer.clear()
+                                
+                                # Run AI processing in background (simple version)
+                                self._process_ai_simple(audio_data)
                             self.last_audio_time = time.time()
                             
                             # Check for end of utterance (DEBUG LOGGING)
@@ -407,6 +430,87 @@ class MediaStreamHandler:
             print(f"❌ Beep error: {e}")
             import traceback
             traceback.print_exc()
+
+    def _process_ai_simple(self, pcm16_audio):
+        """Simple AI processing with fallback beeps"""
+        try:
+            self.speaking = True
+            print(f"🤖 AI_PROCESSING: {len(pcm16_audio)} bytes of audio")
+            
+            # Try real STT first
+            try:
+                text = self._simple_stt(pcm16_audio)
+                print(f"🎤 STT_RESULT: '{text}'")
+                
+                if text and len(text.strip()) > 2:  # Got real text
+                    # Generate AI response
+                    ai_response = self._simple_ai_response(text)
+                    print(f"🤖 AI_RESPONSE: '{ai_response}'")
+                    
+                    # Try TTS
+                    try:
+                        tts_audio = self._text_to_speech(ai_response)
+                        if tts_audio:
+                            print(f"🔊 TTS_SUCCESS: {len(tts_audio)} bytes")
+                            self._send_pcm16_as_mulaw_frames(tts_audio)
+                        else:
+                            print("🔊 TTS_FAILED: Sending response beep")
+                            self._send_response_beep()
+                    except Exception as e:
+                        print(f"🔊 TTS_ERROR: {e}, sending beep")
+                        self._send_response_beep()
+                        
+                else:
+                    print("🎤 STT_EMPTY: Sending acknowledgment beep")
+                    self._send_ack_beep()
+                    
+            except Exception as e:
+                print(f"🎤 STT_ERROR: {e}, sending error beep")
+                self._send_error_beep()
+                
+        except Exception as e:
+            print(f"🤖 AI_ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self.speaking = False
+
+    def _simple_stt(self, pcm16_audio):
+        """Simple STT - returns dummy text for now"""
+        # TODO: Replace with real STT
+        if len(pcm16_audio) > 8000:  # More than 0.5 seconds
+            return "שמעתי אותך מדבר"
+        return ""
+
+    def _simple_ai_response(self, text):
+        """Simple AI response"""
+        responses = [
+            "שלום, איך אני יכול לעזור?",
+            "אני כאן לעזור עם נדל״ן",
+            "תוכל לספר לי יותר?",
+            "בוודאי, אני אבדוק זאת",
+        ]
+        import random
+        return random.choice(responses)
+
+    def _send_ack_beep(self):
+        """Short acknowledgment beep (200ms)"""
+        beep_pcm = self._beep_pcm16_8k(200)  # Short beep
+        self._send_pcm16_as_mulaw_frames(beep_pcm)
+
+    def _send_response_beep(self):
+        """Response beep (500ms)"""  
+        beep_pcm = self._beep_pcm16_8k(500)  # Medium beep
+        self._send_pcm16_as_mulaw_frames(beep_pcm)
+
+    def _send_error_beep(self):
+        """Error beep (100ms x 3)"""
+        for i in range(3):
+            beep_pcm = self._beep_pcm16_8k(100)  # Short error beep
+            self._send_pcm16_as_mulaw_frames(beep_pcm)
+            if i < 2:  # Sleep between beeps
+                import time
+                time.sleep(0.1)
 
     def _beep_pcm16_8k(self, ms: int) -> bytes:
         import math
