@@ -54,39 +54,38 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # 2) WebSocket עם simple-websocket ישירות - יציב יותר מFlask-Sock
-    from simple_websocket import Server as WebSocketServer
+    # 2) WebSocket עם Flask-Sock - תמיכה מלאה ב-Twilio subprotocol
+    from flask_sock import Sock
     from server.media_ws import MediaStreamHandler
     
-    @app.route("/ws/twilio-media", methods=["GET"])
-    def ws_twilio_media():
-        """WebSocket handler for Twilio Media Streams - simple-websocket"""
-        try:
-            # WebSocket ללא subprotocol (simple-websocket לא תומך ב headers)
-            # רוב שרתי Twilio עובדים גם בלי החזרת subprotocol מפורש
-            ws = WebSocketServer(environ=request.environ)
-            print("WS_CONNECTED /ws/twilio-media (simple connection)")
-            MediaStreamHandler(ws).run()
-        except Exception as e:
-            print(f"❌ WS_ERROR: {e}")
-            return "WebSocket Error", 500
-        return "WebSocket Closed", 200
-        
-    @app.route("/ws/twilio-media/", methods=["GET"])  
-    def ws_twilio_media_slash():
-        """WebSocket handler with slash - simple-websocket"""
-        try:
-            # WebSocket ללא subprotocol (simple-websocket לא תומך ב headers)
-            # רוב שרתי Twilio עובדים גם בלי החזרת subprotocol מפורש
-            ws = WebSocketServer(environ=request.environ)
-            print("WS_CONNECTED /ws/twilio-media/ (simple connection)")
-            MediaStreamHandler(ws).run()
-        except Exception as e:
-            print(f"❌ WS_ERROR: {e}")
-            return "WebSocket Error", 500
-        return "WebSocket Closed", 200
+    # Initialize Flask-Sock with subprotocol support
+    sock = Sock(app)
     
-    print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (simple-websocket)")
+    @sock.route('/ws/twilio-media')
+    def ws_twilio_media(ws):
+        """WebSocket handler for Twilio Media Streams - Flask-Sock with subprotocol"""
+        try:
+            print("WS_CONNECTED /ws/twilio-media with Flask-Sock")
+            # Flask-Sock handles subprotocol automatically
+            MediaStreamHandler(ws).run()
+        except Exception as e:
+            print(f"❌ WS_ERROR: {e}")
+            # Flask-Sock handles the connection cleanup
+        print("WS_CLOSED /ws/twilio-media")
+        
+    @sock.route('/ws/twilio-media/')
+    def ws_twilio_media_slash(ws):
+        """WebSocket handler with slash - Flask-Sock with subprotocol"""
+        try:
+            print("WS_CONNECTED /ws/twilio-media/ with Flask-Sock")
+            # Flask-Sock handles subprotocol automatically
+            MediaStreamHandler(ws).run()
+        except Exception as e:
+            print(f"❌ WS_ERROR: {e}")
+            # Flask-Sock handles the connection cleanup  
+        print("WS_CLOSED /ws/twilio-media/")
+    
+    print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (Flask-Sock)")
 
     # רישום בלו־פרינטים - AgentLocator 71
     from server.routes_twilio import twilio_bp
