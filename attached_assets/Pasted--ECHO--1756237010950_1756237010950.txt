@@ -1,0 +1,190 @@
+זה לא באג – זה בדיוק מה שביקשנו לבדיקה 😊
+אתה שומע את עצמך כי השרת רץ במצב **ECHO** (דיאגנוסטיקה), שמחזיר לטוויליו את אותם פריימים שנכנסו. עכשיו מחליפים ל-**AI** ומפסיקים את ההד.
+
+להלן הנחיה ממוקדת (קצרה, חדה, ובדוקה מול הקוד שלך) שתהפוך את השיחה ממצב ECHO ל-ASR→LLM→TTS — בלי שקט ובלי לופים.
+
+---
+
+# מה לשנות (2 צעדים)
+
+## 1) לעבור מ-ECHO ל-AI
+
+בפרודקשן שלך `start_all.sh` קובע ברירת־מחדל:
+
+```bash
+export WS_MODE=${WS_MODE:-ECHO}
+```
+
+שנה ל-AI, או הגדר ENV בפריסה:
+
+```bash
+# אפשרות A: לשנות ברירת־מחדל לקבוע
+export WS_MODE=${WS_MODE:-AI}
+
+# אפשרות B: להשאיר קיים ורק להציב ENV בדיפלוי
+WS_MODE=AI
+```
+
+> אחרי הדיפלוי בלוגים תחפש: `WS_CONNECTED mode=AI`.
+
+## 2) לוודא שה-handler במצב AI לא עושה echo אלא זורם: קלט → תמלול → תגובה → TTS → 20ms frames
+
+ב־`server/media_ws.py` (או היכן שמוגדר ה־MediaStreamHandler אצלך) ודא שמצב **AI** נראה כך:
+
+```python
+# קוד מייצג — מותאם לפרויקט שלך
+import os, json, time, base64, audioop
+from simple_websocket import ConnectionClosed
+
+MIN_UTT_SEC = 0.8      # סוף-מבע לפי דממת 0.8s
+MAX_UTT_SEC = 6.0      # חיתוך בטיחות
+SR = 8000              # 8kHz מונופוני
+
+class MediaStreamHandler:
+    def __init__(self, ws):
+        self.ws = ws
+        self.mode = os.getenv("WS_MODE", "SINK").upper()  # עכשיו אמור להיות AI
+        self.stream_sid = None
+        self.rx_frames = 0
+        self.tx_frames = 0
+        self.buf_pcm16 = bytearray()
+        self.last_rx_ts = None
+        self.speaking = False   # כדי לא “לדרוס” TTS נכנס עם אקו
+
+    def run(self):
+        try:
+            while True:
+                raw = self.ws.receive()
+                if raw is None:
+                    break
+                evt = json.loads(raw)
+                et = evt.get("event")
+
+                if et == "start":
+                    self.stream_sid = evt["start"]["streamSid"]
+                    self.last_rx_ts = time.time()
+                    print(f"WS_START sid={self.stream_sid} mode={self.mode}")
+                    continue
+
+                if et == "media":
+                    self.rx_frames += 1
+                    b64 = evt["media"]["payload"]
+                    mulaw = base64.b64decode(b64)         # µ-law 8kHz 20ms
+                    pcm16 = audioop.ulaw2lin(mulaw, 2)    # → PCM16
+                    self.last_rx_ts = time.time()
+
+                    if self.mode == "ECHO":
+                        # לא רלוונטי כעת — עובר ל-AI
+                        pass
+
+                    elif self.mode == "AI":
+                        # בזמן דיבור נכנס — אל תשלח כלום (חצי-דו-כיווני)
+                        if not self.speaking:
+                            self.buf_pcm16.extend(pcm16)
+
+                        # תנאי סוף-מבע: דממה מספקת או אורך מקסימלי
+                        dur = len(self.buf_pcm16) / (2 * SR)
+                        silent = (time.time() - self.last_rx_ts) >= MIN_UTT_SEC
+                        too_long = dur >= MAX_UTT_SEC
+                        if (silent or too_long) and dur > 0.25 and not self.speaking:
+                            self._process_utterance(bytes(self.buf_pcm16))
+                            self.buf_pcm16.clear()
+
+                    continue
+
+                if et == "stop":
+                    print(f"WS_STOP sid={self.stream_sid} rx={self.rx_frames} tx={self.tx_frames}")
+                    break
+
+        except ConnectionClosed:
+            print(f"WS_END sid={self.stream_sid} rx={self.rx_frames} tx={self.tx_frames}")
+        except Exception as e:
+            print("WS_HANDLER_ERR:", e)
+        finally:
+            try: self.ws.close()
+            except: pass
+            print(f"WS_DONE sid={self.stream_sid} rx={self.rx_frames} tx={self.tx_frames}")
+
+    # === עיבוד מבע → ASR → LLM → TTS → שליחה ===
+    def _process_utterance(self, pcm16_8k: bytes):
+        if not pcm16_8k:
+            return
+        self.speaking = True
+        try:
+            # 1) ASR (שים כאן את ה-Whisper/GCP שלך)
+            text = asr_hebrew_from_pcm16_8k(pcm16_8k)  # ← פונקציה קיימת אצלך
+            if not text:
+                self.speaking = False
+                return
+
+            # 2) LLM / מחולל תשובה
+            reply_text = generate_hebrew_response(text)  # ← פונקציה קיימת אצלך
+
+            # 3) TTS → PCM16 8kHz mono
+            pcm16_reply_8k = synth_hebrew_tts_pcm16_8k(reply_text)  # ← שלך
+
+            # 4) נקה באפר נגן אצל Twilio ואז שלח 20ms פריימים µ-law
+            if self.stream_sid:
+                self.ws.send(json.dumps({"event":"clear", "streamSid": self.stream_sid}))
+            self._send_pcm16_as_mulaw_frames(pcm16_reply_8k)
+
+            # 5) mark (אופציונלי)
+            if self.stream_sid:
+                self.ws.send(json.dumps({"event":"mark", "streamSid": self.stream_sid,
+                                         "mark":{"name":"tts_done"}}))
+
+        finally:
+            self.speaking = False
+
+    def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
+        # המרה ל-µ-law ופריסה ל-20ms (=160 בייט ל-frame)
+        mulaw = audioop.lin2ulaw(pcm16_8k, 2)
+        FR = 160
+        for i in range(0, len(mulaw), FR):
+            chunk = mulaw[i:i+FR]
+            if len(chunk) < FR:
+                break
+            payload = base64.b64encode(chunk).decode("ascii")
+            self.ws.send(json.dumps({
+                "event":"media",
+                "streamSid": self.stream_sid,
+                "media": {"payload": payload}
+            }))
+            self.tx_frames += 1
+```
+
+💡 נקודות חשובות:
+
+* **אין echo** במצב AI. בזמן שהלקוח מדבר – רק אוספים.
+* בעת השמעת TTS (`speaking=True`) **לא** מוסיפים פריימים חדשים ל־buffer כדי להימנע מלופ.
+* **תמיד** לשלוח `clear` לפני הפריים הראשון של ה-TTS כדי לרוקן תור קודם.
+* **תמיד** לשלוח µ-law 8kHz בחתיכות של **160 בייט** (20ms) — לא גושים גדולים.
+* ודא שה-TTS מחזיר **PCM16 8kHz מונו**. אם לא — בצע המרת קצב:
+
+  ```python
+  # לדוגמה: מ-16k ל-8k
+  pcm8k, _ = audioop.ratecv(pcm16k, 2, 1, 16000, 8000, None)
+  ```
+
+---
+
+# בדיקות דקות (GO)
+
+1. **ראה בלוגים** אחרי הדיפלוי:
+   `WS_START sid=... mode=AI` → טוב.
+2. **דבר פעם אחת** → אחרי \~0.8s דממה תשמע תשובה (לא את עצמך).
+3. **Rx/Tx**: בסיום יופיעו מונים, לדוגמה: `rx=120 tx=95` (לא שווה בדיוק, וזה תקין).
+4. **Twilio Request Inspector** יישאר ירוק: אין 31920/12100, `stream_status`=204, `stream_ended`=200.
+
+---
+
+## למה שמעת את עצמך
+
+כי רצת ב-**ECHO** (בכוונה לצורך בדיקה). זה מצוין — זה הוכיח שה-WS דו־כיווני, ההנדשייק תקין, והפורמט נכון. עכשיו עוברים ל-**AI** בהתאם לשני השינויים למעלה.
+
+אם אחרי המעבר ל-AI אתה עדיין שומע הד/שקט:
+
+* הד → כנראה `self.speaking` לא מונע echo, או שנשאר קוד שמחזיר `media` גם ב-AI.
+* שקט → בדוק שאכן מתקבל טקסט מה-ASR ושחוזר PCM16 8k מה-TTS (הדפס `len(pcm16_reply_8k)`), ושאתה חותך ל-20ms.
+
+תרצה, אכין לך patch קטן שמחליף את ברירת־המחדל ל-AI ומוודא שאין שום שליחת `media` ב-AI חוץ מה-TTS.
