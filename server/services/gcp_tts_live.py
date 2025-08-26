@@ -37,7 +37,9 @@ class HebrewTTSLive:
                 log.info("Google Cloud TTS client initialized")
             except Exception as e:
                 log.error(f"Failed to initialize TTS client: {e}")
-                raise
+                self.client = None  # Keep as None if failed
+                return False
+        return True
         
     def synthesize_hebrew(self, text, output_path=None):
         """סינתזה ל-MP3 (נשאר לצורכי UI/הורדה)"""
@@ -113,7 +115,12 @@ class HebrewTTSLive:
         try:
             if not text.strip():
                 return None
-            self._ensure_client()
+            if not self._ensure_client():
+                log.error("TTS client not available")
+                return None
+            if self.client is None:
+                log.error("TTS client is None after ensure")
+                return None
             synthesis_input = texttospeech.SynthesisInput(text=text)
             response = self.client.synthesize_speech(
                 input=synthesis_input,

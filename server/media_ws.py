@@ -212,16 +212,18 @@ class MediaStreamHandler:
                         pass
                         
                     elif mode == "AI":
-                        # AI mode: Hebrew STT → AI → TTS pipeline (DEBUG ENABLED)
-                        print(f"🚨 AI_MODE_FRAME: frame={frames} speaking={self.speaking}")
+                        # AI mode: SUPER SIMPLE VERSION - JUST BEEP EVERY 50 FRAMES
+                        print(f"🚨 AI_MODE_FRAME: frame={frames}")
                         with open("/tmp/websocket_debug.txt", "a") as f:
-                            f.write(f"AI_FRAME: frame={frames} speaking={self.speaking} time={__import__('time').time()}\n")
+                            f.write(f"AI_FRAME: frame={frames} time={__import__('time').time()}\n")
                         
-                        if not self.speaking:  # Only collect audio when not playing TTS
-                            # Convert µ-law to PCM16 and add to buffer
-                            mulaw_data = base64.b64decode(b64_payload)
-                            pcm16_data = audioop.ulaw2lin(mulaw_data, 2)
-                            self.audio_buffer.extend(pcm16_data)
+                        # Super simple: beep every 50 frames (about 1 second)
+                        if frames == 1:
+                            print("🔊 AI_MODE: Sending welcome beep!")
+                            self._send_simple_beep()
+                        elif frames % 50 == 0:
+                            print(f"🔊 AI_MODE: Sending periodic beep at frame {frames}")  
+                            self._send_simple_beep()
                             self.last_audio_time = time.time()
                             
                             # Check for end of utterance (DEBUG LOGGING)
@@ -364,6 +366,47 @@ class MediaStreamHandler:
         except Exception as e:
             print(f"TTS_ERROR: {e}")
             return self._beep_pcm16_8k(400)
+
+    def _send_simple_beep(self):
+        """Send a simple beep - fastest possible way to test audio output"""
+        try:
+            if not self.stream_sid:
+                print("❌ No stream_sid for beep")
+                return
+                
+            # Generate 440Hz beep for 300ms
+            beep_pcm = self._beep_pcm16_8k(300)
+            print(f"🔊 Generated beep: {len(beep_pcm)} bytes")
+            
+            # Send clear first
+            self.ws.send(json.dumps({
+                "event": "clear",
+                "streamSid": self.stream_sid
+            }))
+            
+            # Convert to mulaw and send in 20ms chunks (160 bytes)
+            mulaw_data = audioop.lin2ulaw(beep_pcm, 2)
+            chunk_size = 160  # 20ms at 8kHz
+            
+            chunks_sent = 0
+            for i in range(0, len(mulaw_data), chunk_size):
+                chunk = mulaw_data[i:i+chunk_size]
+                if len(chunk) == chunk_size:  # Only send full chunks
+                    payload = base64.b64encode(chunk).decode('ascii')
+                    self.ws.send(json.dumps({
+                        "event": "media",
+                        "streamSid": self.stream_sid,
+                        "media": {"payload": payload}
+                    }))
+                    chunks_sent += 1
+                    
+            print(f"🔊 Beep sent: {chunks_sent} chunks")
+            self.tx += chunks_sent
+            
+        except Exception as e:
+            print(f"❌ Beep error: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _beep_pcm16_8k(self, ms: int) -> bytes:
         import math
