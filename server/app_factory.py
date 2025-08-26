@@ -54,38 +54,34 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # 2) WebSocket עם Flask-Sock - תמיכה מלאה ב-Twilio subprotocol
+    # 2) WebSocket עם Flask-Sock - תמיכה אוטומטית ב-Twilio subprotocol 
     from flask_sock import Sock
     from server.media_ws import MediaStreamHandler
     
-    # Initialize Flask-Sock with subprotocol support
+    # Initialize Flask-Sock (handles subprotocol automatically)
     sock = Sock(app)
     
     @sock.route('/ws/twilio-media')
     def ws_twilio_media(ws):
-        """WebSocket handler for Twilio Media Streams - Flask-Sock with subprotocol"""
+        """WebSocket handler - Flask-Sock with automatic subprotocol"""
         try:
-            print("WS_CONNECTED /ws/twilio-media with Flask-Sock")
-            # Flask-Sock handles subprotocol automatically
+            print("WS_CONNECTED with Flask-Sock")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
-            # Flask-Sock handles the connection cleanup
-        print("WS_CLOSED /ws/twilio-media")
+        print("WS_CLOSED")
         
     @sock.route('/ws/twilio-media/')
     def ws_twilio_media_slash(ws):
-        """WebSocket handler with slash - Flask-Sock with subprotocol"""
+        """WebSocket handler with slash - Flask-Sock"""
         try:
-            print("WS_CONNECTED /ws/twilio-media/ with Flask-Sock")
-            # Flask-Sock handles subprotocol automatically
+            print("WS_CONNECTED/ with Flask-Sock")
             MediaStreamHandler(ws).run()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
-            # Flask-Sock handles the connection cleanup  
-        print("WS_CLOSED /ws/twilio-media/")
+        print("WS_CLOSED/")
     
-    print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (Flask-Sock)")
+    print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (One True Path)")
 
     # רישום בלו־פרינטים - AgentLocator 71
     from server.routes_twilio import twilio_bp

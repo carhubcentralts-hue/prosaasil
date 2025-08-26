@@ -43,32 +43,28 @@ def _do_redirect(call_sid, wss_host, reason):
     except Exception:
         current_app.logger.exception("WATCHDOG_REDIRECT_FAIL")
 
-# 1) TwiML Preview endpoint (אופציונלי לבדיקות עשן)
+# TwiML Preview endpoint (ללא Play, מינימלי)
 @twilio_bp.route("/webhook/incoming_call_preview", methods=["GET"])
 def incoming_call_preview():
     """GET endpoint for TwiML preview (no signature required)"""
-    # Use fake CallSid for preview
     call_sid = "CA_PREVIEW_" + str(int(time.time()))
     
-    # Same logic as incoming_call but without signature verification
-    public_base = os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_HOST") or request.url_root.rstrip("/")
-    wss_host = public_base.replace("https://","").replace("http://","").strip("/")
+    base = os.getenv("PUBLIC_BASE_URL", "") or os.getenv("PUBLIC_HOST", "") or request.url_root
+    base = base.rstrip("/")
+    host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # Fix URLs - prevent // double slash  
-    def abs_url(path):
-        return f"{public_base.rstrip('/')}/{path.lstrip('/')}"
-    
-    stream_ended_url = abs_url("/webhook/stream_ended")
-    stream_status_url = abs_url("/webhook/stream_status")
-
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Connect action="{stream_ended_url}">
-    <Stream url="wss://{wss_host}/ws/twilio-media" statusCallback="{stream_status_url}">
-      <Parameter name="call_sid" value="{call_sid}"/>
-    </Stream>
-  </Connect>
-</Response>"""
+    # TwiML מינימלי ללא Play
+    twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Response>"
+        f'  <Connect action="{base}/webhook/stream_ended">'
+        f'    <Stream url="wss://{host}/ws/twilio-media" '
+        f'            statusCallback="{base}/webhook/stream_status">'
+        f'      <Parameter name="call_sid" value="{call_sid}"/>'
+        f'    </Stream>'
+        f'  </Connect>'
+        "</Response>"
+    )
     
     resp = make_response(twiml, 200)
     resp.headers["Content-Type"] = "text/xml"
@@ -77,62 +73,39 @@ def incoming_call_preview():
 @twilio_bp.route("/webhook/incoming_call", methods=["POST"])
 @require_twilio_signature
 def incoming_call():
-    """Generate TwiML with <Connect><Stream> structure per guidelines"""
-    call_sid = request.form.get("CallSid")
+    """TwiML מהיר וללא עיכובים - One True Path"""
+    call_sid = request.form.get("CallSid", "")
     
-    # NO greeting - AI starts immediately  
-    public_base = os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_HOST") or request.url_root.rstrip("/")
-    wss_host = public_base.replace("https://","").replace("http://","").strip("/")
+    # קבלת base URL ללא IO או עיכובים
+    base = os.getenv("PUBLIC_BASE_URL", "") or os.getenv("PUBLIC_HOST", "") or request.url_root
+    base = base.rstrip("/")
+    host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # 1) Fix URLs - prevent // double slash
-    def abs_url(path):
-        return f"{public_base.rstrip('/')}/{path.lstrip('/')}"
+    # TwiML מינימלי ומהיר - ישר ל-Connect (ללא Play כדי למנוע 404)
+    twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Response>"
+        f'  <Connect action="{base}/webhook/stream_ended">'
+        f'    <Stream url="wss://{host}/ws/twilio-media" '
+        f'            statusCallback="{base}/webhook/stream_status">'
+        f'      <Parameter name="call_sid" value="{call_sid}"/>'
+        f'    </Stream>'
+        f'  </Connect>'
+        "</Response>"
+    )
     
-    stream_ended_url = abs_url("/webhook/stream_ended")
-    stream_status_url = abs_url("/webhook/stream_status")
-
-    # ברכה בטוחה (נשענת על ראוט /static/tts/* שקיים בוודאות)
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play>{abs_url('/static/tts/greeting_he.mp3')}</Play>
-  <Connect action="{stream_ended_url}">
-    <Stream url="wss://{wss_host}/ws/twilio-media" statusCallback="{stream_status_url}">
-      <Parameter name="call_sid" value="{call_sid}"/>
-    </Stream>
-  </Connect>
-</Response>"""
-    
-    # Start watchdog - TESTING MODE: 3s for immediate verification
-    threading.Thread(target=_watchdog, args=(call_sid, wss_host, 3, 3), daemon=True).start()
-
-    current_app.logger.info("TWIML_GENERATED", extra={
-        "call_sid": call_sid, 
-        "structure": "Connect-Stream",
-        "wss_url": f"wss://{wss_host}/ws/twilio-media"
-    })
-    
-    # Return TwiML with cache-busting headers
+    # החזרה מיידית ללא עיכובים
     resp = make_response(twiml, 200)
-    resp.headers["Content-Type"] = "text/xml"
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Content-Type"] = "text/xml"     # מונע 12300
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
-@require_twilio_signature
 def stream_ended():
-    """Handle stream ended event"""
-    fallback = abs_url("/static/tts/fallback_he.mp3")
-    twiml = f"""<Response>
-  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
-          action="/webhook/handle_recording" />
-  <Play>{fallback}</Play>
-</Response>"""
-    resp = make_response(twiml, 200)
-    resp.headers["Content-Type"] = "text/xml"
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    return resp
+    """POST callback - מחזיר 204 מיד (One True Path)"""
+    form = request.form.to_dict()
+    print(f"STREAM_ENDED call={form.get('CallSid')} stream={form.get('StreamSid')} status={form.get('Status')}")
+    return ("", 204)
 
 @twilio_bp.route("/webhook/handle_recording", methods=["POST"])
 @require_twilio_signature
@@ -153,26 +126,10 @@ def handle_recording():
 
 @twilio_bp.route("/webhook/stream_status", methods=["POST"])
 def stream_status():
-    """Handle stream status events for diagnostics - NO signature required for Stream callbacks"""
-    # אולטרה-סלחני: לא חותמת, לא JSON, לא extra בלוגים - בלי שום סיכוי ל-500
-    try:
-        form = request.form.to_dict()  # Twilio שולחת form-encoded
-        # חשוב: בלי extra= בלוגים (פורמטרים רבים נופלים מזה)
-        current_app.logger.info(
-            "STREAM_STATUS call=%s stream=%s event=%s",
-            form.get("CallSid"), form.get("StreamSid"), form.get("Status")
-        )
-    except Exception as e:
-        # לעולם לא להפיל את הבקשה בגלל לוג
-        try:
-            current_app.logger.exception("STREAM_STATUS_HANDLER_FAILED: %s", e)
-        except Exception:
-            pass
-    # תמיד 204 ומהר
-    resp = make_response("", 204)
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    return resp
+    """POST callback - מחזיר 204 מיד (One True Path)"""
+    form = request.form.to_dict()
+    print(f"STREAM_STATUS call={form.get('CallSid')} stream={form.get('StreamSid')} event={form.get('Status')}")
+    return ("", 204)
 
 @twilio_bp.route("/webhook/call_status", methods=["POST"])
 @require_twilio_signature

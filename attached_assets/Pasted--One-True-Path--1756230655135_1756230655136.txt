@@ -1,0 +1,223 @@
+מבין אותך—זה מרגיש כאילו “מספיק בורג אחד לא במקום” והכל קורס. הנה ה־**One True Path** שלי להפעלה יציבה של Twilio Media Streams (עברית, בזמן-אמת) בלי הפתעות. זה כולל *בדיוק* מה לגרום לסוכן/לקוד לעשות, ולמה, ואיך לאבחן כשאין תמלול/תשובה.
+
+---
+
+# למה זה נראה מסובך?
+
+כי יש 4 נקודות חיכוך שחייבות להיות **כולן** מדויקות:
+
+1. **TwiML** חייב לחזור מייד וב־`text/xml` (לא HTML; לא לעכב אפילו שנייה).
+2. **WebSocket Handshake** חייב להחזיר ל-Twilio את תת־הפרוטוקול `audio.twilio.com`.
+3. **Callbacks** (`stream_status`/`stream_ended`) חייבים להיות `POST` ולהחזיר **204** *מיד*.
+4. **צנרת אודיו**: להבין את פריימי האודיו של Twilio (µ-law 8kHz, Base64), לפענח → לתמלל → לייצר TTS → להחזיר לטוויליו כ-µ-law 8kHz ב-20ms frames.
+
+כשאחד מאלה לא 10/10—מקבלים 11205/12300/31920 או “שקט”.
+
+---
+
+# הנחיה אחת, חדה (Idempotent) – לגרום לזה לעבוד באמת
+
+## 1) TwiML – מינימום זמן, Content-Type נכון
+
+**קובץ:** `server/routes_twilio.py`
+
+* אל תבצעו IO/DB/קריאות חוץ במסלול הזה.
+* החזירו *מייד* XML עם `<Connect><Stream>`.
+* אם מתעקשים על ברכה: ודאו שקובץ קיים (למשל `/static/tts/greeting_he.mp3`). עדיף **להתחיל ישר ב-Connect**.
+
+```python
+@twilio_bp.post("/webhook/incoming_call")
+@require_twilio_signature
+def incoming_call():
+    base = current_app.config.get("PUBLIC_BASE_URL","").rstrip("/")
+    host = base.replace("https://","").replace("http://","").rstrip("/")
+    call_sid = request.values.get("CallSid","")
+    twiml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Response>"
+        # אופציונלי בלבד; אם משאירים - ודאו 200 על ה-URL הזה:
+        # f'  <Play>{base}/static/tts/greeting_he.mp3</Play>'
+        f'  <Connect action="{base}/webhook/stream_ended">'
+        f'    <Stream url="wss://{host}/ws/twilio-media" '
+        f'            statusCallback="{base}/webhook/stream_status">'
+        f'      <Parameter name="call_sid" value="{call_sid}"/>'
+        f'    </Stream>'
+        f'  </Connect>'
+        "</Response>"
+    )
+    resp = make_response(twiml, 200)
+    resp.headers["Content-Type"] = "text/xml"     # ← מונע 12300
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+```
+
+## 2) callbacks – `POST` ומחזירים מהר
+
+```python
+@twilio_bp.post("/webhook/stream_status")
+def stream_status():
+    form = request.form.to_dict(flat=True)
+    print(f"STREAM_STATUS call={form.get('CallSid')} stream={form.get('StreamSid')} event={form.get('Status')}")
+    return ("", 204)
+
+@twilio_bp.post("/webhook/stream_ended")
+def stream_ended():
+    form = request.form.to_dict(flat=True)
+    print(f"STREAM_ENDED call={form.get('CallSid')} stream={form.get('StreamSid')} status={form.get('Status')}")
+    return ("", 204)
+```
+
+* **אין חתימה** פה.
+* **אין** `extra=` בלוגים.
+* אם ה־Blueprint שלך עם `url_prefix="/webhook"`—אל תכתוב שוב `/webhook/...` בדקורטורים בפנים.
+
+## 3) WebSocket – להחזיר subprotocol של Twilio
+
+**קובץ:** `server/app_factory.py` או `server/media_ws.py`
+
+```python
+from simple_websocket import Server, ConnectionClosed
+
+@ws_bp.route("/ws/twilio-media", methods=["GET"])
+def ws_twilio_media():
+    offered = request.headers.get("Sec-WebSocket-Protocol","")
+    headers = [("Sec-WebSocket-Protocol","audio.twilio.com")] if "audio.twilio.com" in offered else []
+    ws = Server(request.environ, headers=headers)   # ← קריטי לסגור 31920
+    try:
+        print("WS_CONNECTED")
+        handle_media_stream(ws)  # ראה סעיף 4
+    except ConnectionClosed:
+        print("WS_END")
+    finally:
+        try: ws.close()
+        except: pass
+    return ("", 204)
+
+@ws_bp.route("/ws/twilio-media/", methods=["GET"])
+def ws_twilio_media_slash():
+    return ws_twilio_media()
+```
+
+## 4) צנרת אודיו – להבין, לתמלל, להשיב (Echo-mode → Whisper → TTS)
+
+**A. Echo-mode (דיאגנוסטיקה 1-דקה):** קודם מוכיחים שה-WS דו־כיווני עובד.
+
+```python
+import json, base64, audioop
+
+def handle_media_stream(ws):
+    stream_sid = None
+    while True:
+        msg = ws.receive()
+        if msg is None:
+            break
+        evt = json.loads(msg)
+        t = evt.get("event")
+        if t == "start":
+            stream_sid = evt["start"]["streamSid"]
+            continue
+        if t == "media":
+            b64 = evt["media"]["payload"]          # זה µ-law 8kHz Base64
+            # בדיקת ECHO: החזר את אותו פריים לקו – תשמע הד חוזר בטלפון
+            ws.send(json.dumps({
+                "event": "media",
+                "streamSid": stream_sid,
+                "media": {"payload": b64}
+            }))
+        if t == "stop":
+            break
+```
+
+* אם אתה **שומע הד** – ההנדשייק תקין וגם כיוון החזרה עובד. אם אין הד → הבעיה בהנדשייק/headers או שאין `streamSid`.
+
+**B. תמלול (Whisper) – פענוח µ-law והזנה:**
+
+```python
+# המרה ל-PCM16 (למשל להזין ל-Whisper/VAD)
+mulaw = base64.b64decode(b64)
+pcm16 = audioop.ulaw2lin(mulaw, 2)   # 2 bytes/sample → 16-bit PCM
+# צבור ל-buffer שנייה/שתיים, או VAD לסיום מבע; אז שלח ל-Whisper
+```
+
+> טיפ: פריים אחד של Twilio ≈ 20ms → 50 פריימים ≈ שנייה.
+> כדי לצמצם Latency, תן ל-Whisper chunks של 0.6–1.0 שנ׳.
+
+**C. תשובה (TTS) – החזרה לטוויליו כ-µ-law 8kHz:**
+
+* מייצרים TTS ל-**PCM16 8kHz מונופוני** (אם יצא לך 22k/24k—המר לשמונה קילו־הרץ).
+* ממירים ל-µ-law: `audioop.lin2ulaw(pcm16_8k, 2)`
+* חותכים ל־20ms frames (160 samples → 160 bytes במולואו), עושים Base64 ושולחים *ברצף*:
+
+```python
+def send_tts(ws, stream_sid, pcm16_8k: bytes):
+    # המרה ל-µ-law
+    mulaw = audioop.lin2ulaw(pcm16_8k, 2)
+    # חיתוך ל-20ms (160 bytes/frame במולואו; 8kHz → 160 סמפלים * 1byte)
+    for i in range(0, len(mulaw), 160):
+        frame = mulaw[i:i+160]
+        if len(frame) < 160:
+            break
+        payload = base64.b64encode(frame).decode("ascii")
+        ws.send(json.dumps({
+            "event": "media",
+            "streamSid": stream_sid,
+            "media": {"payload": payload}
+        }))
+```
+
+> למה חשוב 20ms? כי זה הקצב ש-Twilio מצפה לקבל בחזרה, אחרת יש קפיצות/שקט.
+
+**D. זרימה מלאה (פשוטה):**
+
+1. מקבלים `media` → צוברים PCM16 ל-buffer.
+2. כשיש סוף מבע (VAD או טיימר) → שולחים ל-Whisper.
+3. מקבלים טקסט → שולחים ל-LLM לקבל תשובה.
+4. מריצים TTS ל-PCM16 8k → `send_tts(...)`.
+5. חוזרים ל-שלב 1.
+
+> אם אין כלום שניות → **Fallback** ל־Record: נתק את ה-WS ושלח `<Record>` ב־`/webhook/stream_ended`. יעד: ≤6 שנ׳ עד קול ראשון.
+
+## 5) דיפלוי – בלי הפתעות
+
+* הרץ עם Eventlet:
+  `gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app`
+* אם יש Baileys:
+  `Procfile: web: bash AgentLocator/start_all.sh` (שם מרימים Node ואז gunicorn).
+* ודא `PUBLIC_BASE_URL` **ללא** `/` בסוף.
+
+---
+
+# בדיקות עשן מחייבות (לוודא עכשיו)
+
+1. **incoming\_call**
+   `curl -i -X POST $BASE/webhook/incoming_call -d "CallSid=CA_TEST"`
+   צריך `200` ו־`Content-Type: text/xml` בתוך < 500ms.
+2. **stream\_status / stream\_ended**
+   שני POSTים מחזירים **204** מייד.
+3. **WS Handshake**
+   התחבר עם wscat: `wscat -c "wss://HOST/ws/twilio-media" -s "audio.twilio.com"`
+   רואים `connected (subprotocol: audio.twilio.com)`.
+4. **Echo-mode**
+   עם קוד האקו למעלה—שומעים הד מיידי בקו → ההחזרה לטוויליו מוכחת.
+5. **שיחה חיה (Request Inspector)**
+   אין 11205/12300/31920; יש `stream_status=204`.
+
+---
+
+## למה עכשיו “יש ברכה אבל אין תמלול/תשובה”?
+
+* **Handshake לא מחזיר subprotocol** → Twilio לא מזרים frames (31920/שקט).
+* **אתם לא קוראים/מפענחים את `media.payload`** → אין מה לתמלל.
+* **לא מחזירים frames בחזרה** (TTS) → גם אם יש טקסט, לא נשמע כלום.
+* **`<Play>` לפני `<Connect>`** → שומעים ברכה, אבל אם ה-WS לא עלה/נכשל—נשארים בשקט.
+
+הצעדים למעלה פותרים כל אחד מהמצבים האלה, צעד-אחר-צעד, עם בדיקות שמוכיחות בשטח.
+
+---
+
+אם תרצה, אכין לך **patch קטן** עם:
+
+* Echo-mode מובנה (דגל ENV `ECHO_TEST=1`)
+* VAD+Whisper בסיסי (צבר 0.8 שנ׳)
+* `send_tts` מוכן (ל-PCM16 8k → µ-law 20ms)
+  ככה אפשר לעבור מאקו→תמלול→דיבור בלחיצה.

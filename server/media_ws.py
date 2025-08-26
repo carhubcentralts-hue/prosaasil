@@ -39,6 +39,13 @@ class MediaStreamHandler:
 
     def run(self):
         """Main WebSocket event loop with Hebrew real-time processing"""
+        # Check for Echo Mode first (for testing)
+        if os.getenv("ECHO_TEST", "0") == "1":
+            from .echo_mode import EchoModeHandler
+            print("ECHO_MODE_ACTIVATED")
+            EchoModeHandler(self.ws).run()
+            return
+            
         print(f"WS_CONNECTED hebrew_realtime={HEBREW_REALTIME_ENABLED}")
         
         # Start Hebrew transcription if available
