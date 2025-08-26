@@ -87,16 +87,14 @@ def incoming_call():
     base = base.rstrip("/")
     host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # שליטה בברכה דרך ENV, ברירת מחדל: בלי ברכה כדי לפתוח WS מיד
+    # ברכה אופציונלית: הפכו אותה ל־ENV (ברירת מחדל בלי Play)
     play_greeting = os.getenv("TWIML_PLAY_GREETING", "false").lower() == "true"
-    
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Response>',
     ]
     if play_greeting:
-        # רק אם בטוח שהקובץ קיים; אחרת עדיף בלי Play בכלל
-        parts.append(f'  <Play>{base}/static/tts/greeting_he.mp3</Play>')
+        parts.append(f'  <Play>{base}/static/greeting_he.mp3</Play>')
     parts += [
         f'  <Connect action="{base}/webhook/stream_ended">',
         f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',

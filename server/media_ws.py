@@ -352,23 +352,29 @@ class MediaStreamHandler:
             return "סליחה, יש לי בעיה טכנית כרגע. אפשר לנסות שוב?"
     
     def _text_to_speech(self, hebrew_text):
-        """Convert Hebrew text to PCM16 8kHz audio"""
+        """TTS ישיר ל-PCM16 8kHz (ללא ffmpeg) + פולבאק beep"""
         try:
-            if HEBREW_REALTIME_ENABLED:
-                # Use Google Cloud TTS
-                from server.services.gcp_tts_live import HebrewTTSLive
-                tts = HebrewTTSLive()
-                mp3_path = tts.synthesize_hebrew(hebrew_text)
-                
-                if mp3_path:
-                    # Convert MP3 to PCM16 8kHz
-                    return self._convert_mp3_to_pcm16_8k(mp3_path)
-            
-            return None
-            
+            from server.services.gcp_tts_live import HebrewTTSLive
+            tts = HebrewTTSLive()
+            pcm = tts.synthesize_hebrew_pcm16_8k(hebrew_text)
+            if pcm:
+                return pcm
+            # Fallback: beep אם אין TTS
+            return self._beep_pcm16_8k(600)
         except Exception as e:
             print(f"TTS_ERROR: {e}")
-            return None
+            return self._beep_pcm16_8k(400)
+
+    def _beep_pcm16_8k(self, ms: int) -> bytes:
+        import math
+        SR = 8000
+        samples = int(SR * ms / 1000)
+        amp = 9000
+        out = bytearray()
+        for n in range(samples):
+            val = int(amp * math.sin(2*math.pi*440*n/SR))
+            out.extend(val.to_bytes(2, "little", signed=True))
+        return bytes(out)
     
     def _convert_mp3_to_pcm16_8k(self, mp3_path):
         """Convert MP3 file to PCM16 8kHz mono"""

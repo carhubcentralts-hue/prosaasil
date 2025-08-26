@@ -23,6 +23,11 @@ class HebrewTTSLive:
             audio_encoding=texttospeech.AudioEncoding.MP3,
             speaking_rate=1.1,  # Slightly faster for real-time feel
         )
+        self.audio_config_pcm16_8k = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+            speaking_rate=1.1,
+            sample_rate_hertz=8000,   # ← PCM16 8kHz מונו
+        )
         
     def _ensure_client(self):
         """Lazy initialization of TTS client"""
@@ -35,16 +40,7 @@ class HebrewTTSLive:
                 raise
         
     def synthesize_hebrew(self, text, output_path=None):
-        """
-        Generate Hebrew speech from text
-        
-        Args:
-            text: Hebrew text to speak
-            output_path: Path to save MP3 file (optional)
-            
-        Returns:
-            Path to generated MP3 file
-        """
+        """סינתזה ל-MP3 (נשאר לצורכי UI/הורדה)"""
         try:
             if not text.strip():
                 return None
@@ -112,6 +108,23 @@ class HebrewTTSLive:
             log.error(f"Quick Hebrew response failed: {e}")
             return None
 
+    def synthesize_hebrew_pcm16_8k(self, text: str) -> bytes | None:
+        """סינתזה ישירה ל-PCM16 8kHz (ל־Media Streams)"""
+        try:
+            if not text.strip():
+                return None
+            self._ensure_client()
+            synthesis_input = texttospeech.SynthesisInput(text=text)
+            response = self.client.synthesize_speech(
+                input=synthesis_input,
+                voice=self.voice,
+                audio_config=self.audio_config_pcm16_8k,
+            )
+            return response.audio_content  # LINEAR16 bytes
+        except Exception as e:
+            log.error(f"TTS_PCM16_ERROR: {e}")
+            return None
+
 # Global instance - lazy initialization
 _hebrew_tts = None
 
@@ -121,6 +134,7 @@ def get_hebrew_tts():
     if _hebrew_tts is None:
         _hebrew_tts = HebrewTTSLive()
     return _hebrew_tts
+
 
 def generate_hebrew_response(text, call_sid):
     """Convenience function for generating Hebrew speech responses"""
