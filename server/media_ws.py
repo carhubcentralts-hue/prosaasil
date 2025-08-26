@@ -30,7 +30,7 @@ def run_media_stream(ws):
     """
     stream_sid = None
     frames = 0
-    mode = os.getenv("WS_MODE", "SINK")  # SINK, ECHO, or AI
+    mode = os.getenv("WS_MODE", "AI")  # SINK, ECHO, or AI - DEFAULT AI
     
     print(f"WS_CONNECTED mode={mode} hebrew_realtime={HEBREW_REALTIME_ENABLED}")
     
@@ -141,7 +141,7 @@ class MediaStreamHandler:
 
     def run(self):
         """Main WebSocket handler with ECHO mode support"""
-        mode = os.getenv("WS_MODE", "ECHO")  # Default to ECHO now
+        mode = os.getenv("WS_MODE", "AI")  # Default to AI now
         frames = 0
         
         print(f"WS_CONNECTED mode={mode} hebrew_realtime={HEBREW_REALTIME_ENABLED}")
