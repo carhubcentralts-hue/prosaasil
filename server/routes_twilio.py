@@ -81,10 +81,11 @@ def incoming_call():
     base = base.rstrip("/")
     host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # TwiML מינימלי ומהיר - ישר ל-Connect (ללא Play כדי למנוע 404)
+    # TwiML עם ברכה עברית לפני Connect - זה מה שחסר!
     twiml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         "<Response>"
+        f'  <Play>{base}/static/greeting_he.mp3</Play>'
         f'  <Connect action="{base}/webhook/stream_ended">'
         f'    <Stream url="wss://{host}/ws/twilio-media" '
         f'            statusCallback="{base}/webhook/stream_status">'
