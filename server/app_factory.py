@@ -71,20 +71,32 @@ def create_app():
     @sock.route('/ws/twilio-media')
     def ws_twilio_media(ws):
         """WebSocket handler - Flask-Sock יציב עם ECHO mode"""
+        import time
+        
+        # IMMEDIATE DEBUG LOG
+        debug_time = time.time()
+        debug_msg = f"WEBSOCKET_HANDLER_CALLED: {debug_time}\n"
+        
+        print(f"🚨 HANDLER_CALLED: {debug_time}")
+        
+        # Write debug IMMEDIATELY  
+        with open("/tmp/websocket_debug.txt", "w") as f:
+            f.write(debug_msg)
+            f.flush()
+        
         try:
-            print("🚨 WEBSOCKET_DEBUG_CONNECTION: /ws/twilio-media with Flask-Sock")
-            print(f"🚨 WS_DEBUG: Connection from {ws} at {__import__('time').time()}")
-            
-            # CRITICAL DEBUG: Write to file immediately  
-            with open("/tmp/websocket_debug.txt", "a") as f:
-                f.write(f"WEBSOCKET_CONNECTED: /ws/twilio-media time={__import__('time').time()}\n")
-                f.flush()
+            # Simple echo test first
+            while True:
+                data = ws.receive()
+                if data is None:
+                    break
+                    
+                print(f"🚨 RECEIVED_DATA: {len(str(data))} chars")
                 
-            print("🚨 CALLING MediaStreamHandler!")
-            
-            # Call the handler directly
-            from server.media_ws import run_media_stream
-            run_media_stream(ws)
+                # Log received data
+                with open("/tmp/websocket_debug.txt", "a") as f:
+                    f.write(f"RECEIVED_DATA: {len(str(data))} chars at {time.time()}\n")
+                    f.flush()
         except Exception as e:
             print(f"❌ WS_ERROR: {e}")
             with open("/tmp/websocket_debug.txt", "a") as f:
