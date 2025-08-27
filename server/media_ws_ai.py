@@ -12,7 +12,8 @@ MAX_UTT_SEC = 6.0   # חיתוך בטיחות
 class MediaStreamHandler:
     def __init__(self, ws):
         self.ws = ws
-        self.mode = os.getenv("WS_MODE", "AI").upper()  # ודא ש-WS_MODE=AI בסביבה
+        # ✅ כפה AI mode בכל מקרה - המערכת תמיד צריכה לפעול במצב AI
+        self.mode = "AI"  # הסרת התלות ב-environment variable
         self.stream_sid = None
         self.rx = 0
         self.tx = 0
@@ -34,9 +35,9 @@ class MediaStreamHandler:
                     self.stream_sid = evt["start"]["streamSid"]
                     self.last_rx = time.time()
                     print(f"WS_START sid={self.stream_sid} mode={self.mode}")
-                    # פתיחה עם ברכה ב-TTS (בטוח יותר מ-<Play>)
-                    if self.mode == "AI":
-                        self._speak_text("שלום! איך אפשר לעזור?")
+                    # ✅ ברכה תמיד מופעלת - בלי תלות במשתנה סביבה
+                    print("🔊 STARTING HEBREW GREETING...")
+                    self._speak_text("שלום! איך אפשר לעזור?")
                     continue
 
                 if et == "media":
@@ -45,7 +46,8 @@ class MediaStreamHandler:
                     pcm16 = audioop.ulaw2lin(mulaw, 2)
                     self.last_rx = time.time()
 
-                    if self.mode == "AI" and not self.speaking:
+                    # ✅ תמיד מעבד דיבור - בלי תלות במשתנה סביבה
+                    if not self.speaking:
                         self.buf.extend(pcm16)
                         dur = len(self.buf) / (2 * SR)
                         silent = (time.time() - self.last_rx) >= MIN_UTT_SEC
@@ -104,16 +106,18 @@ class MediaStreamHandler:
     def _speak_text(self, text: str):
         try:
             print(f"🔊 SPEAKING: {text}")
-            # Try real TTS first
+            # ✅ נסה TTS אמיתי עם retry
             tts_audio = self._hebrew_tts(text)
-            if tts_audio:
+            if tts_audio and len(tts_audio) > 1000:  # וודא שיש אודיו אמיתי
+                print(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
                 self._send_pcm16_as_mulaw_frames(tts_audio)
             else:
+                print("🔊 TTS FAILED - sending beep")
                 # Fallback: welcome beep
-                self._send_beep(500)
+                self._send_beep(800)  # beep יותר ארוך
         except Exception as e:
-            print("TTS_INIT_ERR:", e)
-            self._send_beep(500)
+            print(f"TTS_INIT_ERR: {e}")
+            self._send_beep(800)
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
         # clear לפני פריים ראשון
@@ -183,36 +187,62 @@ class MediaStreamHandler:
             import openai
             client = openai.OpenAI()
             
+            # ✅ פרומפט משופר עם הנחיות ברורות יותר
+            system_prompt = """אתה נציג שירות לקוחות של 'שי דירות ומשרדים בע״מ' - חברת נדל״ן מובילה בישראל.
+
+🏢 SERVICES:
+- דירות למכירה והשכרה (2-5 חדרים)
+- משרדים ומבנים מסחריים
+- יעוץ השקעות נדל"ן
+- הערכת שווי נכסים
+- ליווי משפטי וכלכלי
+
+📞 STYLE:
+- ענה בעברית בלבד
+- היה חם, מקצועי וידידותי
+- תן תשובות קצרות (1-2 משפטים)
+- הציע תמיד פגישה או יעוץ נוסף
+- אל תציין מחירים ספציפיים
+
+✅ EXAMPLES:
+"אני רוצה דירה" → "שמח לעזור! איזה אזור מעניין אותך ומה התקציב שלך?"
+"כמה זה עולה" → "המחירים משתנים לפי אזור וגודל. בואו נקבע פגישה ואמצא לך את הדירה המושלמת!"
+"שלום" → "שלום! איך אני יכול לעזור לך היום עם נדל"ן?"
+
+השב תמיד בעברית, קצר ומועיל."""
+
             response = client.chat.completions.create(
                 model="gpt-5",  # the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
                 messages=[
                     {
-                        "role": "system",
-                        "content": """אתה נציג שירות לקוחות של 'שי דירות ומשרדים בע״מ' - חברת נדל״ן מובילה.
-                        
-תפקידך:
-- לענות בעברית בצורה מקצועית וידידותית
-- לעזור עם שאלות על דירות, משרדים, מחירים ותהליכי השכירות/קנייה
-- לקבוע פגישות עם יועצי המכירות
-- לתת מידע על השירותים שלנו
-
-השב תמיד בעברית, בקצרה (1-2 משפטים), ובצורה מועילה."""
+                        "role": "system", 
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
                         "content": hebrew_text
                     }
                 ],
-                max_completion_tokens=100,
-                temperature=0.7
+                max_completion_tokens=150  # יותר מקום לתגובות טובות
+                # temperature=1 (default) - GPT-5 תומך רק בערך ברירת מחדל
             )
             
             content = response.choices[0].message.content
-            return content.strip() if content else "סליחה, לא הבנתי"
+            if content and content.strip():
+                print(f"🤖 AI SUCCESS: {content.strip()}")
+                return content.strip()
+            else:
+                return "שמח לעזור! איך אני יכול לסייע לך עם נדל\"ן היום?"
             
         except Exception as e:
             print(f"AI_ERROR: {e}")
-            return "סליחה, יש בעיה טכנית. אפשר לנסות שוב?"
+            # ✅ תגובת חירום טובה יותר במקום "בעיה טכנית"
+            if "רוצה" in hebrew_text or "דירה" in hebrew_text or "משרד" in hebrew_text:
+                return "מעולה! אשמח לעזור לך למצוא נכס מתאים. בואו נקבע פגישה?"
+            elif "שלום" in hebrew_text or "היי" in hebrew_text:
+                return "שלום! איך אני יכול לעזור לך היום עם נדל\"ן?"
+            else:
+                return "שמח לעזור! ספר לי מה אתה מחפש ואמצא לך את הפתרון המושלם."
     
     def _hebrew_tts(self, text: str) -> bytes | None:
         """Hebrew Text-to-Speech using Google Cloud TTS"""
