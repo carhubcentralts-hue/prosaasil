@@ -2,15 +2,20 @@
 WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
-import os, json, time, base64, audioop, math, threading, queue
+import os, json, time, base64, audioop, math, threading, queue, random
 from simple_websocket import ConnectionClosed
 
 SR = 8000
-# 🎯 פרמטרים מעודכנים לשיחה נורמלית - יותר זמן למשתמש!
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "2.5"))   # 2.5 שניות המתנה - זמן נורמלי לסיים משפט
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "8.0"))   # 8 שניות מקסימום - זמן לדיבור ארוך
-VAD_RMS = int(os.getenv("VAD_RMS", "350"))             # רגישות נמוכה יותר - פחות רעשים
+# 🎯 פרמטרים מעודכנים לשיחה אנושית מושלמת!
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.55"))       # שקט לסוף-מבע (הואץ ל-0.55s)
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "6.0"))        # חיתוך בטיחות
+VAD_RMS = int(os.getenv("VAD_RMS", "210"))                  # סף דיבור רגיש מעט
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # Hangover אחרי שקט
+RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "280")) # "נשימה" לפני דיבור
+RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "420"))
+REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "850")) # קירור אחרי דיבור
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","4")) # כמה פריימים כדי לעצור
 
 # מכונת מצבים
 STATE_LISTEN = "LISTENING"
@@ -38,8 +43,11 @@ class MediaStreamHandler:
         self.last_user_text = ""
         self.last_response_text = ""
         self.response_history = []       # היסטוריית תגובות
+        self.last_tts_end_ts = 0.0
+        self.voice_in_row = 0
+        self.greeting_sent = False
         
-        print("🎯 SIMPLE TURN-TAKING: No loops, one response per input")
+        print("🎯 HUMAN-LIKE CONVERSATION: Natural timing, breathing, refractory period")
 
     def run(self):
         print(f"🚨 MEDIA_STREAM_HANDLER: mode={self.mode}")
@@ -56,10 +64,17 @@ class MediaStreamHandler:
                     self.last_rx_ts = time.time()
                     print(f"WS_START sid={self.stream_sid} mode={self.mode}")
                     
-                    # ברכה פשוטה ובודדת
-                    greeting = "שלום! אני העוזרת החכמה של שי דירות ומשרדים. איך אני יכולה לעזור לך היום?"
-                    print(f"🔊 GREETING: {greeting}")
-                    self._speak_simple(greeting)
+                    # ברכה רק אם אין קול מהמשתמש ב-1.2s הראשונות
+                    if not self.greeting_sent:
+                        def _maybe_greet():
+                            time.sleep(1.2)
+                            # אם במשך 1.2s לא נכנס קול חדש (שקט), והבוט עדיין במצב האזנה:
+                            if (time.time() - self.last_rx_ts) >= 1.2 and not self.speaking:
+                                greet = os.getenv("AI_GREETING_HE", "שלום! איך אפשר לעזור?")
+                                print(f"🔊 GREETING: {greet}")
+                                self._speak_simple(greet)
+                                self.greeting_sent = True
+                        threading.Thread(target=_maybe_greet, daemon=True).start()
                     continue
 
                 if et == "media":
@@ -72,9 +87,10 @@ class MediaStreamHandler:
                     # מדד דיבור/שקט (VAD) - זיהוי קול אמיתי
                     rms = audioop.rms(pcm16, 2)
                     is_voice = rms > VAD_RMS
+                    self.voice_in_row = (self.voice_in_row + 1) if is_voice else 0
 
-                    # 🚨 BARGE-IN קיצוני: אם המשתמש מדבר כשהמערכת מדברת - עצור מיד!
-                    if self.speaking and is_voice and BARGE_IN:
+                    # 🚨 BARGE-IN יציב: דורש כמה פריימים רצופים של קול לעצירה
+                    if self.speaking and BARGE_IN and self.voice_in_row >= BARGE_IN_VOICE_FRAMES:
                         print(f"🚨 CRITICAL BARGE-IN! User speaking (RMS={rms}) - FORCE STOPPING BOT NOW!")
                         self._interrupt_bot_speech()
                         # נקה הכל ותן למשתמש לדבר
@@ -88,30 +104,23 @@ class MediaStreamHandler:
                         self.buf.clear()
                         continue
                     
-                    # 🎯 איסוף אודיו עם זיהוי דממה נכון
+                    # 🎯 איסוף אודיו עם זיהוי דממה נכון + חלון רפרקטורי
                     if not self.processing:
-                        # הוסף אודיו לבאפר רק אם יש קול
-                        if is_voice:
-                            self.buf.extend(pcm16)
-                            # עדכן זמן קלט אחרון רק כשיש קול!
-                            self.last_voice_time = time.time()
-                            if not hasattr(self, 'last_voice_time'):
-                                self.last_voice_time = time.time()
-                        
-                        # בדוק אם יש מספיק אודיו ואם עבר זמן מספיק
+                        # מתעלמים מנשימות/רחש מיד אחרי שהבוט דיבר (חלון קירור)
+                        if (time.time() - self.last_tts_end_ts) < (REPLY_REFRACTORY_MS/1000.0):
+                            continue
+                            
+                        self.buf.extend(pcm16)
                         dur = len(self.buf) / (2 * SR)
                         
-                        # חישוב דממה נכון: מזמן הקול האחרון!
-                        silence_duration = 0
-                        if hasattr(self, 'last_voice_time'):
-                            silence_duration = time.time() - self.last_voice_time
-                        
+                        # דממה עם Hangover - ווידוא שזה באמת סוף מבע
+                        silent = ((time.time() - self.last_rx_ts) >= MIN_UTT_SEC) and \
+                                 ((time.time() - self.last_rx_ts) >= (VAD_HANGOVER_MS/1000.0))
                         too_long = dur >= MAX_UTT_SEC
-                        enough_silence = silence_duration >= MIN_UTT_SEC and dur > 0.5
                         
                         # 🎯 סוף מבע - רק אחרי דממה אמיתית או זמן יותר מדי
-                        if (enough_silence or too_long) and dur > 0.5:
-                            print(f"🎤 PROCESSING: {dur:.1f}s audio, silence: {silence_duration:.1f}s (conversation #{self.conversation_id})")
+                        if (silent or too_long) and dur > 0.5:
+                            print(f"🎤 PROCESSING: {dur:.1f}s audio (conversation #{self.conversation_id})")
                             
                             # חסימה מוחלטת של עיבוד כפול
                             if self.processing:
@@ -234,7 +243,7 @@ class MediaStreamHandler:
 
     # 🎯 דיבור פשוט וישיר (ללא queue מורכב)
     def _speak_simple(self, text: str):
-        """TTS פשוט עם הגנה מפני לולאות"""
+        """TTS פשוט עם הגנה מפני לולאות + נשימה אנושית"""
         if not text:
             return
             
@@ -246,6 +255,12 @@ class MediaStreamHandler:
         print(f"🔊 SPEAKING: '{text}'")
         
         try:
+            # "נשימה" אנושית לפני תחילת דיבור (נותן תחושת טבעיות)
+            try:
+                time.sleep(random.uniform(RESP_MIN_DELAY_MS/1000.0, RESP_MAX_DELAY_MS/1000.0))
+            except Exception:
+                pass
+                
             # נסה TTS אמיתי
             tts_audio = self._hebrew_tts(text)
             if tts_audio and len(tts_audio) > 1000:
@@ -259,6 +274,7 @@ class MediaStreamHandler:
             self._send_beep(800)
         finally:
             self.speaking = False
+            self.last_tts_end_ts = time.time()
             print("✅ Speaking completed")
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
