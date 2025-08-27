@@ -15,7 +15,7 @@ VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # Hangover אחרי 
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "280")) # "נשימה" לפני דיבור
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "420"))
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "850")) # קירור אחרי דיבור
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","6")) # יותר יציב נגד רעשי רקע
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","10")) # יותר סבלני - 200ms
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "2000"))     # רק אם LLM תקוע יותר מ-2s
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "רגע...")         # קצר יותר
 LLM_NATURAL_STYLE = True  # תגובות טבעיות לפי השיחה
@@ -90,8 +90,8 @@ class MediaStreamHandler:
 
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
-                    # דרישה מחמירה יותר: קול חייב להיות חזק פי 2.5 מהרגיל
-                    is_strong_voice = rms > (VAD_RMS * 2.5)  
+                    # דרישה מחמירה פחות: קול חייב להיות חזק פי 1.3 מהרגיל (הקל!)
+                    is_strong_voice = rms > (VAD_RMS * 1.3)  
                     
                     # ספירת פריימים רצופים של קול חזק בלבד
                     if is_strong_voice:
@@ -207,6 +207,7 @@ class MediaStreamHandler:
         print(f"🎤 SAFE PROCESSING: conversation #{conversation_id}")
         self.state = STATE_THINK  # מעבר למצב חשיבה
         
+        text = ""  # initialize to avoid unbound variable
         try:
             # 1. Hebrew ASR
             text = self._hebrew_stt(pcm16_8k)
@@ -214,7 +215,12 @@ class MediaStreamHandler:
                 print("🎤 No speech detected")
                 return
                 
-            print(f"🎤 ASR: '{text}'")
+            print(f"🎤 ASR SUCCESS: '{text}' ({len(text)} chars)")
+            
+            # לוג חשוב - תמלול עבר!
+            if not text or len(text) < 3:
+                print("❌ STT returned empty or too short")
+                return
             
             # 2. דה-דופליקציה חכמה
             if text.strip() == self.last_user_text:
@@ -260,8 +266,9 @@ class MediaStreamHandler:
             self.state = STATE_LISTEN  # חזרה להאזנה
             
         except Exception as e:
-            print(f"❌ Processing error: {e}")
-            # תגובת חירום
+            print(f"❌ CRITICAL Processing error: {e}")
+            print(f"   Text was: '{text}' ({len(text)} chars)")
+            # תגובת חירום חזקה
             self.state = STATE_SPEAK
             self._speak_simple("מצטערת, לא הבנתי. אפשר לחזור?")
             self.state = STATE_LISTEN
@@ -388,7 +395,9 @@ class MediaStreamHandler:
                 return transcript.text.strip()
                 
         except Exception as e:
-            print(f"STT_ERROR: {e}")
+            print(f"❌ STT_CRITICAL_ERROR: {e}")
+            print(f"   Audio size: {len(pcm16_8k)} bytes")
+            print(f"   Duration: {len(pcm16_8k)/(2*8000):.1f}s")
             return ""
     
     def _ai_response(self, hebrew_text: str) -> str:
@@ -500,19 +509,25 @@ class MediaStreamHandler:
             
         except Exception as e:
             print(f"AI_ERROR: {e} - Using emergency responses")
-            # תגובות חירום פשוטות ומועילות
+            # תגובות חירום חכמות - לא תקוע ב"איזה גודל"!
+            print(f"🚨 AI_ERROR fallback for: '{hebrew_text}'")
+            
             if "תודה" in hebrew_text or "ביי" in hebrew_text:
                 return "בהצלחה!"
             elif "שלום" in hebrew_text:
                 return "שלום! אני מתחה ממקסימוס נדלן. מה אתה מחפש?"
             elif "דירה" in hebrew_text:
-                return "באיזה אזור?"
+                return "באיזה אזור אתה מחפש?"
+            elif any(word in hebrew_text for word in ["תל אביב", "ירושלים", "חיפה", "צפון", "דרום", "מרכז"]):
+                return "מעולה! כמה חדרים אתה צריך?"
+            elif any(word in hebrew_text for word in ["חדרים", "חדר", "1", "2", "3", "4", "5"]):
+                return "נהדר! איזה תקציב יש לך?"
+            elif any(word in hebrew_text for word in ["שקל", "אלף", "תקציב", "מחיר"]):
+                return "אוקיי, אני אחפש לך משהו מתאים. רוצה שאתקשר אליך עם פרטים?"
             elif "משרד" in hebrew_text:
-                return "איזה גודל?"
-            elif any(word in hebrew_text for word in ["מחיר", "כמה", "עולה"]):
-                return "איזה נכס?"
+                return "איפה אתה מחפש משרד?"
             else:
-                return "מה אתה מחפש?"
+                return "לא שמעתי טוב, אפשר לחזור?"
     
     def _hebrew_tts(self, text: str) -> bytes | None:
         """Hebrew Text-to-Speech using Google Cloud TTS"""
