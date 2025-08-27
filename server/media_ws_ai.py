@@ -15,9 +15,9 @@ VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # Hangover אחרי 
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "280")) # "נשימה" לפני דיבור
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "420"))
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "850")) # קירור אחרי דיבור
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","3")) # כמה פריימים כדי לעצור
-THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "700"))      # "סימן חיים" אם LLM מתעכב
-THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "שנייה… בודקת")  # טקסט מיקרו-התייחסות
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","6")) # יותר יציב נגד רעשי רקע
+THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "2000"))     # רק אם LLM תקוע יותר מ-2s
+THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "רגע...")         # קצר יותר
 LLM_TARGET_STYLE = os.getenv("LLM_TARGET_STYLE", "warm_helpful")  # סגנון תגובה
 LLM_MIN_CHARS = int(os.getenv("LLM_MIN_CHARS", "140"))            # מינימום תווים לתגובה
 LLM_MAX_CHARS = int(os.getenv("LLM_MAX_CHARS", "420"))            # מקסימום תווים לתגובה
@@ -70,14 +70,14 @@ class MediaStreamHandler:
                     self.last_rx_ts = time.time()
                     print(f"WS_START sid={self.stream_sid} mode={self.mode}")
                     
-                    # ברכה זריזה רק אם אין קול מהמשתמש ב-0.8s הראשונות
+                    # ברכה מיידית רק אם שקט
                     if not self.greeting_sent:
                         def _maybe_greet():
-                            time.sleep(0.8)  # היה 1.2s – קיצרנו כדי שתהיה זריזה
-                            # אם במשך 0.8s לא נכנס קול חדש (שקט), והבוט עדיין במצב האזנה:
-                            if (time.time() - self.last_rx_ts) >= 0.8 and not self.speaking:
-                                greet = os.getenv("AI_GREETING_HE", "היי, אני כאן — איך אפשר לעזור?")
-                                print(f"🔊 GREETING: {greet}")
+                            time.sleep(0.3)  # זמן מינימלי לזיהוי קול
+                            # אם במשך 0.3s שקט מוחלט:
+                            if (time.time() - self.last_rx_ts) >= 0.3 and not self.speaking:
+                                greet = os.getenv("AI_GREETING_HE", "שלום, איך אפשר לעזור?")
+                                print(f"🔊 IMMEDIATE GREETING: {greet}")
                                 self._speak_simple(greet)
                                 self.greeting_sent = True
                         threading.Thread(target=_maybe_greet, daemon=True).start()
@@ -90,14 +90,20 @@ class MediaStreamHandler:
                     pcm16 = audioop.ulaw2lin(mulaw, 2)
                     self.last_rx_ts = time.time()
 
-                    # מדד דיבור/שקט (VAD) - זיהוי קול אמיתי
+                    # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
-                    is_voice = rms > VAD_RMS
-                    self.voice_in_row = (self.voice_in_row + 1) if is_voice else 0
+                    # דרישה מחמירה יותר: קול חייב להיות חזק פי 2.5 מהרגיל
+                    is_strong_voice = rms > (VAD_RMS * 2.5)  
+                    
+                    # ספירת פריימים רצופים של קול חזק בלבד
+                    if is_strong_voice:
+                        self.voice_in_row += 1
+                    else:
+                        self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
 
-                    # 🚨 BARGE-IN יציב: דורש כמה פריימים רצופים של קול לעצירה
+                    # 🚨 BARGE-IN חכם: רק עם קול חזק ויציב 
                     if self.speaking and BARGE_IN and self.voice_in_row >= BARGE_IN_VOICE_FRAMES:
-                        print(f"🚨 CRITICAL BARGE-IN! User speaking (RMS={rms}) - FORCE STOPPING BOT NOW!")
+                        print(f"🚨 STRONG BARGE-IN! User speaking loudly (RMS={rms}) for {self.voice_in_row} frames!")
                         self._interrupt_bot_speech()
                         # נקה הכל ותן למשתמש לדבר
                         self.buf.clear()
@@ -223,9 +229,9 @@ class MediaStreamHandler:
             started_at = time.time()
             
             def maybe_hint():
-                time.sleep(THINKING_HINT_MS / 1000.0)
+                time.sleep(THINKING_HINT_MS / 1000.0)  # חכה 2 שניות
                 if hasattr(self, 'state') and self.state == STATE_THINK and not self.speaking:
-                    print(f"🤔 MICRO-ACK: LLM taking time, sending thinking hint")
+                    print(f"🤔 MICRO-ACK: LLM really stuck after {THINKING_HINT_MS/1000}s, sending brief hint")
                     self._speak_simple(THINKING_TEXT_HE)
                     
             threading.Thread(target=maybe_hint, daemon=True).start()
