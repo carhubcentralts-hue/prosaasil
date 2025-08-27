@@ -19,11 +19,18 @@ export PORT="${PORT:-5000}"
 export WS_MODE="${WS_MODE:-AI}"
 export HEBREW_REALTIME_ENABLED="${HEBREW_REALTIME_ENABLED:-true}"
 
+# 🎯 Advanced Turn-Taking & Barge-in Configuration
+export BARGE_IN="${BARGE_IN:-true}"          # מאפשר הפרעה לבוט כשאדם מדבר
+export MIN_UTT_SEC="${MIN_UTT_SEC:-0.7}"     # זמן דממה לסוף מבע
+export MAX_UTT_SEC="${MAX_UTT_SEC:-6.0}"     # חיתוך בטיחות למבע ארוך
+export VAD_RMS="${VAD_RMS:-200}"             # סף דיבור (Voice Activity Detection)
+
 echo "🔧 ENV:"
 echo "PUBLIC_BASE_URL=$PUBLIC_BASE_URL"
 echo "PORT=$PORT"
 echo "WS_MODE=$WS_MODE"
 echo "HEBREW_REALTIME_ENABLED=$HEBREW_REALTIME_ENABLED"
+echo "🎯 TURN-TAKING: BARGE_IN=$BARGE_IN, MIN_UTT=$MIN_UTT_SEC, MAX_UTT=$MAX_UTT_SEC, VAD_RMS=$VAD_RMS"
 
 # ---- הרמת Baileys (אם קיים) ----
 NODE_PID=""
