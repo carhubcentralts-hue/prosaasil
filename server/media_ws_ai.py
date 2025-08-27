@@ -20,6 +20,8 @@ class MediaStreamHandler:
         self.buf = bytearray()
         self.last_rx = None
         self.speaking = False  # חסם לולאה
+        self.last_response_time = 0  # מונע תגובות כפולות
+        self.processing = False  # מונע עיבוד במקביל
 
     def run(self):
         print(f"🚨 MEDIA_STREAM_HANDLER: mode={self.mode}")
@@ -34,6 +36,7 @@ class MediaStreamHandler:
                 if et == "start":
                     self.stream_sid = evt["start"]["streamSid"]
                     self.last_rx = time.time()
+                    self.last_response_time = time.time()  # אתחול זמן התגובה
                     print(f"WS_START sid={self.stream_sid} mode={self.mode}")
                     # ✅ ברכה מקצועית חדשה - רק בתחילת השיחה
                     print("🔊 STARTING PROFESSIONAL HEBREW GREETING...")
@@ -46,15 +49,26 @@ class MediaStreamHandler:
                     pcm16 = audioop.ulaw2lin(mulaw, 2)
                     self.last_rx = time.time()
 
-                    # ✅ תמיד מעבד דיבור - בלי תלות במשתנה סביבה
-                    if not self.speaking:
+                    # ✅ עיבוד חכם - מונע לולאות ותגובות כפולות
+                    if not self.speaking and not self.processing:
                         self.buf.extend(pcm16)
                         dur = len(self.buf) / (2 * SR)
                         silent = (time.time() - self.last_rx) >= MIN_UTT_SEC
                         too_long = dur >= MAX_UTT_SEC
-                        if (silent or too_long) and dur > 0.25:
+                        
+                        # בדיקה נוספת - לא לעבד אם עברו פחות מ-3 שניות מהתגובה האחרונה
+                        time_since_last = time.time() - self.last_response_time
+                        
+                        if (silent or too_long) and dur > 0.25 and time_since_last > 3.0:
+                            print(f"🎤 PROCESSING SPEECH: {dur:.1f}s audio, {time_since_last:.1f}s since last response")
                             self._process_utterance(bytes(self.buf))
                             self.buf.clear()
+                        elif time_since_last <= 3.0:
+                            # נקה buffer אם זה יותר מדי קרוב לתגובה האחרונה
+                            self.buf.clear()
+                    elif self.speaking:
+                        # כשהמערכת מדברת - נקה את כל הקלט של המשתמש
+                        self.buf.clear()
                     continue
 
                 if et == "stop":
@@ -74,34 +88,57 @@ class MediaStreamHandler:
 
     # --- מבע → ASR → LLM → TTS ---
     def _process_utterance(self, pcm16_8k: bytes):
+        # מונע עיבוד במקביל וחסימת לולאות
+        if self.processing:
+            print("🚫 Already processing - skipping")
+            return
+            
+        # בדיקת זמן מהתגובה האחרונה
+        time_since_last = time.time() - self.last_response_time
+        if time_since_last < 3.0:
+            print(f"🚫 Too soon since last response ({time_since_last:.1f}s) - skipping")
+            return
+            
+        self.processing = True
         self.speaking = True
+        
         try:
             print(f"🎤 Processing {len(pcm16_8k)} bytes of Hebrew audio")
             
             # 1. Real Hebrew ASR
             hebrew_text = self._hebrew_stt(pcm16_8k)
             if not hebrew_text or len(hebrew_text.strip()) < 2:
-                print("🎤 No speech detected")
-                self._send_beep(300)  # Short acknowledgment
-                return
+                print("🎤 No speech detected - ignoring")
+                return  # לא שולח beep כדי לא להפריע
                 
-            print(f"🎤 ASR: {hebrew_text}")
+            print(f"🎤 ASR: '{hebrew_text}'")
             
             # 2. Real AI response
             ai_response = self._ai_response(hebrew_text)
-            print(f"🤖 AI: {ai_response}")
+            print(f"🤖 AI: '{ai_response}'")
             
             # 3. Real Hebrew TTS
+            print("🔊 Starting TTS...")
             tts_audio = self._hebrew_tts(ai_response)
             if tts_audio:
+                print(f"🔊 Sending TTS: {len(tts_audio)} bytes")
                 self._send_pcm16_as_mulaw_frames(tts_audio)
-                print(f"🔊 TTS sent: {len(tts_audio)} bytes")
+                print("✅ TTS completed successfully")
             else:
-                print("🔊 TTS failed, sending response beep")
-                self._send_beep(800)  # Response beep
+                print("❌ TTS failed")
+                
+            # עדכן זמן התגובה האחרונה
+            self.last_response_time = time.time()
+            print(f"⏰ Response completed at {self.last_response_time}")
 
+        except Exception as e:
+            print(f"❌ Processing error: {e}")
         finally:
             self.speaking = False
+            self.processing = False
+            # נקה לגמרי את הbuffer
+            self.buf.clear()
+            print("🔄 Ready for next input")
 
     def _speak_text(self, text: str):
         try:
