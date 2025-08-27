@@ -211,21 +211,39 @@ class MediaStreamHandler:
 
 הלקוח כבר שמע את הברכה שלך, אז עני ישירות על השאלות שלו."""
 
-            response = client.chat.completions.create(
-                model="gpt-5",  # the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": hebrew_text
-                    }
-                ],
-                max_completion_tokens=150  # יותר מקום לתגובות טובות
-                # temperature=1 (default) - GPT-5 תומך רק בערך ברירת מחדל
-            )
+            # נסה קודם עם GPT-4 שיותר יציב
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {
+                            "role": "system", 
+                            "content": system_prompt
+                        },
+                        {
+                            "role": "user",
+                            "content": hebrew_text
+                        }
+                    ],
+                    max_tokens=150,
+                    temperature=0.7
+                )
+            except Exception:
+                # אם GPT-4 לא עובד, נסה GPT-5
+                response = client.chat.completions.create(
+                    model="gpt-5",
+                    messages=[
+                        {
+                            "role": "system", 
+                            "content": system_prompt
+                        },
+                        {
+                            "role": "user",
+                            "content": hebrew_text
+                        }
+                    ],
+                    max_completion_tokens=150
+                )
             
             content = response.choices[0].message.content
             if content and content.strip():
