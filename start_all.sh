@@ -19,28 +19,46 @@ export PORT="${PORT:-5000}"
 export WS_MODE="${WS_MODE:-AI}"
 export HEBREW_REALTIME_ENABLED="${HEBREW_REALTIME_ENABLED:-true}"
 
-# 🎯 Advanced Human-Like Conversation Configuration
-export BARGE_IN="${BARGE_IN:-true}"          # מאפשר הפרעה לבוט כשאדם מדבר
-export MIN_UTT_SEC="${MIN_UTT_SEC:-0.55}"    # שקט לסוף-מבע (הואץ ל-0.55s)
-export MAX_UTT_SEC="${MAX_UTT_SEC:-6.0}"     # חיתוך בטיחות למבע ארוך
-export VAD_RMS="${VAD_RMS:-210}"             # סף דיבור רגיש מעט
-export VAD_HANGOVER_MS="${VAD_HANGOVER_MS:-180}"  # Hangover אחרי שקט
-export RESP_MIN_DELAY_MS="${RESP_MIN_DELAY_MS:-280}" # "נשימה" לפני דיבור
-export RESP_MAX_DELAY_MS="${RESP_MAX_DELAY_MS:-420}"
-export REPLY_REFRACTORY_MS="${REPLY_REFRACTORY_MS:-850}" # קירור אחרי דיבור
-export BARGE_IN_VOICE_FRAMES="${BARGE_IN_VOICE_FRAMES:-4}" # כמה פריימים כדי לעצור
-export AI_GREETING_HE="${AI_GREETING_HE:-"שלום! איך אפשר לעזור?"}"
-export TWIML_PLAY_GREETING="${TWIML_PLAY_GREETING:-false}"  # שלא תהיה ברכה <Play> לפני Connect
+# 🎯 Optimized Human-Like Conversation Configuration
+# סיום מבע (VAD) — מהיר אבל לא מקוטע
+export MIN_UTT_SEC="${MIN_UTT_SEC:-0.48}"        # שקט לסיום
+export VAD_HANGOVER_MS="${VAD_HANGOVER_MS:-130}" # אינרציה קצרה אחרי שקט
+export MAX_UTT_SEC="${MAX_UTT_SEC:-7.0}"
+export VAD_RMS="${VAD_RMS:-205}"                 # סף קול רגיש–בינוני
+
+# קצב "אנושי"
+export RESP_MIN_DELAY_MS="${RESP_MIN_DELAY_MS:-200}"   # נשימה קצרה לפני דיבור
+export RESP_MAX_DELAY_MS="${RESP_MAX_DELAY_MS:-320}"
+export REPLY_REFRACTORY_MS="${REPLY_REFRACTORY_MS:-700}" # קירור אחרי דיבור הבוט
+
+# Barge-in (עצור כשאדם מדבר מעליך)
+export BARGE_IN="${BARGE_IN:-true}"
+export BARGE_IN_VOICE_FRAMES="${BARGE_IN_VOICE_FRAMES:-3}"
+
+# "סימן חיים" אם LLM מתעכב
+export THINKING_HINT_MS="${THINKING_HINT_MS:-700}"
+export THINKING_TEXT_HE="${THINKING_TEXT_HE:-"שנייה… בודקת"}"
+
+# ברכה: דרך TTS אחרי start (אל תשתמש ב-<Play>)
+export TWIML_PLAY_GREETING="${TWIML_PLAY_GREETING:-false}"
+export AI_GREETING_HE="${AI_GREETING_HE:-"היי, אני כאן — איך אפשר לעזור?"}"
+
+# אורך תשובות
+export LLM_TARGET_STYLE="${LLM_TARGET_STYLE:-warm_helpful}"
+export LLM_MIN_CHARS="${LLM_MIN_CHARS:-140}"    # מינימום ~2 משפטים
+export LLM_MAX_CHARS="${LLM_MAX_CHARS:-420}"    # מקסימום קצר בטלפון
 
 echo "🔧 ENV:"
 echo "PUBLIC_BASE_URL=$PUBLIC_BASE_URL"
 echo "PORT=$PORT"
 echo "WS_MODE=$WS_MODE"
 echo "HEBREW_REALTIME_ENABLED=$HEBREW_REALTIME_ENABLED"
-echo "🎯 HUMAN-LIKE CONVERSATION:"
+echo "🎯 OPTIMIZED HUMAN-LIKE CONVERSATION:"
 echo "   BARGE_IN=$BARGE_IN, MIN_UTT=$MIN_UTT_SEC, MAX_UTT=$MAX_UTT_SEC, VAD_RMS=$VAD_RMS"
 echo "   HANGOVER=${VAD_HANGOVER_MS}ms, BREATH=${RESP_MIN_DELAY_MS}-${RESP_MAX_DELAY_MS}ms" 
 echo "   REFRACTORY=${REPLY_REFRACTORY_MS}ms, BARGE_FRAMES=$BARGE_IN_VOICE_FRAMES"
+echo "   LLM: ${LLM_TARGET_STYLE}, ${LLM_MIN_CHARS}-${LLM_MAX_CHARS} chars"
+echo "   THINKING: ${THINKING_HINT_MS}ms → '${THINKING_TEXT_HE}'"
 
 # ---- הרמת Baileys (אם קיים) ----
 NODE_PID=""

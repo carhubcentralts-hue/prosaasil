@@ -15,7 +15,12 @@ VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # Hangover אחרי 
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "280")) # "נשימה" לפני דיבור
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "420"))
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "850")) # קירור אחרי דיבור
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","4")) # כמה פריימים כדי לעצור
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","3")) # כמה פריימים כדי לעצור
+THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "700"))      # "סימן חיים" אם LLM מתעכב
+THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "שנייה… בודקת")  # טקסט מיקרו-התייחסות
+LLM_TARGET_STYLE = os.getenv("LLM_TARGET_STYLE", "warm_helpful")  # סגנון תגובה
+LLM_MIN_CHARS = int(os.getenv("LLM_MIN_CHARS", "140"))            # מינימום תווים לתגובה
+LLM_MAX_CHARS = int(os.getenv("LLM_MAX_CHARS", "420"))            # מקסימום תווים לתגובה
 
 # מכונת מצבים
 STATE_LISTEN = "LISTENING"
@@ -46,6 +51,7 @@ class MediaStreamHandler:
         self.last_tts_end_ts = 0.0
         self.voice_in_row = 0
         self.greeting_sent = False
+        self.state = STATE_LISTEN        # מצב נוכחי
         
         print("🎯 HUMAN-LIKE CONVERSATION: Natural timing, breathing, refractory period")
 
@@ -64,13 +70,13 @@ class MediaStreamHandler:
                     self.last_rx_ts = time.time()
                     print(f"WS_START sid={self.stream_sid} mode={self.mode}")
                     
-                    # ברכה רק אם אין קול מהמשתמש ב-1.2s הראשונות
+                    # ברכה זריזה רק אם אין קול מהמשתמש ב-0.8s הראשונות
                     if not self.greeting_sent:
                         def _maybe_greet():
-                            time.sleep(1.2)
-                            # אם במשך 1.2s לא נכנס קול חדש (שקט), והבוט עדיין במצב האזנה:
-                            if (time.time() - self.last_rx_ts) >= 1.2 and not self.speaking:
-                                greet = os.getenv("AI_GREETING_HE", "שלום! איך אפשר לעזור?")
+                            time.sleep(0.8)  # היה 1.2s – קיצרנו כדי שתהיה זריזה
+                            # אם במשך 0.8s לא נכנס קול חדש (שקט), והבוט עדיין במצב האזנה:
+                            if (time.time() - self.last_rx_ts) >= 0.8 and not self.speaking:
+                                greet = os.getenv("AI_GREETING_HE", "היי, אני כאן — איך אפשר לעזור?")
                                 print(f"🔊 GREETING: {greet}")
                                 self._speak_simple(greet)
                                 self.greeting_sent = True
@@ -113,8 +119,9 @@ class MediaStreamHandler:
                         self.buf.extend(pcm16)
                         dur = len(self.buf) / (2 * SR)
                         
-                        # דממה עם Hangover - ווידוא שזה באמת סוף מבע
-                        silent = ((time.time() - self.last_rx_ts) >= MIN_UTT_SEC) and \
+                        # סוף-מבע אדפטיבי: מהיר למבעים קצרים
+                        min_sil = MIN_UTT_SEC if dur > 1.2 else max(0.35, MIN_UTT_SEC - 0.12)
+                        silent = ((time.time() - self.last_rx_ts) >= min_sil) and \
                                  ((time.time() - self.last_rx_ts) >= (VAD_HANGOVER_MS/1000.0))
                         too_long = dur >= MAX_UTT_SEC
                         
@@ -194,6 +201,7 @@ class MediaStreamHandler:
             return
             
         print(f"🎤 SAFE PROCESSING: conversation #{conversation_id}")
+        self.state = STATE_THINK  # מעבר למצב חשיבה
         
         try:
             # 1. Hebrew ASR
@@ -211,8 +219,19 @@ class MediaStreamHandler:
                 
             self.last_user_text = text.strip()
             
-            # 3. AI Response
-            response = self._ai_response(text)
+            # 3. AI Response עם micro-ack אם נדרש
+            started_at = time.time()
+            
+            def maybe_hint():
+                time.sleep(THINKING_HINT_MS / 1000.0)
+                if hasattr(self, 'state') and self.state == STATE_THINK and not self.speaking:
+                    print(f"🤔 MICRO-ACK: LLM taking time, sending thinking hint")
+                    self._speak_simple(THINKING_TEXT_HE)
+                    
+            threading.Thread(target=maybe_hint, daemon=True).start()
+            
+            response = self._ai_response(text, target_style=LLM_TARGET_STYLE,
+                                       min_chars=LLM_MIN_CHARS, max_chars=LLM_MAX_CHARS)
             if not response:
                 response = "בסדר, איך אפשר לעזור?"
                 
@@ -233,12 +252,16 @@ class MediaStreamHandler:
             })
             
             # 6. דבר!
+            self.state = STATE_SPEAK  # מעבר למצב דיבור
             self._speak_simple(response)
+            self.state = STATE_LISTEN  # חזרה להאזנה
             
         except Exception as e:
             print(f"❌ Processing error: {e}")
             # תגובת חירום
+            self.state = STATE_SPEAK
             self._speak_simple("מצטערת, לא הבנתי. אפשר לחזור?")
+            self.state = STATE_LISTEN
 
 
     # 🎯 דיבור פשוט וישיר (ללא queue מורכב)
@@ -365,8 +388,9 @@ class MediaStreamHandler:
             print(f"STT_ERROR: {e}")
             return ""
     
-    def _ai_response(self, hebrew_text: str) -> str:
-        """Generate SINGLE, FOCUSED Hebrew AI response - NO DUPLICATES!"""
+    def _ai_response(self, hebrew_text: str, target_style: str = "warm_helpful",
+                     min_chars: int = 140, max_chars: int = 420) -> str:
+        """Generate FULL, WARM Hebrew AI response - 2-4 sentences like human conversation!"""
         try:
             import openai
             client = openai.OpenAI()
@@ -396,59 +420,85 @@ class MediaStreamHandler:
                 for turn in recent:
                     history_context += f"לקוח אמר: '{turn['user'][:40]}' ענינו: '{turn['bot'][:40]}' | "
             
-            # ✅ פרומפט ממוקד לשיחה נורמלית 
-            smart_prompt = f"""את עוזרת של שי דירות ומשרדים. תתנהגי כמו בן אדם רגיל.
+            # ✅ פרומפט לשיחה חמה ואנושית
+            if target_style == "warm_helpful":
+                smart_prompt = f"""את נציגת שי דירות ומשרדים. דברי בטון חם, לא רשמי, 2–4 משפטים. 
 
 חוקים:
-1. תשובה קצרה (8-20 מילים)
-2. ענה רק למה שהלקוח שאל
-3. אסור לומר "איך אפשר לעזור" או "שמח לעזור" - זה נשמע מלאכותי
-4. אם לא מבינה - תשאלי שאלה ספציפית
-5. תודה/ביי = "תודה רבה!"
+1. תמיד משפט פתיחה קצר המקבל את דברי הלקוח
+2. אחריו הסבר/אפשרות אחת קונקרטית  
+3. לסיום שאלה אחת בלבד לקידום השיחה (לא יותר משאלה אחת)
+4. הימנעי מרשימות ארוכות
+5. נשמעת כמו בן אדם אמיתי שיודע נדל"ן
+
+מטרה: {min_chars}-{max_chars} תווים בתגובה
 
 {history_context}
 
-דוגמאות:
-לקוח: "דירה" → את: "איזה אזור?"
-לקוח: "תל אביב" → את: "כמה חדרים אתה מחפש?"
-לקוח: "כמה זה עולה" → את: "איזה דירה בדיוק מעניינת אותך?"
+דוגמאות טובות:
+לקוח: "שלום" → את: "שלום! נעים מאוד. אני כאן לעזור לך למצוא בדיוק מה שאתה מחפש. איזה אזור מעניין אותך?"
+לקוח: "דירה" → את: "מעולה, יש לנו הרבה אפשרויות יפות. איזה אזור אתה מעדיף ובאיזה תקציב אנחנו עובדים?"
+לקוח: "תל אביב" → את: "בחירה מצוינת! תל אביב תמיד מבוקשת. כמה חדרים אתה מחפש ואיזה רובע מעדיף?"
 
 הלקוח אמר: "{hebrew_text}"
-ענה קצר!"""
+ענה בטון חם ואנושי!"""
+            else:
+                # פרומפט קצר לצורכים מיוחדים  
+                smart_prompt = f"""תשובה קצרה ומדויקת. הלקוח אמר: "{hebrew_text}" """
 
-            # שלח לAI עם הגדרות חמורות למניעת דיבור מיותר
+            # שלח לAI עם הגדרות מותאמות לתגובות מלאות וחמות
             try:
+                # התאם max_tokens לפי min_chars/max_chars
+                estimated_tokens = max(int(max_chars / 3.5), 60)  # Hebrew ~3.5 chars per token
+                
                 # נסה GPT-5 עם התיקונים החדשים
                 response = client.chat.completions.create(
                     model="gpt-5",  # the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
                     messages=[
                         {"role": "system", "content": smart_prompt},
-                        {"role": "user", "content": f"הלקוח אמר: '{hebrew_text}'. ענה קצר וישיר!"}
+                        {"role": "user", "content": hebrew_text}
                     ],
-                    max_completion_tokens=40,  # פחות מילים!
-                    temperature=1.0,        # יצירתיות מקסימלית
-                    frequency_penalty=1.5,  # מניעת חזרות מקסימלית
-                    presence_penalty=1.2    # עידוד תוכן חדש
+                    max_completion_tokens=estimated_tokens,  # יותר tokens לתגובות מלאות
+                    temperature=1.0,        # GPT-5 תומך רק בטמפרטורה 1.0
+                    frequency_penalty=1.2   # פחות קיצוני למניעת חזרות
                 )
             except Exception as gpt5_error:
                 print(f"GPT-5 failed: {gpt5_error}, trying GPT-4...")
                 # נסה GPT-4 כ-fallback
+                estimated_tokens = max(int(max_chars / 3.5), 60)
                 response = client.chat.completions.create(
                     model="gpt-4",
                     messages=[
                         {"role": "system", "content": smart_prompt},
-                        {"role": "user", "content": f"הלקוח אמר: '{hebrew_text}'. ענה קצר וישיר!"}
+                        {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=40,  # פחות מילים!
-                    temperature=1.0,        # יצירתיות מקסימלית
-                    frequency_penalty=1.5,  # מניעת חזרות מקסימלית
-                    presence_penalty=1.2    # עידוד תוכן חדש
+                    max_tokens=estimated_tokens,  # יותר tokens לתגובות מלאות
+                    temperature=0.9,        # מעט יותר יציב לשיחות ארוכות
+                    frequency_penalty=1.2,  # פחות קיצוני למניעת חזרות
+                    presence_penalty=0.8    # עידוד תוכן חדש מאוזן
                 )
             
             content = response.choices[0].message.content
             if content and content.strip():
                 ai_answer = content.strip()
-                print(f"🤖 AI SUCCESS: {ai_answer}")
+                
+                # 🧮 בקרת אורך - וודא שהתגובה בטווח הנכון
+                if len(ai_answer) < min_chars and target_style == "warm_helpful":
+                    # אם התגובה קצרה מדי, הרחב עם הסבר אמיתי
+                    expansion_options = [
+                        " יש לנו מגוון רחב של נכסים באיכות גבוהה. אני אעזור לך למצוא בדיוק את מה שמתאים לך.",
+                        " אנחנו מתמחים בנכסים איכותיים ושירות אישי. בואו נתחיל למצוא לך משהו מושלם.",
+                        " יש לי נסיון רב בשוק הנדל״ן ואני אדאג שתמצא בדיוק מה שאתה מחפש."
+                    ]
+                    import random
+                    ai_answer += random.choice(expansion_options)
+                elif len(ai_answer) > max_chars:
+                    # אם התגובה ארוכה מדי, קצר
+                    sentences = ai_answer.split('.')
+                    if len(sentences) > 3:
+                        ai_answer = '. '.join(sentences[:3]) + '.'
+                
+                print(f"🤖 AI SUCCESS ({len(ai_answer)} chars): {ai_answer[:50]}...")
                 
                 # 💾 הוסף לhיסטוריה למניעת חזרות
                 self.conversation_history.append({
@@ -495,7 +545,10 @@ class MediaStreamHandler:
             )
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-                sample_rate_hertz=8000
+                sample_rate_hertz=8000,
+                speaking_rate=0.96,  # קצת יותר איטי מהרגיל
+                pitch=0.0,           # טון טבעי
+                effects_profile_id=["telephony-class-application"]  # אופטימיזציה לטלפון
             )
             
             response = client.synthesize_speech(
