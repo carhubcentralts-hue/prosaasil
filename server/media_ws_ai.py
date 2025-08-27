@@ -18,9 +18,7 @@ REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "850")) # קירור 
 BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","6")) # יותר יציב נגד רעשי רקע
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "2000"))     # רק אם LLM תקוע יותר מ-2s
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "רגע...")         # קצר יותר
-LLM_TARGET_STYLE = os.getenv("LLM_TARGET_STYLE", "warm_helpful")  # סגנון תגובה
-LLM_MIN_CHARS = int(os.getenv("LLM_MIN_CHARS", "140"))            # מינימום תווים לתגובה
-LLM_MAX_CHARS = int(os.getenv("LLM_MAX_CHARS", "420"))            # מקסימום תווים לתגובה
+LLM_NATURAL_STYLE = True  # תגובות טבעיות לפי השיחה
 
 # מכונת מצבים
 STATE_LISTEN = "LISTENING"
@@ -236,8 +234,7 @@ class MediaStreamHandler:
                     
             threading.Thread(target=maybe_hint, daemon=True).start()
             
-            response = self._ai_response(text, target_style=LLM_TARGET_STYLE,
-                                       min_chars=LLM_MIN_CHARS, max_chars=LLM_MAX_CHARS)
+            response = self._ai_response(text)
             if not response:
                 response = "בסדר, איך אפשר לעזור?"
                 
@@ -394,9 +391,8 @@ class MediaStreamHandler:
             print(f"STT_ERROR: {e}")
             return ""
     
-    def _ai_response(self, hebrew_text: str, target_style: str = "warm_helpful",
-                     min_chars: int = 140, max_chars: int = 420) -> str:
-        """Generate FULL, WARM Hebrew AI response - 2-4 sentences like human conversation!"""
+    def _ai_response(self, hebrew_text: str) -> str:
+        """Generate NATURAL Hebrew AI response - exactly what the conversation needs!"""
         try:
             import openai
             client = openai.OpenAI()
@@ -405,18 +401,12 @@ class MediaStreamHandler:
             if not hasattr(self, 'conversation_history'):
                 self.conversation_history = []
             
-            # 🚫 מנע תשובות כפולות לאותה שאלה!
-            for turn in self.conversation_history[-3:]:  # בדוק 3 אחרונים
-                if turn['user'].strip().lower() == hebrew_text.strip().lower():
-                    print(f"🚫 DUPLICATE QUESTION DETECTED: '{hebrew_text}' - REFUSING TO ANSWER AGAIN!")
-                    # תשובות מגוונות למקרה של חזרה
-                    refuse_responses = [
-                        "אמרתי כבר על זה. יש לך שאלה אחרת?",
-                        "ענינו על זה קודם. מה עוד מעניין אותך?",
-                        "כבר דיברנו על זה. איזה נושא אחר?"
-                    ]
-                    import random
-                    return random.choice(refuse_responses)
+            # 🚫 מנע לולאות - בדוק אם זה אותה שאלה בדיוק
+            if len(self.conversation_history) > 0:
+                last_turn = self.conversation_history[-1]
+                if last_turn['user'].strip() == hebrew_text.strip():
+                    print(f"🚫 LOOP DETECTED: Same input repeated - BLOCK!")
+                    return "יש לך שאלה אחרת?"
                     
             # 📜 הקשר מהיסטוריה (להבנה טובה יותר)
             history_context = ""
@@ -426,85 +416,58 @@ class MediaStreamHandler:
                 for turn in recent:
                     history_context += f"לקוח אמר: '{turn['user'][:40]}' ענינו: '{turn['bot'][:40]}' | "
             
-            # ✅ פרומפט לשיחה חמה ואנושית
-            if target_style == "warm_helpful":
-                smart_prompt = f"""את נציגת שי דירות ומשרדים. דברי בטון חם, לא רשמי, 2–4 משפטים. 
+            # ✅ פרומפט טבעי לשיחה אמיתית
+            smart_prompt = f"""את נציגת שי דירות ומשרדים. תני תשובה טבעיה בדיוק כמו בשיחה אמיתית.
 
 חוקים:
-1. תמיד משפט פתיחה קצר המקבל את דברי הלקוח
-2. אחריו הסבר/אפשרות אחת קונקרטית  
-3. לסיום שאלה אחת בלבד לקידום השיחה (לא יותר משאלה אחת)
-4. הימנעי מרשימות ארוכות
-5. נשמעת כמו בן אדם אמיתי שיודע נדל"ן
-
-מטרה: {min_chars}-{max_chars} תווים בתגובה
+1. ענה בדיוק לפי מה שהלקוח אמר - לא יותר, לא פחות
+2. תשובה אחת בלבד - לא חזרות
+3. אם זה שאלה קצרה - תשובה קצרה. אם מורכבת - מפורטת
+4. טון טבעי ולא רשמי
+5. אל תאמרי "איך אפשר לעזור" - זה מלאכותי
 
 {history_context}
 
-דוגמאות טובות:
-לקוח: "שלום" → את: "שלום! נעים מאוד. אני כאן לעזור לך למצוא בדיוק מה שאתה מחפש. איזה אזור מעניין אותך?"
-לקוח: "דירה" → את: "מעולה, יש לנו הרבה אפשרויות יפות. איזה אזור אתה מעדיף ובאיזה תקציב אנחנו עובדים?"
-לקוח: "תל אביב" → את: "בחירה מצוינת! תל אביב תמיד מבוקשת. כמה חדרים אתה מחפש ואיזה רובע מעדיף?"
+דוגמאות:
+לקוח: "שלום" → את: "שלום! מה אתה מחפש?"
+לקוח: "דירה" → את: "איזה אזור?"
+לקוח: "תל אביב 3 חדרים" → את: "יש לנו כמה אפשרויות יפות. באיזה תקציב?"
+לקוח: "תודה" → את: "בהצלחה!"
 
 הלקוח אמר: "{hebrew_text}"
-ענה בטון חם ואנושי!"""
-            else:
-                # פרומפט קצר לצורכים מיוחדים  
-                smart_prompt = f"""תשובה קצרה ומדויקת. הלקוח אמר: "{hebrew_text}" """
+ענה טבעי!"""
 
             # שלח לAI עם הגדרות מותאמות לתגובות מלאות וחמות
             try:
-                # התאם max_tokens לפי min_chars/max_chars
-                estimated_tokens = max(int(max_chars / 3.5), 60)  # Hebrew ~3.5 chars per token
-                
-                # נסה GPT-5 עם התיקונים החדשים
+                # נסה GPT-5 עם פרמטרים פשוטים
                 response = client.chat.completions.create(
                     model="gpt-5",  # the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
                     messages=[
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_completion_tokens=estimated_tokens,  # יותר tokens לתגובות מלאות
-                    temperature=1.0,        # GPT-5 תומך רק בטמפרטורה 1.0
-                    frequency_penalty=1.2   # פחות קיצוני למניעת חזרות
+                    max_completion_tokens=150,  # מספיק לתשובה טבעית
+                    temperature=1.0            # GPT-5 תומך רק בטמפרטורה 1.0
                 )
             except Exception as gpt5_error:
                 print(f"GPT-5 failed: {gpt5_error}, trying GPT-4...")
                 # נסה GPT-4 כ-fallback
-                estimated_tokens = max(int(max_chars / 3.5), 60)
                 response = client.chat.completions.create(
                     model="gpt-4",
                     messages=[
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=estimated_tokens,  # יותר tokens לתגובות מלאות
-                    temperature=0.9,        # מעט יותר יציב לשיחות ארוכות
-                    frequency_penalty=1.2,  # פחות קיצוני למניעת חזרות
-                    presence_penalty=0.8    # עידוד תוכן חדש מאוזן
+                    max_tokens=150,           # מספיק לתשובה טבעית
+                    temperature=0.9,          # יציבות
+                    frequency_penalty=1.5     # מניעת חזרות חזקה
                 )
             
             content = response.choices[0].message.content
             if content and content.strip():
                 ai_answer = content.strip()
                 
-                # 🧮 בקרת אורך - וודא שהתגובה בטווח הנכון
-                if len(ai_answer) < min_chars and target_style == "warm_helpful":
-                    # אם התגובה קצרה מדי, הרחב עם הסבר אמיתי
-                    expansion_options = [
-                        " יש לנו מגוון רחב של נכסים באיכות גבוהה. אני אעזור לך למצוא בדיוק את מה שמתאים לך.",
-                        " אנחנו מתמחים בנכסים איכותיים ושירות אישי. בואו נתחיל למצוא לך משהו מושלם.",
-                        " יש לי נסיון רב בשוק הנדל״ן ואני אדאג שתמצא בדיוק מה שאתה מחפש."
-                    ]
-                    import random
-                    ai_answer += random.choice(expansion_options)
-                elif len(ai_answer) > max_chars:
-                    # אם התגובה ארוכה מדי, קצר
-                    sentences = ai_answer.split('.')
-                    if len(sentences) > 3:
-                        ai_answer = '. '.join(sentences[:3]) + '.'
-                
-                print(f"🤖 AI SUCCESS ({len(ai_answer)} chars): {ai_answer[:50]}...")
+                print(f"🤖 AI SUCCESS: {ai_answer}")
                 
                 # 💾 הוסף לhיסטוריה למניעת חזרות
                 self.conversation_history.append({
