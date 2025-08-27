@@ -6,9 +6,10 @@ import os, json, time, base64, audioop, math, threading, queue
 from simple_websocket import ConnectionClosed
 
 SR = 8000
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.7"))   # זמן דממה לסוף-מבע
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "6.0"))   # חיתוך בטיחות
-VAD_RMS = int(os.getenv("VAD_RMS", "200"))             # סף דיבור (RMS)
+# 🎯 פרמטרים מעודכנים לשיחה נורמלית - יותר זמן למשתמש!
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "2.5"))   # 2.5 שניות המתנה - זמן נורמלי לסיים משפט
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "8.0"))   # 8 שניות מקסימום - זמן לדיבור ארוך
+VAD_RMS = int(os.getenv("VAD_RMS", "350"))             # רגישות נמוכה יותר - פחות רעשים
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
 
 # מכונת מצבים
@@ -87,16 +88,30 @@ class MediaStreamHandler:
                         self.buf.clear()
                         continue
                     
-                    # איסוף אודיו רק כשלא מעבדים ולא מדברים
+                    # 🎯 איסוף אודיו עם זיהוי דממה נכון
                     if not self.processing:
-                        self.buf.extend(pcm16)
-                        dur = len(self.buf) / (2 * SR)
-                        silent = (time.time() - self.last_rx_ts) >= MIN_UTT_SEC
-                        too_long = dur >= MAX_UTT_SEC
+                        # הוסף אודיו לבאפר רק אם יש קול
+                        if is_voice:
+                            self.buf.extend(pcm16)
+                            # עדכן זמן קלט אחרון רק כשיש קול!
+                            self.last_voice_time = time.time()
+                            if not hasattr(self, 'last_voice_time'):
+                                self.last_voice_time = time.time()
                         
-                        # סוף מבע - עיבוד פעם אחת בלבד
-                        if (silent or too_long) and dur > 0.3:
-                            print(f"🎤 PROCESSING: {dur:.1f}s audio (conversation #{self.conversation_id})")
+                        # בדוק אם יש מספיק אודיו ואם עבר זמן מספיק
+                        dur = len(self.buf) / (2 * SR)
+                        
+                        # חישוב דממה נכון: מזמן הקול האחרון!
+                        silence_duration = 0
+                        if hasattr(self, 'last_voice_time'):
+                            silence_duration = time.time() - self.last_voice_time
+                        
+                        too_long = dur >= MAX_UTT_SEC
+                        enough_silence = silence_duration >= MIN_UTT_SEC and dur > 0.5
+                        
+                        # 🎯 סוף מבע - רק אחרי דממה אמיתית או זמן יותר מדי
+                        if (enough_silence or too_long) and dur > 0.5:
+                            print(f"🎤 PROCESSING: {dur:.1f}s audio, silence: {silence_duration:.1f}s (conversation #{self.conversation_id})")
                             
                             # חסימה מוחלטת של עיבוד כפול
                             if self.processing:
@@ -365,20 +380,25 @@ class MediaStreamHandler:
                 for turn in recent:
                     history_context += f"לקוח אמר: '{turn['user'][:40]}' ענינו: '{turn['bot'][:40]}' | "
             
-            # ✅ פרומפט חד וממוקד - בלי אויר חם!
-            smart_prompt = f"""את העוזרת של 'שי דירות ומשרדים'.
+            # ✅ פרומפט ממוקד לשיחה נורמלית 
+            smart_prompt = f"""את עוזרת של שי דירות ומשרדים. תתנהגי כמו בן אדם רגיל.
 
-🎯 חוקים קריטיים:
-1. תשובה אחת בלבד - 15-35 מילים!
-2. ענה ישירות למה שנשאל - לא סתם דיבור!
-3. אל תחזרי על תשובות קודמות!
-4. אם שאלה לא ברורה - בקשי הבהרה!
-5. אם אמר "תודה"/"ביי" - סיימי יפה!
+חוקים:
+1. תשובה קצרה (8-20 מילים)
+2. ענה רק למה שהלקוח שאל
+3. אסור לומר "איך אפשר לעזור" או "שמח לעזור" - זה נשמע מלאכותי
+4. אם לא מבינה - תשאלי שאלה ספציפית
+5. תודה/ביי = "תודה רבה!"
 
 {history_context}
 
-עכשיו הלקוח אמר: "{hebrew_text}"
-ענה בדיוק למה שהוא שאל - קצר וחד!"""
+דוגמאות:
+לקוח: "דירה" → את: "איזה אזור?"
+לקוח: "תל אביב" → את: "כמה חדרים אתה מחפש?"
+לקוח: "כמה זה עולה" → את: "איזה דירה בדיוק מעניינת אותך?"
+
+הלקוח אמר: "{hebrew_text}"
+ענה קצר!"""
 
             # שלח לAI עם הגדרות חמורות למניעת דיבור מיותר
             try:
@@ -389,10 +409,10 @@ class MediaStreamHandler:
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": f"הלקוח אמר: '{hebrew_text}'. ענה קצר וישיר!"}
                     ],
-                    max_completion_tokens=60,  # תיקון לGPT-5
-                    temperature=0.8,
-                    frequency_penalty=1.2,  # חמור מפני חזרות
-                    presence_penalty=1.0    # עידוד נושאים חדשים
+                    max_completion_tokens=40,  # פחות מילים!
+                    temperature=1.0,        # יצירתיות מקסימלית
+                    frequency_penalty=1.5,  # מניעת חזרות מקסימלית
+                    presence_penalty=1.2    # עידוד תוכן חדש
                 )
             except Exception as gpt5_error:
                 print(f"GPT-5 failed: {gpt5_error}, trying GPT-4...")
@@ -403,10 +423,10 @@ class MediaStreamHandler:
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": f"הלקוח אמר: '{hebrew_text}'. ענה קצר וישיר!"}
                     ],
-                    max_tokens=60,  # GPT-4 משתמש ב-max_tokens
-                    temperature=0.8,
-                    frequency_penalty=1.2,
-                    presence_penalty=1.0
+                    max_tokens=40,  # פחות מילים!
+                    temperature=1.0,        # יצירתיות מקסימלית
+                    frequency_penalty=1.5,  # מניעת חזרות מקסימלית
+                    presence_penalty=1.2    # עידוד תוכן חדש
                 )
             
             content = response.choices[0].message.content
@@ -431,15 +451,19 @@ class MediaStreamHandler:
             
         except Exception as e:
             print(f"AI_ERROR: {e}")
-            # תגובות חירום קצרות וישירות
+            # תגובות חירום חכמות - לא כלליות!
             if "תודה" in hebrew_text or "ביי" in hebrew_text:
-                return "תודה! שמח שעזרתי."
-            elif any(word in hebrew_text for word in ["דירה", "משרד", "נכס"]):
+                return "תודה רבה!"
+            elif "דירה" in hebrew_text:
                 return "איזה אזור מעניין אותך?"
-            elif any(word in hebrew_text for word in ["מחיר", "כמה", "עולה"]):
-                return "המחירים תלויים באזור. בואו נדבר?"
+            elif "משרד" in hebrew_text:
+                return "איזה גודל משרד אתה מחפש?"
+            elif any(word in hebrew_text for word in ["מחיר", "כמה", "עולה", "עולה"]):
+                return "איזה נכס בדיוק אתה בודק?"
+            elif len(hebrew_text.strip()) < 5:
+                return "מה אתה מחפש?"
             else:
-                return "לא הבנתי. תוכל לפרט?"
+                return "איזה פרט אתה רוצה לדעת?"
     
     def _hebrew_tts(self, text: str) -> bytes | None:
         """Hebrew Text-to-Speech using Google Cloud TTS"""
