@@ -68,13 +68,20 @@ class MediaStreamHandler:
                     pcm16 = audioop.ulaw2lin(mulaw, 2)
                     self.last_rx_ts = time.time()
 
-                    # מדד דיבור/שקט (VAD)
+                    # מדד דיבור/שקט (VAD) - זיהוי קול אמיתי
                     rms = audioop.rms(pcm16, 2)
                     is_voice = rms > VAD_RMS
 
-                    # 🎯 פתרון פשוט: רק בדוק אם המערכת מדברת ונקה buffer
+                    # 🚨 BARGE-IN אמיתי: אם המשתמש מדבר כשהמערכת מדברת - עצור מיד!
+                    if self.speaking and is_voice and BARGE_IN:
+                        print(f"🚨 BARGE-IN! User speaking (RMS={rms}) - STOPPING BOT immediately!")
+                        self._interrupt_bot_speech()
+                        # אל תמשיך - תן למשתמש לדבר
+                        self.buf.clear()
+                        continue
+                    
+                    # אם המערכת מדברת ואין הפרעה - נקה קלט
                     if self.speaking:
-                        # כשהמערכת מדברת - נקה כל קלט
                         self.buf.clear()
                         continue
                     
@@ -123,6 +130,27 @@ class MediaStreamHandler:
             except: 
                 pass
             print(f"WS_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
+
+    def _interrupt_bot_speech(self):
+        """עצירה מיידית של דיבור הבוט (BARGE-IN)"""
+        if not self.speaking:
+            return
+            
+        print("🚨 INTERRUPTING BOT SPEECH - User wants to talk!")
+        self.speaking = False
+        
+        # שלח CLEAR לטוויליו לעצור את האודיו מיד
+        if self.stream_sid:
+            try:
+                self.ws.send(json.dumps({
+                    "event": "clear", 
+                    "streamSid": self.stream_sid
+                }))
+                print("🔇 CLEAR sent to Twilio - bot speech stopped")
+            except Exception as e:
+                print(f"Error sending CLEAR: {e}")
+        
+        print("✅ Bot is now silent - user can speak")
 
     # 🎯 עיבוד מבע פשוט וביטוח (ללא כפילויות)
     def _process_utterance_safe(self, pcm16_8k: bytes, conversation_id: int):
@@ -217,8 +245,8 @@ class MediaStreamHandler:
             print("✅ Speaking completed")
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
-        """שליחת אודיו פשוטה ויעילה"""
-        if not self.stream_sid:
+        """שליחת אודיו עם יכולת עצירה באמצע (BARGE-IN)"""
+        if not self.stream_sid or not pcm16_8k:
             return
             
         # CLEAR לפני שליחה
@@ -227,27 +255,40 @@ class MediaStreamHandler:
         mulaw = audioop.lin2ulaw(pcm16_8k, 2)
         FR = 160  # 20ms @ 8kHz
         frames_sent = 0
+        total_frames = len(mulaw) // FR
+        
+        print(f"🔊 Starting audio transmission: {total_frames} frames ({total_frames * 20}ms)")
         
         for i in range(0, len(mulaw), FR):
-            # בדיקה אם עדיין מדברים (למקרה של בעיות)
+            # 🚨 בדיקה קריטית: האם עדיין צריך לדבר?
             if not self.speaking:
-                print("🚨 Speech interrupted")
+                print(f"🚨 BARGE-IN detected! Stopped at frame {frames_sent}/{total_frames}")
+                # שלח CLEAR נוסף למקרה הצורך
+                self.ws.send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
                 break
                 
             chunk = mulaw[i:i+FR]
             if len(chunk) < FR:
+                # הגענו לסוף - זה תקין
                 break
                 
             payload = base64.b64encode(chunk).decode("ascii")
-            self.ws.send(json.dumps({
-                "event": "media",
-                "streamSid": self.stream_sid,
-                "media": {"payload": payload}
-            }))
-            self.tx += 1
-            frames_sent += 1
-            
-        print(f"🔊 Sent {frames_sent} audio frames")
+            try:
+                self.ws.send(json.dumps({
+                    "event": "media",
+                    "streamSid": self.stream_sid,
+                    "media": {"payload": payload}
+                }))
+                self.tx += 1
+                frames_sent += 1
+            except Exception as e:
+                print(f"❌ Error sending frame {frames_sent}: {e}")
+                break
+        
+        if self.speaking:
+            print(f"✅ Complete audio sent: {frames_sent}/{total_frames} frames")
+        else:
+            print(f"⚠️ Audio interrupted: {frames_sent}/{total_frames} frames sent")
 
     def _send_beep(self, ms: int):
         """צפצוף פשוט"""
