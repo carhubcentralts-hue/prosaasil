@@ -72,12 +72,14 @@ class MediaStreamHandler:
                     rms = audioop.rms(pcm16, 2)
                     is_voice = rms > VAD_RMS
 
-                    # 🚨 BARGE-IN אמיתי: אם המשתמש מדבר כשהמערכת מדברת - עצור מיד!
+                    # 🚨 BARGE-IN קיצוני: אם המשתמש מדבר כשהמערכת מדברת - עצור מיד!
                     if self.speaking and is_voice and BARGE_IN:
-                        print(f"🚨 BARGE-IN! User speaking (RMS={rms}) - STOPPING BOT immediately!")
+                        print(f"🚨 CRITICAL BARGE-IN! User speaking (RMS={rms}) - FORCE STOPPING BOT NOW!")
                         self._interrupt_bot_speech()
-                        # אל תמשיך - תן למשתמש לדבר
+                        # נקה הכל ותן למשתמש לדבר
                         self.buf.clear()
+                        self.processing = False  # עצור גם עיבוד
+                        print("🎤 USER HAS THE FLOOR - Bot completely silent")
                         continue
                     
                     # אם המערכת מדברת ואין הפרעה - נקה קלט
@@ -333,85 +335,111 @@ class MediaStreamHandler:
             return ""
     
     def _ai_response(self, hebrew_text: str) -> str:
-        """Generate Hebrew AI response for real estate"""
+        """Generate SINGLE, FOCUSED Hebrew AI response - NO DUPLICATES!"""
         try:
             import openai
             client = openai.OpenAI()
             
-            # ✅ פרומפט מעודכן לעוזרת חכמה
-            system_prompt = """את העוזרת החכמה של 'שי דירות ומשרדים בע״מ' - חברת נדל״ן מובילה בישראל.
+            # 🎯 היסטוריה של שיחות למניעת חזרות
+            if not hasattr(self, 'conversation_history'):
+                self.conversation_history = []
+            
+            # 🚫 מנע תשובות כפולות לאותה שאלה!
+            for turn in self.conversation_history[-3:]:  # בדוק 3 אחרונים
+                if turn['user'].strip().lower() == hebrew_text.strip().lower():
+                    print(f"🚫 DUPLICATE QUESTION DETECTED: '{hebrew_text}' - REFUSING TO ANSWER AGAIN!")
+                    # תשובות מגוונות למקרה של חזרה
+                    refuse_responses = [
+                        "אמרתי כבר על זה. יש לך שאלה אחרת?",
+                        "ענינו על זה קודם. מה עוד מעניין אותך?",
+                        "כבר דיברנו על זה. איזה נושא אחר?"
+                    ]
+                    import random
+                    return random.choice(refuse_responses)
+                    
+            # 📜 הקשר מהיסטוריה (להבנה טובה יותר)
+            history_context = ""
+            if self.conversation_history:
+                recent = self.conversation_history[-2:]  # 2 אחרונים
+                history_context = "הקשר שיחה: "
+                for turn in recent:
+                    history_context += f"לקוח אמר: '{turn['user'][:40]}' ענינו: '{turn['bot'][:40]}' | "
+            
+            # ✅ פרומפט חד וממוקד - בלי אויר חם!
+            smart_prompt = f"""את העוזרת של 'שי דירות ומשרדים'.
 
-🏢 השירותים שלנו:
-- דירות למכירה והשכרה (2-5 חדרים)
-- משרדים ומבנים מסחריים
-- יעוץ השקעות נדל"ן
-- הערכת שווי נכסים
-- ליווי משפטי וכלכלי
+🎯 חוקים קריטיים:
+1. תשובה אחת בלבד - 15-35 מילים!
+2. ענה ישירות למה שנשאל - לא סתם דיבור!
+3. אל תחזרי על תשובות קודמות!
+4. אם שאלה לא ברורה - בקשי הבהרה!
+5. אם אמר "תודה"/"ביי" - סיימי יפה!
 
-📞 הסגנון שלך:
-- ענה בעברית בלבד
-- היה חמה, מקצועית וידידותית
-- תני תשובות קצרות ויעילות (1-2 משפטים)
-- הציעי תמיד פגישה או יעוץ נוסף
-- אל תציני מחירים ספציפיים
+{history_context}
 
-✅ דוגמאות:
-"אני רוצה דירה" → "מעולה! איזה אזור מעניין אותך ומה התקציב שלך?"
-"כמה זה עולה" → "המחירים משתנים לפי אזור וגודל. בואו נקבע פגישה ואמצא לך את הדירה המושלמת!"
-"תודה" → "בשמחה! אני כאן לכל שאלה נוספת."
+עכשיו הלקוח אמר: "{hebrew_text}"
+ענה בדיוק למה שהוא שאל - קצר וחד!"""
 
-הלקוח כבר שמע את הברכה שלך, אז עני ישירות על השאלות שלו."""
-
-            # נסה קודם עם GPT-4 שיותר יציב
+            # שלח לAI עם הגדרות חמורות למניעת דיבור מיותר
             try:
+                # נסה GPT-5 עם התיקונים החדשים
+                response = client.chat.completions.create(
+                    model="gpt-5",  # the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+                    messages=[
+                        {"role": "system", "content": smart_prompt},
+                        {"role": "user", "content": f"הלקוח אמר: '{hebrew_text}'. ענה קצר וישיר!"}
+                    ],
+                    max_completion_tokens=60,  # תיקון לGPT-5
+                    temperature=0.8,
+                    frequency_penalty=1.2,  # חמור מפני חזרות
+                    presence_penalty=1.0    # עידוד נושאים חדשים
+                )
+            except Exception as gpt5_error:
+                print(f"GPT-5 failed: {gpt5_error}, trying GPT-4...")
+                # נסה GPT-4 כ-fallback
                 response = client.chat.completions.create(
                     model="gpt-4",
                     messages=[
-                        {
-                            "role": "system", 
-                            "content": system_prompt
-                        },
-                        {
-                            "role": "user",
-                            "content": hebrew_text
-                        }
+                        {"role": "system", "content": smart_prompt},
+                        {"role": "user", "content": f"הלקוח אמר: '{hebrew_text}'. ענה קצר וישיר!"}
                     ],
-                    max_tokens=150,
-                    temperature=0.7
-                )
-            except Exception:
-                # אם GPT-4 לא עובד, נסה GPT-5
-                response = client.chat.completions.create(
-                    model="gpt-5",
-                    messages=[
-                        {
-                            "role": "system", 
-                            "content": system_prompt
-                        },
-                        {
-                            "role": "user",
-                            "content": hebrew_text
-                        }
-                    ],
-                    max_completion_tokens=150
+                    max_tokens=60,  # GPT-4 משתמש ב-max_tokens
+                    temperature=0.8,
+                    frequency_penalty=1.2,
+                    presence_penalty=1.0
                 )
             
             content = response.choices[0].message.content
             if content and content.strip():
-                print(f"🤖 AI SUCCESS: {content.strip()}")
-                return content.strip()
+                ai_answer = content.strip()
+                print(f"🤖 AI SUCCESS: {ai_answer}")
+                
+                # 💾 הוסף לhיסטוריה למניעת חזרות
+                self.conversation_history.append({
+                    'user': hebrew_text.strip(),
+                    'bot': ai_answer,
+                    'time': time.time()
+                })
+                
+                # 🧹 נקה היסטוריה ישנה (רק 10 אחרונים)
+                if len(self.conversation_history) > 10:
+                    self.conversation_history = self.conversation_history[-10:]
+                    
+                return ai_answer
             else:
-                return "שמח לעזור! איך אני יכול לסייע לך עם נדל\"ן היום?"
+                return "לא הבנתי. תוכל לחזור?"
             
         except Exception as e:
             print(f"AI_ERROR: {e}")
-            # ✅ תגובת חירום טובה יותר במקום "בעיה טכנית"
-            if "רוצה" in hebrew_text or "דירה" in hebrew_text or "משרד" in hebrew_text:
-                return "מעולה! אשמח לעזור לך למצוא נכס מתאים. בואו נקבע פגישה?"
-            elif "שלום" in hebrew_text or "היי" in hebrew_text:
-                return "שלום! איך אני יכול לעזור לך היום עם נדל\"ן?"
+            # תגובות חירום קצרות וישירות
+            if "תודה" in hebrew_text or "ביי" in hebrew_text:
+                return "תודה! שמח שעזרתי."
+            elif any(word in hebrew_text for word in ["דירה", "משרד", "נכס"]):
+                return "איזה אזור מעניין אותך?"
+            elif any(word in hebrew_text for word in ["מחיר", "כמה", "עולה"]):
+                return "המחירים תלויים באזור. בואו נדבר?"
             else:
-                return "שמח לעזור! ספר לי מה אתה מחפש ואמצא לך את הפתרון המושלם."
+                return "לא הבנתי. תוכל לפרט?"
     
     def _hebrew_tts(self, text: str) -> bytes | None:
         """Hebrew Text-to-Speech using Google Cloud TTS"""
