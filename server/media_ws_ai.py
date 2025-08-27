@@ -21,24 +21,24 @@ class MediaStreamHandler:
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
         self.stream_sid = None
-
-        # Rx / Tx counters
-        self.rx_frames = 0
-        self.tx_frames = 0
-
-        # מצב שיחה - מכונת מצבים מתקדמת
-        self.state = STATE_LISTEN
-        self.speaking = False
-        self.processing = False            # מונע _process_utterance כפול
-        self.last_rx_ts = None
-        self.buf_pcm16 = bytearray()       # באפר מבע הנוכחי
-        self.last_reply_text = None        # מניעת לופים של אותה תשובה
-        self.last_user_text = None         # מניעת עיבוד כפול של אותו מבע
-
-        # תור שידור אסינכרוני (אפשר לעצור מיד - BARGE-IN)
-        self.tx_q: queue.Queue = queue.Queue(maxsize=4096)
-        self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
-        self.tx_running = False
+        self.rx = 0
+        self.tx = 0
+        
+        # 🎯 פתרון פשוט ויעיל לניהול תורות
+        self.buf = bytearray()
+        self.last_rx = None
+        self.speaking = False           # האם הבוט מדבר כרגע
+        self.processing = False         # האם מעבד מבע כרגע
+        self.conversation_id = 0        # מונה שיחות למניעת כפילויות
+        self.last_processing_id = -1    # מזהה העיבוד האחרון
+        self.response_timeout = None    # זמן תגובה מקסימלי
+        
+        # דה-דופליקציה מתקדמת
+        self.last_user_text = ""
+        self.last_response_text = ""
+        self.response_history = []       # היסטוריית תגובות
+        
+        print("🎯 SIMPLE TURN-TAKING: No loops, one response per input")
 
     def run(self):
         print(f"🚨 MEDIA_STREAM_HANDLER: mode={self.mode}")
@@ -53,19 +53,16 @@ class MediaStreamHandler:
                 if et == "start":
                     self.stream_sid = evt["start"]["streamSid"]
                     self.last_rx_ts = time.time()
-                    print(f"WS_START sid={self.stream_sid} mode={self.mode} state={self.state}")
+                    print(f"WS_START sid={self.stream_sid} mode={self.mode}")
                     
-                    # מפעיל משדר אסינכרוני
-                    if not self.tx_running:
-                        self.tx_running = True
-                        self.tx_thread.start()
-                    
-                    # ברכה פעם אחת
-                    self._speak_text("שלום! אני העוזרת החכמה של שי דירות ומשרדים. איך אני יכולה לעזור לך היום?")
+                    # ברכה פשוטה ובודדת
+                    greeting = "שלום! אני העוזרת החכמה של שי דירות ומשרדים. איך אני יכולה לעזור לך היום?"
+                    print(f"🔊 GREETING: {greeting}")
+                    self._speak_simple(greeting)
                     continue
 
                 if et == "media":
-                    self.rx_frames += 1
+                    self.rx += 1
                     b64 = evt["media"]["payload"]
                     mulaw = base64.b64decode(b64)
                     pcm16 = audioop.ulaw2lin(mulaw, 2)
@@ -75,42 +72,49 @@ class MediaStreamHandler:
                     rms = audioop.rms(pcm16, 2)
                     is_voice = rms > VAD_RMS
 
-                    # 🚨 Barge-in: אם הבוט מדבר והאדם התחיל לדבר → לעצור מיד
-                    if BARGE_IN and self.state == STATE_SPEAK and is_voice:
-                        print(f"🚨 BARGE_IN: User speaking (RMS={rms}) while bot talking - interrupting!")
-                        self._interrupt_speaking()
-                        self.state = STATE_LISTEN
-
-                    # איסוף מבע רק כשאנחנו במצב האזנה
-                    if self.state == STATE_LISTEN and not self.speaking:
-                        self.buf_pcm16.extend(pcm16)
-
-                        dur = len(self.buf_pcm16) / (2 * SR)
-                        silent_enough = (time.time() - self.last_rx_ts) >= MIN_UTT_SEC
+                    # 🎯 פתרון פשוט: רק בדוק אם המערכת מדברת ונקה buffer
+                    if self.speaking:
+                        # כשהמערכת מדברת - נקה כל קלט
+                        self.buf.clear()
+                        continue
+                    
+                    # איסוף אודיו רק כשלא מעבדים ולא מדברים
+                    if not self.processing:
+                        self.buf.extend(pcm16)
+                        dur = len(self.buf) / (2 * SR)
+                        silent = (time.time() - self.last_rx_ts) >= MIN_UTT_SEC
                         too_long = dur >= MAX_UTT_SEC
-
-                        # סוף-מבע: פעם אחת בלבד (processing guard)
-                        if (silent_enough or too_long) and dur > 0.3 and not self.processing:
-                            print(f"🎤 END-OF-UTTERANCE: {dur:.1f}s audio, state={self.state}")
+                        
+                        # סוף מבע - עיבוד פעם אחת בלבד
+                        if (silent or too_long) and dur > 0.3:
+                            print(f"🎤 PROCESSING: {dur:.1f}s audio (conversation #{self.conversation_id})")
+                            
+                            # חסימה מוחלטת של עיבוד כפול
+                            if self.processing:
+                                print("🚫 Already processing - SKIP")
+                                continue
+                                
                             self.processing = True
-                            self.state = STATE_THINK
-                            utt_pcm = bytes(self.buf_pcm16)
-                            self.buf_pcm16.clear()
+                            current_id = self.conversation_id
+                            self.conversation_id += 1
+                            
+                            # עיבוד במנותק
+                            utt_pcm = bytes(self.buf)
+                            self.buf.clear()
+                            
                             try:
-                                self._process_utterance(utt_pcm)
+                                self._process_utterance_safe(utt_pcm, current_id)
                             finally:
                                 self.processing = False
-                                # חוזרים להאזנה רק אם לא התחיל דיבור
-                                if not self.speaking:
-                                    self.state = STATE_LISTEN
+                                print(f"✅ Processing complete for conversation #{current_id}")
                     continue
 
                 if et == "stop":
-                    print(f"WS_STOP sid={self.stream_sid} rx={self.rx_frames} tx={self.tx_frames}")
+                    print(f"WS_STOP sid={self.stream_sid} rx={self.rx} tx={self.tx}")
                     break
 
         except ConnectionClosed:
-            print(f"WS_CLOSED sid={self.stream_sid} rx={self.rx_frames} tx={self.tx_frames}")
+            print(f"WS_CLOSED sid={self.stream_sid} rx={self.rx} tx={self.tx}")
         except Exception as e:
             print("WS_ERR:", e)
         finally:
@@ -118,202 +122,142 @@ class MediaStreamHandler:
                 self.ws.close()
             except: 
                 pass
-            # סיום תור השידור
-            self.tx_running = False
-            try: 
-                self.tx_q.put_nowait({"type": "end"})
-            except: 
-                pass
-            print(f"WS_DONE sid={self.stream_sid} rx={self.rx_frames} tx={self.tx_frames}")
+            print(f"WS_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
 
-    # תור השידור (TX) – 20ms µ-law, עם CLEAR/STOP מיידי
-    def _tx_loop(self):
-        """מריץ ברקע; כל פריים יוצא בנפרד – מאפשר ברג'-אין מיידי"""
-        while self.tx_running:
-            try:
-                item = self.tx_q.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            if item.get("type") == "end":
-                break
-            if item.get("type") == "clear":
-                # לרוקן באפר נגן אצל Twilio
-                if self.stream_sid:
-                    self.ws.send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
-                continue
-            if item.get("type") == "media":
-                payload = item["payload"]
-                self.ws.send(json.dumps({
-                    "event": "media",
-                    "streamSid": self.stream_sid,
-                    "media": {"payload": payload}
-                }))
-                self.tx_frames += 1
-                continue
-            if item.get("type") == "mark":
-                self.ws.send(json.dumps({"event": "mark", "streamSid": self.stream_sid,
-                                         "mark": {"name": item.get("name", "mark")}}))
-
-    # עצירת דיבור (Barge-in) + ניקוי תור
-    def _interrupt_speaking(self):
-        if not self.speaking:
+    # 🎯 עיבוד מבע פשוט וביטוח (ללא כפילויות)
+    def _process_utterance_safe(self, pcm16_8k: bytes, conversation_id: int):
+        """עיבוד מבע עם הגנה כפולה מפני לולאות"""
+        # וודא שלא מעבדים את אותו ID פעמיים
+        if conversation_id <= self.last_processing_id:
+            print(f"🚫 DUPLICATE processing ID {conversation_id} (last: {self.last_processing_id}) - SKIP")
             return
-        print("🚨 BARGE_IN: interrupt speaking")
-        self.speaking = False
-        self.state = STATE_LISTEN
-        # ריקון מיידי של התור
-        while not self.tx_q.empty():
-            try: 
-                self.tx_q.get_nowait()
-            except: 
-                break
-        # CLEAR לנגן
-        try: 
-            self.tx_q.put_nowait({"type":"clear"})
-        except: 
-            pass
-
-    # --- מבע → ASR → LLM → TTS ---
-    def _process_utterance(self, pcm16_8k: bytes):
-        """טיפול במבע - פעם אחת בלבד, בלי דופליקטים"""
-        # לא מאפשרים Re-entry
+        
+        self.last_processing_id = conversation_id
+        
+        # וודא שהמערכת לא מדברת כרגע
         if self.speaking:
+            print("🚫 Still speaking - cannot process new utterance")
             return
+            
+        print(f"🎤 SAFE PROCESSING: conversation #{conversation_id}")
         
         try:
             # 1. Hebrew ASR
             text = self._hebrew_stt(pcm16_8k)
+            if not text or len(text.strip()) < 2:
+                print("🎤 No speech detected")
+                return
+                
+            print(f"🎤 ASR: '{text}'")
+            
+            # 2. דה-דופליקציה חכמה
+            if text.strip() == self.last_user_text:
+                print("🚫 DEDUP: Same text as last input - SKIP")
+                return
+                
+            self.last_user_text = text.strip()
+            
+            # 3. AI Response
+            response = self._ai_response(text)
+            if not response:
+                response = "בסדר, איך אפשר לעזור?"
+                
+            print(f"🤖 AI: '{response}'")
+            
+            # 4. דה-דופליקציה של תגובות
+            if response.strip() == self.last_response_text:
+                response = response + " אפשר לפרט?"
+                
+            self.last_response_text = response.strip()
+            
+            # 5. הוסף להיסטוריה
+            self.response_history.append({
+                'id': conversation_id,
+                'user': text,
+                'bot': response,
+                'time': time.time()
+            })
+            
+            # 6. דבר!
+            self._speak_simple(response)
+            
         except Exception as e:
-            print("ASR_ERR:", e)
-            text = ""
+            print(f"❌ Processing error: {e}")
+            # תגובת חירום
+            self._speak_simple("מצטערת, לא הבנתי. אפשר לחזור?")
 
-        print(f"ASR_TEXT: '{text}'")
-        if not text.strip():
-            # תגובה מינימלית או לא להגיב כלל
-            return
 
-        # מניעת לופים: אם זהה למבע הקודם בטווח קצר, דלג
-        if text.strip() == getattr(self, "last_user_text", None):
-            print("DEDUP: same utterance ignored")
-            return
-        self.last_user_text = text.strip()
-
-        self.state = STATE_THINK
-
-        # תשובה מהמודל
-        try:
-            reply = self._ai_response(text)
-        except Exception as e:
-            print("LLM_ERR:", e)
-            reply = ""
-
-        if not reply.strip():
-            reply = "בסדר, איך אפשר לעזור?"
-
-        # אם זהה לתשובה הקודמת → עדכן קצת כדי לא להישמע תקוע
-        if reply.strip() == (self.last_reply_text or ""):
-            reply = reply + " תרצה לפרט?"
-
-        self.last_reply_text = reply.strip()
-        print(f"LLM_REPLY: '{reply}'")
-
-        # TTS ושידור
-        self._speak_text(reply)
-
-    # TTS ושידור 20ms דרך התור החדש
-    def _speak_text(self, text: str):
-        """TTS ושידור אסינכרוני עם תמיכה ב-Barge-in"""
+    # 🎯 דיבור פשוט וישיר (ללא queue מורכב)
+    def _speak_simple(self, text: str):
+        """TTS פשוט עם הגנה מפני לולאות"""
         if not text:
             return
-        
+            
+        if self.speaking:
+            print("🚫 Already speaking - cannot start new speech")
+            return
+            
+        self.speaking = True
         print(f"🔊 SPEAKING: '{text}'")
         
-        # נסה TTS אמיתי
-        pcm = None
         try:
-            pcm = self._hebrew_tts(text)
+            # נסה TTS אמיתי
+            tts_audio = self._hebrew_tts(text)
+            if tts_audio and len(tts_audio) > 1000:
+                print(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
+                self._send_pcm16_as_mulaw_frames(tts_audio)
+            else:
+                print("🔊 TTS FAILED - sending beep")
+                self._send_beep(800)
         except Exception as e:
-            print("TTS_ERR:", e)
+            print(f"🔊 TTS ERROR: {e} - sending beep")
+            self._send_beep(800)
+        finally:
+            self.speaking = False
+            print("✅ Speaking completed")
 
-        if not pcm or len(pcm) < 1000:
-            # Fallback לצפצוף
-            pcm = self._beep_pcm16_8k(800)
-            print("🔊 Using fallback beep")
-
-        self.speaking = True
-        self.state = STATE_SPEAK
-
-        # CLEAR לפני הפריים הראשון
-        try: 
-            self.tx_q.put_nowait({"type":"clear"})
-        except: 
-            pass
-
-        # המרה ל-µlaw ושידור פריימים של 20ms
-        mulaw = audioop.lin2ulaw(pcm, 2)
+    def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
+        """שליחת אודיו פשוטה ויעילה"""
+        if not self.stream_sid:
+            return
+            
+        # CLEAR לפני שליחה
+        self.ws.send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+        
+        mulaw = audioop.lin2ulaw(pcm16_8k, 2)
         FR = 160  # 20ms @ 8kHz
         frames_sent = 0
         
         for i in range(0, len(mulaw), FR):
-            if not self.speaking:  # הופסק בבארג'-אין
-                print("🚨 Speaking interrupted by barge-in")
+            # בדיקה אם עדיין מדברים (למקרה של בעיות)
+            if not self.speaking:
+                print("🚨 Speech interrupted")
                 break
+                
             chunk = mulaw[i:i+FR]
             if len(chunk) < FR:
                 break
-            b64 = base64.b64encode(chunk).decode("ascii")
-            try: 
-                self.tx_q.put_nowait({"type":"media", "payload": b64})
-                frames_sent += 1
-            except queue.Full:
-                print("⚠️ TX queue full - breaking")
-                break
-
-        # MARK לסיום
-        try: 
-            self.tx_q.put_nowait({"type":"mark", "name":"tts_done"})
-        except: 
-            pass
-
-        print(f"🔊 TTS complete: {frames_sent} frames sent")
-        self.speaking = False
-        self.state = STATE_LISTEN
-
-    # צפצוף פולבאק (אם TTS נפל)
-    def _beep_pcm16_8k(self, ms: int) -> bytes:
-        """יוצר צפצוף של 440Hz באורך נתון"""
-        samples = int(SR * ms / 1000)
-        amp = 9000
-        out = bytearray()
-        for n in range(samples):
-            val = int(amp * math.sin(2*math.pi*440*n/SR))
-            out.extend(val.to_bytes(2, "little", signed=True))
-        return bytes(out)
-
-    # Legacy function - מוחלף בשידור דרך התור
-    def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
-        """Legacy - עכשיו משתמשים ב-_speak_text עם התור החדש"""
-        print("⚠️ Using legacy send function - consider updating to new TX queue")
-        if self.stream_sid:
-            self.ws.send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
-        mulaw = audioop.lin2ulaw(pcm16_8k, 2)
-        FR = 160  # 20ms @ 8kHz
-        for i in range(0, len(mulaw), FR):
-            chunk = mulaw[i:i+FR]
-            if len(chunk) < FR:
-                break
+                
             payload = base64.b64encode(chunk).decode("ascii")
             self.ws.send(json.dumps({
                 "event": "media",
                 "streamSid": self.stream_sid,
                 "media": {"payload": payload}
             }))
-            self.tx_frames += 1
+            self.tx += 1
+            frames_sent += 1
+            
+        print(f"🔊 Sent {frames_sent} audio frames")
 
     def _send_beep(self, ms: int):
-        """Legacy beep - משתמש בשידור דרך התור"""
-        beep_audio = self._beep_pcm16_8k(ms)
-        self._speak_text("")  # Will use the beep as fallback
+        """צפצוף פשוט"""
+        samples = int(SR * ms / 1000)
+        amp = 9000
+        out = bytearray()
+        for n in range(samples):
+            val = int(amp * math.sin(2*math.pi*440*n/SR))
+            out.extend(val.to_bytes(2, "little", signed=True))
+        self._send_pcm16_as_mulaw_frames(bytes(out))
     
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
         """Hebrew Speech-to-Text using OpenAI Whisper"""
