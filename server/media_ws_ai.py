@@ -74,7 +74,7 @@ class MediaStreamHandler:
                             time.sleep(0.3)  # זמן מינימלי לזיהוי קול
                             # אם במשך 0.3s שקט מוחלט:
                             if (time.time() - self.last_rx_ts) >= 0.3 and not self.speaking:
-                                greet = os.getenv("AI_GREETING_HE", "שלום, איך אפשר לעזור?")
+                                greet = os.getenv("AI_GREETING_HE", "שלום, אני מתחה ממקסימוס נדלן. איך אפשר לעזור?")
                                 print(f"🔊 IMMEDIATE GREETING: {greet}")
                                 self._speak_simple(greet)
                                 self.greeting_sent = True
@@ -416,26 +416,27 @@ class MediaStreamHandler:
                 for turn in recent:
                     history_context += f"לקוח אמר: '{turn['user'][:40]}' ענינו: '{turn['bot'][:40]}' | "
             
-            # ✅ פרומפט טבעי לשיחה אמיתית
-            smart_prompt = f"""את נציגת שי דירות ומשרדים. תני תשובה טבעיה בדיוק כמו בשיחה אמיתית.
+            # ✅ פרומפט חזק ופשוט לשיחה אמיתית
+            smart_prompt = f"""את נציגת מקסימוס נדל"ן. תני תשובות מועילות בעברית.
 
-חוקים:
-1. ענה בדיוק לפי מה שהלקוח אמר - לא יותר, לא פחות
-2. תשובה אחת בלבד - לא חזרות
-3. אם זה שאלה קצרה - תשובה קצרה. אם מורכבת - מפורטת
-4. טון טבעי ולא רשמי
-5. אל תאמרי "איך אפשר לעזור" - זה מלאכותי
+זה השם שלך: מתחה ממקסימוס נדל"ן.
+זה מה שאת עושה: עוזרת למצוא דירות ומשרדים.
+
+חוקים קצרים:
+1. תשובות קצרות ומועילות
+2. אל תגידי "איך אפשר לעזור" - זה נשמע רובוטי
+3. אם לא מבינה - תשאלי "מה אתה מחפש?"
 
 {history_context}
 
-דוגמאות:
-לקוח: "שלום" → את: "שלום! מה אתה מחפש?"
-לקוח: "דירה" → את: "איזה אזור?"
-לקוח: "תל אביב 3 חדרים" → את: "יש לנו כמה אפשרויות יפות. באיזה תקציב?"
-לקוח: "תודה" → את: "בהצלחה!"
+דוגמאות טובות:
+לקוח: "שלום" → "שלום! מה אתה מחפש?"
+לקוח: "דירה" → "באיזה אזור?"
+לקוח: "תל אביב" → "כמה חדרים אתה צריך?"
+לקוח: "לא יודע" → "בואו נתחיל מהתקציב. כמה אתה יכול לשלם?"
 
-הלקוח אמר: "{hebrew_text}"
-ענה טבעי!"""
+עכשיו הלקוח אומר: "{hebrew_text}"
+תני תשובה מועילה:"""
 
             # שלח לAI עם הגדרות מותאמות לתגובות מלאות וחמות
             try:
@@ -458,9 +459,9 @@ class MediaStreamHandler:
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=150,           # מספיק לתשובה טבעית
-                    temperature=0.9,          # יציבות
-                    frequency_penalty=1.5     # מניעת חזרות חזקה
+                    max_tokens=100,           # קצר יותר אבל מספיק
+                    temperature=0.7,          # יותר יציב
+                    frequency_penalty=0.5     # פחות קיצוני
                 )
             
             content = response.choices[0].message.content
@@ -482,23 +483,36 @@ class MediaStreamHandler:
                     
                 return ai_answer
             else:
-                return "לא הבנתי. תוכל לחזור?"
+                print("AI returned empty response, using fallback")
+                # אם LLM לא החזיר כלום - תגובות חירום
+                if "תודה" in hebrew_text or "ביי" in hebrew_text:
+                    return "בהצלחה!"
+                elif "שלום" in hebrew_text:
+                    return "שלום! אני מתחה ממקסימוס נדלן. מה אתה מחפש?"
+                elif "דירה" in hebrew_text:
+                    return "באיזה אזור?"
+                elif "משרד" in hebrew_text:
+                    return "איזה גודל?"
+                elif any(word in hebrew_text for word in ["מחיר", "כמה", "עולה"]):
+                    return "איזה נכס?"
+                else:
+                    return "מה אתה מחפש?"
             
         except Exception as e:
-            print(f"AI_ERROR: {e}")
-            # תגובות חירום חכמות - לא כלליות!
+            print(f"AI_ERROR: {e} - Using emergency responses")
+            # תגובות חירום פשוטות ומועילות
             if "תודה" in hebrew_text or "ביי" in hebrew_text:
-                return "תודה רבה!"
+                return "בהצלחה!"
+            elif "שלום" in hebrew_text:
+                return "שלום! אני מתחה ממקסימוס נדלן. מה אתה מחפש?"
             elif "דירה" in hebrew_text:
-                return "איזה אזור מעניין אותך?"
+                return "באיזה אזור?"
             elif "משרד" in hebrew_text:
-                return "איזה גודל משרד אתה מחפש?"
-            elif any(word in hebrew_text for word in ["מחיר", "כמה", "עולה", "עולה"]):
-                return "איזה נכס בדיוק אתה בודק?"
-            elif len(hebrew_text.strip()) < 5:
-                return "מה אתה מחפש?"
+                return "איזה גודל?"
+            elif any(word in hebrew_text for word in ["מחיר", "כמה", "עולה"]):
+                return "איזה נכס?"
             else:
-                return "איזה פרט אתה רוצה לדעת?"
+                return "מה אתה מחפש?"
     
     def _hebrew_tts(self, text: str) -> bytes | None:
         """Hebrew Text-to-Speech using Google Cloud TTS"""
