@@ -89,8 +89,10 @@ def create_app():
         # Register new API blueprints
         from server.routes_admin import admin_bp
         from server.routes_crm import crm_bp
+        from server.routes_business_management import biz_mgmt_bp
         app.register_blueprint(admin_bp)
         app.register_blueprint(crm_bp)
+        app.register_blueprint(biz_mgmt_bp)
         print("✅ New API blueprints registered")
         
         app.register_blueprint(auth_api)

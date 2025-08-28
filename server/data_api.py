@@ -93,8 +93,8 @@ def admin_calls():
                     <p class="text-sm text-gray-500">{business_name}</p>
                 </div>
                 <div class="text-left">
-                    <p class="text-sm text-gray-900">{call.status}</p>
-                    <p class="text-xs text-gray-500">{call.created_at.strftime('%H:%M %d/%m')}</p>
+                    <p class="text-sm text-gray-900">{call.status or 'לא ידוע'}</p>
+                    <p class="text-xs text-gray-500">{call.created_at.strftime('%H:%M %d/%m') if call.created_at else 'לא ידוע'}</p>
                 </div>
             </div>
         </div>
@@ -257,8 +257,8 @@ def calls_history():
                     <p class="text-sm text-gray-500">{call.transcription[:100] + '...' if call.transcription else 'אין תמלול'}</p>
                 </div>
                 <div class="text-left">
-                    <p class="text-sm text-gray-900">{call.status}</p>
-                    <p class="text-xs text-gray-500">{call.created_at.strftime('%H:%M %d/%m')}</p>
+                    <p class="text-sm text-gray-900">{call.status or 'לא ידוע'}</p>
+                    <p class="text-xs text-gray-500">{call.created_at.strftime('%H:%M %d/%m') if call.created_at else 'לא ידוע'}</p>
                 </div>
             </div>
         </div>

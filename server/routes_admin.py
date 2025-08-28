@@ -106,7 +106,9 @@ def api_tenants():
                 </div>
                 <div class="flex items-center space-x-2">
                     <span class="px-2 py-1 text-xs font-medium rounded-full {status_class}">{status_text}</span>
-                    <button class="text-blue-600 hover:text-blue-800 text-sm">עריכה</button>
+                    <button onclick="editBusiness({business.id})" class="text-blue-600 hover:text-blue-800 text-sm mr-2">עריכה</button>
+                    <button onclick="loginAsBusiness({business.id})" class="text-green-600 hover:text-green-800 text-sm mr-2">התחבר כעסק</button>
+                    <button onclick="changePassword({business.id})" class="text-purple-600 hover:text-purple-800 text-sm">שנה סיסמה</button>
                 </div>
             </div>
             """
@@ -144,7 +146,7 @@ def api_admin_calls():
                         <span class="font-medium text-gray-900">{call.from_number or 'לא ידוע'}</span>
                         <span class="text-sm text-gray-500">→ {business_name}</span>
                     </div>
-                    <p class="text-sm text-gray-500">{call.created_at.strftime('%d/%m/%Y %H:%M')}</p>
+                    <p class="text-sm text-gray-500">{call.created_at.strftime('%d/%m/%Y %H:%M') if call.created_at else 'לא ידוע'}</p>
                 </div>
                 <span class="px-2 py-1 text-xs font-medium rounded-full {status_class}">{call.status}</span>
             </div>

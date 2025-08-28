@@ -290,6 +290,13 @@
         <!-- Businesses Section -->
         <div id="businesses-section" class="section-content p-6 hidden">
             <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול עסקים</h1>
+            
+            <div class="mb-6">
+                <button onclick="showAddBusinessModal()" class="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors">
+                    ➕ הוסף עסק חדש
+                </button>
+            </div>
+            
             <div id="tenants" hx-get="/api/admin/tenants" hx-trigger="load" class="bg-white rounded-lg shadow p-6">
                 <div class="animate-pulse space-y-4">
                     <div class="h-4 bg-gray-200 rounded w-full"></div>
@@ -340,6 +347,116 @@
         </div>
     </div>
 </div>
+
+<!-- Business Modals -->
+<div id="businessModals">
+    <!-- Add Business Modal -->
+    <div id="addBusinessModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold mb-4">הוסף עסק חדש</h3>
+                <form id="addBusinessForm">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">שם העסק</label>
+                            <input type="text" id="businessName" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">סוג עסק</label>
+                            <select id="businessType" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                <option value="">בחר סוג עסק</option>
+                                <option value="נדלן ותיווך">נדלן ותיווך</option>
+                                <option value="שירותים מקצועיים">שירותים מקצועיים</option>
+                                <option value="רפואה">רפואה</option>
+                                <option value="מסעדנות">מסעדנות</option>
+                                <option value="קמעונאות">קמעונאות</option>
+                                <option value="אחר">אחר</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">אימייל מנהל</label>
+                            <input type="email" id="adminEmail" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">סיסמה ראשונית</label>
+                            <input type="password" id="adminPassword" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        </div>
+                    </div>
+                    <div class="flex justify-end space-x-2 mt-6">
+                        <button type="button" onclick="hideAddBusinessModal()" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">ביטול</button>
+                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">צור עסק</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Business Modal -->
+    <div id="editBusinessModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold mb-4">עריכת עסק</h3>
+                <form id="editBusinessForm">
+                    <input type="hidden" id="editBusinessId">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">שם העסק</label>
+                            <input type="text" id="editBusinessName" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">סוג עסק</label>
+                            <select id="editBusinessType" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                <option value="נדלן ותיווך">נדלן ותיווך</option>
+                                <option value="שירותים מקצועיים">שירותים מקצועיים</option>
+                                <option value="רפואה">רפואה</option>
+                                <option value="מסעדנות">מסעדנות</option>
+                                <option value="קמעונאות">קמעונאות</option>
+                                <option value="אחר">אחר</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
+                            <select id="editBusinessStatus" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                <option value="true">פעיל</option>
+                                <option value="false">לא פעיל</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex justify-end space-x-2 mt-6">
+                        <button type="button" onclick="hideEditBusinessModal()" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">ביטול</button>
+                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">שמור שינויים</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="changePasswordModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold mb-4">שינוי סיסמה</h3>
+                <form id="changePasswordForm">
+                    <input type="hidden" id="changePasswordBusinessId">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">סיסמה חדשה</label>
+                            <input type="password" id="newPassword" required minlength="6" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">אישור סיסמה</label>
+                            <input type="password" id="confirmPassword" required minlength="6" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        </div>
+                    </div>
+                    <div class="flex justify-end space-x-2 mt-6">
+                        <button type="button" onclick="hideChangePasswordModal()" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">ביטול</button>
+                        <button type="submit" class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600">שנה סיסמה</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -380,5 +497,160 @@ setInterval(() => {
         htmx.trigger('#calls', 'load');
     }
 }, 30000);
+
+// Business Management Functions
+async function showAddBusinessModal() {
+    document.getElementById('addBusinessModal').classList.remove('hidden');
+}
+
+function hideAddBusinessModal() {
+    document.getElementById('addBusinessModal').classList.add('hidden');
+    document.getElementById('addBusinessForm').reset();
+}
+
+async function editBusiness(businessId) {
+    try {
+        const response = await apiCall(`/api/admin/business/${businessId}`);
+        const business = await response.json();
+        
+        document.getElementById('editBusinessId').value = business.id;
+        document.getElementById('editBusinessName').value = business.name;
+        document.getElementById('editBusinessType').value = business.business_type;
+        document.getElementById('editBusinessStatus').value = business.is_active.toString();
+        
+        document.getElementById('editBusinessModal').classList.remove('hidden');
+    } catch (error) {
+        alert('שגיאה בטעינת נתוני העסק');
+    }
+}
+
+function hideEditBusinessModal() {
+    document.getElementById('editBusinessModal').classList.add('hidden');
+    document.getElementById('editBusinessForm').reset();
+}
+
+async function loginAsBusiness(businessId) {
+    if (confirm('האם אתה בטוח שברצונך להתחבר כעסק זה?')) {
+        try {
+            const response = await apiCall(`/api/admin/login-as-business/${businessId}`, {method: 'POST'});
+            const result = await response.json();
+            if (result.success) {
+                alert('התחברת בהצלחה כעסק! מעביר לדשבורד עסקי...');
+                window.location.href = '/app/business';
+            } else {
+                alert('שגיאה בהתחברות לעסק');
+            }
+        } catch (error) {
+            alert('שגיאה בהתחברות לעסק');
+        }
+    }
+}
+
+async function changePassword(businessId) {
+    document.getElementById('changePasswordBusinessId').value = businessId;
+    document.getElementById('changePasswordModal').classList.remove('hidden');
+}
+
+function hideChangePasswordModal() {
+    document.getElementById('changePasswordModal').classList.add('hidden');
+    document.getElementById('changePasswordForm').reset();
+}
+
+// Form Handlers
+document.getElementById('addBusinessForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = {
+        name: document.getElementById('businessName').value,
+        business_type: document.getElementById('businessType').value,
+        admin_email: document.getElementById('adminEmail').value,
+        admin_password: document.getElementById('adminPassword').value
+    };
+    
+    try {
+        const response = await apiCall('/api/admin/business', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(formData)
+        });
+        
+        const result = await response.json();
+        if (response.ok) {
+            alert('עסק נוצר בהצלחה!');
+            hideAddBusinessModal();
+            htmx.trigger('#tenants', 'load'); // Refresh list
+        } else {
+            alert(result.error || 'שגיאה ביצירת העסק');
+        }
+    } catch (error) {
+        alert('שגיאה ביצירת העסק');
+    }
+});
+
+document.getElementById('editBusinessForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const businessId = document.getElementById('editBusinessId').value;
+    const formData = {
+        name: document.getElementById('editBusinessName').value,
+        business_type: document.getElementById('editBusinessType').value,
+        is_active: document.getElementById('editBusinessStatus').value === 'true'
+    };
+    
+    try {
+        const response = await apiCall(`/api/admin/business/${businessId}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(formData)
+        });
+        
+        const result = await response.json();
+        if (response.ok) {
+            alert('עסק עודכן בהצלחה!');
+            hideEditBusinessModal();
+            htmx.trigger('#tenants', 'load'); // Refresh list
+        } else {
+            alert(result.error || 'שגיאה בעדכון העסק');
+        }
+    } catch (error) {
+        alert('שגיאה בעדכון העסק');
+    }
+});
+
+document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const businessId = document.getElementById('changePasswordBusinessId').value;
+    const newPassword = document.getElementById('newPassword').value;
+    const confirmPassword = document.getElementById('confirmPassword').value;
+    
+    if (newPassword !== confirmPassword) {
+        alert('הסיסמאות אינן תואמות');
+        return;
+    }
+    
+    if (newPassword.length < 6) {
+        alert('הסיסמה חייבת להכיל לפחות 6 תווים');
+        return;
+    }
+    
+    try {
+        const response = await apiCall(`/api/admin/business/${businessId}/change-password`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({password: newPassword})
+        });
+        
+        const result = await response.json();
+        if (response.ok) {
+            alert('סיסמה שונתה בהצלחה!');
+            hideChangePasswordModal();
+        } else {
+            alert(result.error || 'שגיאה בשינוי הסיסמה');
+        }
+    } catch (error) {
+        alert('שגיאה בשינוי הסיסמה');
+    }
+});
 </script>
 {% endblock %}
