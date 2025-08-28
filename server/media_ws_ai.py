@@ -228,16 +228,10 @@ class MediaStreamHandler:
                 
             self.last_user_text = text.strip()
             
-            # 3. AI Response עם micro-ack אם נדרש
+            # 3. AI Response - БЕЗ micro-ack! תן לה לחשוב בשקט
             started_at = time.time()
             
-            def maybe_hint():
-                time.sleep(THINKING_HINT_MS / 1000.0)  # חכה 2 שניות
-                if hasattr(self, 'state') and self.state == STATE_THINK and not self.speaking:
-                    print(f"🤔 MICRO-ACK: LLM really stuck after {THINKING_HINT_MS/1000}s, sending brief hint")
-                    self._speak_simple(THINKING_TEXT_HE)
-                    
-            threading.Thread(target=maybe_hint, daemon=True).start()
+            # ✅ CRITICAL FIX: אין "רגע" יותר! רק שקט בזמן חשיבה
             
             response = self._ai_response(text)
             if not response:
@@ -267,9 +261,10 @@ class MediaStreamHandler:
         except Exception as e:
             print(f"❌ CRITICAL Processing error: {e}")
             print(f"   Text was: '{text}' ({len(text)} chars)")
-            # תגובת חירום חזקה
+            # ✅ תגובת חירום מפורטת ומועילה
             self.state = STATE_SPEAK
-            self._speak_simple("מצטערת, לא הבנתי. אפשר לחזור?")
+            emergency_response = "מצטערת, לא שמעתי טוב בגלל החיבור. אני מתחה ממקסימוס נדל\"ן ויש לי דירות מדהימות במרכז. בואו נתחיל מחדש - איזה סוג נכס אתה מחפש ובאיזה אזור?"
+            self._speak_simple(emergency_response)
             self.state = STATE_LISTEN
 
 
@@ -446,11 +441,11 @@ class MediaStreamHandler:
 10. גבעתיים, רחוב ויצמן 15 - 4 חדרים, 100 מ"ר, עם חנייה, 8,800₪/חודש
 
 == איך לנהל שיחה מקצועית ==
-1. זהי עצמך בהתחלה: "שלום, אני מתחה ממקסימוס נדלן"
-2. זהי את הצורך: דירה/משרד, אזור, תקציב, חדרים
-3. הציעי דירות מתאימות מהמאגר עם פרטים קונקרטיים
-4. שאלי על פגישה לצפייה
-5. קבעי זמן או קחי פרטים ליצירת קשר
+1. תני תשובות ארוכות ומפורטות - לא קצרות!
+2. תמיד הציעי דירות קונקרטיות מהמאגר עם כל הפרטים
+3. תמיד שאלי על פגישה ותציעי זמנים ספציפיים
+4. תני תשובות של 2-3 משפטים לפחות, לא מילה אחת!
+5. תהיי חמה ומועילה, לא רק "באיזה אזור?"
 
 == דוגמאות למענה מקצועי ==
 "יש לי דירת 3 חדרים מדהימה בדיזנגוף 150, 75 מ"ר, 7,500 שקל. רוצה לשמוע פרטים?"
@@ -470,7 +465,7 @@ class MediaStreamHandler:
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_completion_tokens=150,  # מספיק לתשובה טבעית
+                    max_completion_tokens=400,  # ✅ תשובות ארוכות ומפורטות!
                     temperature=1.0            # GPT-5 תומך רק בטמפרטורה 1.0
                 )
             except Exception as gpt5_error:
@@ -482,7 +477,7 @@ class MediaStreamHandler:
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=100,           # קצר יותר אבל מספיק
+                    max_tokens=350,           # ✅ תשובות מפורטות גם ב-GPT4
                     temperature=0.7,          # יותר יציב
                     frequency_penalty=0.5     # פחות קיצוני
                 )
@@ -507,19 +502,19 @@ class MediaStreamHandler:
                 return ai_answer
             else:
                 print("AI returned empty response, using fallback")
-                # אם LLM לא החזיר כלום - תגובות חירום
+                # ✅ תגובות חירום מפורטות ומועילות
                 if "תודה" in hebrew_text or "ביי" in hebrew_text:
-                    return "בהצלחה!"
+                    return "תודה רבה! אני כאן בכל זמן שתצטרך עזרה. אל תהסס להתקשר - מתחה ממקסימוס נדלן"
                 elif "שלום" in hebrew_text:
-                    return "שלום! אני מתחה ממקסימוס נדלן. מה אתה מחפש?"
+                    return "שלום וברוכים הבאים! אני מתחה ממקסימוס נדלן. יש לי מבחר מעולה של דירות במרכז הארץ - תל אביב, רמת גן, גבעתיים ועוד. איזה סוג נכס אתה מחפש ובאיזה אזור?"
                 elif "דירה" in hebrew_text:
-                    return "באיזה אזור?"
+                    return "מעולה! יש לי 10 דירות זמינות עכשיו במרכז. יש לי 2-4 חדרים במחירים בין 6,200 ל-9,200 שקל. איזה אזור הכי מעניין אותך - תל אביב, רמת גן או גבעתיים? וכמה חדרים אתה צריך?"
                 elif "משרד" in hebrew_text:
-                    return "איזה גודל?"
+                    return "יש לי גם משרדים מצוינים במרכז! יש אפשרויות בתל אביב וברמת גן באזורים עסקיים מעולים. איזה גודל משרד אתה מחפש ומה התקציב שלך?"
                 elif any(word in hebrew_text for word in ["מחיר", "כמה", "עולה"]):
-                    return "איזה נכס?"
+                    return "המחירים שלי תחרותיים מאוד! יש לי דירות מ-6,200 שקל בבת ים ועד 9,200 בתל אביב. איזה אזור ואיזה גודל דירה אתה מחפש בדיוק?"
                 else:
-                    return "מה אתה מחפש?"
+                    return "אני כאן לעזור לך למצוא את הבית המושלם! יש לי מבחר גדול של דירות במרכז הארץ. בוא ספר לי - איזה אזור מעניין אותך וכמה חדרים אתה צריך?"
             
         except Exception as e:
             print(f"AI_ERROR: {e} - Using emergency responses")
