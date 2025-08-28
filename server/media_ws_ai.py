@@ -105,9 +105,15 @@ class MediaStreamHandler:
                     # דרישה רגישה: קול רגיל מספיק (לא צריך לצעוק!)
                     is_strong_voice = rms > (VAD_RMS * 0.8)
                     
-                    # 🔍 DEBUG: לוג כל 50 frames עם RMS ומצב מערכת
-                    if self.rx % 50 == 0:
-                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.8}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")  
+                    # 🔍 DEBUG: לוג כל 25 frames עם RMS ומצב מערכת
+                    if self.rx % 25 == 0:
+                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.8}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")
+                        # תדפיס גם כמה אודיו נאסף
+                        if len(self.buf) > 0:
+                            print(f"   📊 AUDIO_ACCUMULATED: {len(self.buf)/(2*SR):.1f}s duration")
+                        # זמן שקט
+                        silence_time = (time.time() - self.last_rx_ts) if hasattr(self, 'last_rx_ts') else 0
+                        print(f"   🔇 SILENCE_TIME: {silence_time:.2f}s")  
                     
                     # ספירת פריימים רצופים של קול חזק בלבד
                     if is_strong_voice:

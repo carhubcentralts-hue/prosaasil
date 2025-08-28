@@ -12,6 +12,7 @@ fi
 touch "$LOCK"
 
 # ---- ENV יציב ----
+export PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://ai-crmd.replit.app}"
 export PUBLIC_BASE_URL="${PUBLIC_BASE_URL%/}"
 export PORT="${PORT:-5000}"
 
