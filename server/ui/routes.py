@@ -60,21 +60,37 @@ def business_dashboard():
 # API Auth endpoints for JS calls
 @ui_bp.route('/api/ui/login', methods=['POST'])
 def api_login():
-    """Handle login form submission - proxy to new auth system"""
+    """Handle login form submission - call auth system directly"""
     try:
         data = request.get_json()
-        # Call new auth API directly (internal call)
-        from server.routes_auth import api_login as auth_login
-        from flask import current_app
+        email = (data.get("email") or "").strip().lower()
+        password = data.get("password") or ""
         
-        with current_app.test_request_context('/api/auth/login', method='POST', json=data):
-            result = auth_login()
-            if isinstance(result, tuple):
-                response_data, status_code = result
-                return response_data, status_code
-            return result
+        if not email or not password:
+            return jsonify({"success": False, "error": "נדרשים אימייל וסיסמה"}), 400
+
+        # Import dao and check user
+        from server.routes_auth import dao_users
+        from werkzeug.security import check_password_hash
+        
+        u = dao_users.get_by_email(email)
+        if not u or not check_password_hash(u.get("password_hash", ""), password):
+            return jsonify({"success": False, "error": "פרטי התחברות שגויים"}), 401
+
+        # Set session
+        session["al_user"] = {
+            "id": u["id"],
+            "name": u.get("name"),
+            "role": u.get("role"),
+            "business_id": u.get("business_id"),
+        }
+        
+        return jsonify({
+            "success": True,
+            "user": session["al_user"]
+        })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': f'שגיאת התחברות: {str(e)}'}), 500
 
 @ui_bp.route('/api/ui/logout', methods=['POST'])
 def api_logout():
