@@ -14,13 +14,16 @@ API_BASE = os.getenv('PUBLIC_BASE_URL', 'http://localhost:5000')
 @ui_bp.route('/')
 def index():
     """Root redirect to login or dashboard"""
-    if session.get('user'):
-        user_role = session['user'].get('role')
-        if user_role == 'admin':
-            return redirect(url_for('ui.admin_dashboard'))
-        else:
-            return redirect(url_for('ui.business_dashboard'))
-    return redirect(url_for('ui.login'))
+    try:
+        if session.get('user'):
+            user_role = session['user'].get('role')
+            if user_role == 'admin':
+                return redirect(url_for('ui.admin_dashboard'))
+            else:
+                return redirect(url_for('ui.business_dashboard'))
+        return redirect(url_for('ui.login'))
+    except Exception as e:
+        return f"<h1>🚧 System Loading...</h1><p>Error: {e}</p><p><a href='/login'>Go to Login</a></p>"
 
 @ui_bp.route('/login')
 def login():
