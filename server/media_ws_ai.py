@@ -90,7 +90,11 @@ class MediaStreamHandler:
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
                     # דרישה מחמירה פחות: קול חייב להיות חזק פי 1.3 מהרגיל (הקל!)
-                    is_strong_voice = rms > (VAD_RMS * 1.3)  
+                    is_strong_voice = rms > (VAD_RMS * 1.3)
+                    
+                    # 🔍 DEBUG: לוג כל 100 frames עם RMS
+                    if self.rx % 100 == 0:
+                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 1.3}, Voice={is_strong_voice}, Buffer_size={len(self.buf)}")  
                     
                     # ספירת פריימים רצופים של קול חזק בלבד
                     if is_strong_voice:
@@ -131,6 +135,7 @@ class MediaStreamHandler:
                         # 🎯 סוף מבע - רק אחרי דממה אמיתית או זמן יותר מדי
                         if (silent or too_long) and dur > 0.5:
                             print(f"🎤 PROCESSING: {dur:.1f}s audio (conversation #{self.conversation_id})")
+                            print(f"🔍 AUDIO_INFO: Buffer={len(self.buf)} bytes, Duration={dur:.1f}s, Silent={silent}, TooLong={too_long}")
                             
                             # חסימה מוחלטת של עיבוד כפול
                             if self.processing:
@@ -209,12 +214,14 @@ class MediaStreamHandler:
         text = ""  # initialize to avoid unbound variable
         try:
             # 1. Hebrew ASR
+            print(f"🔍 STT_START: Processing {len(pcm16_8k)} bytes of audio ({len(pcm16_8k)/(2*8000):.1f}s)")
             text = self._hebrew_stt(pcm16_8k)
             if not text or len(text.strip()) < 2:
-                print("🎤 No speech detected")
+                print(f"❌ STT_FAILED: Empty or too short result: '{text}'")
+                print(f"   Audio bytes: {len(pcm16_8k)}, Duration: {len(pcm16_8k)/(2*8000):.1f}s")
                 return
                 
-            print(f"🎤 ASR SUCCESS: '{text}' ({len(text)} chars)")
+            print(f"✅ STT_SUCCESS: '{text}' ({len(text)} chars)")
             
             # לוג חשוב - תמלול עבר!
             if not text or len(text) < 3:
@@ -545,7 +552,7 @@ class MediaStreamHandler:
     def _hebrew_tts(self, text: str) -> bytes | None:
         """Hebrew Text-to-Speech using Google Cloud TTS"""
         try:
-            print(f"🎤 TTS_START: Generating Hebrew TTS for '{text[:50]}...'")
+            print(f"🔊 TTS_START: Generating Hebrew TTS for '{text[:50]}...' (length: {len(text)} chars)")
             from google.cloud import texttospeech
             
             client = texttospeech.TextToSpeechClient()
@@ -569,7 +576,7 @@ class MediaStreamHandler:
                 audio_config=audio_config
             )
             
-            print(f"✅ TTS_SUCCESS: Generated {len(response.audio_content)} bytes of audio")
+            print(f"✅ TTS_SUCCESS: Generated {len(response.audio_content)} bytes of audio ({len(response.audio_content)/16000:.1f}s estimated)")
             return response.audio_content
             
         except Exception as e:
