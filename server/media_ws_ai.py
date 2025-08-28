@@ -15,7 +15,7 @@ VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # Hangover אחרי 
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "220")) # "נשימה" לפני דיבור
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "360"))
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "750")) # קירור אחרי דיבור
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","3")) # מהיר יותר - 60ms
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","12")) # איזון: 240ms לא לקטע מוקדם
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "800"))       # מהיר יותר
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "שנייה… בודקת")   # מקצועי יותר
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "14"))        # חלון דה-דופליקציה
@@ -250,15 +250,15 @@ class MediaStreamHandler:
             if not text or len(text.strip()) < 2:
                 print(f"❌ STT_FAILED: Empty or too short result: '{text}'")
                 print(f"   Audio bytes: {len(pcm16_8k)}, Duration: {len(pcm16_8k)/(2*8000):.1f}s")
-                print(f"🚨 NO TRANSCRIPTION - User will get generic response!")
-                return
+                print(f"🚨 NO TRANSCRIPTION - Using fallback response!")
+                text = "לא הבנתי, אפשר לחזור?"  # fallback במקום return!
                 
             print(f"✅ STT_SUCCESS: '{text}' ({len(text)} chars)")
             
             # לוג חשוב - תמלול עבר!
             if not text or len(text) < 3:
-                print("❌ STT returned empty or too short")
-                return
+                print("❌ STT returned empty or too short - using fallback")
+                text = "לא הבנתי, אפשר לחזור?"
             
             # 2. דה-דופליקציה חכמה עם hash
             user_hash = zlib.crc32(text.strip().encode("utf-8"))
