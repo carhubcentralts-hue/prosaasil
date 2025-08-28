@@ -83,8 +83,11 @@
 
 {% block scripts %}
 <script>
+console.log('Login form script loaded');
+
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    console.log('Form submitted!');
     
     const button = document.getElementById('loginButton');
     const errorDiv = document.getElementById('errorMessage');
@@ -100,29 +103,52 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
             password: formData.get('password')
         };
         
+        console.log('Login data:', data);
+        
         const result = await apiCall('/api/ui/login', {
             method: 'POST',
             body: JSON.stringify(data)
         });
         
+        console.log('Login result:', result);
+        
         if (result.success) {
             const user = result.user;
-            if (user.role === 'admin') {
-                window.location.href = '/app/admin';
-            } else {
-                window.location.href = '/app/biz';
-            }
+            console.log('User:', user);
+            console.log('User role:', user.role);
+            
+            // Show success message first
+            errorDiv.textContent = 'התחברות הצליחה! מעביר לדשבורד...';
+            errorDiv.className = 'bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-center text-sm';
+            errorDiv.classList.remove('hidden');
+            
+            setTimeout(() => {
+                if (user.role === 'admin') {
+                    console.log('Redirecting to admin dashboard...');
+                    window.location.href = '/app/admin';
+                } else {
+                    console.log('Redirecting to business dashboard...');
+                    window.location.href = '/app/biz';
+                }
+            }, 1500);
         } else {
+            console.log('Login failed:', result.error);
             errorDiv.textContent = result.error || 'שגיאה בהתחברות';
             errorDiv.classList.remove('hidden');
         }
     } catch (error) {
-        errorDiv.textContent = 'שגיאת תקשורת';
+        console.error('Login error:', error);
+        errorDiv.textContent = 'שגיאת תקשורת: ' + error.message;
         errorDiv.classList.remove('hidden');
     }
     
     button.textContent = 'כניסה למערכת';
     button.disabled = false;
 });
+
+// Test that admin page exists
+fetch('/app/admin')
+  .then(response => console.log('Admin page status:', response.status))
+  .catch(error => console.error('Admin page error:', error));
 </script>
 {% endblock %}

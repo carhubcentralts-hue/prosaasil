@@ -10,6 +10,17 @@ def load_current_user():
     # Check new auth system first
     g.user = session.get('al_user') or session.get('user')
     g.token = session.get('al_token') or session.get('token')
+    
+    # Debug logging
+    if request.path.startswith('/app/'):
+        print(f"🔍 AUTH CHECK for {request.path}:")
+        print(f"   Session keys: {list(session.keys())}")
+        print(f"   g.user: {g.user}")
+        print(f"   al_user in session: {'al_user' in session}")
+        if 'al_user' in session:
+            print(f"   al_user value: {session['al_user']}")
+    
+    return g.user
 
 def require_roles(*roles):
     """Decorator to require specific roles"""
