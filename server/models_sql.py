@@ -128,3 +128,19 @@ class Contract(db.Model):
     signed_at = db.Column(db.DateTime)
     signed_ip = db.Column(db.String(64))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class User(db.Model):
+    __tablename__ = "user"
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    password = db.Column(db.String(255), nullable=False)  # Hashed
+    firstName = db.Column(db.String(255))
+    lastName = db.Column(db.String(255))
+    role = db.Column(db.String(64), default="business")  # admin/business
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=True, index=True)
+    isActive = db.Column(db.Boolean, default=True)
+    lastLogin = db.Column(db.DateTime)
+    resetToken = db.Column(db.String(255))
+    resetTokenExpiry = db.Column(db.DateTime)
+    createdAt = db.Column(db.DateTime, default=datetime.utcnow)
+    updatedAt = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

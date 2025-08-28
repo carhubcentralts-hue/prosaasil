@@ -48,9 +48,13 @@ def create_app():
     # UI Blueprint registration (לפי ההנחיות)
     from server.ui import ui_bp
     from server.ui.auth import load_current_user
+    from server.auth_api import auth_api, create_default_admin
+    from server.data_api import data_api
     
     app.before_request(load_current_user)
     app.register_blueprint(ui_bp)
+    app.register_blueprint(auth_api)
+    app.register_blueprint(data_api)
     
     # 8) לוגים שמראים הכל (לפי ההנחיות המדויקות)
     @app.before_request
@@ -292,5 +296,15 @@ def create_app():
     </div>
 </body>
 </html>""", 200
+    
+    # Database setup (לפי ההנחיות)
+    with app.app_context():
+        try:
+            from server.models_sql import db
+            db.create_all()  # Create tables if they don't exist
+            create_default_admin()
+            print("✅ Database tables created and admin user setup complete")
+        except Exception as e:
+            print(f"⚠️ Database setup warning: {e}")
     
     return app

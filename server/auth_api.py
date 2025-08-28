@@ -1,0 +1,167 @@
+"""
+Authentication API endpoints
+Based on attached instructions - creates missing auth endpoints
+"""
+from flask import Blueprint, request, jsonify, session
+from werkzeug.security import check_password_hash, generate_password_hash
+from server.models_sql import User, Business, db
+from datetime import datetime, timedelta
+import secrets
+import os
+
+auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
+
+@auth_api.route('/login', methods=['POST'])
+def login():
+    """
+    POST /api/auth/login
+    Expected response: {user:{id,name,role,business_id}, token?}
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Missing request data'}), 400
+        
+        email = data.get('email')
+        password = data.get('password')
+        
+        if not email or not password:
+            return jsonify({'success': False, 'error': 'Missing email or password'}), 400
+        
+        # Find user by email
+        user = User.query.filter_by(email=email, isActive=True).first()
+        
+        if not user or not check_password_hash(user.password, password):
+            return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
+        
+        # Update last login
+        user.lastLogin = datetime.utcnow()
+        db.session.commit()
+        
+        # Get business info if exists
+        business = None
+        if user.business_id:
+            business = Business.query.get(user.business_id)
+        
+        # Prepare user response
+        user_data = {
+            'id': user.id,
+            'name': f"{user.firstName or ''} {user.lastName or ''}".strip() or user.email,
+            'role': user.role,
+            'business_id': user.business_id,
+            'email': user.email
+        }
+        
+        # Store in session for UI compatibility
+        session['user'] = user_data
+        session['token'] = f"session_{user.id}"  # Simple session token
+        
+        return jsonify({
+            'success': True,
+            'user': user_data,
+            'token': session['token']
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@auth_api.route('/forgot', methods=['POST'])
+def forgot_password():
+    """
+    POST /api/auth/forgot
+    Send password reset email
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Missing request data'}), 400
+        
+        email = data.get('email')
+        if not email:
+            return jsonify({'success': False, 'error': 'Missing email'}), 400
+        
+        user = User.query.filter_by(email=email, isActive=True).first()
+        
+        if user:
+            # Generate reset token
+            reset_token = secrets.token_urlsafe(32)
+            user.resetToken = reset_token
+            user.resetTokenExpiry = datetime.utcnow() + timedelta(hours=1)  # 1 hour expiry
+            db.session.commit()
+            
+            # TODO: Send actual email here
+            # For now, just log the reset link
+            reset_url = f"{os.getenv('PUBLIC_BASE_URL', 'http://localhost:5000')}/reset?token={reset_token}"
+            print(f"🔐 Password reset for {email}: {reset_url}")
+        
+        # Always return success for security (don't reveal if email exists)
+        return jsonify({'success': True, 'message': 'If the email exists, a reset link has been sent'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@auth_api.route('/reset', methods=['POST'])
+def reset_password():
+    """
+    POST /api/auth/reset
+    Reset password with token
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Missing request data'}), 400
+        
+        token = data.get('token')
+        new_password = data.get('password')
+        
+        if not token or not new_password:
+            return jsonify({'success': False, 'error': 'Missing token or password'}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({'success': False, 'error': 'Password must be at least 6 characters'}), 400
+        
+        # Find user by reset token
+        user = User.query.filter_by(resetToken=token, isActive=True).first()
+        
+        if not user:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 400
+        
+        # Check token expiry
+        if user.resetTokenExpiry < datetime.utcnow():
+            return jsonify({'success': False, 'error': 'Token has expired'}), 400
+        
+        # Update password
+        user.password = generate_password_hash(new_password)
+        user.resetToken = None
+        user.resetTokenExpiry = None
+        user.updatedAt = datetime.utcnow()
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': 'Password updated successfully'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@auth_api.route('/logout', methods=['POST'])
+def logout():
+    """Logout user"""
+    session.clear()
+    return jsonify({'success': True})
+
+# Helper function to create default admin user (for development)
+def create_default_admin():
+    """Create default admin user if none exists"""
+    try:
+        if not User.query.filter_by(role='admin').first():
+            admin = User()
+            admin.email = 'admin@maximus.co.il'
+            admin.password = generate_password_hash('admin123')
+            admin.firstName = 'מנהל'
+            admin.lastName = 'מערכת'
+            admin.role = 'admin'
+            admin.business_id = None
+            db.session.add(admin)
+            db.session.commit()
+            print("✅ Created default admin user: admin@maximus.co.il / admin123")
+    except Exception as e:
+        print(f"⚠️ Error creating admin user: {e}")
