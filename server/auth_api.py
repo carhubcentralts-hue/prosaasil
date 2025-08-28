@@ -28,14 +28,14 @@ def login():
         if not email or not password:
             return jsonify({'success': False, 'error': 'Missing email or password'}), 400
         
-        # Find user by email
-        user = User.query.filter_by(email=email, isActive=True).first()
+        # Find user by email (fix field names to match DB schema)
+        user = User.query.filter_by(email=email, is_active=True).first()
         
-        if not user or not check_password_hash(user.password, password):
+        if not user or not check_password_hash(user.password_hash, password):
             return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
         
         # Update last login
-        user.lastLogin = datetime.utcnow()
+        user.last_login = datetime.utcnow()
         db.session.commit()
         
         # Get business info if exists
@@ -46,7 +46,7 @@ def login():
         # Prepare user response
         user_data = {
             'id': user.id,
-            'name': f"{user.firstName or ''} {user.lastName or ''}".strip() or user.email,
+            'name': user.username or user.email,
             'role': user.role,
             'business_id': user.business_id,
             'email': user.email
@@ -80,7 +80,7 @@ def forgot_password():
         if not email:
             return jsonify({'success': False, 'error': 'Missing email'}), 400
         
-        user = User.query.filter_by(email=email, isActive=True).first()
+        user = User.query.filter_by(email=email, is_active=True).first()
         
         if user:
             # Generate reset token
