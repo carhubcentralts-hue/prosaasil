@@ -94,14 +94,15 @@ def api_login():
 
 @ui_bp.route('/api/ui/logout', methods=['POST'])
 def api_logout():
-    """Handle logout - use new auth system"""
+    """Handle logout - clear all session data"""
     try:
-        from server.routes_auth import api_logout as auth_logout
-        from flask import current_app
+        # Clear all session data
+        session.pop('al_user', None)
+        session.pop('al_token', None)
+        session.pop('user', None)
+        session.pop('token', None)
+        session.clear()  # Clear everything
         
-        with current_app.test_request_context('/api/auth/logout', method='POST'):
-            result = auth_logout()
-            return result
-    except Exception as e:
-        session.clear()  # Fallback
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
