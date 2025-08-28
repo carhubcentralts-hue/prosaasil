@@ -1,0 +1,325 @@
+מושלם—ממשיכים לפי מה שבנית כבר ב־Flask. מאחר שחסר לך צד-שרת ל־Auth, אני ממליץ להתקדם עם אופציה 2: ליצור את ה־APIים החסרים ל־Login/Forgot/Reset בצורה בטוחה ופשוטה, ואז הדפים החדשים (/app/admin, /app/biz) יעבדו “עד הסוף” עם הרשאות ורב-שוכרים.
+
+להלן הנחיה מדויקת להדבקה + צ’ק-ליסט בדיקות. הכול מותאם ל־AgentLocator ול־Flask.
+
+⸻
+
+שלב A — יצירת API לאימות (Login/Forgot/Reset)
+
+1) קובץ חדש: server/routes_auth.py
+
+מדביקים כמו שהוא, ומתאימים ל־DAO שלך אם שמות הפונקציות שונים.
+
+# server/routes_auth.py
+from __future__ import annotations
+from flask import Blueprint, request, jsonify, session, g, current_app
+from functools import wraps
+from werkzeug.security import check_password_hash, generate_password_hash
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+import os, time, jwt
+
+auth_bp = Blueprint("auth_bp", __name__)
+
+# === קונפיג בסיסי ===
+SECRET_KEY = os.getenv("SECRET_KEY", "please-change-me")
+JWT_SECRET = os.getenv("JWT_SECRET", SECRET_KEY)
+PASSWORD_RESET_SALT = os.getenv("PASSWORD_RESET_SALT", "al-reset-2025")
+RESET_TOKEN_TTL_SEC = int(os.getenv("RESET_TOKEN_TTL_SEC", "1800"))  # 30 דקות
+
+# itsdangerous serializer לאיפוס סיסמה
+reset_serializer = URLSafeTimedSerializer(SECRET_KEY, salt=PASSWORD_RESET_SALT)
+
+# ---- DAO דמה: החלף ל-DAO האמיתי שלך ----
+# מצופה שתהיה לך שכבה בסגנון dao_users עם מתודות get_by_email / get_by_id / update_password_hash
+# כאן יש דוגמאות; החלף בקלות לקריאות שלך.
+class dao_users:
+    @staticmethod
+    def get_by_email(email: str):
+        # החזר dict: {"id": "...", "name": "...", "role": "...", "business_id": "...", "password_hash": "..."}
+        # TODO: חבר ל-DB האמיתי
+        return None
+
+    @staticmethod
+    def get_by_id(user_id: str):
+        return None
+
+    @staticmethod
+    def update_password_hash(user_id: str, pwhash: str):
+        return True
+
+
+# ---- טעינת משתמש פעיל לכל בקשה (Session/JWT) ----
+def load_current_user():
+    g.user = session.get("al_user")
+    token = session.get("al_token")
+    g.token = token
+    # תמיכה גם ב-Bearer (אם בחרת לשים JWT בלוקאל):
+    if not g.user:
+        authz = request.headers.get("Authorization", "")
+        if authz.startswith("Bearer "):
+            tok = authz.split(" ", 1)[1].strip()
+            try:
+                payload = jwt.decode(tok, JWT_SECRET, algorithms=["HS256"])
+                g.user = {
+                    "id": payload.get("uid"),
+                    "name": payload.get("name"),
+                    "role": payload.get("role"),
+                    "business_id": payload.get("business_id"),
+                }
+            except Exception:
+                g.user = None
+
+
+def require_api_auth(roles: list[str] | None = None):
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            if not getattr(g, "user", None):
+                return jsonify({"error": "unauthorized"}), 401
+            if roles and g.user.get("role") not in roles:
+                return jsonify({"error": "forbidden"}), 403
+            return fn(*args, **kwargs)
+        return wrapper
+    return deco
+
+
+# ---- LOGIN ----
+@auth_bp.post("/api/auth/login")
+def api_login():
+    data = request.get_json(force=True, silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    if not email or not password:
+        return jsonify({"error": "missing fields"}), 400
+
+    u = dao_users.get_by_email(email)
+    if not u or not check_password_hash(u.get("password_hash", ""), password):
+        # מסר ניטרלי – בלי לגלות אם האימייל קיים
+        return jsonify({"error": "invalid credentials"}), 401
+
+    # צור JWT (אופציונלי; אם עובדים עם session בלבד – אפשר לוותר)
+    payload = {
+        "uid": u["id"],
+        "name": u.get("name", ""),
+        "role": u.get("role", "agent"),
+        "business_id": u.get("business_id"),
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 60 * 60 * 24 * 7,  # שבוע
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+    # שמור session (מאפשר HttpOnly cookie בצד השרת)
+    session["al_user"] = {
+        "id": u["id"],
+        "name": u.get("name"),
+        "role": u.get("role"),
+        "business_id": u.get("business_id"),
+    }
+    session["al_token"] = token
+
+    return jsonify({
+        "user": session["al_user"],
+        "token": token,  # אם בצד לקוח עובדים עם HttpOnly בלבד – אפשר לא לשלוח
+    })
+
+
+@auth_bp.post("/api/auth/logout")
+def api_logout():
+    session.pop("al_user", None)
+    session.pop("al_token", None)
+    return jsonify({"ok": True})
+
+
+@auth_bp.get("/api/auth/me")
+@require_api_auth()
+def api_me():
+    return jsonify({"user": g.user})
+
+
+# ---- FORGOT ----
+@auth_bp.post("/api/auth/forgot")
+def api_forgot():
+    data = request.get_json(force=True, silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        return jsonify({"ok": True})  # תמיד ניטרלי
+
+    u = dao_users.get_by_email(email)
+    if u:
+        token = reset_serializer.dumps({"uid": u["id"], "email": email})
+        # שלח מייל / WhatsApp / SMS עם הקישור:
+        reset_link = f'{request.host_url.rstrip("/")}/reset?token={token}'
+        current_app.logger.info("PASSWORD_RESET for %s -> %s", email, reset_link)
+        # TODO: חבר ל-mailer האמיתי; בזמן פיתוח – מספיקה הלוגה
+
+    return jsonify({"ok": True})
+
+
+# ---- RESET ----
+@auth_bp.post("/api/auth/reset")
+def api_reset():
+    data = request.get_json(force=True, silent=True) or {}
+    token = data.get("token") or ""
+    new_password = data.get("password") or ""
+    if not token or len(new_password) < 8:
+        return jsonify({"error": "bad request"}), 400
+    try:
+        payload = reset_serializer.loads(token, max_age=RESET_TOKEN_TTL_SEC)
+    except SignatureExpired:
+        return jsonify({"error": "token expired"}), 400
+    except BadSignature:
+        return jsonify({"error": "invalid token"}), 400
+
+    uid = payload.get("uid")
+    if not uid:
+        return jsonify({"error": "invalid token"}), 400
+
+    pwhash = generate_password_hash(new_password)
+    ok = dao_users.update_password_hash(uid, pwhash)
+    return (jsonify({"ok": True}) if ok else (jsonify({"error": "update failed"}), 500))
+
+התאמות: החלף את dao_users.* לקריאות ה־DB האמיתיות שלך. המבנה המצופה ל־user:
+{"id": "...", "name": "...", "role": "admin|manager|agent|superadmin", "business_id": "...", "password_hash": "pbkdf2:sha256:..."}
+
+⸻
+
+2) רישום ה־Blueprint וה־before_request
+
+ב־server/app_factory.py הוסף:
+
+from server.routes_auth import auth_bp, load_current_user  # חדש
+# ... אחרי יצירת app:
+app.secret_key = os.getenv("SECRET_KEY", "please-change-me")
+app.before_request(load_current_user)
+app.register_blueprint(auth_bp)
+
+אם כבר רשמת load_current_user ממקום אחר – השאר רישום אחד.
+
+⸻
+
+3) הגדרות Session מאובטחות (מומלץ)
+
+עדכן app.config:
+
+app.config.update(
+    SESSION_COOKIE_NAME="al_sess",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=True,        # True בפרודקשן עם HTTPS
+    SESSION_COOKIE_SAMESITE="Lax",
+)
+
+
+⸻
+
+שלב B — חיבור דפי ה־UI שבנית (admin + business)
+
+יש לך server/templates/admin.html ו־server/templates/business.html.
+דאג שה־routes קיימים ומכוונים אליהם:
+
+# server/ui/routes_ui.py או בקובץ routes אחר שלך
+from flask import Blueprint, render_template, redirect, url_for, g
+from server.routes_auth import require_api_auth  # להשתמש באותו דקורטור
+
+ui_bp = Blueprint("ui", __name__)
+
+@ui_bp.get("/")
+def home():
+    if getattr(g, "user", None):
+        role = g.user.get("role")
+        return redirect(url_for("ui.admin") if role in ("admin","superadmin") else url_for("ui.biz"))
+    return redirect(url_for("ui.login"))
+
+@ui_bp.get("/login")
+def login():
+    return render_template("login.html")  # אם שינית שם – עדכן
+
+@ui_bp.get("/app/admin")
+@require_api_auth(["admin","superadmin"])
+def admin():
+    return render_template("admin.html")
+
+@ui_bp.get("/app/biz")
+@require_api_auth(["admin","superadmin","manager","agent"])
+def biz():
+    return render_template("business.html")
+
+וב־app_factory.py:
+
+from server.ui.routes_ui import ui_bp
+app.register_blueprint(ui_bp)
+
+
+⸻
+
+שלב C — בדיקות מהירות (GO/NO-GO)
+
+1) Login
+
+curl -s -X POST $BASE/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"test@biz.com","password":"hunter2"}'
+# מצופה: 200 + {"user":...,"token": "..."} + session נוצר
+
+2) Forgot/Reset
+
+curl -s -X POST $BASE/api/auth/forgot -H 'Content-Type: application/json' \
+  -d '{"email":"test@biz.com"}'
+# מצופה: 200 {"ok":true} + קישור בלוגים (PASSWORD_RESET ...)
+
+# קח את ה-token מהלוג, ואז:
+curl -s -X POST $BASE/api/auth/reset -H 'Content-Type: application/json' \
+  -d '{"token":"<FROM_LOG>","password":"newStrongPass!"}'
+# מצופה: 200 {"ok":true}
+
+3) UI
+	•	גלוש ל־/login → התחבר → ניתוב ל־/app/admin או /app/biz לפי role.
+	•	בדף Business:
+	•	WhatsApp threads: נטען מ־/api/crm/threads?provider=twilio&channel=whatsapp&business_id=<claim>.
+	•	Messages: מ־/api/crm/messages?thread_id=....
+	•	שליחה: POST /api/whatsapp/send {to,text,provider:"twilio"} → שמור ב־CRM (out+sent).
+	•	Calls: GET /api/calls/active, GET /api/calls/history.
+	•	בדף Admin:
+	•	KPIs: GET /api/admin/overview.
+	•	Tenants: GET /api/admin/tenants.
+	•	Calls history כלל-מערכתי: GET /api/calls/history.
+
+אם אחד האנדפוינטים האלו לא קיים אצלך — תגיד לי מי חסר, ואני נותן לך קובץ routes_admin.py / routes_crm.py תואם בדיוק ל־DAO שלך.
+
+⸻
+
+שלב D — הרשאות ורב־שוכרים (מאוד חשוב)
+
+בצד שרת, בכל /api/crm/* ו־/api/whatsapp/*:
+	•	אם role ∈ {"manager","agent"} → חובה לסנן לפי g.user["business_id"] ב־WHERE של ה־DB.
+	•	admin/superadmin רשאים לבקש ?business_id=... או לצפות בכולם.
+
+דוגמה קצרה ב־Flask:
+
+@some_bp.get("/api/crm/contacts")
+@require_api_auth(["admin","superadmin","manager","agent"])
+def api_contacts():
+    bid = request.args.get("business_id")
+    if g.user["role"] not in ("admin","superadmin"):
+        bid = g.user["business_id"]
+    # SELECT ... WHERE business_id = :bid
+    # ...
+
+
+⸻
+
+שלב E — ליטוש ויזואלי (שייראה כמו אפליקציה)
+	•	Tailwind (CDN להתחלה; ל־prod בנה CSS), פונט Heebo/Assistant.
+	•	Mobile-first: קונטיינרים max-w-screen-xl, פינות rounded-2xl, צל shadow-md, מרווחי p-3/p-4.
+	•	HTMX לטעינת partials → מהיר וזורם.
+	•	במובייל, שים לב ש־תיבת השליחה בווטסאפ לא תתחבא מאחורי מקלדת (padding-bottom).
+
+⸻
+
+למה זו הדרך הנכונה כרגע
+	•	פותרים את צוואר הבקבוק: אין Auth → אין דשבורדים אמיתיים.
+	•	נשארים תואמים לפרויקט (Flask, Jinja, HTMX, APIים קיימים).
+	•	מאובטח (Session HttpOnly / JWT), רב־שוכרים, והכול נראה אפליקציה.
+
+אם תרצה—אמשיך עכשיו עם:
+	•	partials ל־admin.html/business.html (HTMX מלא),
+	•	עמודי Forgot/Reset בצד שרת עם אימייל אמיתי,
+	•	ו־Dark Mode toggle + Skeletons.
