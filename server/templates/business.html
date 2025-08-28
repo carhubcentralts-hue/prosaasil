@@ -180,7 +180,7 @@ async function sendMessage() {
     if (!message) return;
     
     try {
-        await apiCall('/api/whatsapp/send', {
+        await apiCall('/webhook/whatsapp/send', {
             method: 'POST',
             body: JSON.stringify({
                 thread_id: currentThread,

@@ -7,8 +7,9 @@ from functools import wraps
 
 def load_current_user():
     """Load current user from session before each request"""
-    g.user = session.get('user')
-    g.token = session.get('token')
+    # Check new auth system first
+    g.user = session.get('al_user') or session.get('user')
+    g.token = session.get('al_token') or session.get('token')
 
 def require_roles(*roles):
     """Decorator to require specific roles"""

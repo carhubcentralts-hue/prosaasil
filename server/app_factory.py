@@ -52,15 +52,33 @@ def create_app():
     # UI Blueprint registration (לפי ההנחיות) - MUST BE FIRST!
     try:
         from server.ui import ui_bp
-        from server.ui.auth import load_current_user
+        from server.routes_auth import auth_bp, load_current_user
         from server.auth_api import auth_api, create_default_admin
         from server.data_api import data_api
         
-        # Register UI blueprint FIRST to override default routes
+        # Register auth system FIRST
         app.before_request(load_current_user)
+        
+        # Session configuration for security
+        app.config.update({
+            'SESSION_COOKIE_NAME': 'al_sess',
+            'SESSION_COOKIE_HTTPONLY': True,
+            'SESSION_COOKIE_SECURE': False,  # Set to True in production with HTTPS
+            'SESSION_COOKIE_SAMESITE': 'Lax',
+        })
+        
+        # Register blueprints
+        app.register_blueprint(auth_bp)  # New auth system
         print(f"🔧 Registering UI Blueprint: {ui_bp}")
         app.register_blueprint(ui_bp, url_prefix='')  # No prefix = takes over root
         print("✅ UI Blueprint registered successfully")
+        
+        # Register new API blueprints
+        from server.routes_admin import admin_bp
+        from server.routes_crm import crm_bp
+        app.register_blueprint(admin_bp)
+        app.register_blueprint(crm_bp)
+        print("✅ New API blueprints registered")
         
         app.register_blueprint(auth_api)
         app.register_blueprint(data_api)
@@ -169,7 +187,7 @@ def create_app():
     app.register_blueprint(twilio_bp)
     from server.routes_whatsapp import register_whatsapp_routes, whatsapp_bp
     register_whatsapp_routes(app)  # ← Legacy compatibility
-    app.register_blueprint(whatsapp_bp)  # ← New unified WhatsApp routes
+    app.register_blueprint(whatsapp_bp)  # ← Unified WhatsApp routes with send API
     from server.api_crm_unified import api_bp
     app.register_blueprint(api_bp, url_prefix="/api")
     

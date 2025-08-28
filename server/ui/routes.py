@@ -15,8 +15,10 @@ API_BASE = os.getenv('PUBLIC_BASE_URL', 'http://localhost:5000')
 def index():
     """Root redirect to login or dashboard"""
     try:
-        if session.get('user'):
-            user_role = session['user'].get('role')
+        # Check new auth system first
+        user = session.get('al_user') or session.get('user')
+        if user:
+            user_role = user.get('role')
             if user_role == 'admin':
                 return redirect(url_for('ui.admin_dashboard'))
             else:
@@ -45,36 +47,45 @@ def reset():
 @require_roles('admin')
 def admin_dashboard():
     """Admin dashboard page"""
-    return render_template('admin.html', user=session['user'])
+    user = session.get('al_user') or session.get('user')
+    return render_template('admin.html', user=user)
 
 @ui_bp.route('/app/biz')
 @require_roles('business', 'admin')
 def business_dashboard():
     """Business dashboard page"""
-    return render_template('business.html', user=session['user'])
+    user = session.get('al_user') or session.get('user')
+    return render_template('business.html', user=user)
 
 # API Auth endpoints for JS calls
 @ui_bp.route('/api/ui/login', methods=['POST'])
 def api_login():
-    """Handle login form submission"""
+    """Handle login form submission - proxy to new auth system"""
     try:
         data = request.get_json()
-        # Call existing auth API
-        response = requests.post(f'{API_BASE}/api/auth/login', json=data)
+        # Call new auth API directly (internal call)
+        from server.routes_auth import api_login as auth_login
+        from flask import current_app
         
-        if response.status_code == 200:
-            result = response.json()
-            # Store in session
-            session['user'] = result.get('user')
-            session['token'] = result.get('token')
-            return jsonify({'success': True, 'user': result.get('user')})
-        else:
-            return jsonify({'success': False, 'error': 'Login failed'}), 400
+        with current_app.test_request_context('/api/auth/login', method='POST', json=data):
+            result = auth_login()
+            if isinstance(result, tuple):
+                response_data, status_code = result
+                return response_data, status_code
+            return result
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @ui_bp.route('/api/ui/logout', methods=['POST'])
 def api_logout():
-    """Handle logout"""
-    session.clear()
-    return jsonify({'success': True})
+    """Handle logout - use new auth system"""
+    try:
+        from server.routes_auth import api_logout as auth_logout
+        from flask import current_app
+        
+        with current_app.test_request_context('/api/auth/logout', method='POST'):
+            result = auth_logout()
+            return result
+    except Exception as e:
+        session.clear()  # Fallback
+        return jsonify({'success': True})

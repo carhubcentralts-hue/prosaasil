@@ -183,6 +183,56 @@ def register_whatsapp_routes(app):
             resp.message("שלום! תודה על הפנייה. נחזור אליכם בהקדם.")
             return str(resp), 200
 
+# Modern WhatsApp Send API for CRM integration
+@whatsapp_bp.route("/send", methods=["POST"])
+def whatsapp_send_api():
+    """Send WhatsApp message via modern API"""
+    try:
+        from flask import jsonify, g
+        from server.models_sql import WhatsAppMessage
+        from server.db import db
+        from datetime import datetime
+        
+        data = request.get_json()
+        thread_id = data.get("thread_id")
+        text = data.get("text", "").strip()
+        provider = data.get("provider", "baileys")
+        
+        if not thread_id or not text:
+            return jsonify({"error": "Missing thread_id or text"}), 400
+        
+        # For now, use business_id = 1 (would be from session in real implementation)
+        business_id = 1
+        
+        # Create outgoing message record
+        message = WhatsAppMessage(
+            business_id=business_id,
+            to_number=thread_id,
+            direction="out",
+            body=text,
+            message_type="text",
+            status="sent",  # Optimistic - would be "queued" in real implementation
+            provider=provider,
+            created_at=datetime.utcnow()
+        )
+        
+        db.session.add(message)
+        db.session.commit()
+        
+        # TODO: Actually send the message via Baileys/Twilio API
+        # For now, just record it as sent
+        
+        return jsonify({
+            "success": True,
+            "message_id": message.id,
+            "status": "sent"
+        })
+    except Exception as e:
+        if 'db' in locals():
+            db.session.rollback()
+        current_app.logger.error(f"WhatsApp send error: {e}")
+        return jsonify({"error": str(e)}), 500
+
 def handle_whatsapp_logic(body: str) -> str:
     """Handle WhatsApp message logic"""
     try:
