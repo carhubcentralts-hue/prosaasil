@@ -25,7 +25,49 @@
     </div>
 </nav>
 
-<div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+<!-- Main Content with Sidebar -->
+<div class="flex h-screen bg-gray-50">
+    <!-- Sidebar Navigation -->
+    <div class="w-64 bg-white shadow-lg">
+        <div class="p-6">
+            <nav class="space-y-2">
+                <a href="#dashboard" onclick="showSection('dashboard')" class="nav-item active flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
+                    <span class="ml-3">📊</span>
+                    <span class="mr-3 font-medium">דשבורד ראשי</span>
+                </a>
+                <a href="#calls" onclick="showSection('calls')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
+                    <span class="ml-3">📞</span>
+                    <span class="mr-3 font-medium">ניהול שיחות</span>
+                </a>
+                <a href="#whatsapp" onclick="showSection('whatsapp')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
+                    <span class="ml-3">💬</span>
+                    <span class="mr-3 font-medium">WhatsApp</span>
+                </a>
+                <a href="#crm" onclick="showSection('crm')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
+                    <span class="ml-3">👥</span>
+                    <span class="mr-3 font-medium">CRM לקוחות</span>
+                </a>
+                <a href="#businesses" onclick="showSection('businesses')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
+                    <span class="ml-3">🏢</span>
+                    <span class="mr-3 font-medium">ניהול עסקים</span>
+                </a>
+                <a href="#analytics" onclick="showSection('analytics')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
+                    <span class="ml-3">📈</span>
+                    <span class="mr-3 font-medium">דוחות ואנליטיקה</span>
+                </a>
+                <a href="#settings" onclick="showSection('settings')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
+                    <span class="ml-3">⚙️</span>
+                    <span class="mr-3 font-medium">הגדרות מערכת</span>
+                </a>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 overflow-auto">
+
+        <!-- Dashboard Section -->
+        <div id="dashboard-section" class="section-content p-6">
     <!-- KPIs Section -->
     <div class="mb-8">
         <h2 class="text-2xl font-bold text-gray-900 mb-4">סקירה כללית</h2>
@@ -126,6 +168,176 @@
                 </div>
             </div>
         </div>
+        </div>
+
+        <!-- Calls Section -->
+        <div id="calls-section" class="section-content p-6 hidden">
+            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול שיחות</h1>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold mb-2">שיחות פעילות</h3>
+                    <p class="text-3xl font-bold text-green-600">3</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold mb-2">זמן שיחה ממוצע</h3>
+                    <p class="text-3xl font-bold text-blue-600">4:32</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold mb-2">שיעור המרה</h3>
+                    <p class="text-3xl font-bold text-purple-600">23%</p>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow">
+                <div class="p-6 border-b">
+                    <h2 class="text-xl font-semibold">שיחות אחרונות</h2>
+                </div>
+                <div class="p-6">
+                    <div id="calls-list" hx-get="/api/admin/calls" hx-trigger="load">
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between p-4 border rounded-lg">
+                                <div>
+                                    <p class="font-semibold">050-1234567</p>
+                                    <p class="text-sm text-gray-600">2 דקות</p>
+                                </div>
+                                <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">הושלמה</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- WhatsApp Section -->
+        <div id="whatsapp-section" class="section-content p-6 hidden">
+            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול WhatsApp</h1>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-white rounded-lg shadow">
+                    <div class="p-6 border-b">
+                        <h2 class="text-xl font-semibold">שיחות פעילות</h2>
+                    </div>
+                    <div class="p-6">
+                        <div class="space-y-4">
+                            <div class="flex items-center p-3 border rounded-lg hover:bg-gray-50">
+                                <div class="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center text-white">
+                                    W
+                                </div>
+                                <div class="mr-3">
+                                    <p class="font-semibold">יעקב כהן</p>
+                                    <p class="text-sm text-gray-600">שאלה על דירת 3 חדרים</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow">
+                    <div class="p-6 border-b">
+                        <h2 class="text-xl font-semibold">שליחת הודעה</h2>
+                    </div>
+                    <div class="p-6">
+                        <div class="space-y-4">
+                            <input type="text" placeholder="מספר טלפון" class="w-full px-3 py-2 border rounded-lg">
+                            <textarea placeholder="תוכן ההודעה" class="w-full px-3 py-2 border rounded-lg h-24"></textarea>
+                            <button class="w-full bg-green-500 text-white py-2 rounded-lg hover:bg-green-600">שלח הודעה</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CRM Section -->
+        <div id="crm-section" class="section-content p-6 hidden">
+            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול לקוחות CRM</h1>
+            
+            <div class="bg-white rounded-lg shadow">
+                <div class="p-6 border-b flex justify-between items-center">
+                    <h2 class="text-xl font-semibold">רשימת לקוחות</h2>
+                    <button class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">הוסף לקוח</button>
+                </div>
+                <div class="p-6">
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-right">שם</th>
+                                    <th class="px-4 py-2 text-right">טלפון</th>
+                                    <th class="px-4 py-2 text-right">סטטוס</th>
+                                    <th class="px-4 py-2 text-right">עדכון אחרון</th>
+                                    <th class="px-4 py-2 text-right">פעולות</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="border-t">
+                                    <td class="px-4 py-3">שרה לוי</td>
+                                    <td class="px-4 py-3">050-1234567</td>
+                                    <td class="px-4 py-3"><span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-sm">בתהליך</span></td>
+                                    <td class="px-4 py-3">אתמול</td>
+                                    <td class="px-4 py-3">
+                                        <button class="text-blue-600 hover:text-blue-800 ml-2">עריכה</button>
+                                        <button class="text-green-600 hover:text-green-800">צור קשר</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Businesses Section -->
+        <div id="businesses-section" class="section-content p-6 hidden">
+            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול עסקים</h1>
+            <div id="tenants" hx-get="/api/admin/tenants" hx-trigger="load" class="bg-white rounded-lg shadow p-6">
+                <div class="animate-pulse space-y-4">
+                    <div class="h-4 bg-gray-200 rounded w-full"></div>
+                    <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Section -->
+        <div id="analytics-section" class="section-content p-6 hidden">
+            <h1 class="text-3xl font-bold text-gray-900 mb-8">דוחות ואנליטיקה</h1>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-semibold mb-4">טרנדים שבועיים</h3>
+                    <div class="h-64 bg-gray-100 rounded flex items-center justify-center">
+                        <p class="text-gray-500">גרף מגמות</p>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-semibold mb-4">ביצועים לפי עסק</h3>
+                    <div class="h-64 bg-gray-100 rounded flex items-center justify-center">
+                        <p class="text-gray-500">גרף ביצועים</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Section -->
+        <div id="settings-section" class="section-content p-6 hidden">
+            <h1 class="text-3xl font-bold text-gray-900 mb-8">הגדרות מערכת</h1>
+            
+            <div class="bg-white rounded-lg shadow">
+                <div class="p-6">
+                    <div class="space-y-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">הגדרות Twilio</label>
+                            <input type="text" placeholder="Account SID" class="w-full px-3 py-2 border rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">הגדרות OpenAI</label>
+                            <input type="text" placeholder="API Key" class="w-full px-3 py-2 border rounded-lg">
+                        </div>
+                        <button class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600">שמור הגדרות</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -142,11 +354,31 @@ async function logout() {
     }
 }
 
+function showSection(sectionName) {
+    // Hide all sections
+    document.querySelectorAll('.section-content').forEach(section => {
+        section.classList.add('hidden');
+    });
+    
+    // Remove active class from all nav items
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active', 'bg-blue-50', 'text-blue-600');
+    });
+    
+    // Show selected section
+    document.getElementById(sectionName + '-section').classList.remove('hidden');
+    
+    // Add active class to clicked nav item
+    event.target.closest('.nav-item').classList.add('active', 'bg-blue-50', 'text-blue-600');
+}
+
 // Auto-refresh every 30 seconds
 setInterval(() => {
-    htmx.trigger('#kpis', 'load');
-    htmx.trigger('#tenants', 'load');
-    htmx.trigger('#calls', 'load');
+    if (!document.getElementById('dashboard-section').classList.contains('hidden')) {
+        htmx.trigger('#kpis', 'load');
+        htmx.trigger('#tenants', 'load');
+        htmx.trigger('#calls', 'load');
+    }
 }, 30000);
 </script>
 {% endblock %}
