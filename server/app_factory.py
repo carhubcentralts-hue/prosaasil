@@ -115,26 +115,27 @@ def create_app():
     print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (One True Path)")
     
     # PATCH 2: Alternative WS route with proper subprotocol handling
-    @app.route("/ws/twilio-media-alt", methods=["GET"])
-    def ws_twilio_media_alt():
-        """Alternative WebSocket handler with explicit subprotocol"""
+    @sock.route('/ws/twilio-media-alt')
+    def ws_twilio_media_alt(ws):
+        """Alternative WebSocket handler - FIXED AS WEBSOCKET"""
         from server.media_ws_ai import MediaStreamHandler
-        offered = request.headers.get("Sec-WebSocket-Protocol", "")
-        print(f"🔍 WS_ALT: Offered protocols: {offered}")
+        import time
+        print("🚨 WS_ALT_HANDLER CALLED - AI MODE (alternative endpoint)")
+        
+        # Write debug immediately
+        with open("/tmp/websocket_debug.txt", "a") as f:
+            f.write(f"WS_ALT_HANDLER_AI_MODE: {time.time()}\n")
+            f.flush()
         
         try:
-            # Create websocket with proper environ
-            ws = WSServer(environ=request.environ)
-            # Handle subprotocol manually if needed
-            if "audio.twilio.com" in offered:
-                print("✅ WS_ALT: audio.twilio.com subprotocol accepted")
-            
-            print("🚨 WS_ALT_HANDLER: Starting MediaStreamHandler")
+            print("🚨 WS_ALT: Starting MediaStreamHandler")
             handler = MediaStreamHandler(ws)
             handler.run()
         except Exception as e:
             print(f"❌ WS_ALT_ERROR: {e}")
-        return ""
+            with open("/tmp/websocket_debug.txt", "a") as f:
+                f.write(f"WS_ALT_ERROR: {e}\n")
+                f.flush()
     
     print("✅ Alternative WebSocket route: /ws/twilio-media-alt (with subprotocol)")
 

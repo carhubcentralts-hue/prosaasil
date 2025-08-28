@@ -728,7 +728,7 @@ class MediaStreamHandler:
             
             if not pcm or len(pcm) < 400:
                 # אודיו חירום - צפצוף
-                pcm = self._beep_pcm16_8k(300)
+                pcm = self._beep_pcm16_8k_v2(300)
             
             # שלח דרך TX Queue
             if self.stream_sid:
@@ -758,7 +758,7 @@ class MediaStreamHandler:
             self.last_tts_end_ts = time.time()
             self.state = STATE_LISTEN
     
-    def _beep_pcm16_8k(self, ms: int) -> bytes:
+    def _beep_pcm16_8k_v2(self, ms: int) -> bytes:
         """יצירת צפצוף PCM16 8kHz"""
         samples = int(SR * ms / 1000)
         amp = 9000
