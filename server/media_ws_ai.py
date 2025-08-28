@@ -119,12 +119,13 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
                     
+                    # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
+                    rms = audioop.rms(pcm16, 2)
+                    
                     # לוגים מתקדמים כל 50 פריימים + PATCH 10
                     if self.rx % 50 == 0:
                         print(f"WS_MEDIA sid={self.stream_sid} rx={self.rx} state={self.state} VAD={rms}/{VAD_RMS}")
 
-                    # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
-                    rms = audioop.rms(pcm16, 2)
                     # דרישה רגישה: קול רגיל מספיק (לא צריך לצעוק!)
                     is_strong_voice = rms > (VAD_RMS * 0.6)
                     
@@ -290,13 +291,17 @@ class MediaStreamHandler:
             started_at = time.time()
             
             # PATCH 6: Fast and stable LLM (no gpt-5, no max_completion_tokens)
-            from server.ai_response import generate_hebrew_response
-            reply = generate_hebrew_response(
-                text,
-                target_style=os.getenv("LLM_TARGET_STYLE", "warm_helpful"),
-                min_chars=int(os.getenv("LLM_MIN_CHARS", "160")),
-                max_chars=int(os.getenv("LLM_MAX_CHARS", "420")),
-            ) or "בסדר, איך אוכל לסייע?"
+            try:
+                from server.ai_response import generate_hebrew_response
+                reply = generate_hebrew_response(
+                    text,
+                    target_style=os.getenv("LLM_TARGET_STYLE", "warm_helpful"),
+                    min_chars=int(os.getenv("LLM_MIN_CHARS", "160")),
+                    max_chars=int(os.getenv("LLM_MAX_CHARS", "420")),
+                ) or "בסדר, איך אוכל לסייע?"
+            except ImportError:
+                # Fallback if ai_response module doesn't exist
+                reply = f"הבנתי שאמרת '{text}'. איך אוכל לעזור לך עם נדלן?"
             
             # PATCH 6: Anti-duplication bot reply
             rh = zlib.crc32(reply.strip().encode("utf-8"))
