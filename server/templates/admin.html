@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}דשבורד מנהל - מקסימוס נדל״ן{% endblock %}
+
+{% block content %}
+<!-- Top Navigation -->
+<nav class="bg-white shadow-lg border-b border-gray-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between h-16">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <span class="text-2xl font-bold text-blue-600">🏢 מקסימוס נדל״ן</span>
+                </div>
+                <div class="hidden md:ml-6 md:flex md:space-x-8">
+                    <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">מנהל מערכת</span>
+                </div>
+            </div>
+            <div class="flex items-center">
+                <span class="text-gray-700 ml-4">שלום, {{ user.name }}</span>
+                <button onclick="logout()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors">
+                    התנתק
+                </button>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+    <!-- KPIs Section -->
+    <div class="mb-8">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">סקירה כללית</h2>
+        <div id="kpis" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
+                <div class="p-6">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                                <span class="text-white font-bold">📞</span>
+                            </div>
+                        </div>
+                        <div class="mr-4">
+                            <p class="text-sm font-medium text-gray-500">שיחות היום</p>
+                            <p class="text-2xl font-semibold text-gray-900" hx-get="/api/admin/kpis/calls" hx-trigger="load" hx-target="this">0</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
+                <div class="p-6">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <div class="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+                                <span class="text-white font-bold">📱</span>
+                            </div>
+                        </div>
+                        <div class="mr-4">
+                            <p class="text-sm font-medium text-gray-500">WhatsApp</p>
+                            <p class="text-2xl font-semibold text-gray-900" hx-get="/api/admin/kpis/whatsapp" hx-trigger="load" hx-target="this">0</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
+                <div class="p-6">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <div class="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
+                                <span class="text-white font-bold">👥</span>
+                            </div>
+                        </div>
+                        <div class="mr-4">
+                            <p class="text-sm font-medium text-gray-500">עסקים פעילים</p>
+                            <p class="text-2xl font-semibold text-gray-900" hx-get="/api/admin/kpis/businesses" hx-trigger="load" hx-target="this">0</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
+                <div class="p-6">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <div class="w-8 h-8 bg-yellow-500 rounded-lg flex items-center justify-center">
+                                <span class="text-white font-bold">💰</span>
+                            </div>
+                        </div>
+                        <div class="mr-4">
+                            <p class="text-sm font-medium text-gray-500">הכנסות חודש</p>
+                            <p class="text-2xl font-semibold text-gray-900" hx-get="/api/admin/kpis/revenue" hx-trigger="load" hx-target="this">₪0</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tenants Section -->
+    <div class="mb-8">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-2xl font-bold text-gray-900">ניהול עסקים</h2>
+            <button class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                ➕ הוסף עסק חדש
+            </button>
+        </div>
+        <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+            <div id="tenants" hx-get="/api/admin/tenants" hx-trigger="load" class="p-6">
+                <div class="animate-pulse">
+                    <div class="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                    <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Calls Section -->
+    <div class="mb-8">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">שיחות אחרונות</h2>
+        <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+            <div id="calls" hx-get="/api/admin/calls" hx-trigger="load" class="p-6">
+                <div class="animate-pulse space-y-4">
+                    <div class="h-4 bg-gray-200 rounded w-full"></div>
+                    <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                    <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function logout() {
+    try {
+        await apiCall('/api/ui/logout', { method: 'POST' });
+        window.location.href = '/login';
+    } catch (error) {
+        console.error('Logout error:', error);
+        window.location.href = '/login';
+    }
+}
+
+// Auto-refresh every 30 seconds
+setInterval(() => {
+    htmx.trigger('#kpis', 'load');
+    htmx.trigger('#tenants', 'load');
+    htmx.trigger('#calls', 'load');
+}, 30000);
+</script>
+{% endblock %}

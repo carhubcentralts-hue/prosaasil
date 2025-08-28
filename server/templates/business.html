@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block title %}דשבורד עסק - מקסימוס נדל״ן{% endblock %}
+
+{% block content %}
+<!-- Top Navigation -->
+<nav class="bg-white shadow-lg border-b border-gray-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between h-16">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <span class="text-2xl font-bold text-blue-600">🏢 מקסימוס נדל״ן</span>
+                </div>
+                <div class="hidden md:ml-6 md:flex md:space-x-8">
+                    <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">משתמש עסק</span>
+                </div>
+            </div>
+            <div class="flex items-center">
+                <span class="text-gray-700 ml-4">שלום, {{ user.name }}</span>
+                <button onclick="logout()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors">
+                    התנתק
+                </button>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+    <!-- Tab Navigation -->
+    <div class="mb-6">
+        <nav class="flex space-x-8" aria-label="Tabs">
+            <button onclick="showTab('whatsapp')" id="tab-whatsapp" class="tab-button active bg-blue-100 text-blue-700 px-3 py-2 font-medium text-sm rounded-md">
+                📱 WhatsApp
+            </button>
+            <button onclick="showTab('calls')" id="tab-calls" class="tab-button text-gray-500 hover:text-gray-700 px-3 py-2 font-medium text-sm rounded-md">
+                📞 שיחות
+            </button>
+            <button onclick="showTab('crm')" id="tab-crm" class="tab-button text-gray-500 hover:text-gray-700 px-3 py-2 font-medium text-sm rounded-md">
+                👥 CRM
+            </button>
+        </nav>
+    </div>
+
+    <!-- WhatsApp Tab -->
+    <div id="content-whatsapp" class="tab-content">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Threads List -->
+            <div class="lg:col-span-1">
+                <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-lg font-medium text-gray-900">שיחות WhatsApp</h3>
+                    </div>
+                    <div id="whatsapp-threads" hx-get="/api/crm/threads?type=whatsapp" hx-trigger="load" class="divide-y divide-gray-200 max-h-96 overflow-y-auto">
+                        <div class="p-4 animate-pulse">
+                            <div class="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                            <div class="h-3 bg-gray-200 rounded w-1/2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Area -->
+            <div class="lg:col-span-2">
+                <div class="bg-white shadow-xl rounded-2xl overflow-hidden h-96 flex flex-col">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-lg font-medium text-gray-900">צ׳אט</h3>
+                    </div>
+                    <div id="whatsapp-messages" class="flex-1 p-4 overflow-y-auto">
+                        <div class="text-center text-gray-500 mt-20">
+                            בחר שיחה לצפייה בהודעות
+                        </div>
+                    </div>
+                    <div class="px-6 py-4 border-t border-gray-200">
+                        <div class="flex space-x-4">
+                            <input type="text" id="message-input" placeholder="הקלד הודעה..." class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-right">
+                            <button onclick="sendMessage()" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                                שלח
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Calls Tab -->
+    <div id="content-calls" class="tab-content hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Active Calls -->
+            <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <h3 class="text-lg font-medium text-gray-900">שיחות פעילות</h3>
+                </div>
+                <div id="active-calls" hx-get="/api/calls/active" hx-trigger="load, every 10s" class="p-6">
+                    <div class="animate-pulse">
+                        <div class="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                        <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Call History -->
+            <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <h3 class="text-lg font-medium text-gray-900">היסטוריית שיחות</h3>
+                </div>
+                <div id="call-history" hx-get="/api/calls/history" hx-trigger="load" class="p-6 max-h-96 overflow-y-auto">
+                    <div class="animate-pulse space-y-4">
+                        <div class="h-4 bg-gray-200 rounded w-full"></div>
+                        <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                        <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CRM Tab -->
+    <div id="content-crm" class="tab-content hidden">
+        <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-lg font-medium text-gray-900">ניהול לקוחות</h3>
+                    <button class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors">
+                        ➕ הוסף לקוח
+                    </button>
+                </div>
+            </div>
+            <div id="crm-customers" hx-get="/api/crm/customers" hx-trigger="load" class="p-6">
+                <div class="animate-pulse grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="h-24 bg-gray-200 rounded"></div>
+                    <div class="h-24 bg-gray-200 rounded"></div>
+                    <div class="h-24 bg-gray-200 rounded"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentThread = null;
+
+function showTab(tabName) {
+    // Hide all tab contents
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.add('hidden');
+    });
+    
+    // Remove active class from all tab buttons
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.classList.remove('active', 'bg-blue-100', 'text-blue-700');
+        button.classList.add('text-gray-500', 'hover:text-gray-700');
+    });
+    
+    // Show selected tab content
+    document.getElementById(`content-${tabName}`).classList.remove('hidden');
+    
+    // Add active class to selected tab button
+    const activeButton = document.getElementById(`tab-${tabName}`);
+    activeButton.classList.remove('text-gray-500', 'hover:text-gray-700');
+    activeButton.classList.add('active', 'bg-blue-100', 'text-blue-700');
+}
+
+function selectThread(threadId) {
+    currentThread = threadId;
+    htmx.ajax('GET', `/api/crm/threads/${threadId}/messages`, '#whatsapp-messages');
+}
+
+async function sendMessage() {
+    if (!currentThread) {
+        alert('בחר שיחה תחילה');
+        return;
+    }
+    
+    const input = document.getElementById('message-input');
+    const message = input.value.trim();
+    
+    if (!message) return;
+    
+    try {
+        await apiCall('/api/whatsapp/send', {
+            method: 'POST',
+            body: JSON.stringify({
+                thread_id: currentThread,
+                text: message
+            })
+        });
+        
+        input.value = '';
+        // Refresh messages
+        htmx.ajax('GET', `/api/crm/threads/${currentThread}/messages`, '#whatsapp-messages');
+        
+    } catch (error) {
+        alert('שגיאה בשליחת ההודעה');
+    }
+}
+
+async function logout() {
+    try {
+        await apiCall('/api/ui/logout', { method: 'POST' });
+        window.location.href = '/login';
+    } catch (error) {
+        console.error('Logout error:', error);
+        window.location.href = '/login';
+    }
+}
+
+// Enter key to send message
+document.addEventListener('DOMContentLoaded', () => {
+    const messageInput = document.getElementById('message-input');
+    if (messageInput) {
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

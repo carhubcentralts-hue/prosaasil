@@ -1,0 +1,62 @@
+מעולה—עברנו לפרונט ב־**Flask** כמו שביקשת. יצרתי לך בקנבס קובץ מלא שמוסיף ממשק **מבוסס Jinja + Tailwind + HTMX** עם שלושה דפים “מושלמים”:
+דף התחברות (עם “שכחתי סיסמה”), דף **מנהל** (רב־שוכר), ודף **עסק** (לפי הרשאות), מחוברים ל־APIים שכבר קיימים אצלך (שיחות + ווטסאפ).
+
+### מה קיבלת בקנבס
+
+* **Blueprint חדש** `ui_bp` עם רישום ב־app\_factory.
+* **Helpers להרשאות** (session + decorator `require_roles`).
+* **דפי UI**:
+
+  * `/login`, `/forgot`, `/reset?token=…` (כולל JS שקורא ל־`/api/auth/*` ושומר user/token).
+  * `/app/admin` — KPIs, Tenants, Calls (נטען בעזרת HTMX/JSON מה־API שלך).
+  * `/app/biz` — WhatsApp (threads+chat), Calls (active+history), CRM (מוכן להרחבה).
+* **Partials** ל־WhatsApp ולשיחות, שמתרנדרים מהר דרך HTMX (בלי SPA מסובך).
+* **Mobile-first**: נראה כמו אפליקציה – Top bar בדסקטופ, Bottom feel במבנה; פינות 2xl, צללים, Dark-ready.
+
+### איך לחבר בשתי דקות
+
+1. הוסף רישום בלופרינט:
+
+```python
+# AgentLocator/server/app_factory.py
+from server.ui import ui_bp
+from server.ui.auth import load_current_user
+
+app.before_request(load_current_user)
+app.register_blueprint(ui_bp)
+app.secret_key = os.getenv("SECRET_KEY", "please-change-me")
+```
+
+2. ודא ENV:
+
+```
+PUBLIC_BASE_URL=https://ai-crmd.replit.app
+SECRET_KEY=ChangeMe
+```
+
+3. ודא שה־APIים קיימים כמו במערכת שלך:
+
+* `POST /api/auth/login` → `{user:{id,name,role,business_id}, token?}`
+* `POST /api/auth/forgot`, `POST /api/auth/reset`
+* `GET /api/crm/threads`, `GET /api/crm/messages`, `POST /api/whatsapp/send`
+* `GET /api/calls/active`, `GET /api/calls/history`
+* (Admin) `GET /api/admin/overview`, `GET /api/admin/tenants`
+
+> חשוב: ההרשאות נשארות בצד שרת (ה־API שלך מסנן לפי `business_id` ו־`role`). ה־UI מציג רק מה שמותר.
+
+### למה זה “הכי גבוה שיש”
+
+* **נראות**: Tailwind (CDN להתחלה, Build ל־prod), טיפוגרפיה נקייה, מרווחי מובייל נוחים, כפתורים גדולים.
+* **חוויית שימוש**: HTMX לטעינה חלקית — מהיר, “מרגיש אפליקציה” בלי SPA כבד.
+* **אבטחה**: תומך ב־HttpOnly cookie (מועדף), או JWT בלוקאל (אם אין ברירה).
+* **רב־שוכרים**: הפניות/מסכים לפי תפקיד; ה־Business רואה רק שלו, Admin רואה הכל.
+* **שדרוג קל**: תוכל להוסיף PWA (אייקון למסך הבית), דשבורדים גרפיים, Notifications.
+
+אם תרצה, אוסיף עכשיו בקנבס גם:
+
+* ולידציות/סקליטונים ויזואליים,
+* Dark Mode toggle,
+* טבלת CRM מתקדמת עם פילטרים/מיין,
+* ו־SSE/WebSocket ל־Calls לייב.
+
+רוצה שאעדכן בקנבס גם את דפי **Forgot/Reset** הצד־שרת (טוקן חתום וזמן תפוגה) ולחצני פעולה נוספים לדשבורדים?

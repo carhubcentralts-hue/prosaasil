@@ -35,7 +35,7 @@ def create_app():
     
     # Basic configuration
     app.config.update({
-        'SECRET_KEY': os.getenv('SECRET_KEY', 'dev-key'),
+        'SECRET_KEY': os.getenv('SECRET_KEY', 'please-change-me'),
         'DATABASE_URL': os.getenv('DATABASE_URL'),
     })
     
@@ -44,6 +44,13 @@ def create_app():
     
     # CORS
     CORS(app)
+    
+    # UI Blueprint registration (לפי ההנחיות)
+    from server.ui import ui_bp
+    from server.ui.auth import load_current_user
+    
+    app.before_request(load_current_user)
+    app.register_blueprint(ui_bp)
     
     # 8) לוגים שמראים הכל (לפי ההנחיות המדויקות)
     @app.before_request
