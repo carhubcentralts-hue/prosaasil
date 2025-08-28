@@ -4,6 +4,7 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
 import os, json, time, base64, audioop, math, threading, queue, random, zlib
 from simple_websocket import ConnectionClosed
+from server.stream_state import stream_registry
 
 SR = 8000
 # 🎯 פרמטרים מעודכנים לשיחה אנושית מושלמת!
@@ -31,6 +32,7 @@ class MediaStreamHandler:
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
         self.stream_sid = None
+        self.call_sid = None
         self.rx = 0
         self.tx = 0
         
@@ -72,8 +74,14 @@ class MediaStreamHandler:
 
                 if et == "start":
                     self.stream_sid = evt["start"]["streamSid"]
+                    self.call_sid = (
+                        evt["start"].get("callSid")
+                        or (evt["start"].get("customParameters") or {}).get("call_sid")
+                    )
                     self.last_rx_ts = time.time()
                     print(f"WS_START sid={self.stream_sid} mode={self.mode}")
+                    if self.call_sid:
+                        stream_registry.mark_start(self.call_sid)
                     
                     # ✅ ברכה חכמה: רק אם אין קול ב-0.8s הראשונות
                     if not self.tx_running:
@@ -99,6 +107,12 @@ class MediaStreamHandler:
                     mulaw = base64.b64decode(b64)
                     pcm16 = audioop.ulaw2lin(mulaw, 2)
                     self.last_rx_ts = time.time()
+                    if self.call_sid:
+                        stream_registry.touch_media(self.call_sid)
+                    
+                    # לוגים מתקדמים כל 50 פריימים
+                    if self.rx % 50 == 0:
+                        print(f"WS_MEDIA sid={self.stream_sid} rx={self.rx}")
 
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
@@ -153,7 +167,7 @@ class MediaStreamHandler:
                         too_long = dur >= MAX_UTT_SEC
                         
                         # 🎯 סוף מבע - רק אחרי דממה אמיתית או זמן יותר מדי
-                        if (silent or too_long) and dur > 0.5:
+                        if (silent or too_long) and dur > 0.28:
                             print(f"🎤 PROCESSING: {dur:.1f}s audio (conversation #{self.conversation_id})")
                             print(f"🔍 AUDIO_INFO: Buffer={len(self.buf)} bytes, Duration={dur:.1f}s, Silent={silent}, TooLong={too_long}")
                             
@@ -385,6 +399,10 @@ class MediaStreamHandler:
                 }))
                 self.tx += 1
                 frames_sent += 1
+                
+                # לוגים מתקדמים כל 50 פריימי שידור
+                if self.tx % 50 == 0:
+                    print(f"WS_TX sid={self.stream_sid} tx={self.tx}")
             except Exception as e:
                 print(f"❌ Error sending frame {frames_sent}: {e}")
                 break

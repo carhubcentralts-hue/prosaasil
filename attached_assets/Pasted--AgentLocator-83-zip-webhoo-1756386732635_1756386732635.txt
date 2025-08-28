@@ -1,0 +1,191 @@
+כן—פתחתי את **AgentLocator (83).zip** ובדקתי את הקוד בפועל.
+התשתית הבסיסית עומדת בדרישות (✅ `/webhook/stream_status`=204 בלי חתימה, ✅ TwiML `Connect+Stream+statusCallback`, ✅ `gunicorn -k eventlet`, ✅ `/healthz`/`/readyz`/`/` ירוקים).
+אבל יש **3 תקלות קונקרטיות** שמסבירות בדיוק את מה שאתה חווה (“מדברת על עצמה, לא נותנת לדבר, אין תמלול/הבנה”):
+
+1. **ה־WS לא מעדכן את ה-watchdog בכלל** – ב־`media_ws_ai.py` אין סימון start/‏media ל־`stream_registry`, אז ה־watchdog רואה “אין מדיה” → התנהגות fallback/לופים.
+2. **סוף-מבע קשוח + VAD רגיש מדי** – התנאי `dur > 0.5` + `VAD_RMS=150` זורק המון מבעים קצרים → אתה מדבר והיא “לא שומעת”, ואז חוזרת על פתיח/שבלונות.
+3. **מפתחות NLP/TTS אינם מובטחים** – `bootstrap_secrets.py` מכבה NLP/TTS אם אין מפתחות, ואז יש נפילות ל־fallback (“מתחה ממקסימוס נדל״ן…”) או שקט.
+
+להלן תיקון מדויק (פאצ’ים קטנים) שנותן שיחה דו-כיוונית אמיתית: שומעת, מחכה לשקט קצר, לא דורסת, Barge-in יציב, תגובה אחת למבע, בלי לופים.
+
+---
+
+## 🔧 PATCH 1 — לחבר את ה־WS ל־watchdog (מונע לופים/Redirect)
+
+קובץ: `AgentLocator/server/media_ws_ai.py`
+
+הוסף import ושדה לזיהוי שיחה:
+
+```diff
++ from server.stream_state import stream_registry
+...
+     def __init__(self, ws):
+         self.ws = ws
++        self.call_sid = None
+```
+
+ב־`event == "start"` — שלוף `call_sid` וסמן התחלה:
+
+```diff
+ if et == "start":
+     self.stream_sid = evt["start"]["streamSid"]
++    self.call_sid = (
++        evt["start"].get("callSid")
++        or (evt["start"].get("customParameters") or {}).get("call_sid")
++    )
+     self.last_rx_ts = time.time()
+     print(f"WS_START sid={self.stream_sid} mode={self.mode}")
++    if self.call_sid:
++        stream_registry.mark_start(self.call_sid)
+```
+
+ב־`event == "media"` — עדכן “נוגעים במדיה” כל פריים:
+
+```diff
+ if et == "media":
+     ...
+     self.last_rx_ts = time.time()
++    if self.call_sid:
++        stream_registry.touch_media(self.call_sid)
+```
+
+> כך ה־watchdog מפסיק “לחשוב” שאין זרם/מדיה → אין Redirectים/לולאות מוזרות.
+
+---
+
+## 🔧 PATCH 2 — סוף-מבע אנושי (מהיר מספיק, לא מקוטע)
+
+עדכן את הסף המינימלי לעיבוד (אחרת מבע קצר נזרק):
+
+```diff
+- if (silent or too_long) and dur > 0.5:
++ if (silent or too_long) and dur > 0.28:
+```
+
+וכבר יש לך Hangover ו-Refractory בקובץ—השאר אותם.
+
+---
+
+## 🔧 PATCH 3 — לוגים שמוכיחים תנועה (קלט/פלט)
+
+ב־`media_ws_ai.py` יש מונים, ודא שהם נשלחים כל 25–50 פריימים:
+
+```python
+# בתוך media:
+self.rx += 1
+if self.rx % 50 == 0:
+    print(f"WS_MEDIA sid={self.stream_sid} rx={self.rx}")
+# בתוך שידור:
+self.tx += 1
+if self.tx % 50 == 0:
+    print(f"WS_TX sid={self.stream_sid} tx={self.tx}")
+# בסיום:
+print(f"WS_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
+```
+
+מטרת הבדיקה: לראות **rx>0** ו-**tx>0** בכל שיחה.
+
+---
+
+## 🔧 PATCH 4 — עצירת “פתיח אינסופי” ו־Barge-in קשיח
+
+(יש לך כבר Greeting חכם—השאר; העיקר לוודא שאין פתיח אוטומטי כל פעם.)
+
+ב־`start_all.sh` השבת פתיח TTS עד לווידוא שהכל יציב:
+
+```bash
+export TWIML_PLAY_GREETING=false
+export AI_GREETING_HE=""
+```
+
+ב־`media_ws_ai.py` כבר יש:
+
+* Barge-in כשיש **3** פריימי קול רצופים (`BARGE_IN_VOICE_FRAMES=3`) — השאר.
+* Refractory אחרי דיבור — השאר.
+
+זה מה שמונע “לדבר מעליך” ולולאות.
+
+---
+
+## 🔧 PATCH 5 — ספי VAD “בריאים” כברירת-מחדל
+
+ב־`start_all.sh` (ולא בקוד), תן ערכים שמאזנים מהירות/יציבות:
+
+```bash
+# סוף-מבע (VAD)
+export MIN_UTT_SEC=${MIN_UTT_SEC:-0.48}
+export VAD_HANGOVER_MS=${VAD_HANGOVER_MS:-140}
+export MAX_UTT_SEC=${MAX_UTT_SEC:-7.0}
+export VAD_RMS=${VAD_RMS:-205}   # היה 150 → רגיש מדי וגורם לביטולי מדומים
+
+# קצב “אנושי”
+export RESP_MIN_DELAY_MS=${RESP_MIN_DELAY_MS:-220}
+export RESP_MAX_DELAY_MS=${RESP_MAX_DELAY_MS:-360}
+export REPLY_REFRACTORY_MS=${REPLY_REFRACTORY_MS:-750}
+
+# אנטי-כפילות
+export DEDUP_WINDOW_SEC=${DEDUP_WINDOW_SEC:-14}
+```
+
+> אם עדיין “מהירה מדי” → העלה `RESP_MIN/RESP_MAX` ל־`320/520`.
+> אם “מאחרת לענות” → הורד `MIN_UTT_SEC` ל־`0.42`.
+
+---
+
+## 🔧 PATCH 6 — קונפיג סביבה נכונה (מונע URL כפולים/שגויים)
+
+בקובץ `.env` ראיתי:
+
+```
+PUBLIC_HOST=https://your-replit-url.replit.app
+```
+
+תקן ל:
+
+```
+PUBLIC_BASE_URL=https://ai-crmd.replit.app
+# מחק/התעלם מ-PUBLIC_HOST כדי למנוע כפילויות //
+```
+
+`routes_twilio.py` כבר מטפל ב־`rstrip('/')`, אבל שווה להגדיר נכון.
+
+---
+
+## 🔧 PATCH 7 — NLP/TTS לא “נופלים לשקט”
+
+ב־`server/bootstrap_secrets.py` אם אין מפתחות → מוגדר `NLP_DISABLED/TTS_DISABLED`. ודא שיש:
+
+* `OPENAI_API_KEY` תקין (ל־STT “whisper-1” ול־LLM).
+* `GOOGLE_TTS_SA_JSON` (או `GCP_CREDENTIALS_JSON`) עם JSON אמיתי; הקוד כבר כותב קובץ ומכוון `GOOGLE_APPLICATION_CREDENTIALS`.
+
+אם אין מפתח—אל תישאר בשקט: ב־`_process_utterance_safe` כבר יש fallback; דאג שהוא תמיד שולח **לפחות beep** (יש לך `_send_beep`).
+
+---
+
+## 🔁 דיפלוי נכון (Eventlet)
+
+אתה כבר מריץ:
+
+```
+python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT main:app
+```
+
+מצוין. לאחר הפאצ’ים:
+
+1. `pkill -9 -f "gunicorn|main:app"`
+2. `bash AgentLocator/start_all.sh`
+3. ודא לוגים:
+
+   * `WS_START …`
+   * תוך ≤2 שניות `WS_MEDIA rx=50`
+   * אחרי מבע: `ASR_TEXT: …` → `AI: …` → `tts_done`
+   * בסוף: `WS_DONE … rx>0 tx>0`
+
+---
+
+## ✅ תשובות קצרות לשאלתך
+
+* **זה בהתאם לקובץ שצירפת?** כן—עברתי על `routes_twilio.py`, `media_ws_ai.py`, `app_factory.py`, `start_all.sh`, ו־`.env`. רוב הדרישות קיימות; אך 3 הבאגים למעלה מונעים שיחה אמיתית.
+* **הכל עובד טוב?** ה-infra כן, אבל בלי PATCH 1+2+6 (ולוודא מפתחות ב-PATCH 7) תקבל בדיוק את הסימפטומים שדיווחת (אין תמלול/הבנה, פתיח/חזרה).
+
+בצע את 7 הפאצ’ים למעלה כפי שהם, והריץ שוב. אם אחרי זה משהו עוד “שורק” — הדבק כאן 8–10 שורות לוג סביב ההתחלה (`WS_START`, שתי `WS_MEDIA`, `ASR_TEXT`, `AI:`, `tts_done`) ואני אצביע בדיוק על הקו שחוסם.
