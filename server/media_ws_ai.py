@@ -290,18 +290,8 @@ class MediaStreamHandler:
             # 3. AI Response - БЕЗ micro-ack! תן לה לחשוב בשקט
             started_at = time.time()
             
-            # PATCH 6: Fast and stable LLM (no gpt-5, no max_completion_tokens)
-            try:
-                from server.ai_response import generate_hebrew_response
-                reply = generate_hebrew_response(
-                    text,
-                    target_style=os.getenv("LLM_TARGET_STYLE", "warm_helpful"),
-                    min_chars=int(os.getenv("LLM_MIN_CHARS", "160")),
-                    max_chars=int(os.getenv("LLM_MAX_CHARS", "420")),
-                ) or "בסדר, איך אוכל לסייע?"
-            except ImportError:
-                # Fallback if ai_response module doesn't exist
-                reply = f"הבנתי שאמרת '{text}'. איך אוכל לעזור לך עם נדלן?"
+            # ✅ השתמש בפונקציה המתקדמת עם מתמחה והמאגר הכולל!
+            reply = self._ai_response(text)
             
             # PATCH 6: Anti-duplication bot reply
             rh = zlib.crc32(reply.strip().encode("utf-8"))
@@ -326,7 +316,7 @@ class MediaStreamHandler:
             print(f"   Text was: '{text}' ({len(text)} chars)")
             # ✅ תגובת חירום מפורטת ומועילה
             self.state = STATE_SPEAK
-            emergency_response = "מצטערת, לא שמעתי טוב בגלל החיבור. אני מתחה ממקסימוס נדל\"ן ויש לי דירות מדהימות במרכז. בואו נתחיל מחדש - איזה סוג נכס אתה מחפש ובאיזה אזור?"
+            emergency_response = "מצטערת, לא שמעתי טוב בגלל החיבור. אני מתמחה ממקסימוס נדל\"ן ויש לי דירות מדהימות במרכז. בואו נתחיל מחדש - איזה סוג נכס אתה מחפש ובאיזה אזור?"
             self._speak_with_breath(emergency_response)
             self.state = STATE_LISTEN
 
