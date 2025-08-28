@@ -68,17 +68,16 @@ class MediaStreamHandler:
                     self.last_rx_ts = time.time()
                     print(f"WS_START sid={self.stream_sid} mode={self.mode}")
                     
-                    # ברכה מיידית רק אם שקט
+                    # ✅ CRITICAL FIX: ברכה מיידית ללא delay!
                     if not self.greeting_sent:
-                        def _maybe_greet():
-                            time.sleep(0.3)  # זמן מינימלי לזיהוי קול
-                            # אם במשך 0.3s שקט מוחלט:
-                            if (time.time() - self.last_rx_ts) >= 0.3 and not self.speaking:
-                                greet = os.getenv("AI_GREETING_HE", "שלום! אני מתחה ממקסימוס נדלן. יש לי דירות מדהימות במרכז. איך אפשר לעזור?")
-                                print(f"🔊 IMMEDIATE GREETING: {greet}")
-                                self._speak_simple(greet)
-                                self.greeting_sent = True
-                        threading.Thread(target=_maybe_greet, daemon=True).start()
+                        def _immediate_greet():
+                            # המתן קצר רק לחיבור WebSocket
+                            time.sleep(0.1)
+                            greet = os.getenv("AI_GREETING_HE", "שלום! אני מתחה ממקסימוס נדלן. יש לי דירות מדהימות במרכז. איך אפשר לעזור?")
+                            print(f"🔊 IMMEDIATE GREETING (CRITICAL FIX): {greet}")
+                            self._speak_simple(greet)
+                            self.greeting_sent = True
+                        threading.Thread(target=_immediate_greet, daemon=True).start()
                     continue
 
                 if et == "media":
@@ -551,6 +550,7 @@ class MediaStreamHandler:
     def _hebrew_tts(self, text: str) -> bytes | None:
         """Hebrew Text-to-Speech using Google Cloud TTS"""
         try:
+            print(f"🎤 TTS_START: Generating Hebrew TTS for '{text[:50]}...'")
             from google.cloud import texttospeech
             
             client = texttospeech.TextToSpeechClient()
@@ -574,8 +574,11 @@ class MediaStreamHandler:
                 audio_config=audio_config
             )
             
+            print(f"✅ TTS_SUCCESS: Generated {len(response.audio_content)} bytes of audio")
             return response.audio_content
             
         except Exception as e:
-            print(f"TTS_ERROR: {e}")
+            print(f"❌ TTS_CRITICAL_ERROR: {e}")
+            print(f"   Text was: '{text}'")
+            print(f"   Check Google Cloud credentials!")
             return None
