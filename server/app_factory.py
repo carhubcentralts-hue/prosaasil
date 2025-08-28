@@ -6,6 +6,7 @@ from flask import Flask, jsonify, send_from_directory, send_file, current_app, r
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_sock import Sock
+from simple_websocket import Server as WSServer
 
 def create_app():
     """Create Flask application with React frontend (לפי ההנחיות המדויקות)"""
@@ -112,6 +113,30 @@ def create_app():
                 f.flush()
     
     print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (One True Path)")
+    
+    # PATCH 2: Alternative WS route with proper subprotocol handling
+    @app.route("/ws/twilio-media-alt", methods=["GET"])
+    def ws_twilio_media_alt():
+        """Alternative WebSocket handler with explicit subprotocol"""
+        from server.media_ws_ai import MediaStreamHandler
+        offered = request.headers.get("Sec-WebSocket-Protocol", "")
+        print(f"🔍 WS_ALT: Offered protocols: {offered}")
+        
+        try:
+            # Create websocket with proper environ
+            ws = WSServer(environ=request.environ)
+            # Handle subprotocol manually if needed
+            if "audio.twilio.com" in offered:
+                print("✅ WS_ALT: audio.twilio.com subprotocol accepted")
+            
+            print("🚨 WS_ALT_HANDLER: Starting MediaStreamHandler")
+            handler = MediaStreamHandler(ws)
+            handler.run()
+        except Exception as e:
+            print(f"❌ WS_ALT_ERROR: {e}")
+        return ""
+    
+    print("✅ Alternative WebSocket route: /ws/twilio-media-alt (with subprotocol)")
 
     # רישום בלו־פרינטים - AgentLocator 71
     from server.routes_twilio import twilio_bp

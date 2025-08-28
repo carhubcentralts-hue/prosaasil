@@ -20,28 +20,28 @@ export PORT="${PORT:-5000}"
 export WS_MODE="${WS_MODE:-AI}"
 export HEBREW_REALTIME_ENABLED="${HEBREW_REALTIME_ENABLED:-true}"
 
-# 🎯 Optimized Human-Like Conversation Configuration per PATCH 9
-# VAD / סיום מבע
+# 🎯 RUNBOOK ENV SETTINGS - PATCH 9 (Silence Prevention)
+# VAD / End-of-speech
 export MIN_UTT_SEC="${MIN_UTT_SEC:-0.48}"
 export VAD_HANGOVER_MS="${VAD_HANGOVER_MS:-140}"
 export VAD_RMS="${VAD_RMS:-210}"
 export MAX_UTT_SEC="${MAX_UTT_SEC:-7.0}"
 
-# קצב
+# Timing
 export RESP_MIN_DELAY_MS="${RESP_MIN_DELAY_MS:-220}"
 export RESP_MAX_DELAY_MS="${RESP_MAX_DELAY_MS:-360}"
 export REPLY_REFRACTORY_MS="${REPLY_REFRACTORY_MS:-750}"
 
-# Barge-in + דה-דופליקציה
+# Barge-in + deduplication
 export BARGE_IN="${BARGE_IN:-true}"
 export BARGE_IN_VOICE_FRAMES="${BARGE_IN_VOICE_FRAMES:-3}"
 export DEDUP_WINDOW_SEC="${DEDUP_WINDOW_SEC:-14}"
 
-# פתיח כבוי בבדיקות
+# Greeting OFF for testing
 export TWIML_PLAY_GREETING="${TWIML_PLAY_GREETING:-false}"
 export AI_GREETING_HE="${AI_GREETING_HE:-}"
 
-# LLM סגנון/אורך
+# LLM style/length
 export LLM_TARGET_STYLE="${LLM_TARGET_STYLE:-warm_helpful}"
 export LLM_MIN_CHARS="${LLM_MIN_CHARS:-160}"
 export LLM_MAX_CHARS="${LLM_MAX_CHARS:-420}"

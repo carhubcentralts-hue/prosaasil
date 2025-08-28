@@ -32,7 +32,7 @@ class MediaStreamHandler:
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
         self.stream_sid = None
-        self.call_sid = None
+        self.call_sid = None  # PATCH 3: For watchdog connection
         self.rx = 0
         self.tx = 0
         
@@ -64,8 +64,15 @@ class MediaStreamHandler:
         print("🎯 HUMAN-LIKE CONVERSATION: Natural timing, breathing, refractory period")
 
     def run(self):
-        print(f"🚨 MEDIA_STREAM_HANDLER: mode={self.mode} sid={self.stream_sid}")
+        print(f"🚨 MEDIA_STREAM_HANDLER: mode={self.mode}")
+        
+        # PATCH 4: Advanced logging counters
+        self.rx_frames = 0
+        self.tx_frames = 0
+        
+        print(f"WS_START sid={self.stream_sid} mode=AI call_sid={self.call_sid}")
         print(f"🎯 CONVERSATION_START: state={self.state} barge_in={BARGE_IN} VAD_RMS={VAD_RMS}")
+        
         try:
             while True:
                 raw = self.ws.receive()
@@ -257,77 +264,57 @@ class MediaStreamHandler:
         
         text = ""  # initialize to avoid unbound variable
         try:
-            # 1. Hebrew ASR
-            print(f"🔍 STT_START: Processing {len(pcm16_8k)} bytes of audio ({len(pcm16_8k)/(2*8000):.1f}s)")
-            print(f"🚀 CALLING WHISPER STT: Audio={len(pcm16_8k)} bytes, Duration={len(pcm16_8k)/(2*8000):.1f}s")
-            text = self._hebrew_stt(pcm16_8k)
-            print(f"🎯 STT_RESULT: '{text}' (length: {len(text) if text else 0})")
+            # PATCH 6: Safe ASR - never leaves empty
+            try:
+                text = self._hebrew_stt(pcm16_8k) or ""
+                print(f"ASR_TEXT: {text}")
+            except Exception as e:
+                print("ASR_ERR:", e)
+                text = ""
             
-            if not text or len(text.strip()) < 2:
-                print(f"❌ STT_FAILED: Empty or too short result: '{text}'")
-                print(f"   Audio bytes: {len(pcm16_8k)}, Duration: {len(pcm16_8k)/(2*8000):.1f}s")
-                print(f"🚨 NO TRANSCRIPTION - Using fallback response!")
-                text = "לא הבנתי, אפשר לחזור?"  # fallback במקום return!
-                
-            print(f"✅ STT_SUCCESS: '{text}' ({len(text)} chars)")
+            if not text.strip():
+                text = "אפשר לחזור על זה במשפט קצר?"
+            print("ASR_TEXT:", text)
             
-            # לוג חשוב - תמלול עבר!
-            if not text or len(text) < 3:
-                print("❌ STT returned empty or too short - using fallback")
-                text = "לא הבנתי, אפשר לחזור?"
-            
-            # 2. דה-דופליקציה חכמה עם hash
-            user_hash = zlib.crc32(text.strip().encode("utf-8"))
-            now = time.time()
-            if (self.last_user_hash == user_hash and 
-                (now - self.last_user_hash_ts) <= DEDUP_WINDOW_SEC):
-                print("🚫 DEDUP: Same input hash - SKIP")
+            # PATCH 6: Anti-duplication on user text (14s window)
+            uh = zlib.crc32(text.strip().encode("utf-8"))
+            if (self.last_user_hash == uh and 
+                (time.time() - self.last_user_hash_ts) <= DEDUP_WINDOW_SEC):
+                print("DEDUP user → ignore")
+                self.processing = False
+                self.state = STATE_LISTEN
                 return
-                
-            self.last_user_hash, self.last_user_hash_ts = user_hash, now
+            self.last_user_hash, self.last_user_hash_ts = uh, time.time()
             
             # 3. AI Response - БЕЗ micro-ack! תן לה לחשוב בשקט
             started_at = time.time()
             
-            # ✅ CRITICAL FIX: אין "רגע" יותר! רק שקט בזמן חשיבה
+            # PATCH 6: Fast and stable LLM (no gpt-5, no max_completion_tokens)
+            from server.ai_response import generate_hebrew_response
+            reply = generate_hebrew_response(
+                text,
+                target_style=os.getenv("LLM_TARGET_STYLE", "warm_helpful"),
+                min_chars=int(os.getenv("LLM_MIN_CHARS", "160")),
+                max_chars=int(os.getenv("LLM_MAX_CHARS", "420")),
+            ) or "בסדר, איך אוכל לסייע?"
             
-            response = self._ai_response(text)
-            if not response:
-                response = "בסדר, איך אפשר לעזור?"
-                
-            print(f"🤖 AI: '{response}'")
-            
-            # 4. דה-דופליקציה של תגובות עם hash + הצגה עצמית פעם אחת
-            reply_hash = zlib.crc32(response.strip().encode("utf-8"))
-            if self.last_reply_hash == reply_hash:
-                response = "הבנתי. תרצה שאפרט או להתקדם?"
-                reply_hash = zlib.crc32(response.encode("utf-8"))
-                
-            # הצגה עצמית — פעם אחת בלבד לשיחה
-            if not self.introduced:
-                self.introduced = True
-            else:
-                # מחק הצגה עצמית אם המודל החזיר שוב:
-                for bad in ("אני מתחה", "שמי", "מקסימוס נדל", "אני מתמחה"):
-                    if bad in response:
-                        response = "בסדר. איך אוכל לקדם את זה עבורך?"
-                        reply_hash = zlib.crc32(response.encode("utf-8"))
-                        break
-                
-            self.last_reply_hash = reply_hash
+            # PATCH 6: Anti-duplication bot reply
+            rh = zlib.crc32(reply.strip().encode("utf-8"))
+            if self.last_reply_hash == rh:
+                reply = "הבנתי. תרצה שאפרט או להתקדם?"
+                rh = zlib.crc32(reply.encode("utf-8"))
+            self.last_reply_hash = rh
             
             # 5. הוסף להיסטוריה
             self.response_history.append({
                 'id': conversation_id,
                 'user': text,
-                'bot': response,
+                'bot': reply,
                 'time': time.time()
             })
             
-            # 6. דבר עם נשימה אנושית!
-            self.state = STATE_SPEAK  # מעבר למצב דיבור
-            self._speak_with_breath(response)
-            self.state = STATE_LISTEN  # חזרה להאזנה
+            # PATCH 6: Always speak something
+            self._speak_simple(reply)
             
         except Exception as e:
             print(f"❌ CRITICAL Processing error: {e}")

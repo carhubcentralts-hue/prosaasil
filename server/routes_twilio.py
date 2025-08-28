@@ -82,12 +82,12 @@ def incoming_call():
     """TwiML מהיר וללא עיכובים - One True Path"""
     call_sid = request.form.get("CallSid", "")
     
-    # קבלת base URL ללא IO או עיכובים
+    # קבלת base URL ללא IO או עיכובים - נקי מ-"//"
     base = os.getenv("PUBLIC_BASE_URL", "") or os.getenv("PUBLIC_HOST", "") or request.url_root
     base = base.rstrip("/")
     host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # ברכה אופציונלית: הפכו אותה ל־ENV (ברירת מחדל בלי Play)
+    # ברכה אופציונלית: רק אם מפורש ב-ENV (מונע עיכוב Stream)
     play_greeting = os.getenv("TWIML_PLAY_GREETING", "false").lower() == "true"
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
