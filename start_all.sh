@@ -51,7 +51,7 @@ export THINKING_HINT_MS="${THINKING_HINT_MS:-700}"
 export THINKING_TEXT_HE="${THINKING_TEXT_HE:-שנייה… בודקת}"
 
 echo "🔧 ENV:"
-echo "PUBLIC_BASE_URL=$PUBLIC_BASE_URL"
+echo "PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-"https://ai-crmd.replit.app"}=$PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-"https://ai-crmd.replit.app"}"
 echo "PORT=$PORT"
 echo "WS_MODE=$WS_MODE"
 echo "HEBREW_REALTIME_ENABLED=$HEBREW_REALTIME_ENABLED"
