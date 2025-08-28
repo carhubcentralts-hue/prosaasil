@@ -9,7 +9,7 @@ SR = 8000
 # 🎯 פרמטרים מעודכנים לשיחה אנושית מושלמת!
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.55"))       # שקט לסוף-מבע (הואץ ל-0.55s)
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "6.0"))        # חיתוך בטיחות
-VAD_RMS = int(os.getenv("VAD_RMS", "210"))                  # סף דיבור רגיש מעט
+VAD_RMS = int(os.getenv("VAD_RMS", "150"))                  # סף דיבור רגיש מאוד!
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
 VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # Hangover אחרי שקט
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "280")) # "נשימה" לפני דיבור
@@ -89,12 +89,12 @@ class MediaStreamHandler:
 
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
-                    # דרישה מחמירה פחות: קול חייב להיות חזק פי 1.3 מהרגיל (הקל!)
-                    is_strong_voice = rms > (VAD_RMS * 1.3)
+                    # דרישה רגישה: קול רגיל מספיק (לא צריך לצעוק!)
+                    is_strong_voice = rms > (VAD_RMS * 0.8)
                     
                     # 🔍 DEBUG: לוג כל 100 frames עם RMS
                     if self.rx % 100 == 0:
-                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 1.3}, Voice={is_strong_voice}, Buffer_size={len(self.buf)}")  
+                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.8}, Voice={is_strong_voice}, Buffer_size={len(self.buf)}")  
                     
                     # ספירת פריימים רצופים של קול חזק בלבד
                     if is_strong_voice:
