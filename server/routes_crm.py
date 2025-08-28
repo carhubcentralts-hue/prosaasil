@@ -53,7 +53,7 @@ def api_threads():
                             <p class="text-sm text-gray-500">{thread.message_count} הודעות</p>
                         </div>
                         <span class="text-xs text-gray-400">
-                            {thread.last_message.strftime('%d/%m %H:%M')}
+                            {thread.last_message.strftime('%d/%m %H:%M') if thread.last_message else 'לא ידוע'}
                         </span>
                     </div>
                 </div>
@@ -88,7 +88,7 @@ def api_thread_messages(thread_id):
                 <div class="flex justify-end mb-4">
                     <div class="bg-blue-500 text-white rounded-lg px-4 py-2 max-w-xs">
                         <p>{msg.body}</p>
-                        <span class="text-xs opacity-75">{msg.created_at.strftime('%H:%M')}</span>
+                        <span class="text-xs opacity-75">{msg.created_at.strftime('%H:%M') if msg.created_at else 'לא ידוע'}</span>
                     </div>
                 </div>
                 """
@@ -98,7 +98,7 @@ def api_thread_messages(thread_id):
                 <div class="flex justify-start mb-4">
                     <div class="bg-gray-200 text-gray-900 rounded-lg px-4 py-2 max-w-xs">
                         <p>{msg.body}</p>
-                        <span class="text-xs text-gray-500">{msg.created_at.strftime('%H:%M')}</span>
+                        <span class="text-xs text-gray-500">{msg.created_at.strftime('%H:%M') if msg.created_at else 'לא ידוע'}</span>
                     </div>
                 </div>
                 """
@@ -143,7 +143,7 @@ def api_customers():
                     </span>
                 </div>
                 <div class="mt-2 text-xs text-gray-400">
-                    נוצר: {customer.created_at.strftime('%d/%m/%Y')}
+                    נוצר: {customer.created_at.strftime('%d/%m/%Y') if customer.created_at else 'לא ידוע'}
                 </div>
             </div>
             """
@@ -176,7 +176,7 @@ def api_active_calls():
             <div class="flex items-center justify-between p-3 border-b border-gray-100">
                 <div>
                     <p class="font-medium text-gray-900">{call.from_number or 'לא ידוע'}</p>
-                    <p class="text-sm text-gray-500">{call.created_at.strftime('%H:%M:%S')}</p>
+                    <p class="text-sm text-gray-500">{call.created_at.strftime('%H:%M:%S') if call.created_at else 'לא ידוע'}</p>
                 </div>
                 <span class="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
                     {call.status}
@@ -214,7 +214,7 @@ def api_call_history():
             <div class="flex items-center justify-between p-3 border-b border-gray-100">
                 <div>
                     <p class="font-medium text-gray-900">{call.from_number or 'לא ידוע'}</p>
-                    <p class="text-sm text-gray-500">{call.created_at.strftime('%d/%m/%Y %H:%M')}</p>
+                    <p class="text-sm text-gray-500">{call.created_at.strftime('%d/%m/%Y %H:%M') if call.created_at else 'לא ידוע'}</p>
                     {f'<p class="text-xs text-gray-400 mt-1">{call.transcription[:100]}...</p>' if call.transcription else ''}
                 </div>
                 <span class="px-2 py-1 text-xs font-medium rounded-full {status_class}">

@@ -133,7 +133,7 @@ def crm_threads():
                         <p class="font-medium text-gray-900">{msg.to_number}</p>
                         <p class="text-sm text-gray-500">{preview}</p>
                     </div>
-                    <span class="text-xs text-gray-400">{msg.created_at.strftime('%H:%M')}</span>
+                    <span class="text-xs text-gray-400">{msg.created_at.strftime('%H:%M') if msg.created_at else 'לא ידוע'}</span>
                 </div>
             </div>
             """
@@ -161,7 +161,7 @@ def crm_thread_messages(thread_id):
         <div class="flex {direction_class} mb-4">
             <div class="max-w-xs lg:max-w-md px-4 py-2 rounded-lg {bg_class}">
                 <p class="text-sm">{msg.body}</p>
-                <p class="text-xs opacity-75 mt-1">{msg.created_at.strftime('%H:%M')}</p>
+                <p class="text-xs opacity-75 mt-1">{msg.created_at.strftime('%H:%M') if msg.created_at else 'לא ידוע'}</p>
             </div>
         </div>
         """
@@ -196,7 +196,7 @@ def crm_customers():
             </div>
             <p class="text-sm text-gray-500">{customer.phone or 'אין טלפון'}</p>
             <p class="text-sm text-gray-500">{customer.email or 'אין אימייל'}</p>
-            <p class="text-xs text-gray-400 mt-2">{customer.created_at.strftime('%d/%m/%Y')}</p>
+            <p class="text-xs text-gray-400 mt-2">{customer.created_at.strftime('%d/%m/%Y') if customer.created_at else 'לא ידוע'}</p>
         </div>
         """
     
@@ -229,7 +229,7 @@ def calls_active():
                     <p class="font-medium text-gray-900">{call.from_number or 'מספר לא ידוע'}</p>
                     <p class="text-sm text-gray-500">סטטוס: {call.status}</p>
                 </div>
-                <span class="text-xs text-gray-400">{call.created_at.strftime('%H:%M')}</span>
+                <span class="text-xs text-gray-400">{call.created_at.strftime('%H:%M') if call.created_at else 'לא ידוע'}</span>
             </div>
         </div>
         """
