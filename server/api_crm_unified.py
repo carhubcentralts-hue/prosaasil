@@ -86,20 +86,25 @@ def create_invoice_simple(amount_agorot: int) -> str:
         from server.models_sql import Deal, Customer
         customer = Customer.query.first()
         if not customer:
-            customer = Customer(name="לקוח כללי", phone="000-0000000")
+            customer = Customer()
+            customer.name = "לקוח כללי"
+            customer.phone = "000-0000000"
             db.session.add(customer)
             db.session.commit()
             
-        deal = Deal(customer_id=customer.id, title=f"חשבונית {inv_no}", amount=amount_agorot)
+        deal = Deal()
+        deal.customer_id = customer.id
+        deal.title = f"חשבונית {inv_no}"
+        deal.amount = amount_agorot
         db.session.add(deal)
         db.session.commit()
 
-        db.session.add(Invoice(
-            deal_id=deal.id,
-            invoice_number=inv_no, 
-            total=amount_agorot, 
-            pdf_path=str(html_path)
-        ))
+        invoice = Invoice()
+        invoice.deal_id = deal.id
+        invoice.invoice_number = inv_no
+        invoice.total = amount_agorot
+        invoice.pdf_path = str(html_path)
+        db.session.add(invoice)
         db.session.commit()
         return inv_no
     except Exception as e:
@@ -194,13 +199,12 @@ def payments_create():
                 return jsonify({"error": "Tranzila not configured"}), 501
 
         # Create payment record even in simulation
-        pay = Payment(
-            business_id=biz.id, 
-            provider=(provider or biz.default_provider or "paypal"),
-            amount=amount, 
-            currency=currency.lower(),
-            status=("created" if sys_enabled() and biz.payments_enabled else "simulated")
-        )
+        pay = Payment()
+        pay.business_id = biz.id
+        pay.provider = (provider or biz.default_provider or "paypal")
+        pay.amount = amount
+        pay.currency = currency.lower()
+        pay.status = ("created" if sys_enabled() and biz.payments_enabled else "simulated")
         db.session.add(pay)
         db.session.commit()
 
@@ -258,7 +262,7 @@ def payments_simulate_capture():
         pid = request.form.get("payment_id") or (request.get_json() or {}).get("payment_id")
         status = request.form.get("status", "captured")
         
-        pay = Payment.query.get_or_404(int(pid))
+        pay = Payment.query.get_or_404(int(pid) if pid else 0)
         pay.status = status
         db.session.commit()
         
@@ -273,10 +277,7 @@ def payments_simulate_capture():
         return jsonify({"ok": True, "payment_id": pay.id, "status": pay.status})
     except Exception as e:
         log.error("Payment simulation failed: %s", e)
-        return jsonify({"error": "Simulation failed"}), 500 
-    except Exception as e:
-        log.error("PayPal create order failed: %s", e)
-        return jsonify({"error": "Failed to create PayPal order"}), 500
+        return jsonify({"error": "Simulation failed"}), 500
 
 @crm_unified_bp.post("/webhook/paypal")
 def paypal_webhook():
@@ -435,12 +436,12 @@ def contract_sign():
         
         pdf_path.write_text(html_content, encoding='utf-8')
 
-        db.session.add(Contract(
-            pdf_path=str(pdf_path), 
-            signed_name=signer, 
-            signed_at=datetime.datetime.utcnow(), 
-            signed_ip=request.remote_addr
-        ))
+        contract = Contract()
+        contract.pdf_path = str(pdf_path)
+        contract.signed_name = signer
+        contract.signed_at = datetime.datetime.utcnow()
+        contract.signed_ip = request.remote_addr
+        db.session.add(contract)
         db.session.commit()
         
         return jsonify({"ok": True, "pdf": str(pdf_path)}), 201
@@ -631,7 +632,7 @@ def list_threads():
         limit = request.args.get('limit', 50, type=int)
         offset = request.args.get('offset', 0, type=int)
         
-        threads = get_threads(business_id=business_id, type_=type_, limit=limit, offset=offset)
+        threads = get_threads(business_id=business_id, type_=type_ or "call", limit=limit, offset=offset)
         return jsonify({"threads": threads, "count": len(threads)}), 200
         
     except Exception as e:
