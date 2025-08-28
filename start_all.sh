@@ -25,7 +25,7 @@ export HEBREW_REALTIME_ENABLED="${HEBREW_REALTIME_ENABLED:-true}"
 export MIN_UTT_SEC="${MIN_UTT_SEC:-0.48}"        # שקט לסיום
 export VAD_HANGOVER_MS="${VAD_HANGOVER_MS:-130}" # אינרציה קצרה אחרי שקט
 export MAX_UTT_SEC="${MAX_UTT_SEC:-7.0}"
-export VAD_RMS="${VAD_RMS:-150}"                 # סף קול רגיש מאוד (לא צריך לצעוק!)
+export VAD_RMS="${VAD_RMS:-80}"                  # סף קול רגיש מאוד (לא צריך לצעוק!)
 
 # קצב "אנושי"
 export RESP_MIN_DELAY_MS="${RESP_MIN_DELAY_MS:-200}"   # נשימה קצרה לפני דיבור

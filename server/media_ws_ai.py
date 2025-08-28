@@ -7,9 +7,9 @@ from simple_websocket import ConnectionClosed
 
 SR = 8000
 # 🎯 פרמטרים מעודכנים לשיחה אנושית מושלמת!
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.55"))       # שקט לסוף-מבע (הואץ ל-0.55s)
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.4"))        # שקט לסוף-מבע (הואץ ל-0.4s)
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "6.0"))        # חיתוך בטיחות
-VAD_RMS = int(os.getenv("VAD_RMS", "150"))                  # סף דיבור רגיש מאוד!
+VAD_RMS = int(os.getenv("VAD_RMS", "80"))                   # סף דיבור רגיש מאוד!
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
 VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # Hangover אחרי שקט
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "220")) # "נשימה" לפני דיבור
@@ -103,11 +103,11 @@ class MediaStreamHandler:
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
                     # דרישה רגישה: קול רגיל מספיק (לא צריך לצעוק!)
-                    is_strong_voice = rms > (VAD_RMS * 0.8)
+                    is_strong_voice = rms > (VAD_RMS * 0.6)
                     
                     # 🔍 DEBUG: לוג כל 25 frames עם RMS ומצב מערכת
                     if self.rx % 25 == 0:
-                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.8}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")
+                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.6}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")
                         # תדפיס גם כמה אודיו נאסף
                         if len(self.buf) > 0:
                             print(f"   📊 AUDIO_ACCUMULATED: {len(self.buf)/(2*SR):.1f}s duration")
