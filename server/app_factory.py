@@ -19,8 +19,10 @@ def create_app():
     except Exception as e:
         print(f"⚠️ Credential setup warning: {e}")
     
-    app = Flask(__name__, static_url_path="/static",
-                static_folder=os.path.join(os.path.dirname(__file__), "..", "static"))
+    app = Flask(__name__, 
+                static_url_path="/static",
+                static_folder=os.path.join(os.path.dirname(__file__), "..", "static"),
+                template_folder=os.path.join(os.path.dirname(__file__), "templates"))
     
     # הדגל השחור - לוג זיהוי לקוד ישן/חדש (שלב 7)
     import time
@@ -37,6 +39,8 @@ def create_app():
     app.config.update({
         'SECRET_KEY': os.getenv('SECRET_KEY', 'please-change-me'),
         'DATABASE_URL': os.getenv('DATABASE_URL'),
+        'SQLALCHEMY_DATABASE_URI': os.getenv('DATABASE_URL'),
+        'SQLALCHEMY_TRACK_MODIFICATIONS': False,
     })
     
     # ProxyFix for proper URL handling behind proxy (לפי ההנחיות)
@@ -45,16 +49,26 @@ def create_app():
     # CORS
     CORS(app)
     
-    # UI Blueprint registration (לפי ההנחיות)
-    from server.ui import ui_bp
-    from server.ui.auth import load_current_user
-    from server.auth_api import auth_api, create_default_admin
-    from server.data_api import data_api
-    
-    app.before_request(load_current_user)
-    app.register_blueprint(ui_bp)
-    app.register_blueprint(auth_api)
-    app.register_blueprint(data_api)
+    # UI Blueprint registration (לפי ההנחיות) - MUST BE FIRST!
+    try:
+        from server.ui import ui_bp
+        from server.ui.auth import load_current_user
+        from server.auth_api import auth_api, create_default_admin
+        from server.data_api import data_api
+        
+        # Register UI blueprint FIRST to override default routes
+        app.before_request(load_current_user)
+        print(f"🔧 Registering UI Blueprint: {ui_bp}")
+        app.register_blueprint(ui_bp, url_prefix='')  # No prefix = takes over root
+        print("✅ UI Blueprint registered successfully")
+        
+        app.register_blueprint(auth_api)
+        app.register_blueprint(data_api)
+        print("✅ All blueprints registered")
+    except Exception as e:
+        print(f"❌ Blueprint registration error: {e}")
+        import traceback
+        traceback.print_exc()
     
     # 8) לוגים שמראים הכל (לפי ההנחיות המדויקות)
     @app.before_request
@@ -213,10 +227,10 @@ def create_app():
         """Serve static assets from client build"""
         return send_from_directory(os.path.join(os.getcwd(), 'client/dist/assets'), filename)
     
-    # CRITICAL: Serve React frontend on root path
-    @app.route('/', methods=['GET'])
-    def root():
-        """Serve React frontend as main page"""
+    # OLD: React frontend moved to /old-app
+    @app.route('/old-app', methods=['GET'])
+    def old_react_app():
+        """Serve old React frontend"""
         try:
             return send_file(os.path.join(os.getcwd(), 'client/dist/index.html'))
         except FileNotFoundError:
@@ -297,10 +311,16 @@ def create_app():
 </body>
 </html>""", 200
     
-    # Database setup (לפי ההנחיות)
+    # Database initialization (לפי ההנחיות)
+    from server.db import db
+    import server.models_sql  # Import models module
+    
+    # Initialize SQLAlchemy with Flask app
+    db.init_app(app)
+    
+    # Database setup
     with app.app_context():
         try:
-            from server.models_sql import db
             db.create_all()  # Create tables if they don't exist
             create_default_admin()
             print("✅ Database tables created and admin user setup complete")

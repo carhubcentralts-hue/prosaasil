@@ -131,10 +131,7 @@ def reset_password():
             return jsonify({'success': False, 'error': 'Token has expired'}), 400
         
         # Update password
-        user.password = generate_password_hash(new_password)
-        user.resetToken = None
-        user.resetTokenExpiry = None
-        user.updatedAt = datetime.utcnow()
+        user.password_hash = generate_password_hash(new_password)
         db.session.commit()
         
         return jsonify({'success': True, 'message': 'Password updated successfully'})
@@ -155,9 +152,8 @@ def create_default_admin():
         if not User.query.filter_by(role='admin').first():
             admin = User()
             admin.email = 'admin@maximus.co.il'
-            admin.password = generate_password_hash('admin123')
-            admin.firstName = 'מנהל'
-            admin.lastName = 'מערכת'
+            admin.password_hash = generate_password_hash('admin123')
+            admin.username = 'מנהל מערכת'
             admin.role = 'admin'
             admin.business_id = None
             db.session.add(admin)

@@ -132,15 +132,15 @@ class Contract(db.Model):
 class User(db.Model):
     __tablename__ = "user"
     id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(255))
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
-    password = db.Column(db.String(255), nullable=False)  # Hashed
-    firstName = db.Column(db.String(255))
-    lastName = db.Column(db.String(255))
+    password_hash = db.Column(db.String(255), nullable=False)  # Hashed - matches existing schema
     role = db.Column(db.String(64), default="business")  # admin/business
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=True, index=True)
-    isActive = db.Column(db.Boolean, default=True)
-    lastLogin = db.Column(db.DateTime)
-    resetToken = db.Column(db.String(255))
-    resetTokenExpiry = db.Column(db.DateTime)
-    createdAt = db.Column(db.DateTime, default=datetime.utcnow)
-    updatedAt = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime)
+    can_access_phone = db.Column(db.Boolean, default=True)
+    can_access_whatsapp = db.Column(db.Boolean, default=True)
+    can_access_crm = db.Column(db.Boolean, default=True)
+    can_manage_business = db.Column(db.Boolean, default=False)
