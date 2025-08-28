@@ -1,0 +1,379 @@
+יאללה – הנה “ספר ההפעלה” הכי טוב שיש כדי שהשיחה תהיה דו־כיוונית באמת, בלי לופים, עם הבנה וזרימה אנושית. זה מותאם לקוד שלך (AgentLocator, Twilio Media Streams, `media_ws_ai.py`, 8kHz µ-law, 20ms) וכולל קטעי קוד להדבקה.
+
+---
+
+# העקרונות (מה עושה את זה “כמו בן אדם”)
+
+1. **ניהול תורות (FSM):** `LISTENING → THINKING → SPEAKING`. לא קופצים שלב בלי סיבה.
+2. **סוף־מבע אמיתי:** מזהים **שקט** (עם hangover קטן) לפני שמגיבים – אבל לא מחכים לנצח (timeout).
+3. **תגובה אחת למבע:** guard/lock סביב העיבוד כדי שלא תרוץ פעמיים על אותו קלט.
+4. **Barge-in:** אם האדם מתחיל לדבר בזמן שהבוט מדבר – **עוצרים מיד** את ההשמעה וחוזרים להאזנה.
+5. **קצב אנושי:** “נשימה” קצרה לפני הדיבור (200–400ms), ולא לאסוף מיד רעשים אחרי שהבוט דיבר (refractory).
+6. **מניעת לופים:** דה־דופליקציה (hash) של טקסט משתמש ושל תשובת הבוט בחלון 10–15 שניות.
+7. **לוגיקה כשאין בטחון:** אם ASR חלש/ריק – שאלה מבהירה קצרה, לא שתיקה.
+8. **שידור תקין:** TTS ב־**PCM16 8kHz** → µ-law, בחתיכות **20ms = 160 בייט**, עם `clear` לפני פריים ראשון.
+
+---
+
+# פאטצ’ים ממוקדים לקוד (להדביק)
+
+## 1) פרמטרים ברירת־מחדל (ENV) – ב־`start_all.sh`
+
+```bash
+# מצב
+export WS_MODE=${WS_MODE:-AI}
+
+# זיהוי סוף-מבע (VAD)
+export MIN_UTT_SEC=${MIN_UTT_SEC:-0.48}        # שקט לסיום
+export VAD_HANGOVER_MS=${VAD_HANGOVER_MS:-140} # אינרציה קצרה אחרי שקט
+export MAX_UTT_SEC=${MAX_UTT_SEC:-7.0}
+export VAD_RMS=${VAD_RMS:-210}                 # סף קול רגיש–בינוני
+
+# קצב “אנושי”
+export RESP_MIN_DELAY_MS=${RESP_MIN_DELAY_MS:-220}   # נשימה לפני תשובה
+export RESP_MAX_DELAY_MS=${RESP_MAX_DELAY_MS:-360}
+export REPLY_REFRACTORY_MS=${REPLY_REFRACTORY_MS:-750} # קירור אחרי דיבור הבוט
+
+# Barge-in (עצירה כשמדברים מעל הבוט)
+export BARGE_IN=${BARGE_IN:-true}
+export BARGE_IN_VOICE_FRAMES=${BARGE_IN_VOICE_FRAMES:-3}
+
+# אנטי-דופליקציה
+export DEDUP_WINDOW_SEC=${DEDUP_WINDOW_SEC:-14}
+
+# “סימן חיים” אם LLM מתעכב (לא חובה)
+export THINKING_HINT_MS=${THINKING_HINT_MS:-800}
+export THINKING_TEXT_HE=${THINKING_TEXT_HE:-"שנייה… בודקת"}
+
+# ברכה דרך TTS בלבד, לא <Play>
+export TWIML_PLAY_GREETING=${TWIML_PLAY_GREETING:-false}
+export AI_GREETING_HE=${AI_GREETING_HE:-"שלום! איך אפשר לעזור?"}
+
+# סגנון/אורך תשובות
+export LLM_TARGET_STYLE=${LLM_TARGET_STYLE:-"warm_helpful"}
+export LLM_MIN_CHARS=${LLM_MIN_CHARS:-140}    # 2–4 משפטים
+export LLM_MAX_CHARS=${LLM_MAX_CHARS:-420}
+```
+
+## 2) TwiML – לפתוח Stream מייד (כבר אצלך, לוודא בלי `<Play>` ברירת־מחדל)
+
+ב־`routes_twilio.py`: `TWIML_PLAY_GREETING=false` כברירת מחדל; ברכה תבוא מה-TTS אחרי `start` (רק אם המשתמש לא מדבר).
+
+## 3) ה־Handler (החלק הקריטי) – ב־`server/media_ws_ai.py`
+
+להלן “שלד זהב” שמחבר את כל החלקים. התאמה שמית לפונקציות שלך:
+
+* ASR: `asr_hebrew_from_pcm16_8k(pcm16)`
+* LLM: `generate_hebrew_response(text, target_style, min_chars, max_chars)`
+* TTS: `synth_hebrew_tts_pcm16_8k(text)`
+
+```python
+import os, json, time, base64, audioop, math, threading, queue, random, zlib
+
+SR = 8000
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC","0.48"))
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS","140"))
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC","7.0"))
+VAD_RMS = int(os.getenv("VAD_RMS","210"))
+
+RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS","220"))
+RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS","360"))
+REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS","750"))
+
+BARGE_IN = os.getenv("BARGE_IN","true").lower()=="true"
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","3"))
+DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC","14"))
+
+THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS","800"))
+THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE","שנייה… בודקת")
+
+STATE_LISTEN, STATE_THINK, STATE_SPEAK = "LISTENING","THINKING","SPEAKING"
+
+class MediaStreamHandler:
+    def __init__(self, ws):
+        self.ws = ws
+        self.stream_sid = None
+        self.state = STATE_LISTEN
+        self.speaking = False
+        self.processing = False
+        self.last_rx_ts = None
+        self.last_tts_end_ts = 0.0
+        self.rx_frames = 0
+        self.tx_frames = 0
+
+        self.buf = bytearray()
+        self.voice_in_row = 0
+        self.turn_id = 0
+        self.greeting_sent = False
+
+        self.last_user_hash = None
+        self.last_user_hash_ts = 0.0
+        self.last_reply_hash = None
+
+        self.tx_q = queue.Queue(maxsize=4096)
+        self.tx_running = False
+        self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
+
+    # ====== MAIN LOOP ======
+    def run(self):
+        try:
+            while True:
+                raw = self.ws.receive()
+                if raw is None:
+                    break
+                evt = json.loads(raw)
+                et = evt.get("event")
+
+                if et == "start":
+                    self.stream_sid = evt["start"]["streamSid"]
+                    self.last_rx_ts = time.time()
+                    print(f"WS_START sid={self.stream_sid} mode=AI")
+                    if not self.tx_running:
+                        self.tx_running=True; self.tx_thread.start()
+                    # ברכה חכמה: רק אם אין קול ב-0.8s הראשונות
+                    self.greeting_sent=False
+                    def _maybe_greet():
+                        time.sleep(0.8)
+                        if (time.time()-self.last_rx_ts)>=0.8 and self.state==STATE_LISTEN and not self.speaking:
+                            greet = os.getenv("AI_GREETING_HE","")
+                            if greet.strip():
+                                self._speak_simple(greet)
+                                self.greeting_sent=True
+                    threading.Thread(target=_maybe_greet, daemon=True).start()
+                    continue
+
+                if et == "media":
+                    self.rx_frames += 1
+                    if self.rx_frames % 50 == 0:
+                        print(f"WS_MEDIA sid={self.stream_sid} rx={self.rx_frames}")
+
+                    mulaw = base64.b64decode(evt["media"]["payload"])
+                    pcm16 = audioop.ulaw2lin(mulaw, 2)
+                    rms = audioop.rms(pcm16, 2)
+                    is_voice = rms > VAD_RMS
+                    self.voice_in_row = (self.voice_in_row+1) if is_voice else 0
+                    self.last_rx_ts = time.time()
+
+                    # Barge-in: עצור השמעה אם האדם מדבר כמה פריימים רצוף
+                    if self.speaking and BARGE_IN and self.voice_in_row >= BARGE_IN_VOICE_FRAMES:
+                        self._interrupt_speaking()
+                        self.buf.clear()
+                        self.processing=False
+                        self.state=STATE_LISTEN
+                        continue
+
+                    # לא לאסוף מייד אחרי שהבוט דיבר (רחש/נשימה)
+                    if (time.time()-self.last_tts_end_ts) < (REPLY_REFRACTORY_MS/1000.0):
+                        continue
+
+                    # מאזינים – אוספים
+                    if self.state==STATE_LISTEN and not self.processing and not self.speaking:
+                        self.buf.extend(pcm16)
+                        dur = len(self.buf)/(2*SR)
+                        # אדפטיבי: מבע קצר → מותר שקט קצר יותר
+                        min_sil = MIN_UTT_SEC if dur>1.2 else max(0.35, MIN_UTT_SEC-0.12)
+                        silent = ((time.time()-self.last_rx_ts) >= min_sil) and \
+                                 ((time.time()-self.last_rx_ts) >= (VAD_HANGOVER_MS/1000.0))
+                        too_long = dur >= MAX_UTT_SEC
+
+                        if (silent or too_long) and dur>0.28:
+                            self.processing=True
+                            self.state=STATE_THINK
+                            utt = bytes(self.buf); self.buf.clear()
+                            current_turn = self.turn_id = self.turn_id+1
+                            threading.Thread(target=self._process_turn, args=(utt,current_turn), daemon=True).start()
+                    continue
+
+                if et == "stop":
+                    print(f"WS_STOP sid={self.stream_sid} rx={self.rx_frames} tx={self.tx_frames}")
+                    break
+
+        finally:
+            try: self.ws.close()
+            except: pass
+            self.tx_running=False
+            try: self.tx_q.put_nowait({"type":"end"})
+            except: pass
+            print(f"WS_DONE sid={self.stream_sid} rx={self.rx_frames} tx={self.tx_frames}")
+
+    # ====== PROCESS ONE TURN ======
+    def _process_turn(self, pcm16_8k: bytes, turn_id: int):
+        try:
+            # ASR בטוח
+            try:
+                text = asr_hebrew_from_pcm16_8k(pcm16_8k) or ""
+            except Exception as e:
+                print("ASR_ERR:", e); text = ""
+            if not text.strip():
+                text = "אפשר לנסח שוב במשפט קצר?"
+
+            # אנטי-דופליקציה על טקסט משתמש
+            uh = zlib.crc32(text.strip().encode("utf-8"))
+            now = time.time()
+            if self.last_user_hash == uh and (now - self.last_user_hash_ts) <= DEDUP_WINDOW_SEC:
+                print("DEDUP user → ignore")
+                return
+            self.last_user_hash, self.last_user_hash_ts = uh, now
+            print("ASR_TEXT:", text)
+
+            # אם בזמן הזה כבר התחיל turn חדש – לא לענות
+            if turn_id != self.turn_id:
+                return
+
+            # “סימן חיים” אם LLM מתעכב
+            fired = {"x": False}
+            def maybe_hint():
+                time.sleep(THINKING_HINT_MS/1000.0)
+                if not fired["x"] and self.state==STATE_THINK and not self.speaking and THINKING_TEXT_HE.strip():
+                    fired["x"]=True
+                    self._speak_simple(THINKING_TEXT_HE)
+            if THINKING_HINT_MS>0: threading.Thread(target=maybe_hint, daemon=True).start()
+
+            # LLM תשובה “בשרנית” (2–4 משפטים, שאלה אחת)
+            reply = generate_hebrew_response(
+                text,
+                target_style=os.getenv("LLM_TARGET_STYLE","warm_helpful"),
+                min_chars=int(os.getenv("LLM_MIN_CHARS","140")),
+                max_chars=int(os.getenv("LLM_MAX_CHARS","420")),
+            ) or "בסדר, איך אוכל לסייע?"
+            fired["x"]=True  # אם הגיע LLM – לא צריך hint
+
+            # אנטי-דופליקציה תשובת בוט
+            rh = zlib.crc32(reply.strip().encode("utf-8"))
+            if self.last_reply_hash == rh:
+                reply = "הבנתי. תרצה שאפרט או להתקדם?"
+                rh = zlib.crc32(reply.encode("utf-8"))
+            self.last_reply_hash = rh
+
+            # אם בזמן הזה התחיל turn חדש – לזרוק
+            if turn_id != self.turn_id:
+                return
+
+            # TTS ודיבור
+            self._speak_simple(reply)
+
+        finally:
+            self.processing=False
+            if not self.speaking:
+                self.state=STATE_LISTEN
+
+    # ====== SPEAK (TTS → 20ms) ======
+    def _speak_simple(self, text: str):
+        if not text: return
+        self.speaking=True
+        self.state=STATE_SPEAK
+        try:
+            # נשימה אנושית
+            try: time.sleep(random.uniform(RESP_MIN_DELAY_MS/1000.0, RESP_MAX_DELAY_MS/1000.0))
+            except: pass
+
+            pcm = None
+            try: pcm = synth_hebrew_tts_pcm16_8k(text)
+            except Exception as e: print("TTS_ERR:", e)
+
+            if not pcm or len(pcm)<400:
+                pcm = self._beep_pcm16_8k(300)
+
+            # clear + 20ms µ-law frames
+            if self.stream_sid:
+                self.tx_q.put_nowait({"type":"clear"})
+            mulaw = audioop.lin2ulaw(pcm, 2)
+            FR = 160
+            for i in range(0, len(mulaw), FR):
+                if not self.speaking: break
+                ch = mulaw[i:i+FR]
+                if len(ch) < FR: break
+                b64 = base64.b64encode(ch).decode("ascii")
+                self.tx_q.put_nowait({"type":"media","payload":b64})
+                self.tx_frames += 1
+            self.tx_q.put_nowait({"type":"mark","name":"tts_done"})
+        finally:
+            self.speaking=False
+            self.last_tts_end_ts = time.time()
+            self.state=STATE_LISTEN
+
+    # ====== TX LOOP ======
+    def _tx_loop(self):
+        while self.tx_running:
+            try:
+                item = self.tx_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            if item.get("type")=="end": break
+            if item.get("type")=="clear" and self.stream_sid:
+                self.ws.send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+                continue
+            if item.get("type")=="media":
+                self.ws.send(json.dumps({"event":"media","streamSid":self.stream_sid,"media":{"payload":item["payload"]}}))
+                continue
+            if item.get("type")=="mark":
+                self.ws.send(json.dumps({"event":"mark","streamSid":self.stream_sid,"mark":{"name":item.get("name","mark")}}))
+
+    # ====== INTERRUPT ======
+    def _interrupt_speaking(self):
+        if not self.speaking: return
+        print("BARGE_IN: interrupt")
+        self.speaking=False
+        # לרוקן את התור ולשלוח clear
+        try:
+            while not self.tx_q.empty():
+                self.tx_q.get_nowait()
+        except: pass
+        try: self.tx_q.put_nowait({"type":"clear"})
+        except: pass
+
+    # ====== BEEP ======
+    def _beep_pcm16_8k(self, ms: int) -> bytes:
+        samples = int(SR*ms/1000)
+        amp = 9000
+        out = bytearray()
+        for n in range(samples):
+            val = int(amp*math.sin(2*math.pi*440*n/SR))
+            out.extend(val.to_bytes(2,"little", signed=True))
+        return bytes(out)
+```
+
+## 4) TTS ישיר בלי ffmpeg (כבר אצלך) – לוודא LINEAR16 8kHz
+
+ב־`gcp_tts_live.py` השתמש ב־`AudioEncoding.LINEAR16` + `sample_rate_hertz=8000` + `effects_profile_id=["telephony-class-application"]`. החזר **bytes** של PCM16 8kHz.
+
+## 5) LLM “בשרני” אבל טלפוני
+
+בפונקציה/שכבת ה-LLM (`generate_hebrew_response`):
+
+* קלט: `target_style, min_chars, max_chars` (מה-ENV).
+* כללים: 2–4 משפטים, **שאלה אחת** בסוף לקידום השיחה, לא רשימות, טון חם/טבעי, התאמה להקשר האחרון.
+
+דוגמת פסאודו:
+
+```python
+def generate_hebrew_response(text, target_style="warm_helpful", min_chars=140, max_chars=420):
+    # בנה prompt עם ההנחיות (שפה טלפונית, 2–4 משפטים, שאלה אחת)
+    # חתוך לאורך המבוקש; אם קצר מדי – הוסף דוגמה/הבהרה אחת.
+    return model_reply
+```
+
+---
+
+# בדיקות GO (ברורות ומהירות)
+
+1. **Handshake (לא curl):** `wscat -s audio.twilio.com wss://.../ws/twilio-media` → connected.
+2. **שיחה אמיתית:**
+
+   * `incoming_call`=200, `stream_status`=204, `stream_ended`=200.
+   * לוגים: `WS_START…`, תוך ≤2 שנ׳ `WS_MEDIA rx=50`, ואז `ASR_TEXT: …`, ואז `tts_done`.
+   * באוזן: תשובה אחת לכל מבע, עם נשימה קצרה; אם LLM איטי – “שנייה… בודקת” ואז תשובה.
+   * דבר מעליה – רואה `BARGE_IN: interrupt`, היא שותקת וחוזרת להאזנה.
+
+---
+
+# טיפי כיוון (אם צריך עוד טיפה)
+
+* **מהיר מדי?** הגדל `RESP_MIN/RESP_MAX` לאזור 320–520ms.
+* **מאחר להגיב?** הורד `MIN_UTT_SEC` ל־0.42 ו־`VAD_HANGOVER_MS` ל־120.
+* **נחתכת מוקדם?** העלה `VAD_HANGOVER_MS` ל־200–220.
+* **עוד כפילויות?** הגדל `REPLY_REFRACTORY_MS` ל־900–1100 והגדל `DEDUP_WINDOW_SEC` ל־18.
+
+---
+
+זהו. עם ה-FSM, ה-barge-in, ה-refractory, ה-hangover, הדה-דופליקציה, ו-LLM “טלפוני” – השיחה נשמעת טבעית, זורמת, בלי לופים ובלי שתיקות מביכות.
