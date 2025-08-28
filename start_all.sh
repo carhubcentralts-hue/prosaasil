@@ -41,7 +41,7 @@ export THINKING_TEXT_HE="${THINKING_TEXT_HE:-"שנייה… בודקת"}"
 
 # ברכה: דרך TTS אחרי start (אל תשתמש ב-<Play>)
 export TWIML_PLAY_GREETING="${TWIML_PLAY_GREETING:-false}"
-export AI_GREETING_HE="${AI_GREETING_HE:-"היי, אני כאן — איך אפשר לעזור?"}"
+export AI_GREETING_HE="${AI_GREETING_HE:-"שלום! אני מתחה ממקסימוס נדלן. איך אפשר לעזור?"}"
 
 # אורך תשובות
 export LLM_TARGET_STYLE="${LLM_TARGET_STYLE:-warm_helpful}"

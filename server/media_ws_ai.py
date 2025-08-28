@@ -88,7 +88,7 @@ class MediaStreamHandler:
                                 greet = os.getenv("AI_GREETING_HE", "שלום! איך אפשר לעזור?")
                                 if greet.strip():
                                     print(f"🔊 SMART GREETING: {greet}")
-                                    self._speak_simple(greet)
+                                    self._speak_with_breath(greet)
                                     self.greeting_sent = True
                         threading.Thread(target=_smart_greet, daemon=True).start()
                     continue
@@ -105,9 +105,9 @@ class MediaStreamHandler:
                     # דרישה רגישה: קול רגיל מספיק (לא צריך לצעוק!)
                     is_strong_voice = rms > (VAD_RMS * 0.8)
                     
-                    # 🔍 DEBUG: לוג כל 100 frames עם RMS
-                    if self.rx % 100 == 0:
-                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.8}, Voice={is_strong_voice}, Buffer_size={len(self.buf)}")  
+                    # 🔍 DEBUG: לוג כל 50 frames עם RMS ומצב מערכת
+                    if self.rx % 50 == 0:
+                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.8}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")  
                     
                     # ספירת פריימים רצופים של קול חזק בלבד
                     if is_strong_voice:
@@ -237,10 +237,14 @@ class MediaStreamHandler:
         try:
             # 1. Hebrew ASR
             print(f"🔍 STT_START: Processing {len(pcm16_8k)} bytes of audio ({len(pcm16_8k)/(2*8000):.1f}s)")
+            print(f"🚀 CALLING WHISPER STT: Audio={len(pcm16_8k)} bytes, Duration={len(pcm16_8k)/(2*8000):.1f}s")
             text = self._hebrew_stt(pcm16_8k)
+            print(f"🎯 STT_RESULT: '{text}' (length: {len(text) if text else 0})")
+            
             if not text or len(text.strip()) < 2:
                 print(f"❌ STT_FAILED: Empty or too short result: '{text}'")
                 print(f"   Audio bytes: {len(pcm16_8k)}, Duration: {len(pcm16_8k)/(2*8000):.1f}s")
+                print(f"🚨 NO TRANSCRIPTION - User will get generic response!")
                 return
                 
             print(f"✅ STT_SUCCESS: '{text}' ({len(text)} chars)")
