@@ -35,12 +35,25 @@ def create_app():
     }
     print(f"🚩 APP_START {version_info}")
     
+    # Database configuration with SSL fix
+    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///default.db')
+    if DATABASE_URL.startswith('postgres://'):
+        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    
     # Basic configuration
     app.config.update({
         'SECRET_KEY': os.getenv('SECRET_KEY', 'please-change-me'),
-        'DATABASE_URL': os.getenv('DATABASE_URL'),
-        'SQLALCHEMY_DATABASE_URI': os.getenv('DATABASE_URL'),
+        'DATABASE_URL': DATABASE_URL,
+        'SQLALCHEMY_DATABASE_URI': DATABASE_URL,
         'SQLALCHEMY_TRACK_MODIFICATIONS': False,
+        'SQLALCHEMY_ENGINE_OPTIONS': {
+            'pool_pre_ping': True,
+            'pool_recycle': 300,
+            'connect_args': {
+                'connect_timeout': 30,
+                'application_name': 'AgentLocator-71'
+            }
+        }
     })
     
     # ProxyFix for proper URL handling behind proxy (לפי ההנחיות)
