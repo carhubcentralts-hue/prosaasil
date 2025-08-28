@@ -64,7 +64,7 @@ def incoming_call_preview():
         parts.append(f'  <Play>{base}/static/tts/greeting_he.mp3</Play>')
     parts += [
         f'  <Connect action="{base}/webhook/stream_ended">',
-        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
+        f'    <Stream url="wss://{host}/ws/twilio-media-alt" statusCallback="{base}/webhook/stream_status">',
         f'      <Parameter name="call_sid" value="{call_sid}"/>',
         f'    </Stream>',
         f'  </Connect>',
@@ -97,7 +97,7 @@ def incoming_call():
         parts.append(f'  <Play>{base}/static/greeting_he.mp3</Play>')
     parts += [
         f'  <Connect action="{base}/webhook/stream_ended">',
-        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
+        f'    <Stream url="wss://{host}/ws/twilio-media-alt" statusCallback="{base}/webhook/stream_status">',
         f'      <Parameter name="call_sid" value="{call_sid}"/>',
         f'    </Stream>',
         f'  </Connect>',
