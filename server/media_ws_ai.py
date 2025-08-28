@@ -508,47 +508,36 @@ class MediaStreamHandler:
 9. תל אביב, רחוב רוטשילד 88 - 3 חדרים, 78 מ"ר, משופץ, 9,200₪/חודש
 10. גבעתיים, רחוב ויצמן 15 - 4 חדרים, 100 מ"ר, עם חנייה, 8,800₪/חודש
 
-== איך לנהל שיחה מקצועית ==
-1. תני תשובות ארוכות ומפורטות - לא קצרות!
-2. תמיד הציעי דירות קונקרטיות מהמאגר עם כל הפרטים
-3. תמיד שאלי על פגישה ותציעי זמנים ספציפיים
-4. תני תשובות של 2-3 משפטים לפחות, לא מילה אחת!
-5. תהיי חמה ומועילה, לא רק "באיזה אזור?"
+== איך לנהל שיחה טבעית כמו בן אדם ==
+1. אחרי "שלום" - תני ברכה חמה ואז שאלי איך לעזור (חד פעמי!)
+2. אחר כך דברי כמו בן אדם - תגובות טבעיות לכל מה שהלקוח אומר
+3. תמיד הציעי דירות קונקרטיות מהמאגר עם כל הפרטים
+4. תני תשובות של 2-3 משפטים, זורמות וטבעיות
+5. תהיי חמה ואישית - כמו שיחה עם חברה טובה שמומחית לנדלן
 
-== דוגמאות למענה מקצועי ==
-"יש לי דירת 3 חדרים מדהימה בדיזנגוף 150, 75 מ"ר, 7,500 שקל. רוצה לשמוע פרטים?"
-"מעולה! תראה, יש לי בדיוק מה שאתה מחפש ברמת גן, 4 חדרים, 8,200 שקל. אפשר לקבוע צפייה?"
+== דוגמאות לשיחה טבעית ==
+לקוח: "שלום"
+מתמחה: "שלום וברוכים הבאים! אני מתמחה ממקסימוס נדלן. איך אני יכולה לעזור לך היום?"
+
+לקוח: "אני מחפש דירה"
+מתמחה: "נהדר! יש לי מבחר מעולה. איזה אזור מעניין אותך ולכמה חדרים אתה צריך?"
 
 {history_context}
 
 עכשיו הלקוח אומר: "{hebrew_text}"
 תני מענה מקצועי עם הצעות קונקרטיות:"""
 
-            # שלח לAI עם הגדרות מותאמות לתגובות מלאות וחמות
-            try:
-                # נסה GPT-5 עם פרמטרים פשוטים
-                response = client.chat.completions.create(
-                    model="gpt-5",  # the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-                    messages=[
-                        {"role": "system", "content": smart_prompt},
-                        {"role": "user", "content": hebrew_text}
-                    ],
-                    max_completion_tokens=400,  # ✅ תשובות ארוכות ומפורטות!
-                    temperature=1.0            # GPT-5 תומך רק בטמפרטורה 1.0
-                )
-            except Exception as gpt5_error:
-                print(f"GPT-5 failed: {gpt5_error}, trying GPT-4...")
-                # נסה GPT-4 כ-fallback
-                response = client.chat.completions.create(
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": smart_prompt},
-                        {"role": "user", "content": hebrew_text}
-                    ],
-                    max_tokens=350,           # ✅ תשובות מפורטות גם ב-GPT4
-                    temperature=0.7,          # יותר יציב
-                    frequency_penalty=0.5     # פחות קיצוני
-                )
+            # ✅ GPT-4 יציב ומהיר - מועדף למענה טבעי!
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": smart_prompt},
+                    {"role": "user", "content": hebrew_text}
+                ],
+                max_tokens=350,           # ✅ תשובות מפורטות ומועילות
+                temperature=0.8,          # טבעי וחם
+                frequency_penalty=0.3     # מגוון אבל לא קיצוני
+            )
             
             content = response.choices[0].message.content
             if content and content.strip():
