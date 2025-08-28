@@ -49,6 +49,7 @@ class MediaStreamHandler:
         self.last_user_hash = None
         self.last_user_hash_ts = 0.0
         self.last_reply_hash = None
+        self.introduced = False
         self.response_history = []       # היסטוריית תגובות
         self.last_tts_end_ts = 0.0
         self.voice_in_row = 0
@@ -63,7 +64,8 @@ class MediaStreamHandler:
         print("🎯 HUMAN-LIKE CONVERSATION: Natural timing, breathing, refractory period")
 
     def run(self):
-        print(f"🚨 MEDIA_STREAM_HANDLER: mode={self.mode}")
+        print(f"🚨 MEDIA_STREAM_HANDLER: mode={self.mode} sid={self.stream_sid}")
+        print(f"🎯 CONVERSATION_START: state={self.state} barge_in={BARGE_IN} VAD_RMS={VAD_RMS}")
         try:
             while True:
                 raw = self.ws.receive()
@@ -95,7 +97,7 @@ class MediaStreamHandler:
                                 self.state == STATE_LISTEN and not self.speaking):
                                 greet = os.getenv("AI_GREETING_HE", "שלום! איך אפשר לעזור?")
                                 if greet.strip():
-                                    print(f"🔊 SMART GREETING: {greet}")
+                                    print(f"🔊 SMART_GREETING: '{greet}' delay=0.8s")
                                     self._speak_with_breath(greet)
                                     self.greeting_sent = True
                         threading.Thread(target=_smart_greet, daemon=True).start()
@@ -110,9 +112,9 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
                     
-                    # לוגים מתקדמים כל 50 פריימים
+                    # לוגים מתקדמים כל 50 פריימים + PATCH 10
                     if self.rx % 50 == 0:
-                        print(f"WS_MEDIA sid={self.stream_sid} rx={self.rx}")
+                        print(f"WS_MEDIA sid={self.stream_sid} rx={self.rx} state={self.state} VAD={rms}/{VAD_RMS}")
 
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
@@ -295,11 +297,22 @@ class MediaStreamHandler:
                 
             print(f"🤖 AI: '{response}'")
             
-            # 4. דה-דופליקציה של תגובות עם hash
+            # 4. דה-דופליקציה של תגובות עם hash + הצגה עצמית פעם אחת
             reply_hash = zlib.crc32(response.strip().encode("utf-8"))
             if self.last_reply_hash == reply_hash:
                 response = "הבנתי. תרצה שאפרט או להתקדם?"
                 reply_hash = zlib.crc32(response.encode("utf-8"))
+                
+            # הצגה עצמית — פעם אחת בלבד לשיחה
+            if not self.introduced:
+                self.introduced = True
+            else:
+                # מחק הצגה עצמית אם המודל החזיר שוב:
+                for bad in ("אני מתחה", "שמי", "מקסימוס נדל", "אני מתמחה"):
+                    if bad in response:
+                        response = "בסדר. איך אוכל לקדם את זה עבורך?"
+                        reply_hash = zlib.crc32(response.encode("utf-8"))
+                        break
                 
             self.last_reply_hash = reply_hash
             
@@ -400,9 +413,10 @@ class MediaStreamHandler:
                 self.tx += 1
                 frames_sent += 1
                 
-                # לוגים מתקדמים כל 50 פריימי שידור
+                # לוגים מתקדמים כל 50 פריימי שידור + PATCH 10
                 if self.tx % 50 == 0:
-                    print(f"WS_TX sid={self.stream_sid} tx={self.tx}")
+                    elapsed = time.time() - self.last_tts_end_ts
+                    print(f"WS_TX sid={self.stream_sid} tx={self.tx} frames_sent={frames_sent}/{total_frames} elapsed={elapsed:.1f}s")
             except Exception as e:
                 print(f"❌ Error sending frame {frames_sent}: {e}")
                 break
@@ -421,6 +435,16 @@ class MediaStreamHandler:
             val = int(amp * math.sin(2*math.pi*440*n/SR))
             out.extend(val.to_bytes(2, "little", signed=True))
         self._send_pcm16_as_mulaw_frames(bytes(out))
+    
+    def _beep_pcm16_8k(self, ms: int) -> bytes:
+        """יצירת צפצוף PCM16 8kHz"""
+        samples = int(SR * ms / 1000)
+        amp = 9000
+        out = bytearray()
+        for n in range(samples):
+            val = int(amp * math.sin(2*math.pi*440*n/SR))
+            out.extend(val.to_bytes(2, "little", signed=True))
+        return bytes(out)
     
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
         """Hebrew Speech-to-Text using OpenAI Whisper"""
@@ -668,7 +692,7 @@ class MediaStreamHandler:
                 }))
     
     def _speak_with_breath(self, text: str):
-        """דיבור עם נשימה אנושית ו-TX Queue"""
+        """דיבור עם נשימה אנושית ו-TX Queue - תמיד משדר משהו"""
         if not text:
             return
             
@@ -678,6 +702,28 @@ class MediaStreamHandler:
         try:
             # נשימה אנושית (220-360ms)
             breath_delay = random.uniform(RESP_MIN_DELAY_MS/1000.0, RESP_MAX_DELAY_MS/1000.0)
+            time.sleep(breath_delay)
+            
+            # clear + שידור
+            if self.stream_sid:
+                self.tx_q.put_nowait({"type": "clear"})
+            
+            # נסה TTS אמיתי
+            pcm = None
+            try:
+                pcm = self._hebrew_tts(text)
+            except Exception as e:
+                print("TTS_ERR:", e)
+                
+            if not pcm or len(pcm) < 400:
+                print("🔊 TTS FAILED - sending beep")
+                pcm = self._beep_pcm16_8k(300)  # צפצוף 300ms
+            else:
+                print(f"🔊 TTS SUCCESS: {len(pcm)} bytes")
+            
+            # שלח את האודיו
+            if pcm:
+                self._send_pcm16_as_mulaw_frames(pcm)
             time.sleep(breath_delay)
             print(f"💨 HUMAN BREATH: {breath_delay*1000:.0f}ms")
             

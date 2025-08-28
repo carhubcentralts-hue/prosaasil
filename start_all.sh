@@ -20,34 +20,35 @@ export PORT="${PORT:-5000}"
 export WS_MODE="${WS_MODE:-AI}"
 export HEBREW_REALTIME_ENABLED="${HEBREW_REALTIME_ENABLED:-true}"
 
-# 🎯 Optimized Human-Like Conversation Configuration
-# סיום מבע (VAD) — מהיר אבל לא מקוטע
-export MIN_UTT_SEC="${MIN_UTT_SEC:-0.48}"        # שקט לסיום
-export VAD_HANGOVER_MS="${VAD_HANGOVER_MS:-140}" # אינרציה קצרה אחרי שקט
+# 🎯 Optimized Human-Like Conversation Configuration per PATCH 9
+# VAD / סיום מבע
+export MIN_UTT_SEC="${MIN_UTT_SEC:-0.48}"
+export VAD_HANGOVER_MS="${VAD_HANGOVER_MS:-140}"
+export VAD_RMS="${VAD_RMS:-210}"
 export MAX_UTT_SEC="${MAX_UTT_SEC:-7.0}"
-export VAD_RMS="${VAD_RMS:-205}"                 # סף קול בריא (לא רגיש מדי)
 
-# קצב "אנושי"
-export RESP_MIN_DELAY_MS="${RESP_MIN_DELAY_MS:-220}"   # נשימה קצרה לפני דיבור
+# קצב
+export RESP_MIN_DELAY_MS="${RESP_MIN_DELAY_MS:-220}"
 export RESP_MAX_DELAY_MS="${RESP_MAX_DELAY_MS:-360}"
-export REPLY_REFRACTORY_MS="${REPLY_REFRACTORY_MS:-750}" # קירור אחרי דיבור הבוט
+export REPLY_REFRACTORY_MS="${REPLY_REFRACTORY_MS:-750}"
 
-# Barge-in (עצור כשאדם מדבר מעליך)
+# Barge-in + דה-דופליקציה
 export BARGE_IN="${BARGE_IN:-true}"
 export BARGE_IN_VOICE_FRAMES="${BARGE_IN_VOICE_FRAMES:-3}"
+export DEDUP_WINDOW_SEC="${DEDUP_WINDOW_SEC:-14}"
 
-# "סימן חיים" אם LLM מתעכב
-export THINKING_HINT_MS="${THINKING_HINT_MS:-700}"
-export THINKING_TEXT_HE="${THINKING_TEXT_HE:-"שנייה… בודקת"}"
-
-# ברכה: דרך TTS אחרי start (אל תשתמש ב-<Play>)
+# פתיח כבוי בבדיקות
 export TWIML_PLAY_GREETING="${TWIML_PLAY_GREETING:-false}"
 export AI_GREETING_HE="${AI_GREETING_HE:-}"
 
-# אורך תשובות
+# LLM סגנון/אורך
 export LLM_TARGET_STYLE="${LLM_TARGET_STYLE:-warm_helpful}"
-export LLM_MIN_CHARS="${LLM_MIN_CHARS:-140}"    # מינימום ~2 משפטים
-export LLM_MAX_CHARS="${LLM_MAX_CHARS:-420}"    # מקסימום קצר בטלפון
+export LLM_MIN_CHARS="${LLM_MIN_CHARS:-160}"
+export LLM_MAX_CHARS="${LLM_MAX_CHARS:-420}"
+
+# סימני חיים ודיבור
+export THINKING_HINT_MS="${THINKING_HINT_MS:-700}"
+export THINKING_TEXT_HE="${THINKING_TEXT_HE:-שנייה… בודקת}"
 
 echo "🔧 ENV:"
 echo "PUBLIC_BASE_URL=$PUBLIC_BASE_URL"
