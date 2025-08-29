@@ -1,21 +1,20 @@
-import React from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
-import Layout from './components/Layout'
-import Login from './pages/Login'
-import Forgot from './pages/Forgot'
-import Reset from './pages/Reset'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 function App() {
   return (
-    <Layout>
+    <Router basename="/auth">
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/forgot" element={<Forgot />} />
-        <Route path="/reset" element={<Reset />} />
+        <Route path="/forgot" element={<ForgotPassword />} />
+        <Route path="/reset" element={<ResetPassword />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
-    </Layout>
-  )
+    </Router>
+  );
 }
 
-export default App
+export default App;

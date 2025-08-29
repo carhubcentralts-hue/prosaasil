@@ -1,266 +1,250 @@
-import React, { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { motion } from 'motion/react'
-import { Eye, EyeOff, Mail, Lock, ArrowLeft } from 'lucide-react'
-import { api } from '../lib/api'
+import { useState } from 'react';
+import { motion } from 'framer-motion';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Home } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import AuthLayout from '../components/Layout';
 
-function Login() {
-  const navigate = useNavigate()
-  const [showPassword, setShowPassword] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-    remember: false
-  })
+const loginSchema = z.object({
+  email: z.string().email('כתובת אימייל לא תקינה'),
+  password: z.string().min(8, 'הסיסמה חייבת להכיל לפחות 8 תווים'),
+  remember: z.boolean().optional()
+});
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError('')
-    setIsLoading(true)
+const InputField = ({ icon: Icon, type = "text", placeholder, error, register, name, dir = "rtl", autoComplete, ...props }) => {
+  const [showPassword, setShowPassword] = useState(false);
+  const inputType = type === 'password' && showPassword ? 'text' : type;
+  
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+          <Icon size={20} />
+        </div>
+        <input
+          type={inputType}
+          dir={dir}
+          autoComplete={autoComplete}
+          className={`input-field pr-12 ${error ? 'ring-red-500 border-red-500' : ''} ${type === 'password' ? 'pl-12' : ''}`}
+          placeholder={placeholder}
+          data-testid={`input-${name}`}
+          {...register(name)}
+          {...props}
+        />
+        {type === 'password' && (
+          <button
+            type="button"
+            className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+            onClick={() => setShowPassword(!showPassword)}
+            data-testid="button-toggle-password"
+          >
+            {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+          </button>
+        )}
+      </div>
+      {error && (
+        <motion.p
+          className="text-sm text-red-500 text-right"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          role="alert"
+          aria-live="polite"
+          data-testid={`error-${name}`}
+        >
+          {error.message}
+        </motion.p>
+      )}
+    </div>
+  );
+};
 
-    // Basic validation
-    if (!formData.email || !formData.password) {
-      setError('נא למלא את כל השדות')
-      setIsLoading(false)
-      return
+const Toast = ({ message, type, onClose }) => (
+  <motion.div
+    className={`fixed top-4 right-4 p-4 rounded-2xl shadow-lg z-50 ${
+      type === 'error' ? 'bg-red-500 text-white' : 'bg-green-500 text-white'
+    }`}
+    initial={{ opacity: 0, x: 100 }}
+    animate={{ opacity: 1, x: 0 }}
+    exit={{ opacity: 0, x: 100 }}
+    data-testid={`toast-${type}`}
+  >
+    <div className="flex items-center justify-between gap-3">
+      <span>{message}</span>
+      <button onClick={onClose} className="text-white/80 hover:text-white">
+        ×
+      </button>
+    </div>
+  </motion.div>
+);
+
+const Login = () => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+  
+  const { register, handleSubmit, formState: { errors } } = useForm({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: '',
+      password: '',
+      remember: false
     }
+  });
 
-    if (formData.password.length < 8) {
-      setError('הסיסמה חייבת להכיל לפחות 8 תווים')
-      setIsLoading(false)
-      return
-    }
+  const showToast = (message, type = 'error') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000);
+  };
 
+  const onSubmit = async (data) => {
+    setIsLoading(true);
+    
     try {
-      const response = await api.login(formData.email, formData.password)
-      
-      // Route based on user role
-      if (response.user?.role === 'admin' || response.user?.role === 'superadmin') {
-        window.location.href = '/app/admin'
+      const response = await fetch(`${import.meta.env.VITE_API_BASE || ''}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        showToast('התחברת בהצלחה!', 'success');
+        
+        // Route based on user role
+        setTimeout(() => {
+          if (result.user?.role === 'admin' || result.user?.role === 'superadmin') {
+            window.location.href = '/app/admin';
+          } else {
+            window.location.href = '/app/biz';
+          }
+        }, 1000);
       } else {
-        window.location.href = '/app/biz'
+        showToast(result.message || 'שגיאה בהתחברות');
       }
-    } catch (err) {
-      setError(err.message || 'שגיאה בהתחברות')
+    } catch (error) {
+      showToast('שגיאת רשת - אנא נסה שוב');
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+        duration: 0.3
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0 }
+  };
 
   return (
-    <div className="w-full max-w-6xl mx-auto">
-      <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center min-h-[600px]">
-        
-        {/* Brand Panel - Desktop Only */}
-        <motion.div
-          className="hidden lg:block"
-          initial={{ opacity: 0, x: -50 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-        >
-          <div className="space-y-8">
-            {/* Logo */}
-            <motion.div
-              className="text-6xl font-bold text-brand-900"
-              initial={{ scale: 0.8 }}
-              animate={{ scale: 1 }}
-              transition={{ duration: 0.5, delay: 0.4 }}
-            >
-              שי
-            </motion.div>
-            
-            {/* Company Name */}
-            <div>
-              <h1 className="text-4xl font-bold text-brand-900 mb-2">
-                שי דירות ומשרדים
-              </h1>
-              <p className="text-xl text-brand-500">
-                פתרונות נדל"ן מתקדמים
-              </p>
-            </div>
-
-            {/* Benefits */}
-            <motion.div
-              className="space-y-6"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.6, delay: 0.6 }}
-            >
-              <div className="flex items-center space-x-4 space-x-reverse">
-                <div className="w-12 h-12 bg-gradient-to-br from-accent-500 to-accent-400 rounded-xl flex items-center justify-center">
-                  <span className="text-white text-xl">🏠</span>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-brand-900">ניהול נכסים מתקדם</h3>
-                  <p className="text-brand-500">מערכת CRM חכמה לניהול לקוחות ונכסים</p>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-4 space-x-reverse">
-                <div className="w-12 h-12 bg-gradient-to-br from-accent-500 to-accent-400 rounded-xl flex items-center justify-center">
-                  <span className="text-white text-xl">🤖</span>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-brand-900">בינה מלאכותית</h3>
-                  <p className="text-brand-500">מזכירה חכמה לטיפול בפניות לקוחות</p>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-4 space-x-reverse">
-                <div className="w-12 h-12 bg-gradient-to-br from-accent-500 to-accent-400 rounded-xl flex items-center justify-center">
-                  <span className="text-white text-xl">📊</span>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-brand-900">דוחות ואנליטיקה</h3>
-                  <p className="text-brand-500">מעקב וניתוח ביצועים בזמן אמת</p>
-                </div>
-              </div>
-            </motion.div>
-          </div>
+    <AuthLayout>
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+      
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="space-y-6"
+      >
+        <motion.div variants={itemVariants} className="text-center">
+          <h2 className="text-3xl font-bold text-gray-900 mb-2" data-testid="heading-login">
+            התחברות למערכת
+          </h2>
+          <p className="text-gray-600" data-testid="text-subtitle">
+            הזן את פרטי ההתחברות שלך
+          </p>
         </motion.div>
 
-        {/* Login Form */}
-        <motion.div
-          className="w-full"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+        <motion.form 
+          variants={itemVariants}
+          onSubmit={handleSubmit(onSubmit)} 
+          className="space-y-4"
+          noValidate
         >
-          <div className="glass rounded-3xl shadow-2xl p-8 lg:p-10 backdrop-blur-xl border border-white/20">
+          <InputField
+            icon={Mail}
+            type="email"
+            placeholder="כתובת אימייל"
+            error={errors.email}
+            register={register}
+            name="email"
+            dir="ltr"
+            autoComplete="email"
+          />
+
+          <InputField
+            icon={Lock}
+            type="password"
+            placeholder="סיסמה"
+            error={errors.password}
+            register={register}
+            name="password"
+            autoComplete="current-password"
+          />
+
+          <motion.div variants={itemVariants} className="flex items-center justify-between">
+            <a
+              href="/auth/forgot"
+              className="text-sm text-accent-600 hover:text-accent-700 transition-colors"
+              data-testid="link-forgot-password"
+            >
+              שכחתי סיסמה
+            </a>
             
-            {/* Mobile Logo */}
-            <div className="lg:hidden text-center mb-8">
-              <div className="text-4xl font-bold text-brand-900 mb-2">שי</div>
-              <h1 className="text-2xl font-bold text-brand-900">שי דירות ומשרדים</h1>
-              <p className="text-brand-500">פתרונות נדל"ן מתקדמים</p>
-            </div>
+            <label className="flex items-center gap-2 cursor-pointer" data-testid="checkbox-remember">
+              <span className="text-sm text-gray-600">זכור אותי</span>
+              <input
+                type="checkbox"
+                className="w-4 h-4 text-accent-600 bg-gray-100 border-gray-300 rounded focus:ring-accent-500 focus:ring-2"
+                {...register('remember')}
+              />
+            </label>
+          </motion.div>
 
-            <div className="space-y-6">
-              <div className="text-center lg:text-right">
-                <h2 className="text-2xl lg:text-3xl font-bold text-brand-900 mb-2">
-                  התחבר למערכת
-                </h2>
-                <p className="text-brand-500">
-                  הכנס את פרטיך כדי לגשת לחשבון שלך
-                </p>
-              </div>
+          <motion.button
+            variants={itemVariants}
+            type="submit"
+            disabled={isLoading}
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            data-testid="button-submit"
+            whileTap={{ scale: 0.98 }}
+          >
+            {isLoading ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <>
+                <span>התחבר</span>
+                <ArrowRight size={18} />
+              </>
+            )}
+          </motion.button>
+        </motion.form>
 
-              {error && (
-                <motion.div
-                  className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200"
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  role="alert"
-                  aria-live="polite"
-                >
-                  {error}
-                </motion.div>
-              )}
-
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Email Field */}
-                <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-brand-900 mb-2">
-                    כתובת אימייל
-                  </label>
-                  <div className="relative">
-                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-brand-500">
-                      <Mail size={20} />
-                    </div>
-                    <input
-                      id="email"
-                      type="email"
-                      required
-                      autoComplete="email"
-                      dir="ltr"
-                      className="w-full min-h-[44px] pl-4 pr-12 py-3 rounded-xl border border-gray-200 focus:border-accent-500 focus:ring-2 focus:ring-accent-500/20 transition-colors bg-white/50 backdrop-blur-sm"
-                      placeholder="name@example.com"
-                      value={formData.email}
-                      onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-                {/* Password Field */}
-                <div>
-                  <label htmlFor="password" className="block text-sm font-medium text-brand-900 mb-2">
-                    סיסמה
-                  </label>
-                  <div className="relative">
-                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-brand-500">
-                      <Lock size={20} />
-                    </div>
-                    <input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      autoComplete="current-password"
-                      className="w-full min-h-[44px] pl-12 pr-12 py-3 rounded-xl border border-gray-200 focus:border-accent-500 focus:ring-2 focus:ring-accent-500/20 transition-colors bg-white/50 backdrop-blur-sm"
-                      placeholder="הזן סיסמה"
-                      value={formData.password}
-                      onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                    />
-                    <button
-                      type="button"
-                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-brand-500 hover:text-brand-700 transition-colors"
-                      onClick={() => setShowPassword(!showPassword)}
-                      aria-label={showPassword ? 'הסתר סיסמה' : 'הצג סיסמה'}
-                    >
-                      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Remember Me */}
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center space-x-2 space-x-reverse">
-                    <input
-                      type="checkbox"
-                      className="rounded border-gray-300 text-accent-500 focus:ring-accent-500"
-                      checked={formData.remember}
-                      onChange={(e) => setFormData(prev => ({ ...prev, remember: e.target.checked }))}
-                    />
-                    <span className="text-sm text-brand-700">זכור אותי</span>
-                  </label>
-                  
-                  <Link
-                    to="/forgot"
-                    className="text-sm text-accent-500 hover:text-accent-600 transition-colors"
-                  >
-                    שכחתי סיסמה
-                  </Link>
-                </div>
-
-                {/* Submit Button */}
-                <motion.button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full min-h-[44px] btn-primary text-white font-semibold py-3 px-4 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  {isLoading ? 'מתחבר...' : 'התחבר'}
-                </motion.button>
-              </form>
-
-              {/* Footer Links */}
-              <div className="pt-6 border-t border-gray-200/50 text-center space-y-2">
-                <Link
-                  to="/"
-                  className="inline-flex items-center text-sm text-brand-500 hover:text-brand-700 transition-colors"
-                >
-                  <ArrowLeft size={16} className="ml-1" />
-                  חזור לדף הבית
-                </Link>
-              </div>
-            </div>
-          </div>
+        <motion.div variants={itemVariants} className="text-center pt-4">
+          <a
+            href="/"
+            className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+            data-testid="link-home"
+          >
+            <Home size={16} />
+            <span>חזרה לדף הבית</span>
+          </a>
         </motion.div>
-      </div>
-    </div>
-  )
-}
+      </motion.div>
+    </AuthLayout>
+  );
+};
 
-export default Login
+export default Login;
