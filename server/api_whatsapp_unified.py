@@ -1,14 +1,20 @@
 """
 Unified WhatsApp API - Production Ready
 API WhatsApp מאוחד - מוכן לפרודקשן
+Includes webhooks, send API, and Hebrew logic
 """
-from flask import Blueprint, request, jsonify
-from server.whatsapp_provider import get_whatsapp_service
+from flask import Blueprint, request, jsonify, current_app
+from server.whatsapp_provider import get_whatsapp_service  
 from server.models_sql import WhatsAppMessage, Business
 from server.db import db
+from server.dao_crm import upsert_thread, insert_message
+from server.twilio_security import require_twilio_signature
+from twilio.twiml.messaging_response import MessagingResponse
+from datetime import datetime
 import logging
 
-whatsapp_unified_bp = Blueprint("whatsapp_unified", __name__, url_prefix="/api/whatsapp")
+# Single unified WhatsApp blueprint - no more duplicates
+whatsapp_unified_bp = Blueprint("whatsapp_unified", __name__)
 logger = logging.getLogger(__name__)
 
 @whatsapp_unified_bp.route("/status", methods=["GET"])
@@ -30,7 +36,7 @@ def get_status():
         logger.error(f"Error getting WhatsApp status: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@whatsapp_unified_bp.route("/send", methods=["POST"])
+@whatsapp_unified_bp.route("/api/whatsapp/send", methods=["POST"])
 def send_message():
     """Send WhatsApp message via current provider"""
     try:
@@ -86,6 +92,85 @@ def send_message():
     except Exception as e:
         logger.error(f"Error sending WhatsApp message: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+# WEBHOOKS - מוטמעים מ-routes_whatsapp.py מנוקה
+@whatsapp_unified_bp.route("/webhook/whatsapp/twilio", methods=["POST"])
+@require_twilio_signature
+def wa_in_twilio():
+    """Handle Twilio WhatsApp inbound messages"""
+    try:
+        form = request.form
+        from_number = form.get("From", "")
+        to_number = form.get("To", "")
+        body = form.get("Body", "")
+        num_media = int(form.get("NumMedia", "0"))
+        media_url = form.get("MediaUrl0") if num_media > 0 else None
+        message_sid = form.get("MessageSid", "")
+
+        current_app.logger.info("WA_IN_TWILIO", extra={
+            "from": from_number, "to": to_number, "body_len": len(body), "media": bool(media_url)
+        })
+
+        # Find/create thread unified
+        thread_id = upsert_thread(business_id=1, type_="whatsapp", provider="twilio", peer_number=from_number)
+
+        # Record inbound message - safe types
+        insert_message(
+            thread_id=thread_id, 
+            direction="in", 
+            message_type="text" if not media_url else "media",
+            content_text=body, 
+            media_url=media_url or "", 
+            provider_msg_id=message_sid, 
+            status="received"
+        )
+
+        # Generate Hebrew response
+        response_text = handle_whatsapp_logic(body)
+        
+        # Send auto-response via TwiML
+        resp = MessagingResponse()
+        resp.message(response_text)
+        return str(resp), 200, {'Content-Type': 'text/xml'}
+        
+    except Exception as e:
+        current_app.logger.exception("WA_IN_TWILIO_ERROR")
+        return "", 204  # Always return 204 to Twilio
+
+@whatsapp_unified_bp.route("/webhook/whatsapp/baileys", methods=["POST"])
+def wa_in_baileys():
+    """Handle Baileys WhatsApp inbound messages"""
+    try:
+        data = request.get_json() or {}
+        from_number = data.get("from", "")
+        body = data.get("body", "")
+        message_id = data.get("id", "")
+
+        # Find/create thread
+        thread_id = upsert_thread(business_id=1, type_="whatsapp", provider="baileys", peer_number=from_number)
+
+        # Record message
+        insert_message(
+            thread_id=thread_id,
+            direction="in",
+            message_type="text",
+            content_text=body,
+            media_url="",
+            provider_msg_id=message_id,
+            status="received"
+        )
+
+        # Generate and send Hebrew response
+        response_text = handle_whatsapp_logic(body)
+        
+        return jsonify({
+            "success": True,
+            "response": response_text
+        })
+        
+    except Exception as e:
+        current_app.logger.exception("WA_IN_BAILEYS_ERROR")
+        return jsonify({"success": True}), 200
 
 @whatsapp_unified_bp.route("/messages", methods=["GET"])
 def get_messages():
@@ -251,3 +336,28 @@ def get_conversation_history(phone_number):
     except Exception as e:
         logger.error(f"Error fetching conversation history: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+def handle_whatsapp_logic(body: str) -> str:
+    """Handle WhatsApp message logic with Hebrew responses"""
+    try:
+        # Simple Hebrew responses for WhatsApp
+        body_lower = body.lower().strip()
+        
+        if any(word in body_lower for word in ["שלום", "היי", "הלו", "hello", "hi"]):
+            return "שלום וברוכים הבאים לשי דירות ומשרדים! איך אוכל לעזור לכם?"
+        
+        elif any(word in body_lower for word in ["דירה", "דירות", "נכס", "apartment", "house"]):
+            return "אשמח לעזור לכם למצוא דירה מתאימה! אתם מחפשים לקניה או להשכרה? באיזה אזור?"
+        
+        elif any(word in body_lower for word in ["מחיר", "עלות", "כמה", "price", "cost"]):
+            return "המחירים משתנים לפי גודל הנכס, מיקום ומצב. נשמח לשלוח לכם הצעות מותאמות אישית!"
+        
+        elif any(word in body_lower for word in ["תודה", "תודה רבה", "thanks", "thank you"]):
+            return "בשמחה! אנחנו כאן לעזור. אל תהססו לפנות אלינו בכל שאלה נוספת."
+        
+        else:
+            return "תודה על הפנייה! אחד הסוכנים שלנו יחזור אליכם בהקדם עם מענה מפורט. נשמח לעזור!"
+    
+    except Exception as e:
+        logger.error(f"WhatsApp logic error: {e}")
+        return "תודה על הפנייה! נחזור אליכם בהקדם."

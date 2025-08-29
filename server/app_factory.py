@@ -346,9 +346,8 @@ def create_app():
     # רישום בלו־פרינטים - AgentLocator 71
     from server.routes_twilio import twilio_bp
     app.register_blueprint(twilio_bp)
-    from server.routes_whatsapp import register_whatsapp_routes, whatsapp_bp
-    register_whatsapp_routes(app)  # ← Legacy compatibility
-    app.register_blueprint(whatsapp_bp)  # ← Unified WhatsApp routes with send API
+    # WhatsApp unified registration only (no more routes_whatsapp.py)
+    print("✅ WhatsApp routes removed - using unified only")
     from server.api_crm_unified import api_bp
     app.register_blueprint(api_bp, url_prefix="/api")
     

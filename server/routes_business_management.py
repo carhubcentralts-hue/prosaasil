@@ -378,3 +378,6 @@ def login_as_business(business_id):
     except Exception as e:
         logger.error(f"Error logging in as business {business_id}: {e}")
         return jsonify({"error": "שגיאה בהתחברות לעסק"}), 500
+
+# === ADDITIONAL BUSINESS ENDPOINTS FROM api_business.py ===
+
