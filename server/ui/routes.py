@@ -79,21 +79,11 @@ def _load_counters_for_business(bid):
         }
 
 # === MAIN ROUTES ===
-@ui_bp.route('/')
-def home():
-    user = session.get('al_user') or session.get('user')
-    if user:
-        role = user.get('role')
-        if role in ("admin", "superadmin"):
-            return redirect("/app/admin")
-        else:
-            return redirect("/app/biz")
-    return redirect("/login")
+# Removed root route - now handled by React app
+# @ui_bp.route('/')
 
-@ui_bp.route('/login')
-def login():
-    """Login page"""
-    return render_template('login.html')
+# Removed login route - now handled by React app  
+# @ui_bp.route('/login')
 
 @ui_bp.route('/app/admin')
 @require_roles('admin', 'superadmin')

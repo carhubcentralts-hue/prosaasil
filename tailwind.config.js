@@ -10,6 +10,8 @@ export default {
         'assistant': ['Assistant', 'Segoe UI', 'Tahoma', 'Geneva', 'Verdana', 'sans-serif'],
       },
       colors: {
+        brand: { 900:"#0f172a", 600:"#374151", 100:"#f3f4f6" },
+        accent: { 500:"#6366f1" },
         primary: {
           50: '#eff6ff',
           100: '#dbeafe', 
@@ -95,6 +97,7 @@ export default {
         }
       },
       boxShadow: {
+        'soft': '0 8px 28px rgba(0,0,0,.08)',
         'card': '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         'card-hover': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
         'modal': '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',

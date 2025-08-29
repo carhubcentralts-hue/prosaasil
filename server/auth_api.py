@@ -11,6 +11,16 @@ import os
 
 auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
 
+@auth_api.route('/csrf-token', methods=['GET'])
+def get_csrf_token():
+    """Get CSRF token for client"""
+    from flask_wtf.csrf import generate_csrf
+    try:
+        token = generate_csrf()
+        return jsonify({'csrf_token': token})
+    except:
+        return jsonify({'csrf_token': 'dev-token'})
+
 @auth_api.route('/login', methods=['POST'])
 def login():
     """

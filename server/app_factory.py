@@ -119,8 +119,8 @@ def create_app():
     @app.before_request
     def manage_session_security():
         """Enhanced session security management"""
-        # Skip for static files and health endpoints
-        if request.endpoint in ['static', 'health', 'readyz', 'version']:
+        # Skip for static files, health endpoints, and React routes
+        if request.endpoint in ['static', 'health', 'readyz', 'version'] or request.path in ['/', '/login', '/forgot', '/reset', '/home']:
             return
             
         # Session timeout check
@@ -192,6 +192,10 @@ def create_app():
         @app.before_request 
         def setup_security_context():
             """Setup security context for each request"""
+            # Skip React auth routes completely
+            if request.path in ['/', '/login', '/forgot', '/reset', '/home']:
+                return
+                
             g.audit_logger = audit_logger
             g.session_security = SessionSecurity
             
@@ -221,11 +225,10 @@ def create_app():
             'SESSION_COOKIE_SAMESITE': 'Lax',
         })
         
-        # Register blueprints
+        # Register auth blueprints first
         app.register_blueprint(auth_bp)  # New auth system
-        print(f"🔧 Registering UI Blueprint: {ui_bp}")
-        app.register_blueprint(ui_bp, url_prefix='')  # No prefix = takes over root
-        print("✅ UI Blueprint registered successfully")
+        app.register_blueprint(auth_api)  # Auth API endpoints
+        print("✅ Auth blueprints registered")
         
         # Register new API blueprints
         from server.routes_admin import admin_bp
@@ -236,8 +239,11 @@ def create_app():
         app.register_blueprint(biz_mgmt_bp)
         print("✅ New API blueprints registered")
         
-        app.register_blueprint(auth_api)
         app.register_blueprint(data_api)
+        
+        # Register UI blueprint last (after React routes are defined)
+        print(f"🔧 Registering UI Blueprint: {ui_bp}")
+        app.register_blueprint(ui_bp, url_prefix='')  # No prefix for admin/business routes
         print("✅ All blueprints registered")
     except Exception as e:
         print(f"❌ Blueprint registration error: {e}")
@@ -406,8 +412,13 @@ def create_app():
         }
         return jsonify(checks), 200
         
+    # Serve React frontend for auth routes
+    @app.route('/')
+    @app.route('/login')
+    @app.route('/forgot')
+    @app.route('/reset')
     @app.route('/home')
-    def home():
+    def serve_react_app():
         """Serve React frontend"""
         try:
             return send_file(os.path.join(os.getcwd(), 'client/dist/index.html'))
