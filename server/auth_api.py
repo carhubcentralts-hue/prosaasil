@@ -153,7 +153,7 @@ def create_default_admin():
             admin = User()
             admin.email = 'admin@maximus.co.il'
             admin.password_hash = generate_password_hash('admin123')
-            admin.username = 'מנהל מערכת'
+            admin.name = 'מנהל מערכת'
             admin.role = 'admin'
             admin.business_id = None
             db.session.add(admin)

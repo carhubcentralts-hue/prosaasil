@@ -2,7 +2,7 @@
 Hebrew AI Call Center CRM - App Factory (לפי ההנחיות המדויקות)
 """
 import os
-from flask import Flask, jsonify, send_from_directory, send_file, current_app, request, session
+from flask import Flask, jsonify, send_from_directory, send_file, current_app, request, session, g
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_sock import Sock

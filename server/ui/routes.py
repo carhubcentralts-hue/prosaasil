@@ -103,7 +103,7 @@ def admin_home():
     counters = _load_counters_for_admin()
     return render_template('admin.html', 
                          page_title="דשבורד מנהל",
-                         role=user.get('role'),
+                         role=user.get('role') if user else None,
                          current_user=user,
                          active='admin_home',
                          current_business_id=effective_business_id(),
@@ -114,11 +114,11 @@ def admin_home():
 def biz_home():
     """Professional business dashboard"""
     user = session.get('al_user') or session.get('user')
-    bid = effective_business_id() or user.get('business_id')
+    bid = effective_business_id() or (user.get('business_id') if user else None)
     counters = _load_counters_for_business(bid)
     return render_template('business.html', 
                          page_title="מרכז הבקרה",
-                         role=user.get('role'),
+                         role=user.get('role') if user else None,
                          current_user=user,
                          active='biz_whatsapp',
                          current_business_id=bid,

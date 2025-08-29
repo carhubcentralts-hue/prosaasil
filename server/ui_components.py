@@ -142,7 +142,7 @@ def render_error_state(error_message, retry_url="", retry_text="נסה שוב"):
         <div class="text-red-600 text-4xl mb-4">⚠️</div>
         <h3 class="text-lg font-medium text-red-800 mb-2">משהו השתבש</h3>
         <p class="text-red-700 mb-4">{error_message}</p>
-        {'<button hx-get="' + retry_url + '" hx-target="#main-content" class="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700">' + retry_text + '</button>' if retry_url else ''}
+        f'<button hx-get="{retry_url}" hx-target="#main-content" class="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700">{retry_text}</button>' if retry_url else ''
         <p class="text-sm text-red-600 mt-4">אם הבעיה נמשכת, פנה לתמיכה טכנית</p>
     </div>
     '''
@@ -155,7 +155,7 @@ def render_empty_state(title, description, action_url="", action_text=""):
         <div class="text-gray-400 text-6xl mb-4">📋</div>
         <h3 class="text-lg font-medium text-gray-900 mb-2">{title}</h3>
         <p class="text-gray-600 mb-6">{description}</p>
-        {'<button hx-get="' + action_url + '" hx-target="#main-content" class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700">' + action_text + '</button>' if action_url else ''}
+        f'<button hx-get="{action_url}" hx-target="#main-content" class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700">{action_text}</button>' if action_url else ''
     </div>
     '''
 
