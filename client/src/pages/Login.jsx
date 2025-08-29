@@ -1,178 +1,180 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "../lib/api.js";
 
-export default function Login(){
+export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPass, setShowPass] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState(null);
+  const [error, setError] = useState(null);
 
-  const emailValid = useMemo(() => /^\S+@\S+\.\S+$/.test(email.trim()), [email]);
-  const passValid  = useMemo(() => password.length >= 8, [password]);
-  const formValid  = emailValid && passValid;
+  // Clear error when user types
+  useEffect(() => {
+    if (error) setError(null);
+  }, [email, password]);
 
-  useEffect(() => { if (err) setErr(null); /* eslint-disable-next-line */ }, [email, password]);
-
-  const submit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formValid || loading) return;
+    if (!email || !password) return;
+    
     setLoading(true);
-    try{
+    setError(null);
+    
+    try {
       const { user } = await api.login(email.trim().toLowerCase(), password);
-      const target = (user && ["admin","superadmin"].includes(user.role)) ? "/app/admin" : "/app/biz";
+      const target = (user && ["admin", "superadmin"].includes(user.role)) ? "/app/admin" : "/app/biz";
       window.location.href = target;
-    }catch(e){
-      setErr(e?.message || "שם משתמש או סיסמה שגויים");
-    }finally{
+    } catch (e) {
+      setError(e?.message || "שם משתמש או סיסמה שגויים");
+    } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div dir="rtl" className="relative min-h-screen overflow-hidden bg-neutral-50">
-      {/* גרדיאנטים רקע דינמיים */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-24 -right-20 h-80 w-80 rounded-full bg-gradient-to-tr from-[#6366f1] to-[#22d3ee] opacity-30 blur-3xl animate-pulse" />
-        <div className="absolute -bottom-32 -left-24 h-96 w-96 rounded-full bg-gradient-to-tr from-[#0ea5e9] to-[#a78bfa] opacity-20 blur-3xl animate-[pulse_6s_ease-in-out_infinite]" />
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4" dir="rtl">
+      {/* Background decoration */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-24 -right-20 w-96 h-96 bg-gradient-to-r from-blue-400 to-purple-500 opacity-20 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute -bottom-32 -left-32 w-96 h-96 bg-gradient-to-r from-indigo-400 to-cyan-500 opacity-20 rounded-full blur-3xl animate-pulse delay-2000"></div>
       </div>
 
-      <div className="relative mx-auto grid min-h-screen w-full max-w-6xl grid-cols-1 lg:grid-cols-2">
-        {/* פנל מיתוג (נראה מעולה בדסקטופ, במובייל מתקפל מתחת לטופס) */}
-        <aside className="order-2 lg:order-1 hidden lg:flex flex-col justify-between p-10">
-          <header className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-neutral-900 text-white text-lg font-bold shadow-lg">שי</div>
-            <div className="text-xl font-semibold">שי דירות ומשרדים</div>
-          </header>
-
-          <div className="mt-8 rounded-3xl border border-white/30 bg-white/40 p-8 backdrop-blur-xl shadow-2xl ring-1 ring-black/5">
-            <h1 className="text-2xl font-bold mb-2">ברוך הבא למערכת</h1>
-            <p className="text-neutral-700/80 leading-relaxed">
-              ה־CRM החכם לניהול <b>שיחות</b>, <b>ווטסאפ</b>, <b>לקוחות</b>, <b>חשבוניות</b> ו<b>חוזים</b> —
-              במקום אחד, בקצב של העסק שלך.
-            </p>
-            <ul className="mt-4 space-y-2 text-sm text-neutral-700">
-              <li className="flex items-center gap-2">
-                <span className="inline-block h-2 w-2 rounded-full bg-[#6366f1]" /> התחברות מאובטחת עם Session HttpOnly
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="inline-block h-2 w-2 rounded-full bg-[#22d3ee]" /> שחזור סיסמה במייל (טוקן חד־פעמי)
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="inline-block h-2 w-2 rounded-full bg-[#0ea5e9]" /> התאמה מלאה למובייל (RTL)
-              </li>
-            </ul>
+      {/* Main container */}
+      <div className="relative w-full max-w-md">
+        {/* Login card */}
+        <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl border border-white/50 p-8 space-y-6">
+          
+          {/* Header */}
+          <div className="text-center space-y-4">
+            {/* Logo */}
+            <div className="flex justify-center mb-6">
+              <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
+                <span className="text-white text-2xl font-bold">שי</span>
+              </div>
+            </div>
+            
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">שי דירות ומשרדים</h1>
+              <p className="text-gray-600">כניסה למערכת ניהול CRM</p>
+            </div>
           </div>
 
-          <footer className="text-xs text-neutral-500">© {new Date().getFullYear()} שי דירות ומשרדים</footer>
-        </aside>
-
-        {/* כרטיס התחברות (Glass) */}
-        <main className="order-1 lg:order-2 flex items-center justify-center p-6 sm:p-10">
-          <form
-            onSubmit={submit}
-            noValidate
-            className="w-full max-w-md rounded-3xl border border-white/40 bg-white/70 p-6 sm:p-8 backdrop-blur-xl shadow-2xl ring-1 ring-black/5"
-          >
-            {/* לוגו במובייל */}
-            <div className="mb-6 flex items-center gap-3 lg:hidden">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-neutral-900 text-white text-base font-bold shadow-md">שי</div>
-              <div className="text-lg font-semibold">שי דירות ומשרדים</div>
-            </div>
-
-            <h2 className="text-2xl font-bold">התחברות</h2>
-            <p className="mt-1 text-sm text-neutral-600">הכנס אימייל וסיסמה כדי להמשיך</p>
-
-            {err && (
-              <div className="mt-4 rounded-xl bg-red-50 p-2 text-sm text-red-700">
-                {err}
+          {/* Error message */}
+          {error && (
+            <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded-lg">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="mr-3">
+                  <p className="text-sm text-red-800">{error}</p>
+                </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* אימייל */}
-            <div className="mt-6">
-              <label className="mb-1 block text-sm">אימייל</label>
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Email field */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                כתובת אימייל
+              </label>
               <div className="relative">
                 <input
-                  dir="ltr"
                   type="email"
-                  inputMode="email"
+                  dir="ltr"
+                  required
                   autoComplete="email"
-                  autoFocus
-                  placeholder="name@example.com"
                   value={email}
-                  onChange={(e)=>setEmail(e.target.value)}
-                  className={`w-full rounded-2xl border bg-white/90 px-4 py-3 pr-10 shadow-inner outline-none transition focus:ring-2 focus:ring-[#6366f1] ${
-                    !emailValid && email.length>0 ? "border-red-400" : "border-neutral-300"
-                  }`}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-4 pr-12 border-2 border-gray-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all duration-200 bg-white/80 backdrop-blur-sm text-gray-900 placeholder-gray-500"
+                  placeholder="name@example.com"
                 />
-                {/* אייקון מעטפה */}
-                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21.75 7.5v9a2.25 2.25 0 0 1-2.25 2.25h-15A2.25 2.25 0 0 1 2.25 16.5v-9A2.25 2.25 0 0 1 4.5 5.25h15A2.25 2.25 0 0 1 21.75 7.5Zm0 0L12 13.5 2.25 7.5" />
-                </svg>
+                <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                  </svg>
+                </div>
               </div>
-              {!emailValid && email.length>0 && <div className="mt-1 text-xs text-red-600">אימייל לא חוקי</div>}
             </div>
 
-            {/* סיסמה */}
-            <div className="mt-4">
-              <label className="mb-1 block text-sm">סיסמה</label>
+            {/* Password field */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                סיסמה
+              </label>
               <div className="relative">
                 <input
-                  type={showPass ? "text" : "password"}
+                  type={showPassword ? "text" : "password"}
+                  required
                   autoComplete="current-password"
-                  placeholder="••••••••"
                   value={password}
-                  onChange={(e)=>setPassword(e.target.value)}
-                  className={`w-full rounded-2xl border bg-white/90 px-4 py-3 pr-10 shadow-inner outline-none transition focus:ring-2 focus:ring-[#6366f1] ${
-                    !passValid && password.length>0 ? "border-red-400" : "border-neutral-300"
-                  }`}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-4 pr-12 pl-12 border-2 border-gray-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all duration-200 bg-white/80 backdrop-blur-sm text-gray-900 placeholder-gray-500"
+                  placeholder="••••••••"
                 />
-                {/* אייקון מנעול */}
-                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16.5 10.5V7.5a4.5 4.5 0 1 0-9 0v3M6.75 10.5h10.5a2.25 2.25 0 0 1 2.25 2.25v6A2.25 2.25 0 0 1 17.25 21h-10.5A2.25 2.25 0 0 1 4.5 18.75v-6A2.25 2.25 0 0 1 6.75 10.5z" />
-                </svg>
+                <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                </div>
                 <button
                   type="button"
-                  onClick={()=>setShowPass(v=>!v)}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-600 hover:text-neutral-800"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 left-0 pl-4 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
                 >
-                  {showPass ? "הסתר" : "הצג"}
+                  {showPassword ? (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L8.464 8.464M9.878 9.878l4.242 4.242m0 0L15.535 15.535M14.12 14.12L8.464 8.464" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                  )}
                 </button>
               </div>
-              {!passValid && password.length>0 && <div className="mt-1 text-xs text-red-600">סיסמה חייבת 8+ תווים</div>}
             </div>
 
-            {/* שכחתי סיסמה + זכור אותי */}
-            <div className="mt-3 flex items-center justify-between text-sm">
-              <label className="inline-flex items-center gap-2 select-none">
-                <input type="checkbox" className="h-4 w-4 accent-[#6366f1]" />
-                זכור אותי
-              </label>
-              <a href="#" className="text-[#6366f1] hover:underline">שכחתי סיסמה</a>
-            </div>
-
-            {/* כפתור */}
+            {/* Submit button */}
             <button
               type="submit"
-              disabled={!formValid || loading}
-              className="mt-5 w-full rounded-2xl bg-gradient-to-l from-[#6366f1] to-[#22d3ee] px-4 py-3 text-white shadow-lg transition hover:opacity-95 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-[#6366f1]"
+              disabled={loading || !email || !password}
+              className="w-full py-4 px-6 text-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl shadow-lg hover:shadow-xl hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-blue-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none transition-all duration-200"
             >
-              {loading
-                ? <span className="inline-flex items-center gap-2">
-                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" className="opacity-20" stroke="currentColor" strokeWidth="4"/><path d="M4 12a8 8 0 0 1 8-8" stroke="currentColor" strokeWidth="4" className="opacity-90" /></svg>
-                    מתחבר…
-                  </span>
-                : "התחבר"}
+              {loading ? (
+                <div className="flex items-center justify-center gap-3">
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  מתחבר...
+                </div>
+              ) : (
+                "התחבר למערכת"
+              )}
             </button>
 
-            {/* פוטר קטן במובייל */}
-            <div className="mt-4 flex justify-between text-xs text-neutral-500">
-              <a href="/" className="hover:underline">דף הבית</a>
-              <span>© {new Date().getFullYear()} שי דירות ומשרדים</span>
+            {/* Forgot password link */}
+            <div className="text-center">
+              <button
+                type="button"
+                className="text-blue-600 hover:text-blue-800 font-medium text-sm underline decoration-2 underline-offset-2 hover:decoration-blue-800 transition-colors"
+                onClick={() => alert("פונקציית שחזור סיסמה תמומש בקרוב")}
+              >
+                שכחתי את הסיסמה
+              </button>
             </div>
           </form>
-        </main>
+
+          {/* Footer */}
+          <div className="text-center pt-6 border-t border-gray-100">
+            <p className="text-xs text-gray-500">
+              © {new Date().getFullYear()} שי דירות ומשרדים בע״מ - כל הזכויות שמורות
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
