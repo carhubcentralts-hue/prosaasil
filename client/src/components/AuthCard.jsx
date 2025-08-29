@@ -3,16 +3,34 @@ import Brand from "./Brand.jsx";
 
 export default function AuthCard({title, children}){
   return (
-    <div className="min-h-screen grid place-items-center px-4"
-         style={{ background: "radial-gradient(80% 60% at 50% -10%, #e0e7ff 0%, transparent 60%)" }}>
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-soft p-6 space-y-5">
-        <div className="flex items-center justify-between">
-          <Brand/>
-          <div className="text-sm opacity-60">כניסה למערכת</div>
+    <div className="min-h-screen bg-gradient-elegant flex items-center justify-center px-4 py-8">
+      <div className="w-full max-w-md">
+        {/* Glass morphism card */}
+        <div className="bg-white/95 backdrop-blur-sm rounded-3xl shadow-elegant border border-white/20 p-8 space-y-6 transform hover:scale-[1.02] transition-all duration-300">
+          
+          {/* Header with brand */}
+          <div className="text-center space-y-4">
+            <div className="flex justify-center">
+              <Brand/>
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-brand-900 mb-2">{title}</h1>
+              <p className="text-brand-600 text-sm">כניסה למערכת ניהול נדל״ן</p>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="space-y-5">
+            {children}
+          </div>
+
+          {/* Footer */}
+          <div className="pt-4 border-t border-gray-100">
+            <p className="text-xs text-brand-500 text-center">
+              מערכת מאובטחת © 2024 שי דירות ומשרדים בע״מ
+            </p>
+          </div>
         </div>
-        <div className="text-2xl font-bold">{title}</div>
-        {children}
-        <div className="text-[11px] opacity-60 text-center pt-2">© שי דירות ומשרדים</div>
       </div>
     </div>
   );

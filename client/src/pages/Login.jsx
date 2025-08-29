@@ -34,9 +34,10 @@ export default function Login(){
         <PasswordInput label="סיסמה" placeholder="••••••••"
                value={password} onChange={e=>setPassword(e.target.value)} />
         <Button loading={loading}>התחבר</Button>
-        <div className="flex justify-between text-sm">
-          <span className="text-blue-600 cursor-pointer">שכחתי סיסמה</span>
-          <span className="opacity-70">© שי דירות ומשרדים</span>
+        <div className="flex justify-center pt-2">
+          <button type="button" className="text-accent-600 hover:text-accent-700 text-sm font-medium hover:underline transition-colors">
+            שכחתי סיסמה
+          </button>
         </div>
       </form>
     </AuthCard>
