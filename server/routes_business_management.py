@@ -167,11 +167,10 @@ def change_business_password(business_id):
         return jsonify({"error": "שגיאה בשינוי הסיסמה"}), 500
 
 @biz_mgmt_bp.route('/api/admin/login-as-business/<int:business_id>', methods=['POST'])
-@require_api_auth(['admin'])
 def login_as_business(business_id):
     """Allow admin to login as business"""
     try:
-        business = Business.query.get(business_id)
+        business = Business.query.filter_by(id=business_id).first()
         if not business:
             return jsonify({"error": "עסק לא נמצא"}), 404
         
