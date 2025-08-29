@@ -239,14 +239,7 @@ def create_app():
             "ts": int(time.time())
         }), 200
 
-    # Simple auth endpoints (fallback)
-    @app.route('/api/auth/me', methods=['GET'])
-    def auth_me():
-        return jsonify({"error": "Authentication not configured"}), 401
-        
-    @app.route('/api/auth/login', methods=['POST'])
-    def auth_login():
-        return jsonify({"error": "Authentication not configured"}), 501
+    # Auth endpoints removed - handled by routes_auth.py blueprint
     
     # Static TTS file serving (לפי ההנחיות - חובה ש MP3 files יהיו 200)
     @app.route('/static/tts/<path:filename>')

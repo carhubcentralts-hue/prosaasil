@@ -46,7 +46,7 @@ def login():
         # Prepare user response
         user_data = {
             'id': user.id,
-            'name': user.username or user.email,
+            'name': user.name or user.email,
             'role': user.role,
             'business_id': user.business_id,
             'email': user.email
