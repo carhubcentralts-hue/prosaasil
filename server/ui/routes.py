@@ -292,6 +292,83 @@ def ui_admin_users_table():
     
     return table_html
 
+# Admin Tenants Table - FIX 404 ERROR
+@ui_bp.get("/ui/admin/tenants")
+@require_roles("admin","superadmin")
+def ui_admin_tenants_table():
+    """Tenants table for admin"""
+    try:
+        from server.models_sql import Business
+        from server.db import db
+        
+        q = request.args.get('q', '').strip()
+        business_id = request.args.get('business_id', '')
+        
+        query = db.session.query(Business).filter_by(is_active=True)
+        
+        if q:
+            query = query.filter(Business.name.ilike(f'%{q}%'))
+            
+        businesses = query.all()
+        
+    except Exception as e:
+        businesses = []
+    
+    table_html = '''
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-4 py-3 text-right text-sm font-medium text-gray-500">עסק</th>
+            <th class="px-4 py-3 text-right text-sm font-medium text-gray-500">תחום</th>
+            <th class="px-4 py-3 text-right text-sm font-medium text-gray-500">סטטוס</th>
+            <th class="px-4 py-3 text-right text-sm font-medium text-gray-500">פעולות</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+    '''
+    
+    for business in businesses:
+        status_color = "bg-green-100 text-green-800" if business.is_active else "bg-red-100 text-red-800"
+        status_text = "פעיל" if business.is_active else "לא פעיל"
+        
+        table_html += f'''
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3">
+              <div class="flex items-center">
+                <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
+                  {business.name[0] if business.name else 'B'}
+                </div>
+                <div class="mr-3">
+                  <p class="text-sm font-medium text-gray-900">{business.name}</p>
+                  <p class="text-sm text-gray-500">ID: {business.id}</p>
+                </div>
+              </div>
+            </td>
+            <td class="px-4 py-3 text-sm text-gray-900">{getattr(business, 'industry', 'לא מוגדר')}</td>
+            <td class="px-4 py-3">
+              <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full {status_color}">
+                {status_text}
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <div class="flex space-x-2">
+                <button onclick="editBusiness({business.id})" class="text-blue-600 hover:text-blue-800 text-sm">עריכה</button>
+                <button onclick="loginAsBusiness({business.id})" class="text-green-600 hover:text-green-800 text-sm">התחבר כעסק</button>
+                <button onclick="changeBusinessPassword({business.id})" class="text-purple-600 hover:text-purple-800 text-sm">סיסמה</button>
+              </div>
+            </td>
+          </tr>
+        '''
+    
+    table_html += '''
+        </tbody>
+      </table>
+    </div>
+    '''
+    
+    return table_html
+
 # Business User Management Partials
 @ui_bp.get("/ui/business/users/new")
 @require_roles("admin","superadmin","manager")
