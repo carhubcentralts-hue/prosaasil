@@ -2,11 +2,23 @@
 Hebrew AI Call Center CRM - App Factory (לפי ההנחיות המדויקות)
 """
 import os
-from flask import Flask, jsonify, send_from_directory, send_file, current_app, request
+from flask import Flask, jsonify, send_from_directory, send_file, current_app, request, session
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_sock import Sock
 from simple_websocket import Server as WSServer
+try:
+    from flask_seasurf import SeaSurf
+    from flask_wtf.csrf import CSRFProtect
+    CSRF_AVAILABLE = True
+except ImportError:
+    print("⚠️ CSRF packages not available - using basic security")
+    SeaSurf = None
+    CSRFProtect = None 
+    CSRF_AVAILABLE = False
+from datetime import datetime, timedelta
+import secrets
+import hashlib
 
 def create_app():
     """Create Flask application with React frontend (לפי ההנחיות המדויקות)"""
@@ -40,9 +52,9 @@ def create_app():
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
     
-    # Basic configuration
+    # Enterprise Security Configuration
     app.config.update({
-        'SECRET_KEY': os.getenv('SECRET_KEY', 'please-change-me'),
+        'SECRET_KEY': os.getenv('SECRET_KEY', secrets.token_hex(32)),
         'DATABASE_URL': DATABASE_URL,
         'SQLALCHEMY_DATABASE_URI': DATABASE_URL,
         'SQLALCHEMY_TRACK_MODIFICATIONS': False,
@@ -53,14 +65,118 @@ def create_app():
                 'connect_timeout': 30,
                 'application_name': 'AgentLocator-71'
             }
-        }
+        },
+        # CSRF Protection
+        'CSRF_ENABLED': True,
+        'CSRF_SESSION_KEY': '_csrf_token',
+        'WTF_CSRF_TIME_LIMIT': 3600,  # 1 hour
+        'WTF_CSRF_SSL_STRICT': False,  # Allow HTTP in development
+        
+        # Session Security
+        'SESSION_COOKIE_SECURE': False,  # Set to True in production with HTTPS
+        'SESSION_COOKIE_HTTPONLY': True,
+        'SESSION_COOKIE_SAMESITE': 'Lax',
+        'PERMANENT_SESSION_LIFETIME': timedelta(hours=8),  # 8 hour timeout
+        'SESSION_REFRESH_EACH_REQUEST': True
     })
     
-    # ProxyFix for proper URL handling behind proxy (לפי ההנחיות)
+    # ProxyFix for proper URL handling behind proxy
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     
-    # CORS
-    CORS(app)
+    # Enterprise Security Headers
+    @app.after_request
+    def add_security_headers(response):
+        """Add enterprise security headers"""
+        # CSP (Content Security Policy)
+        csp_policy = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data: https:; "
+            "connect-src 'self' wss: ws:; "
+            "frame-ancestors 'none'; "
+            "object-src 'none';"
+        )
+        response.headers['Content-Security-Policy'] = csp_policy
+        
+        # Additional security headers
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+        
+        # Cache control for sensitive pages
+        if request.endpoint and ('admin' in request.endpoint or 'biz' in request.endpoint):
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            
+        return response
+    
+    # Session Management and Rotation
+    @app.before_request
+    def manage_session_security():
+        """Enhanced session security management"""
+        # Skip for static files and health endpoints
+        if request.endpoint in ['static', 'health', 'readyz', 'version']:
+            return
+            
+        # Session timeout check
+        if 'al_user' in session:
+            last_activity = session.get('_last_activity')
+            if last_activity:
+                last_time = datetime.fromisoformat(last_activity)
+                if datetime.now() - last_time > timedelta(hours=8):
+                    session.clear()
+                    return jsonify({'error': 'Session expired'}), 401
+            
+            # Update last activity
+            session['_last_activity'] = datetime.now().isoformat()
+            
+            # Session rotation (rotate session ID periodically)
+            session_start = session.get('_session_start')
+            if not session_start:
+                session['_session_start'] = datetime.now().isoformat()
+                session['_csrf_token'] = secrets.token_hex(16)
+            else:
+                start_time = datetime.fromisoformat(session_start)
+                if datetime.now() - start_time > timedelta(hours=2):
+                    # Rotate session but preserve user data
+                    user_data = session.get('al_user')
+                    session.clear()
+                    if user_data:
+                        session['al_user'] = user_data
+                        session['_session_start'] = datetime.now().isoformat()
+                        session['_csrf_token'] = secrets.token_hex(16)
+    
+    # Enterprise Security Initialization
+    if CSRF_AVAILABLE and CSRFProtect and SeaSurf:
+        try:
+            csrf = CSRFProtect()
+            csrf.init_app(app)
+            
+            # SeaSurf for additional CSRF protection
+            surf = SeaSurf()
+            surf.init_app(app)
+            print("🔒 Enterprise CSRF Protection enabled")
+        except Exception as e:
+            print(f"⚠️ CSRF setup warning: {e}")
+    else:
+        print("⚠️ Running with basic security (CSRF packages not available)")
+    
+    # CORS with security restrictions
+    CORS(app, 
+         origins=[
+             "http://localhost:5000",
+             "https://*.replit.app",
+             "https://*.replit.dev"
+         ],
+         supports_credentials=True,
+         allow_headers=["Content-Type", "Authorization", "X-CSRFToken", "HX-Request"],
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    )
     
     # UI Blueprint registration (לפי ההנחיות) - MUST BE FIRST!
     try:
@@ -69,7 +185,27 @@ def create_app():
         from server.auth_api import auth_api, create_default_admin
         from server.data_api import data_api
         
-        # Register auth system FIRST
+        # Initialize enterprise security & audit system
+        from server.security_audit import AuditLogger, SessionSecurity
+        audit_logger = AuditLogger(app)
+        
+        @app.before_request 
+        def setup_security_context():
+            \"\"\"Setup security context for each request\"\"\"
+            g.audit_logger = audit_logger
+            g.session_security = SessionSecurity
+            
+            # Update session activity
+            SessionSecurity.update_activity()
+            
+            # Check session validity for protected routes
+            if request.endpoint and request.endpoint.startswith(('ui.', 'auth_api.', 'data_api.')):
+                if not SessionSecurity.is_session_valid():
+                    session.clear()
+                    if request.headers.get('HX-Request'):
+                        return '<div class=\"text-red-600 p-4 bg-red-50 rounded-lg\">🔒 Session expired - please login again</div>', 401
+        
+        # Register auth system FIRST (after security middleware)
         app.before_request(load_current_user)
         
         # Session configuration for security (לפי המפרט)

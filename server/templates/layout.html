@@ -109,6 +109,12 @@
                     <div>
                         <h1 class="text-lg font-semibold">מערכת CRM</h1>
                         <p class="text-blue-100 text-sm">{{ current_user.name if current_user else "משתמש" }}</p>
+                        {% if session.get('impersonating_business_name') %}
+                            <div class="mt-2 px-2 py-1 bg-yellow-500 bg-opacity-80 rounded text-xs font-medium text-white">
+                                🔄 מתחזה כ: {{ session.get('impersonating_business_name') }}
+                                <button onclick="stopImpersonation()" class="mr-1 hover:text-yellow-200">✕</button>
+                            </div>
+                        {% endif %}
                     </div>
                     <span class="px-3 py-1 bg-white bg-opacity-20 rounded-full text-xs font-medium">
                         {{ role or "משתמש" }}
@@ -209,6 +215,27 @@
                         </svg>
                         משתמשים בעסק
                         <span class="mr-auto bg-gray-500 text-white text-xs px-2 py-1 rounded-full">{{ counters.biz_users_count or 0 }}</span>
+                    </a>
+                    
+                    <!-- Financial System -->
+                    <div class="mt-4">
+                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">מערכת פיננסית</h3>
+                    </div>
+                    
+                    <a href="#" class="flex items-center px-4 py-3 rounded-xl hover:bg-green-50 transition-colors {{ 'bg-green-100 text-green-700' if active == 'biz_invoices' else 'text-gray-700' }}" onclick="loadInvoices()">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        חשבוניות
+                        <span class="mr-auto bg-green-500 text-white text-xs px-2 py-1 rounded-full">{{ counters.pending_invoices or 0 }}</span>
+                    </a>
+                    
+                    <a href="#" class="flex items-center px-4 py-3 rounded-xl hover:bg-purple-50 transition-colors {{ 'bg-purple-100 text-purple-700' if active == 'biz_contracts' else 'text-gray-700' }}" onclick="loadContracts()">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        חוזים
+                        <span class="mr-auto bg-purple-500 text-white text-xs px-2 py-1 rounded-full">{{ counters.pending_contracts or 0 }}</span>
                     </a>
                     
                     <!-- Business Action Buttons -->
@@ -365,7 +392,28 @@
         function loadBizUsers() {
             htmx.ajax('GET', '/ui/biz/users?business_id={{ current_business_id }}', { 
                 target: '#mainContent', 
-                swap: 'innerHTML' 
+                swap: 'innerHTML'
+            });
+        }
+        
+        function loadInvoices() {
+            htmx.ajax('GET', '/biz/invoices', { 
+                target: '#mainContent', 
+                swap: 'innerHTML'
+            });
+        }
+        
+        function loadContracts() {
+            htmx.ajax('GET', '/biz/contracts', { 
+                target: '#mainContent', 
+                swap: 'innerHTML'
+            });
+        }
+        
+        function stopImpersonation() {
+            htmx.ajax('POST', '/admin/stop-impersonate', {
+                target: 'body',
+                swap: 'outerHTML' 
             });
         }
         

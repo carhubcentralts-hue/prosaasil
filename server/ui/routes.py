@@ -2,6 +2,8 @@
 # Based on exact specification from attached_assets
 from flask import Blueprint, render_template, request, session, g, redirect, url_for, jsonify, render_template_string
 from functools import wraps
+from datetime import datetime
+from server.security_audit import audit_action
 
 ui_bp = Blueprint('ui', __name__)
 
@@ -29,6 +31,12 @@ def effective_business_id():
     """Admin can choose ?business_id=; others locked to their business"""
     bid = request.args.get("business_id")
     user = session.get('al_user') or session.get('user')
+    
+    # Check if admin is impersonating a business
+    impersonating = session.get('impersonating_business_id')
+    if impersonating and user and user.get("role") in ("admin","superadmin"):
+        bid = impersonating
+    
     if user and user.get("role") not in ("admin","superadmin"):
         bid = user.get("business_id")
     return bid
@@ -986,6 +994,7 @@ def api_logout():
 # === API ENDPOINTS FOR HTMX FORMS ===
 @ui_bp.route('/api/admin/tenants', methods=['POST'])
 @require_roles('admin', 'superadmin')
+@audit_action('CREATE', 'tenant')
 def api_admin_tenants_create():
     """Create new tenant"""
     try:
@@ -1007,6 +1016,7 @@ def api_admin_tenants_create():
 
 @ui_bp.route('/api/admin/users', methods=['POST'])
 @require_roles('admin', 'superadmin')
+@audit_action('CREATE', 'user')
 def api_admin_users_create():
     """Create new user"""
     try:
@@ -1063,6 +1073,89 @@ def api_crm_contacts_create():
         
     except Exception as e:
         return jsonify({'success': False, 'error': f'שגיאת יצירת לקוח: {str(e)}'}), 500
+
+# === ADMIN IMPERSONATION SYSTEM ===
+@ui_bp.route('/admin/impersonate/<int:business_id>', methods=['POST'])
+@require_roles('admin', 'superadmin')
+@audit_action('IMPERSONATE', 'business')
+def admin_impersonate_business(business_id):
+    """השתלטות כעסק למנהלים"""
+    try:
+        from server.models_sql import Business
+        business = Business.query.get_or_404(business_id)
+        
+        # Log impersonation start
+        if hasattr(g, 'audit_logger'):
+            g.audit_logger.log_action('IMPERSONATE_START', 'business', business_id, 
+                                    {'business_name': business.name})
+        
+        # Set impersonation session
+        session['impersonating_business_id'] = business_id
+        session['impersonating_business_name'] = business.name
+        session['impersonation_start'] = datetime.now().isoformat()
+        
+        return redirect('/app/biz')
+        
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בהשתלטות: {str(e)}'}), 500
+
+@ui_bp.route('/admin/stop-impersonate', methods=['POST'])
+@require_roles('admin', 'superadmin')
+def admin_stop_impersonation():
+    """סיום השתלטות"""
+    try:
+        if 'impersonating_business_id' in session:
+            # Log impersonation end
+            if hasattr(g, 'audit_logger'):
+                g.audit_logger.log_action('IMPERSONATE_END', 'business', 
+                                        session.get('impersonating_business_id'))
+            
+            # Clear impersonation
+            session.pop('impersonating_business_id', None)
+            session.pop('impersonating_business_name', None)
+            session.pop('impersonation_start', None)
+        
+        return redirect('/app/admin')
+        
+    except Exception as e:
+        return jsonify({'error': f'שגיאה בסיום השתלטות: {str(e)}'}), 500
+
+# === FINANCIAL SYSTEM ===
+@ui_bp.route('/biz/invoices')
+@require_roles('admin','superadmin','manager')
+def ui_biz_invoices():
+    """חשבוניות עסק"""
+    business_id = effective_business_id()
+    
+    try:
+        # Mock invoices for now - will connect to actual invoice table
+        invoices = [
+            {'id': 1, 'invoice_number': f'INV-{business_id}-001', 'customer_name': 'לקוח דוגמא', 'amount': 1500, 'status': 'paid'},
+            {'id': 2, 'invoice_number': f'INV-{business_id}-002', 'customer_name': 'לקוח אחר', 'amount': 2300, 'status': 'pending'},
+        ]
+        
+        return render_template('partials/biz_invoices.html', invoices=invoices)
+    except Exception as e:
+        from server.ui_components import render_error_state
+        return render_error_state(f'שגיאה בטעינת חשבוניות: {str(e)}')
+
+@ui_bp.route('/biz/contracts')
+@require_roles('admin','superadmin','manager')
+def ui_biz_contracts():
+    """חוזים עסק"""
+    business_id = effective_business_id()
+    
+    try:
+        # Mock contracts for now
+        contracts = [
+            {'id': 1, 'title': 'חוזה דירה תל אביב', 'client': 'יוסי כהן', 'status': 'signed', 'amount': 1200000},
+            {'id': 2, 'title': 'חוזה משרד רמת גן', 'client': 'חברת ABC', 'status': 'pending', 'amount': 800000},
+        ]
+        
+        return render_template('partials/biz_contracts.html', contracts=contracts)
+    except Exception as e:
+        from server.ui_components import render_error_state
+        return render_error_state(f'שגיאה בטעינת חוזים: {str(e)}')
 
 # Alias for logout link in sidebar
 @ui_bp.route('/logout')

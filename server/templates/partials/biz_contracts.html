@@ -1,0 +1,84 @@
+<!-- חוזים עסק - Business Contracts -->
+<div class="space-y-6">
+    <!-- Header with action -->
+    <div class="flex justify-between items-center">
+        <h2 class="text-2xl font-bold text-gray-900">חוזים</h2>
+        <button 
+            hx-get="/partials/forms/create_contract" 
+            hx-target="#modal-content" 
+            hx-trigger="click"
+            class="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 flex items-center space-x-2">
+            <span>חוזה חדש</span>
+            <span>📋</span>
+        </button>
+    </div>
+    
+    <!-- Contracts Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for contract in contracts %}
+        <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
+            <!-- Contract Header -->
+            <div class="flex justify-between items-start mb-4">
+                <h3 class="text-lg font-semibold text-gray-900 truncate">
+                    {{ contract.title }}
+                </h3>
+                {% if contract.status == 'signed' %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        ✍ נחתם
+                    </span>
+                {% elif contract.status == 'pending' %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        ⏳ ממתין
+                    </span>
+                {% else %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                        📄 טיוטה
+                    </span>
+                {% endif %}
+            </div>
+            
+            <!-- Contract Details -->
+            <div class="space-y-2 mb-4">
+                <p class="text-sm text-gray-600">
+                    <span class="font-medium">לקוח:</span> {{ contract.client }}
+                </p>
+                <p class="text-sm text-gray-600">
+                    <span class="font-medium">סכום:</span> ₪{{ "{:,}".format(contract.amount) }}
+                </p>
+            </div>
+            
+            <!-- Contract Actions -->
+            <div class="flex space-x-2 justify-end">
+                <button class="text-blue-600 hover:text-blue-900 text-sm font-medium">
+                    👁 צפייה
+                </button>
+                {% if contract.status != 'signed' %}
+                <button class="text-green-600 hover:text-green-900 text-sm font-medium">
+                    📧 שלח לחתימה
+                </button>
+                <button class="text-gray-600 hover:text-gray-900 text-sm font-medium">
+                    ✏ עריכה
+                </button>
+                {% endif %}
+                <button class="text-red-600 hover:text-red-900 text-sm font-medium">
+                    🗑 מחק
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    {% if not contracts %}
+    <div class="text-center p-12 bg-gray-50 rounded-lg">
+        <div class="text-gray-400 text-6xl mb-4">📋</div>
+        <h3 class="text-lg font-medium text-gray-900 mb-2">אין חוזים עדיין</h3>
+        <p class="text-gray-600 mb-6">צור חוזה ראשון עבור הלקוחות שלך</p>
+        <button 
+            hx-get="/partials/forms/create_contract" 
+            hx-target="#modal-content"
+            class="bg-purple-600 text-white px-6 py-2 rounded-md hover:bg-purple-700">
+            צור חוזה חדש
+        </button>
+    </div>
+    {% endif %}
+</div>
