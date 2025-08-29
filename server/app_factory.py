@@ -416,14 +416,10 @@ def create_app():
         }
         return jsonify(checks), 200
         
-    # Serve React frontend for auth routes
+    # Only serve React for root route, let Flask handle login
     @app.route('/')
-    @app.route('/login')
-    @app.route('/forgot')
-    @app.route('/reset')
-    @app.route('/home')
     def serve_react_app():
-        """Serve React frontend"""
+        """Serve React frontend for root only"""
         try:
             return send_file(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "index.html"))
         except FileNotFoundError:
