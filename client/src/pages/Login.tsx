@@ -8,7 +8,7 @@ import PasswordInput from "../components/ui/PasswordInput";
 import Button from "../components/ui/Button";
 import { Toast } from "../components/ui/Toast";
 import { api } from "../lib/api";
-import { Link } from "react-router-dom";
+import { Link } from "wouter";
 
 const schema = z.object({
   email: z.string().email("אימייל לא חוקי"),

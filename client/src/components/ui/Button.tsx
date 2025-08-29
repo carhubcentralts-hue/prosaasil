@@ -1,20 +1,14 @@
 import React from "react";
-import cn from "classnames";
 
 export default function Button(
-  { children, className, loading, ...props }:
+  { children, className = "", loading, ...props }:
   React.ButtonHTMLAttributes<HTMLButtonElement> & {loading?: boolean}
 ){
   return (
     <button
       {...props}
       disabled={props.disabled || loading}
-      className={cn(
-        "w-full min-h-[44px] rounded-2xl px-4 py-2",
-        "bg-brand-900 text-white hover:opacity-95 disabled:opacity-60",
-        "transition shadow-soft focus:outline-none focus:ring-2 focus:ring-accent-500",
-        className
-      )}
+      className={`w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl transition-all duration-300 transform hover:scale-[1.02] shadow-xl focus:ring-4 focus:ring-blue-200 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none ${className}`}
     >
       {loading ? "טוען…" : children}
     </button>

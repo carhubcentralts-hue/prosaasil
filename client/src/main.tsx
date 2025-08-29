@@ -1,21 +1,24 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Route, Router } from "wouter";
 import Login from "./pages/Login";
 import Forgot from "./pages/Forgot";
 import Reset from "./pages/Reset";
 import "./index.css";
 
+function App() {
+  return (
+    <Router>
+      <Route path="/" component={Login} />
+      <Route path="/login" component={Login} />
+      <Route path="/forgot" component={Forgot} />
+      <Route path="/reset" component={Reset} />
+    </Router>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Navigate to="/login" replace/>} />
-        <Route path="/login" element={<Login/>} />
-        <Route path="/forgot" element={<Forgot/>} />
-        <Route path="/reset" element={<Reset/>} />
-        <Route path="*" element={<Navigate to="/login" replace/>} />
-      </Routes>
-    </BrowserRouter>
+    <App />
   </React.StrictMode>
 );

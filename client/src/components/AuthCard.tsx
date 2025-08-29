@@ -1,18 +1,18 @@
 import React from "react";
-import Brand from "./Brand";
 
 export default function AuthCard({title, children}:{title:string; children:React.ReactNode}){
   return (
-    <div className="min-h-screen grid place-items-center px-4"
-         style={{ background: "radial-gradient(80% 60% at 50% -10%, #e0e7ff 0%, transparent 60%)" }}>
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-soft p-6 space-y-5">
-        <div className="flex items-center justify-between">
-          <Brand/>
-          <div className="text-sm opacity-60">כניסה למערכת</div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white/95 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-2xl">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <span className="text-white text-2xl font-bold">🏢</span>
+          </div>
+          <h1 className="text-3xl font-bold text-gray-800 mb-2">{title}</h1>
+          <p className="text-gray-500 text-sm">מערכת CRM מתקדמת</p>
         </div>
-        <div className="text-2xl font-bold">{title}</div>
         {children}
-        <div className="text-[11px] opacity-60 text-center pt-2">© AgentLocator</div>
+        <div className="text-xs text-gray-400 text-center mt-6">© AgentLocator - מערכת מתקדמת לניהול לקוחות</div>
       </div>
     </div>
   );
