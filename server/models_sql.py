@@ -130,17 +130,13 @@ class Contract(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class User(db.Model):
-    __tablename__ = "user"
+    __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(255))
+    name = db.Column(db.String(255))
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)  # Hashed - matches existing schema
     role = db.Column(db.String(64), default="business")  # admin/business
-    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=True, index=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("businesses.id"), nullable=True, index=True)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
-    can_access_phone = db.Column(db.Boolean, default=True)
-    can_access_whatsapp = db.Column(db.Boolean, default=True)
-    can_access_crm = db.Column(db.Boolean, default=True)
-    can_manage_business = db.Column(db.Boolean, default=False)

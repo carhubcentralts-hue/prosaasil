@@ -28,7 +28,7 @@ class dao_users:
         if user:
             return {
                 "id": user.id,
-                "name": user.username or user.email,
+                "name": user.name or user.email,
                 "role": user.role,
                 "business_id": user.business_id,
                 "password_hash": user.password_hash,
@@ -43,7 +43,7 @@ class dao_users:
         if user and user.is_active:
             return {
                 "id": user.id,
-                "name": user.username or user.email,
+                "name": user.name or user.email,
                 "role": user.role,
                 "business_id": user.business_id,
                 "password_hash": user.password_hash,
