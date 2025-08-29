@@ -4,7 +4,7 @@ CRM API routes for customer management, threads, and messages
 Implements RBAC with business scoping as per guidelines
 """
 from flask import Blueprint, jsonify, request, g
-from server.routes_auth import require_api_auth
+from server.auth_api import require_api_auth
 from server.models_sql import Business, Customer, WhatsAppMessage, CallLog
 from server.db import db
 from datetime import datetime

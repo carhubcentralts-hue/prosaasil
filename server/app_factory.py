@@ -181,7 +181,7 @@ def create_app():
     # UI Blueprint registration (לפי ההנחיות) - MUST BE FIRST!
     try:
         from server.ui.routes import ui_bp
-        from server.routes_auth import auth_bp, load_current_user
+        # Removed routes_auth.py - using only auth_api.py for cleaner code
         from server.auth_api import auth_api, create_default_admin
         from server.data_api import data_api
         
@@ -210,7 +210,7 @@ def create_app():
                         return '<div class="text-red-600 p-4 bg-red-50 rounded-lg">🔒 Session expired - please login again</div>', 401
         
         # Register auth system FIRST (after security middleware)
-        app.before_request(load_current_user)
+        # Using simplified auth from auth_api.py only
         
         # Session configuration for security (לפי המפרט)
         app.config.update({
@@ -225,9 +225,8 @@ def create_app():
             'SESSION_COOKIE_SAMESITE': 'Lax',
         })
         
-        # Register auth blueprints first
-        app.register_blueprint(auth_bp)  # New auth system
-        app.register_blueprint(auth_api)  # Auth API endpoints
+        # Register auth blueprint - single clean system
+        app.register_blueprint(auth_api)  # Auth API endpoints only
         print("✅ Auth blueprints registered")
         
         # Register new API blueprints

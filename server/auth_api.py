@@ -2,10 +2,11 @@
 Authentication API endpoints
 Based on attached instructions - creates missing auth endpoints
 """
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, g
 from werkzeug.security import check_password_hash, generate_password_hash
 from server.models_sql import User, Business, db
 from datetime import datetime, timedelta
+from functools import wraps
 import secrets
 import os
 
@@ -154,6 +155,27 @@ def logout():
     """Logout user"""
     session.clear()
     return jsonify({'success': True})
+
+# Auth decorator for API routes
+def require_api_auth(roles=None):
+    """Decorator for API routes that require authentication"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            # Check if user is logged in (session-based)
+            user = session.get('user') or session.get('al_user')
+            if not user:
+                return jsonify({'error': 'Authentication required'}), 401
+            
+            # Check role if specified
+            if roles and user.get('role') not in roles:
+                return jsonify({'error': 'Insufficient permissions'}), 403
+            
+            # Store user in g for use in route
+            g.user = user
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 # Helper function to create default admin user (for development)
 def create_default_admin():

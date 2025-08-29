@@ -4,7 +4,7 @@ Admin API routes for KPIs, tenant management, and system overview
 Implements RBAC with multi-tenant support as per guidelines
 """
 from flask import Blueprint, jsonify, request, g
-from server.routes_auth import require_api_auth
+from server.auth_api import require_api_auth
 from server.models_sql import Business, User, CallLog, WhatsAppMessage, Customer
 from server.db import db
 from datetime import datetime, timedelta
