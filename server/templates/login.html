@@ -130,7 +130,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
                     console.log('Redirecting to business dashboard...');
                     window.location.href = '/app/biz';
                 }
-            }, 1500);
+            }, 2000);
         } else {
             console.log('Login failed:', result.error);
             errorDiv.textContent = result.error || 'שגיאה בהתחברות';
