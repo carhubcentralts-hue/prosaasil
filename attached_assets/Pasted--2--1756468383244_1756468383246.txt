@@ -1,0 +1,349 @@
+סגור. הנה **הנחיית־על אחת, להדבקה**, שתגרום ל־2 דפים — **דף מנהל** ו־**דף עסק** — להיות מושלמים, רספונסיביים, עם סיידבר מתקפל, הרשאות ברזל, ומכלולים מלאים: **ווטסאפ**, **שיחות**, **CRM**, **משתמשים**, **עסקים** (Admin), **חיוב/סליקה**, **חשבוניות**, **חוזים עם חתימה דיגיטלית**.
+הכל מיועד ל־**Flask + Jinja + Tailwind + HTMX**, ומתכתב עם ה־API/DAO שכבר יש לך.
+
+---
+
+# 0) בסיס (חד־פעמי)
+
+* `app.before_request(load_current_user)`; שמור session HttpOnly.
+* קונפיג אבטחה:
+
+```python
+app.config.update(
+  SESSION_COOKIE_HTTPONLY=True,
+  SESSION_COOKIE_SAMESITE="Lax",
+  SESSION_COOKIE_SECURE=True,     # ב־HTTPS
+)
+```
+
+* פונקציות עזר (ב־`routes_auth.py`/helper אחר):
+
+```python
+def require_roles(*roles):
+    ...
+
+def require_api_auth(roles=None):
+    ...
+
+def effective_business_id(arg="business_id"):
+    bid = request.args.get(arg)
+    if g.user["role"] not in ("admin","superadmin"):
+        bid = g.user.get("business_id")
+    return bid
+```
+
+* **כל SELECT/UPSERT בצד שרת**: אם המשתמש אינו Admin/Superadmin – מסננים לפי `business_id = g.user["business_id"]`.
+
+---
+
+# 1) מפת ניתובים (UI + API) — בלי חורים וללא 404
+
+## UI (Jinja + HTMX) — `ui_bp`
+
+* `/login`, `/forgot`, `/reset?token=...`, `/logout`
+* `/` → ניתוב אוטומטי: `admin/superadmin` ל־`/app/admin`, אחרת ל־`/app/biz`
+* `/app/admin`  **(require\_roles: admin, superadmin)**
+* `/app/biz`    **(require\_roles: admin, superadmin, manager, agent)**
+
+### UI Partials (HTMX) — Admin
+
+* `/ui/admin/overview` (KPIs, counters)
+* `/ui/admin/tenants` (טבלת עסקים)
+* `/ui/admin/tenants/new`, `/ui/admin/tenants/<id>/edit` (מודלים)
+* `/ui/admin/users` (טבלת משתמשים כלל־מערכת)
+* `/ui/admin/users/new`, `/ui/admin/users/<id>/edit` (מודלים)
+* `/ui/admin/switch_business` (בחירת עסק פעיל לאדמין, Redirect ל־`/app/admin?business_id=...`)
+
+### UI Partials (HTMX) — Business
+
+* `/ui/whatsapp/threads`, `/ui/whatsapp/messages`, `/ui/whatsapp/send`
+* `/ui/calls/active`, `/ui/calls/history`
+* `/ui/biz/contacts`, `/ui/biz/contacts/new`, `/ui/biz/contacts/<id>/edit`
+* `/ui/biz/users`, `/ui/biz/users/new`, `/ui/biz/users/<id>/edit`  *(Business Users)*
+
+### UI Partials — Billing / Invoices / Contracts
+
+* `/ui/billing/methods`, `/ui/billing/payments`
+* `/ui/invoices/list`, `/ui/invoices/new`, `/ui/invoices/<id>/view`
+* `/ui/contracts/list`, `/ui/contracts/new`, `/ui/contracts/<id>/sign`
+
+> בכל Partial: החזר **HTML** מוכן לצריבה (טבלה/כרטיסים), לא JSON — כדי ש־HTMX יחליף סקשן בלי רענון.
+
+## API — Admin (`admin_bp`)
+
+* **Tenants**:
+  `GET /api/admin/tenants?q=&status=`
+  `POST /api/admin/tenants` *(create)*
+  `POST /api/admin/tenants/<id>/update`
+  `POST /api/admin/tenants/<id>/toggle` *(pause/activate)*
+* **Users (כללי)**:
+  `GET /api/admin/users?q=&business_id=&role=`
+  `POST /api/admin/users` *(create)*
+  `POST /api/admin/users/<id>/update` *(name/email/role/business/enabled)*
+
+## API — Business (`biz_bp`)
+
+* **Users (לעסק)**:
+  `GET /api/biz/users?business_id=`
+  `POST /api/biz/users` *(manager/admin בלבד; role ∈ {agent,manager})*
+  `POST /api/biz/users/<id>/update`
+* **CRM**:
+  `GET /api/crm/contacts?business_id=&q=`
+  `POST /api/crm/contacts` · `POST /api/crm/contacts/<id>/update`
+* **WhatsApp**:
+  `GET /api/crm/threads?provider=twilio&channel=whatsapp&business_id=&q=`
+  `GET /api/crm/messages?thread_id=`
+  `POST /api/whatsapp/send {to,text,provider:'twilio'}` → שומר CRM `out+sent`
+* **Calls**:
+  `GET /api/calls/active` · `GET /api/calls/history?q=`
+
+## API — Billing / Invoices / Contracts (`billing_bp`)
+
+* **Payments** (`/api/crm/payments/*`):
+
+  * אם PAYPAL\_\* חסר → **501/403** (לא 500)
+  * אם Tranzila לא מוגדר → **501**
+  * Stripe הישן → **410** בלבד (בלי import stripe)
+* **Invoices**:
+  `GET /api/invoices?business_id=&q=`
+  `POST /api/invoices` *(issue)*
+  `GET /api/invoices/<id>` *(view)*
+* **Contracts** (חתימה דיגיטלית):
+  `GET /api/contracts?business_id=&q=`
+  `POST /api/contracts` *(create: parties/items)*
+  `POST /api/contracts/<id>/sign` *(מייצר קישור חתימה/שומר חתימה)*
+
+> כל ה־API פה יחזיר JSON; ה־UI יבקש HTML דרך `/ui/...` שמרנדר טבלאות/כרטיסים מבוסס JSON.
+
+---
+
+# 2) סיידבר מתקפל (RTL) — רספונסיבי, עם פעולות בפנים
+
+ב־`layout.html`:
+
+* כפתור ☰ במובייל פותח Drawer (ימין). Overlay סוגר. לחיצה על קישור — סוגרת.
+* פריטים לפי הרשאות:
+
+  * **Admin/Superadmin**: “דשבורד”, “ניהול עסקים”, “ניהול משתמשים”, “חיוב/סליקה”, “חשבוניות”, “חוזים”.
+  * **Business (Manager/Agent)**: “WhatsApp”, “שיחות”, “CRM לקוחות”, “משתמשים בעסק”, “חשבוניות”, “חוזים”.
+* **כפתורי פעולה בסיידבר**:
+
+  * Admin: `➕ הוסף עסק` → `hx-get="/ui/admin/tenants/new"` → מודל
+    `➕ משתמש` → `hx-get="/ui/admin/users/new"`
+  * Business: `➕ משתמש` → `hx-get="/ui/biz/users/new?business_id={{ current_business_id }}"`
+* **בחירת עסק לאדמין** (Select): `hx-get="/ui/admin/switch_business"` → redirect ל־`/app/admin?business_id=...`
+  → כל הטעינות/קישורים בעמוד מכילים את ה־`business_id` הנבחר.
+
+**חובה**: כל דף שמרחיב `layout.html` שולח לקונטקסט:
+
+```python
+role=g.user["role"]
+current_user=g.user
+active="biz_whatsapp"  # או admin_tenants וכו'
+current_business_id=effective_business_id()
+counters={"today_calls":0,"whatsapp_unread":0,"tenants_active":0,"users_pending":0,"biz_users_count":0}
+```
+
+---
+
+# 3) דף מנהל — מבנה, כפתורים, ומה בדיוק קורה
+
+## (A) Overview / KPIs
+
+* בלוק עליון עם קלפים (`today_calls`, `ws_errors`, `whatsapp_today`, `active_tenants`, סכומי חיוב, חוזים ממתינים חתימה).
+* טעינה אוטו’:
+  `hx-get="/ui/admin/overview" hx-trigger="load, every 10s" hx-target="#kpis"`.
+* כפתור “🔄 רענן” ליד הכותרת: `hx-get` לאותו יעד.
+
+## (B) ניהול עסקים (Tenants)
+
+* עליון: חיפוש (`tq`), כפתור `➕ הוסף עסק` (גם בסיידבר וגם בראש המקטע).
+
+* טבלה נטענת:
+  `hx-get="/ui/admin/tenants?q=&status=" hx-trigger="load, every 15s" hx-target="#tenantsTable"`.
+
+* כפתורים בשורה:
+
+  * **ערוך** → `hx-get="/ui/admin/tenants/<id>/edit"` (מודל)
+  * **השהה/הפעל** → `hx-post="/api/admin/tenants/<id>/toggle"` → `hx-swap="none"` ואז JS `loadTenants()`
+  * **היכנס כעסק** (Impersonate/“השתלטות”) → לינק `href="/app/biz?business_id=<id>"`
+
+* מודלים:
+  **חדש** → `hx-post="/api/admin/tenants"` → מחזיר טבלת tenants מלאה → `hx-target="#tenantsTable" hx-swap="outerHTML" hx-on::after-request="closeModal()"`
+  **ערוך** → `hx-post="/api/admin/tenants/<id>/update"` → אותו יעד.
+
+## (C) ניהול משתמשים (כללי)
+
+* עליון: חיפוש (`uq`), סלקט `business_id` (בהתאם לבחירת האדמין), סלקט תפקיד (`role`).
+* טבלה:
+  `hx-get="/ui/admin/users?q=&business_id=&role=" hx-trigger="load, every 15s" hx-target="#usersTable"`.
+* כפתורים בשורה: **ערוך** → `hx-get="/ui/admin/users/<id>/edit"`.
+* מודל “משתמש חדש”: שדות `name, email, role, business_id, enabled`.
+  שמירה: `hx-post="/api/admin/users"` → יעד `#usersTable` → סגירת מודל אוטומטית.
+
+## (D) חיוב/סליקה + חשבוניות + חוזים
+
+* **חיוב** (Payments): כרטיס שיטות תשלום (PayPal/Tranzila/Stripe legacy).
+  מצב מפתחות: אם חסר—הצג Badge “לא מוגדר” + פעולות UI נחסמות; הקריאות ל־API יחזירו בהתאם (501/403/410).
+  רשימת תשלומים אחרונים: `hx-get="/ui/billing/payments?business_id="`.
+* **חשבוניות**:
+  כפתור `➕ חשבונית` → מודל `/ui/invoices/new` → `POST /api/invoices` → מציג בטבלת חשבוניות.
+  כפתור “צפייה/PDF” → `/api/invoices/<id>` (אפשר לפתוח בחלון).
+* **חוזים עם חתימה**:
+  `➕ חוזה` → `/ui/contracts/new` → `POST /api/contracts`.
+  `בקש חתימה` → `/api/contracts/<id>/sign` → יוצר URL חתימה (מייל/SMS).
+  הצג מצב חתימה (Pending/Signed) + לינק צפייה.
+
+> כל הרכיבים הללו **מחויבים** להשתמש ב־`business_id` הפעיל (עבור Admin) או של המשתמש (עבור Business).
+
+---
+
+# 4) דף עסק — מבנה, כפתורים, ומה קורה בפועל
+
+## (A) WhatsApp
+
+* **Threads**:
+  `hx-get="/ui/whatsapp/threads?business_id={{ current_business_id }}&q=" hx-trigger="load, every 15s" hx-target="#threads"`.
+* **Messages**: בלחיצה על thread → `openThread(id,title,peer)`
+  טוען: `hx-get="/ui/whatsapp/messages?thread_id=id" hx-target="#messages"`.
+* **שליחה**: טופס בתחתית: `POST /ui/whatsapp/send` → בשרת: קורא `/api/whatsapp/send` ושומר CRM `out+sent` → רענון הודעות.
+* כפתורי עזר: “👤 פתח לקוח” (קישור ל־CRM עם פילטר טלפון), “🏷️ סמן טופל” (תג ל־thread).
+
+## (B) שיחות
+
+* **פעילות**: `hx-get="/ui/calls/active" hx-trigger="load, every 5s" hx-target="#callsA"`.
+* **היסטוריה**: `hx-get="/ui/calls/history?q=" hx-trigger="load, every 10s" hx-target="#callsHB"`.
+* כפתור רענון בכל מקטע.
+
+## (C) CRM לקוחות
+
+* טבלה: `GET /ui/biz/contacts?business_id=&q=` (Partial)
+* “➕ לקוח” → `/ui/biz/contacts/new` (מודל) → `POST /api/crm/contacts` → יעד הטבלה.
+* “ערוך” בשורה → `/ui/biz/contacts/<id>/edit` → `POST /api/crm/contacts/<id>/update`.
+
+## (D) משתמשים בעסק
+
+* כרטיס Summary בראש: “משתמשים בעסק: X” + `➕ משתמש`.
+* טבלה: `GET /ui/biz/users?business_id=` (Partial).
+* הרשאות:
+
+  * **Manager** יכול ליצור/לעדכן `agent/manager` בלבד (לא admin).
+  * **Agent** — קריאה בלבד.
+* שמירה: `POST /api/biz/users` / `POST /api/biz/users/<id>/update` → יעד הטבלה.
+
+## (E) חשבוניות וחוזים (Business)
+
+* כמו ב־Admin, אך מוגבלים ל־`business_id` של העסק.
+* אם מפתחות תשלום חסרים — UI מציג “לא מוגדר” וה־API מחזיר 501/403 כמצופה.
+
+---
+
+# 5) רספונסיביות וסיידבר במובייל
+
+* **Drawer**: כפתור ☰ פותח, overlay סוגר, כל קישור סוגר.
+* **Safe-area**: `<meta name="viewport" content="..., viewport-fit=cover">` + `pb-[calc(env(safe-area-inset-bottom)+56px)]` למניעת חפיפה עם המקלדת.
+* **נגיעות UI**:
+
+  * כל כפתור `rounded-2xl`, `min-h-[44px]`.
+  * טבלאות `text-sm`, `truncate` איפה שצריך.
+  * Skeletons/Indicators: `hx-indicator` (אלמנט ספינר שמופיע אוטומטית בזמן בקשה).
+
+---
+
+# 6) הרשאות — ב־UI וב־API
+
+* UI: הסתרת פריטים/כפתורים לפי `role`.
+* API:
+
+  * `@require_api_auth([...])` בכל endpoint.
+  * **כפיית** `business_id` כשלא מדובר ב־Admin/Superadmin:
+
+    ```python
+    bid = request.args.get("business_id") or request.form.get("business_id")
+    if g.user["role"] not in ("admin","superadmin"):
+        bid = g.user["business_id"]
+    ```
+* Business Users: אם `g.user.role == "manager"` אסור להעלות תפקיד ל־`admin`.
+
+---
+
+# 7) טעינה מחדש, שגיאות, ורענון
+
+* רשימות (WA/Calls/Users/Contacts): `hx-trigger="load, every 10-15s"`.
+* שגיאות API (401/403/5xx): החזר HTML קטן עם הודעת שגיאה; אל תחזיר JSON ל־UI partial.
+* אחרי POST מוצלח (יצירה/עדכון): החזר **HTML מלא של הטבלה** → `hx-target` + `hx-swap="outerHTML"` → `hx-on::after-request="closeModal()"`.
+
+---
+
+# 8) חיוב/סליקה — כללי ברזל (לא לשבור)
+
+* `/api/crm/payments/*`:
+
+  * PAYPAL\_\* חסר → **501/403** (אינדיקציה ברורה ב־UI: Badge “לא מוגדר”)
+  * Tranzila חסר → **501**
+  * Stripe legacy → **410** בלבד (הצג “לא נתמך”)
+* בחשבוניות/חוזים — הימנע מ־500; תנעל אינפוטים אם אינטגרציה לא מוגדרת.
+
+---
+
+# 9) GO/NO-GO (צ’ק־ליסט קצר)
+
+* התחברות וניתוב לפי Role עובדים.
+* סיידבר:
+
+  * במובייל נפתח/נסגר; ב־Desktop קבוע; פריטים לפי Role.
+  * כפתורי “➕ הוסף עסק/משתמש” פותחים מודל; שמירה מרעננת טבלאות.
+* Admin:
+
+  * Tenants: חיפוש, new/edit/toggle, Impersonate.
+  * Users: חיפוש/סינון, new/edit (כולל שינוי business/role).
+  * Billing/Invoices/Contracts נטענים ומציגים סטטוס אינטגרציות נכון.
+* Business:
+
+  * WhatsApp: threads/messages נטענים; שליחה נרשמת ב־CRM.
+  * Calls: active/history נטענים.
+  * CRM: יצירה/עריכה עובדות.
+  * Users: Manager יוצר/עורך; Agent רואה בלבד.
+* אין 404/405 בשום כפתור/partial; אין 500 ב־payments כשאין מפתחות.
+
+---
+
+## מיקרו־דוגמאות (להבטיח “כל כפתור עובד”)
+
+**כפתור “➕ משתמש (Admin)” בסיידבר/כותרת:**
+
+```html
+<button class="btn-primary"
+        hx-get="/ui/admin/users/new"
+        hx-target="#modal" hx-swap="innerHTML">➕ משתמש</button>
+<div id="modal"></div>
+```
+
+**טופס מודל — שמירה מחליפה טבלה וסוגרת מודל:**
+
+```html
+<form hx-post="/api/admin/users"
+      hx-target="#usersTable"
+      hx-swap="outerHTML"
+      hx-on::after-request="closeModal()">
+  <!-- fields... -->
+  <button class="btn-primary">שמור</button>
+</form>
+```
+
+**טעינת טבלת משתמשים עם סינון עסק (Admin):**
+
+```js
+function loadUsersAdmin(){
+  const q = document.getElementById('uq').value||'';
+  const sel = document.getElementById('bizSelect');
+  const u = new URL('/ui/admin/users', location.origin);
+  u.searchParams.set('q', q);
+  if(sel && sel.value) u.searchParams.set('business_id', sel.value);
+  htmx.ajax('GET', u, { target:'#usersTable', swap:'innerHTML' });
+}
+```
+
+---
+
+זה הכל. תן לבוט להיצמד **בול** למפרט הזה: אותם ניתובים, אותם partials/מודלים עם HTMX, אותה לוגיקת הרשאות ואכיפת `business_id`. ככה גם המנהל יקבל **שליטה מלאה** (עסקים/משתמשים/חיוב/מסמכים), וגם העסק יקבל **כלים נקיים** (ווטסאפ/שיחות/CRM/משתמשי עסק), בממשק **מהיר, רספונסיבי ונראה מקצועי**.

@@ -1,0 +1,104 @@
+קצר ולעניין: ההנחיה שנתתי לך היא **בסיס חזק ומדויק** לבנות דפי **מנהל** ו־**עסק** “ברמה גבוהה” — כולל סיידבר מתקפל, הרשאות מלאות, WhatsApp, שיחות, CRM, משתמשים, עסקים, חיוב/חשבוניות/חוזים.
+כדי שזה יהיה באמת “ברמה הכי גבוהה שיש” (Production/Enterprise), הוספתי כאן **פערים קריטיים** שצריך לסגור + צ’ק־ליסט GO/NO-GO. אם תיישם את הסעיפים האלה—אתה מכוסה מקצה לקצה.
+
+---
+
+## מה טוב כבר עכשיו
+
+* ניתובים ברורים (UI/Partials/API) ללא 404.
+* הפרדה תפקודית: Admin שולט בכל, Business מוגבל ל־business\_id.
+* סיידבר מתקפל (RTL), HTMX לטעינות/מודלים, כפתורי פעולה שעובדים.
+* פלואו משתמשים (Admin וכל עסק), ו־Billing/Invoices/Contracts כסקופי UI/API.
+
+---
+
+## כדי להפוך את זה ל”הכי גבוה שיש” — הוספות חובה
+
+### 1) אבטחה וקונסיסטנטיות
+
+* **CSRF** לכל POST מה־UI (Flask-WTF או header ייעודי + אימות בצד שרת).
+* **CSP** (Content Security Policy) מחמיר + `X-Frame-Options`, `Referrer-Policy`.
+* **Session Hardening**: rotation אחרי login/reset, timeout inactivity, `Secure + HttpOnly + SameSite=Lax`.
+* **Password Policy** + **Reset Tokens** (TTL+single-use) + rate-limit.
+* **Webhook Security** (כאשר רלוונטי): אימות חתימות (Twilio/PayPal/Tranzila) במסלולים המתאימים בלבד.
+* **Audit Logs**: כל פעולה מנהלית/כספית/השתלטות־כעסק → יומן חתום (user, business\_id, ip, ua, זמן, payload hash).
+* **Idempotency** ל־POSTים כספיים/שליחה (מפתח ייחודי למניעת כפולים).
+
+### 2) מִדּוּל שכבות וקוד נקי
+
+* **שכבת Service** בין routes ל־DAO (לא לגעת ב־DB מתוך ה־route).
+* **ולידציה סכמטית** (pydantic/marshmallow) לכל קלט API.
+* **Pagination** אחיד (limit/offset) לכל רשימות (threads/messages/contacts/users/calls).
+* **שמות עקביים** ל־JSON (snake\_case או camelCase—לא לערבב).
+
+### 3) ריבוי־שוכרים/ביצועים
+
+* **אכיפת business\_id** בכל SELECT/UPSERT (כבר ציינתי), וב־DB: אינדקסים מרוכבים `(business_id, created_at)` לטבלאות גדולות.
+* לשקול **Row-Level Security** (Postgres) אם עוברים לסקייל כבד.
+* **Caching** קל ל־GETים סטטיים (ETag/304) + CDN לקבצי סטטיק/אייקונים.
+
+### 4) חוויית משתמש מלוטשת (Mobile-first)
+
+* **Skeletons/Spinners** ב־HTMX (`hx-indicator`) בכל partial.
+* **Toast אחיד** לשגיאות/הצלחות (החזר HTML קטן; בלי JSON ל־HTMX).
+* **Form Validation** מיידית (HTML5 + הודעות קצרות), Error states ברורים.
+* **Anchors** (#wa/#calls/#crm/#users/#tenants) + גלילה רכה.
+* **i18n**: טקסטים ממקור אחד (קובץ מחרוזות), RTL מלא, פונטים Heebo/Assistant.
+
+### 5) ריל־טיים ושקט בשיחות
+
+* **SSE/WebSocket** ל־WhatsApp והתקדמות שיחה/תמלול (רענון מהיר > פחות polling).
+* **Debounce/Throttle** ל־HTMX `every 10–15s` כדי להימנע ממטחי בקשות.
+* לוגיקת **barge-in**/עצירת דיבור (כבר טיפלנו בצד הו”ש)—שמור גם פידבק UI (לדוגמה: “מדבר/מקשיב”).
+
+### 6) פיננסים/מסמכים
+
+* **תמחור/מס**: בלי קוד קשיח—הגדרות per business (מטבע, שיעור מס, עיגול, מס’ חשבונית רץ).
+* **מסמכים**: תבניות חוזים/חשבוניות (Jinja-PDF), חתימות דיגיטליות מאובטחות (hash לחתימה, זמן).
+* **מצבי אינטגרציה**: אם מפתחות חסרים—UI מציג Badge “לא מוגדר”, וה־API מחזיר 501/403/410 (כבר ציינתי).
+
+### 7) תצפיתיות ואיכות
+
+* **Structured Logs + Trace ID** (logfmt/JSON).
+* **Metrics** (requests/sec, latency per endpoint, errors), Health/Ready endpoints קיימים.
+* **E2E Tests** (Playwright) למסלולים העיקריים; **Smoke** ל־/ui ו־/api לפני דיפלוי.
+
+---
+
+## Definition of Done (GO/NO-GO)
+
+1. **הרשאות**: Admin/Superadmin רואים הכל; Manager/Agent נעולים ל־business\_id שלהם.
+2. **סיידבר**: במובייל נפתח/נסגר; כל קישור פעיל וסוגר Drawer; באדג’ים מציגים ספירות אמת.
+3. **דפי Admin**:
+
+   * Tenants: חיפוש, יצירה/עריכה/השהיה, “השתלטות כעסק” (Impersonate) + Audit.
+   * Users: חיפוש/סינון, יצירה/עריכה (role/business), enable/disable, reset.
+   * Billing/Invoices/Contracts: מצב אינטגרציות נכון, אין 500 כשחסר מפתח (501/403/410).
+4. **דפי Business**:
+
+   * WhatsApp: threads/messages נטענים; שליחה רושמת ב־CRM.
+   * Calls: active/history יציבים.
+   * CRM: יצירה/עריכה.
+   * Users (עסק): Manager יוצר/עורך agent/manager; Agent read-only.
+5. **מובייל**: אין חיתוך של שדות ע”י המקלדת (safe-area), כפתורים ≥ 44px.
+6. **ביצועים**: כל partial < 300ms p50 (סטייג’ינג), אין רנדר מלא של הדף בפעולות CRUD.
+7. **אבטחה**: CSRF פעיל, CSP, סשן קשוח, reset tokens תקינים, audit ל־admin-impersonate.
+8. **אין 404/405/500** באף כפתור/partial/endpoint מתועד.
+
+---
+
+## מה עכשיו (פריוריטי 48 שעות)
+
+1. להפעיל **CSRF + CSP** ו־session rotation.
+2. להוסיף **Audit Logs** לפעולות Admin (tenants/users/impersonate/finance).
+3. להחיל **Pagination** בכל רשימה + אינדקסים DB.
+4. להוסיף **Skeletons/Indicators** ב־HTMX לכל partial + Toast אחיד.
+5. לבדוק **כל כפתור** מול ה־routes שהגדרנו (HTMX target/swap/after-request).
+6. E2E קצר: login → admin → add tenant → add user → impersonate → business users → WA send → invoice create → contract sign (placeholder) → logout.
+
+---
+
+### שורה תחתונה
+
+כן — ההנחיה שיש לך + התוספות פה נותנות **מפרט מלא** לבנות CRM מקצועי באמת. אם תיישם את סעיפי “השלמות” למעלה (במיוחד אבטחה/אודיט/פיננסים/ביצועים/ריל-טיים) — זה עומד בסטנדרט “הכי גבוה שיש”.
+רוצה שאכין לך עכשיו **סט partials מוכנים** (טבלאות + מודלים) ל־Tenants/Users/Contacts/Invoices/Contracts כדי שתדביק ותסגור פערים מהר?

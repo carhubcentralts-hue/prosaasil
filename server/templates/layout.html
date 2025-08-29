@@ -1,127 +1,414 @@
-<!doctype html>
-<html lang="he" dir="rtl" class="h-full bg-neutral-50">
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <title>{{ page_title or "AgentLocator CRM" }}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    body { font-family: 'Assistant', sans-serif; }
-    .btn{ @apply px-3 py-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-100; }
-    .btn-primary{ @apply px-3 py-2 rounded-xl bg-neutral-900 text-white hover:opacity-90; }
-    .badge{ @apply text-xs px-2 py-0.5 rounded-full bg-neutral-200; }
-  </style>
-</head>
-<body class="min-h-full text-neutral-900">
-  <!-- Overlay למובייל -->
-  <div id="overlay" class="fixed inset-0 bg-black/30 z-40 hidden md:hidden"></div>
-
-  <!-- Drawer / Sidebar (RTL: צד ימין) -->
-  <aside id="drawer"
-    class="fixed inset-y-0 right-0 z-50 w-72 bg-white border-l border-neutral-200
-           transform translate-x-full transition-transform duration-300
-           md:static md:translate-x-0 md:w-64 md:border-l-0 md:border-r">
-
-    <!-- כותרת קצרה במובייל -->
-    <div class="md:hidden flex items-center justify-between px-4 h-14 border-b">
-      <div class="font-semibold">תפריט</div>
-      <button id="btnClose" class="btn">סגור</button>
-    </div>
-
-    <!-- פרופיל + בחירת עסק למנהל -->
-    <div class="hidden md:flex items-center gap-2 px-4 h-14 border-b">
-      <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-neutral-900 text-white">{{ current_user.email[0].upper() if current_user and current_user.email else 'AL' }}</span>
-      <div class="text-sm truncate">{{ current_user.name if current_user else current_user.email if current_user else "מנהל" }}</div>
-    </div>
-
-    <nav class="px-2 py-3 space-y-1 overflow-y-auto h-[calc(100vh-56px)] md:h-[calc(100vh-56px)]">
-      {% macro item(href,label,key,badge=None) -%}
-        <a href="{{ href }}"
-           class="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-neutral-100
-                  {{ 'bg-neutral-100 font-semibold' if active==key }}">
-          <span class="text-sm">{{ label }}</span>
-          {% if badge is not none %}<span class="badge">{{ badge }}</span>{% endif %}
-        </a>
-      {%- endmacro %}
-
-      {# ADMIN ONLY #}
-      {% if role in ['admin','superadmin'] %}
-        {{ item('/app/admin', 'דשבורד ראשי', 'admin_home') }}
-        {{ item('/app/admin#tenants', 'ניהול עסקים', 'admin_tenants', (counters.tenants_active if counters else None)) }}
-        {{ item('/app/admin#users', 'ניהול משתמשים', 'admin_users', (counters.users_pending if counters else None)) }}
-
-        <!-- כפתורי פעולה (HTMX → מודל) -->
-        <div class="px-3 pt-1 flex gap-2">
-          <button class="btn-primary"
-                  hx-get="/ui/admin/tenants/new"
-                  hx-target="#modal" hx-swap="innerHTML">➕ הוסף עסק</button>
-          <button class="btn"
-                  hx-get="/ui/admin/users/new"
-                  hx-target="#modal" hx-swap="innerHTML">➕ משתמש</button>
-        </div>
-
-        <!-- מתג בחירת עסק (מסנן כל ה-UI לקוורי עם ?business_id=) -->
-        <div class="px-3 pt-3">
-          <label class="block text-xs mb-1">בחר עסק</label>
-          <select id="bizSelect" class="w-full px-3 py-2 border rounded-xl"
-                  hx-get="/ui/admin/switch_business"
-                  hx-target="#switchHook" hx-swap="outerHTML">
-            <!-- מלא אופציות בשרת או ב-HTMX -->
-            <option value="">כל העסקים</option>
-            {% for t in (tenants or []) %}
-              <option value="{{ t.id }}" {{ 'selected' if t.id==current_business_id else '' }}>
-                {{ t.name }}
-              </option>
-            {% endfor %}
-          </select>
-          <div id="switchHook"></div>
-        </div>
-      {% endif %}
-
-      {# BUSINESS + ADMIN #}
-      {{ item('/app/biz#wa', 'WhatsApp', 'biz_whatsapp', (counters.whatsapp_unread if counters else None)) }}
-      {{ item('/app/biz#calls', 'ניהול שיחות', 'biz_calls', (counters.today_calls if counters else None)) }}
-      {{ item('/app/biz#crm', 'CRM לקוחות', 'biz_crm') }}
-      {{ item('/app/biz#users', 'משתמשים בעסק', 'biz_users') }}
-
-      <a href="/api/ui/logout" class="block mt-2 px-3 py-2 text-sm rounded-xl bg-red-600 text-white text-center">התנתק</a>
-    </nav>
-  </aside>
-
-  <!-- תוכן -->
-  <div class="md:pr-64">
-    <header class="sticky top-0 z-30 bg-white/80 backdrop-blur border-b">
-      <div class="max-w-screen-xl mx-auto px-4 h-14 flex items-center gap-3">
-        <button id="btnOpen" class="md:hidden btn">☰</button>
-        <div class="text-xl font-bold truncate">{{ page_title or 'CRM' }}</div>
-      </div>
-    </header>
-
-    <main class="max-w-screen-xl mx-auto px-2 sm:px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+56px)]">
-      {% block content %}{% endblock %}
-    </main>
-  </div>
-
-  <!-- מודל כללי ל-HTMX -->
-  <div id="modal"></div>
-
-  <script>
-    const drawer = document.getElementById('drawer');
-    const overlay = document.getElementById('overlay');
-    const openBtn = document.getElementById('btnOpen');
-    const closeBtn = document.getElementById('btnClose');
-    function openDrawer(){ drawer.classList.remove('translate-x-full'); overlay.classList.remove('hidden'); document.body.classList.add('overflow-hidden'); }
-    function closeDrawer(){ drawer.classList.add('translate-x-full'); overlay.classList.add('hidden'); document.body.classList.remove('overflow-hidden'); }
-    openBtn && openBtn.addEventListener('click', openDrawer);
-    overlay && overlay.addEventListener('click', closeDrawer);
-    closeBtn && closeBtn.addEventListener('click', closeDrawer);
-    drawer.querySelectorAll('a').forEach(a=>a.addEventListener('click', closeDrawer));
-    // סגירת מודל אחרי POST מוצלח (אם partial מחזיר hook)
-    window.closeModal = function(){ document.getElementById('modal').innerHTML=''; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>{{ page_title or "מערכת CRM" }}</title>
     
-    {% block scripts %}{% endblock %}
-  </script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'assistant': ['Assistant', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js"></script>
+    
+    <!-- Hebrew Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Custom Styles -->
+    <style>
+        body { font-family: 'Assistant', sans-serif; }
+        
+        /* Professional sidebar animations */
+        .sidebar-open { transform: translateX(0); }
+        .sidebar-closed { transform: translateX(100%); }
+        
+        /* Professional shadows and gradients */
+        .card-professional {
+            background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(248,250,252,0.95) 100%);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08);
+            backdrop-filter: blur(8px);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            transition: all 0.2s ease;
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+        }
+        
+        /* Mobile safe area */
+        @media (max-width: 768px) {
+            .mobile-safe {
+                padding-bottom: calc(env(safe-area-inset-bottom) + 56px);
+            }
+        }
+        
+        /* Professional KPI cards */
+        .kpi-card {
+            background: linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(248,250,252,0.9) 100%);
+            border: 1px solid rgba(229, 231, 235, 0.8);
+            transition: all 0.3s ease;
+        }
+        
+        .kpi-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 48px rgba(0,0,0,0.15);
+        }
+        
+        /* HTMX loading indicator */
+        .htmx-indicator {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .htmx-request .htmx-indicator {
+            opacity: 1;
+        }
+        
+        /* Professional modal backdrop */
+        .modal-backdrop {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen">
+    
+    <!-- Mobile Menu Button -->
+    <button id="mobileMenuBtn" class="md:hidden fixed top-4 right-4 z-50 bg-white rounded-xl p-3 shadow-lg" onclick="toggleSidebar()">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+    </button>
+
+    <!-- Sidebar -->
+    <div id="sidebar" class="fixed right-0 top-0 h-full w-80 bg-white shadow-2xl z-40 transition-transform duration-300 sidebar-closed md:sidebar-open">
+        <!-- Mobile Overlay -->
+        <div id="sidebarOverlay" class="md:hidden fixed inset-0 bg-black bg-opacity-50 z-30 opacity-0 invisible transition-all duration-300" onclick="toggleSidebar()"></div>
+        
+        <!-- Sidebar Content -->
+        <div class="h-full flex flex-col">
+            <!-- Header -->
+            <div class="p-6 border-b border-gray-200 bg-gradient-to-l from-blue-600 to-indigo-600 text-white">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-lg font-semibold">מערכת CRM</h1>
+                        <p class="text-blue-100 text-sm">{{ current_user.name if current_user else "משתמש" }}</p>
+                    </div>
+                    <span class="px-3 py-1 bg-white bg-opacity-20 rounded-full text-xs font-medium">
+                        {{ role or "משתמש" }}
+                    </span>
+                </div>
+                
+                <!-- Admin Business Selector -->
+                {% if role in ["admin", "superadmin"] %}
+                <div class="mt-4">
+                    <select id="businessSelect" class="w-full px-3 py-2 bg-white bg-opacity-20 rounded-lg text-sm text-white placeholder-blue-200" 
+                            onchange="switchBusiness(this.value)">
+                        <option value="">כל העסקים</option>
+                        <!-- Will be populated by HTMX -->
+                    </select>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Navigation -->
+            <nav class="flex-1 p-4">
+                {% if role in ["admin", "superadmin"] %}
+                <!-- Admin Navigation -->
+                <div class="space-y-3">
+                    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">ניהול מערכת</h3>
+                    
+                    <a href="/app/admin" class="flex items-center px-4 py-3 rounded-xl hover:bg-blue-50 transition-colors {{ 'bg-blue-100 text-blue-700' if active == 'admin_home' else 'text-gray-700' }}">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/>
+                        </svg>
+                        דשבורד ראשי
+                    </a>
+                    
+                    <a href="#" class="flex items-center px-4 py-3 rounded-xl hover:bg-blue-50 transition-colors text-gray-700" onclick="loadTenants()">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2h-3a1 1 0 01-1-1v-1a1 1 0 00-1-1H9a1 1 0 00-1 1v1a1 1 0 01-1 1H4a1 1 0 110-2V4z"/>
+                        </svg>
+                        ניהול עסקים
+                    </a>
+                    
+                    <a href="#" class="flex items-center px-4 py-3 rounded-xl hover:bg-blue-50 transition-colors text-gray-700" onclick="loadUsers()">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        ניהול משתמשים
+                    </a>
+                    
+                    <!-- Action Buttons -->
+                    <div class="pt-4 space-y-2">
+                        <button class="w-full flex items-center justify-center px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors text-sm font-medium" 
+                                hx-get="/ui/admin/tenants/new" hx-target="#modal" hx-swap="innerHTML">
+                            <svg class="w-4 h-4 ml-2" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"/>
+                            </svg>
+                            ➕ הוסף עסק
+                        </button>
+                        
+                        <button class="w-full flex items-center justify-center px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors text-sm font-medium"
+                                hx-get="/ui/admin/users/new" hx-target="#modal" hx-swap="innerHTML">
+                            <svg class="w-4 h-4 ml-2" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6z"/>
+                            </svg>
+                            ➕ משתמש חדש
+                        </button>
+                    </div>
+                </div>
+                
+                {% elif role in ["manager", "agent"] %}
+                <!-- Business Navigation -->
+                <div class="space-y-3">
+                    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">כלי עבודה</h3>
+                    
+                    <a href="#" class="flex items-center px-4 py-3 rounded-xl hover:bg-green-50 transition-colors {{ 'bg-green-100 text-green-700' if active == 'biz_whatsapp' else 'text-gray-700' }}" onclick="loadWhatsApp()">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z"/>
+                        </svg>
+                        WhatsApp
+                        <span class="mr-auto bg-green-500 text-white text-xs px-2 py-1 rounded-full">{{ counters.whatsapp_unread or 0 }}</span>
+                    </a>
+                    
+                    <a href="#" class="flex items-center px-4 py-3 rounded-xl hover:bg-blue-50 transition-colors {{ 'bg-blue-100 text-blue-700' if active == 'biz_calls' else 'text-gray-700' }}" onclick="loadCalls()">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z"/>
+                        </svg>
+                        שיחות
+                        <span class="mr-auto bg-blue-500 text-white text-xs px-2 py-1 rounded-full">{{ counters.today_calls or 0 }}</span>
+                    </a>
+                    
+                    <a href="#" class="flex items-center px-4 py-3 rounded-xl hover:bg-purple-50 transition-colors {{ 'bg-purple-100 text-purple-700' if active == 'biz_crm' else 'text-gray-700' }}" onclick="loadCRM()">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3z"/>
+                        </svg>
+                        CRM לקוחות
+                    </a>
+                    
+                    <a href="#" class="flex items-center px-4 py-3 rounded-xl hover:bg-orange-50 transition-colors {{ 'bg-orange-100 text-orange-700' if active == 'biz_users' else 'text-gray-700' }}" onclick="loadBizUsers()">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        משתמשים בעסק
+                        <span class="mr-auto bg-gray-500 text-white text-xs px-2 py-1 rounded-full">{{ counters.biz_users_count or 0 }}</span>
+                    </a>
+                    
+                    <!-- Business Action Buttons -->
+                    {% if role == "manager" %}
+                    <div class="pt-4 space-y-2">
+                        <button class="w-full flex items-center justify-center px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors text-sm font-medium"
+                                hx-get="/ui/biz/users/new?business_id={{ current_business_id }}" hx-target="#modal" hx-swap="innerHTML">
+                            <svg class="w-4 h-4 ml-2" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6z"/>
+                            </svg>
+                            ➕ משתמש חדש
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+                
+                <!-- Billing & Contracts Section -->
+                {% if role in ["admin", "superadmin", "manager"] %}
+                <div class="mt-6 pt-6 border-t border-gray-200 space-y-3">
+                    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">כספים ומסמכים</h3>
+                    
+                    <a href="#" class="flex items-center px-4 py-3 rounded-xl hover:bg-green-50 transition-colors text-gray-700" onclick="loadBilling()">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zM14 6a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2V8a2 2 0 012-2h6zM4 14a2 2 0 002 2h8a2 2 0 002-2v-2a2 2 0 00-2-2H6a2 2 0 00-2 2v2z"/>
+                        </svg>
+                        חיוב וסליקה
+                    </a>
+                    
+                    <a href="#" class="flex items-center px-4 py-3 rounded-xl hover:bg-yellow-50 transition-colors text-gray-700" onclick="loadInvoices()">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"/>
+                        </svg>
+                        חשבוניות
+                    </a>
+                    
+                    <a href="#" class="flex items-center px-4 py-3 rounded-xl hover:bg-red-50 transition-colors text-gray-700" onclick="loadContracts()">
+                        <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z M4 5a2 2 0 012-2v1a1 1 0 001 1h6a1 1 0 001-1V3a2 2 0 012 2v6a2 2 0 01-2 2H6a2 2 0 01-2-2V5z"/>
+                        </svg>
+                        חוזים דיגיטליים
+                    </a>
+                </div>
+                {% endif %}
+            </nav>
+
+            <!-- Footer -->
+            <div class="p-4 border-t border-gray-200">
+                <a href="/logout" class="flex items-center px-4 py-3 rounded-xl hover:bg-red-50 transition-colors text-red-600">
+                    <svg class="w-5 h-5 ml-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/>
+                    </svg>
+                    התנתק
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="md:mr-80 min-h-screen">
+        <div class="p-6 mobile-safe">
+            <!-- Loading Indicator -->
+            <div class="htmx-indicator fixed top-4 left-4 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg">
+                <svg class="w-4 h-4 inline ml-2 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                טוען...
+            </div>
+            
+            <!-- Page Content -->
+            <div id="mainContent">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal Container -->
+    <div id="modal"></div>
+
+    <!-- Professional JavaScript -->
+    <script>
+        // Sidebar toggle
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            const isOpen = !sidebar.classList.contains('sidebar-closed');
+            
+            if (isOpen) {
+                sidebar.classList.add('sidebar-closed');
+                overlay.classList.add('opacity-0', 'invisible');
+            } else {
+                sidebar.classList.remove('sidebar-closed');
+                overlay.classList.remove('opacity-0', 'invisible');
+            }
+            
+            // Store state
+            localStorage.setItem('sidebarOpen', !isOpen);
+        }
+        
+        // Close modal
+        function closeModal() {
+            document.getElementById('modal').innerHTML = '';
+        }
+        
+        // Switch business (admin only)
+        function switchBusiness(businessId) {
+            if (businessId) {
+                window.location.href = `/app/admin?business_id=${businessId}`;
+            } else {
+                window.location.href = '/app/admin';
+            }
+        }
+        
+        // Load functions for different sections
+        function loadTenants() {
+            const q = document.getElementById('tenantSearch')?.value || '';
+            htmx.ajax('GET', `/ui/admin/tenants?q=${q}`, { 
+                target: '#mainContent', 
+                swap: 'innerHTML' 
+            });
+        }
+        
+        function loadUsers() {
+            const q = document.getElementById('userSearch')?.value || '';
+            const bid = document.getElementById('businessSelect')?.value || '';
+            htmx.ajax('GET', `/ui/admin/users?q=${q}&business_id=${bid}`, { 
+                target: '#mainContent', 
+                swap: 'innerHTML' 
+            });
+        }
+        
+        function loadWhatsApp() {
+            htmx.ajax('GET', '/ui/whatsapp/threads?business_id={{ current_business_id }}', { 
+                target: '#mainContent', 
+                swap: 'innerHTML' 
+            });
+        }
+        
+        function loadCalls() {
+            htmx.ajax('GET', '/ui/calls/history?business_id={{ current_business_id }}', { 
+                target: '#mainContent', 
+                swap: 'innerHTML' 
+            });
+        }
+        
+        function loadCRM() {
+            htmx.ajax('GET', '/ui/biz/contacts?business_id={{ current_business_id }}', { 
+                target: '#mainContent', 
+                swap: 'innerHTML' 
+            });
+        }
+        
+        function loadBizUsers() {
+            htmx.ajax('GET', '/ui/biz/users?business_id={{ current_business_id }}', { 
+                target: '#mainContent', 
+                swap: 'innerHTML' 
+            });
+        }
+        
+        function loadBilling() {
+            htmx.ajax('GET', '/ui/billing/methods?business_id={{ current_business_id }}', { 
+                target: '#mainContent', 
+                swap: 'innerHTML' 
+            });
+        }
+        
+        function loadInvoices() {
+            htmx.ajax('GET', '/ui/invoices/list?business_id={{ current_business_id }}', { 
+                target: '#mainContent', 
+                swap: 'innerHTML' 
+            });
+        }
+        
+        function loadContracts() {
+            htmx.ajax('GET', '/ui/contracts/list?business_id={{ current_business_id }}', { 
+                target: '#mainContent', 
+                swap: 'innerHTML' 
+            });
+        }
+        
+        // Auto-close sidebar on mobile when clicking links
+        document.addEventListener('htmx:beforeRequest', function() {
+            if (window.innerWidth < 768) {
+                const sidebar = document.getElementById('sidebar');
+                if (!sidebar.classList.contains('sidebar-closed')) {
+                    toggleSidebar();
+                }
+            }
+        });
+        
+        // Initialize sidebar state from localStorage
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebarState = localStorage.getItem('sidebarOpen');
+            const sidebar = document.getElementById('sidebar');
+            
+            if (sidebarState === 'false' && window.innerWidth >= 768) {
+                sidebar.classList.add('sidebar-closed');
+            }
+        });
+    </script>
 </body>
 </html>
