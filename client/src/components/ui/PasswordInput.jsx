@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import Input from "./Input.jsx";
 export default function PasswordInput({label, error, ...props}){
   const [show,setShow]=useState(false);

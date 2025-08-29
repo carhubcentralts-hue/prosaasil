@@ -1,3 +1,4 @@
+import React from "react";
 import Brand from "./Brand.jsx";
 
 export default function AuthCard({title, children}){

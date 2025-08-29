@@ -1,3 +1,5 @@
+import React from "react";
+
 export default function Input({label, error, ...props}){
   return (
     <div className="space-y-1">
