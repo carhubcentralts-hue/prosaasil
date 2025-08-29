@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 biz_mgmt_bp = Blueprint('business_management', __name__)
 
 @biz_mgmt_bp.route('/api/admin/business/<int:business_id>', methods=['GET'])
+@require_api_auth(['admin'])
 def get_business(business_id):
     """Get business details"""
     try:
@@ -167,6 +168,7 @@ def change_business_password(business_id):
         return jsonify({"error": "שגיאה בשינוי הסיסמה"}), 500
 
 @biz_mgmt_bp.route('/api/admin/login-as-business/<int:business_id>', methods=['POST'])
+@require_api_auth(['admin'])
 def login_as_business(business_id):
     """Allow admin to login as business"""
     try:
