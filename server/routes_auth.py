@@ -94,13 +94,13 @@ def require_roles(*roles):
         @wraps(fn)
         def wrap(*a, **kw):
             if not getattr(g, "user", None):
-                return redirect(url_for("ui.login"))
+                return redirect("/login")
             if roles and g.user.get("role") not in roles:
                 # ניתוב חכם למסך הנכון
                 role = g.user.get("role")
                 if role in ("admin","superadmin"):
-                    return redirect(url_for("ui.admin_home"))
-                return redirect(url_for("ui.biz_home"))
+                    return redirect("/app/admin")
+                return redirect("/app/biz")
             return fn(*a, **kw)
         return wrap
     return deco
