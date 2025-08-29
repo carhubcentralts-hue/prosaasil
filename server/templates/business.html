@@ -1,174 +1,129 @@
 {% extends "layout.html" %}
 
-{% block page_title %}איזור עסק{% endblock %}
-
 {% block content %}
-<!-- Business KPIs -->
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-  <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
-    <div class="p-6">
-      <div class="flex items-center">
-        <div class="flex-shrink-0">
-          <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-            <span class="text-white font-bold">📞</span>
-          </div>
+<div class="space-y-6">
+    <!-- KPI Cards for Business -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">שיחות היום</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ counters.get('today_calls', 0) }}</p>
+                </div>
+                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span class="text-2xl">📞</span>
+                </div>
+            </div>
         </div>
-        <div class="mr-4">
-          <p class="text-sm font-medium text-gray-500">שיחות היום</p>
-          <p class="text-2xl font-semibold text-gray-900">{{ counters.today_calls or 0 }}</p>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
-    <div class="p-6">
-      <div class="flex items-center">
-        <div class="flex-shrink-0">
-          <div class="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
-            <span class="text-white font-bold">👥</span>
-          </div>
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">משתמשי העסק</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ counters.get('biz_users_count', 0) }}</p>
+                </div>
+                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                    <span class="text-2xl">👥</span>
+                </div>
+            </div>
         </div>
-        <div class="mr-4">
-          <p class="text-sm font-medium text-gray-500">משתמשי העסק</p>
-          <p class="text-2xl font-semibold text-gray-900" id="businessUsersCount">-</p>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
-    <div class="p-6">
-      <div class="flex items-center">
-        <div class="flex-shrink-0">
-          <div class="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
-            <span class="text-white font-bold">💬</span>
-          </div>
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">WhatsApp לא נקראו</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ counters.get('whatsapp_unread', 0) }}</p>
+                </div>
+                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <span class="text-2xl">💬</span>
+                </div>
+            </div>
         </div>
-        <div class="mr-4">
-          <p class="text-sm font-medium text-gray-500">WhatsApp לא נקראו</p>
-          <p class="text-2xl font-semibold text-gray-900">{{ counters.whatsapp_unread or 0 }}</p>
-        </div>
-      </div>
     </div>
-  </div>
+
+    <!-- WhatsApp Section -->
+    <section id="whatsapp" class="space-y-2">
+        <div class="flex items-center gap-2">
+            <h2 class="font-semibold">WhatsApp CRM</h2>
+            <button class="btn-primary"
+                    hx-get="/ui/biz/whatsapp/compose" hx-target="#modal" hx-swap="innerHTML">✍️ שלח הודעה</button>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="animate-pulse space-y-4">
+                <div class="h-4 bg-gray-200 rounded w-full"></div>
+                <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Users Section -->
+    <section id="users" class="space-y-2">
+        <div class="flex items-center gap-2">
+            <h2 class="font-semibold">ניהול משתמשים</h2>
+            <button class="btn-primary"
+                    hx-get="/ui/biz/users/new" hx-target="#modal" hx-swap="innerHTML">➕ משתמש חדש</button>
+            <input id="uq" placeholder="חיפוש משתמשים" class="ml-auto px-3 py-2 border rounded-xl" oninput="loadUsersBiz()"/>
+        </div>
+        <div id="usersTable"
+             hx-get="/ui/biz/users" 
+             hx-trigger="load" 
+             hx-swap="innerHTML"></div>
+    </section>
+
+    <!-- Calls Section -->
+    <section id="calls" class="space-y-2">
+        <div class="flex items-center gap-2">
+            <h2 class="font-semibold">שיחות אחרונות</h2>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="animate-pulse space-y-4">
+                <div class="h-4 bg-gray-200 rounded w-full"></div>
+                <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Customers Section -->
+    <section id="customers" class="space-y-2">
+        <div class="flex items-center gap-2">
+            <h2 class="font-semibold">לקוחות</h2>
+            <button class="btn-primary"
+                    hx-get="/ui/biz/customers/new" hx-target="#modal" hx-swap="innerHTML">➕ לקוח חדש</button>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="animate-pulse space-y-4">
+                <div class="h-4 bg-gray-200 rounded w-full"></div>
+                <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+            </div>
+        </div>
+    </section>
 </div>
 
-<!-- WhatsApp Section -->
-<section id="wa" class="space-y-2 mb-8">
-  <div class="flex items-center gap-2">
-    <h2 class="font-semibold text-xl">WhatsApp</h2>
-  </div>
-  <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
-    <div class="p-6">
-      <div class="text-center py-8">
-        <div class="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span class="text-white text-2xl">💬</span>
-        </div>
-        <h3 class="text-lg font-medium mb-2">WhatsApp Business</h3>
-        <p class="text-gray-500 mb-4">נהל שיחות WhatsApp עם הלקוחות שלך</p>
-        <button class="btn-primary">התחל שיחה</button>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- Calls Section -->
-<section id="calls" class="space-y-2 mb-8">
-  <div class="flex items-center gap-2">
-    <h2 class="font-semibold text-xl">ניהול שיחות</h2>
-  </div>
-  <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
-    <div id="businessCallsTable" class="p-6">
-      <div class="animate-pulse space-y-4">
-        <div class="h-4 bg-gray-200 rounded w-full"></div>
-        <div class="h-4 bg-gray-200 rounded w-3/4"></div>
-        <div class="h-4 bg-gray-200 rounded w-1/2"></div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- CRM Section -->
-<section id="crm" class="space-y-2 mb-8">
-  <div class="flex items-center gap-2">
-    <h2 class="font-semibold text-xl">CRM לקוחות</h2>
-    <button class="btn-primary">הוסף לקוח</button>
-  </div>
-  <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
-    <div class="p-6">
-      <div class="text-center py-8">
-        <div class="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span class="text-white text-2xl">👥</span>
-        </div>
-        <h3 class="text-lg font-medium mb-2">ניהול לקוחות</h3>
-        <p class="text-gray-500 mb-4">נהל את רשימת הלקוחות והפניות שלך</p>
-        <button class="btn-primary">צפה בלקוחות</button>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- Business Users Section -->
-<section id="users" class="space-y-2 mb-8">
-  <div class="flex items-center gap-2">
-    <h2 class="font-semibold text-xl">משתמשים בעסק</h2>
-    {% if current_user.role in ['admin', 'manager'] %}
-    <button class="btn-primary"
-            hx-get="/ui/business/users/new" hx-target="#modal" hx-swap="innerHTML">➕ הוסף משתמש</button>
-    {% endif %}
-    <input id="buq" placeholder="חיפוש משתמשים" class="ml-auto px-3 py-2 border rounded-xl" oninput="loadBusinessUsers()"/>
-  </div>
-  <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
-    <div id="businessUsersTable" class="p-6">
-      <!-- יטען דרך HTMX -->
-    </div>
-  </div>
-</section>
-
 <script>
-// Load business users table
-function loadBusinessUsers(){
-  const q = document.getElementById('buq').value || '';
-  const u = new URL('/ui/business/users', location.origin);
+// Load functions for HTMX tables
+function loadUsersBiz(){
+  const q = document.getElementById('uq').value || '';
+  const u = new URL('/ui/biz/users', location.origin);
   u.searchParams.set('q', q);
-  {% if current_business_id %}
-  u.searchParams.set('business_id', '{{ current_business_id }}');
-  {% endif %}
-  htmx.ajax('GET', u.toString(), { 
-    target:'#businessUsersTable', 
-    swap:'innerHTML',
-    onLoad: function() {
-      // Update counter after loading
-      const rows = document.querySelectorAll('#businessUsersTable tbody tr');
-      document.getElementById('businessUsersCount').textContent = rows.length;
-    }
-  });
+  htmx.ajax('GET', u.toString(), { target:'#usersTable', swap:'innerHTML' });
 }
 
 // Action functions for business users
-function editBusinessUser(userId) {
-  htmx.ajax('GET', `/ui/business/users/${userId}/edit`, { target:'#modal', swap:'innerHTML' });
+function editUser(userId) {
+  htmx.ajax('GET', `/ui/biz/users/${userId}/edit`, { target:'#modal', swap:'innerHTML' });
 }
 
-function changeBusinessUserPassword(userId) {
-  htmx.ajax('GET', `/ui/business/users/${userId}/password`, { target:'#modal', swap='innerHTML' });
+function changeUserPassword(userId) {
+  htmx.ajax('GET', `/ui/biz/users/${userId}/password`, { target:'#modal', swap:'innerHTML' });
 }
 
-function removeBusinessUser(userId) {
-  if(confirm('האם אתה בטוח שברצונך להסיר את המשתמש מהעסק?')) {
-    htmx.ajax('DELETE', `/api/business/users/${userId}`, { 
-      target:'#businessUsersTable', 
-      swap:'innerHTML',
-      onLoad: loadBusinessUsers
-    });
-  }
-}
-
-// Auto-load on page load
-window.addEventListener('load', ()=>{ 
-  loadBusinessUsers();
-  setInterval(loadBusinessUsers, 30000); // Refresh every 30 seconds
+// Auto-load tables on page load
+window.addEventListener('load', function(){ 
+  loadUsersBiz();
+  setInterval(loadUsersBiz, 15000);
 });
 </script>
 {% endblock %}

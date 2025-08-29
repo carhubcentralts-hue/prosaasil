@@ -1,462 +1,127 @@
-<!DOCTYPE html>
-<html lang="he" dir="rtl">
+<!doctype html>
+<html lang="he" dir="rtl" class="h-full bg-neutral-50">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}מקסימוס נדל״ן - מערכת CRM מקצועית{% endblock %}</title>
-    
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- HTMX -->
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    
-    <!-- Hebrew fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    
-    <style>
-        body { font-family: 'Assistant', sans-serif; }
-        
-        /* Professional Sidebar Animations */
-        .sidebar-transition {
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.6, 1);
-        }
-        
-        .sidebar-collapsed {
-            width: 4rem;
-        }
-        
-        .sidebar-expanded {
-            width: 16rem;
-        }
-        
-        /* Text fade animations */
-        .sidebar-text {
-            transition: opacity 0.2s ease-in-out;
-        }
-        
-        .sidebar-collapsed .sidebar-text {
-            opacity: 0;
-            pointer-events: none;
-        }
-        
-        .sidebar-expanded .sidebar-text {
-            opacity: 1;
-            pointer-events: auto;
-        }
-        
-        /* Professional hover effects */
-        .sidebar-item:hover {
-            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-            transform: translateX(-2px);
-        }
-        
-        /* Main content adjustment */
-        .main-content-collapsed {
-            margin-right: 4rem;
-        }
-        
-        .main-content-expanded {
-            margin-right: 16rem;
-        }
-        
-        /* Professional gradients */
-        .gradient-bg {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        
-        .gradient-card {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        }
-        
-        /* Professional shadows */
-        .professional-shadow {
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        }
-        
-        /* Responsive mobile */
-        @media (max-width: 768px) {
-            .sidebar-collapsed, .sidebar-expanded {
-                width: 16rem;
-                transform: translateX(100%);
-            }
-            
-            .sidebar-mobile-open {
-                transform: translateX(0);
-            }
-            
-            .main-content-collapsed, .main-content-expanded {
-                margin-right: 0;
-            }
-        }
-        
-        /* Professional icons */
-        .icon-gradient {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-    </style>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>{{ page_title or "AgentLocator CRM" }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Assistant', sans-serif; }
+    .btn{ @apply px-3 py-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-100; }
+    .btn-primary{ @apply px-3 py-2 rounded-xl bg-neutral-900 text-white hover:opacity-90; }
+    .badge{ @apply text-xs px-2 py-0.5 rounded-full bg-neutral-200; }
+  </style>
 </head>
-<body class="bg-gray-50 dark:bg-gray-900 min-h-screen overflow-x-hidden">
-    
-    <!-- Professional Sidebar -->
-    <div id="sidebar" class="fixed top-0 right-0 h-full bg-white dark:bg-gray-800 professional-shadow sidebar-transition sidebar-expanded z-50">
-        <!-- Sidebar Header -->
-        <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-            <div class="flex items-center space-x-3">
-                <div class="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center">
-                    <span class="text-white font-bold text-lg">🏢</span>
-                </div>
-                <div class="sidebar-text">
-                    <h2 class="text-lg font-bold text-gray-900 dark:text-white">מקסימוס נדל״ן</h2>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">מערכת CRM מקצועית</p>
-                </div>
-            </div>
-            <button id="sidebarToggle" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                <svg class="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>
-                </svg>
-            </button>
-        </div>
-        
-        <!-- User Profile Section -->
-        <div class="p-4 border-b border-gray-200 dark:border-gray-700">
-            <div class="flex items-center space-x-3">
-                <div class="w-10 h-10 gradient-card rounded-full flex items-center justify-center">
-                    <span class="text-white font-semibold">{{ current_user.email[0].upper() if current_user and current_user.email else 'A' }}</span>
-                </div>
-                <div class="sidebar-text">
-                    <p class="text-sm font-medium text-gray-900 dark:text-white">{{ current_user.email if current_user else 'admin@admin.com' }}</p>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">
-                        {% if role == 'admin' %}👑 מנהל מערכת{% else %}👤 משתמש עסק{% endif %}
-                    </p>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Navigation Menu -->
-        <nav class="flex-1 p-4 space-y-2">
-            {% if role == 'admin' %}
-            <!-- Admin Menu -->
-            <div class="space-y-1">
-                <p class="sidebar-text text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">ניהול מערכת</p>
-                
-                <a href="/app/admin" class="sidebar-item flex items-center space-x-3 p-3 rounded-xl text-gray-700 dark:text-gray-200 hover:text-white transition-all duration-200">
-                    <div class="w-8 h-8 flex items-center justify-center">
-                        <span class="text-xl">📊</span>
-                    </div>
-                    <span class="sidebar-text font-medium">דשבורד ראשי</span>
-                </a>
-                
-                <a href="#" onclick="scrollToSection('tenants')" class="sidebar-item flex items-center space-x-3 p-3 rounded-xl text-gray-700 dark:text-gray-200 hover:text-white transition-all duration-200">
-                    <div class="w-8 h-8 flex items-center justify-center">
-                        <span class="text-xl">🏢</span>
-                    </div>
-                    <span class="sidebar-text font-medium">ניהול עסקים</span>
-                </a>
-                
-                <a href="#" onclick="scrollToSection('users')" class="sidebar-item flex items-center space-x-3 p-3 rounded-xl text-gray-700 dark:text-gray-200 hover:text-white transition-all duration-200">
-                    <div class="w-8 h-8 flex items-center justify-center">
-                        <span class="text-xl">👥</span>
-                    </div>
-                    <span class="sidebar-text font-medium">ניהול משתמשים</span>
-                </a>
-                
-                <a href="#" onclick="scrollToSection('calls')" class="sidebar-item flex items-center space-x-3 p-3 rounded-xl text-gray-700 dark:text-gray-200 hover:text-white transition-all duration-200">
-                    <div class="w-8 h-8 flex items-center justify-center">
-                        <span class="text-xl">📞</span>
-                    </div>
-                    <span class="sidebar-text font-medium">שיחות אחרונות</span>
-                </a>
-            </div>
-            {% else %}
-            <!-- Business Menu -->
-            <div class="space-y-1">
-                <p class="sidebar-text text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">עסק</p>
-                
-                <a href="/app/biz" class="sidebar-item flex items-center space-x-3 p-3 rounded-xl text-gray-700 dark:text-gray-200 hover:text-white transition-all duration-200">
-                    <div class="w-8 h-8 flex items-center justify-center">
-                        <span class="text-xl">📊</span>
-                    </div>
-                    <span class="sidebar-text font-medium">דשבורד עסק</span>
-                </a>
-                
-                <a href="#" onclick="scrollToSection('wa')" class="sidebar-item flex items-center space-x-3 p-3 rounded-xl text-gray-700 dark:text-gray-200 hover:text-white transition-all duration-200">
-                    <div class="w-8 h-8 flex items-center justify-center">
-                        <span class="text-xl">💬</span>
-                    </div>
-                    <span class="sidebar-text font-medium">WhatsApp</span>
-                </a>
-                
-                <a href="#" onclick="scrollToSection('calls')" class="sidebar-item flex items-center space-x-3 p-3 rounded-xl text-gray-700 dark:text-gray-200 hover:text-white transition-all duration-200">
-                    <div class="w-8 h-8 flex items-center justify-center">
-                        <span class="text-xl">📞</span>
-                    </div>
-                    <span class="sidebar-text font-medium">ניהול שיחות</span>
-                </a>
-                
-                <a href="#" onclick="scrollToSection('crm')" class="sidebar-item flex items-center space-x-3 p-3 rounded-xl text-gray-700 dark:text-gray-200 hover:text-white transition-all duration-200">
-                    <div class="w-8 h-8 flex items-center justify-center">
-                        <span class="text-xl">👥</span>
-                    </div>
-                    <span class="sidebar-text font-medium">CRM לקוחות</span>
-                </a>
-                
-                <a href="#" onclick="scrollToSection('users')" class="sidebar-item flex items-center space-x-3 p-3 rounded-xl text-gray-700 dark:text-gray-200 hover:text-white transition-all duration-200">
-                    <div class="w-8 h-8 flex items-center justify-center">
-                        <span class="text-xl">⚙️</span>
-                    </div>
-                    <span class="sidebar-text font-medium">משתמשי העסק</span>
-                </a>
-            </div>
-            {% endif %}
-            
-            <!-- System Section -->
-            <div class="pt-4 border-t border-gray-200 dark:border-gray-700">
-                <p class="sidebar-text text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">מערכת</p>
-                
-                <a href="#" class="sidebar-item flex items-center space-x-3 p-3 rounded-xl text-gray-700 dark:text-gray-200 hover:text-white transition-all duration-200">
-                    <div class="w-8 h-8 flex items-center justify-center">
-                        <span class="text-xl">⚙️</span>
-                    </div>
-                    <span class="sidebar-text font-medium">הגדרות</span>
-                </a>
-                
-                <a href="/api/ui/logout" class="sidebar-item flex items-center space-x-3 p-3 rounded-xl text-red-600 hover:bg-red-500 hover:text-white transition-all duration-200">
-                    <div class="w-8 h-8 flex items-center justify-center">
-                        <span class="text-xl">🚪</span>
-                    </div>
-                    <span class="sidebar-text font-medium">התנתק</span>
-                </a>
-            </div>
-        </nav>
+<body class="min-h-full text-neutral-900">
+  <!-- Overlay למובייל -->
+  <div id="overlay" class="fixed inset-0 bg-black/30 z-40 hidden md:hidden"></div>
+
+  <!-- Drawer / Sidebar (RTL: צד ימין) -->
+  <aside id="drawer"
+    class="fixed inset-y-0 right-0 z-50 w-72 bg-white border-l border-neutral-200
+           transform translate-x-full transition-transform duration-300
+           md:static md:translate-x-0 md:w-64 md:border-l-0 md:border-r">
+
+    <!-- כותרת קצרה במובייל -->
+    <div class="md:hidden flex items-center justify-between px-4 h-14 border-b">
+      <div class="font-semibold">תפריט</div>
+      <button id="btnClose" class="btn">סגור</button>
     </div>
-    
-    <!-- Mobile Overlay -->
-    <div id="sidebarOverlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden hidden"></div>
-    
-    <!-- Professional Header -->
-    <header class="fixed top-0 left-0 right-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 professional-shadow z-30 main-content-expanded transition-all duration-300">
-        <div class="flex items-center justify-between px-6 py-4">
-            <div class="flex items-center space-x-4">
-                <!-- Mobile Menu Button -->
-                <button id="mobileMenuToggle" class="md:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                    <svg class="w-6 h-6 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                    </svg>
-                </button>
-                
-                <div>
-                    <h1 class="text-xl font-bold text-gray-900 dark:text-white">{% block page_title %}דשבורד מקצועי{% endblock %}</h1>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">ברוך הבא למערכת CRM המתקדמת</p>
-                </div>
-            </div>
-            
-            <div class="flex items-center space-x-4">
-                <!-- Notifications -->
-                <button class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 relative">
-                    <svg class="w-6 h-6 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-5 5v-5z"></path>
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4"></path>
-                    </svg>
-                    <span class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></span>
-                </button>
-                
-                <!-- Time Display -->
-                <div class="text-sm text-gray-500 dark:text-gray-400" id="currentTime"></div>
-            </div>
+
+    <!-- פרופיל + בחירת עסק למנהל -->
+    <div class="hidden md:flex items-center gap-2 px-4 h-14 border-b">
+      <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-neutral-900 text-white">{{ current_user.email[0].upper() if current_user and current_user.email else 'AL' }}</span>
+      <div class="text-sm truncate">{{ current_user.name if current_user else current_user.email if current_user else "מנהל" }}</div>
+    </div>
+
+    <nav class="px-2 py-3 space-y-1 overflow-y-auto h-[calc(100vh-56px)] md:h-[calc(100vh-56px)]">
+      {% macro item(href,label,key,badge=None) -%}
+        <a href="{{ href }}"
+           class="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-neutral-100
+                  {{ 'bg-neutral-100 font-semibold' if active==key }}">
+          <span class="text-sm">{{ label }}</span>
+          {% if badge is not none %}<span class="badge">{{ badge }}</span>{% endif %}
+        </a>
+      {%- endmacro %}
+
+      {# ADMIN ONLY #}
+      {% if role in ['admin','superadmin'] %}
+        {{ item('/app/admin', 'דשבורד ראשי', 'admin_home') }}
+        {{ item('/app/admin#tenants', 'ניהול עסקים', 'admin_tenants', (counters.tenants_active if counters else None)) }}
+        {{ item('/app/admin#users', 'ניהול משתמשים', 'admin_users', (counters.users_pending if counters else None)) }}
+
+        <!-- כפתורי פעולה (HTMX → מודל) -->
+        <div class="px-3 pt-1 flex gap-2">
+          <button class="btn-primary"
+                  hx-get="/ui/admin/tenants/new"
+                  hx-target="#modal" hx-swap="innerHTML">➕ הוסף עסק</button>
+          <button class="btn"
+                  hx-get="/ui/admin/users/new"
+                  hx-target="#modal" hx-swap="innerHTML">➕ משתמש</button>
         </div>
+
+        <!-- מתג בחירת עסק (מסנן כל ה-UI לקוורי עם ?business_id=) -->
+        <div class="px-3 pt-3">
+          <label class="block text-xs mb-1">בחר עסק</label>
+          <select id="bizSelect" class="w-full px-3 py-2 border rounded-xl"
+                  hx-get="/ui/admin/switch_business"
+                  hx-target="#switchHook" hx-swap="outerHTML">
+            <!-- מלא אופציות בשרת או ב-HTMX -->
+            <option value="">כל העסקים</option>
+            {% for t in (tenants or []) %}
+              <option value="{{ t.id }}" {{ 'selected' if t.id==current_business_id else '' }}>
+                {{ t.name }}
+              </option>
+            {% endfor %}
+          </select>
+          <div id="switchHook"></div>
+        </div>
+      {% endif %}
+
+      {# BUSINESS + ADMIN #}
+      {{ item('/app/biz#wa', 'WhatsApp', 'biz_whatsapp', (counters.whatsapp_unread if counters else None)) }}
+      {{ item('/app/biz#calls', 'ניהול שיחות', 'biz_calls', (counters.today_calls if counters else None)) }}
+      {{ item('/app/biz#crm', 'CRM לקוחות', 'biz_crm') }}
+      {{ item('/app/biz#users', 'משתמשים בעסק', 'biz_users') }}
+
+      <a href="/api/ui/logout" class="block mt-2 px-3 py-2 text-sm rounded-xl bg-red-600 text-white text-center">התנתק</a>
+    </nav>
+  </aside>
+
+  <!-- תוכן -->
+  <div class="md:pr-64">
+    <header class="sticky top-0 z-30 bg-white/80 backdrop-blur border-b">
+      <div class="max-w-screen-xl mx-auto px-4 h-14 flex items-center gap-3">
+        <button id="btnOpen" class="md:hidden btn">☰</button>
+        <div class="text-xl font-bold truncate">{{ page_title or 'CRM' }}</div>
+      </div>
     </header>
-    
-    <!-- Main Content Area -->
-    <main id="mainContent" class="main-content-expanded transition-all duration-300 pt-20 p-6 min-h-screen">
-        {% block content %}{% endblock %}
+
+    <main class="max-w-screen-xl mx-auto px-2 sm:px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+56px)]">
+      {% block content %}{% endblock %}
     </main>
+  </div>
+
+  <!-- מודל כללי ל-HTMX -->
+  <div id="modal"></div>
+
+  <script>
+    const drawer = document.getElementById('drawer');
+    const overlay = document.getElementById('overlay');
+    const openBtn = document.getElementById('btnOpen');
+    const closeBtn = document.getElementById('btnClose');
+    function openDrawer(){ drawer.classList.remove('translate-x-full'); overlay.classList.remove('hidden'); document.body.classList.add('overflow-hidden'); }
+    function closeDrawer(){ drawer.classList.add('translate-x-full'); overlay.classList.add('hidden'); document.body.classList.remove('overflow-hidden'); }
+    openBtn && openBtn.addEventListener('click', openDrawer);
+    overlay && overlay.addEventListener('click', closeDrawer);
+    closeBtn && closeBtn.addEventListener('click', closeDrawer);
+    drawer.querySelectorAll('a').forEach(a=>a.addEventListener('click', closeDrawer));
+    // סגירת מודל אחרי POST מוצלח (אם partial מחזיר hook)
+    window.closeModal = function(){ document.getElementById('modal').innerHTML=''; }
     
-    <!-- Modal Container -->
-    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <!-- Modal content will be loaded here by HTMX -->
-    </div>
-    
-    <!-- Professional JavaScript -->
-    <script>
-        // Professional Sidebar Management
-        class ProfessionalSidebar {
-            constructor() {
-                this.sidebar = document.getElementById('sidebar');
-                this.mainContent = document.getElementById('mainContent');
-                this.header = document.querySelector('header');
-                this.toggleBtn = document.getElementById('sidebarToggle');
-                this.mobileBtn = document.getElementById('mobileMenuToggle');
-                this.overlay = document.getElementById('sidebarOverlay');
-                
-                this.isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
-                this.isMobile = window.innerWidth < 768;
-                
-                this.init();
-            }
-            
-            init() {
-                // Apply saved state
-                if (this.isCollapsed) {
-                    this.collapse();
-                } else {
-                    this.expand();
-                }
-                
-                // Event listeners
-                this.toggleBtn?.addEventListener('click', () => this.toggle());
-                this.mobileBtn?.addEventListener('click', () => this.toggleMobile());
-                this.overlay?.addEventListener('click', () => this.closeMobile());
-                
-                // Responsive handling
-                window.addEventListener('resize', () => this.handleResize());
-                
-                // Auto-hide on mobile when clicking nav items
-                document.querySelectorAll('.sidebar-item').forEach(item => {
-                    item.addEventListener('click', () => {
-                        if (this.isMobile) {
-                            this.closeMobile();
-                        }
-                    });
-                });
-            }
-            
-            toggle() {
-                if (this.isCollapsed) {
-                    this.expand();
-                } else {
-                    this.collapse();
-                }
-            }
-            
-            collapse() {
-                this.isCollapsed = true;
-                this.sidebar?.classList.remove('sidebar-expanded');
-                this.sidebar?.classList.add('sidebar-collapsed');
-                this.mainContent?.classList.remove('main-content-expanded');
-                this.mainContent?.classList.add('main-content-collapsed');
-                this.header?.classList.remove('main-content-expanded');
-                this.header?.classList.add('main-content-collapsed');
-                localStorage.setItem('sidebarCollapsed', 'true');
-            }
-            
-            expand() {
-                this.isCollapsed = false;
-                this.sidebar?.classList.remove('sidebar-collapsed');
-                this.sidebar?.classList.add('sidebar-expanded');
-                this.mainContent?.classList.remove('main-content-collapsed');
-                this.mainContent?.classList.add('main-content-expanded');
-                this.header?.classList.remove('main-content-collapsed');
-                this.header?.classList.add('main-content-expanded');
-                localStorage.setItem('sidebarCollapsed', 'false');
-            }
-            
-            toggleMobile() {
-                this.sidebar?.classList.toggle('sidebar-mobile-open');
-                this.overlay?.classList.toggle('hidden');
-            }
-            
-            closeMobile() {
-                this.sidebar?.classList.remove('sidebar-mobile-open');
-                this.overlay?.classList.add('hidden');
-            }
-            
-            handleResize() {
-                const wasMobile = this.isMobile;
-                this.isMobile = window.innerWidth < 768;
-                
-                if (wasMobile !== this.isMobile) {
-                    if (!this.isMobile) {
-                        // Switching to desktop
-                        this.closeMobile();
-                        if (this.isCollapsed) {
-                            this.collapse();
-                        } else {
-                            this.expand();
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Professional Time Display
-        function updateTime() {
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString('he-IL', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-            const dateStr = now.toLocaleDateString('he-IL');
-            document.getElementById('currentTime').textContent = `${timeStr} | ${dateStr}`;
-        }
-        
-        // Smooth scrolling to sections
-        function scrollToSection(sectionId) {
-            const element = document.getElementById(sectionId);
-            if (element) {
-                element.scrollIntoView({ 
-                    behavior: 'smooth',
-                    block: 'start'
-                });
-            }
-        }
-        
-        // Global API helper
-        async function apiCall(url, options = {}) {
-            const response = await fetch(url, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...options.headers
-                },
-                ...options
-            });
-            return response.json();
-        }
-        
-        // Modal management
-        function closeModal() {
-            document.getElementById('modal').classList.add('hidden');
-        }
-        
-        // Click outside modal to close
-        document.getElementById('modal')?.addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeModal();
-            }
-        });
-        
-        // Initialize everything when DOM is ready
-        document.addEventListener('DOMContentLoaded', function() {
-            // Initialize professional sidebar
-            new ProfessionalSidebar();
-            
-            // Start time updates
-            updateTime();
-            setInterval(updateTime, 1000);
-            
-            // Professional loading animations
-            document.querySelectorAll('.animate-pulse').forEach(el => {
-                setTimeout(() => {
-                    el.classList.remove('animate-pulse');
-                }, 2000);
-            });
-            
-            // Professional hover effects
-            document.querySelectorAll('.professional-shadow').forEach(el => {
-                el.addEventListener('mouseenter', function() {
-                    this.style.transform = 'translateY(-2px)';
-                });
-                
-                el.addEventListener('mouseleave', function() {
-                    this.style.transform = 'translateY(0)';
-                });
-            });
-        });
-        
-        {% block scripts %}{% endblock %}
-    </script>
+    {% block scripts %}{% endblock %}
+  </script>
 </body>
 </html>

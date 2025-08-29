@@ -64,7 +64,7 @@ def create_app():
     
     # UI Blueprint registration (לפי ההנחיות) - MUST BE FIRST!
     try:
-        from server.ui import ui_bp
+        from server.ui.routes import ui_bp
         from server.routes_auth import auth_bp, load_current_user
         from server.auth_api import auth_api, create_default_admin
         from server.data_api import data_api

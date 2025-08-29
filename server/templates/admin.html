@@ -1,131 +1,86 @@
 {% extends "layout.html" %}
 
-{% block page_title %}איזור מנהל מערכת{% endblock %}
-
 {% block content %}
-<!-- KPIs Section -->
-<div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
-  <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
-    <div class="p-6">
-      <div class="flex items-center">
-        <div class="flex-shrink-0">
-          <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-            <span class="text-white font-bold">📞</span>
-          </div>
+<div class="space-y-6">
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">שיחות היום</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ counters.get('today_calls', 0) }}</p>
+                </div>
+                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span class="text-2xl">📞</span>
+                </div>
+            </div>
         </div>
-        <div class="mr-4">
-          <p class="text-sm font-medium text-gray-500">שיחות היום</p>
-          <p class="text-2xl font-semibold text-gray-900">{{ counters.today_calls or 0 }}</p>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
-    <div class="p-6">
-      <div class="flex items-center">
-        <div class="flex-shrink-0">
-          <div class="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
-            <span class="text-white font-bold">🏢</span>
-          </div>
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">עסקים פעילים</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ counters.get('tenants_active', 0) }}</p>
+                </div>
+                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                    <span class="text-2xl">🏢</span>
+                </div>
+            </div>
         </div>
-        <div class="mr-4">
-          <p class="text-sm font-medium text-gray-500">עסקים פעילים</p>
-          <p class="text-2xl font-semibold text-gray-900">{{ counters.tenants_active or 0 }}</p>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
-    <div class="p-6">
-      <div class="flex items-center">
-        <div class="flex-shrink-0">
-          <div class="w-8 h-8 bg-yellow-500 rounded-lg flex items-center justify-center">
-            <span class="text-white font-bold">👥</span>
-          </div>
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">משתמשים ממתינים</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ counters.get('users_pending', 0) }}</p>
+                </div>
+                <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                    <span class="text-2xl">⏳</span>
+                </div>
+            </div>
         </div>
-        <div class="mr-4">
-          <p class="text-sm font-medium text-gray-500">משתמשים ממתינים</p>
-          <p class="text-2xl font-semibold text-gray-900">{{ counters.users_pending or 0 }}</p>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
-    <div class="p-6">
-      <div class="flex items-center">
-        <div class="flex-shrink-0">
-          <div class="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
-            <span class="text-white font-bold">💬</span>
-          </div>
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">רווח חודשי</p>
+                    <p class="text-2xl font-bold text-gray-900">₪12,540</p>
+                </div>
+                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <span class="text-2xl">💰</span>
+                </div>
+            </div>
         </div>
-        <div class="mr-4">
-          <p class="text-sm font-medium text-gray-500">WhatsApp לא נקראו</p>
-          <p class="text-2xl font-semibold text-gray-900">{{ counters.whatsapp_unread or 0 }}</p>
-        </div>
-      </div>
     </div>
-  </div>
+
+    <!-- Tenants Section -->
+    <section id="tenants" class="space-y-2">
+        <div class="flex items-center gap-2">
+            <h2 class="font-semibold">ניהול עסקים</h2>
+            <button class="btn-primary"
+                    hx-get="/ui/admin/tenants/new" hx-target="#modal" hx-swap="innerHTML">➕ הוסף עסק</button>
+            <input id="tq" placeholder="חיפוש עסקים" class="ml-auto px-3 py-2 border rounded-xl" oninput="loadTenantsAdmin()"/>
+        </div>
+        <div id="tenantsTable" 
+             hx-get="/ui/admin/tenants" 
+             hx-trigger="load" 
+             hx-swap="innerHTML"></div>
+    </section>
+
+    <!-- Users Section -->
+    <section id="users" class="space-y-2">
+        <div class="flex items-center gap-2">
+            <h2 class="font-semibold">ניהול משתמשים</h2>
+            <button class="btn-primary"
+                    hx-get="/ui/admin/users/new" hx-target="#modal" hx-swap="innerHTML">➕ משתמש חדש</button>
+            <input id="uq" placeholder="חיפוש משתמשים" class="ml-auto px-3 py-2 border rounded-xl" oninput="loadUsersAdmin()"/>
+        </div>
+        <div id="usersTable"
+             hx-get="/ui/admin/users" 
+             hx-trigger="load" 
+             hx-swap="innerHTML"></div>
+    </section>
 </div>
-
-<!-- Tenants Section -->
-<section id="tenants" class="space-y-2 mb-8">
-  <div class="flex items-center gap-2">
-    <h2 class="font-semibold text-xl">ניהול עסקים</h2>
-    <button class="btn-primary"
-            hx-get="/ui/admin/tenants/new" hx-target="#modal" hx-swap="innerHTML">➕ הוסף עסק</button>
-    <input id="tq" placeholder="חיפוש עסקים" class="ml-auto px-3 py-2 border rounded-xl" oninput="loadTenantsAdmin()"/>
-  </div>
-  <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
-    <div id="tenantsTable" class="p-6">
-      <div class="flex items-center justify-between p-4 border-b border-gray-100 hover:bg-gray-50">
-        <div>
-          <h4 class="font-medium text-gray-900">שי דירות ומשרדים בע״מ</h4>
-          <p class="text-sm text-gray-500">נדלן ותיווך</p>
-        </div>
-        <div class="flex items-center space-x-2">
-          <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">פעיל</span>
-          <button onclick="editBusiness(13)" class="text-blue-600 hover:text-blue-800 text-sm mr-2">עריכה</button>
-          <button onclick="loginAsBusiness(13)" class="text-green-600 hover:text-green-800 text-sm mr-2">התחבר כעסק</button>
-          <button onclick="changeBusinessPassword(13)" class="text-purple-600 hover:text-purple-800 text-sm">שנה סיסמה</button>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- Users Section -->
-<section id="users" class="space-y-2 mb-8">
-  <div class="flex items-center gap-2">
-    <h2 class="font-semibold text-xl">ניהול משתמשים</h2>
-    <button class="btn-primary"
-            hx-get="/ui/admin/users/new" hx-target="#modal" hx-swap="innerHTML">➕ משתמש חדש</button>
-    <input id="uq" placeholder="חיפוש משתמשים" class="ml-auto px-3 py-2 border rounded-xl" oninput="loadUsersAdmin()"/>
-  </div>
-  <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
-    <div id="usersTable" class="p-6">
-      <!-- יטען דרך HTMX -->
-    </div>
-  </div>
-</section>
-
-<!-- Recent Calls Section -->
-<section id="calls" class="space-y-2 mb-8">
-  <div class="flex items-center gap-2">
-    <h2 class="font-semibold text-xl">שיחות אחרונות</h2>
-  </div>
-  <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
-    <div id="callsTable" class="p-6">
-      <div class="animate-pulse space-y-4">
-        <div class="h-4 bg-gray-200 rounded w-full"></div>
-        <div class="h-4 bg-gray-200 rounded w-3/4"></div>
-        <div class="h-4 bg-gray-200 rounded w-1/2"></div>
-      </div>
-    </div>
-  </div>
-</section>
 
 <script>
 // Load functions for HTMX tables
@@ -173,7 +128,7 @@ function changeBusinessPassword(businessId) {
 }
 
 // Auto-load tables on page load and refresh every 15 seconds
-window.addEventListener('load', ()=>{ 
+window.addEventListener('load', function(){ 
   loadUsersAdmin(); 
   loadTenantsAdmin();
   setInterval(loadUsersAdmin, 15000);
