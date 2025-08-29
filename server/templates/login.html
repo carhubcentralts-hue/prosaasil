@@ -1,9 +1,26 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>התחברות - מערכת CRM מתקדמת</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Hebrew fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Assistant', sans-serif; }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+    </style>
+</head>
+<body>
 
-{% block title %}התחברות - מערכת CRM{% endblock %}
-
-{% block content %}
-<div class="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
+<div class="min-h-screen gradient-bg flex items-center justify-center p-4">
     <div class="bg-white/95 backdrop-blur-sm border border-white/20 rounded-3xl p-10 w-full max-w-md shadow-2xl">
         
         <!-- Brand Header -->
@@ -79,9 +96,8 @@
         </div>
     </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
+<!-- JavaScript -->
 <script>
 console.log('Login form script loaded');
 
@@ -151,4 +167,6 @@ fetch('/app/admin')
   .then(response => console.log('Admin page status:', response.status))
   .catch(error => console.error('Admin page error:', error));
 </script>
-{% endblock %}
+
+</body>
+</html>
