@@ -416,13 +416,66 @@ def create_app():
         }
         return jsonify(checks), 200
         
-    # Only serve React for root route, let Flask handle login
+    # Serve React for root and add login route
     @app.route('/')
     def serve_react_app():
         """Serve React frontend for root only"""
         try:
             return send_file(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "index.html"))
         except FileNotFoundError:
+            return """
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מערכת CRM - שי דירות ומשרדים</title>
+    <style>
+        body { font-family: Assistant, sans-serif; direction: rtl; 
+               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+               min-height: 100vh; display: flex; align-items: center; 
+               justify-content: center; color: white; }
+        .container { text-align: center; padding: 2rem; 
+                    background: rgba(255,255,255,0.1); border-radius: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>מערכת CRM לשיחות בעברית</h1>
+        <p>השרת פועל - מערכת מוכנה לשיחות</p>
+    </div>
+</body>
+</html>""", 200
+    
+    @app.route('/login')
+    def login_page():
+        """Login page route"""
+        try:
+            return send_file(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "index.html"))
+        except FileNotFoundError:
+            return """
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>התחברות - מערכת CRM</title>
+    <style>
+        body { font-family: Assistant, sans-serif; direction: rtl; 
+               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+               min-height: 100vh; display: flex; align-items: center; 
+               justify-content: center; color: white; }
+        .container { text-align: center; padding: 2rem; 
+                    background: rgba(255,255,255,0.1); border-radius: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>דף התחברות</h1>
+        <p>אנא המתן לטעינת המערכת...</p>
+    </div>
+</body>
+</html>""", 200
             return """
 <!DOCTYPE html>
 <html dir="rtl" lang="he">
