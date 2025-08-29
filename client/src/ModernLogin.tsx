@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 export default function ModernLogin() {
   const [mode, setMode] = useState<'login' | 'forgot'>('login');
@@ -7,6 +7,11 @@ export default function ModernLogin() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<'success' | 'error' | ''>('');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -14,9 +19,9 @@ export default function ModernLogin() {
     setMessage("");
 
     if (mode === 'login') {
-      // Validate inputs
-      if (!email.includes('@')) {
-        setMessage("כתובת האימייל לא תקינה");
+      // Enhanced validation
+      if (!email.includes('@') || !email.includes('.')) {
+        setMessage("אנא הזן כתובת אימייל תקינה");
         setMessageType('error');
         setLoading(false);
         return;
@@ -28,7 +33,7 @@ export default function ModernLogin() {
         return;
       }
 
-      // Real login to professional dashboard
+      // Professional login to CRM system
       try {
         const response = await fetch('/api/auth/login', {
           method: 'POST',
@@ -39,38 +44,39 @@ export default function ModernLogin() {
         const data = await response.json();
         
         if (data.success && data.user) {
-          setMessage("התחברות הצליחה!");
+          setMessage("התחברות בוצעה בהצלחה! מעביר למערכת...");
           setMessageType('success');
           
-          // Redirect to professional dashboard
+          // Professional redirect to dashboard
           setTimeout(() => {
             if (data.user.role === 'admin' || data.user.role === 'superadmin') {
               window.location.href = '/app/admin';
             } else {
               window.location.href = '/app/biz';
             }
-          }, 1000);
+          }, 1500);
         } else {
-          setMessage(data.error || "פרטי התחברות שגויים");
+          setMessage(data.error || "פרטי ההתחברות שגויים. אנא נסה שוב");
           setMessageType('error');
         }
       } catch (error) {
-        setMessage("שגיאה בהתחברות לשרת");
+        setMessage("שגיאה בחיבור לשרת. אנא בדוק את החיבור לאינטרנט");
         setMessageType('error');
       }
     } else {
-      // Forgot password
-      if (!email.includes('@')) {
-        setMessage("כתובת האימייל לא תקינה");
+      // Professional password reset
+      if (!email.includes('@') || !email.includes('.')) {
+        setMessage("אנא הזן כתובת אימייל תקינה");
         setMessageType('error');
         setLoading(false);
         return;
       }
       
-      await new Promise(resolve => setTimeout(resolve, 1200));
-      setMessage("קישור איפוס נשלח לאימייל שלך");
+      // Simulate password reset
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      setMessage("הוראות איפוס סיסמה נשלחו לכתובת האימייל שלך");
       setMessageType('success');
-      setTimeout(() => setMode('login'), 2000);
+      setTimeout(() => setMode('login'), 2500);
     }
     
     setLoading(false);
