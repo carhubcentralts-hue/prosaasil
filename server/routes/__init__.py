@@ -15,38 +15,16 @@ def register_all_blueprints(app):
     except ImportError as e:
         app.logger.error("Critical: Twilio routes missing: %s", e)
     
-    # Health check routes
-    try:
-        from server.health_routes import health_bp
-        blueprints.append(("Health", health_bp))
-    except ImportError:
-        pass  # Optional
-    
-    # Authentication routes  
-    try:
-        from server.auth_routes import auth_bp
-        blueprints.append(("Authentication", auth_bp))
-    except ImportError:
-        pass  # Optional
+    # Health and auth routes are handled by app_factory.py directly
     
     # Available APIs
     try:
-        from server.api_crm_unified import crm_bp
+        from server.routes_crm import crm_bp
         blueprints.append(("CRM", crm_bp))
     except ImportError:
         pass
     
-    try:
-        from server.api_business import biz_bp
-        blueprints.append(("Business", biz_bp))
-    except ImportError:
-        pass
-    
-    try:
-        from server.api_timeline import timeline_bp
-        blueprints.append(("Timeline", timeline_bp))
-    except ImportError:
-        pass
+    # Business and timeline APIs removed - functionality integrated into main routes
     
     # Register all blueprints
     registered = 0

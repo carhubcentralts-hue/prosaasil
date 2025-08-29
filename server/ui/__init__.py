@@ -6,5 +6,5 @@ from flask import Blueprint
 
 ui_bp = Blueprint('ui', __name__)
 
-# Import routes to register them with the blueprint
-from server.ui import routes
+# Import routes to register them with the blueprint  
+from . import routes

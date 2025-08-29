@@ -348,8 +348,7 @@ def create_app():
     app.register_blueprint(twilio_bp)
     # WhatsApp unified registration only (no more routes_whatsapp.py)
     print("✅ WhatsApp routes removed - using unified only")
-    from server.api_crm_unified import api_bp
-    app.register_blueprint(api_bp, url_prefix="/api")
+    # CRM unified moved to routes_crm.py - no separate API blueprint needed
     
     # WhatsApp Unified API (send/status/list)
     from server.api_whatsapp_unified import whatsapp_unified_bp
