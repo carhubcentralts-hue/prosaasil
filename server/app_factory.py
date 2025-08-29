@@ -191,7 +191,7 @@ def create_app():
         
         @app.before_request 
         def setup_security_context():
-            \"\"\"Setup security context for each request\"\"\"
+            """Setup security context for each request"""
             g.audit_logger = audit_logger
             g.session_security = SessionSecurity
             
@@ -203,7 +203,7 @@ def create_app():
                 if not SessionSecurity.is_session_valid():
                     session.clear()
                     if request.headers.get('HX-Request'):
-                        return '<div class=\"text-red-600 p-4 bg-red-50 rounded-lg\">🔒 Session expired - please login again</div>', 401
+                        return '<div class="text-red-600 p-4 bg-red-50 rounded-lg">🔒 Session expired - please login again</div>', 401
         
         # Register auth system FIRST (after security middleware)
         app.before_request(load_current_user)
