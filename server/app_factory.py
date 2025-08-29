@@ -425,7 +425,7 @@ def create_app():
     def serve_react_app():
         """Serve React frontend"""
         try:
-            return send_file(os.path.join(os.getcwd(), 'client/dist/index.html'))
+            return send_file(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "index.html"))
         except FileNotFoundError:
             return """
 <!DOCTYPE html>
