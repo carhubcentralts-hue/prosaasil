@@ -391,11 +391,15 @@ def create_app():
         """Serve static TTS files"""
         return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "static", "tts"), filename)
     
-    # React app assets serving
+    # React app assets serving - Updated for new auth app
     @app.route('/assets/<path:filename>')
     def serve_react_assets(filename):
         """Serve React build assets (JS, CSS, etc.)"""
-        return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "assets"), filename)
+        try:
+            return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "auth-frontend", "dist", "assets"), filename)
+        except FileNotFoundError:
+            # Fallback to old client if needed
+            return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "assets"), filename)
 
     @app.route('/healthz', methods=['GET'])
     def healthz():
@@ -415,40 +419,36 @@ def create_app():
         
     # Serve React for root and add login route
     @app.route('/')
-    def serve_react_app():
-        """Serve React frontend for root only"""
+    def serve_auth_app():
+        """Serve new professional auth React app"""
         try:
-            return send_file(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "index.html"))
+            return send_file(os.path.join(os.path.dirname(__file__), "..", "auth-frontend", "dist", "index.html"))
         except FileNotFoundError:
             return """
 <!DOCTYPE html>
-<html dir="rtl" lang="he">
+<html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>מערכת CRM - שי דירות ומשרדים</title>
-    <style>
-        body { font-family: Assistant, sans-serif; direction: rtl; 
-               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-               min-height: 100vh; display: flex; align-items: center; 
-               justify-content: center; color: white; }
-        .container { text-align: center; padding: 2rem; 
-                    background: rgba(255,255,255,0.1); border-radius: 20px; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>שי דירות ומשרדים — התחברות למערכת</title>
 </head>
 <body>
-    <div class="container">
-        <h1>מערכת CRM לשיחות בעברית</h1>
-        <p>השרת פועל - מערכת מוכנה לשיחות</p>
+    <div style="text-align: center; padding: 2rem; font-family: system-ui;">
+        <h1>אפליקציה לא נמצאה</h1>
+        <p>אנא הפעל: cd auth-frontend && npm run build</p>
     </div>
 </body>
-</html>""", 200
+</html>""", 500
     
+    # Auth routes - serve the new React auth app
+    @app.route('/auth')
+    @app.route('/auth/')
+    @app.route('/auth/<path:path>')
     @app.route('/login')
-    def login_page():
-        """Login page route"""
+    def auth_routes(path=None):
+        """All auth routes serve the new React app"""
         try:
-            return send_file(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "index.html"))
+            return send_file(os.path.join(os.path.dirname(__file__), "..", "auth-frontend", "dist", "index.html"))
         except FileNotFoundError:
             return """
 <!DOCTYPE html>

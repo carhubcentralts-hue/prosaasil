@@ -12,7 +12,6 @@ PYTHONUNBUFFERED = "1"
 PYTHONPATH = "."
 
 [agent]
-integrations = ["javascript_paypal==1.0.0", "javascript_openai==1.0.0", "javascript_websocket==1.0.0"]
 
 [nix]
 channel = "stable-25_05"

@@ -3,14 +3,546 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    
+    <!-- Heebo Font from Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;600;700&display=swap" rel="stylesheet">
-    <title>שי דירות ומשרדים — התחברות</title>
-    <script type="module" crossorigin src="./auth-frontend/dist/assets/index-MWKEFpPJ.js"></script>
-    <link rel="stylesheet" crossorigin href="./auth-frontend/dist/assets/index-ButGBoDl.css">
+    
+    <!-- Meta Tags -->
+    <meta name="description" content="מערכת CRM מתקדמת לניהול קריאות בעברית עם בינה מלאכותית - שי דירות ומשרדים בע״מ">
+    <meta property="og:title" content="שי דירות ומשרדים — התחברות למערכת">
+    <meta property="og:description" content="מערכת CRM מתקדמת לניהול קריאות בעברית עם בינה מלאכותית">
+    <meta property="og:type" content="website">
+    
+    <title>שי דירות ומשרדים — התחברות למערכת</title>
+    
+    <style>
+      /* Tailwind CSS Reset & Base */
+      *, ::before, ::after {
+        box-sizing: border-box;
+        border-width: 0;
+        border-style: solid;
+        border-color: #e5e7eb;
+      }
+
+      ::before, ::after {
+        --tw-content: '';
+      }
+
+      html {
+        line-height: 1.5;
+        -webkit-text-size-adjust: 100%;
+        -moz-tab-size: 4;
+        tab-size: 4;
+        font-family: 'Heebo', ui-sans-serif, system-ui, -apple-system, sans-serif;
+        font-feature-settings: normal;
+      }
+
+      body {
+        margin: 0;
+        line-height: inherit;
+        font-family: 'Heebo', ui-sans-serif, system-ui, sans-serif;
+        background: linear-gradient(to bottom right, #dbeafe, #ffffff, #ecfeff);
+        min-height: 100vh;
+        position: relative;
+        overflow-x: hidden;
+      }
+
+      /* Glass Card Style */
+      .glass-card {
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(0, 0, 0, 0.05);
+        border-radius: 1.5rem;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        padding: 2rem;
+      }
+
+      /* Animated Background Blobs */
+      .blob {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(60px);
+        opacity: 0.7;
+        animation: blob 20s infinite;
+      }
+
+      .blob1 {
+        top: 0;
+        left: 25%;
+        width: 18rem;
+        height: 18rem;
+        background: linear-gradient(45deg, #a855f7, #ec4899);
+        animation-delay: 0s;
+      }
+
+      .blob2 {
+        top: 33%;
+        right: 25%;
+        width: 24rem;
+        height: 24rem;
+        background: linear-gradient(45deg, #22d3ee, #3b82f6);
+        animation-delay: 5s;
+      }
+
+      .blob3 {
+        bottom: 25%;
+        left: 33%;
+        width: 20rem;
+        height: 20rem;
+        background: linear-gradient(45deg, #6366f1, #8b5cf6);
+        animation-delay: 10s;
+      }
+
+      @keyframes blob {
+        0%, 100% { transform: translate(0px, 0px) scale(1); }
+        33% { transform: translate(30px, -50px) scale(1.1); }
+        66% { transform: translate(-20px, 20px) scale(0.9); }
+      }
+
+      /* Layout */
+      .auth-container {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 1fr;
+        position: relative;
+        z-index: 10;
+      }
+
+      @media (min-width: 1024px) {
+        .auth-container {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      .brand-panel {
+        background: linear-gradient(to bottom right, #0f172a, #1e293b, #334155);
+        color: white;
+        padding: 3rem;
+        display: none;
+        flex-direction: column;
+        justify-content: center;
+        border-radius: 0 1.5rem 1.5rem 0;
+      }
+
+      @media (min-width: 1024px) {
+        .brand-panel {
+          display: flex;
+        }
+      }
+
+      .auth-panel {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 1rem;
+        padding-top: 3rem;
+        padding-bottom: 3rem;
+      }
+
+      @media (min-width: 640px) {
+        .auth-panel {
+          padding-left: 1.5rem;
+          padding-right: 1.5rem;
+        }
+      }
+
+      @media (min-width: 1024px) {
+        .auth-panel {
+          padding-left: 2rem;
+          padding-right: 2rem;
+        }
+      }
+
+      .auth-card {
+        margin: 0 auto;
+        width: 100%;
+        max-width: 28rem;
+      }
+
+      /* Form Styles */
+      .form-group {
+        margin-bottom: 1rem;
+      }
+
+      .form-label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #374151;
+        margin-bottom: 0.5rem;
+        text-align: right;
+      }
+
+      .form-input {
+        width: 100%;
+        padding: 0.75rem 3rem 0.75rem 1rem;
+        background: rgba(255, 255, 255, 0.8);
+        border: 1px solid #d1d5db;
+        border-radius: 1rem;
+        text-align: right;
+        font-family: 'Heebo', sans-serif;
+        transition: all 0.2s ease;
+      }
+
+      .form-input:focus {
+        outline: none;
+        ring: 2px solid #6366f1;
+        border-color: transparent;
+      }
+
+      .input-icon {
+        position: absolute;
+        right: 0.75rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #9ca3af;
+        width: 1.25rem;
+        height: 1.25rem;
+      }
+
+      .btn-primary {
+        width: 100%;
+        padding: 0.75rem 1.5rem;
+        background: linear-gradient(to left, #6366f1, #22d3ee);
+        color: white;
+        font-weight: 600;
+        border-radius: 1rem;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        min-height: 44px;
+        font-size: 1rem;
+      }
+
+      .btn-primary:hover {
+        background: linear-gradient(to left, #4338ca, #0891b2);
+        transform: scale(1.02);
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      }
+
+      .btn-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .error-message {
+        color: #ef4444;
+        font-size: 0.875rem;
+        margin-top: 0.25rem;
+        text-align: right;
+      }
+
+      /* Utility Classes */
+      .text-center { text-align: center; }
+      .text-right { text-align: right; }
+      .mb-2 { margin-bottom: 0.5rem; }
+      .mb-4 { margin-bottom: 1rem; }
+      .mb-6 { margin-bottom: 1.5rem; }
+      .text-xl { font-size: 1.25rem; }
+      .text-3xl { font-size: 1.875rem; }
+      .font-bold { font-weight: 700; }
+      .text-gray-600 { color: #4b5563; }
+      .text-gray-900 { color: #111827; }
+      .space-y-4 > * + * { margin-top: 1rem; }
+      .space-y-6 > * + * { margin-top: 1.5rem; }
+      .relative { position: relative; }
+      .flex { display: flex; }
+      .items-center { align-items: center; }
+      .justify-between { justify-content: space-between; }
+      .justify-end { justify-content: flex-end; }
+      .gap-2 { gap: 0.5rem; }
+      .gap-3 { gap: 0.75rem; }
+
+      /* Animation */
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .fade-in {
+        animation: fadeIn 0.5s ease-out;
+      }
+
+      .stagger-1 { animation-delay: 0.1s; }
+      .stagger-2 { animation-delay: 0.2s; }
+      .stagger-3 { animation-delay: 0.3s; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Animated Background Blobs -->
+    <div class="blob blob1"></div>
+    <div class="blob blob2"></div>
+    <div class="blob blob3"></div>
+
+    <div class="auth-container">
+      <!-- Brand Panel (Desktop Only) -->
+      <div class="brand-panel">
+        <div style="max-width: 24rem; margin: 0 auto; text-align: center;">
+          <h1 style="font-size: 2.25rem; font-weight: 700; margin-bottom: 1.5rem; letter-spacing: -0.025em;">
+            שי דירות ומשרדים
+          </h1>
+          <p style="font-size: 1.25rem; color: #bfdbfe; margin-bottom: 2rem;">
+            מערכת CRM מתקדמת לניהול קריאות בעברית עם בינה מלאכותית
+          </p>
+          
+          <div style="text-align: right; color: #bfdbfe;">
+            <div class="flex items-center justify-end gap-3 mb-4">
+              <span>תיעוד אוטומטי של שיחות</span>
+              <div style="width: 0.5rem; height: 0.5rem; background: #22d3ee; border-radius: 50%;"></div>
+            </div>
+            <div class="flex items-center justify-end gap-3 mb-4">
+              <span>ניתוח בינה מלאכותית</span>
+              <div style="width: 0.5rem; height: 0.5rem; background: #22d3ee; border-radius: 50%;"></div>
+            </div>
+            <div class="flex items-center justify-end gap-3">
+              <span>ניהול לקוחות מתקדם</span>
+              <div style="width: 0.5rem; height: 0.5rem; background: #22d3ee; border-radius: 50%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Auth Panel -->
+      <div class="auth-panel">
+        <div class="auth-card">
+          <div class="glass-card fade-in">
+            
+            <!-- Header -->
+            <div class="text-center mb-6 fade-in stagger-1">
+              <h2 class="text-3xl font-bold text-gray-900 mb-2">
+                התחברות למערכת
+              </h2>
+              <p class="text-gray-600">
+                הזן את פרטי ההתחברות שלך
+              </p>
+            </div>
+
+            <!-- Login Form -->
+            <form id="loginForm" class="space-y-4 fade-in stagger-2" novalidate>
+              
+              <!-- Email Field -->
+              <div class="form-group">
+                <label for="email" class="form-label">כתובת אימייל</label>
+                <div class="relative">
+                  <svg class="input-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"></path>
+                  </svg>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    dir="ltr"
+                    autocomplete="email"
+                    class="form-input"
+                    placeholder="user@example.com"
+                    required
+                    data-testid="input-email"
+                  />
+                </div>
+                <div class="error-message" id="emailError" style="display: none;"></div>
+              </div>
+
+              <!-- Password Field -->
+              <div class="form-group">
+                <label for="password" class="form-label">סיסמה</label>
+                <div class="relative">
+                  <svg class="input-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                  </svg>
+                  <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    autocomplete="current-password"
+                    class="form-input"
+                    style="padding-left: 3rem;"
+                    placeholder="הזן סיסמה"
+                    required
+                    data-testid="input-password"
+                  />
+                  <button
+                    type="button"
+                    id="togglePassword"
+                    style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: #9ca3af; cursor: pointer;"
+                    data-testid="button-toggle-password"
+                  >
+                    <svg id="eyeIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                    </svg>
+                  </button>
+                </div>
+                <div class="error-message" id="passwordError" style="display: none;"></div>
+              </div>
+
+              <!-- Remember Me & Forgot Password -->
+              <div class="flex items-center justify-between fade-in stagger-3">
+                <a href="/auth/forgot" style="color: #6366f1; text-decoration: none; font-size: 0.875rem; transition: color 0.2s;" data-testid="link-forgot-password">
+                  שכחתי סיסמה
+                </a>
+                
+                <label class="flex items-center gap-2 cursor-pointer" data-testid="checkbox-remember">
+                  <span style="font-size: 0.875rem; color: #6b7280;">זכור אותי</span>
+                  <input type="checkbox" name="remember" style="width: 1rem; height: 1rem; color: #6366f1; border-radius: 0.25rem;" />
+                </label>
+              </div>
+
+              <!-- Submit Button -->
+              <button
+                type="submit"
+                class="btn-primary fade-in stagger-3"
+                data-testid="button-submit"
+              >
+                <span>התחבר למערכת</span>
+                <svg style="width: 1.125rem; height: 1.125rem; display: inline; margin-right: 0.5rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+                </svg>
+              </button>
+            </form>
+
+            <!-- Footer Links -->
+            <div class="text-center" style="padding-top: 1rem;">
+              <a href="/" style="color: #6b7280; text-decoration: none; font-size: 0.875rem; display: inline-flex; align-items: center; gap: 0.5rem; transition: color 0.2s;" data-testid="link-home">
+                <svg style="width: 1rem; height: 1rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                </svg>
+                <span>חזרה לדף הבית</span>
+              </a>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" style="position: fixed; top: 1rem; right: 1rem; padding: 1rem; border-radius: 1rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); z-index: 50; display: none;" data-testid="toast">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
+        <span id="toastMessage"></span>
+        <button onclick="hideToast()" style="background: none; border: none; color: rgba(255, 255, 255, 0.8); cursor: pointer;">×</button>
+      </div>
+    </div>
+
+    <script>
+      // Password toggle functionality
+      document.getElementById('togglePassword').addEventListener('click', function() {
+        const passwordInput = document.getElementById('password');
+        const eyeIcon = document.getElementById('eyeIcon');
+        
+        if (passwordInput.type === 'password') {
+          passwordInput.type = 'text';
+          eyeIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L12 12m7.5-7.5L12 12"></path>';
+        } else {
+          passwordInput.type = 'password';
+          eyeIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>';
+        }
+      });
+
+      // Toast functionality
+      function showToast(message, type = 'error') {
+        const toast = document.getElementById('toast');
+        const toastMessage = document.getElementById('toastMessage');
+        
+        toastMessage.textContent = message;
+        toast.style.display = 'block';
+        
+        if (type === 'error') {
+          toast.style.background = '#ef4444';
+          toast.style.color = 'white';
+        } else {
+          toast.style.background = '#10b981';
+          toast.style.color = 'white';
+        }
+        
+        setTimeout(hideToast, 5000);
+      }
+
+      function hideToast() {
+        document.getElementById('toast').style.display = 'none';
+      }
+
+      // Form validation and submission
+      document.getElementById('loginForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const submitBtn = document.querySelector('[data-testid="button-submit"]');
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const remember = document.querySelector('[name="remember"]').checked;
+        
+        // Clear previous errors
+        document.getElementById('emailError').style.display = 'none';
+        document.getElementById('passwordError').style.display = 'none';
+        
+        // Validation
+        let isValid = true;
+        
+        if (!email || !email.includes('@')) {
+          document.getElementById('emailError').textContent = 'כתובת אימייל לא תקינה';
+          document.getElementById('emailError').style.display = 'block';
+          isValid = false;
+        }
+        
+        if (!password || password.length < 8) {
+          document.getElementById('passwordError').textContent = 'הסיסמה חייבת להכיל לפחות 8 תווים';
+          document.getElementById('passwordError').style.display = 'block';
+          isValid = false;
+        }
+        
+        if (!isValid) return;
+        
+        // Loading state
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<div style="width: 1.25rem; height: 1.25rem; border: 2px solid white; border-top: transparent; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>';
+        
+        try {
+          const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ email, password, remember }),
+          });
+
+          const result = await response.json();
+
+          if (response.ok) {
+            showToast('התחברת בהצלחה!', 'success');
+            
+            // Route based on user role
+            setTimeout(() => {
+              if (result.user?.role === 'admin' || result.user?.role === 'superadmin') {
+                window.location.href = '/app/admin';
+              } else {
+                window.location.href = '/app/biz';
+              }
+            }, 1000);
+          } else {
+            showToast(result.message || 'שגיאה בהתחברות');
+          }
+        } catch (error) {
+          showToast('שגיאת רשת - אנא נסה שוב');
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<span>התחבר למערכת</span><svg style="width: 1.125rem; height: 1.125rem; display: inline; margin-right: 0.5rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path></svg>';
+        }
+      });
+      
+      // Spinner animation
+      const spinKeyframes = `
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `;
+      document.head.insertAdjacentHTML('beforeend', '<style>' + spinKeyframes + '</style>');
+      
+      console.log('🎯 דף התחברות מקצועי נטען - שי דירות ומשרדים בע״מ');
+    </script>
   </body>
 </html>
