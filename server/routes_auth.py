@@ -1,6 +1,6 @@
 # server/routes_auth.py
 from __future__ import annotations
-from flask import Blueprint, request, jsonify, session, g, current_app
+from flask import Blueprint, request, jsonify, session, g, current_app, redirect, url_for
 from functools import wraps
 from werkzeug.security import check_password_hash, generate_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -88,7 +88,25 @@ def load_current_user():
                 g.user = None
 
 
+def require_roles(*roles):
+    """Decorator for UI routes that require specific roles"""
+    def deco(fn):
+        @wraps(fn)
+        def wrap(*a, **kw):
+            if not getattr(g, "user", None):
+                return redirect(url_for("ui.login"))
+            if roles and g.user.get("role") not in roles:
+                # ניתוב חכם למסך הנכון
+                role = g.user.get("role")
+                if role in ("admin","superadmin"):
+                    return redirect(url_for("ui.admin_home"))
+                return redirect(url_for("ui.biz_home"))
+            return fn(*a, **kw)
+        return wrap
+    return deco
+
 def require_api_auth(roles: list[str] | None = None):
+    """Decorator for API routes that require authentication"""
     def deco(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
@@ -99,6 +117,13 @@ def require_api_auth(roles: list[str] | None = None):
             return fn(*args, **kwargs)
         return wrapper
     return deco
+
+def effective_business_id(arg_name="business_id"):
+    """Admin יכול לבחור ?business_id=; אחרת ננעל לַ־business של המשתמש."""
+    bid = request.args.get(arg_name)
+    if g.user["role"] not in ("admin","superadmin"):
+        bid = g.user.get("business_id")
+    return bid
 
 
 # ---- LOGIN ----

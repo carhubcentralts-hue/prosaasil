@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="he" dir="rtl" class="h-full bg-neutral-50">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>{{ page_title or "AgentLocator CRM" }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    .btn{ @apply px-3 py-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-100; }
+    .btn-primary{ @apply px-3 py-2 rounded-xl bg-neutral-900 text-white hover:opacity-90; }
+    .badge{ @apply text-xs px-2 py-0.5 rounded-full bg-neutral-200; }
+  </style>
+</head>
+<body class="min-h-full text-neutral-900">
+  <!-- Overlay למובייל -->
+  <div id="overlay" class="fixed inset-0 bg-black/30 z-40 hidden md:hidden"></div>
+
+  <!-- Drawer / Sidebar (RTL: צד ימין) -->
+  <aside id="drawer"
+    class="fixed inset-y-0 right-0 z-50 w-72 bg-white border-l border-neutral-200
+           transform translate-x-full transition-transform duration-300
+           md:static md:translate-x-0 md:w-64 md:border-l-0 md:border-r">
+
+    <!-- כותרת קצרה במובייל -->
+    <div class="md:hidden flex items-center justify-between px-4 h-14 border-b">
+      <div class="font-semibold">תפריט</div>
+      <button id="btnClose" class="btn">סגור</button>
+    </div>
+
+    <!-- פרופיל + בחירת עסק למנהל -->
+    <div class="hidden md:flex items-center gap-2 px-4 h-14 border-b">
+      <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-neutral-900 text-white">AL</span>
+      <div class="text-sm truncate">{{ current_user.name if current_user else "" }}</div>
+    </div>
+
+    <nav class="px-2 py-3 space-y-1 overflow-y-auto h-[calc(100vh-56px)] md:h-[calc(100vh-56px)]">
+      {% macro item(href,label,key,badge=None) -%}
+        <a href="{{ href }}"
+           class="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-neutral-100
+                  {{ 'bg-neutral-100 font-semibold' if active==key }}">
+          <span class="text-sm">{{ label }}</span>
+          {% if badge is not none %}<span class="badge">{{ badge }}</span>{% endif %}
+        </a>
+      {%- endmacro %}
+
+      {# ADMIN ONLY #}
+      {% if role in ['admin','superadmin'] %}
+        {{ item('/app/admin', 'דשבורד ראשי', 'admin_home') }}
+        {{ item('/app/admin#tenants', 'ניהול עסקים', 'admin_tenants', counters.tenants_active if counters else None) }}
+        {{ item('/app/admin#users', 'ניהול משתמשים', 'admin_users', counters.users_pending if counters else None) }}
+
+        <!-- כפתורי פעולה (HTMX → מודל) -->
+        <div class="px-3 pt-1 flex gap-2">
+          <button class="btn-primary"
+                  hx-get="/ui/admin/tenants/new"
+                  hx-target="#modal" hx-swap="innerHTML">➕ הוסף עסק</button>
+          <button class="btn"
+                  hx-get="/ui/admin/users/new"
+                  hx-target="#modal" hx-swap="innerHTML">➕ משתמש</button>
+        </div>
+
+        <!-- מתג בחירת עסק (מסנן כל ה-UI לקוורי עם ?business_id=) -->
+        <div class="px-3 pt-3">
+          <label class="block text-xs mb-1">בחר עסק</label>
+          <select id="bizSelect" class="w-full px-3 py-2 border rounded-xl"
+                  hx-get="/ui/admin/switch_business"
+                  hx-target="#switchHook" hx-swap="outerHTML">
+            <!-- מלא אופציות בשרת או ב-HTMX -->
+            <option value="">כל העסקים</option>
+            {% for t in (tenants or []) %}
+              <option value="{{ t.id }}" {{ 'selected' if t.id==current_business_id else '' }}>
+                {{ t.name }}
+              </option>
+            {% endfor %}
+          </select>
+          <div id="switchHook"></div>
+        </div>
+      {% endif %}
+
+      {# BUSINESS + ADMIN #}
+      {{ item('/app/biz#wa', 'WhatsApp', 'biz_whatsapp', counters.whatsapp_unread if counters else None) }}
+      {{ item('/app/biz#calls', 'ניהול שיחות', 'biz_calls', counters.today_calls if counters else None) }}
+      {{ item('/app/biz#crm', 'CRM לקוחות', 'biz_crm') }}
+      {{ item('/app/biz#users', 'משתמשים בעסק', 'biz_users') }}
+
+      <a href="/logout" class="block mt-2 px-3 py-2 text-sm rounded-xl bg-red-600 text-white text-center">התנתק</a>
+    </nav>
+  </aside>
+
+  <!-- תוכן -->
+  <div class="md:pr-64">
+    <header class="sticky top-0 z-30 bg-white/80 backdrop-blur border-b">
+      <div class="max-w-screen-xl mx-auto px-4 h-14 flex items-center gap-3">
+        <button id="btnOpen" class="md:hidden btn">☰</button>
+        <div class="text-xl font-bold truncate">{{ page_title or 'CRM' }}</div>
+      </div>
+    </header>
+
+    <main class="max-w-screen-xl mx-auto px-2 sm:px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+56px)]">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <!-- מודל כללי ל-HTMX -->
+  <div id="modal"></div>
+
+  <script>
+    const drawer = document.getElementById('drawer');
+    const overlay = document.getElementById('overlay');
+    const openBtn = document.getElementById('btnOpen');
+    const closeBtn = document.getElementById('btnClose');
+    function openDrawer(){ drawer.classList.remove('translate-x-full'); overlay.classList.remove('hidden'); document.body.classList.add('overflow-hidden'); }
+    function closeDrawer(){ drawer.classList.add('translate-x-full'); overlay.classList.add('hidden'); document.body.classList.remove('overflow-hidden'); }
+    openBtn && openBtn.addEventListener('click', openDrawer);
+    overlay && overlay.addEventListener('click', closeDrawer);
+    closeBtn && closeBtn.addEventListener('click', closeDrawer);
+    drawer.querySelectorAll('a').forEach(a=>a.addEventListener('click', closeDrawer));
+    // סגירת מודל אחרי POST מוצלח (אם partial מחזיר hook)
+    window.closeModal = ()=>{ document.getElementById('modal').innerHTML=''; }
+  </script>
+</body>
+</html>

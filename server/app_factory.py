@@ -72,7 +72,12 @@ def create_app():
         # Register auth system FIRST
         app.before_request(load_current_user)
         
-        # Session configuration for security
+        # Session configuration for security (לפי המפרט)
+        app.config.update({
+            'SESSION_COOKIE_HTTPONLY': True,
+            'SESSION_COOKIE_SAMESITE': 'Lax',
+            'SESSION_COOKIE_SECURE': True if os.getenv('FLASK_ENV') == 'production' else False,
+        })
         app.config.update({
             'SESSION_COOKIE_NAME': 'al_sess',
             'SESSION_COOKIE_HTTPONLY': True,

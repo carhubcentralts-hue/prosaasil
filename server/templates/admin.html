@@ -1,1119 +1,181 @@
-{% extends "base.html" %}
-
-{% block title %}דשבורד מנהל - מערכת CRM{% endblock %}
+{% extends "layout.html" %}
 
 {% block content %}
-<!-- Top Navigation -->
-<nav class="bg-white shadow-lg border-b border-gray-200">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between h-16">
-            <div class="flex items-center">
-                <div class="flex-shrink-0">
-                    <span class="text-2xl font-bold text-blue-600">🏢 מערכת CRM</span>
-                </div>
-                <div class="hidden md:ml-6 md:flex md:space-x-8">
-                    <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">מנהל מערכת</span>
-                </div>
-            </div>
-            <div class="flex items-center">
-                <span class="text-gray-700 ml-4">שלום, {{ user.name }}</span>
-                <button onclick="logout()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors">
-                    התנתק
-                </button>
-            </div>
+<!-- KPIs Section -->
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+  <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
+    <div class="p-6">
+      <div class="flex items-center">
+        <div class="flex-shrink-0">
+          <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+            <span class="text-white font-bold">📞</span>
+          </div>
         </div>
+        <div class="mr-4">
+          <p class="text-sm font-medium text-gray-500">שיחות היום</p>
+          <p class="text-2xl font-semibold text-gray-900">{{ counters.today_calls or 0 }}</p>
+        </div>
+      </div>
     </div>
-</nav>
+  </div>
 
-<!-- Main Content with Sidebar -->
-<div class="flex h-screen bg-gray-50">
-    <!-- Sidebar Navigation -->
-    <div class="w-64 bg-white shadow-lg">
-        <div class="p-6">
-            <nav class="space-y-2">
-                <a href="#dashboard" onclick="showSection('dashboard')" class="nav-item active flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">📊</span>
-                    <span class="mr-3 font-medium">דשבורד ראשי</span>
-                </a>
-                <a href="#calls" onclick="showSection('calls')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">📞</span>
-                    <span class="mr-3 font-medium">ניהול שיחות</span>
-                </a>
-                <a href="#whatsapp" onclick="showSection('whatsapp')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">💬</span>
-                    <span class="mr-3 font-medium">WhatsApp</span>
-                </a>
-                <a href="#crm" onclick="showSection('crm')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">👥</span>
-                    <span class="mr-3 font-medium">CRM לקוחות</span>
-                </a>
-                {% if user.role == 'admin' %}
-                <a href="#businesses" onclick="showSection('businesses')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">🏢</span>
-                    <span class="mr-3 font-medium">ניהול עסקים</span>
-                </a>
-                {% endif %}
-                <a href="#users" onclick="showSection('users')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">👥</span>
-                    <span class="mr-3 font-medium">ניהול משתמשים</span>
-                </a>
-                <a href="#invoices" onclick="showSection('invoices')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">🧾</span>
-                    <span class="mr-3 font-medium">חשבוניות</span>
-                </a>
-                <a href="#payments" onclick="showSection('payments')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">💳</span>
-                    <span class="mr-3 font-medium">תשלומים</span>
-                </a>
-                <a href="#contracts" onclick="showSection('contracts')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">📋</span>
-                    <span class="mr-3 font-medium">חוזים דיגיטליים</span>
-                </a>
-                <a href="#analytics" onclick="showSection('analytics')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">📈</span>
-                    <span class="mr-3 font-medium">דוחות ואנליטיקה</span>
-                </a>
-                <a href="#settings" onclick="showSection('settings')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">⚙️</span>
-                    <span class="mr-3 font-medium">הגדרות מערכת</span>
-                </a>
-            </nav>
+  <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
+    <div class="p-6">
+      <div class="flex items-center">
+        <div class="flex-shrink-0">
+          <div class="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+            <span class="text-white font-bold">🏢</span>
+          </div>
         </div>
+        <div class="mr-4">
+          <p class="text-sm font-medium text-gray-500">עסקים פעילים</p>
+          <p class="text-2xl font-semibold text-gray-900">{{ counters.tenants_active or 0 }}</p>
+        </div>
+      </div>
     </div>
+  </div>
 
-    <!-- Main Content Area -->
-    <div class="flex-1 overflow-auto">
-
-        <!-- Dashboard Section -->
-        <div id="dashboard-section" class="section-content p-6">
-    <!-- KPIs Section -->
-    <div class="mb-8">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">סקירה כללית</h2>
-        <div id="kpis" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
-                <div class="p-6">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-                                <span class="text-white font-bold">📞</span>
-                            </div>
-                        </div>
-                        <div class="mr-4">
-                            <p class="text-sm font-medium text-gray-500">שיחות היום</p>
-                            <p class="text-2xl font-semibold text-gray-900" hx-get="/api/admin/kpis/calls" hx-trigger="load" hx-target="this">0</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
-                <div class="p-6">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <div class="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
-                                <span class="text-white font-bold">📱</span>
-                            </div>
-                        </div>
-                        <div class="mr-4">
-                            <p class="text-sm font-medium text-gray-500">WhatsApp</p>
-                            <p class="text-2xl font-semibold text-gray-900" hx-get="/api/admin/kpis/whatsapp" hx-trigger="load" hx-target="this">0</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
-                <div class="p-6">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <div class="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
-                                <span class="text-white font-bold">👥</span>
-                            </div>
-                        </div>
-                        <div class="mr-4">
-                            <p class="text-sm font-medium text-gray-500">עסקים פעילים</p>
-                            <p class="text-2xl font-semibold text-gray-900" hx-get="/api/admin/kpis/businesses" hx-trigger="load" hx-target="this">0</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
-                <div class="p-6">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <div class="w-8 h-8 bg-yellow-500 rounded-lg flex items-center justify-center">
-                                <span class="text-white font-bold">💰</span>
-                            </div>
-                        </div>
-                        <div class="mr-4">
-                            <p class="text-sm font-medium text-gray-500">הכנסות חודש</p>
-                            <p class="text-2xl font-semibold text-gray-900" hx-get="/api/admin/kpis/revenue" hx-trigger="load" hx-target="this">₪0</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+  <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
+    <div class="p-6">
+      <div class="flex items-center">
+        <div class="flex-shrink-0">
+          <div class="w-8 h-8 bg-yellow-500 rounded-lg flex items-center justify-center">
+            <span class="text-white font-bold">👥</span>
+          </div>
         </div>
+        <div class="mr-4">
+          <p class="text-sm font-medium text-gray-500">משתמשים ממתינים</p>
+          <p class="text-2xl font-semibold text-gray-900">{{ counters.users_pending or 0 }}</p>
+        </div>
+      </div>
     </div>
+  </div>
 
-    <!-- Tenants Section (Admin Only) -->
-    {% if user.role == 'admin' %}
-    <div class="mb-8">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-2xl font-bold text-gray-900">ניהול עסקים</h2>
-            <button onclick="showAddBusinessModal()" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors">
-                ➕ הוסף עסק חדש
-            </button>
+  <div class="bg-white overflow-hidden shadow-xl rounded-2xl">
+    <div class="p-6">
+      <div class="flex items-center">
+        <div class="flex-shrink-0">
+          <div class="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center">
+            <span class="text-white font-bold">💬</span>
+          </div>
         </div>
-        <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
-            <div id="tenants" class="p-6">
-                <div class="flex items-center justify-between p-4 border-b border-gray-100 hover:bg-gray-50">
-                    <div>
-                        <h4 class="font-medium text-gray-900">שי דירות ומשרדים בע״מ</h4>
-                        <p class="text-sm text-gray-500">נדלן ותיווך</p>
-                    </div>
-                    <div class="flex items-center space-x-2">
-                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">פעיל</span>
-                        <button onclick="editBusiness(13)" class="text-blue-600 hover:text-blue-800 text-sm mr-2">עריכה</button>
-                        <button onclick="loginAsBusiness(13)" class="text-green-600 hover:text-green-800 text-sm mr-2">התחבר כעסק</button>
-                        <button onclick="changePassword(13)" class="text-purple-600 hover:text-purple-800 text-sm">שנה סיסמה</button>
-                    </div>
-                </div>
-            </div>
+        <div class="mr-4">
+          <p class="text-sm font-medium text-gray-500">WhatsApp לא נקראו</p>
+          <p class="text-2xl font-semibold text-gray-900">{{ counters.whatsapp_unread or 0 }}</p>
         </div>
+      </div>
     </div>
-    {% endif %}
-
-    <!-- Users Management Section -->
-    <div class="mb-8">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-2xl font-bold text-gray-900">ניהול משתמשים</h2>
-            <button onclick="showAddUserModal()" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors">
-                ➕ הוסף משתמש
-            </button>
-        </div>
-        <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
-            <div class="p-6">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                    <div class="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl text-white">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-blue-100 text-sm">סך המשתמשים</p>
-                                <p class="text-3xl font-bold">2</p>
-                            </div>
-                            <div class="w-12 h-12 bg-blue-400 rounded-lg flex items-center justify-center">
-                                <span class="text-2xl">👥</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl text-white">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-green-100 text-sm">משתמשים פעילים</p>
-                                <p class="text-3xl font-bold">2</p>
-                            </div>
-                            <div class="w-12 h-12 bg-green-400 rounded-lg flex items-center justify-center">
-                                <span class="text-2xl">✅</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl text-white">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-purple-100 text-sm">התחברות היום</p>
-                                <p class="text-3xl font-bold">1</p>
-                            </div>
-                            <div class="w-12 h-12 bg-purple-400 rounded-lg flex items-center justify-center">
-                                <span class="text-2xl">🔐</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Recent Users Table -->
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-4 py-3 text-right text-sm font-medium text-gray-500">משתמש</th>
-                                <th class="px-4 py-3 text-right text-sm font-medium text-gray-500">תפקיד</th>
-                                <th class="px-4 py-3 text-right text-sm font-medium text-gray-500">סטטוס</th>
-                                <th class="px-4 py-3 text-right text-sm font-medium text-gray-500">פעולות</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-200">
-                            <tr class="hover:bg-gray-50">
-                                <td class="px-4 py-3">
-                                    <div class="flex items-center">
-                                        <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                                            א
-                                        </div>
-                                        <div class="mr-3">
-                                            <p class="text-sm font-medium text-gray-900">מנהל מערכת</p>
-                                            <p class="text-sm text-gray-500">admin@admin.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td class="px-4 py-3">
-                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">
-                                        מנהל מערכת
-                                    </span>
-                                </td>
-                                <td class="px-4 py-3">
-                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-                                        פעיל
-                                    </span>
-                                </td>
-                                <td class="px-4 py-3">
-                                    <div class="flex space-x-2">
-                                        <button onclick="editUser(6)" class="text-blue-600 hover:text-blue-800 text-sm">עריכה</button>
-                                        <button onclick="changeUserPassword(6)" class="text-purple-600 hover:text-purple-800 text-sm">סיסמה</button>
-                                    </div>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div class="mt-4 text-center">
-                    <button onclick="showSection('users')" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                        צפה בכל המשתמשים →
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Calls Section -->
-    <div class="mb-8">
-        <h2 class="text-2xl font-bold text-gray-900 mb-4">שיחות אחרונות</h2>
-        <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
-            <div id="calls" hx-get="/api/admin/calls" hx-trigger="load" class="p-6">
-                <div class="animate-pulse space-y-4">
-                    <div class="h-4 bg-gray-200 rounded w-full"></div>
-                    <div class="h-4 bg-gray-200 rounded w-3/4"></div>
-                    <div class="h-4 bg-gray-200 rounded w-1/2"></div>
-                </div>
-            </div>
-        </div>
-        </div>
-
-        <!-- Calls Section -->
-        <div id="calls-section" class="section-content p-6 hidden">
-            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול שיחות</h1>
-            
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                <div class="bg-white p-6 rounded-lg shadow">
-                    <h3 class="text-lg font-semibold mb-2">שיחות פעילות</h3>
-                    <p class="text-3xl font-bold text-green-600">3</p>
-                </div>
-                <div class="bg-white p-6 rounded-lg shadow">
-                    <h3 class="text-lg font-semibold mb-2">זמן שיחה ממוצע</h3>
-                    <p class="text-3xl font-bold text-blue-600">4:32</p>
-                </div>
-                <div class="bg-white p-6 rounded-lg shadow">
-                    <h3 class="text-lg font-semibold mb-2">שיעור המרה</h3>
-                    <p class="text-3xl font-bold text-purple-600">23%</p>
-                </div>
-            </div>
-
-            <div class="bg-white rounded-lg shadow">
-                <div class="p-6 border-b">
-                    <h2 class="text-xl font-semibold">שיחות אחרונות</h2>
-                </div>
-                <div class="p-6">
-                    <div id="calls-list" hx-get="/api/admin/calls" hx-trigger="load">
-                        <div class="space-y-4">
-                            <div class="flex items-center justify-between p-4 border rounded-lg">
-                                <div>
-                                    <p class="font-semibold">050-1234567</p>
-                                    <p class="text-sm text-gray-600">2 דקות</p>
-                                </div>
-                                <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">הושלמה</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- WhatsApp Section -->
-        <div id="whatsapp-section" class="section-content p-6 hidden">
-            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול WhatsApp</h1>
-            
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="bg-white rounded-lg shadow">
-                    <div class="p-6 border-b">
-                        <h2 class="text-xl font-semibold">שיחות פעילות</h2>
-                    </div>
-                    <div class="p-6">
-                        <div class="space-y-4">
-                            <div class="flex items-center p-3 border rounded-lg hover:bg-gray-50">
-                                <div class="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center text-white">
-                                    W
-                                </div>
-                                <div class="mr-3">
-                                    <p class="font-semibold">יעקב כהן</p>
-                                    <p class="text-sm text-gray-600">שאלה על דירת 3 חדרים</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-lg shadow">
-                    <div class="p-6 border-b">
-                        <h2 class="text-xl font-semibold">שליחת הודעה</h2>
-                    </div>
-                    <div class="p-6">
-                        <div class="space-y-4">
-                            <input type="text" placeholder="מספר טלפון" class="w-full px-3 py-2 border rounded-lg">
-                            <textarea placeholder="תוכן ההודעה" class="w-full px-3 py-2 border rounded-lg h-24"></textarea>
-                            <button class="w-full bg-green-500 text-white py-2 rounded-lg hover:bg-green-600">שלח הודעה</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- CRM Section -->
-        <div id="crm-section" class="section-content p-6 hidden">
-            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול לקוחות CRM</h1>
-            
-            <div class="bg-white rounded-lg shadow">
-                <div class="p-6 border-b flex justify-between items-center">
-                    <h2 class="text-xl font-semibold">רשימת לקוחות</h2>
-                    <button class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">הוסף לקוח</button>
-                </div>
-                <div class="p-6">
-                    <div class="overflow-x-auto">
-                        <table class="w-full">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-4 py-2 text-right">שם</th>
-                                    <th class="px-4 py-2 text-right">טלפון</th>
-                                    <th class="px-4 py-2 text-right">סטטוס</th>
-                                    <th class="px-4 py-2 text-right">עדכון אחרון</th>
-                                    <th class="px-4 py-2 text-right">פעולות</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr class="border-t">
-                                    <td class="px-4 py-3">שרה לוי</td>
-                                    <td class="px-4 py-3">050-1234567</td>
-                                    <td class="px-4 py-3"><span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-sm">בתהליך</span></td>
-                                    <td class="px-4 py-3">אתמול</td>
-                                    <td class="px-4 py-3">
-                                        <button class="text-blue-600 hover:text-blue-800 ml-2">עריכה</button>
-                                        <button class="text-green-600 hover:text-green-800">צור קשר</button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Users Management Section -->
-        <div id="users-section" class="section-content p-6 hidden">
-            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול משתמשים</h1>
-            
-            <div class="mb-6">
-                <button onclick="showAddUserModal()" class="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors">
-                    ➕ הוסף משתמש חדש
-                </button>
-            </div>
-            
-            <div class="bg-white rounded-lg shadow">
-                <div class="p-6 border-b flex justify-between items-center">
-                    <h2 class="text-xl font-semibold">רשימת משתמשים</h2>
-                    <div class="flex space-x-2">
-                        <select class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                            <option value="">כל התפקידים</option>
-                            <option value="admin">מנהל מערכת</option>
-                            <option value="business">מנהל עסק</option>
-                        </select>
-                        <input type="text" placeholder="חיפוש משתמש..." class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                    </div>
-                </div>
-                <div class="p-6">
-                    <div class="overflow-x-auto">
-                        <table class="w-full">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-4 py-2 text-right">שם</th>
-                                    <th class="px-4 py-2 text-right">אימייל</th>
-                                    <th class="px-4 py-2 text-right">תפקיד</th>
-                                    <th class="px-4 py-2 text-right">עסק</th>
-                                    <th class="px-4 py-2 text-right">סטטוס</th>
-                                    <th class="px-4 py-2 text-right">התחברות אחרונה</th>
-                                    <th class="px-4 py-2 text-right">פעולות</th>
-                                </tr>
-                            </thead>
-                            <tbody id="users-list">
-                                <tr class="border-t">
-                                    <td class="px-4 py-3">מנהל מערכת</td>
-                                    <td class="px-4 py-3">admin@admin.com</td>
-                                    <td class="px-4 py-3"><span class="bg-red-100 text-red-800 px-2 py-1 rounded text-sm">מנהל מערכת</span></td>
-                                    <td class="px-4 py-3">-</td>
-                                    <td class="px-4 py-3"><span class="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">פעיל</span></td>
-                                    <td class="px-4 py-3">עכשיו</td>
-                                    <td class="px-4 py-3">
-                                        <button onclick="editUser(6)" class="text-blue-600 hover:text-blue-800 ml-2 text-sm">עריכה</button>
-                                        <button onclick="changeUserPassword(6)" class="text-purple-600 hover:text-purple-800 ml-2 text-sm">סיסמה</button>
-                                        <button onclick="toggleUserStatus(6)" class="text-yellow-600 hover:text-yellow-800 text-sm">השהה</button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Businesses Section (Hidden - business management moved to main dashboard) -->
-        <div id="businesses-section" class="section-content p-6 hidden" style="display: none !important;">
-            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול עסקים</h1>
-            
-            <div class="mb-6">
-                <button onclick="showAddBusinessModal()" class="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors">
-                    ➕ הוסף עסק חדש
-                </button>
-            </div>
-            
-            <div id="tenants" hx-get="/api/admin/tenants" hx-trigger="load" class="bg-white rounded-lg shadow p-6">
-                <div class="animate-pulse space-y-4">
-                    <div class="h-4 bg-gray-200 rounded w-full"></div>
-                    <div class="h-4 bg-gray-200 rounded w-3/4"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Invoices Section -->
-        <div id="invoices-section" class="section-content p-6 hidden">
-            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול חשבוניות</h1>
-            <div class="bg-white rounded-lg shadow p-6">
-                <p class="text-gray-500">עמוד חשבוניות ייבנה כאן...</p>
-            </div>
-        </div>
-
-        <!-- Payments Section -->
-        <div id="payments-section" class="section-content p-6 hidden">
-            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול תשלומים</h1>
-            <div class="bg-white rounded-lg shadow p-6">
-                <p class="text-gray-500">עמוד תשלומים ייבנה כאן...</p>
-            </div>
-        </div>
-
-        <!-- Contracts Section -->
-        <div id="contracts-section" class="section-content p-6 hidden">
-            <h1 class="text-3xl font-bold text-gray-900 mb-8">חוזים עם חתימות דיגיטליות</h1>
-            <div class="bg-white rounded-lg shadow p-6">
-                <p class="text-gray-500">עמוד חוזים דיגיטליים ייבנה כאן...</p>
-            </div>
-        </div>
-
-        <!-- Analytics Section -->
-        <div id="analytics-section" class="section-content p-6 hidden">
-            <h1 class="text-3xl font-bold text-gray-900 mb-8">דוחות ואנליטיקה</h1>
-            
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="bg-white rounded-lg shadow p-6">
-                    <h3 class="text-lg font-semibold mb-4">טרנדים שבועיים</h3>
-                    <div class="h-64 bg-gray-100 rounded flex items-center justify-center">
-                        <p class="text-gray-500">גרף מגמות</p>
-                    </div>
-                </div>
-                <div class="bg-white rounded-lg shadow p-6">
-                    <h3 class="text-lg font-semibold mb-4">ביצועים לפי עסק</h3>
-                    <div class="h-64 bg-gray-100 rounded flex items-center justify-center">
-                        <p class="text-gray-500">גרף ביצועים</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Settings Section -->
-        <div id="settings-section" class="section-content p-6 hidden">
-            <h1 class="text-3xl font-bold text-gray-900 mb-8">הגדרות מערכת</h1>
-            
-            <div class="bg-white rounded-lg shadow">
-                <div class="p-6">
-                    <div class="space-y-6">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">הגדרות Twilio</label>
-                            <input type="text" placeholder="Account SID" class="w-full px-3 py-2 border rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">הגדרות OpenAI</label>
-                            <input type="text" placeholder="API Key" class="w-full px-3 py-2 border rounded-lg">
-                        </div>
-                        <button class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600">שמור הגדרות</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+  </div>
 </div>
 
-<!-- User Management Modals -->
-<div id="userModals">
-    <!-- Add User Modal -->
-    <div id="addUserModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg max-w-md w-full p-6">
-                <h3 class="text-lg font-semibold mb-4">הוסף משתמש חדש</h3>
-                <form id="addUserForm">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">שם מלא</label>
-                            <input type="text" id="userName" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
-                            <input type="email" id="userEmail" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">סיסמה</label>
-                            <input type="password" id="userPassword" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">תפקיד</label>
-                            <select id="userRole" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                                <option value="">בחר תפקיד</option>
-                                <option value="admin">מנהל מערכת</option>
-                                <option value="business">מנהל עסק</option>
-                            </select>
-                        </div>
-                        <div id="businessSelectDiv" class="hidden">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">עסק</label>
-                            <select id="userBusinessId" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                                <option value="">בחר עסק</option>
-                                <option value="13">שי דירות ומשרדים בע״מ</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="flex justify-end space-x-3 mt-6">
-                        <button type="button" onclick="hideAddUserModal()" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">ביטול</button>
-                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">הוסף משתמש</button>
-                    </div>
-                </form>
-            </div>
+<!-- Tenants Section -->
+<section id="tenants" class="space-y-2 mb-8">
+  <div class="flex items-center gap-2">
+    <h2 class="font-semibold text-xl">ניהול עסקים</h2>
+    <button class="btn-primary"
+            hx-get="/ui/admin/tenants/new" hx-target="#modal" hx-swap="innerHTML">➕ הוסף עסק</button>
+    <input id="tq" placeholder="חיפוש עסקים" class="ml-auto px-3 py-2 border rounded-xl" oninput="loadTenantsAdmin()"/>
+  </div>
+  <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+    <div id="tenantsTable" class="p-6">
+      <div class="flex items-center justify-between p-4 border-b border-gray-100 hover:bg-gray-50">
+        <div>
+          <h4 class="font-medium text-gray-900">שי דירות ומשרדים בע״מ</h4>
+          <p class="text-sm text-gray-500">נדלן ותיווך</p>
         </div>
-    </div>
-
-    <!-- Edit User Modal -->
-    <div id="editUserModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg max-w-md w-full p-6">
-                <h3 class="text-lg font-semibold mb-4">עריכת משתמש</h3>
-                <form id="editUserForm">
-                    <input type="hidden" id="editUserId">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">שם מלא</label>
-                            <input type="text" id="editUserName" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
-                            <input type="email" id="editUserEmail" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">תפקיד</label>
-                            <select id="editUserRole" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                                <option value="admin">מנהל מערכת</option>
-                                <option value="business">מנהל עסק</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
-                            <select id="editUserStatus" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                                <option value="true">פעיל</option>
-                                <option value="false">מושהה</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="flex justify-end space-x-3 mt-6">
-                        <button type="button" onclick="hideEditUserModal()" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">ביטול</button>
-                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">עדכן משתמש</button>
-                    </div>
-                </form>
-            </div>
+        <div class="flex items-center space-x-2">
+          <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">פעיל</span>
+          <button onclick="editBusiness(13)" class="text-blue-600 hover:text-blue-800 text-sm mr-2">עריכה</button>
+          <button onclick="loginAsBusiness(13)" class="text-green-600 hover:text-green-800 text-sm mr-2">התחבר כעסק</button>
+          <button onclick="changeBusinessPassword(13)" class="text-purple-600 hover:text-purple-800 text-sm">שנה סיסמה</button>
         </div>
+      </div>
     </div>
-</div>
+  </div>
+</section>
 
-<!-- Business Modals -->
-<div id="businessModals">
-    <!-- Add Business Modal -->
-    <div id="addBusinessModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg max-w-md w-full p-6">
-                <h3 class="text-lg font-semibold mb-4">הוסף עסק חדש</h3>
-                <form id="addBusinessForm">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">שם העסק</label>
-                            <input type="text" id="businessName" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">סוג עסק</label>
-                            <select id="businessType" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                                <option value="">בחר סוג עסק</option>
-                                <option value="נדלן ותיווך">נדלן ותיווך</option>
-                                <option value="שירותים מקצועיים">שירותים מקצועיים</option>
-                                <option value="רפואה">רפואה</option>
-                                <option value="מסעדנות">מסעדנות</option>
-                                <option value="קמעונאות">קמעונאות</option>
-                                <option value="אחר">אחר</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">אימייל מנהל</label>
-                            <input type="email" id="adminEmail" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">סיסמה ראשונית</label>
-                            <input type="password" id="adminPassword" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                        </div>
-                    </div>
-                    <div class="flex justify-end space-x-2 mt-6">
-                        <button type="button" onclick="hideAddBusinessModal()" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">ביטול</button>
-                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">צור עסק</button>
-                    </div>
-                </form>
-            </div>
-        </div>
+<!-- Users Section -->
+<section id="users" class="space-y-2 mb-8">
+  <div class="flex items-center gap-2">
+    <h2 class="font-semibold text-xl">ניהול משתמשים</h2>
+    <button class="btn-primary"
+            hx-get="/ui/admin/users/new" hx-target="#modal" hx-swap="innerHTML">➕ משתמש חדש</button>
+    <input id="uq" placeholder="חיפוש משתמשים" class="ml-auto px-3 py-2 border rounded-xl" oninput="loadUsersAdmin()"/>
+  </div>
+  <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+    <div id="usersTable" class="p-6">
+      <!-- יטען דרך HTMX -->
     </div>
+  </div>
+</section>
 
-    <!-- Edit Business Modal -->
-    <div id="editBusinessModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg max-w-md w-full p-6">
-                <h3 class="text-lg font-semibold mb-4">עריכת עסק</h3>
-                <form id="editBusinessForm">
-                    <input type="hidden" id="editBusinessId">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">שם העסק</label>
-                            <input type="text" id="editBusinessName" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">סוג עסק</label>
-                            <select id="editBusinessType" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                                <option value="נדלן ותיווך">נדלן ותיווך</option>
-                                <option value="שירותים מקצועיים">שירותים מקצועיים</option>
-                                <option value="רפואה">רפואה</option>
-                                <option value="מסעדנות">מסעדנות</option>
-                                <option value="קמעונאות">קמעונאות</option>
-                                <option value="אחר">אחר</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
-                            <select id="editBusinessStatus" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                                <option value="true">פעיל</option>
-                                <option value="false">לא פעיל</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="flex justify-end space-x-2 mt-6">
-                        <button type="button" onclick="hideEditBusinessModal()" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">ביטול</button>
-                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">שמור שינויים</button>
-                    </div>
-                </form>
-            </div>
-        </div>
+<!-- Recent Calls Section -->
+<section id="calls" class="space-y-2 mb-8">
+  <div class="flex items-center gap-2">
+    <h2 class="font-semibold text-xl">שיחות אחרונות</h2>
+  </div>
+  <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+    <div id="callsTable" class="p-6">
+      <div class="animate-pulse space-y-4">
+        <div class="h-4 bg-gray-200 rounded w-full"></div>
+        <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+        <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+      </div>
     </div>
+  </div>
+</section>
 
-    <!-- Change Password Modal -->
-    <div id="changePasswordModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white rounded-lg max-w-md w-full p-6">
-                <h3 class="text-lg font-semibold mb-4">שינוי סיסמה</h3>
-                <form id="changePasswordForm">
-                    <input type="hidden" id="changePasswordBusinessId">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">סיסמה חדשה</label>
-                            <input type="password" id="newPassword" required minlength="6" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">אישור סיסמה</label>
-                            <input type="password" id="confirmPassword" required minlength="6" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                        </div>
-                    </div>
-                    <div class="flex justify-end space-x-2 mt-6">
-                        <button type="button" onclick="hideChangePasswordModal()" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">ביטול</button>
-                        <button type="submit" class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600">שנה סיסמה</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-{% endblock %}
-
-{% block scripts %}
 <script>
-// API Call helper function
-async function apiCall(url, options = {}) {
-    try {
-        const response = await fetch(url, {
-            credentials: 'include',
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers
-            },
-            ...options
-        });
-        return response;
-    } catch (error) {
-        console.error('API call failed:', error);
-        throw error;
-    }
+// Load functions for HTMX tables
+function loadUsersAdmin(){
+  const q = document.getElementById('uq').value || '';
+  const u = new URL('/ui/admin/users', location.origin);
+  u.searchParams.set('q', q);
+  const sel = document.getElementById('bizSelect');
+  if(sel && sel.value) u.searchParams.set('business_id', sel.value);
+  htmx.ajax('GET', u.toString(), { target:'#usersTable', swap:'innerHTML' });
 }
 
-async function logout() {
-    try {
-        await apiCall('/api/ui/logout', { method: 'POST' });
-        window.location.href = '/login';
-    } catch (error) {
-        console.error('Logout error:', error);
-        window.location.href = '/login';
-    }
+function loadTenantsAdmin(){
+  const q = document.getElementById('tq').value || '';
+  const u = new URL('/ui/admin/tenants', location.origin);
+  u.searchParams.set('q', q);
+  htmx.ajax('GET', u.toString(), { target:'#tenantsTable', swap:'innerHTML' });
 }
 
-function showSection(sectionName) {
-    // Hide all sections
-    document.querySelectorAll('.section-content').forEach(section => {
-        section.classList.add('hidden');
+// Action functions
+function editUser(userId) {
+  htmx.ajax('GET', `/ui/admin/users/${userId}/edit`, { target:'#modal', swap:'innerHTML' });
+}
+
+function changeUserPassword(userId) {
+  htmx.ajax('GET', `/ui/admin/users/${userId}/password`, { target:'#modal', swap:'innerHTML' });
+}
+
+function editBusiness(businessId) {
+  htmx.ajax('GET', `/ui/admin/businesses/${businessId}/edit`, { target:'#modal', swap:'innerHTML' });
+}
+
+function loginAsBusiness(businessId) {
+  if(confirm('האם אתה בטוח שברצונך להתחבר כעסק זה?')) {
+    htmx.ajax('POST', `/api/admin/login-as-business/${businessId}`, { 
+      target:'body', 
+      swap:'outerHTML',
+      headers: {'Content-Type': 'application/json'}
     });
-    
-    // Remove active class from all nav items
-    document.querySelectorAll('.nav-item').forEach(item => {
-        item.classList.remove('active', 'bg-blue-50', 'text-blue-600');
-    });
-    
-    // Show selected section
-    document.getElementById(sectionName + '-section').classList.remove('hidden');
-    
-    // Add active class to clicked nav item
-    event.target.closest('.nav-item').classList.add('active', 'bg-blue-50', 'text-blue-600');
+  }
 }
 
-// Auto-refresh every 30 seconds
-setInterval(() => {
-    if (!document.getElementById('dashboard-section').classList.contains('hidden')) {
-        htmx.trigger('#kpis', 'load');
-        htmx.trigger('#tenants', 'load');
-        htmx.trigger('#calls', 'load');
-    }
-}, 30000);
-
-// Business Management Functions
-async function showAddBusinessModal() {
-    document.getElementById('addBusinessModal').classList.remove('hidden');
+function changeBusinessPassword(businessId) {
+  htmx.ajax('GET', `/ui/admin/businesses/${businessId}/password`, { target:'#modal', swap:'innerHTML' });
 }
 
-function hideAddBusinessModal() {
-    document.getElementById('addBusinessModal').classList.add('hidden');
-    document.getElementById('addBusinessForm').reset();
-}
-
-async function editBusiness(businessId) {
-    try {
-        const response = await apiCall(`/api/admin/business/${businessId}`);
-        const business = await response.json();
-        
-        document.getElementById('editBusinessId').value = business.id;
-        document.getElementById('editBusinessName').value = business.name;
-        document.getElementById('editBusinessType').value = business.business_type;
-        document.getElementById('editBusinessStatus').value = business.is_active.toString();
-        
-        document.getElementById('editBusinessModal').classList.remove('hidden');
-    } catch (error) {
-        alert('שגיאה בטעינת נתוני העסק');
-    }
-}
-
-function hideEditBusinessModal() {
-    document.getElementById('editBusinessModal').classList.add('hidden');
-    document.getElementById('editBusinessForm').reset();
-}
-
-async function loginAsBusiness(businessId) {
-    if (confirm('האם אתה בטוח שברצונך להתחבר כעסק זה?')) {
-        try {
-            const response = await apiCall(`/api/admin/login-as-business/${businessId}`, {method: 'POST'});
-            const result = await response.json();
-            if (result.success) {
-                alert('התחברת בהצלחה כעסק! מעביר לדשבורד עסקי...');
-                window.location.href = '/app/business';
-            } else {
-                alert('שגיאה בהתחברות לעסק');
-            }
-        } catch (error) {
-            alert('שגיאה בהתחברות לעסק');
-        }
-    }
-}
-
-async function changePassword(businessId) {
-    document.getElementById('changePasswordBusinessId').value = businessId;
-    document.getElementById('changePasswordModal').classList.remove('hidden');
-}
-
-function hideChangePasswordModal() {
-    document.getElementById('changePasswordModal').classList.add('hidden');
-    document.getElementById('changePasswordForm').reset();
-}
-
-// Form Handlers
-document.getElementById('addBusinessForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const formData = {
-        name: document.getElementById('businessName').value,
-        business_type: document.getElementById('businessType').value,
-        admin_email: document.getElementById('adminEmail').value,
-        admin_password: document.getElementById('adminPassword').value
-    };
-    
-    try {
-        const response = await apiCall('/api/admin/business', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(formData)
-        });
-        
-        const result = await response.json();
-        if (response.ok) {
-            alert('עסק נוצר בהצלחה!');
-            hideAddBusinessModal();
-            htmx.trigger('#tenants', 'load'); // Refresh list
-        } else {
-            alert(result.error || 'שגיאה ביצירת העסק');
-        }
-    } catch (error) {
-        alert('שגיאה ביצירת העסק');
-    }
-});
-
-document.getElementById('editBusinessForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const businessId = document.getElementById('editBusinessId').value;
-    const formData = {
-        name: document.getElementById('editBusinessName').value,
-        business_type: document.getElementById('editBusinessType').value,
-        is_active: document.getElementById('editBusinessStatus').value === 'true'
-    };
-    
-    try {
-        const response = await apiCall(`/api/admin/business/${businessId}`, {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(formData)
-        });
-        
-        const result = await response.json();
-        if (response.ok) {
-            alert('עסק עודכן בהצלחה!');
-            hideEditBusinessModal();
-            htmx.trigger('#tenants', 'load'); // Refresh list
-        } else {
-            alert(result.error || 'שגיאה בעדכון העסק');
-        }
-    } catch (error) {
-        alert('שגיאה בעדכון העסק');
-    }
-});
-
-document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const businessId = document.getElementById('changePasswordBusinessId').value;
-    const newPassword = document.getElementById('newPassword').value;
-    const confirmPassword = document.getElementById('confirmPassword').value;
-    
-    if (newPassword !== confirmPassword) {
-        alert('הסיסמאות אינן תואמות');
-        return;
-    }
-    
-    if (newPassword.length < 6) {
-        alert('הסיסמה חייבת להכיל לפחות 6 תווים');
-        return;
-    }
-    
-    try {
-        const response = await apiCall(`/api/admin/business/${businessId}/change-password`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({password: newPassword})
-        });
-        
-        const result = await response.json();
-        if (response.ok) {
-            alert('סיסמה שונתה בהצלחה!');
-            hideChangePasswordModal();
-        } else {
-            alert(result.error || 'שגיאה בשינוי הסיסמה');
-        }
-    } catch (error) {
-        alert('שגיאה בשינוי הסיסמה');
-    }
-});
-
-// User Management Functions
-function showAddUserModal() {
-    document.getElementById('addUserModal').classList.remove('hidden');
-}
-
-function hideAddUserModal() {
-    document.getElementById('addUserModal').classList.add('hidden');
-    document.getElementById('addUserForm').reset();
-    document.getElementById('businessSelectDiv').classList.add('hidden');
-}
-
-async function editUser(userId) {
-    try {
-        const response = await apiCall(`/api/admin/user/${userId}`);
-        const user = response;
-        
-        document.getElementById('editUserId').value = user.id;
-        document.getElementById('editUserName').value = user.name;
-        document.getElementById('editUserEmail').value = user.email;
-        document.getElementById('editUserRole').value = user.role;
-        document.getElementById('editUserStatus').value = user.is_active ? 'true' : 'false';
-        
-        document.getElementById('editUserModal').classList.remove('hidden');
-    } catch (error) {
-        alert('שגיאה בטעינת נתוני המשתמש');
-    }
-}
-
-function hideEditUserModal() {
-    document.getElementById('editUserModal').classList.add('hidden');
-    document.getElementById('editUserForm').reset();
-}
-
-async function changeUserPassword(userId) {
-    const newPassword = prompt('הזן סיסמה חדשה למשתמש:');
-    if (newPassword && newPassword.length >= 6) {
-        try {
-            const response = await apiCall(`/api/admin/user/${userId}/change-password`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({password: newPassword})
-            });
-            
-            if (response.success) {
-                alert('סיסמה שונתה בהצלחה!');
-            } else {
-                alert('שגיאה בשינוי הסיסמה');
-            }
-        } catch (error) {
-            alert('שגיאה בשינוי הסיסמה');
-        }
-    } else {
-        alert('הסיסמה חייבת להכיל לפחות 6 תווים');
-    }
-}
-
-async function toggleUserStatus(userId) {
-    if (confirm('האם אתה בטוח שברצונך לשנות את סטטוס המשתמש?')) {
-        try {
-            const response = await apiCall(`/api/admin/user/${userId}/toggle-status`, {
-                method: 'POST'
-            });
-            
-            if (response.success) {
-                alert('סטטוס המשתמש שונה בהצלחה!');
-                location.reload(); // Refresh to show changes
-            } else {
-                alert('שגיאה בשינוי סטטוס המשתמש');
-            }
-        } catch (error) {
-            alert('שגיאה בשינוי סטטוס המשתמש');
-        }
-    }
-}
-
-// Show/hide business select based on role
-document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('userRole').addEventListener('change', function() {
-        const businessDiv = document.getElementById('businessSelectDiv');
-        if (this.value === 'business') {
-            businessDiv.classList.remove('hidden');
-        } else {
-            businessDiv.classList.add('hidden');
-        }
-    });
-});
-
-// Add User Form Handler
-document.getElementById('addUserForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const formData = {
-        name: document.getElementById('userName').value,
-        email: document.getElementById('userEmail').value,
-        password: document.getElementById('userPassword').value,
-        role: document.getElementById('userRole').value,
-        business_id: document.getElementById('userRole').value === 'business' ? document.getElementById('userBusinessId').value : null
-    };
-    
-    try {
-        const response = await apiCall('/api/admin/user', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(formData)
-        });
-        
-        if (response.success) {
-            alert('משתמש נוצר בהצלחה!');
-            hideAddUserModal();
-            location.reload(); // Refresh to show new user
-        } else {
-            alert(response.error || 'שגיאה ביצירת המשתמש');
-        }
-    } catch (error) {
-        alert('שגיאה ביצירת המשתמש');
-    }
-});
-
-// Edit User Form Handler
-document.getElementById('editUserForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const userId = document.getElementById('editUserId').value;
-    const formData = {
-        name: document.getElementById('editUserName').value,
-        email: document.getElementById('editUserEmail').value,
-        role: document.getElementById('editUserRole').value,
-        is_active: document.getElementById('editUserStatus').value === 'true'
-    };
-    
-    try {
-        const response = await apiCall(`/api/admin/user/${userId}`, {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(formData)
-        });
-        
-        if (response.success) {
-            alert('משתמש עודכן בהצלחה!');
-            hideEditUserModal();
-            location.reload(); // Refresh to show changes
-        } else {
-            alert(response.error || 'שגיאה בעדכון המשתמש');
-        }
-    } catch (error) {
-        alert('שגיאה בעדכון המשתמש');
-    }
+// Auto-load tables on page load and refresh every 15 seconds
+window.addEventListener('load', ()=>{ 
+  loadUsersAdmin(); 
+  loadTenantsAdmin();
+  setInterval(loadUsersAdmin, 15000);
+  setInterval(loadTenantsAdmin, 15000);
 });
 </script>
 {% endblock %}
