@@ -31,12 +31,12 @@ MOCK_USERS = {
 }
 
 print("🚀 Professional Hebrew Auth Server")
-print("📁 Frontend: auth-frontend/dist/")
+print("📁 Frontend: שורש הפרויקט (./) ")
 print("🎨 Glass morphism design with Hebrew RTL")
 print("🔐 API endpoints: /api/auth/*")
 
 # Check if build exists
-if os.path.exists('auth-frontend/dist/index.html'):
+if os.path.exists('./index.html'):
     print("✅ React build found")
 else:
     print("❌ React build missing - run 'npm run build' first")
@@ -44,27 +44,27 @@ else:
 @app.route('/')
 def serve_index():
     """Serve the main React application"""
-    return send_from_directory('auth-frontend/dist', 'index.html')
+    return send_from_directory('.', 'index.html')
 
 @app.route('/auth')
 def serve_auth_index():
     """Serve auth routes"""
-    return send_from_directory('auth-frontend/dist', 'index.html')
+    return send_from_directory('.', 'index.html')
 
 @app.route('/auth/<path:path>')
 def serve_auth_routes(path):
     """Serve auth sub-routes (login, forgot, reset)"""
-    return send_from_directory('auth-frontend/dist', 'index.html')
+    return send_from_directory('.', 'index.html')
 
 @app.route('/assets/<path:filename>')
 def serve_assets(filename):
     """Serve static assets"""
-    return send_from_directory('auth-frontend/dist/assets', filename)
+    return send_from_directory('./assets', filename)
 
 @app.route('/vite.svg')
 def serve_vite_svg():
     """Serve Vite logo"""
-    return send_from_directory('auth-frontend/dist', 'vite.svg')
+    return send_from_directory('.', 'vite.svg')
 
 # API Routes
 @app.route('/api/auth/login', methods=['POST'])

@@ -16,21 +16,12 @@ if creds and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = p
     print(f"🔐 GCP credentials file created: {p}")
 
-# Import the full app factory with WebSocket support
-from server.app_factory import create_app
+# Import the professional auth server
+from professional_auth_server import app
 
-# Create app with full WebSocket Media Streams support
-# This is the app instance that Gunicorn will use
-app = create_app()
-
-print(f"🚀 AgentLocator-71 app created successfully for Gunicorn")
-
-# App is created by app_factory with all features
-print("🚀 AgentLocator 71 - Hebrew AI Call Center")
-print("✅ WebSocket bidirectional conversations enabled")
-print("✅ Hebrew TTS/STT with proper GCP credentials") 
-print("🐕 WATCHDOG SYSTEM ENABLED - Record fallback on WS failure")
-print("🔄 DEPLOYMENT: AgentLocator 71 - Production Ready per Guidelines")
+print("🚀 Professional Hebrew Auth Server - Production Ready")
+print("🎨 Glass morphism login page with Hebrew RTL")
+print("🏢 שי דירות ומשרדים בע״מ - CRM System")
 
 # Test endpoints are now in app_factory.py with WebSocket support
 # This file just imports the full app
