@@ -47,9 +47,9 @@
                     <span class="ml-3">👥</span>
                     <span class="mr-3 font-medium">CRM לקוחות</span>
                 </a>
-                <a href="#businesses" onclick="showSection('businesses')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                    <span class="ml-3">🏢</span>
-                    <span class="mr-3 font-medium">ניהול עסקים</span>
+                <a href="#users" onclick="showSection('users')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
+                    <span class="ml-3">👥</span>
+                    <span class="mr-3 font-medium">ניהול משתמשים</span>
                 </a>
                 <a href="#invoices" onclick="showSection('invoices')" class="nav-item flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors">
                     <span class="ml-3">🧾</span>
@@ -159,10 +159,18 @@
             </button>
         </div>
         <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
-            <div id="tenants" hx-get="/api/admin/tenants" hx-trigger="load delay:1s" class="p-6">
-                <div class="animate-pulse">
-                    <div class="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                    <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+            <div id="tenants" class="p-6">
+                <div class="flex items-center justify-between p-4 border-b border-gray-100 hover:bg-gray-50">
+                    <div>
+                        <h4 class="font-medium text-gray-900">שי דירות ומשרדים בע״מ</h4>
+                        <p class="text-sm text-gray-500">נדלן ותיווך</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">פעיל</span>
+                        <button onclick="editBusiness(13)" class="text-blue-600 hover:text-blue-800 text-sm mr-2">עריכה</button>
+                        <button onclick="loginAsBusiness(13)" class="text-green-600 hover:text-green-800 text-sm mr-2">התחבר כעסק</button>
+                        <button onclick="changePassword(13)" class="text-purple-600 hover:text-purple-800 text-sm">שנה סיסמה</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -299,8 +307,65 @@
             </div>
         </div>
 
-        <!-- Businesses Section -->
-        <div id="businesses-section" class="section-content p-6 hidden">
+        <!-- Users Management Section -->
+        <div id="users-section" class="section-content p-6 hidden">
+            <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול משתמשים</h1>
+            
+            <div class="mb-6">
+                <button onclick="showAddUserModal()" class="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors">
+                    ➕ הוסף משתמש חדש
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow">
+                <div class="p-6 border-b flex justify-between items-center">
+                    <h2 class="text-xl font-semibold">רשימת משתמשים</h2>
+                    <div class="flex space-x-2">
+                        <select class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <option value="">כל התפקידים</option>
+                            <option value="admin">מנהל מערכת</option>
+                            <option value="business">מנהל עסק</option>
+                        </select>
+                        <input type="text" placeholder="חיפוש משתמש..." class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                    </div>
+                </div>
+                <div class="p-6">
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-right">שם</th>
+                                    <th class="px-4 py-2 text-right">אימייל</th>
+                                    <th class="px-4 py-2 text-right">תפקיד</th>
+                                    <th class="px-4 py-2 text-right">עסק</th>
+                                    <th class="px-4 py-2 text-right">סטטוס</th>
+                                    <th class="px-4 py-2 text-right">התחברות אחרונה</th>
+                                    <th class="px-4 py-2 text-right">פעולות</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-list">
+                                <tr class="border-t">
+                                    <td class="px-4 py-3">מנהל מערכת</td>
+                                    <td class="px-4 py-3">admin@admin.com</td>
+                                    <td class="px-4 py-3"><span class="bg-red-100 text-red-800 px-2 py-1 rounded text-sm">מנהל מערכת</span></td>
+                                    <td class="px-4 py-3">-</td>
+                                    <td class="px-4 py-3"><span class="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">פעיל</span></td>
+                                    <td class="px-4 py-3">עכשיו</td>
+                                    <td class="px-4 py-3">
+                                        <button onclick="editUser(6)" class="text-blue-600 hover:text-blue-800 ml-2 text-sm">עריכה</button>
+                                        <button onclick="changeUserPassword(6)" class="text-purple-600 hover:text-purple-800 ml-2 text-sm">סיסמה</button>
+                                        <button onclick="toggleUserStatus(6)" class="text-yellow-600 hover:text-yellow-800 text-sm">השהה</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Businesses Section (Hidden - business management moved to main dashboard) -->
+        <div id="businesses-section" class="section-content p-6 hidden" style="display: none !important;">
             <h1 class="text-3xl font-bold text-gray-900 mb-8">ניהול עסקים</h1>
             
             <div class="mb-6">
@@ -379,6 +444,93 @@
                         <button class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600">שמור הגדרות</button>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- User Management Modals -->
+<div id="userModals">
+    <!-- Add User Modal -->
+    <div id="addUserModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold mb-4">הוסף משתמש חדש</h3>
+                <form id="addUserForm">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">שם מלא</label>
+                            <input type="text" id="userName" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
+                            <input type="email" id="userEmail" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">סיסמה</label>
+                            <input type="password" id="userPassword" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">תפקיד</label>
+                            <select id="userRole" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                <option value="">בחר תפקיד</option>
+                                <option value="admin">מנהל מערכת</option>
+                                <option value="business">מנהל עסק</option>
+                            </select>
+                        </div>
+                        <div id="businessSelectDiv" class="hidden">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">עסק</label>
+                            <select id="userBusinessId" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                <option value="">בחר עסק</option>
+                                <option value="13">שי דירות ומשרדים בע״מ</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex justify-end space-x-3 mt-6">
+                        <button type="button" onclick="hideAddUserModal()" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">ביטול</button>
+                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">הוסף משתמש</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div id="editUserModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold mb-4">עריכת משתמש</h3>
+                <form id="editUserForm">
+                    <input type="hidden" id="editUserId">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">שם מלא</label>
+                            <input type="text" id="editUserName" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
+                            <input type="email" id="editUserEmail" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">תפקיד</label>
+                            <select id="editUserRole" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                <option value="admin">מנהל מערכת</option>
+                                <option value="business">מנהל עסק</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
+                            <select id="editUserStatus" required class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                <option value="true">פעיל</option>
+                                <option value="false">מושהה</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex justify-end space-x-3 mt-6">
+                        <button type="button" onclick="hideEditUserModal()" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">ביטול</button>
+                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">עדכן משתמש</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -704,6 +856,155 @@ document.getElementById('changePasswordForm').addEventListener('submit', async (
         }
     } catch (error) {
         alert('שגיאה בשינוי הסיסמה');
+    }
+});
+
+// User Management Functions
+function showAddUserModal() {
+    document.getElementById('addUserModal').classList.remove('hidden');
+}
+
+function hideAddUserModal() {
+    document.getElementById('addUserModal').classList.add('hidden');
+    document.getElementById('addUserForm').reset();
+    document.getElementById('businessSelectDiv').classList.add('hidden');
+}
+
+async function editUser(userId) {
+    try {
+        const response = await apiCall(`/api/admin/user/${userId}`);
+        const user = response;
+        
+        document.getElementById('editUserId').value = user.id;
+        document.getElementById('editUserName').value = user.name;
+        document.getElementById('editUserEmail').value = user.email;
+        document.getElementById('editUserRole').value = user.role;
+        document.getElementById('editUserStatus').value = user.is_active ? 'true' : 'false';
+        
+        document.getElementById('editUserModal').classList.remove('hidden');
+    } catch (error) {
+        alert('שגיאה בטעינת נתוני המשתמש');
+    }
+}
+
+function hideEditUserModal() {
+    document.getElementById('editUserModal').classList.add('hidden');
+    document.getElementById('editUserForm').reset();
+}
+
+async function changeUserPassword(userId) {
+    const newPassword = prompt('הזן סיסמה חדשה למשתמש:');
+    if (newPassword && newPassword.length >= 6) {
+        try {
+            const response = await apiCall(`/api/admin/user/${userId}/change-password`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({password: newPassword})
+            });
+            
+            if (response.success) {
+                alert('סיסמה שונתה בהצלחה!');
+            } else {
+                alert('שגיאה בשינוי הסיסמה');
+            }
+        } catch (error) {
+            alert('שגיאה בשינוי הסיסמה');
+        }
+    } else {
+        alert('הסיסמה חייבת להכיל לפחות 6 תווים');
+    }
+}
+
+async function toggleUserStatus(userId) {
+    if (confirm('האם אתה בטוח שברצונך לשנות את סטטוס המשתמש?')) {
+        try {
+            const response = await apiCall(`/api/admin/user/${userId}/toggle-status`, {
+                method: 'POST'
+            });
+            
+            if (response.success) {
+                alert('סטטוס המשתמש שונה בהצלחה!');
+                location.reload(); // Refresh to show changes
+            } else {
+                alert('שגיאה בשינוי סטטוס המשתמש');
+            }
+        } catch (error) {
+            alert('שגיאה בשינוי סטטוס המשתמש');
+        }
+    }
+}
+
+// Show/hide business select based on role
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('userRole').addEventListener('change', function() {
+        const businessDiv = document.getElementById('businessSelectDiv');
+        if (this.value === 'business') {
+            businessDiv.classList.remove('hidden');
+        } else {
+            businessDiv.classList.add('hidden');
+        }
+    });
+});
+
+// Add User Form Handler
+document.getElementById('addUserForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = {
+        name: document.getElementById('userName').value,
+        email: document.getElementById('userEmail').value,
+        password: document.getElementById('userPassword').value,
+        role: document.getElementById('userRole').value,
+        business_id: document.getElementById('userRole').value === 'business' ? document.getElementById('userBusinessId').value : null
+    };
+    
+    try {
+        const response = await apiCall('/api/admin/user', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(formData)
+        });
+        
+        if (response.success) {
+            alert('משתמש נוצר בהצלחה!');
+            hideAddUserModal();
+            location.reload(); // Refresh to show new user
+        } else {
+            alert(response.error || 'שגיאה ביצירת המשתמש');
+        }
+    } catch (error) {
+        alert('שגיאה ביצירת המשתמש');
+    }
+});
+
+// Edit User Form Handler
+document.getElementById('editUserForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const userId = document.getElementById('editUserId').value;
+    const formData = {
+        name: document.getElementById('editUserName').value,
+        email: document.getElementById('editUserEmail').value,
+        role: document.getElementById('editUserRole').value,
+        is_active: document.getElementById('editUserStatus').value === 'true'
+    };
+    
+    try {
+        const response = await apiCall(`/api/admin/user/${userId}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(formData)
+        });
+        
+        if (response.success) {
+            alert('משתמש עודכן בהצלחה!');
+            hideEditUserModal();
+            location.reload(); // Refresh to show changes
+        } else {
+            alert(response.error || 'שגיאה בעדכון המשתמש');
+        }
+    } catch (error) {
+        alert('שגיאה בעדכון המשתמש');
     }
 });
 </script>
