@@ -58,11 +58,21 @@ def _load_counters_for_business(business_id):
     except Exception as e:
         return {'today_calls': 0, 'whatsapp_unread': 0}
 
-@ui_bp.get("/")
-def home():
-    if getattr(g, "user", None):
-        return redirect(url_for("ui.admin_home") if g.user["role"] in ("admin","superadmin") else url_for("ui.biz_home"))
-    return redirect(url_for("ui.login"))
+@ui_bp.route('/')
+def index():
+    """Root redirect to login or dashboard"""
+    try:
+        # Check new auth system first
+        user = session.get('al_user') or session.get('user')
+        if user:
+            user_role = user.get('role')
+            if user_role == 'admin':
+                return redirect('/app/admin')
+            else:
+                return redirect('/app/biz')
+        return redirect('/login')
+    except Exception as e:
+        return f"<h1>🚧 System Loading...</h1><p>Error: {e}</p><p><a href='/login'>Go to Login</a></p>"
 
 @ui_bp.route('/login')
 def login():
@@ -80,36 +90,42 @@ def reset():
     token = request.args.get('token')
     return render_template('reset.html', token=token)
 
-@ui_bp.get("/app/admin")
-@require_roles("admin","superadmin")
-def admin_home():
-    # active מגדיר פריט פעיל בסיידבר
+@ui_bp.route('/app/admin')
+@require_roles('admin')
+def admin_dashboard():
+    """Admin dashboard page"""
+    user = session.get('al_user') or session.get('user')
+    
+    # Add counters to avoid template errors
+    counters = _load_counters_for_admin()
+    
     try:
         from server.models_sql import Business
         tenants = Business.query.filter_by(is_active=True).all()
     except:
         tenants = []
-        
-    return render_template("admin.html",
-        page_title="איזור מנהל",
-        role=g.user["role"], current_user=g.user,
-        active="admin_home",
-        current_business_id=request.args.get("business_id"),
-        counters=_load_counters_for_admin(),
-        tenants=tenants
-    )
+    
+    return render_template('admin.html', 
+                         user=user, 
+                         counters=counters,
+                         tenants=tenants,
+                         current_user=user,
+                         role=user.get('role') if user else None)
 
-@ui_bp.get("/app/biz")
-@require_roles("admin","superadmin","manager","agent")
-def biz_home():
-    bid = effective_business_id()
-    return render_template("business.html",
-        page_title="איזור עסק",
-        role=g.user["role"], current_user=g.user,
-        active="biz_whatsapp",
-        current_business_id=bid,
-        counters=_load_counters_for_business(bid)
-    )
+@ui_bp.route('/app/biz')
+@require_roles('business', 'admin')
+def business_dashboard():
+    """Business dashboard page"""
+    user = session.get('al_user') or session.get('user')
+    
+    # Add counters to avoid template errors
+    counters = _load_counters_for_business(user.get('business_id') if user else None)
+    
+    return render_template('business.html', 
+                         user=user,
+                         counters=counters,
+                         current_user=user,
+                         role=user.get('role') if user else None)
 
 # Admin: החלפת עסק פעיל (לסנן דפים וקישורים)
 @ui_bp.get("/ui/admin/switch_business")
