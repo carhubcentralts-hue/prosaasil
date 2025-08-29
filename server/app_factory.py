@@ -394,7 +394,11 @@ def create_app():
         """Serve static TTS files"""
         return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "static", "tts"), filename)
     
-    # Old React frontend completely removed - UI now handled by Flask templates only
+    # React app assets serving
+    @app.route('/assets/<path:filename>')
+    def serve_react_assets(filename):
+        """Serve React build assets (JS, CSS, etc.)"""
+        return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "assets"), filename)
 
     @app.route('/healthz', methods=['GET'])
     def healthz():
