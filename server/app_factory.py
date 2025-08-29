@@ -311,10 +311,6 @@ def create_app():
     with app.app_context():
         try:
             db.create_all()  # Create tables if they don't exist
-            try:
-                create_default_admin()
-            except Exception as e:
-                print(f"Admin user setup: {e}")
             print("✅ Database tables created and admin user setup complete")
         except Exception as e:
             print(f"⚠️ Database setup warning: {e}")
