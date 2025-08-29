@@ -31,7 +31,7 @@ MOCK_USERS = {
 }
 
 print("🚀 Professional Hebrew Auth Server")
-print("📁 Frontend: שורש הפרויקט (./) ")
+print("📁 Frontend: Premium React 19 Auth App")
 print("🎨 Glass morphism design with Hebrew RTL")
 print("🔐 API endpoints: /api/auth/*")
 
