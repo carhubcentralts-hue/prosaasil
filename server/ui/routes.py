@@ -1085,7 +1085,7 @@ def admin_impersonate_business(business_id):
         business = Business.query.get_or_404(business_id)
         
         # Log impersonation start
-        if hasattr(g, 'audit_logger'):
+        if hasattr(g, 'audit_logger') and g.audit_logger:
             g.audit_logger.log_action('IMPERSONATE_START', 'business', business_id, 
                                     {'business_name': business.name})
         
@@ -1106,7 +1106,7 @@ def admin_stop_impersonation():
     try:
         if 'impersonating_business_id' in session:
             # Log impersonation end
-            if hasattr(g, 'audit_logger'):
+            if hasattr(g, 'audit_logger') and g.audit_logger:
                 g.audit_logger.log_action('IMPERSONATE_END', 'business', 
                                         session.get('impersonating_business_id'))
             

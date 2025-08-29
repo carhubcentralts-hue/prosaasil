@@ -122,11 +122,11 @@ def render_toast_message(message_type, title, description="", action_url="", act
         </div>
     </div>
     <script>
-        setTimeout(() => {
-            const toast = document.getElementById('toast-message');
+        setTimeout(function() {
+            var toast = document.getElementById('toast-message');
             if (toast) {
                 toast.style.opacity = '0';
-                setTimeout(() => toast.remove(), 300);
+                setTimeout(function() { toast.remove(); }, 300);
             }
         }, 5000);
     </script>
