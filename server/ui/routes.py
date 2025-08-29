@@ -12,14 +12,14 @@ def require_roles(*allowed_roles):
         def decorated_function(*args, **kwargs):
             user = session.get('al_user') or session.get('user')
             if not user:
-                return redirect(url_for('ui.login'))
+                return redirect("/login")
             
             user_role = user.get('role', '')
             if user_role not in allowed_roles:
                 # Smart role-based redirect
                 if user_role in ("admin", "superadmin"):
-                    return redirect(url_for("ui.admin_home"))
-                return redirect(url_for("ui.biz_home"))
+                    return redirect("/app/admin")
+                return redirect("/app/biz")
                 
             return f(*args, **kwargs)
         return decorated_function
@@ -77,10 +77,10 @@ def home():
     if user:
         role = user.get('role')
         if role in ("admin", "superadmin"):
-            return redirect(url_for("ui.admin_home"))
+            return redirect("/app/admin")
         else:
-            return redirect(url_for("ui.biz_home"))
-    return redirect(url_for('ui.login'))
+            return redirect("/app/biz")
+    return redirect("/login")
 
 @ui_bp.route('/login')
 def login():
@@ -254,7 +254,7 @@ def api_logout():
     try:
         session.clear()
         if request.method == 'GET':
-            return redirect(url_for('ui.login'))
+            return redirect("/login")
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
