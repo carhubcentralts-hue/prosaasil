@@ -493,7 +493,7 @@ def logout():
     session.pop('user', None)
     session.pop('token', None)
     session.clear()
-    return redirect(url_for('ui.login'))
+    return redirect('/login')
 
 # API Auth endpoints for JS calls
 @ui_bp.route('/api/ui/login', methods=['POST'])
