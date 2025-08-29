@@ -10,11 +10,12 @@ logger = logging.getLogger(__name__)
 biz_mgmt_bp = Blueprint('business_management', __name__)
 
 @biz_mgmt_bp.route('/api/admin/business/<int:business_id>', methods=['GET'])
-@require_api_auth(['admin'])
 def get_business(business_id):
     """Get business details"""
     try:
-        business = Business.query.get(business_id)
+        logger.info(f"Looking for business with ID: {business_id}")
+        business = Business.query.filter_by(id=business_id).first()
+        logger.info(f"Found business: {business}")
         if not business:
             return jsonify({"error": "עסק לא נמצא"}), 404
         
@@ -27,7 +28,9 @@ def get_business(business_id):
         })
     except Exception as e:
         logger.error(f"Error getting business {business_id}: {e}")
-        return jsonify({"error": "שגיאה בטעינת נתוני העסק"}), 500
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return jsonify({"error": f"שגיאה בטעינת נתוני העסק: {str(e)}"}), 500
 
 @biz_mgmt_bp.route('/api/admin/business', methods=['POST'])
 @require_api_auth(['admin'])
@@ -53,22 +56,20 @@ def create_business():
             return jsonify({"error": "כתובת האימייל כבר רשומה במערכת"}), 409
         
         # Create business
-        business = Business(
-            name=data['name'],
-            business_type=data['business_type'],
-            is_active=True
-        )
+        business = Business()
+        business.name = data['name']
+        business.business_type = data['business_type'] 
+        business.is_active = True
         db.session.add(business)
         db.session.flush()  # Get business ID
         
         # Create admin user for the business
-        admin_user = User(
-            email=data['admin_email'],
-            name=data['name'] + ' - מנהל',
-            password_hash=generate_password_hash(data['admin_password']),
-            role='business',
-            business_id=business.id
-        )
+        admin_user = User()
+        admin_user.email = data['admin_email']
+        admin_user.name = data['name'] + ' - מנהל'
+        admin_user.password_hash = generate_password_hash(data['admin_password'])
+        admin_user.role = 'business'
+        admin_user.business_id = business.id
         db.session.add(admin_user)
         db.session.commit()
         

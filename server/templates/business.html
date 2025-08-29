@@ -38,6 +38,15 @@
             <button onclick="showTab('crm')" id="tab-crm" class="tab-button text-gray-500 hover:text-gray-700 px-3 py-2 font-medium text-sm rounded-md">
                 👥 CRM
             </button>
+            <button onclick="showTab('invoices')" id="tab-invoices" class="tab-button text-gray-500 hover:text-gray-700 px-3 py-2 font-medium text-sm rounded-md">
+                📄 חשבוניות
+            </button>
+            <button onclick="showTab('payments')" id="tab-payments" class="tab-button text-gray-500 hover:text-gray-700 px-3 py-2 font-medium text-sm rounded-md">
+                💳 תשלומים
+            </button>
+            <button onclick="showTab('contracts')" id="tab-contracts" class="tab-button text-gray-500 hover:text-gray-700 px-3 py-2 font-medium text-sm rounded-md">
+                📋 חוזים דיגיטליים
+            </button>
         </nav>
     </div>
 
@@ -131,6 +140,60 @@
                     <div class="h-24 bg-gray-200 rounded"></div>
                     <div class="h-24 bg-gray-200 rounded"></div>
                     <div class="h-24 bg-gray-200 rounded"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Invoices Tab -->
+    <div id="content-invoices" class="tab-content hidden">
+        <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                <h3 class="text-lg font-medium text-gray-900">ניהול חשבוניות</h3>
+                <button class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                    ➕ צור חשבונית חדשה
+                </button>
+            </div>
+            <div class="p-6">
+                <div class="text-center text-gray-500 py-8">
+                    <p class="text-lg">מערכת חשבוניות בפיתוח</p>
+                    <p class="text-sm">בקרוב תוכל ליצור ולנהל חשבוניות בצורה דיגיטלית</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Payments Tab -->
+    <div id="content-payments" class="tab-content hidden">
+        <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                <h3 class="text-lg font-medium text-gray-900">ניהול תשלומים</h3>
+                <button class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors">
+                    ➕ הוסף תשלום
+                </button>
+            </div>
+            <div class="p-6">
+                <div class="text-center text-gray-500 py-8">
+                    <p class="text-lg">מערכת תשלומים בפיתוח</p>
+                    <p class="text-sm">בקרוב תוכל לעקוב ולנהל תשלומים בזמן אמת</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contracts Tab -->
+    <div id="content-contracts" class="tab-content hidden">
+        <div class="bg-white shadow-xl rounded-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                <h3 class="text-lg font-medium text-gray-900">חוזים דיגיטליים</h3>
+                <button class="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition-colors">
+                    ➕ צור חוזה חדש
+                </button>
+            </div>
+            <div class="p-6">
+                <div class="text-center text-gray-500 py-8">
+                    <p class="text-lg">מערכת חוזים דיגיטליים בפיתוח</p>
+                    <p class="text-sm">בקרוב תוכל ליצור ולנהל חוזים דיגיטליים עם חתימה אלקטרונית</p>
                 </div>
             </div>
         </div>

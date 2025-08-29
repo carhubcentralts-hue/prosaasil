@@ -6,7 +6,7 @@ from server.db import db
 from datetime import datetime
 
 class Business(db.Model):
-    __tablename__ = "business"
+    __tablename__ = "businesses"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
     business_type = db.Column(db.String(255), nullable=False, default="real_estate")
