@@ -90,42 +90,62 @@ def login():
 @ui_bp.route('/app/admin')
 @require_roles('admin', 'superadmin')
 def admin_home():
-    """Admin dashboard page"""
+    """Clean admin dashboard - will be rebuilt"""
     user = session.get('al_user') or session.get('user')
-    
-    counters = _load_counters_for_admin()
-    
-    try:
-        from server.models_sql import Business
-        tenants = Business.query.filter_by(is_active=True).all()
-    except:
-        tenants = []
-    
-    return render_template('admin.html',
-                         page_title="איזור מנהל",
-                         role=user.get('role') if user else None,
-                         current_user=user,
-                         active="admin_home",
-                         current_business_id=request.args.get("business_id"),
-                         counters=counters,
-                         tenants=tenants)
+    return f"""<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <title>מערכת CRM - איזור מנהל</title>
+    <meta charset="UTF-8">
+    <style>
+        body {{ font-family: Assistant, sans-serif; background: #f8f9fa; padding: 2rem; }}
+        .container {{ max-width: 800px; margin: 0 auto; text-align: center; }}
+        .card {{ background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        .btn {{ background: #10b981; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>🎯 איזור מנהל נקי</h1>
+            <p>שלום {user.get('name', 'מנהל') if user else 'מנהל'}</p>
+            <p>התמפלט החדש יתווסף בקרוב</p>
+            <br>
+            <a href="/logout" class="btn">התנתק</a>
+        </div>
+    </div>
+</body>
+</html>"""
 
 @ui_bp.route('/app/biz')
 @require_roles('admin','superadmin','manager','agent')
 def biz_home():
-    """Business dashboard page"""
+    """Clean business dashboard - will be rebuilt"""
     user = session.get('al_user') or session.get('user')
-    
-    bid = effective_business_id()
-    counters = _load_counters_for_business(bid)
-    
-    return render_template('business.html',
-                         page_title="איזור עסק",
-                         role=user.get('role') if user else None,
-                         current_user=user,
-                         active="biz_whatsapp",
-                         current_business_id=bid,
-                         counters=counters)
+    return f"""<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <title>מערכת CRM - איזור עסק</title>
+    <meta charset="UTF-8">
+    <style>
+        body {{ font-family: Assistant, sans-serif; background: #f8f9fa; padding: 2rem; }}
+        .container {{ max-width: 800px; margin: 0 auto; text-align: center; }}
+        .card {{ background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        .btn {{ background: #10b981; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; text-decoration: none; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>🏢 איזור עסק נקי</h1>
+            <p>שלום {user.get('name', 'משתמש') if user else 'משתמש'}</p>
+            <p>התמפלט החדש יתווסף בקרוב</p>
+            <br>
+            <a href="/logout" class="btn">התנתק</a>
+        </div>
+    </div>
+</body>
+</html>"""
 
 # === ADMIN HTMX ROUTES ===
 @ui_bp.route("/ui/admin/switch_business")
