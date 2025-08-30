@@ -16,8 +16,26 @@ if creds and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = p
     print(f"🔐 GCP credentials file created: {p}")
 
-# Import the professional auth server
+# Import the enhanced app with Overview pages
 from professional_auth_server import app
+
+# Add Overview routes directly to the main app
+from flask import send_from_directory
+
+@app.route('/app/admin/overview')
+def admin_overview():
+    """Admin Overview page with all components"""
+    return send_from_directory('dist', 'index.html')
+
+@app.route('/app/biz/overview') 
+def business_overview():
+    """Business Overview page with all components"""
+    return send_from_directory('dist', 'index.html')
+
+@app.route('/app/<path:path>')
+def serve_app_spa(path):
+    """Handle all app routes for SPA"""
+    return send_from_directory('dist', 'index.html')
 
 print("🚀 Professional Hebrew Auth Server - Production Ready")
 print("🎨 Glass morphism login page with Hebrew RTL")
