@@ -224,17 +224,17 @@ def get_business_overview(business_id):
 @app.route('/auth/<path:path>')
 def serve_auth_routes(path):
     """Serve auth sub-routes (login, forgot, reset) - Premium design"""
-    return send_from_directory('./dist-new', 'index.html')
+    return send_from_directory('./dist', 'index.html')
 
 @app.route('/app/<path:path>')
 def serve_app_routes(path):
     """Serve app routes (admin/*, biz/*) - SPA routing"""
-    return send_from_directory('./dist-new', 'index.html')
+    return send_from_directory('./dist', 'index.html')
 
 @app.route('/assets/<path:filename>')
 def serve_assets(filename):
     """Serve static assets - Modern build with OKLCH colors"""
-    return send_from_directory('./dist-new/assets', filename)
+    return send_from_directory('./dist/assets', filename)
 
 @app.route('/vite.svg')
 def serve_vite_svg():

@@ -10,7 +10,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: '../dist-new',
+    outDir: '../dist',
     assetsDir: 'assets',
     rollupOptions: {
       output: {
