@@ -221,51 +221,99 @@ const Businesses = () => {
   }
 
   const handleImpersonate = (businessId) => {
-    // Set impersonation context and navigate to business dashboard
-    sessionStorage.setItem('impersonating_business_id', businessId)
-    sessionStorage.setItem('impersonation_start_time', new Date().toISOString())
+    console.log('Starting impersonation for business:', businessId)
     
-    // Navigate to business dashboard with impersonation
-    navigate(`/app/biz/overview`)
-    
-    // Show success message
-    setTimeout(() => {
+    try {
+      // Set impersonation context
+      sessionStorage.setItem('impersonating_business_id', businessId)
+      sessionStorage.setItem('impersonation_start_time', new Date().toISOString())
+      
       const businessName = businesses.find(b => b.id === businessId)?.name || 'העסק'
+      
+      // Show immediate success message
       toast({
         title: "השתלטות החלה",
-        description: `החל מצב השתלטות על ${businessName}`,
+        description: `מחליף לדשבורד עסק: ${businessName}`,
         variant: "default",
       })
-    }, 100)
+      
+      // Navigate to business dashboard
+      setTimeout(() => {
+        window.location.href = '/app/biz/overview'
+      }, 500)
+      
+    } catch (error) {
+      console.error('Error during impersonation:', error)
+      toast({
+        title: "שגיאה",
+        description: "שגיאה בתחילת מצב השתלטות",
+        variant: "destructive",
+      })
+    }
   }
 
   const handleEdit = (businessId) => {
-    // Navigate to edit page - will be built later
-    navigate(`/app/admin/businesses/${businessId}/edit`)
+    console.log('Editing business:', businessId)
+    
+    const businessName = businesses.find(b => b.id === businessId)?.name || 'העסק'
+    
+    toast({
+      title: "עריכת עסק",
+      description: `פותח דף עריכה עבור: ${businessName}`,
+      variant: "default",
+    })
+    
+    // For now, show a placeholder - page will be built later
+    setTimeout(() => {
+      alert(`דף עריכה עבור "${businessName}" יתווסף בהמשך פיתוח המערכת`)
+    }, 1000)
   }
 
   const handleViewDetails = (businessId) => {
-    // Navigate to business details page - will be built later  
-    navigate(`/app/admin/businesses/${businessId}`)
+    console.log('Viewing business details:', businessId)
+    
+    const businessName = businesses.find(b => b.id === businessId)?.name || 'העסק'
+    
+    toast({
+      title: "פרטי עסק", 
+      description: `מציג פרטי עסק: ${businessName}`,
+      variant: "default",
+    })
+    
+    // For now, show a placeholder - page will be built later
+    setTimeout(() => {
+      alert(`דף פרטי עסק עבור "${businessName}" יתווסף בהמשך פיתוח המערכת`)
+    }, 1000)
   }
 
   const handleFreeze = async (businessId) => {
+    console.log('Handling freeze/unfreeze for business:', businessId)
+    
     const business = businesses.find(b => b.id === businessId)
-    if (!business) return
+    if (!business) {
+      console.error('Business not found:', businessId)
+      return
+    }
     
     const action = business.status === 'active' ? 'הקפאה' : 'הפעלה'
     const newStatus = business.status === 'active' ? 'frozen' : 'active'
     
+    console.log(`Attempting ${action} for business:`, business.name)
+    
     if (confirm(`האם אתה בטוח שברצונך ${action} של העסק "${business.name}"?`)) {
       try {
+        console.log('User confirmed, updating status to:', newStatus)
+        
         // Update business status in local state (simulate API call)
-        setBusinesses(prev => 
-          prev.map(b => 
+        setBusinesses(prev => {
+          const updated = prev.map(b => 
             b.id === businessId 
               ? { ...b, status: newStatus }
               : b
           )
-        )
+          console.log('Updated businesses list:', updated)
+          return updated
+        })
         
         toast({
           title: "סטטוס עסק עודכן",
@@ -273,24 +321,40 @@ const Businesses = () => {
           variant: "default",
         })
       } catch (error) {
+        console.error('Error updating business status:', error)
         toast({
           title: "שגיאה",
           description: "שגיאה בעדכון סטטוס העסק",
           variant: "destructive",
         })
       }
+    } else {
+      console.log('User cancelled the operation')
     }
   }
 
   const handleDelete = async (businessId) => {
+    console.log('Handling delete for business:', businessId)
+    
     const business = businesses.find(b => b.id === businessId)
-    if (!business) return
+    if (!business) {
+      console.error('Business not found for deletion:', businessId)
+      return
+    }
+    
+    console.log('Attempting to delete business:', business.name)
     
     if (confirm(`האם אתה בטוח שברצונך למחוק את העסק "${business.name}"? הפעולה ניתנת לשחזור.`)) {
       if (confirm('זוהי פעולה חמורה! לחץ אישור שוב כדי להמשיך עם המחיקה.')) {
         try {
+          console.log('User confirmed deletion, removing from state')
+          
           // Remove business from local state (simulate API call)
-          setBusinesses(prev => prev.filter(b => b.id !== businessId))
+          setBusinesses(prev => {
+            const filtered = prev.filter(b => b.id !== businessId)
+            console.log('Business list after deletion:', filtered)
+            return filtered
+          })
           
           toast({
             title: "עסק נמחק",
@@ -298,13 +362,18 @@ const Businesses = () => {
             variant: "default",
           })
         } catch (error) {
+          console.error('Error deleting business:', error)
           toast({
             title: "שגיאה",
             description: "שגיאה במחיקת העסק",
             variant: "destructive",
           })
         }
+      } else {
+        console.log('User cancelled second confirmation')
       }
+    } else {
+      console.log('User cancelled first confirmation')
     }
   }
 
@@ -501,6 +570,16 @@ const Businesses = () => {
                 >
                   {business.status === 'active' ? <PowerOff className="w-3 h-3" /> : <Power className="w-3 h-3" />}
                   {business.status === 'active' ? 'הקפאה' : 'הפעלה'}
+                </motion.button>
+                
+                <motion.button
+                  onClick={() => handleDelete(business.id)}
+                  className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors text-xs font-medium flex-shrink-0"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Trash2 className="w-3 h-3" />
+                  מחיקה
                 </motion.button>
               </div>
 
