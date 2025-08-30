@@ -94,17 +94,17 @@ else:
 @app.route('/')
 def serve_index():
     """Serve the main React application - Tailwind 4.1 + React 19"""
-    return send_from_directory('./dist-new', 'index.html')
+    return send_from_directory('./dist', 'index.html')
 
 @app.route('/auth')
 def serve_auth_index():
     """Serve auth routes - Glass morphism design"""
-    return send_from_directory('./dist-new', 'index.html')
+    return send_from_directory('./dist', 'index.html')
 
 @app.route('/app')
 def serve_app_index():
     """Serve app routes - CRM system"""
-    return send_from_directory('./dist-new', 'index.html')
+    return send_from_directory('./dist', 'index.html')
 
 # API Routes for authentication and business logic
 
