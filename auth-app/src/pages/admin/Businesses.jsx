@@ -221,24 +221,90 @@ const Businesses = () => {
   }
 
   const handleImpersonate = (businessId) => {
-    // Implement impersonate logic
-    console.log('Impersonating business:', businessId)
-    navigate(`/app/biz/overview?business_id=${businessId}`)
+    // Set impersonation context and navigate to business dashboard
+    sessionStorage.setItem('impersonating_business_id', businessId)
+    sessionStorage.setItem('impersonation_start_time', new Date().toISOString())
+    
+    // Navigate to business dashboard with impersonation
+    navigate(`/app/biz/overview`)
+    
+    // Show success message
+    setTimeout(() => {
+      const businessName = businesses.find(b => b.id === businessId)?.name || 'העסק'
+      toast({
+        title: "השתלטות החלה",
+        description: `החל מצב השתלטות על ${businessName}`,
+        variant: "default",
+      })
+    }, 100)
   }
 
   const handleEdit = (businessId) => {
+    // Navigate to edit page - will be built later
     navigate(`/app/admin/businesses/${businessId}/edit`)
   }
 
-  const handleFreeze = (businessId) => {
-    // Implement freeze/unfreeze logic
-    console.log('Toggling freeze status for:', businessId)
+  const handleViewDetails = (businessId) => {
+    // Navigate to business details page - will be built later  
+    navigate(`/app/admin/businesses/${businessId}`)
   }
 
-  const handleDelete = (businessId) => {
-    // Implement soft delete logic
-    if (confirm('האם אתה בטוח שברצונך למחוק עסק זה? הפעולה ניתנת לשחזור.')) {
-      console.log('Deleting business:', businessId)
+  const handleFreeze = async (businessId) => {
+    const business = businesses.find(b => b.id === businessId)
+    if (!business) return
+    
+    const action = business.status === 'active' ? 'הקפאה' : 'הפעלה'
+    const newStatus = business.status === 'active' ? 'frozen' : 'active'
+    
+    if (confirm(`האם אתה בטוח שברצונך ${action} של העסק "${business.name}"?`)) {
+      try {
+        // Update business status in local state (simulate API call)
+        setBusinesses(prev => 
+          prev.map(b => 
+            b.id === businessId 
+              ? { ...b, status: newStatus }
+              : b
+          )
+        )
+        
+        toast({
+          title: "סטטוס עסק עודכן",
+          description: `העסק "${business.name}" ${newStatus === 'active' ? 'הופעל' : 'הוקפא'} בהצלחה`,
+          variant: "default",
+        })
+      } catch (error) {
+        toast({
+          title: "שגיאה",
+          description: "שגיאה בעדכון סטטוס העסק",
+          variant: "destructive",
+        })
+      }
+    }
+  }
+
+  const handleDelete = async (businessId) => {
+    const business = businesses.find(b => b.id === businessId)
+    if (!business) return
+    
+    if (confirm(`האם אתה בטוח שברצונך למחוק את העסק "${business.name}"? הפעולה ניתנת לשחזור.`)) {
+      if (confirm('זוהי פעולה חמורה! לחץ אישור שוב כדי להמשיך עם המחיקה.')) {
+        try {
+          // Remove business from local state (simulate API call)
+          setBusinesses(prev => prev.filter(b => b.id !== businessId))
+          
+          toast({
+            title: "עסק נמחק",
+            description: `העסק "${business.name}" נמחק בהצלחה (מחיקה רכה)`,
+            variant: "default",
+          })
+        } catch (error) {
+          toast({
+            title: "שגיאה",
+            description: "שגיאה במחיקת העסק",
+            variant: "destructive",
+          })
+        }
+      }
     }
   }
 
@@ -400,11 +466,11 @@ const Businesses = () => {
                   whileTap={{ scale: 0.95 }}
                 >
                   <Crown className="w-3 h-3" />
-                  השלטה
+                  השתלטות
                 </motion.button>
                 
                 <motion.button
-                  onClick={() => navigate(`/app/admin/businesses/${business.id}`)}
+                  onClick={() => handleViewDetails(business.id)}
                   className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors text-xs font-medium flex-shrink-0"
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
