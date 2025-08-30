@@ -43,23 +43,23 @@ else:
 
 @app.route('/')
 def serve_index():
-    """Serve the main React application"""
-    return send_from_directory('.', 'index.html')
+    """Serve the main React application - Tailwind 4.1 + React 19"""
+    return send_from_directory('./dist-new', 'index.html')
 
 @app.route('/auth')
 def serve_auth_index():
-    """Serve auth routes"""
-    return send_from_directory('.', 'index.html')
+    """Serve auth routes - Glass morphism design"""
+    return send_from_directory('./dist-new', 'index.html')
 
 @app.route('/auth/<path:path>')
 def serve_auth_routes(path):
-    """Serve auth sub-routes (login, forgot, reset)"""
-    return send_from_directory('.', 'index.html')
+    """Serve auth sub-routes (login, forgot, reset) - Premium design"""
+    return send_from_directory('./dist-new', 'index.html')
 
 @app.route('/assets/<path:filename>')
 def serve_assets(filename):
-    """Serve static assets"""
-    return send_from_directory('./assets', filename)
+    """Serve static assets - Modern build with OKLCH colors"""
+    return send_from_directory('./dist-new/assets', filename)
 
 @app.route('/vite.svg')
 def serve_vite_svg():
