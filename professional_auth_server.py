@@ -241,46 +241,354 @@ def serve_vite_svg():
     """Serve Vite logo"""
     return send_from_directory('.', 'vite.svg')
 
-# API Routes
-@app.route('/api/auth/login', methods=['POST'])
-def api_login():
-    """Login API endpoint"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'message': 'נתונים חסרים'}), 400
-            
-        email = data.get('email', '').lower().strip()
-        password = data.get('password', '')
-        remember = data.get('remember', False)
-        
-        if not email or not password:
-            return jsonify({'success': False, 'message': 'אימייל וסיסמה נדרשים'}), 400
-            
-        # Check user credentials
-        user = MOCK_USERS.get(email)
-        if not user or user['password'] != password:
-            return jsonify({'success': False, 'message': 'אימייל או סיסמה שגויים'}), 401
-            
-        # Set session
-        session['user_id'] = email
-        session['user_role'] = user['role']
-        session['user_name'] = user['name']
-        session.permanent = remember
-        
-        return jsonify({
-            'success': True, 
-            'message': 'התחברת בהצלחה',
-            'user': {
-                'email': email,
-                'role': user['role'],
-                'name': user['name']
+# Additional API Routes for Overview functionality
+@app.route('/api/admin/businesses')
+def api_admin_businesses():
+    """Get all businesses (admin only)"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מורשה'}), 401
+    
+    user = MOCK_USERS[user_email]
+    if user['role'] not in ['superadmin', 'admin']:
+        return jsonify({'error': 'אין הרשאה'}), 403
+    
+    # Enhanced business data with statistics
+    businesses = []
+    for biz_id, biz in MOCK_BUSINESSES.items():
+        business_data = biz.copy()
+        business_data.update({
+            'stats': {
+                'users_count': len([u for u in MOCK_USERS.values() if u.get('business_id') == biz_id]),
+                'active_calls': 2 if biz['status'] == 'active' else 0,
+                'whatsapp_threads': 12 if biz['status'] == 'active' else 0,
+                'last_activity': '2024-08-30T15:30:00Z'
             }
         })
-        
-    except Exception as e:
-        print(f"Login error: {e}")
-        return jsonify({'success': False, 'message': 'שגיאת שרת'}), 500
+        businesses.append(business_data)
+    
+    return jsonify(businesses)
+
+@app.route('/api/admin/users')
+def api_admin_users():
+    """Get all system users (admin only)"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מורשה'}), 401
+    
+    user = MOCK_USERS[user_email]
+    if user['role'] not in ['superadmin', 'admin']:
+        return jsonify({'error': 'אין הרשאה'}), 403
+    
+    # Return user data without passwords
+    users = []
+    for email, user_data in MOCK_USERS.items():
+        safe_user = user_data.copy()
+        safe_user.pop('password', None)
+        safe_user['email'] = email
+        safe_user['status'] = 'active'
+        safe_user['last_login'] = '2024-08-30T14:20:00Z'
+        users.append(safe_user)
+    
+    return jsonify(users)
+
+@app.route('/api/biz/kpis')
+def api_biz_kpis():
+    """Get business KPIs"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מורשה'}), 401
+    
+    user = MOCK_USERS[user_email]
+    business_id = user.get('business_id')
+    
+    if not business_id:
+        return jsonify({'error': 'משתמש לא משויך לעסק'}), 403
+    
+    import random
+    from datetime import datetime
+    
+    hour = datetime.now().hour
+    is_business_hours = 8 <= hour <= 22
+    
+    kpis = {
+        'active_calls_now': random.randint(1, 4) if is_business_hours else 0,
+        'whatsapp_messages_24h': random.randint(50, 150),
+        'delivery_rate': f"{random.uniform(92, 98):.1f}%",
+        'avg_first_response_sec': f"{random.uniform(1.2, 3.5):.1f} דק",
+        'new_leads_today': random.randint(3, 12),
+        'opportunities_open': random.randint(5, 15),
+        'revenue_today': f"₪{random.randint(5000, 25000):,}",
+        'conversion_rate': f"{random.uniform(15, 25):.1f}%",
+        'ws_connections_ok': is_business_hours
+    }
+    
+    return jsonify(kpis)
+
+@app.route('/api/whatsapp/threads')
+def api_whatsapp_threads():
+    """Get WhatsApp threads"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מורשה'}), 401
+    
+    user = MOCK_USERS[user_email]
+    business_id = user.get('business_id')
+    
+    # For admin, get all businesses; for business users, only their business
+    if user['role'] in ['superadmin', 'admin']:
+        if not business_id:
+            business_id = 'all'
+    elif not business_id:
+        return jsonify({'error': 'משתמש לא משויך לעסק'}), 403
+    
+    # Mock WhatsApp threads data
+    threads = [
+        {
+            'id': 1,
+            'name': 'דוד כהן',
+            'phone': '054-1234567',
+            'unread_count': 2,
+            'status': 'delivered',
+            'last_message': 'מתי אפשר לקבוע סיור בדירה?',
+            'last_activity': '2024-08-30T15:30:00Z',
+            'business_id': business_id if business_id != 'all' else 'biz_001'
+        },
+        {
+            'id': 2,
+            'name': 'שרה לוי',
+            'phone': '052-9876543',
+            'unread_count': 0,
+            'status': 'read',
+            'last_message': 'תודה על הפרטים',
+            'last_activity': '2024-08-30T14:15:00Z',
+            'business_id': business_id if business_id != 'all' else 'biz_001'
+        },
+        {
+            'id': 3,
+            'name': 'יוסי משה',
+            'phone': '050-5555555',
+            'unread_count': 1,
+            'status': 'sent',
+            'last_message': 'אשלח לך עוד אפשרויות מחר',
+            'last_activity': '2024-08-30T13:45:00Z',
+            'business_id': business_id if business_id != 'all' else 'biz_001'
+        }
+    ]
+    
+    return jsonify(threads)
+
+@app.route('/api/calls/recent')
+def api_calls_recent():
+    """Get recent calls"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מורשה'}), 401
+    
+    user = MOCK_USERS[user_email]
+    business_id = user.get('business_id')
+    
+    # For admin, get all businesses; for business users, only their business
+    if user['role'] in ['superadmin', 'admin']:
+        if not business_id:
+            business_id = 'all'
+    elif not business_id:
+        return jsonify({'error': 'משתמש לא משויך לעסק'}), 403
+    
+    # Mock recent calls data
+    calls = [
+        {
+            'id': 1,
+            'name': 'אבי שמש',
+            'phone': '+972541234567',
+            'duration': '5:23',
+            'status': 'completed',
+            'transcribed': True,
+            'sentiment': 'positive',
+            'date': '2024-08-30T14:30:00Z',
+            'business_id': business_id if business_id != 'all' else 'biz_001'
+        },
+        {
+            'id': 2,
+            'name': 'ליאת גל', 
+            'phone': '+972529876543',
+            'duration': '2:15',
+            'status': 'completed',
+            'transcribed': True,
+            'sentiment': 'neutral',
+            'date': '2024-08-30T13:15:00Z',
+            'business_id': business_id if business_id != 'all' else 'biz_001'
+        },
+        {
+            'id': 3,
+            'name': 'רון ברק',
+            'phone': '+972505555555',
+            'duration': '8:42',
+            'status': 'completed',
+            'transcribed': False,
+            'sentiment': None,
+            'date': '2024-08-30T11:20:00Z',
+            'business_id': business_id if business_id != 'all' else 'biz_001'
+        }
+    ]
+    
+    return jsonify(calls)
+
+@app.route('/api/crm/leads')
+def api_crm_leads():
+    """Get CRM leads"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מורשה'}), 401
+    
+    user = MOCK_USERS[user_email]
+    business_id = user.get('business_id')
+    
+    # For admin, get all businesses; for business users, only their business
+    if user['role'] in ['superadmin', 'admin']:
+        if not business_id:
+            business_id = 'all'
+    elif not business_id:
+        return jsonify({'error': 'משתמש לא משויך לעסק'}), 403
+    
+    # Mock leads data
+    leads = [
+        {
+            'id': 1,
+            'name': 'יעל רוזן',
+            'status': 'hot',
+            'stage': 'negotiation',
+            'last_update': '2024-08-30T13:00:00Z',
+            'value': '₪2,300,000',
+            'property_type': 'דירת גן בהרצליה',
+            'source': 'website',
+            'business_id': business_id if business_id != 'all' else 'biz_001'
+        },
+        {
+            'id': 2,
+            'name': 'אלון פרץ',
+            'status': 'warm',
+            'stage': 'viewing',
+            'last_update': '2024-08-30T10:30:00Z',
+            'value': '₪890,000',
+            'property_type': 'דירת 3 חדרים בחדרה',
+            'source': 'referral',
+            'business_id': business_id if business_id != 'all' else 'biz_001'
+        },
+        {
+            'id': 3,
+            'name': 'דנה שחר',
+            'status': 'cold',
+            'stage': 'interest',
+            'last_update': '2024-08-29T16:45:00Z',
+            'value': '₪1,500,000',
+            'property_type': 'פנטהאוס בתל אביב',
+            'source': 'social_media',
+            'business_id': business_id if business_id != 'all' else 'biz_001'
+        }
+    ]
+    
+    return jsonify(leads)
+
+@app.route('/api/integrations/status')
+def api_integrations_status():
+    """Get integration status"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מורשה'}), 401
+    
+    user = MOCK_USERS[user_email]
+    business_id = user.get('business_id')
+    
+    if user['role'] in ['superadmin', 'admin']:
+        # For admin, return system-wide integration status
+        status = {
+            'whatsapp': 'connected',
+            'voice': 'ws_ok',
+            'paypal': 'not_configured',
+            'tranzila': 'ready',
+            'stripe': 'not_configured'
+        }
+    elif business_id:
+        # For business users, return their business integrations
+        business = MOCK_BUSINESSES.get(business_id, {})
+        status = business.get('integrations', {})
+        # Add voice status based on business hours
+        from datetime import datetime
+        hour = datetime.now().hour
+        status['voice'] = 'ws_ok' if 8 <= hour <= 22 else 'fallback'
+    else:
+        return jsonify({'error': 'משתמש לא משויך לעסק'}), 403
+    
+    return jsonify(status)
+
+@app.route('/api/activity/recent')
+def api_activity_recent():
+    """Get recent activity feed"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מורשה'}), 401
+    
+    user = MOCK_USERS[user_email]
+    business_id = user.get('business_id')
+    
+    # Mock activity feed
+    activities = [
+        {
+            'id': 1,
+            'type': 'whatsapp',
+            'business': 'שי דירות ומשרדים' if user['role'] in ['superadmin', 'admin'] else None,
+            'message': 'לקוח חדש הצטרף ל-WhatsApp - מעוניין בדירת 4 חדרים',
+            'time': '2024-08-30T15:30:00Z',
+            'status': 'unread',
+            'priority': 'medium',
+            'customer': 'דוד כהן'
+        },
+        {
+            'id': 2,
+            'type': 'call',
+            'business': 'דוד נכסים' if user['role'] in ['superadmin', 'admin'] else None,
+            'message': 'שיחה נענתה בהצלחה - תמלול מוכן',
+            'time': '2024-08-30T15:28:00Z',
+            'status': 'completed',
+            'priority': 'high',
+            'customer': 'שרה לוי'
+        },
+        {
+            'id': 3,
+            'type': 'payment',
+            'business': 'שי דירות ומשרדים' if user['role'] in ['superadmin', 'admin'] else None,
+            'message': 'תשלום התקבל - ₪15,000 עמלת מכירה',
+            'time': '2024-08-30T15:25:00Z',
+            'status': 'success',
+            'priority': 'high',
+            'customer': 'יוסי משה'
+        },
+        {
+            'id': 4,
+            'type': 'contract',
+            'business': 'שי דירות ומשרדים' if user['role'] in ['superadmin', 'admin'] else None,
+            'message': 'חוזה חדש נחתם דיגיטלית - דירה בחדרה',
+            'time': '2024-08-30T15:22:00Z',
+            'status': 'signed',
+            'priority': 'high',
+            'customer': 'רחל אברהם'
+        },
+        {
+            'id': 5,
+            'type': 'user',
+            'business': 'דוד נכסים' if user['role'] in ['superadmin', 'admin'] else None,
+            'message': 'משתמש חדש הוזמן - סוכן מכירות',
+            'time': '2024-08-30T15:18:00Z',
+            'status': 'pending',
+            'priority': 'low',
+            'customer': 'מיכל דוד'
+        }
+    ]
+    
+    return jsonify(activities)
+
+# API Routes
 
 @app.route('/api/auth/forgot-password', methods=['POST'])
 def api_forgot_password():
