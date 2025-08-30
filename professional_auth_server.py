@@ -728,11 +728,32 @@ def health_check():
         'frontend': 'React 19 + Tailwind 4.1 + Motion'
     })
 
+# Catch-all route for SPA routing - MUST BE LAST!
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def catch_all(path):
+    """
+    Catch-all route for React Router (SPA routing)
+    Returns index.html for any route that doesn't exist on server
+    This allows React Router to handle all frontend routing
+    """
+    # Skip API routes and let them 404 properly
+    if path.startswith('api/'):
+        return "API endpoint not found", 404
+    
+    # Skip webhook routes and let them 404 properly  
+    if path.startswith('webhook/'):
+        return "Webhook endpoint not found", 404
+    
+    # For all other routes, serve the React app
+    return send_from_directory('./dist', 'index.html')
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"🌐 Starting server on port {port}")
     print(f"📖 Access at: http://localhost:{port}")
     print(f"🔗 Auth routes: http://localhost:{port}/auth/login")
+    print(f"🛣️  SPA Routing: ALL paths serve React app (except /api/ and /webhook/)")
     print("")
     
     app.run(
