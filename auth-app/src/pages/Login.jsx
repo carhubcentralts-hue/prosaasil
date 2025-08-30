@@ -1,11 +1,14 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { FormField, Input, PasswordInput } from '@/components/FormField'
 import Button from '@/components/Button'
 import { useToast } from '@/components/Toast'
+import { useAuth } from '@/contexts/AuthContext'
 
 const Login = () => {
+  const navigate = useNavigate()
+  const { login, user, loading: authLoading } = useAuth()
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -14,6 +17,16 @@ const Login = () => {
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(false)
   const { showError, showSuccess } = useToast()
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (user && !authLoading) {
+      const redirectPath = user.role === 'superadmin' || user.role === 'admin' 
+        ? '/app/admin/overview' 
+        : '/app/biz/overview'
+      navigate(redirectPath, { replace: true })
+    }
+  }, [user, authLoading, navigate])
 
   const validateField = (name, value) => {
     switch (name) {
@@ -66,19 +79,19 @@ const Login = () => {
     setLoading(true)
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      const result = await login(formData.email, formData.password)
       
-      showSuccess('התחברת בהצלחה! מעביר לדשבורד...')
-      
-      if (formData.remember) {
-        localStorage.setItem('remembered_email', formData.email)
+      if (result.success) {
+        showSuccess('התחברת בהצלחה! מעביר אותך למערכת...')
+        
+        if (formData.remember) {
+          localStorage.setItem('remembered_email', formData.email)
+        } else {
+          localStorage.removeItem('remembered_email')
+        }
       } else {
-        localStorage.removeItem('remembered_email')
+        showError(result.error || 'שגיאה בהתחברות')
       }
-
-      setTimeout(() => {
-        window.location.href = '/app/admin'
-      }, 1000)
 
     } catch (error) {
       showError('שגיאה בהתחברות - אנא נסה שוב')

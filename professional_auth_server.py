@@ -16,17 +16,67 @@ app.secret_key = os.environ.get('SECRET_KEY', 'development-key-change-in-product
 # Enable CORS for frontend
 CORS(app, supports_credentials=True, origins=['http://localhost:5000', 'http://127.0.0.1:5000'])
 
-# Mock user database (replace with real database in production)
+# Enhanced user database with business model
 MOCK_USERS = {
+    'superadmin@shai.co.il': {
+        'password': 'super123',
+        'role': 'superadmin',
+        'name': 'מנהל מערכת ראשי',
+        'business_id': None,
+        'permissions': ['all']
+    },
     'admin@shai.co.il': {
         'password': 'admin123',
         'role': 'admin',
-        'name': 'מנהל המערכת'
+        'name': 'מנהל המערכת',
+        'business_id': None,
+        'permissions': ['manage_businesses', 'manage_users', 'view_all']
     },
-    'business@shai.co.il': {
-        'password': 'business123', 
-        'role': 'business',
-        'name': 'משתמש עסקי'
+    'owner@shai.co.il': {
+        'password': 'owner123',
+        'role': 'business_owner',
+        'name': 'בעל עסק - שי דירות',
+        'business_id': 'biz_001',
+        'permissions': ['manage_business_users', 'view_business_data', 'manage_business_settings']
+    },
+    'agent@shai.co.il': {
+        'password': 'agent123',
+        'role': 'business_agent',
+        'name': 'סוכן מכירות',
+        'business_id': 'biz_001',
+        'permissions': ['view_business_data', 'edit_crm', 'handle_calls']
+    },
+    'viewer@shai.co.il': {
+        'password': 'viewer123',
+        'role': 'read_only',
+        'name': 'צופה בלבד',
+        'business_id': 'biz_001',
+        'permissions': ['view_business_data']
+    }
+}
+
+# Mock businesses database
+MOCK_BUSINESSES = {
+    'biz_001': {
+        'id': 'biz_001',
+        'name': 'שי דירות ומשרדים בע״מ',
+        'domain': 'shai.co.il',
+        'status': 'active',
+        'integrations': {
+            'whatsapp': 'connected',
+            'twilio': 'connected',
+            'paypal': 'not_configured',
+            'tranzila': 'not_configured'
+        },
+        'settings': {
+            'timezone': 'Asia/Jerusalem',
+            'language': 'he',
+            'branding': {
+                'logo_url': '',
+                'primary_color': '#8B5CF6',
+                'secondary_color': '#06B6D4'
+            }
+        }
     }
 }
 
@@ -50,6 +100,121 @@ def serve_index():
 def serve_auth_index():
     """Serve auth routes - Glass morphism design"""
     return send_from_directory('./dist-new', 'index.html')
+
+# API Routes for authentication and business logic
+
+@app.route('/api/auth/me')
+def get_current_user():
+    """Get current user info with role and permissions"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מחובר'}), 401
+    
+    user_data = MOCK_USERS[user_email].copy()
+    user_data.pop('password', None)  # Don't send password
+    user_data['email'] = user_email
+    
+    # Add business info if applicable
+    if user_data.get('business_id'):
+        business = MOCK_BUSINESSES.get(user_data['business_id'])
+        if business:
+            user_data['business'] = business
+    
+    return jsonify(user_data)
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """Enhanced login with role validation"""
+    data = request.get_json()
+    email = data.get('email', '').lower()
+    password = data.get('password', '')
+    
+    if email in MOCK_USERS and MOCK_USERS[email]['password'] == password:
+        session['user_email'] = email
+        user_data = MOCK_USERS[email].copy()
+        user_data.pop('password', None)
+        user_data['email'] = email
+        
+        # Add business info if applicable
+        if user_data.get('business_id'):
+            business = MOCK_BUSINESSES.get(user_data['business_id'])
+            if business:
+                user_data['business'] = business
+        
+        return jsonify(user_data)
+    
+    return jsonify({'error': 'שם משתמש או סיסמה שגויים'}), 401
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    """Logout and clear session"""
+    session.clear()
+    return jsonify({'success': True})
+
+@app.route('/api/auth/impersonate', methods=['POST'])
+def impersonate():
+    """Admin-only: Impersonate a business"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מורשה'}), 401
+    
+    user = MOCK_USERS[user_email]
+    if user['role'] not in ['superadmin', 'admin']:
+        return jsonify({'error': 'אין הרשאה'}), 403
+    
+    data = request.get_json()
+    business_id = data.get('business_id')
+    
+    if business_id not in MOCK_BUSINESSES:
+        return jsonify({'error': 'עסק לא נמצא'}), 404
+    
+    session['impersonating_business'] = business_id
+    return jsonify({'business': MOCK_BUSINESSES[business_id]})
+
+@app.route('/api/businesses')
+def get_businesses():
+    """Get all businesses (admin only)"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מורשה'}), 401
+    
+    user = MOCK_USERS[user_email]
+    if user['role'] not in ['superadmin', 'admin']:
+        return jsonify({'error': 'אין הרשאה'}), 403
+    
+    return jsonify(list(MOCK_BUSINESSES.values()))
+
+@app.route('/api/business/<business_id>/overview')
+def get_business_overview(business_id):
+    """Get business overview data"""
+    user_email = session.get('user_email')
+    if not user_email or user_email not in MOCK_USERS:
+        return jsonify({'error': 'לא מורשה'}), 401
+    
+    user = MOCK_USERS[user_email]
+    
+    # Check if user has access to this business
+    if user['role'] not in ['superadmin', 'admin']:
+        if user.get('business_id') != business_id:
+            return jsonify({'error': 'אין הרשאה לעסק זה'}), 403
+    
+    # Mock overview data
+    overview_data = {
+        'kpis': {
+            'active_calls': 3,
+            'whatsapp_threads': 15,
+            'new_leads': 8,
+            'pending_documents': 2
+        },
+        'integrations': MOCK_BUSINESSES.get(business_id, {}).get('integrations', {}),
+        'recent_activity': [
+            {'type': 'call', 'time': '10:30', 'description': 'שיחה נכנסת מלקוח חדש'},
+            {'type': 'whatsapp', 'time': '09:15', 'description': 'הודעה חדשה בוואטסאפ'},
+            {'type': 'crm', 'time': '08:45', 'description': 'ליד חדש נוצר'}
+        ]
+    }
+    
+    return jsonify(overview_data)
 
 @app.route('/auth/<path:path>')
 def serve_auth_routes(path):
