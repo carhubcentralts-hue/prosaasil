@@ -50,7 +50,8 @@ export const AuthProvider = ({ children }) => {
 
       if (response.ok) {
         const userData = await response.json()
-        setUser(userData)
+        // Fix: Server returns nested user object
+        setUser(userData.user || userData)
         return { success: true }
       } else {
         const error = await response.json()
