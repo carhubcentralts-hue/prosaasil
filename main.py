@@ -127,39 +127,14 @@ def get_current_user():
     
     return jsonify(user_data)
 
-@app.route('/api/auth/login', methods=['POST'])
-def login():
-    """Enhanced login with role validation"""
-    data = request.get_json()
-    email = data.get('email', '').lower()
-    password = data.get('password', '')
-    
-    if email in MOCK_USERS and MOCK_USERS[email]['password'] == password:
-        session['user_email'] = email
-        user_data = MOCK_USERS[email].copy()
-        user_data.pop('password', None)
-        user_data['email'] = email
-        
-        # Add business info if applicable
-        if user_data.get('business_id'):
-            business = MOCK_BUSINESSES.get(user_data['business_id'])
-            if business:
-                user_data['business'] = business
-        
-        return jsonify(user_data)
-    
-    return jsonify({'error': 'שם משתמש או סיסמה שגויים'}), 401
+# REMOVED DUPLICATE - using api_login below instead
 
-@app.route('/api/auth/logout', methods=['POST'])
-def logout():
-    """Logout and clear session"""
-    session.clear()
-    return jsonify({'success': True})
+# REMOVED DUPLICATE - using api_logout below instead
 
 @app.route('/api/auth/impersonate', methods=['POST'])
 def impersonate():
     """Admin-only: Impersonate a business"""
-    user_email = session.get('user_email')
+    user_email = session.get('user_id')  # תוקן: user_id במקום user_email
     if not user_email or user_email not in MOCK_USERS:
         return jsonify({'error': 'לא מורשה'}), 401
     
