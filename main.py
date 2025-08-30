@@ -86,7 +86,7 @@ print("🎨 Glass morphism design with Hebrew RTL")
 print("🔐 API endpoints: /api/auth/*")
 
 # Check if build exists
-if os.path.exists('./dist-new/index.html'):
+if os.path.exists('./dist/index.html'):
     print("✅ React build found")
 else:
     print("❌ React build missing - run 'npm run build' first")
