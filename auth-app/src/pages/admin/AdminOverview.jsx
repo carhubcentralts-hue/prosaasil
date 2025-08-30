@@ -89,8 +89,7 @@ const AdminOverview = () => {
           whatsapp: Math.random() > 0.1 ? 'connected' : 'error',
           voice: isBusinessHours ? 'ws_ok' : 'fallback',
           paypal: Math.random() > 0.3 ? 'ready' : 'not_configured',
-          tranzila: 'ready',
-          stripe: Math.random() > 0.7 ? 'ready' : 'not_configured'
+          tranzila: 'ready'
         })
 
         // Recent Activity Feed
@@ -451,8 +450,7 @@ const AdminOverview = () => {
               whatsapp: 'WhatsApp',
               voice: 'Voice (WebSocket)',
               paypal: 'PayPal',
-              tranzila: 'Tranzila',
-              stripe: 'Stripe'
+              tranzila: 'Tranzila'
             }
             
             return (
