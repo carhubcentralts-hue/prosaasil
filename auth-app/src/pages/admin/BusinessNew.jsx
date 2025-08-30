@@ -233,7 +233,7 @@ const BusinessNew = () => {
       case 1:
         return (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
                   שם העסק *
@@ -271,7 +271,7 @@ const BusinessNew = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
                   דומיין/מותג (אופציונלי)
@@ -307,7 +307,7 @@ const BusinessNew = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
                   אזור זמן
@@ -356,7 +356,7 @@ const BusinessNew = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
               <motion.div
                 className={`p-6 border-2 rounded-2xl cursor-pointer transition-all ${
                   formData.enableWhatsApp 
@@ -735,7 +735,7 @@ const BusinessNew = () => {
 
             {/* Technical Settings */}
             {formData.enableCalls && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
                     זמן שתיקה מינימלי (ms)
@@ -823,7 +823,7 @@ const BusinessNew = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
                   מגבלת משתמשים *
@@ -947,7 +947,7 @@ const BusinessNew = () => {
             </div>
 
             {/* Business Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
               <div className="space-y-4">
                 <div className="bg-white border border-slate-200 rounded-xl p-4">
                   <h4 className="font-medium text-slate-800 mb-3 flex items-center gap-2">
@@ -1116,75 +1116,77 @@ const BusinessNew = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-2xl mx-auto p-4">
       {/* Header */}
       <motion.div
-        className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-slate-200/60 shadow-lg mb-6"
+        className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-slate-200/60 shadow-lg mb-4"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
       >
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
-              <Building2 className="w-6 h-6 text-white" />
+            <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+              <Building2 className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">יצירת עסק חדש</h1>
-              <p className="text-slate-600">אשף הגדרה מושלם לעסק חדש</p>
+              <h1 className="text-xl font-bold text-slate-800">יצירת עסק חדש</h1>
+              <p className="text-sm text-slate-600">אשף הגדרה מושלם</p>
             </div>
           </div>
           
           <motion.button
             onClick={() => navigate('/app/admin/businesses')}
-            className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 transition-colors"
+            className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:text-slate-800 transition-colors text-sm"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
             ביטול
           </motion.button>
         </div>
 
         {/* Progress Steps */}
-        <div className="flex items-center justify-between">
-          {steps.map((step, index) => (
-            <div key={step.id} className="flex items-center">
-              <div className={`flex items-center gap-2 ${
-                step.id === currentStep ? 'text-blue-600' :
-                step.id < currentStep ? 'text-green-600' : 'text-slate-400'
-              }`}>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                  step.id === currentStep ? 'bg-blue-100 text-blue-600' :
-                  step.id < currentStep ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400'
+        <div className="overflow-x-auto">
+          <div className="flex items-center justify-between min-w-max px-2">
+            {steps.map((step, index) => (
+              <div key={step.id} className="flex items-center">
+                <div className={`flex items-center gap-2 ${
+                  step.id === currentStep ? 'text-blue-600' :
+                  step.id < currentStep ? 'text-green-600' : 'text-slate-400'
                 }`}>
-                  {step.id < currentStep ? <Check className="w-4 h-4" /> : step.id}
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${
+                    step.id === currentStep ? 'bg-blue-100 text-blue-600' :
+                    step.id < currentStep ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400'
+                  }`}>
+                    {step.id < currentStep ? <Check className="w-3 h-3" /> : step.id}
+                  </div>
+                  <span className="hidden sm:block text-xs font-medium truncate max-w-20">{step.title}</span>
                 </div>
-                <span className="hidden md:block text-sm font-medium">{step.title}</span>
+                {index < steps.length - 1 && (
+                  <div className={`w-8 h-px mx-2 ${
+                    step.id < currentStep ? 'bg-green-300' : 'bg-slate-200'
+                  }`} />
+                )}
               </div>
-              {index < steps.length - 1 && (
-                <div className={`w-12 h-px mx-4 ${
-                  step.id < currentStep ? 'bg-green-300' : 'bg-slate-200'
-                }`} />
-              )}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </motion.div>
 
       {/* Step Content */}
       <motion.div
-        className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-slate-200/60 shadow-lg mb-6"
+        className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-slate-200/60 shadow-lg mb-4"
         key={currentStep}
         initial={{ opacity: 0, x: 20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.3 }}
       >
-        <div className="mb-6">
-          <h2 className="text-xl font-bold text-slate-800 mb-2">
+        <div className="mb-4">
+          <h2 className="text-lg font-bold text-slate-800 mb-2">
             {steps.find(s => s.id === currentStep)?.title}
           </h2>
-          <div className="w-12 h-1 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full" />
+          <div className="w-8 h-1 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full" />
         </div>
 
         {renderStepContent()}
