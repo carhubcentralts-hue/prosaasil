@@ -77,32 +77,85 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  // Impersonate business (admin only)
-  const impersonate = async (businessId) => {
+  // Quick Actions - Admin tools for business management
+  const quickViewBusiness = async (businessId) => {
+    if (!hasPermission('manage_businesses')) return null
+    
+    try {
+      const response = await fetch(`/api/businesses/${businessId}/quick-view`, {
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        return await response.json()
+      }
+    } catch (error) {
+      console.error('Quick view error:', error)
+    }
+    return null
+  }
+
+  const quickCreateLead = async (businessId, leadData) => {
     if (!hasPermission('manage_businesses')) return false
     
     try {
-      const response = await fetch('/api/auth/impersonate', {
+      const response = await fetch(`/api/businesses/${businessId}/leads`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         credentials: 'include',
-        body: JSON.stringify({ business_id: businessId })
+        body: JSON.stringify(leadData)
       })
 
-      if (response.ok) {
-        const data = await response.json()
-        setImpersonating(data.business)
-        return true
-      }
+      return response.ok
     } catch (error) {
-      console.error('Impersonate error:', error)
+      console.error('Quick lead creation error:', error)
+      return false
     }
-    return false
   }
 
-  // Stop impersonating
+  const quickSendMessage = async (businessId, phoneNumber, message) => {
+    if (!hasPermission('manage_businesses')) return false
+    
+    try {
+      const response = await fetch(`/api/businesses/${businessId}/send-message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ phone: phoneNumber, message })
+      })
+
+      return response.ok
+    } catch (error) {
+      console.error('Quick message error:', error)
+      return false
+    }
+  }
+
+  const quickToggleIntegration = async (businessId, integration, enabled) => {
+    if (!hasPermission('manage_businesses')) return false
+    
+    try {
+      const response = await fetch(`/api/businesses/${businessId}/integrations/${integration}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ enabled })
+      })
+
+      return response.ok
+    } catch (error) {
+      console.error('Quick integration toggle error:', error)
+      return false
+    }
+  }
+
+  // Stop impersonating (legacy - keeping for compatibility)
   const stopImpersonating = () => {
     setImpersonating(null)
   }
@@ -139,7 +192,10 @@ export const AuthProvider = ({ children }) => {
     impersonating,
     login,
     logout,
-    impersonate,
+    quickViewBusiness,
+    quickCreateLead,
+    quickSendMessage,
+    quickToggleIntegration,
     stopImpersonating,
     hasPermission,
     isAdmin,

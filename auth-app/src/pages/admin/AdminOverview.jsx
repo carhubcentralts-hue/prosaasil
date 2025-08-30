@@ -33,7 +33,7 @@ import { useAuth } from '@/contexts/AuthContext'
 
 const AdminOverview = () => {
   console.log('🚀 AdminOverview component loaded!')
-  const { user, impersonate } = useAuth()
+  const { user, quickViewBusiness, quickCreateLead, quickSendMessage, quickToggleIntegration } = useAuth()
   const [timeRange, setTimeRange] = useState('7d')
   const [selectedBusiness, setSelectedBusiness] = useState(null)
   const [kpis, setKpis] = useState(null)
@@ -180,12 +180,39 @@ const AdminOverview = () => {
     }
   }
 
-  const handleImpersonate = async (businessId) => {
-    const success = await impersonate(businessId)
-    if (success) {
-      window.location.href = '/app/biz/overview'
+  // Quick Actions Handlers
+  const handleQuickView = async (businessId) => {
+    const data = await quickViewBusiness(businessId)
+    if (data) {
+      setQuickViewData(data)
+      setShowQuickView(true)
     }
   }
+
+  const handleQuickLead = async (businessId, name, phone, type) => {
+    const success = await quickCreateLead(businessId, { name, phone, type })
+    if (success) {
+      fetchOverviewData() // Refresh data
+    }
+  }
+
+  const handleQuickMessage = async (businessId, phone, message) => {
+    const success = await quickSendMessage(businessId, phone, message)
+    if (success) {
+      fetchOverviewData() // Refresh data
+    }
+  }
+
+  const handleQuickToggle = async (businessId, integration, enabled) => {
+    const success = await quickToggleIntegration(businessId, integration, enabled)
+    if (success) {
+      fetchOverviewData() // Refresh data
+    }
+  }
+
+  // Quick action states
+  const [showQuickView, setShowQuickView] = useState(false)
+  const [quickViewData, setQuickViewData] = useState(null)
 
   const getIntegrationConfig = (integration, status) => {
     const configs = {
@@ -348,15 +375,48 @@ const AdminOverview = () => {
             יצירת עסק חדש
           </motion.button>
           
-          <motion.button
-            onClick={() => handleImpersonate('shai_001')}
-            className="w-full flex items-center gap-3 p-4 bg-orange-500 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            <Eye className="w-5 h-5" />
-            Impersonate עסק
-          </motion.button>
+          {/* Quick Actions Grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <motion.button
+              onClick={() => handleQuickView('shai_001')}
+              className="flex items-center gap-2 p-3 bg-blue-500 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all text-sm"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Eye className="w-4 h-4" />
+              צפייה מהירה
+            </motion.button>
+            
+            <motion.button
+              onClick={() => handleQuickLead('shai_001', 'לקוח חדש', '050-1234567', 'דירה')}
+              className="flex items-center gap-2 p-3 bg-green-500 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all text-sm"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <UserPlus className="w-4 h-4" />
+              lead מהיר
+            </motion.button>
+            
+            <motion.button
+              onClick={() => handleQuickMessage('shai_001', '050-1234567', 'שלום! איך אפשר לעזור?')}
+              className="flex items-center gap-2 p-3 bg-purple-500 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all text-sm"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <MessageSquare className="w-4 h-4" />
+              הודעה מהירה
+            </motion.button>
+            
+            <motion.button
+              onClick={() => handleQuickToggle('shai_001', 'whatsapp', true)}
+              className="flex items-center gap-2 p-3 bg-orange-500 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all text-sm"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Zap className="w-4 h-4" />
+              הפעלה מהירה
+            </motion.button>
+          </div>
           
           <motion.button
             onClick={() => window.location.href = '/app/admin/users/invite'}
@@ -433,7 +493,7 @@ const AdminOverview = () => {
             <span className="text-2xl font-bold">12</span>
           </div>
           <h3 className="text-lg font-semibold mb-2">ניהול עסקים</h3>
-          <p className="text-purple-200 text-sm mb-3">יצירה, הקפאה ו-Impersonate</p>
+          <p className="text-purple-200 text-sm mb-3">יצירה, ניהול ופעולות מהירות</p>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-green-400 rounded-full"></div>
