@@ -11,20 +11,20 @@ const Button = forwardRef(({
 }, ref) => {
   const variants = {
     primary: `
-      bg-gradient-to-l from-blue-500 to-blue-600 
-      text-white 
-      hover:from-blue-600 hover:to-blue-700 
-      shadow-lg
-      hover:shadow-xl
-      focus:ring-blue-500
+      bg-gradient-to-l from-accent-start to-accent-middle
+      text-white font-semibold
+      hover:from-accent-middle hover:to-accent-end
+      shadow-2xl hover:shadow-brand
+      focus:ring-4 focus:ring-accent-start/30
+      disabled:from-gray-400 disabled:to-gray-500
     `,
     secondary: `
-      bg-white/70 backdrop-blur-sm
-      text-blue-700 
-      border border-blue-200
-      hover:bg-white/90 
-      hover:border-blue-300
-      focus:ring-blue-500
+      bg-white/80 backdrop-blur-sm
+      text-brand-700 font-semibold
+      border-2 border-brand-200
+      hover:bg-white/95 hover:border-brand-300
+      focus:ring-4 focus:ring-brand-200
+      shadow-lg hover:shadow-xl
     `
   }
 
@@ -33,30 +33,48 @@ const Button = forwardRef(({
   return (
     <motion.button
       ref={ref}
-      whileHover={!isDisabled ? { scale: 1.02 } : {}}
+      whileHover={!isDisabled ? { scale: 1.02, y: -2 } : {}}
       whileTap={!isDisabled ? { scale: 0.98 } : {}}
+      transition={{ duration: 0.2, ease: "easeOut" }}
       disabled={isDisabled}
       className={`
-        relative inline-flex items-center justify-center gap-2
-        font-semibold rounded-xl px-6 py-3
+        relative inline-flex items-center justify-center gap-3
+        rounded-2xl px-8 py-4 text-base
         transition-all duration-200
-        focus:outline-none focus:ring-2 focus:ring-offset-2
-        disabled:opacity-50 disabled:cursor-not-allowed
+        focus:outline-none
+        disabled:opacity-60 disabled:cursor-not-allowed
+        min-h-[56px] min-w-[120px]
+        font-heebo
         ${variants[variant]}
         ${className}
       `}
       {...props}
     >
+      {/* Loading spinner */}
       {loading && (
-        <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+          className="w-5 h-5 border-2 border-current border-t-transparent rounded-full"
+          aria-hidden="true"
+        />
       )}
       
-      <span className={loading ? 'opacity-0' : ''}>{children}</span>
+      {/* Button content */}
+      <span className={loading ? 'opacity-0' : 'transition-opacity duration-200'}>
+        {children}
+      </span>
       
+      {/* Loading text overlay */}
       {loading && (
-        <span className="absolute inset-0 flex items-center justify-center">
+        <motion.span 
+          className="absolute inset-0 flex items-center justify-center font-medium"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.1 }}
+        >
           מתחבר...
-        </span>
+        </motion.span>
       )}
     </motion.button>
   )
