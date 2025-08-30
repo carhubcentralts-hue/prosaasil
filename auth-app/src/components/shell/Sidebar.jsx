@@ -45,6 +45,13 @@ const Sidebar = ({ open, onClose }) => {
           badge: null
         },
         { 
+          id: 'leads', 
+          path: '/app/admin/leads', 
+          icon: UserCheck, 
+          label: 'לידים מערכתיים',
+          badge: '47'
+        },
+        { 
           id: 'whatsapp', 
           path: '/app/admin/whatsapp', 
           icon: MessageSquare, 
@@ -81,6 +88,13 @@ const Sidebar = ({ open, onClose }) => {
           icon: BarChart3, 
           label: 'סקירה כללית',
           badge: null
+        },
+        { 
+          id: 'leads', 
+          path: '/app/biz/leads', 
+          icon: UserCheck, 
+          label: 'לידים',
+          badge: '23'
         },
         { 
           id: 'whatsapp', 
