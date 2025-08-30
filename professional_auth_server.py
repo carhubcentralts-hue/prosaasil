@@ -86,7 +86,7 @@ print("🎨 Glass morphism design with Hebrew RTL")
 print("🔐 API endpoints: /api/auth/*")
 
 # Check if build exists
-if os.path.exists('./index.html'):
+if os.path.exists('./dist-new/index.html'):
     print("✅ React build found")
 else:
     print("❌ React build missing - run 'npm run build' first")
@@ -99,6 +99,11 @@ def serve_index():
 @app.route('/auth')
 def serve_auth_index():
     """Serve auth routes - Glass morphism design"""
+    return send_from_directory('./dist-new', 'index.html')
+
+@app.route('/app')
+def serve_app_index():
+    """Serve app routes - CRM system"""
     return send_from_directory('./dist-new', 'index.html')
 
 # API Routes for authentication and business logic
@@ -219,6 +224,11 @@ def get_business_overview(business_id):
 @app.route('/auth/<path:path>')
 def serve_auth_routes(path):
     """Serve auth sub-routes (login, forgot, reset) - Premium design"""
+    return send_from_directory('./dist-new', 'index.html')
+
+@app.route('/app/<path:path>')
+def serve_app_routes(path):
+    """Serve app routes (admin/*, biz/*) - SPA routing"""
     return send_from_directory('./dist-new', 'index.html')
 
 @app.route('/assets/<path:filename>')
