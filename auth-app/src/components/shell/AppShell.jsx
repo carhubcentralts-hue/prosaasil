@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { Outlet } from 'react-router-dom'
+// Removed Outlet - using children instead
 import { motion } from 'framer-motion'
 import Header from './Header'
 import Sidebar from './Sidebar'
 import { useAuth } from '@/contexts/AuthContext'
 
-const AppShell = () => {
+const AppShell = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { user, loading } = useAuth()
 
@@ -44,7 +44,7 @@ const AppShell = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
           >
-            <Outlet />
+            {children}
           </motion.div>
         </div>
       </main>
