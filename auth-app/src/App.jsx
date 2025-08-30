@@ -7,6 +7,8 @@ import Login from '@/pages/Login'
 import ForgotPassword from '@/pages/ForgotPassword'
 import ResetPassword from '@/pages/ResetPassword'
 import AdminOverview from '@/pages/admin/AdminOverview'
+import Businesses from '@/pages/admin/Businesses'
+import BusinessNew from '@/pages/admin/BusinessNew'
 import BusinessOverview from '@/pages/business/BusinessOverview'
 import { ToastProvider } from '@/components/Toast'
 import { AuthProvider } from '@/contexts/AuthContext'
@@ -60,7 +62,10 @@ function App() {
                 <AppShell>
                   <Routes>
                     <Route path="overview" element={<AdminOverview />} />
-                    <Route path="businesses" element={<div>עסקים (בבנייה)</div>} />
+                    <Route path="businesses" element={<Businesses />} />
+                    <Route path="businesses/new" element={<BusinessNew />} />
+                    <Route path="businesses/:id" element={<div>פרטי עסק (בבנייה)</div>} />
+                    <Route path="businesses/:id/edit" element={<div>עריכת עסק (בבנייה)</div>} />
                     <Route path="users" element={<div>משתמשים (בבנייה)</div>} />
                     <Route path="whatsapp" element={<div>WhatsApp Panorama (בבנייה)</div>} />
                     <Route path="calls" element={<div>שיחות מערכתיות (בבנייה)</div>} />
