@@ -32,6 +32,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 
 const AdminOverview = () => {
+  console.log('🚀 AdminOverview component loaded!')
   const { user, impersonate } = useAuth()
   const [timeRange, setTimeRange] = useState('7d')
   const [selectedBusiness, setSelectedBusiness] = useState(null)
@@ -39,7 +40,7 @@ const AdminOverview = () => {
   const [integrations, setIntegrations] = useState(null)
   const [recentActivity, setRecentActivity] = useState([])
   const [quickLists, setQuickLists] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false) // Changed to false for testing
 
   const timeRanges = [
     { value: 'today', label: 'היום' },

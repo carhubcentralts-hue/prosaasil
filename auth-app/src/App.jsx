@@ -7,6 +7,7 @@ import Login from '@/pages/Login'
 import ForgotPassword from '@/pages/ForgotPassword'
 import ResetPassword from '@/pages/ResetPassword'
 import AdminOverview from '@/pages/admin/AdminOverview'
+import AdminOverviewDebug from '@/pages/admin/AdminOverviewDebug'
 import BusinessOverview from '@/pages/business/BusinessOverview'
 import { ToastProvider } from '@/components/Toast'
 import { AuthProvider } from '@/contexts/AuthContext'
@@ -59,7 +60,7 @@ function App() {
               <ProtectedRoute requiredRole={['superadmin', 'admin']}>
                 <AppShell>
                   <Routes>
-                    <Route path="overview" element={<AdminOverview />} />
+                    <Route path="overview" element={<AdminOverviewDebug />} />
                     <Route path="businesses" element={<div>עסקים (בבנייה)</div>} />
                     <Route path="users" element={<div>משתמשים (בבנייה)</div>} />
                     <Route path="whatsapp" element={<div>WhatsApp Panorama (בבנייה)</div>} />
