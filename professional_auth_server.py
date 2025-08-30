@@ -242,14 +242,56 @@ def serve_vite_svg():
     return send_from_directory('.', 'vite.svg')
 
 # Additional API Routes for Overview functionality
+
+# API Routes
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    """Login API endpoint"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'message': 'נתונים חסרים'}), 400
+            
+        email = data.get('email', '').lower().strip()
+        password = data.get('password', '')
+        remember = data.get('remember', False)
+        
+        if not email or not password:
+            return jsonify({'success': False, 'message': 'אימייל וסיסמה נדרשים'}), 400
+            
+        # Check user credentials
+        user = MOCK_USERS.get(email)
+        if not user or user['password'] != password:
+            return jsonify({'success': False, 'message': 'אימייל או סיסמה שגויים'}), 401
+            
+        # Set session
+        session['user_id'] = email
+        session['user_role'] = user['role']
+        session['user_name'] = user['name']
+        session.permanent = remember
+        
+        return jsonify({
+            'success': True, 
+            'message': 'התחברת בהצלחה',
+            'user': {
+                'email': email,
+                'role': user['role'],
+                'name': user['name']
+            }
+        })
+        
+    except Exception as e:
+        print(f"Login error: {e}")
+        return jsonify({'success': False, 'message': 'שגיאת שרת'}), 500
+
 @app.route('/api/admin/businesses')
 def api_admin_businesses():
     """Get all businesses (admin only)"""
-    user_email = session.get('user_email')
-    if not user_email or user_email not in MOCK_USERS:
+    user_id = session.get('user_id')
+    if not user_id or user_id not in MOCK_USERS:
         return jsonify({'error': 'לא מורשה'}), 401
     
-    user = MOCK_USERS[user_email]
+    user = MOCK_USERS[user_id]
     if user['role'] not in ['superadmin', 'admin']:
         return jsonify({'error': 'אין הרשאה'}), 403
     
@@ -272,11 +314,11 @@ def api_admin_businesses():
 @app.route('/api/admin/users')
 def api_admin_users():
     """Get all system users (admin only)"""
-    user_email = session.get('user_email')
-    if not user_email or user_email not in MOCK_USERS:
+    user_id = session.get('user_id')
+    if not user_id or user_id not in MOCK_USERS:
         return jsonify({'error': 'לא מורשה'}), 401
     
-    user = MOCK_USERS[user_email]
+    user = MOCK_USERS[user_id]
     if user['role'] not in ['superadmin', 'admin']:
         return jsonify({'error': 'אין הרשאה'}), 403
     
@@ -295,11 +337,11 @@ def api_admin_users():
 @app.route('/api/biz/kpis')
 def api_biz_kpis():
     """Get business KPIs"""
-    user_email = session.get('user_email')
-    if not user_email or user_email not in MOCK_USERS:
+    user_id = session.get('user_id')
+    if not user_id or user_id not in MOCK_USERS:
         return jsonify({'error': 'לא מורשה'}), 401
     
-    user = MOCK_USERS[user_email]
+    user = MOCK_USERS[user_id]
     business_id = user.get('business_id')
     
     if not business_id:
@@ -328,11 +370,11 @@ def api_biz_kpis():
 @app.route('/api/whatsapp/threads')
 def api_whatsapp_threads():
     """Get WhatsApp threads"""
-    user_email = session.get('user_email')
-    if not user_email or user_email not in MOCK_USERS:
+    user_id = session.get('user_id')
+    if not user_id or user_id not in MOCK_USERS:
         return jsonify({'error': 'לא מורשה'}), 401
     
-    user = MOCK_USERS[user_email]
+    user = MOCK_USERS[user_id]
     business_id = user.get('business_id')
     
     # For admin, get all businesses; for business users, only their business
@@ -381,11 +423,11 @@ def api_whatsapp_threads():
 @app.route('/api/calls/recent')
 def api_calls_recent():
     """Get recent calls"""
-    user_email = session.get('user_email')
-    if not user_email or user_email not in MOCK_USERS:
+    user_id = session.get('user_id')
+    if not user_id or user_id not in MOCK_USERS:
         return jsonify({'error': 'לא מורשה'}), 401
     
-    user = MOCK_USERS[user_email]
+    user = MOCK_USERS[user_id]
     business_id = user.get('business_id')
     
     # For admin, get all businesses; for business users, only their business
@@ -437,11 +479,11 @@ def api_calls_recent():
 @app.route('/api/crm/leads')
 def api_crm_leads():
     """Get CRM leads"""
-    user_email = session.get('user_email')
-    if not user_email or user_email not in MOCK_USERS:
+    user_id = session.get('user_id')
+    if not user_id or user_id not in MOCK_USERS:
         return jsonify({'error': 'לא מורשה'}), 401
     
-    user = MOCK_USERS[user_email]
+    user = MOCK_USERS[user_id]
     business_id = user.get('business_id')
     
     # For admin, get all businesses; for business users, only their business
@@ -493,11 +535,11 @@ def api_crm_leads():
 @app.route('/api/integrations/status')
 def api_integrations_status():
     """Get integration status"""
-    user_email = session.get('user_email')
-    if not user_email or user_email not in MOCK_USERS:
+    user_id = session.get('user_id')
+    if not user_id or user_id not in MOCK_USERS:
         return jsonify({'error': 'לא מורשה'}), 401
     
-    user = MOCK_USERS[user_email]
+    user = MOCK_USERS[user_id]
     business_id = user.get('business_id')
     
     if user['role'] in ['superadmin', 'admin']:
@@ -525,11 +567,11 @@ def api_integrations_status():
 @app.route('/api/activity/recent')
 def api_activity_recent():
     """Get recent activity feed"""
-    user_email = session.get('user_email')
-    if not user_email or user_email not in MOCK_USERS:
+    user_id = session.get('user_id')
+    if not user_id or user_id not in MOCK_USERS:
         return jsonify({'error': 'לא מורשה'}), 401
     
-    user = MOCK_USERS[user_email]
+    user = MOCK_USERS[user_id]
     business_id = user.get('business_id')
     
     # Mock activity feed
