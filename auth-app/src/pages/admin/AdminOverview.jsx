@@ -212,6 +212,8 @@ const AdminOverview = () => {
   // Quick action states
   const [showQuickView, setShowQuickView] = useState(false)
   const [quickViewData, setQuickViewData] = useState(null)
+  const [customDateRange, setCustomDateRange] = useState({ from: '', to: '' })
+  const [showDatePicker, setShowDatePicker] = useState(false)
 
   const getIntegrationConfig = (integration, status) => {
     const configs = {
@@ -258,7 +260,14 @@ const AdminOverview = () => {
           {timeRanges.map((range) => (
             <motion.button
               key={range.value}
-              onClick={() => setTimeRange(range.value)}
+              onClick={() => {
+                setTimeRange(range.value)
+                if (range.value === 'custom') {
+                  setShowDatePicker(true)
+                } else {
+                  setShowDatePicker(false)
+                }
+              }}
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
                 timeRange === range.value
                   ? 'bg-gradient-primary text-white shadow-lg'
@@ -270,6 +279,52 @@ const AdminOverview = () => {
               {range.label}
             </motion.button>
           ))}
+        </div>
+
+        {/* Custom Date Range Picker */}
+        {showDatePicker && timeRange === 'custom' && (
+          <motion.div
+            className="bg-slate-50 rounded-xl p-4 mb-4 border"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            <p className="text-sm font-medium text-slate-700 mb-3">בחר טווח תאריכים:</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-slate-600 mb-1">מתאריך:</label>
+                <input
+                  type="date"
+                  value={customDateRange.from}
+                  onChange={(e) => setCustomDateRange({...customDateRange, from: e.target.value})}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-600 mb-1">עד תאריך:</label>
+                <input
+                  type="date"
+                  value={customDateRange.to}
+                  onChange={(e) => setCustomDateRange({...customDateRange, to: e.target.value})}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                />
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                if (customDateRange.from && customDateRange.to) {
+                  fetchOverviewData()
+                  setShowDatePicker(false)
+                }
+              }}
+              className="mt-3 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 transition-colors"
+            >
+              החל סינון
+            </button>
+          </motion.div>
+        )}
+
+        <div>
         </div>
 
         {/* Business Selector */}
