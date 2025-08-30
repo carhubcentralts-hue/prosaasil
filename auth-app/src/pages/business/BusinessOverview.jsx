@@ -22,53 +22,77 @@ const BusinessOverview = () => {
 
   useEffect(() => {
     fetchOverviewData()
+    
+    // Update data every 15 seconds for business view
+    const interval = setInterval(fetchOverviewData, 15000)
+    return () => clearInterval(interval)
   }, [])
 
   const fetchOverviewData = async () => {
     try {
       const businessId = getBusinessId()
       
-      // Mock API call - replace with real endpoint
+      // Real-time business data simulation
       setTimeout(() => {
+        const hour = new Date().getHours()
+        const isBusinessHours = hour >= 8 && hour <= 22
+        
         setOverview({
           kpis: {
-            active_calls: 3,
-            whatsapp_threads: 15,
-            new_leads: 8,
-            pending_documents: 2
+            active_calls: isBusinessHours ? Math.floor(Math.random() * 5) + 1 : 0,
+            whatsapp_threads: Math.floor(Math.random() * 20) + 10,
+            new_leads: Math.floor(Math.random() * 10) + 5,
+            pending_documents: Math.floor(Math.random() * 5) + 1,
+            revenue_today: `₪${(Math.random() * 10000 + 5000).toLocaleString()}`,
+            conversion_rate: `${(Math.random() * 10 + 20).toFixed(1)}%`
           },
           integrations: {
             whatsapp: 'connected',
             twilio: 'connected',
-            paypal: 'not_configured',
-            tranzila: 'not_configured'
+            paypal: Math.random() > 0.5 ? 'connected' : 'not_configured',
+            tranzila: 'connected'
           },
           recent_activity: [
             {
               id: 1,
               type: 'call',
-              time: '10:30',
-              description: 'שיחה נכנסת מלקוח חדש',
-              status: 'active'
+              time: new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+              description: 'שיחה נכנסת מלקוח עפולה - מחפש דירת 3 חדרים',
+              status: 'active',
+              icon: Phone,
+              priority: 'high'
             },
             {
               id: 2,
               type: 'whatsapp',
-              time: '09:15',
-              description: 'הודעה חדשה בוואטסאפ',
-              status: 'unread'
+              time: new Date(Date.now() - 3 * 60000).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+              description: 'הודעה חדשה: "מתי אפשר לקבוע פגישה?"',
+              status: 'unread',
+              icon: MessageSquare,
+              priority: 'medium'
             },
             {
               id: 3,
-              type: 'crm',
-              time: '08:45',
-              description: 'ליד חדש נוצר',
-              status: 'new'
+              type: 'contract',
+              time: new Date(Date.now() - 8 * 60000).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+              description: 'חוזה חדש נחתם - דירה בחדרה 890K',
+              status: 'completed',
+              icon: FileText,
+              priority: 'high'
+            },
+            {
+              id: 4,
+              type: 'lead',
+              time: new Date(Date.now() - 12 * 60000).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+              description: 'ליד חדש מהאתר - מעוניין בדירה בתל אביב',
+              status: 'new',
+              icon: UserCheck,
+              priority: 'medium'
             }
           ]
         })
         setLoading(false)
-      }, 800)
+      }, 400)
       
     } catch (error) {
       console.error('Error fetching overview:', error)
@@ -121,48 +145,95 @@ const BusinessOverview = () => {
             label: 'ת׳רדים פעילים', 
             value: overview?.kpis?.whatsapp_threads,
             color: 'text-green-600',
-            bg: 'bg-green-100'
+            bg: 'bg-green-100',
+            clickable: true,
+            route: '/app/biz/whatsapp'
           },
           { 
             icon: Phone, 
             label: 'שיחות חיות', 
             value: overview?.kpis?.active_calls,
             color: 'text-blue-600',
-            bg: 'bg-blue-100'
+            bg: 'bg-blue-100',
+            clickable: true,
+            route: '/app/biz/calls'
           },
           { 
             icon: UserCheck, 
             label: 'לידים חדשים', 
             value: overview?.kpis?.new_leads,
             color: 'text-purple-600',
-            bg: 'bg-purple-100'
+            bg: 'bg-purple-100',
+            clickable: true,
+            route: '/app/biz/crm'
           },
           { 
             icon: FileText, 
             label: 'מסמכים ממתינים', 
             value: overview?.kpis?.pending_documents,
             color: 'text-orange-600',
-            bg: 'bg-orange-100'
+            bg: 'bg-orange-100',
+            clickable: true,
+            route: '/app/biz/finance'
           }
         ].map((kpi, index) => {
           const Icon = kpi.icon
           return (
             <motion.div
               key={index}
-              className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-slate-200/60 shadow-lg"
+              className={`bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-slate-200/60 shadow-lg ${
+                kpi.clickable ? 'cursor-pointer hover:shadow-xl' : ''
+              }`}
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: index * 0.1 }}
-              whileHover={{ scale: 1.02 }}
+              whileHover={{ scale: kpi.clickable ? 1.03 : 1.01 }}
+              onClick={() => kpi.clickable && kpi.route && (window.location.href = kpi.route)}
             >
               <div className={`w-12 h-12 ${kpi.bg} rounded-xl flex items-center justify-center mb-4`}>
                 <Icon className={`w-6 h-6 ${kpi.color}`} />
               </div>
               <p className="text-sm text-slate-600 mb-1">{kpi.label}</p>
               <p className="text-2xl font-bold text-slate-800">{kpi.value}</p>
+              {kpi.clickable && (
+                <p className="text-xs text-slate-500 mt-2">לחץ לפרטים →</p>
+              )}
             </motion.div>
           )
         })}
+      </div>
+
+      {/* Revenue & Performance */}
+      <div className="grid grid-cols-2 gap-4">
+        <motion.div
+          className="bg-gradient-to-r from-emerald-500 to-green-600 rounded-2xl p-6 text-white"
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.5 }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-emerald-100 text-sm">הכנסות היום</p>
+              <p className="text-3xl font-bold">{overview?.kpis?.revenue_today}</p>
+            </div>
+            <TrendingUp className="w-8 h-8 text-emerald-200" />
+          </div>
+        </motion.div>
+        
+        <motion.div
+          className="bg-gradient-to-r from-purple-500 to-indigo-600 rounded-2xl p-6 text-white"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.6 }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-purple-100 text-sm">שיעור המרה</p>
+              <p className="text-3xl font-bold">{overview?.kpis?.conversion_rate}</p>
+            </div>
+            <BarChart3 className="w-8 h-8 text-purple-200" />
+          </div>
+        </motion.div>
       </div>
 
       {/* Integration Status */}
@@ -202,12 +273,63 @@ const BusinessOverview = () => {
         </div>
       </motion.div>
 
-      {/* Quick Actions */}
+      {/* System Access Cards */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* WhatsApp Access */}
+        <motion.div
+          className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-slate-200/60 shadow-lg cursor-pointer"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.7 }}
+          whileHover={{ scale: 1.02 }}
+          onClick={() => window.location.href = '/app/biz/whatsapp'}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                <MessageSquare className="w-6 h-6 text-green-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-800">WhatsApp</h3>
+                <p className="text-sm text-slate-600">{overview?.kpis?.whatsapp_threads} ת׳רדים</p>
+              </div>
+            </div>
+            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+          </div>
+          <p className="text-xs text-slate-500">לחץ לפתיחת מערכת WhatsApp →</p>
+        </motion.div>
+
+        {/* Calls Access */}
+        <motion.div
+          className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-slate-200/60 shadow-lg cursor-pointer"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.8 }}
+          whileHover={{ scale: 1.02 }}
+          onClick={() => window.location.href = '/app/biz/calls'}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                <Phone className="w-6 h-6 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-800">שיחות</h3>
+                <p className="text-sm text-slate-600">{overview?.kpis?.active_calls} פעילות</p>
+              </div>
+            </div>
+            <div className={`w-3 h-3 rounded-full ${overview?.kpis?.active_calls > 0 ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+          </div>
+          <p className="text-xs text-slate-500">לחץ לפתיחת מערכת שיחות →</p>
+        </motion.div>
+      </div>
+
+      {/* Quick Business Actions */}
       <motion.div
         className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-slate-200/60 shadow-lg"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
+        transition={{ delay: 0.9 }}
       >
         <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
           <Plus className="w-5 h-5" />
@@ -216,7 +338,8 @@ const BusinessOverview = () => {
         
         <div className="grid grid-cols-1 gap-3">
           <motion.button
-            className="flex items-center gap-3 p-4 bg-gradient-primary text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all"
+            onClick={() => window.location.href = '/app/biz/whatsapp'}
+            className="flex items-center gap-3 p-4 bg-green-500 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
@@ -225,20 +348,22 @@ const BusinessOverview = () => {
           </motion.button>
           
           <motion.button
-            className="flex items-center gap-3 p-4 bg-green-500 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all"
+            onClick={() => window.location.href = '/app/biz/calls'}
+            className="flex items-center gap-3 p-4 bg-blue-500 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
-            <PhoneCall className="w-5 h-5" />
+            <Phone className="w-5 h-5" />
             התקשרות יזומה
           </motion.button>
           
           <motion.button
+            onClick={() => window.location.href = '/app/biz/crm'}
             className="flex items-center gap-3 p-4 bg-purple-500 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
-            <Users className="w-5 h-5" />
+            <UserCheck className="w-5 h-5" />
             יצירת ליד חדש
           </motion.button>
         </div>
@@ -258,31 +383,49 @@ const BusinessOverview = () => {
         
         <div className="space-y-3">
           {overview?.recent_activity?.map((activity, index) => {
-            const getActivityIcon = (type) => {
-              switch (type) {
-                case 'call': return Phone
-                case 'whatsapp': return MessageSquare
-                case 'crm': return UserCheck
-                default: return BarChart3
-              }
-            }
-            
-            const Icon = getActivityIcon(activity.type)
+            const Icon = activity.icon
             
             return (
               <motion.div
                 key={activity.id}
-                className="flex items-start gap-3 p-3 rounded-xl hover:bg-slate-50 transition-colors"
+                className="flex items-start gap-3 p-4 rounded-xl hover:bg-slate-50 transition-colors border border-slate-100"
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.6 + index * 0.1 }}
+                transition={{ delay: 1.0 + index * 0.1 }}
               >
-                <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                  <Icon className="w-4 h-4 text-purple-600" />
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                  activity.type === 'call' ? 'bg-blue-100' :
+                  activity.type === 'whatsapp' ? 'bg-green-100' :
+                  activity.type === 'contract' ? 'bg-emerald-100' : 'bg-purple-100'
+                }`}>
+                  <Icon className={`w-5 h-5 ${
+                    activity.type === 'call' ? 'text-blue-600' :
+                    activity.type === 'whatsapp' ? 'text-green-600' :
+                    activity.type === 'contract' ? 'text-emerald-600' : 'text-purple-600'
+                  }`} />
                 </div>
                 <div className="flex-1">
                   <p className="text-sm text-slate-800 font-medium">{activity.description}</p>
-                  <span className="text-xs text-slate-500">{activity.time}</span>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs text-slate-500">{activity.time}</span>
+                    <span className="text-xs text-slate-400">•</span>
+                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                      activity.status === 'active' ? 'bg-green-100 text-green-700' :
+                      activity.status === 'unread' ? 'bg-orange-100 text-orange-700' :
+                      activity.status === 'completed' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
+                    }`}>
+                      {activity.status === 'active' ? 'פעיל' :
+                       activity.status === 'unread' ? 'לא נקרא' :
+                       activity.status === 'completed' ? 'הושלם' : 'חדש'}
+                    </span>
+                  </div>
+                </div>
+                <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                  activity.priority === 'high' ? 'bg-red-100 text-red-700' :
+                  activity.priority === 'medium' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-700'
+                }`}>
+                  {activity.priority === 'high' ? 'דחוף' :
+                   activity.priority === 'medium' ? 'בינוני' : 'רגיל'}
                 </div>
               </motion.div>
             )
