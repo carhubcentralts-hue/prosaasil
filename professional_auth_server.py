@@ -111,7 +111,7 @@ def serve_app_index():
 @app.route('/api/auth/me')
 def get_current_user():
     """Get current user info with role and permissions"""
-    user_email = session.get('user_email')
+    user_email = session.get('user_id')  # תוקן: user_id במקום user_email
     if not user_email or user_email not in MOCK_USERS:
         return jsonify({'error': 'לא מחובר'}), 401
     
@@ -179,7 +179,7 @@ def impersonate():
 @app.route('/api/businesses')
 def get_businesses():
     """Get all businesses (admin only)"""
-    user_email = session.get('user_email')
+    user_email = session.get('user_id')  # תוקן: user_id במקום user_email
     if not user_email or user_email not in MOCK_USERS:
         return jsonify({'error': 'לא מורשה'}), 401
     
