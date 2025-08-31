@@ -423,9 +423,9 @@ const Calendar = () => {
                   
                   <div className="flex items-center gap-2">
                     <button 
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
+                      onClick={(clickEvent) => {
+                        clickEvent.preventDefault()
+                        clickEvent.stopPropagation()
                         console.log('📝 לחצנו על כפתור עריכה!', event.title)
                         handleEditEvent(event)
                       }}
@@ -435,8 +435,14 @@ const Calendar = () => {
                       <Edit className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={() => handleDeleteEvent(event.id)}
-                      className="w-8 h-8 rounded-lg hover:bg-red-100 text-red-600 flex items-center justify-center transition-colors"
+                      onClick={(clickEvent) => {
+                        clickEvent.preventDefault()
+                        clickEvent.stopPropagation()
+                        console.log('🗑️ לחצנו על כפתור מחיקה!', event.title)
+                        handleDeleteEvent(event.id)
+                      }}
+                      className="w-8 h-8 rounded-lg hover:bg-red-100 text-red-600 flex items-center justify-center transition-colors relative z-10"
+                      style={{ pointerEvents: 'auto' }}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -491,7 +497,7 @@ const Calendar = () => {
                 <input
                   type="text"
                   value={newEvent.title}
-                  onChange={(e) => setNewEvent({...newEvent, title: e.target.value})}
+                  onChange={(event) => setNewEvent({...newEvent, title: event.target.value})}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   placeholder="שם האירוע"
                 />
@@ -501,7 +507,7 @@ const Calendar = () => {
                 <label className="block text-sm font-medium text-slate-700 mb-1">תיאור</label>
                 <textarea
                   value={newEvent.description}
-                  onChange={(e) => setNewEvent({...newEvent, description: e.target.value})}
+                  onChange={(event) => setNewEvent({...newEvent, description: event.target.value})}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   rows={3}
                   placeholder="תיאור האירוע"
@@ -514,7 +520,7 @@ const Calendar = () => {
                   <input
                     type="date"
                     value={newEvent.date}
-                    onChange={(e) => setNewEvent({...newEvent, date: e.target.value})}
+                    onChange={(event) => setNewEvent({...newEvent, date: event.target.value})}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   />
                 </div>
@@ -523,7 +529,7 @@ const Calendar = () => {
                   <label className="block text-sm font-medium text-slate-700 mb-1">סוג</label>
                   <select
                     value={newEvent.type}
-                    onChange={(e) => setNewEvent({...newEvent, type: e.target.value})}
+                    onChange={(event) => setNewEvent({...newEvent, type: event.target.value})}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   >
                     <option value="meeting">פגישה</option>
@@ -539,7 +545,7 @@ const Calendar = () => {
                   <input
                     type="time"
                     value={newEvent.startTime}
-                    onChange={(e) => setNewEvent({...newEvent, startTime: e.target.value})}
+                    onChange={(event) => setNewEvent({...newEvent, startTime: event.target.value})}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   />
                 </div>
@@ -549,7 +555,7 @@ const Calendar = () => {
                   <input
                     type="time"
                     value={newEvent.endTime}
-                    onChange={(e) => setNewEvent({...newEvent, endTime: e.target.value})}
+                    onChange={(event) => setNewEvent({...newEvent, endTime: event.target.value})}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   />
                 </div>
@@ -560,7 +566,7 @@ const Calendar = () => {
                 <input
                   type="text"
                   value={newEvent.attendees}
-                  onChange={(e) => setNewEvent({...newEvent, attendees: e.target.value})}
+                  onChange={(event) => setNewEvent({...newEvent, attendees: event.target.value})}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   placeholder="שמות המשתתפים"
                 />
@@ -571,7 +577,7 @@ const Calendar = () => {
                 <input
                   type="text"
                   value={newEvent.location}
-                  onChange={(e) => setNewEvent({...newEvent, location: e.target.value})}
+                  onChange={(event) => setNewEvent({...newEvent, location: event.target.value})}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   placeholder="כתובת או מיקום"
                 />
@@ -581,7 +587,7 @@ const Calendar = () => {
                 <label className="block text-sm font-medium text-slate-700 mb-1">עדיפות</label>
                 <select
                   value={newEvent.priority}
-                  onChange={(e) => setNewEvent({...newEvent, priority: e.target.value})}
+                  onChange={(event) => setNewEvent({...newEvent, priority: event.target.value})}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                 >
                   <option value="low">נמוכה</option>
@@ -652,9 +658,9 @@ const Calendar = () => {
                   
                   <div className="flex items-center gap-2">
                     <button 
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
+                      onClick={(clickEvent) => {
+                        clickEvent.preventDefault()
+                        clickEvent.stopPropagation()
                         console.log('📝 לחצנו על כפתור עריכה!', event.title)
                         handleEditEvent(event)
                       }}
@@ -664,8 +670,14 @@ const Calendar = () => {
                       <Edit className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={() => handleDeleteEvent(event.id)}
-                      className="w-8 h-8 rounded-lg hover:bg-red-100 text-red-600 flex items-center justify-center transition-colors"
+                      onClick={(clickEvent) => {
+                        clickEvent.preventDefault()
+                        clickEvent.stopPropagation()
+                        console.log('🗑️ לחצנו על כפתור מחיקה!', event.title)
+                        handleDeleteEvent(event.id)
+                      }}
+                      className="w-8 h-8 rounded-lg hover:bg-red-100 text-red-600 flex items-center justify-center transition-colors relative z-10"
+                      style={{ pointerEvents: 'auto' }}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
