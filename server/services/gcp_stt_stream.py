@@ -2,6 +2,8 @@
 Google Cloud Speech-to-Text Streaming for Hebrew
 Real-time Hebrew speech recognition from Twilio Media Streams
 """
+import os
+import json
 from google.cloud import speech
 import base64
 import audioop
@@ -25,13 +27,22 @@ class GcpHebrewStreamer:
         self._thread = None
         
     def _ensure_client(self):
-        """Lazy initialization of Speech client"""
+        """Lazy initialization of Speech client with proper credentials"""
         if self.client is None:
             try:
-                self.client = speech.SpeechClient()
-                log.info("Google Cloud Speech client initialized")
+                # Use service account JSON from environment (same as TTS)
+                import json
+                sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+                if sa_json:
+                    credentials_info = json.loads(sa_json)
+                    self.client = speech.SpeechClient.from_service_account_info(credentials_info)
+                    log.info("✅ Google Cloud Speech client initialized with credentials")
+                else:
+                    # Fallback to default credentials
+                    self.client = speech.SpeechClient()
+                    log.info("✅ Google Cloud Speech client initialized (default)")
             except Exception as e:
-                log.error(f"Failed to initialize Speech client: {e}")
+                log.error(f"❌ Failed to initialize Speech client: {e}")
                 raise
         
     def start(self):
@@ -110,7 +121,10 @@ class GcpHebrewStreamer:
                         log.error(f"Audio generator error: {e}")
                         break
                         
-            # Start streaming recognition
+            # Start streaming recognition with client validation
+            if self.client is None:
+                log.error("❌ Speech client not initialized")
+                return
             responses = self.client.streaming_recognize(streaming_config, audio_generator())
             
             for response in responses:

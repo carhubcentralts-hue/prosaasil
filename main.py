@@ -6,9 +6,40 @@ Professional Hebrew Auth Server - Production Ready
 
 import os
 import sys
+import json
+import tempfile
 from flask import Flask, render_template, send_from_directory, request, jsonify, session
 from flask_cors import CORS
 from datetime import datetime
+
+# 🔧 CRITICAL FIX: Setup Google Cloud credentials at startup!
+def setup_google_credentials():
+    """Setup Google Cloud credentials from environment"""
+    try:
+        creds_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+        if creds_json:
+            creds_data = json.loads(creds_json)
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                json.dump(creds_data, f)
+                temp_path = f.name
+            
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_path
+            print(f'✅ Google Cloud credentials configured: {temp_path}')
+            
+            # Test connection
+            from google.cloud import speech
+            client = speech.SpeechClient()
+            print('✅ Google Cloud Speech client ready for STT!')
+            return True
+        else:
+            print('❌ Missing GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+            return False
+    except Exception as e:
+        print(f'❌ Google Cloud credentials error: {e}')
+        return False
+
+# Setup credentials before creating app
+setup_google_credentials()
 
 # Use the comprehensive app factory instead of manual Flask setup
 from server.app_factory import create_app

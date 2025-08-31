@@ -283,8 +283,7 @@ def create_app():
         app.sock = sock  # type: ignore
         print("🔧 Flask-Sock manually bound to app")
     
-    # DEPLOYMENT FIX: Ensure routes are registered before any requests  
-    app.before_first_request_funcs = []
+    # DEPLOYMENT FIX: Routes are registered during app creation
     
     # REMOVE HTTP route that conflicts with WebSocket upgrade
     # The HTTP route prevents proper WebSocket upgrade in EventLet
