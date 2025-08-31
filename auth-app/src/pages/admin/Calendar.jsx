@@ -18,6 +18,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 
 const Calendar = () => {
+  console.log('🗓️ קומפוננט לוח השנה נטען!')
   const { user, hasPermission } = useAuth()
   
   // Calendar state
