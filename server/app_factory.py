@@ -396,7 +396,7 @@ def create_app():
     def serve_react_assets(filename):
         """Serve React build assets (JS, CSS, etc.)"""
         try:
-            return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "auth-frontend", "dist", "assets"), filename)
+            return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "dist", "assets"), filename)
         except FileNotFoundError:
             # Fallback to old client if needed
             return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "assets"), filename)
@@ -422,7 +422,7 @@ def create_app():
     def serve_auth_app():
         """Serve new professional auth React app"""
         try:
-            return send_file(os.path.join(os.path.dirname(__file__), "..", "auth-frontend", "dist", "index.html"))
+            return send_file(os.path.join(os.path.dirname(__file__), "..", "dist", "index.html"))
         except FileNotFoundError:
             return """
 <!DOCTYPE html>
@@ -481,7 +481,7 @@ def create_app():
     def auth_routes(path=None):
         """All auth routes serve the new React app"""
         try:
-            return send_file(os.path.join(os.path.dirname(__file__), "..", "auth-frontend", "dist", "index.html"))
+            return send_file(os.path.join(os.path.dirname(__file__), "..", "dist", "index.html"))
         except FileNotFoundError:
             return """
 <!DOCTYPE html>
