@@ -5,7 +5,7 @@ import os
 from flask import Flask, jsonify, send_from_directory, send_file, current_app, request, session, g
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
-from flask_sock import Sock
+# from flask_sock import Sock  # REMOVED - using simple-websocket only
 from simple_websocket import Server as WSServer
 try:
     from flask_seasurf import SeaSurf
@@ -351,8 +351,9 @@ def create_app():
             try:
                 from simple_websocket import Server
                 
-                print("🚨 Creating simple-websocket Server...", flush=True)
-                ws = Server(request.environ)
+                # CRITICAL FIX: Add Twilio subprotocol support
+                print("🚨 Creating simple-websocket Server with Twilio subprotocol...", flush=True)
+                ws = Server(request.environ, subprotocols=['audio.twilio.com'])
                 
                 # Log successful WebSocket creation
                 try:
