@@ -21,29 +21,7 @@ import clsx from 'clsx'
 const Sidebar = ({ open, onClose }) => {
   const { user, isAdmin, isBusiness, hasPermission } = useAuth()
   
-  // Calendar state for mini calendar
-  const today = new Date()
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth())
-  const [currentYear, setCurrentYear] = useState(today.getFullYear())
-  
-  // Generate calendar days
-  const generateCalendarDays = () => {
-    const firstDay = new Date(currentYear, currentMonth, 1)
-    const lastDay = new Date(currentYear, currentMonth + 1, 0)
-    const startDate = new Date(firstDay)
-    startDate.setDate(startDate.getDate() - firstDay.getDay())
-    
-    const days = []
-    for (let i = 0; i < 42; i++) {
-      const date = new Date(startDate)
-      date.setDate(startDate.getDate() + i)
-      days.push(date)
-    }
-    return days
-  }
-  
-  const calendarDays = generateCalendarDays()
-  const monthNames = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר']
+  // Remove calendar state - now handled in dedicated page
 
   // Navigation items based on role
   const getNavItems = () => {
@@ -261,80 +239,29 @@ const Sidebar = ({ open, onClose }) => {
                 )
               })}
               
-              {/* Mini Calendar */}
+              {/* Calendar Button */}
               <motion.div
-                className="mt-6 p-4 bg-slate-50 rounded-xl"
+                className="mt-6"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
               >
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    לוח שנה
-                  </h3>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => {
-                        if (currentMonth === 0) {
-                          setCurrentMonth(11)
-                          setCurrentYear(currentYear - 1)
-                        } else {
-                          setCurrentMonth(currentMonth - 1)
-                        }
-                      }}
-                      className="w-6 h-6 rounded flex items-center justify-center hover:bg-slate-200 transition-colors text-xs"
-                    >
-                      ‹
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (currentMonth === 11) {
-                          setCurrentMonth(0)
-                          setCurrentYear(currentYear + 1)
-                        } else {
-                          setCurrentMonth(currentMonth + 1)
-                        }
-                      }}
-                      className="w-6 h-6 rounded flex items-center justify-center hover:bg-slate-200 transition-colors text-xs"
-                    >
-                      ›
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="text-center mb-2">
-                  <p className="text-xs font-medium text-slate-600">
-                    {monthNames[currentMonth]} {currentYear}
-                  </p>
-                </div>
-                
-                <div className="grid grid-cols-7 gap-1 text-xs">
-                  {['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'].map((day) => (
-                    <div key={day} className="text-center font-medium text-slate-500 py-1">
-                      {day}
-                    </div>
-                  ))}
-                  
-                  {calendarDays.map((date, index) => {
-                    const isToday = date.toDateString() === today.toDateString()
-                    const isCurrentMonth = date.getMonth() === currentMonth
-                    
-                    return (
-                      <div
-                        key={index}
-                        className={clsx(
-                          'text-center py-1 rounded text-xs cursor-pointer transition-colors',
-                          isToday && 'bg-blue-500 text-white font-semibold',
-                          !isToday && isCurrentMonth && 'text-slate-700 hover:bg-slate-200',
-                          !isCurrentMonth && 'text-slate-300'
-                        )}
-                      >
-                        {date.getDate()}
-                      </div>
-                    )
-                  })}
-                </div>
+                <NavLink
+                  to={isAdmin() ? '/app/admin/calendar' : '/app/biz/calendar'}
+                  onClick={onClose}
+                  className={({ isActive }) => clsx(
+                    'flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
+                    isActive 
+                      ? 'bg-gradient-primary text-white shadow-lg' 
+                      : 'text-slate-700 hover:bg-slate-100 hover:scale-[1.02]'
+                  )}
+                >
+                  <Calendar className="w-5 h-5" />
+                  <span className="flex-1">לוח שנה</span>
+                  <span className="px-2 py-1 bg-blue-500 text-white text-xs rounded-full">
+                    3
+                  </span>
+                </NavLink>
               </motion.div>
             </nav>
 

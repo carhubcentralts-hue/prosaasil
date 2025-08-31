@@ -9,7 +9,9 @@ import ResetPassword from '@/pages/ResetPassword'
 import AdminOverview from '@/pages/admin/AdminOverview'
 import Businesses from '@/pages/admin/Businesses'
 import BusinessNew from '@/pages/admin/BusinessNew'
+import AdminCalendar from '@/pages/admin/Calendar'
 import BusinessOverview from '@/pages/business/BusinessOverview'
+import BusinessCalendar from '@/pages/business/Calendar'
 import { ToastProvider } from '@/components/Toast'
 import { AuthProvider } from '@/contexts/AuthContext'
 
@@ -66,6 +68,7 @@ function App() {
                     <Route path="businesses/new" element={<BusinessNew />} />
                     <Route path="businesses/:id" element={<div>פרטי עסק (בבנייה)</div>} />
                     <Route path="businesses/:id/edit" element={<div>עריכת עסק (בבנייה)</div>} />
+                    <Route path="calendar" element={<AdminCalendar />} />
                     <Route path="users" element={<div>משתמשים (בבנייה)</div>} />
                     <Route path="whatsapp" element={<div>WhatsApp Panorama (בבנייה)</div>} />
                     <Route path="calls" element={<div>שיחות מערכתיות (בבנייה)</div>} />
@@ -83,6 +86,7 @@ function App() {
                 <AppShell>
                   <Routes>
                     <Route path="overview" element={<BusinessOverview />} />
+                    <Route path="calendar" element={<BusinessCalendar />} />
                     <Route path="whatsapp" element={<div>WhatsApp (בבנייה)</div>} />
                     <Route path="calls" element={<div>שיחות (בבנייה)</div>} />
                     <Route path="crm" element={<div>CRM (בבנייה)</div>} />
