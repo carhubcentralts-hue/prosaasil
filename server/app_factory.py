@@ -263,13 +263,10 @@ def create_app():
     # 2) DISABLE Flask-Sock - use direct simple-websocket only
     # from flask_sock import Sock
     
-    # ייבוא חיצוני של MediaStreamHandler לפני יצירת routes
-    try:
-        from server.media_ws_ai import MediaStreamHandler
-        print("✅ MediaStreamHandler imported successfully")
-    except Exception as e:
-        print(f"❌ MediaStreamHandler import error: {e}")
-        MediaStreamHandler = None
+    # LAZY IMPORT: MediaStreamHandler imported only when WebSocket connects
+    # Prevents heavy init during boot
+    MediaStreamHandler = None  # Will be imported on first WS connection
+    print("🔧 MediaStreamHandler import deferred to lazy loading")
     
     # COMPLETELY DISABLE Flask-Sock - use simple-websocket directly
     print("🔧 Flask-Sock COMPLETELY DISABLED")
@@ -361,7 +358,11 @@ def create_app():
                     pass
                 
                 print("🚨 Starting MediaStreamHandler with DIRECT WebSocket...", flush=True)
-                if MediaStreamHandler:
+                
+                # LAZY IMPORT: Import MediaStreamHandler only when needed
+                try:
+                    from server.media_ws_ai import MediaStreamHandler
+                    print("✅ MediaStreamHandler imported lazily")
                     print("🚨 Creating handler instance...", flush=True)
                     handler = MediaStreamHandler(ws)
                     
@@ -382,8 +383,9 @@ def create_app():
                             f.flush()
                     except:
                         pass
-                else:
-                    print("❌ MediaStreamHandler not available!")
+                except ImportError as ie:
+                    print(f"❌ MediaStreamHandler import failed: {ie}")
+                    return "WebSocket handler not available", 500
                     
                 ws.close()
                 return '', 200
