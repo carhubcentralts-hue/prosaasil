@@ -29,6 +29,7 @@ const Calendar = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [eventTypeFilter, setEventTypeFilter] = useState('all')
   const [showCreateForm, setShowCreateForm] = useState(false)
+  const [editingEvent, setEditingEvent] = useState(null)
   
   // Event form state
   const [newEvent, setNewEvent] = useState({
@@ -100,13 +101,27 @@ const Calendar = () => {
       return
     }
 
-    const eventToAdd = {
-      id: Date.now(),
-      ...newEvent,
-      businessId: user.businessId || 'current_business'
+    if (editingEvent) {
+      // Update existing event
+      const updatedEvents = events.map(e => 
+        e.id === editingEvent.id 
+          ? { ...e, ...newEvent, date: newEvent.date || selectedDate.toISOString().split('T')[0] }
+          : e
+      )
+      setEvents(updatedEvents)
+      alert('אירוע עודכן בהצלחה!')
+    } else {
+      // Create new event
+      const eventToAdd = {
+        id: Date.now(),
+        ...newEvent,
+        businessId: user.businessId || 'current_business'
+      }
+
+      setEvents([...events, eventToAdd])
+      alert('אירוע נוסף בהצלחה!')
     }
 
-    setEvents([...events, eventToAdd])
     setNewEvent({
       title: '',
       description: '',
@@ -118,8 +133,8 @@ const Calendar = () => {
       location: '',
       priority: 'medium'
     })
+    setEditingEvent(null)
     setShowCreateForm(false)
-    alert('אירוע נוסף בהצלחה!')
   }
 
   const handleDeleteEvent = (eventId) => {
@@ -127,6 +142,22 @@ const Calendar = () => {
       setEvents(events.filter(e => e.id !== eventId))
       alert('אירוע נמחק בהצלחה!')
     }
+  }
+
+  const handleEditEvent = (event) => {
+    setEditingEvent(event)
+    setNewEvent({
+      title: event.title,
+      description: event.description || '',
+      type: event.type,
+      date: event.date,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      attendees: event.attendees || '',
+      location: event.location || '',
+      priority: event.priority
+    })
+    setShowCreateForm(true)
   }
 
   const getEventTypeIcon = (type) => {
@@ -397,7 +428,10 @@ const Calendar = () => {
                   </div>
                   
                   <div className="flex items-center gap-2">
-                    <button className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors">
+                    <button 
+                      onClick={() => handleEditEvent(event)}
+                      className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors"
+                    >
                       <Edit className="w-4 h-4" />
                     </button>
                     <button 
@@ -453,7 +487,7 @@ const Calendar = () => {
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
           >
-            <h3 className="text-lg font-semibold text-slate-800 mb-4">אירוע חדש</h3>
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">{editingEvent ? 'עריכת אירוע' : 'אירוע חדש'}</h3>
             
             <div className="space-y-4">
               <div>
@@ -569,7 +603,21 @@ const Calendar = () => {
                 שמור אירוע
               </button>
               <button
-                onClick={() => setShowCreateForm(false)}
+                onClick={() => {
+                  setShowCreateForm(false)
+                  setEditingEvent(null)
+                  setNewEvent({
+                    title: '',
+                    description: '',
+                    type: 'meeting',
+                    date: '',
+                    startTime: '',
+                    endTime: '',
+                    attendees: '',
+                    location: '',
+                    priority: 'medium'
+                  })
+                }}
                 className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-medium hover:bg-slate-300 transition-colors"
               >
                 ביטול
@@ -607,7 +655,10 @@ const Calendar = () => {
                   </div>
                   
                   <div className="flex items-center gap-2">
-                    <button className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors">
+                    <button 
+                      onClick={() => handleEditEvent(event)}
+                      className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors"
+                    >
                       <Edit className="w-4 h-4" />
                     </button>
                     <button 
