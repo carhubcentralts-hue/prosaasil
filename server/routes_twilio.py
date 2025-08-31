@@ -46,21 +46,23 @@ def _do_redirect(call_sid, wss_host, reason):
 # TwiML Preview endpoint (ללא Play, מינימלי)
 @twilio_bp.route("/webhook/incoming_call_preview", methods=["GET"])
 def incoming_call_preview():
-    """GET endpoint for TwiML preview - ALSO USE RECORD MODE"""
+    """GET endpoint for TwiML preview - MEDIA STREAMS MODE"""
     call_sid = "CA_PREVIEW_" + str(int(time.time()))
     
     base = os.getenv("PUBLIC_BASE_URL", "") or os.getenv("PUBLIC_HOST", "") or request.url_root
     base = base.rstrip("/")
+    host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # PRODUCTION FIX: Also use Record mode for preview
+    # MEDIA STREAMS for preview too
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Response>',
         f'  <Play>{base}/static/greeting_he.mp3</Play>',
-        f'  <Record playBeep="false" timeout="4" maxLength="120" transcribe="false"',
-        f'          action="{base}/webhook/handle_recording" />',
-        f'  <Play>{base}/static/fallback_he.mp3</Play>',
-        f'  <Hangup/>',
+        f'  <Connect action="{base}/webhook/stream_ended">',
+        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
+        f'      <Parameter name="call_sid" value="{call_sid}"/>',
+        f'    </Stream>',
+        f'  </Connect>',
         '</Response>',
     ]
     twiml = "".join(parts)
@@ -81,21 +83,17 @@ def incoming_call():
     base = base.rstrip("/")
     host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # FALLBACK MODE: Record instead of WebSocket for reliability 
-    # WebSocket fails in EventLet deployment - Record works always
-    # Force Record mode to fix "שקט מוחלט" issue
-    record_mode = True  # Always use Record mode for production reliability
-    
-    # PRODUCTION FIX: Always use Record mode to solve "שקט מוחלט"
-    # Record mode - 100% reliable, Hebrew AI processes recording after
+    # MEDIA STREAMS MODE v1756667479: Real-time Hebrew AI conversation
+    # Fix WebSocket upgrade issue for live conversation
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Response>',
         f'  <Play>{base}/static/greeting_he.mp3</Play>',
-        f'  <Record playBeep="false" timeout="4" maxLength="120" transcribe="false"',
-        f'          action="{base}/webhook/handle_recording" />',
-        f'  <Play>{base}/static/fallback_he.mp3</Play>',
-        f'  <Hangup/>',
+        f'  <Connect action="{base}/webhook/stream_ended">',
+        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
+        f'      <Parameter name="call_sid" value="{call_sid}"/>',
+        f'    </Stream>',
+        f'  </Connect>',
         '</Response>',
     ]
     twiml = "".join(parts)
@@ -167,3 +165,24 @@ def test_webhook():
     return "TEST OK", 200
 
 # All health endpoints are handled by app_factory.py to avoid conflicts
+@twilio_bp.route("/webhook/test_media_streams_1756667590", methods=["GET"])
+def test_media_streams_new():
+    """Test endpoint for Media Streams - no cache"""
+    base = "https://ai-crmd.replit.app"
+    host = "ai-crmd.replit.app"
+    call_sid = "TEST_NEW"
+    
+    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>{base}/static/greeting_he.mp3</Play>
+  <Connect action="{base}/webhook/stream_ended">
+    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">
+      <Parameter name="call_sid" value="{call_sid}"/>
+    </Stream>
+  </Connect>
+</Response>"""
+    
+    resp = make_response(twiml, 200)
+    resp.headers["Content-Type"] = "text/xml"
+    resp.headers["Cache-Control"] = "no-store, no-cache"
+    return resp
