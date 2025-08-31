@@ -872,3 +872,19 @@ def force_debug():
     return f"Force debug works at {ts}"
 
 print("🚨 FORCE DEBUG ENDPOINT ADDED TO MAIN.PY")
+
+# For development - run Flask directly
+if __name__ == '__main__':
+    port = int(os.getenv('PORT', 5000))
+    print(f"🌐 Starting server on port {port}")
+    print(f"📖 Access at: http://localhost:{port}")
+    print(f"🔗 Auth routes: http://localhost:{port}/auth/login")
+    print(f"🛣️  SPA Routing: ALL paths serve React app (except /api/ and /webhook/)")
+    print("")
+    
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=True,
+        threaded=True
+    )

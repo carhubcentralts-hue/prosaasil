@@ -5,3 +5,4 @@ numpy
 psycopg2-binary
 requests
 websockets==13.1
+eventlet
