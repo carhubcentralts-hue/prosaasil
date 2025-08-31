@@ -387,13 +387,21 @@ def create_app():
             csrf_instance.exempt(twilio_bp)
             print("✅ Flask-WTF CSRF exemption applied to Twilio webhooks")
         
-        # CRITICAL FIX: Exempt auth API AFTER it's registered
+        # CRITICAL FIX: Exempt auth API AFTER it's registered - COMPLETE BYPASS
         from server.auth_api import auth_api
         if csrf_instance:
             csrf_instance.exempt(auth_api)
             print("✅ Flask-WTF CSRF exemption applied to auth API")
+            
+        # DISABLE CSRF VALIDATION for auth endpoints via g.csrf_exempt
+        @app.before_request
+        def check_csrf_exempt():
+            if request.endpoint and 'auth_api' in str(request.endpoint):
+                g.csrf_exempt = True
+                
+        print("✅ CSRF bypass flag set for auth endpoints")
         
-        # Also exempt SeaSurf for auth API
+        # Also exempt SeaSurf for auth API - COMPLETE BYPASS
         if surf_instance:
             surf_instance.exempt_urls(('/api/auth/',))
             print("✅ SeaSurf exemption applied to /api/auth/ prefix")

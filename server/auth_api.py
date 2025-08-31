@@ -10,6 +10,16 @@ from functools import wraps
 import secrets
 import os
 
+# CSRF bypass decorator
+def csrf_exempt(f):
+    """Bypass all CSRF protection for this endpoint"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Set flag to bypass CSRF
+        g.csrf_exempt = True
+        return f(*args, **kwargs)
+    return decorated_function
+
 auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
 
 @auth_api.route('/csrf-token', methods=['GET'])
@@ -22,7 +32,8 @@ def get_csrf_token():
     except:
         return jsonify({'csrf_token': 'dev-token'})
 
-@auth_api.route('/login', methods=['POST'])
+@auth_api.route('/login', methods=['POST', 'OPTIONS'])
+@csrf_exempt
 def login():
     """
     POST /api/auth/login
