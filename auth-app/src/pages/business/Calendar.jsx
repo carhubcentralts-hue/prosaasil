@@ -144,21 +144,22 @@ const Calendar = () => {
     }
   }
 
-  const handleEditEvent = (event) => {
-    console.log('לחצנו על עריכת אירוע:', event)
-    setEditingEvent(event)
+  const handleEditEvent = (eventData) => {
+    console.log('🔄 פונקציית עריכה נקראת!', eventData)
+    setEditingEvent(eventData)
     setNewEvent({
-      title: event.title,
-      description: event.description || '',
-      type: event.type,
-      date: event.date,
-      startTime: event.startTime,
-      endTime: event.endTime,
-      attendees: event.attendees || '',
-      location: event.location || '',
-      priority: event.priority
+      title: eventData.title,
+      description: eventData.description || '',
+      type: eventData.type,
+      date: eventData.date,
+      startTime: eventData.startTime,
+      endTime: eventData.endTime,
+      attendees: eventData.attendees || '',
+      location: eventData.location || '',
+      priority: eventData.priority
     })
     setShowCreateForm(true)
+    console.log('📝 טופס עריכה נפתח!')
   }
 
   const getEventTypeIcon = (type) => {
@@ -431,11 +432,13 @@ const Calendar = () => {
                   <div className="flex items-center gap-2">
                     <button 
                       onClick={(e) => {
+                        e.preventDefault()
                         e.stopPropagation()
-                        console.log('לחצנו על כפתור עריכה עבור אירוע:', event.title)
+                        console.log('📝 לחצנו על כפתור עריכה!', event.title)
                         handleEditEvent(event)
                       }}
-                      className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors"
+                      className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors relative z-10"
+                      style={{ pointerEvents: 'auto' }}
                     >
                       <Edit className="w-4 h-4" />
                     </button>
@@ -662,11 +665,13 @@ const Calendar = () => {
                   <div className="flex items-center gap-2">
                     <button 
                       onClick={(e) => {
+                        e.preventDefault()
                         e.stopPropagation()
-                        console.log('לחצנו על כפתור עריכה עבור אירוע:', event.title)
+                        console.log('📝 לחצנו על כפתור עריכה!', event.title)
                         handleEditEvent(event)
                       }}
-                      className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors"
+                      className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors relative z-10"
+                      style={{ pointerEvents: 'auto' }}
                     >
                       <Edit className="w-4 h-4" />
                     </button>
