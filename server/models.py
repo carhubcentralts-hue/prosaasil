@@ -65,5 +65,11 @@ SAMPLE_CUSTOMERS = [
     Customer(3, "מיכל אברהם", "+972-54-456-7890", "michal@email.com", "", "new", "website"),
 ]
 
-# Fake database placeholder
-db = None
+# Import SQLAlchemy models for authentication
+from server.models_sql import User, Business, CallLog as SQLCallLog, db
+
+# Re-export for compatibility
+__all__ = ['User', 'Business', 'SQLCallLog', 'Customer', 'CallLog', 'db']
+
+# Fake database placeholder for old code compatibility
+# db = None  # Now using real SQLAlchemy db

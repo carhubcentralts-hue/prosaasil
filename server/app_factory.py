@@ -280,8 +280,19 @@ def create_app():
         app.sock = sock  # type: ignore
         print("🔧 Flask-Sock manually bound to app")
     
-    # DEPLOYMENT FIX: Ensure routes are registered before any requests
+    # DEPLOYMENT FIX: Ensure routes are registered before any requests  
     app.before_first_request_funcs = []
+    
+    # CRITICAL WEBSOCKET FIX: Alternative registration for EventLet compatibility
+    # Register WebSocket as regular route handler too (fallback)
+    @app.route('/ws/twilio-media')
+    def ws_health_check():
+        """WebSocket health check - should upgrade to WebSocket"""
+        return jsonify({
+            'status': 'websocket_ready',
+            'protocol': 'should_upgrade_to_websocket',
+            'deployment': os.getenv('REPLIT_DEPLOYMENT_ID', 'local')
+        }), 200
     
     print(f"🔧 Flask-Sock in extensions: {'sock' in app.extensions}")
     print(f"🔧 Flask-Sock app attribute: {hasattr(app, 'sock')}")
@@ -369,12 +380,15 @@ def create_app():
     from server.routes_twilio import twilio_bp
     app.register_blueprint(twilio_bp)
     
-    # CSRF Exemption for all Twilio webhooks (critical for phone system)
+    # CSRF Exemption for all Twilio webhooks and auth endpoints (critical for phone system)
     if csrf_instance:
         try:
             # Exempt all webhook endpoints from Flask-WTF CSRF protection
             csrf_instance.exempt(twilio_bp)
-            print("✅ Flask-WTF CSRF exemption applied to Twilio webhooks")
+            # CRITICAL: Exempt auth API for login to work
+            from server.auth_api import auth_api
+            csrf_instance.exempt(auth_api)
+            print("✅ Flask-WTF CSRF exemption applied to Twilio webhooks and auth API")
         except Exception as e:
             print(f"⚠️ Flask-WTF CSRF exemption warning: {e}")
             
