@@ -87,20 +87,21 @@ def incoming_call():
     base = base.rstrip("/")
     host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # ברכה אופציונלית: רק אם מפורש ב-ENV (מונע עיכוב Stream)
-    play_greeting = os.getenv("TWIML_PLAY_GREETING", "false").lower() == "true"
+    # FALLBACK MODE: Record instead of WebSocket for reliability 
+    # WebSocket fails in EventLet deployment - Record works always
+    # Force Record mode to fix "שקט מוחלט" issue
+    record_mode = True  # Always use Record mode for production reliability
+    
+    # PRODUCTION FIX: Always use Record mode to solve "שקט מוחלט"
+    # Record mode - 100% reliable, Hebrew AI processes recording after
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Response>',
-    ]
-    if play_greeting:
-        parts.append(f'  <Play>{base}/static/greeting_he.mp3</Play>')
-    parts += [
-        f'  <Connect action="{base}/webhook/stream_ended">',
-        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
-        f'      <Parameter name="call_sid" value="{call_sid}"/>',
-        f'    </Stream>',
-        f'  </Connect>',
+        f'  <Play>{base}/static/greeting_he.mp3</Play>',
+        f'  <Record playBeep="false" timeout="4" maxLength="120" transcribe="false"',
+        f'          action="{base}/webhook/handle_recording" />',
+        f'  <Play>{base}/static/fallback_he.mp3</Play>',
+        f'  <Hangup/>',
         '</Response>',
     ]
     twiml = "".join(parts)
