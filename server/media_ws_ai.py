@@ -10,13 +10,13 @@ SR = 8000
 # 🎯 פרמטרים אופטימליים לשיחה טבעיית (מחקר 2025)!
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.3"))        # מהיר יותר כמו בן אדם
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "4.0"))        # קצר יותר למניעת monologues
-VAD_RMS = int(os.getenv("VAD_RMS", "60"))                   # רגיש יותר לקול רגיל
+VAD_RMS = int(os.getenv("VAD_RMS", "70"))                   # רגיש אבל לא יותר מדי
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
 VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # מהיר יותר - כמו שיחה אמיתית
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "150")) # "נשימה" קצרה יותר
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "250")) # תגובה מהירה יותר
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "750")) # קירור אחרי דיבור
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","6"))  # מהיר יותר: 120ms לinterruption
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","8"))  # איזון: 160ms לinterruption טבעיות
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "800"))       # מהיר יותר
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "שנייה… בודקת")   # מקצועי יותר
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "14"))        # חלון דה-דופליקציה
@@ -127,11 +127,11 @@ class MediaStreamHandler:
                         print(f"WS_MEDIA sid={self.stream_sid} rx={self.rx} state={self.state} VAD={rms}/{VAD_RMS}")
 
                     # דרישה רגישה יותר: קול רגיל מספיק (כמו שיחה טבעיית!)
-                    is_strong_voice = rms > (VAD_RMS * 0.4)  # עוד יותר רגיש
+                    is_strong_voice = rms > (VAD_RMS * 0.5)  # רגיש אבל יציב
                     
                     # 🔍 DEBUG: לוג כל 25 frames עם RMS ומצב מערכת
                     if self.rx % 25 == 0:
-                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.4}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")
+                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.5}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")
                         # תדפיס גם כמה אודיו נאסף
                         if len(self.buf) > 0:
                             print(f"   📊 AUDIO_ACCUMULATED: {len(self.buf)/(2*SR):.1f}s duration")
@@ -147,7 +147,7 @@ class MediaStreamHandler:
 
                     # 🚨 BARGE-IN מתקדם: עצור מיד כשמדברים מעל הבוט (מחקר 2025)
                     if self.speaking and BARGE_IN and self.voice_in_row >= BARGE_IN_VOICE_FRAMES:
-                        print(f"🚨 NATURAL BARGE-IN! User interrupting (RMS={rms}) after {self.voice_in_row} frames (120ms)")
+                        print(f"🚨 NATURAL BARGE-IN! User interrupting (RMS={rms}) after {self.voice_in_row} frames (160ms)")
                         self._interrupt_speaking()
                         # נקה הכל ותן למשתמש לדבר
                         self.buf.clear()
@@ -503,21 +503,27 @@ class MediaStreamHandler:
                 for turn in recent:
                     history_context += f"לקוח אמר: '{turn['user'][:40]}' ענינו: '{turn['bot'][:40]}' | "
             
-            # ✅ פרומפט חדש ופשוט - ישירות לעניין!
-            smart_prompt = f"""את מתמחה ממקסימוס נדלן עם דירות במרכז הארץ.
+            # ✅ פרומפט מאוזן לשיחה מציאותית (לא קצר מדי!)
+            smart_prompt = f"""את מתמחה ממקסימוס נדלן עם 8 שנות ניסיון במרכז הארץ.
 
-כללי תגובה:
-- תגובה קצרה (15-25 מילים)
-- עני על מה שנשאל בדיוק
-- אל תגידי "תודה" או "שמחתי לעזור" 
-- אם מחפש דירה - שאלי אזור וכמה חדרים
-- אם שואל מחיר - תני מחיר לפי האזור
-- אם שואל פרטים - תני פרטים ספציפיים
+דירות זמינות עכשיו:
+• תל אביב דיזנגוף 150 - 3 חדרים, 85 מ"ר, 7,500₪/חודש
+• רמת גן הבורסה - 4 חדרים, 95 מ"ר, 8,200₪/חודש  
+• פלורנטין - 2 חדרים, 65 מ"ר, 6,800₪/חודש
+• גבעתיים הרצל - 3.5 חדרים, 90 מ"ר, 7,800₪/חודש
+
+כללי שיחה מציאותית:
+- תני תגובות של 30-50 מילים (לא קצר מדי!)
+- עני ישירות על השאלה שנשאלת
+- תהיי מעניינת ומקצועית
+- הציעי דירות ספציפיות עם פרטים
+- שאלי שאלות ממוקדות לקידום הלקוח
+- אל תחזרי על "תודה" או "שמחתי לעזור"
 
 {history_context}
 
 הלקוח אומר: "{hebrew_text}"
-תגובה קצרה וטבעיית:"""
+תגובה מקצועית ומעניינת:"""
 
             # ✅ GPT-4 יציב ומהיר עם timeout לשיחה חיה!
             import asyncio
@@ -528,7 +534,7 @@ class MediaStreamHandler:
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=80,            # ✅ תשובות קצרות כמו בן אדם!  
+                    max_tokens=150,           # ✅ תשובות מאוזנות (30-50 מילים)  
                     temperature=0.7,          # טבעי אבל עקבי
                     frequency_penalty=0.5,    # מנע חזרות חזקות
                     presence_penalty=0.3,     # מגוון בביטויים
@@ -542,14 +548,14 @@ class MediaStreamHandler:
             if content and content.strip():
                 ai_answer = content.strip()
                 
-                # ✅ הגבלת אורך תגובה לשיחה טבעיית (מחקר 2025)
-                if len(ai_answer) > 120:  # מקס 120 תווים = ~25 מילים בעברית
+                # ✅ הגבלת אורך תגובה מאוזנת (לא קצר מדי!)
+                if len(ai_answer) > 200:  # מקס 200 תווים = ~40 מילים בעברית
                     # קצר לתחילת משפט שלם
                     sentences = ai_answer.split('.')
                     if len(sentences) > 1:
                         ai_answer = sentences[0] + '.'
                     else:
-                        ai_answer = ai_answer[:120].rsplit(' ', 1)[0]
+                        ai_answer = ai_answer[:200].rsplit(' ', 1)[0]
                     print(f"🔪 SHORTENED: {len(content)} → {len(ai_answer)} chars")
                 
                 # ✅ מנע תגובות עם חזרות או "דיזנגוף" קבועה
@@ -575,19 +581,21 @@ class MediaStreamHandler:
                 return ai_answer
             else:
                 print("AI returned empty response, using fallback")
-                # ✅ תגובות חירום מפורטות ומועילות
+                # ✅ תגובות חירום מאוזנות ומועילות
                 if "תודה" in hebrew_text or "ביי" in hebrew_text:
-                    return "תודה רבה! אני כאן בכל זמן שתצטרך עזרה. אל תהסס להתקשר - מתמחה ממקסימוס נדלן"
+                    return "תודה רבה! אני כאן לכל שאלה - מתמחה ממקסימוס נדלן"
                 elif "שלום" in hebrew_text:
-                    return "שלום! מתמחה ממקסימוס נדלן. איך אני יכולה לעזור?"
+                    return "שלום וברוכים הבאים! מתמחה ממקסימוס נדלן. יש לי דירות מעולות במרכז הארץ - איך אני יכולה לעזור?"
                 elif "דירה" in hebrew_text:
-                    return "נהדר! איזה אזור מעניין אותך ולכמה חדרים?"
+                    return "מעולה! יש לי מבחר גדול במרכז. איזה אזור מעניין אותך - תל אביב, רמת גן או גבעתיים? וכמה חדרים אתה צריך?"
                 elif "משרד" in hebrew_text:
-                    return "איזה גודל משרד אתה מחפש?"
+                    return "יש לי משרדים נהדרים במרכז! איזה גודל משרד אתה מחפש ובאיזה אזור - תל אביב או רמת גן?"
                 elif any(word in hebrew_text for word in ["מחיר", "כמה", "עולה"]):
-                    return "איזה אזור מעניין אותך ובאיזה תקציב?"
+                    return "המחירים שלי נעים בין 6,800 ל-8,200 שקל לחודש. איזה אזור מעניין אותך ומה התקציב שלך?"
+                elif any(word in hebrew_text for word in ["תל אביב", "דיזנגוף"]):
+                    return "בדיזנגוף 150 יש לי דירת 3 חדרים מושלמת, 85 מ״ר, 7,500 שקל. רוצה לשמוע פרטים?"
                 else:
-                    return "לא הבנתי - תוכל לחזור?"
+                    return "לא הבנתי לגמרי - תוכל לחזור על השאלה? אני כאן לעזור עם דירות במרכז הארץ"
             
         except Exception as e:
             print(f"AI_ERROR: {e} - Using emergency responses")
