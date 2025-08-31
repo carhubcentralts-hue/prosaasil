@@ -1,0 +1,207 @@
+סגור. נלך על תיקון מלא של השרת + השיחות צעד-אחר-צעד, בצורה שמונעת קריסה, בלי לשבור כלום, ועם בדיקות הוכחה בסוף. אין קוד—רק משימות ברורות שאתה מדביק לבוט אחת-אחת. ננעל קודם את השרת (ש“מתחיל ואז מפסיק להגיב”), ואז נסגור את שיחות Twilio.
+
+⸻
+
+חלק A — ייצוב השרת (“מתחיל ואז לא מגיב”)
+
+A1) הרצה נכונה — בלי Dev server, בלי תהליכים ישנים
+
+מה לבצע
+	1.	עצור הכל:
+	•	להרוג כל תהליך gunicorn|python|flask|main שרץ מאחורי הקלעים (לא להשאיר מצב ECHO ישן).
+	2.	הרץ פרודקשן בלבד:
+	•	gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT AgentLocator.main:app
+	•	אין app.run() בשום מקום. אין הרצות כפולות (node/py) על אותו פורט.
+	3.	עדכן מזהה פריסה:
+	•	בכל דיפלוי הגדֵר DEPLOY_ID חדש שמוחזר ב־/version.
+
+בדיקות (להדביק תוצאות)
+	•	GET /healthz, GET /readyz, GET /version → 200; /version מציג DEPLOY_ID חדש.
+	•	DevTools/Network ל־/app/*: נטען bundle אחד חדש; Console נקי מאדום.
+
+⸻
+
+A2) חסימות בלולאה הראשית (Deadlocks/Blocking)
+
+מה לבצע
+	1.	הזז את כל ה־init הכבד (OpenAI, GCP, DB) ל־startup ירוק (greenlet) או Lazy-load:
+	•	לא להריץ התחברויות חוסמות בזמן import.
+	2.	כל שיחה חיצונית (OpenAI/GCP/DB) ב־timeouts ברורים, עם retry קצר, ולא על לולאת ה־WS.
+	3.	אם יש “watchdogs”/משימות רקע—להריץ ב־eventlet.spawn_n בלבד, לא בלולאת ה־WS.
+
+בדיקות
+	•	ב־לוג הפעלה: רואים “Server ready” ≤ 2–3 שניות מהרצה.
+	•	תחת עומס קל (2–3 בקשות במקביל) אין קפיאה; readyz ממשיך לענות.
+
+⸻
+
+A3) הגשת פרונט (React) ו־SPA Fallback
+
+מה לבצע
+	1.	השרת מגיש Build אחד בלבד (למשל auth-app/dist), לא תיקיות ישנות.
+	2.	SPA Fallback: כל /app/* מחזיר index.html של React.
+	3.	Tailwind 4.1 נטען פעם אחת בלבד (CSS יחיד).
+
+בדיקות
+	•	כניסה ישירה ל־/app/admin/overview → index.html (200).
+	•	Network: CSS יחיד (Tailwind 4.1), JS chunks 200; Console נקי.
+
+⸻
+
+A4) קונפיג סביבה (למנוע “ריצה אבל לא מגיב”)
+
+מה לבצע
+	•	לוודא משתנים חיוניים:
+	•	PUBLIC_BASE_URL (ללא / בסוף), PORT
+	•	DATABASE_URL תקין; db.init_app(app) מתבצע; הטבלאות קיימות (או create_all בפעם הראשונה).
+	•	JWT_SECRET/סשן לא נזרק ל־None.
+	•	אין שני פרויקטים שמנסים להאזין לאותו פורט.
+
+בדיקות
+	•	/readyz כולל "db":"ok", לא “pending”.
+	•	קריאת API קלה (GET /api/auth/me) מחזירה 200 תוך < 150ms (ללא קריסות).
+
+⸻
+
+חלק B — החזרת השיחות (Twilio Voice Media Streams)
+
+B1) TwiML + webhooks (מסגור נכון)
+
+מה לבצע
+	1.	incoming_call מחזיר בדיוק:
+	•	<Connect action="https://{BASE}/webhook/stream_ended">
+	•	<Stream url="wss://{BASE}/ws/twilio-media" statusCallback="https://{BASE}/webhook/stream_status">
+	•	<Parameter name="call_sid" value="{CallSid}"/>
+	•	(מומלץ לבטל <Play> בתקופת באגים כדי להגיע מהר ל־WS)
+	2.	/webhook/stream_status:
+	•	POST בלבד; קורא request.form; מחזיר 204 ריק; אין אימות חתימה; אין extra= בלוגים.
+	3.	/webhook/stream_ended:
+	•	מחזיר 204 ריק (מונע רעשים).
+
+בדיקות
+	•	Twilio Request Inspector: כל stream_status = 204; stream_ended = 204; אין 405/500; אין // כפולים ב־URLs.
+
+⸻
+
+B2) Handshake של WebSocket — טיפול ב־31920 (הגורם #1)
+
+מה לבצע
+	1.	מסלול wss://{BASE}/ws/twilio-media חייב להחזיר בהנד־שייק:
+
+Sec-WebSocket-Protocol: audio.twilio.com
+
+
+	2.	ריצה ב־Gunicorn Eventlet (ראו A1); מימוש WS שתומך בהחזרת subprotocol (או פרוקסי שמחזיר אותו).
+
+בדיקות
+	•	wscat -c wss://{BASE}/ws/twilio-media -H "Sec-WebSocket-Protocol: audio.twilio.com"
+מצופה: 101 Switching Protocols + חזרה של אותה כותרת.
+	•	שיחה חדשה: אין 31920/31924 באינספקטור.
+
+⸻
+
+B3) STT (דיבור→טקסט) — לאפשר “קול נכנס”
+
+מה לבצע
+	1.	קבלה: start → media (כל ~20ms) → stop; פענוח base64 μ-law 8k.
+	2.	קרדנציאלס GCP:
+	•	אחד מהשניים:
+	•	GOOGLE_APPLICATION_CREDENTIALS (קובץ SA אמיתי, נתיב קיים), או
+	•	GCP_CREDENTIALS_JSON (כל ה־JSON במשתנה סביבה).
+	3.	להזין STT עם sample rate 8000Hz (טלפוניה).
+	4.	לוגים בכל utterance: WS_START, STT_PARTIAL, STT_FINAL.
+
+בדיקות
+	•	/readyz או לוג שקול מציג "stt":"ok".
+	•	בשיחה: מופיע STT_PARTIAL/FINAL. אם לא—זה מקור “שקט”.
+
+⸻
+
+B4) Turn-Taking (בלי לופים/חיתוכים)
+
+מה לבצע
+	1.	מכונת מצבים: LISTENING → THINKING → SPEAKING → LISTENING.
+	2.	EoU: סוף־מבע על בסיס שקט 300–600ms (טלפון) לפני יצירת תשובה.
+	3.	Barge-in: אם האדם מתחיל לדבר בזמן TTS → לעצור שידור מדיה מייד ולחזור ל־LISTENING (תגובה אחת בלבד לכל utterance).
+	4.	אנטי-לופים: לא לחזור על הצגה עצמית/פתיח יותר מפעם אחת; דה-דופליקציה של תשובות.
+
+בדיקות
+	•	לוגים: EoU_ms=…, BARGE_IN=true/false; אין שתי תשובות על אותו utterance.
+
+⸻
+
+B5) TTS (טקסט→דיבור) — לאפשר “קול יוצא”
+
+מה לבצע
+	1.	הפקת קול μ-law (PCMU) 8000Hz, מונו (לא 16k/24k/LINEAR16).
+	2.	פיצול ל־frames של 20ms, קידוד base64, ושליחה ל־WS:
+
+{"event":"media","media":{"payload":"..."}}
+
+
+	3.	שליחת keepalive (ping/pong) כל 5–15ש׳.
+	4.	לוגים: TTS_LEN_ms=…, MEDIA_TX=n_frames, PNG_PONG_TX/RX.
+
+בדיקות
+	•	/readyz או לוג: "tts":"ok".
+	•	בשיחה: תשובה נשמעת ≤ 3–6ש׳; לוג מציג MEDIA_TX.
+
+⸻
+
+B6) Fallback נכון (כשאין מדיה/תשובה)
+
+מה לבצע
+	•	אם אין STT/TTS/AI תוך 3–6ש׳ — להפעיל Fallback קצר (לא חוסם), לבטל אוטומטית כשיש זרימה.
+	•	לא להשאיר Fallback “דבוק” כשהמדיה חוזרת.
+
+בדיקות
+	•	אינספקטור: אין 12100/11200 בזמן השיחה.
+	•	לוגים: FALLBACK_FIRED נדיר; אם הופעל—נראה גם FALLBACK_CLEARED.
+
+⸻
+
+חלק C — “השרת מתחיל ואז קורס” (במיוחד אצלך)
+
+C1) תרחישים שכיחים + פתרון מיידי
+	•	שרת Dev רץ במקביל → עצור הכל; הרץ רק Gunicorn Eventlet (A1).
+	•	WS בלולאה חוסמת → פצל STT/TTS/AI ל־greenlets (A2).
+	•	DB מנסה להתחבר בלולאת ה־WS → אתחל DB באתחול אפליקציה; ודא DATABASE_URL/db.init_app(app) תקין (לא בתוך ה־WS).
+	•	Service Worker או build ישן → רענון קשיח + ?v=<stamp>; ודא ש־/version חדש ונטענים קבצי build מעודכנים.
+
+C2) בדיקות עשן מסכמות (להדביק תוצאות)
+	1.	בריאות/גרסה
+	•	GET /healthz, GET /readyz, GET /version → 200; DEPLOY_ID עדכני.
+	2.	TwiML
+	•	curl -s -X POST https://{BASE}/webhook/incoming_call -d "CallSid=CA_TEST"
+מצופה <Connect><Stream …>; אין // כפול.
+	3.	stream_status
+	•	curl -i -X POST https://{BASE}/webhook/stream_status -H "Content-Type: application/x-www-form-urlencoded" --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected"
+מצופה HTTP/2 204.
+	4.	WS Handshake
+	•	wscat -c wss://{BASE}/ws/twilio-media -H "Sec-WebSocket-Protocol: audio.twilio.com"
+מצופה 101 + החזרת subprotocol.
+	5.	שיחה אמיתית
+	•	תשובה נשמעת ≤ 3–6ש׳; באינספקטור אין 31920/31924/12100/11200.
+	•	לוגים שנראים ברצף:
+WS_START → STT_PARTIAL/FINAL → EoU_ms → TTS_LEN_ms → MEDIA_TX → PNG_PONG_TX/RX.
+
+⸻
+
+חלק D — מה לבקש מהבוט למסירה (Evidence Pack)
+	1.	צילום Request Inspector של שיחה:
+	•	incoming_call=200, stream_status=204 (לפחות פעמיים), stream_ended=204.
+	2.	צילום/פלט Handshake: 101 + Sec-WebSocket-Protocol: audio.twilio.com.
+	3.	צילום /readyz עם "ws":"ok","stt":"ok","tts":"ok" (או לוג שקול).
+	4.	לוג של שיחה אחת שמכיל (בשורות נפרדות):
+	•	WS_START, STT_FINAL, EoU_ms, TTS_LEN_ms, MEDIA_TX=<מספר>, PNG_PONG_TX/RX.
+	5.	/version עם DEPLOY_ID עדכני (להוכיח שעלית עם קוד חדש).
+	6.	DevTools/Network ל־/app/*: CSS יחיד (Tailwind 4.1), JS 200, Console נקי.
+
+⸻
+
+למה זה פותר את התקלה שלך עכשיו
+	•	ה־31920 נעלם ברגע שהשרת מחזיר את subprotocol הנכון.
+	•	ה־“ברכה ואז ניתוק” נגרם כי ה־WS לא התחבר (Handshake נכשל) → אין מדיה → השיחה נסגרת.
+	•	ה־“השרת מתחיל ואז לא מגיב” מטופל ע”י הרצה נקייה (Gunicorn+Eventlet בלבד), הזזת פעולות חוסמות ל-greenlets, ו־readiness אמיתי.
+
+תדביק לבוט מילה-במילה. כשהוא יחזיר את ה-Evidence Pack—נדע שהשיחות “עולות” באמת.
