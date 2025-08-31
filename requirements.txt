@@ -1,0 +1,1 @@
+# Empty requirements.txt - all packages already installed via pyproject.toml
