@@ -7,16 +7,16 @@ from simple_websocket import ConnectionClosed
 from server.stream_state import stream_registry
 
 SR = 8000
-# 🎯 פרמטרים מעודכנים לשיחה אנושית מושלמת!
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.4"))        # שקט לסוף-מבע (הואץ ל-0.4s)
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "6.0"))        # חיתוך בטיחות
-VAD_RMS = int(os.getenv("VAD_RMS", "80"))                   # סף דיבור רגיש מאוד!
+# 🎯 פרמטרים אופטימליים לשיחה טבעיית (מחקר 2025)!
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.3"))        # מהיר יותר כמו בן אדם
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "4.0"))        # קצר יותר למניעת monologues
+VAD_RMS = int(os.getenv("VAD_RMS", "60"))                   # רגיש יותר לקול רגיל
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # Hangover אחרי שקט
-RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "220")) # "נשימה" לפני דיבור
-RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "360"))
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # מהיר יותר - כמו שיחה אמיתית
+RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "150")) # "נשימה" קצרה יותר
+RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "250")) # תגובה מהירה יותר
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "750")) # קירור אחרי דיבור
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","12")) # איזון: 240ms לא לקטע מוקדם
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","6"))  # מהיר יותר: 120ms לinterruption
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "800"))       # מהיר יותר
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "שנייה… בודקת")   # מקצועי יותר
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "14"))        # חלון דה-דופליקציה
@@ -102,7 +102,7 @@ class MediaStreamHandler:
                             time.sleep(0.8)  # חכה לראות אם יש קול
                             if ((time.time() - self.last_rx_ts) >= 0.8 and 
                                 self.state == STATE_LISTEN and not self.speaking):
-                                greet = os.getenv("AI_GREETING_HE", "שלום! איך אפשר לעזור?")
+                                greet = os.getenv("AI_GREETING_HE", "שלום! מתמחה ממקסימוס נדלן - איך אני יכולה לעזור?")
                                 if greet.strip():
                                     print(f"🔊 SMART_GREETING: '{greet}' delay=0.8s")
                                     self._speak_with_breath(greet)
@@ -126,12 +126,12 @@ class MediaStreamHandler:
                     if self.rx % 50 == 0:
                         print(f"WS_MEDIA sid={self.stream_sid} rx={self.rx} state={self.state} VAD={rms}/{VAD_RMS}")
 
-                    # דרישה רגישה: קול רגיל מספיק (לא צריך לצעוק!)
-                    is_strong_voice = rms > (VAD_RMS * 0.6)
+                    # דרישה רגישה יותר: קול רגיל מספיק (כמו שיחה טבעיית!)
+                    is_strong_voice = rms > (VAD_RMS * 0.4)  # עוד יותר רגיש
                     
                     # 🔍 DEBUG: לוג כל 25 frames עם RMS ומצב מערכת
                     if self.rx % 25 == 0:
-                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.6}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")
+                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.4}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")
                         # תדפיס גם כמה אודיו נאסף
                         if len(self.buf) > 0:
                             print(f"   📊 AUDIO_ACCUMULATED: {len(self.buf)/(2*SR):.1f}s duration")
@@ -145,15 +145,20 @@ class MediaStreamHandler:
                     else:
                         self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
 
-                    # 🚨 BARGE-IN מתקדם: עצור מיד כשמדברים מעל הבוט
+                    # 🚨 BARGE-IN מתקדם: עצור מיד כשמדברים מעל הבוט (מחקר 2025)
                     if self.speaking and BARGE_IN and self.voice_in_row >= BARGE_IN_VOICE_FRAMES:
-                        print(f"🚨 BARGE-IN! User speaking (RMS={rms}) for {self.voice_in_row} frames!")
+                        print(f"🚨 NATURAL BARGE-IN! User interrupting (RMS={rms}) after {self.voice_in_row} frames (120ms)")
                         self._interrupt_speaking()
                         # נקה הכל ותן למשתמש לדבר
                         self.buf.clear()
                         self.processing = False  # עצור גם עיבוד
                         self.state = STATE_LISTEN
-                        print("🎤 USER HAS THE FLOOR - Bot completely silent")
+                        print("🎤 USER TURN - Bot listening naturally")
+                        # הוסף הודעה קצרה באודיו שהבוט הפסיק לדבר
+                        try:
+                            self.tx_q.put_nowait({"type": "clear"})
+                        except:
+                            pass
                         continue
                     
                     # אם המערכת מדברת ואין הפרעה - נקה קלט
@@ -170,8 +175,8 @@ class MediaStreamHandler:
                         self.buf.extend(pcm16)
                         dur = len(self.buf) / (2 * SR)
                         
-                        # סוף-מבע אדפטיבי: מהיר למבעים קצרים
-                        min_sil = MIN_UTT_SEC if dur > 1.2 else max(0.35, MIN_UTT_SEC - 0.12)
+                        # סוף-מבע אדפטיבי: מהיר למבעים קצרים (כמו שיחה אמיתית)
+                        min_sil = MIN_UTT_SEC if dur > 1.0 else max(0.25, MIN_UTT_SEC - 0.08)
                         silent = ((time.time() - self.last_rx_ts) >= min_sil) and \
                                  ((time.time() - self.last_rx_ts) >= (VAD_HANGOVER_MS/1000.0))
                         too_long = dur >= MAX_UTT_SEC
@@ -341,7 +346,11 @@ class MediaStreamHandler:
             except Exception:
                 pass
                 
-            # נסה TTS אמיתי
+            # נסה TTS אמיתי עם גיבוי חכם
+            if len(text) > 150:  # אם הטקסט ארוך מדי - קצר אותו
+                text = text[:150].rsplit(' ', 1)[0] + '.'
+                print(f"🔪 TTS_SHORTENED: {text}")
+            
             tts_audio = self._hebrew_tts(text)
             if tts_audio and len(tts_audio) > 1000:
                 print(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
@@ -487,19 +496,20 @@ class MediaStreamHandler:
                 for turn in recent:
                     history_context += f"לקוח אמר: '{turn['user'][:40]}' ענינו: '{turn['bot'][:40]}' | "
             
-            # ✅ פרומפט מקצועי מלא עם מאגר דירות אמיתי
-            smart_prompt = f"""את מתמחה, נציגת מקסימוס נדל"ן המומחית. 
+            # ✅ פרומפט קצר ומדויק לשיחה טבעיית
+            smart_prompt = f"""את מתמחה ממקסימוס נדל"ן, 8 שנות ניסיון במרכז הארץ.
 
-== המידע שלך ==
-שם: מתמחה ממקסימוס נדל"ן
-תחום: נדלן מרכז הארץ (תל אביב, רמת גן, גבעתיים, חולון, בת ים)
-ניסיון: 8 שנים בנדלן
-מומחיות: דירות למכירה ולהשכרה, ייעוץ השקעות
+דירות זמינות עכשיו:
+• תל אביב דיזנגוף - 3 חד', 7,500₪/חודש
+• רמת גן - 4 חד', 8,200₪/חודש  
+• פלורנטין - 2 חד', 6,800₪/חודש
 
-== מאגר הדירות הזמינות במרכז ==
-1. תל אביב, רחוב דיזנגוף 150 - 3 חדרים, 75 מ"ר, קומה 4, 7,500₪/חודש
-2. רמת גן, שדרות ירושלים 45 - 4 חדרים, 90 מ"ר, קומה 2, 8,200₪/חודש  
-3. תל אביב, אזור פלורנטין - 2 חדרים, 60 מ"ר, קומת קרקע, 6,800₪/חודש
+== שיחה טבעיית ==
+• תגובות קצרות (20-30 מילים מקס)
+• שאלה אחת בכל פעם
+• אל תחזרי על "תודה" או "שמחתי לעזור"
+• הקשיבי ותגיבי למה שנשאל
+• אם לא הבנת - בקשי הבהרה קצרה
 4. גבעתיים, רחוב הרצל 12 - 3.5 חדרים, 85 מ"ר, קומה 3, 7,800₪/חודש
 5. תל אביב, שכונת נווה צדק - 3 חדרים, 70 מ"ר, קומה 5, 8,500₪/חודש
 6. חולון, שדרות וייצמן 88 - 4 חדרים, 95 מ"ר, קומה 1, 6,500₪/חודש
@@ -527,21 +537,46 @@ class MediaStreamHandler:
 עכשיו הלקוח אומר: "{hebrew_text}"
 תני מענה מקצועי עם הצעות קונקרטיות:"""
 
-            # ✅ GPT-4 יציב ומהיר - מועדף למענה טבעי!
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": smart_prompt},
-                    {"role": "user", "content": hebrew_text}
-                ],
-                max_tokens=350,           # ✅ תשובות מפורטות ומועילות
-                temperature=0.8,          # טבעי וחם
-                frequency_penalty=0.3     # מגוון אבל לא קיצוני
-            )
+            # ✅ GPT-4 יציב ומהיר עם timeout לשיחה חיה!
+            import asyncio
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": smart_prompt},
+                        {"role": "user", "content": hebrew_text}
+                    ],
+                    max_tokens=80,            # ✅ תשובות קצרות כמו בן אדם!  
+                    temperature=0.7,          # טבעי אבל עקבי
+                    frequency_penalty=0.5,    # מנע חזרות חזקות
+                    presence_penalty=0.3,     # מגוון בביטויים
+                    timeout=3.0               # מקס 3 שניות לתגובה מהירה
+                )
+            except Exception as e:
+                print(f"⏰ AI timeout/error ({e}) - using quick fallback")
+                return "רגע, אני בודקת... איזה אזור מעניין אותך?"
             
             content = response.choices[0].message.content
             if content and content.strip():
                 ai_answer = content.strip()
+                
+                # ✅ הגבלת אורך תגובה לשיחה טבעיית (מחקר 2025)
+                if len(ai_answer) > 120:  # מקס 120 תווים = ~25 מילים בעברית
+                    # קצר לתחילת משפט שלם
+                    sentences = ai_answer.split('.')
+                    if len(sentences) > 1:
+                        ai_answer = sentences[0] + '.'
+                    else:
+                        ai_answer = ai_answer[:120].rsplit(' ', 1)[0]
+                    print(f"🔪 SHORTENED: {len(content)} → {len(ai_answer)} chars")
+                
+                # ✅ מנע תגובות עם "תודה" חוזרת
+                if ai_answer.count("תודה") > 1 or "שמחתי לעזור" in ai_answer:
+                    # קצר לחלק הראשון ללא תודה
+                    ai_answer = ai_answer.split("תודה")[0].strip()
+                    if not ai_answer:
+                        ai_answer = "איך אני יכולה לעזור עוד?"
+                    print(f"🚫 REMOVED repetitive thanks: {ai_answer}")
                 
                 print(f"🤖 AI SUCCESS: {ai_answer}")
                 
@@ -563,9 +598,9 @@ class MediaStreamHandler:
                 if "תודה" in hebrew_text or "ביי" in hebrew_text:
                     return "תודה רבה! אני כאן בכל זמן שתצטרך עזרה. אל תהסס להתקשר - מתמחה ממקסימוס נדלן"
                 elif "שלום" in hebrew_text:
-                    return "שלום וברוכים הבאים! אני מתמחה ממקסימוס נדלן. יש לי מבחר מעולה של דירות במרכז הארץ - תל אביב, רמת גן, גבעתיים ועוד. איזה סוג נכס אתה מחפש ובאיזה אזור?"
+                    return "שלום! מתמחה ממקסימוס נדלן. איך אני יכולה לעזור?"
                 elif "דירה" in hebrew_text:
-                    return "מעולה! יש לי 10 דירות זמינות עכשיו במרכז. יש לי 2-4 חדרים במחירים בין 6,200 ל-9,200 שקל. איזה אזור הכי מעניין אותך - תל אביב, רמת גן או גבעתיים? וכמה חדרים אתה צריך?"
+                    return "נהדר! איזה אזור מעניין אותך ולכמה חדרים?"
                 elif "משרד" in hebrew_text:
                     return "יש לי גם משרדים מצוינים במרכז! יש אפשרויות בתל אביב וברמת גן באזורים עסקיים מעולים. איזה גודל משרד אתה מחפש ומה התקציב שלך?"
                 elif any(word in hebrew_text for word in ["מחיר", "כמה", "עולה"]):
