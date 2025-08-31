@@ -40,15 +40,14 @@ const Businesses = () => {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
 
-  // Check permissions - Admin only
-  if (!hasPermission('manage_businesses')) {
-    navigate('/unauthorized')
-    return null
-  }
-
+  // Check permissions in useEffect
   useEffect(() => {
+    if (!hasPermission('manage_businesses')) {
+      navigate('/unauthorized')
+      return
+    }
     fetchBusinesses()
-  }, [searchQuery, statusFilter, channelFilter, currentPage])
+  }, [searchQuery, statusFilter, channelFilter, currentPage, hasPermission, navigate])
 
   const fetchBusinesses = async () => {
     setLoading(true)
