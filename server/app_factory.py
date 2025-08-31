@@ -381,30 +381,41 @@ def create_app():
     app.register_blueprint(twilio_bp)
     
     # CSRF Exemption for all Twilio webhooks and auth endpoints (critical for phone system)
-    if csrf_instance:
-        try:
+    try:
+        if csrf_instance:
             # Exempt all webhook endpoints from Flask-WTF CSRF protection
             csrf_instance.exempt(twilio_bp)
-            # CRITICAL: Exempt auth API for login to work
-            from server.auth_api import auth_api
+            print("✅ Flask-WTF CSRF exemption applied to Twilio webhooks")
+        
+        # CRITICAL FIX: Exempt auth API AFTER it's registered
+        from server.auth_api import auth_api
+        if csrf_instance:
             csrf_instance.exempt(auth_api)
-            print("✅ Flask-WTF CSRF exemption applied to Twilio webhooks and auth API")
-        except Exception as e:
-            print(f"⚠️ Flask-WTF CSRF exemption warning: {e}")
+            print("✅ Flask-WTF CSRF exemption applied to auth API")
+        
+        # Also exempt SeaSurf for auth API
+        if surf_instance:
+            surf_instance.exempt_urls(('/api/auth/',))
+            print("✅ SeaSurf exemption applied to /api/auth/ prefix")
+            
+    except Exception as e:
+        print(f"⚠️ CSRF exemption warning: {e}")
+        import traceback
+        traceback.print_exc()
             
     if surf_instance:
         try:
-            # SeaSurf exemption - needs tuple syntax, not list
-            surf_instance.exempt_urls(('/webhook/',))
-            print("✅ SeaSurf exemption applied to /webhook/ prefix")
+            # SeaSurf exemption - CRITICAL FIX: exempt both webhook and auth
+            surf_instance.exempt_urls(('/webhook/', '/api/auth/'))
+            print("✅ SeaSurf exemption applied to /webhook/ and /api/auth/ prefixes")
         except Exception as e:
             print(f"⚠️ SeaSurf exemption warning: {e}")
             # Alternative: Set exempt_urls directly as attribute
             try:
-                surf_instance._exempt_urls = ('/webhook/',)
-                print("✅ SeaSurf direct attribute exemption applied")
+                surf_instance._exempt_urls = ('/webhook/', '/api/auth/')
+                print("✅ SeaSurf direct attribute exemption applied to auth and webhooks")
             except:
-                print("⚠️ SeaSurf could not be configured - webhooks may be blocked")
+                print("⚠️ SeaSurf could not be configured - login may be blocked")
     # WhatsApp unified registration only (no more routes_whatsapp.py)
     print("✅ WhatsApp routes removed - using unified only")
     # CRM unified moved to routes_crm.py - no separate API blueprint needed
