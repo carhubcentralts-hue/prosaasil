@@ -275,30 +275,19 @@ const Sidebar = ({ open, onClose }) => {
               </motion.div>
             </nav>
 
-            {/* Quick Actions */}
-            <div className="p-4 border-t border-slate-200">
-              <div className="space-y-2">
-                {(isAdmin() && !isImpersonating) && (
-                  <motion.button
-                    className="w-full flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium hover:bg-orange-200 transition-colors"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    <Eye className="w-4 h-4" />
-                    מצב התחזות
-                  </motion.button>
-                )}
-                
-                <motion.button
-                  className="w-full flex items-center gap-2 px-4 py-2 bg-green-100 text-green-700 rounded-lg text-sm font-medium hover:bg-green-200 transition-colors"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+            {/* Impersonation Status */}
+            {isImpersonating && (
+              <div className="p-4 border-t border-slate-200">
+                <motion.div
+                  className="w-full flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
                 >
-                  <Zap className="w-4 h-4" />
-                  פעולה מהירה
-                </motion.button>
+                  <Eye className="w-4 h-4" />
+                  מתחזה כעסק
+                </motion.div>
               </div>
-            </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
