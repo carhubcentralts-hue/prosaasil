@@ -283,16 +283,9 @@ def create_app():
     # DEPLOYMENT FIX: Ensure routes are registered before any requests  
     app.before_first_request_funcs = []
     
-    # CRITICAL WEBSOCKET FIX: Alternative registration for EventLet compatibility
-    # Register WebSocket as regular route handler too (fallback)
-    @app.route('/ws/twilio-media')
-    def ws_health_check():
-        """WebSocket health check - should upgrade to WebSocket"""
-        return jsonify({
-            'status': 'websocket_ready',
-            'protocol': 'should_upgrade_to_websocket',
-            'deployment': os.getenv('REPLIT_DEPLOYMENT_ID', 'local')
-        }), 200
+    # REMOVE HTTP route that conflicts with WebSocket upgrade
+    # The HTTP route prevents proper WebSocket upgrade in EventLet
+    # Flask-Sock should handle the WebSocket protocol upgrade automatically
     
     print(f"🔧 Flask-Sock in extensions: {'sock' in app.extensions}")
     print(f"🔧 Flask-Sock app attribute: {hasattr(app, 'sock')}")
