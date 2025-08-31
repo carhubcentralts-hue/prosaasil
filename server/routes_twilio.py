@@ -46,34 +46,28 @@ def _do_redirect(call_sid, wss_host, reason):
 # TwiML Preview endpoint (ללא Play, מינימלי)
 @twilio_bp.route("/webhook/incoming_call_preview", methods=["GET"])
 def incoming_call_preview():
-    """GET endpoint for TwiML preview (no signature required)"""
+    """GET endpoint for TwiML preview - ALSO USE RECORD MODE"""
     call_sid = "CA_PREVIEW_" + str(int(time.time()))
     
     base = os.getenv("PUBLIC_BASE_URL", "") or os.getenv("PUBLIC_HOST", "") or request.url_root
     base = base.rstrip("/")
-    host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # TwiML מינימלי ללא Play (אותו לוגיק כמו incoming_call)
-    play_greeting = os.getenv("TWIML_PLAY_GREETING", "false").lower() == "true"
-    
+    # PRODUCTION FIX: Also use Record mode for preview
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Response>',
-    ]
-    if play_greeting:
-        parts.append(f'  <Play>{base}/static/tts/greeting_he.mp3</Play>')
-    parts += [
-        f'  <Connect action="{base}/webhook/stream_ended">',
-        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
-        f'      <Parameter name="call_sid" value="{call_sid}"/>',
-        f'    </Stream>',
-        f'  </Connect>',
+        f'  <Play>{base}/static/greeting_he.mp3</Play>',
+        f'  <Record playBeep="false" timeout="4" maxLength="120" transcribe="false"',
+        f'          action="{base}/webhook/handle_recording" />',
+        f'  <Play>{base}/static/fallback_he.mp3</Play>',
+        f'  <Hangup/>',
         '</Response>',
     ]
     twiml = "".join(parts)
     
     resp = make_response(twiml, 200)
     resp.headers["Content-Type"] = "text/xml"
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 @twilio_bp.route("/webhook/incoming_call", methods=["POST"])
