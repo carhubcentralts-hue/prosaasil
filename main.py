@@ -4,19 +4,33 @@ Professional Hebrew Auth Server - Production Ready
 מערכת התחברות מקצועית עם React 19 + Tailwind 4.1 + Motion
 """
 
-from flask import Flask, render_template, send_from_directory, request, jsonify, session
-from flask_cors import CORS
 import os
-import json
-from datetime import datetime
+import sys
 
-app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'development-key-change-in-production')
+# Use the comprehensive app factory instead of manual Flask setup
+from server.app_factory import create_app
 
-# Enable CORS for frontend
-CORS(app, supports_credentials=True, origins=['http://localhost:5000', 'http://127.0.0.1:5000'])
+# Create the Flask app using the full factory with all blueprints
+app = create_app()
 
-# Enhanced user database with business model
+# Import Twilio routes to ensure they're registered
+try:
+    from server.routes_twilio import twilio_bp
+    if not any(bp.name == 'twilio' for bp in app.blueprints.values()):
+        app.register_blueprint(twilio_bp)
+        print("✅ Twilio webhooks registered via main.py")
+    else:
+        print("✅ Twilio webhooks already registered via app_factory")
+except Exception as e:
+    print(f"⚠️ Twilio registration warning: {e}")
+
+# app_factory.py already handles all CORS, blueprints, and configuration
+# This file is now just an entry point for production deployment
+
+print("🚀 Hebrew AI Call Center CRM")
+print("🔗 Using app_factory.py for full system configuration")
+
+# Mock data kept for backwards compatibility only
 MOCK_USERS = {
     'superadmin@shai.co.il': {
         'password': 'super123',
