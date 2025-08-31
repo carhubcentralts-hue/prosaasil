@@ -88,7 +88,7 @@ const Sidebar = ({ open, onClose }) => {
           badge: null
         }
       ]
-    } else if (isBusiness()) {
+    } else if (isBusiness() || (isAdmin() && isImpersonating)) {
       const items = [
         { 
           id: 'overview', 
@@ -278,14 +278,29 @@ const Sidebar = ({ open, onClose }) => {
             {/* Impersonation Status */}
             {isImpersonating && (
               <div className="p-4 border-t border-slate-200">
-                <motion.div
-                  className="w-full flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                >
-                  <Eye className="w-4 h-4" />
-                  מתחזה כעסק
-                </motion.div>
+                <div className="space-y-2">
+                  <motion.div
+                    className="w-full flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                  >
+                    <Eye className="w-4 h-4" />
+                    מתחזה כעסק
+                  </motion.div>
+                  <motion.button
+                    onClick={() => {
+                      sessionStorage.removeItem('impersonating_business_id')
+                      sessionStorage.removeItem('impersonation_start_time')
+                      window.location.href = '/app/admin/overview'
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-medium hover:bg-red-200 transition-colors"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <X className="w-4 h-4" />
+                    צא ממצב השתלטות
+                  </motion.button>
+                </div>
               </div>
             )}
           </motion.div>
