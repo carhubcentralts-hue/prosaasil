@@ -235,10 +235,13 @@ def create_app():
         from server.routes_admin import admin_bp
         from server.routes_crm import crm_bp
         from server.routes_business_management import biz_mgmt_bp
+        from server.routes_twilio import twilio_bp
         app.register_blueprint(admin_bp)
         app.register_blueprint(crm_bp)
         app.register_blueprint(biz_mgmt_bp)
+        app.register_blueprint(twilio_bp)
         print("✅ New API blueprints registered")
+        print("✅ Twilio webhooks registered")
         
         app.register_blueprint(data_api)
         
@@ -370,13 +373,13 @@ def create_app():
     print("✅ Alternative WebSocket route: /ws/twilio-media-alt (with subprotocol)")
 
     # רישום בלו־פרינטים - AgentLocator 71
-    from server.routes_twilio import twilio_bp
-    app.register_blueprint(twilio_bp)
+    # Twilio blueprint already registered above with other API blueprints
     
     # CSRF Exemption for all Twilio webhooks and auth endpoints (critical for phone system)
     try:
         if csrf_instance:
             # Exempt all webhook endpoints from Flask-WTF CSRF protection
+            from server.routes_twilio import twilio_bp
             csrf_instance.exempt(twilio_bp)
             print("✅ Flask-WTF CSRF exemption applied to Twilio webhooks")
         
