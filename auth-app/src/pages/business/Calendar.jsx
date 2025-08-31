@@ -432,26 +432,34 @@ const Calendar = () => {
                   
                   <div className="flex items-center gap-2">
                     <button 
-                      onClick={(clickEvent) => {
-                        clickEvent.preventDefault()
-                        clickEvent.stopPropagation()
-                        console.log('📝 לחצנו על כפתור עריכה!', event.title)
-                        handleEditEvent(event)
+                      onClick={() => {
+                        alert('עריכת אירוע: ' + event.title)
+                        setEditingEvent(event)
+                        setNewEvent({
+                          title: event.title,
+                          description: event.description || '',
+                          type: event.type,
+                          date: event.date,
+                          startTime: event.startTime,
+                          endTime: event.endTime,
+                          attendees: event.attendees || '',
+                          location: event.location || '',
+                          priority: event.priority
+                        })
+                        setShowCreateForm(true)
                       }}
-                      className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors relative z-10"
-                      style={{ pointerEvents: 'auto' }}
+                      className="w-8 h-8 rounded-lg hover:bg-blue-100 text-blue-600 flex items-center justify-center transition-colors"
                     >
                       <Edit className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={(clickEvent) => {
-                        clickEvent.preventDefault()
-                        clickEvent.stopPropagation()
-                        console.log('🗑️ לחצנו על כפתור מחיקה!', event.title)
-                        handleDeleteEvent(event.id)
+                      onClick={() => {
+                        if (confirm('האם אתה בטוח שברצונך למחוק את האירוע?')) {
+                          setEvents(events.filter(e => e.id !== event.id))
+                          alert('אירוע נמחק בהצלחה!')
+                        }
                       }}
-                      className="w-8 h-8 rounded-lg hover:bg-red-100 text-red-600 flex items-center justify-center transition-colors relative z-10"
-                      style={{ pointerEvents: 'auto' }}
+                      className="w-8 h-8 rounded-lg hover:bg-red-100 text-red-600 flex items-center justify-center transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -671,26 +679,34 @@ const Calendar = () => {
                   
                   <div className="flex items-center gap-2">
                     <button 
-                      onClick={(clickEvent) => {
-                        clickEvent.preventDefault()
-                        clickEvent.stopPropagation()
-                        console.log('📝 לחצנו על כפתור עריכה!', event.title)
-                        handleEditEvent(event)
+                      onClick={() => {
+                        alert('עריכת אירוע: ' + event.title)
+                        setEditingEvent(event)
+                        setNewEvent({
+                          title: event.title,
+                          description: event.description || '',
+                          type: event.type,
+                          date: event.date,
+                          startTime: event.startTime,
+                          endTime: event.endTime,
+                          attendees: event.attendees || '',
+                          location: event.location || '',
+                          priority: event.priority
+                        })
+                        setShowCreateForm(true)
                       }}
-                      className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors relative z-10"
-                      style={{ pointerEvents: 'auto' }}
+                      className="w-8 h-8 rounded-lg hover:bg-blue-100 text-blue-600 flex items-center justify-center transition-colors"
                     >
                       <Edit className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={(clickEvent) => {
-                        clickEvent.preventDefault()
-                        clickEvent.stopPropagation()
-                        console.log('🗑️ לחצנו על כפתור מחיקה!', event.title)
-                        handleDeleteEvent(event.id)
+                      onClick={() => {
+                        if (confirm('האם אתה בטוח שברצונך למחוק את האירוע?')) {
+                          setEvents(events.filter(e => e.id !== event.id))
+                          alert('אירוע נמחק בהצלחה!')
+                        }
                       }}
-                      className="w-8 h-8 rounded-lg hover:bg-red-100 text-red-600 flex items-center justify-center transition-colors relative z-10"
-                      style={{ pointerEvents: 'auto' }}
+                      className="w-8 h-8 rounded-lg hover:bg-red-100 text-red-600 flex items-center justify-center transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
