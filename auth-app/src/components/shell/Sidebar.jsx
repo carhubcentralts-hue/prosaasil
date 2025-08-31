@@ -248,7 +248,10 @@ const Sidebar = ({ open, onClose }) => {
               >
                 <NavLink
                   to={isAdmin() ? '/app/admin/calendar' : '/app/biz/calendar'}
-                  onClick={onClose}
+                  onClick={(e) => {
+                    console.log('🗓️ לחיצה על כפתור לוח שנה!', { isAdmin: isAdmin(), targetPath: isAdmin() ? '/app/admin/calendar' : '/app/biz/calendar' })
+                    onClose()
+                  }}
                   className={({ isActive }) => clsx(
                     'flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
                     isActive 
