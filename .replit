@@ -15,7 +15,7 @@ PYTHONPATH = "."
 
 [nix]
 channel = "stable-25_05"
-packages = ["c-ares", "cargo", "ffmpeg-full", "freetype", "grpc", "iana-etc", "lcms2", "libiconv", "libimagequant", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "zlib"]
+packages = ["c-ares", "cargo", "ffmpeg-full", "freetype", "grpc", "iana-etc", "lcms2", "libiconv", "libimagequant", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "zlib", "iproute2", "nettools"]
 
 [[ports]]
 localPort = 4000
