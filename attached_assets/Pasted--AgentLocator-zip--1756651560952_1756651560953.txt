@@ -1,0 +1,156 @@
+קיבלתי את ‎AgentLocator.zip‎ ובדקתי אותו מתוך הקבצים. הנה סטטוס אמיתי לפי מה שיש כרגע – ומה צריך לתקן כדי להגיע ל-100% (שיחות, WhatsApp ו-CRM).
+
+# מה תקין כבר (✅)
+
+* ✅ **Twilio – incoming\_call / stream\_status / stream\_ended**
+
+  * ‎`server/routes_twilio.py`‎ מחזיר **TwiML תקין** עם
+    `<Connect><Stream url="wss://{PUBLIC_BASE_URL}/ws/twilio-media" statusCallback="/webhook/stream_status">`
+    ו-`<Parameter name="call_sid" …/>`.
+  * ‎`/webhook/stream_status` מחזיר **204** ללא אימות חתימה וללא ‎`extra=`‎ בלוגים – בדיוק לפי ההנחיה.
+  * ‎`/webhook/stream_ended` מחזיר TwiML fallback (Record+Play) – תקין.
+* ✅ **WebSocket ל-Twilio**
+
+  * ב-`server/app_factory.py` רשום מסלול ‎`/ws/twilio-media`‎, שימוש ב-`simple_websocket.WebSocketServer` + Eventlet בגאניקורן (יש ‎Procfile‎ נכון).
+  * ב-`server/media_ws.py` יש לולאת קבלה, ‎`_handle_start/_handle_media`‎, keepalive (ping) ורישום ל-`stream_registry`.
+* ✅ **WhatsApp – API לשליחה**
+
+  * ‎`/api/whatsapp/send` ב-`server/api_crm_unified.py` קורא ל-`whatsapp_outbound.send_and_record` ושומר ב-CRM.
+* ✅ **Endpoints פריסה**
+
+  * ב-`app_factory.py` קיימים ‎`/healthz`‎, ‎`/readyz`‎, ‎`/version`‎ ו-`/` מחזיר תוכן.
+
+---
+
+# חסרים/בעיות שחוסמות 100% (❗ חייב תיקון)
+
+1. **ה-DB לא מאותחל באפליקציה**
+
+   * יש ‎`server/db.py` (SQLAlchemy) ו-מודלים ב-`server/models_sql.py`, אבל **אין** `db.init_app(app)` ואין `SQLALCHEMY_DATABASE_URI` מוגדרים ב-`create_app()`.
+     **תוצאה:** שמירת WhatsApp/CRM לא באמת תעבוד בפרודקשן (אין הקשר אפליקציה, אין טבלאות).
+     **מה לעשות:**
+   * ב-`app_factory.py` (בתוך `create_app()`):
+
+     * `from server.db import db` + `app.config.from_object(server.production_config.ProductionConfig)`
+     * `db.init_app(app)`
+     * ליצור טבלאות ב־startup (חד־פעמי או דרך migration):
+
+       ```python
+       with app.app_context():
+           db.create_all()
+       ```
+     * ודאו שיש `DATABASE_URL` תקין (Postgres/SQLite) בסביבה.
+
+2. **כפילויות/בלבול ב-WhatsApp Webhooks**
+
+   * יש שני קבצים: `routes_whatsapp.py` (‎`/webhook/whatsapp/twilio` + `/baileys`) וגם `routes_whatsapp_twilio.py` (‎`/webhook/whatsapp/incoming`/`/status`).
+     **מה לעשות:** לבחור מסלול אחד ברור ל-Twilio, למשל:
+   * לשמור רק: **`POST /webhook/whatsapp/twilio`** לאינבאונד ו-**`POST /webhook/whatsapp/status`** ל-status.
+   * לעדכן ב-Twilio Console את ה-Webhook לאותו URL.
+   * להסיר רישום legacy (`register_whatsapp_routes(app)`) אם כבר לא בשימוש, כדי למנוע התנגשות/בלבול.
+
+3. **Handshake של WebSocket מול Twilio – לוודא subprotocol**
+
+   * Twilio דורש החזרה של `Sec-WebSocket-Protocol: audio.twilio.com`.
+     **מה לעשות:**
+   * לבדוק לוגים בזמן חיבור – אם רואים `Protocol Error 31924`, יש סיכוי שהספרייה לא מהדדת את ה-subprotocol.
+   * אם צריך: לעבור למסלול חלופי עם `flask-sock`/`gevent-websocket` שמאפשרים להחזיר subprotocol, או לשים Nginx שמחזיר את הכותרת בחזרה.
+   * בדיקת עשן עצמונית:
+
+     ```
+     wscat -c wss://{PUBLIC_BASE_URL}/ws/twilio-media -H "Sec-WebSocket-Protocol: audio.twilio.com"
+     ```
+
+     להבטיח 101 ובתגובה להנד-שייק מופיעה אותה הכותרת.
+
+4. **קרדנציאלס של GCP (STT/TTS) – עלול להסביר “שקט”**
+
+   * ב-`main.py` מייצרים `GOOGLE_APPLICATION_CREDENTIALS` מקלט JSON (`GCP_CREDENTIALS_JSON` או `GOOGLE_TTS_SA_JSON`).
+   * מודולי STT/TTS מסתמכים על קרדנציאלס; אם חסר – `HEBREW_REALTIME_ENABLED=False` → אין תמלול/דיבור → **שקט**.
+     **מה לעשות:**
+   * להגדיר אחד: `GCP_CREDENTIALS_JSON` **או** להעלות קובץ ולכוון `GOOGLE_APPLICATION_CREDENTIALS`.
+   * להריץ בדיקת עשן ל-TTS (ליצור קובץ ב-`static/tts` ולהשמיעו) ול-STT (לראות לוגי partials).
+   * לוודא שה-path של `static/tts` שמשרת `app_factory.py` תואם לנתיב היצירה בקוד TTS.
+
+5. **SPA Routing ל-React (‎`/app/*`)**
+
+   * אין כרגע fallback לנתיבים כמו `/app/admin` / `/app/biz`.
+     **מה לעשות:**
+   * להוסיף ב-`app_factory.py` catch-all שמחזיר את `client/dist/index.html` עבור `/app/<path:subpath>` ו-`/app`.
+
+6. **Idempotency בהודעות WhatsApp**
+
+   * אין ייחודיות על `provider_message_id` במודל `WhatsAppMessage`.
+     **מה לעשות:**
+   * להוסיף אינדקס ייחודי (migration) או בדיקת קיום לפני insert, כדי למנוע כפילויות בהגעה כפולה של webhook/status.
+
+7. **RBAC/Auth עדיין בסיסי**
+
+   * `server/rbac_permissions.py` מסמן TODO; `auth_routes.py` עובד על session+dictionary.
+     **מה לעשות (מינימום):**
+   * לאכוף `@require_auth` בכל ה-APIים הרגישים (CRM/WhatsApp/Calls).
+   * להחליף `USERS` למקור DB, ולהחזיר JWT/Session אמיתי.
+   * לסקור שכל ה-endpoints מכבדים `business_id` (סינון לפי עסק).
+
+8. **ניקיון ותיאום סביבה**
+
+   * ב-`app_factory.py` יש import של `flask_sock` שלא בשימוש – להסיר כדי שלא יבלבל.
+   * לוודא ש-Procfile הוא מה שרץ בפרודקשן (`gunicorn -k eventlet -w 1 … AgentLocator.main:app`).
+   * מונעים שק-שרת ישן (ECHO): להריץ restart מלא ולוודא שאין process אחר על הפורט.
+   * לוודא משתני סביבה:
+
+     * `PUBLIC_BASE_URL` (ללא סלאש בסוף)
+     * `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`
+     * `WHATSAPP_PROVIDER` = `twilio` או `baileys` (ולוודא שה-bridge אכן רץ אם בחרתם `baileys`)
+     * `DATABASE_URL`
+     * `JWT_SECRET`
+
+---
+
+## צ’ק-ליסט בדיקות עשן (להריץ עכשיו)
+
+1. **stream\_status**
+
+   ```
+   curl -s -X POST https://{BASE}/webhook/stream_status \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected" -i | head -n1
+   ```
+
+   מצופה: `HTTP/2 204`.
+
+2. **TwiML**
+
+   ```
+   curl -s -X POST https://{BASE}/webhook/incoming_call -d "CallSid=CA_TEST"
+   ```
+
+   מצופה: `<Connect>` עם `<Stream url="wss://{host}/ws/twilio-media" statusCallback="https://{BASE}/webhook/stream_status">`.
+
+3. **WebSocket**
+
+   ```
+   wscat -c wss://{BASE}/ws/twilio-media -H "Sec-WebSocket-Protocol: audio.twilio.com"
+   ```
+
+   מצופה: 101; מקבלים/שולחים JSON frames.
+
+4. **DB**
+
+   * `GET https://{BASE}/readyz` → JSON עם `"db":"ok"`.
+   * יצירת הודעת WhatsApp ב-`/api/whatsapp/send` ואז אימות שנשמר טור `whatsapp_message`.
+
+5. **Frontend**
+
+   * `GET https://{BASE}/app/admin` ו-`/app/biz` – נטענים (SPA fallback עובד).
+
+---
+
+## סיכום GO/NO-GO
+
+* **שיחות (Twilio):** כמעט GO – לוודא סאב-פרוטוקול בהנד-שייק + קרדנציאלס GCP למנוע “שקט”.
+* **WhatsApp:** כמעט GO – לאחד webhooks, להגדיר Twilio ל-URL הנכון, ולהוסיף idempotency.
+* **CRM/DB:** **NO-GO** עד שמאותחל `SQLAlchemy` באפליקציה (‎`db.init_app` + `DATABASE_URL` + `create_all`/migrations).
+* **Auth/RBAC:** ל-MVP פנימי זה בסדר; לפרודקשן – לשדרג (JWT/Session אמיתי ואכיפה גורפת).
+
+אם תרצה, אנסח לך עכשיו **patch-plan ממוקד לפי קבצים** (ללא קוד גולמי) לביצוע כל 8 התיקונים אחד-אחד + סט פקודות אימות אחרי כל שלב.

@@ -440,6 +440,39 @@ def create_app():
 </body>
 </html>""", 500
     
+    # SPA routing fallback for React app routes
+    @app.route('/app')
+    @app.route('/app/')
+    @app.route('/app/<path:subpath>')
+    def serve_react_spa(subpath=''):
+        """Serve React SPA for /app/* routes"""
+        try:
+            return send_file(os.path.join("dist", "index.html"))
+        except Exception as e:
+            print(f"⚠️ React SPA serve error: {e}")
+            return """<!doctype html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מערכת CRM - שי דירות ומשרדים</title>
+    <style>
+        body { font-family: Assistant, sans-serif; direction: rtl; 
+               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+               min-height: 100vh; display: flex; align-items: center; 
+               justify-content: center; color: white; }
+        .container { text-align: center; padding: 2rem; 
+                    background: rgba(255,255,255,0.1); border-radius: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>טוען אפליקציה...</h1>
+        <p>אנא המתן לטעינת המערכת</p>
+    </div>
+</body>
+</html>""", 200
+
     # Auth routes - serve the new React auth app
     @app.route('/auth')
     @app.route('/auth/')
