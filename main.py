@@ -751,6 +751,70 @@ def health_check():
         'frontend': 'React 19 + Tailwind 4.1 + Motion'
     })
 
+# MAIN.PY HTTP handler for debugging - direct approach
+@app.route('/debug-main-http', methods=['GET', 'POST'])
+def debug_main_http():
+    """Simple HTTP handler to test if main.py works"""
+    import time
+    
+    print("🚨 MAIN.PY HTTP HANDLER CALLED!", flush=True)
+    
+    # Immediate debug
+    with open("/tmp/main_http_debug.txt", "w") as f:
+        f.write(f"MAIN_HTTP_CALLED: {time.time()}\n")
+        f.write(f"METHOD: {request.method}\n")
+        f.write(f"HEADERS: {dict(request.headers)}\n")
+        f.flush()
+    
+    return jsonify({
+        'status': 'main.py HTTP handler works!',
+        'timestamp': time.time(),
+        'method': request.method
+    })
+
+# MAIN.PY WebSocket handler - direct approach
+@app.route('/ws/main-test', methods=['GET'])
+def main_websocket_test():
+    """WebSocket handler defined directly in main.py"""
+    from flask import request
+    import time
+    
+    print("🚨 MAIN.PY WEBSOCKET HANDLER CALLED!", flush=True)
+    
+    # Immediate debug
+    with open("/tmp/main_ws_debug.txt", "w") as f:
+        f.write(f"MAIN_WS_CALLED: {time.time()}\n")
+        f.write(f"HEADERS: {dict(request.headers)}\n")
+        f.flush()
+    
+    if request.headers.get('Upgrade', '').lower() == 'websocket':
+        print("🚨 MAIN.PY WebSocket upgrade detected!", flush=True)
+        try:
+            from simple_websocket import Server
+            from server.media_ws_ai import MediaStreamHandler
+            
+            ws = Server(request.environ)
+            print("🚨 MAIN.PY Starting MediaStreamHandler...", flush=True)
+            
+            with open("/tmp/main_ws_debug.txt", "a") as f:
+                f.write(f"WS_CREATED_IN_MAIN: {time.time()}\n")
+                f.flush()
+            
+            handler = MediaStreamHandler(ws)
+            handler.run()
+            
+            with open("/tmp/main_ws_debug.txt", "a") as f:
+                f.write(f"HANDLER_COMPLETED_IN_MAIN: {time.time()}\n")
+                f.flush()
+            
+            ws.close()
+            return '', 200
+        except Exception as e:
+            print(f"❌ MAIN.PY WebSocket error: {e}", flush=True)
+            return f"Main WebSocket error: {e}", 500
+    else:
+        return "WebSocket upgrade required", 400
+
 # Catch-all route for SPA routing - MUST BE LAST!
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -767,6 +831,11 @@ def catch_all(path):
     # Skip webhook routes and let them 404 properly  
     if path.startswith('webhook/'):
         return "Webhook endpoint not found", 404
+    
+    # CRITICAL FIX: Skip WebSocket routes and let them work properly
+    if path.startswith('ws/'):
+        print(f"⚠️ CATCH-ALL BLOCKING WS ROUTE: {path}")
+        return "WebSocket route blocked by catch-all", 500
     
     # For all other routes, serve the React app
     return send_from_directory('./dist', 'index.html')
@@ -786,3 +855,20 @@ if __name__ == '__main__':
         threaded=True
     )
 # FORCE_RELOAD_1756667394
+
+@app.route("/test-simple-endpoint")
+def test_simple():
+    return "Main.py works!"
+
+
+# FORCE DEBUG ENDPOINT
+@app.route("/force-debug-endpoint")
+def force_debug():
+    import time
+    ts = time.time()
+    with open(f"/tmp/force_debug_{ts}.txt", "w") as f:
+        f.write(f"FORCE_DEBUG_WORKS: {ts}\n")
+        f.flush()
+    return f"Force debug works at {ts}"
+
+print("🚨 FORCE DEBUG ENDPOINT ADDED TO MAIN.PY")

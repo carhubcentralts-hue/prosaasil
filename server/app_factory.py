@@ -264,112 +264,182 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # 2) WebSocket עם Flask-Sock - יציב יותר לTwilio (תיקון 500 Error)
-    from flask_sock import Sock
-    from server.media_ws_ai import MediaStreamHandler
+    # 2) DISABLE Flask-Sock - use direct simple-websocket only
+    # from flask_sock import Sock
     
-    # CRITICAL FIX: Force Flask-Sock initialization with EventLet compatibility
-    sock = Sock()
-    sock.init_app(app)
-    
-    # Force registration in app extensions
-    app.extensions['sock'] = sock
-    
-    # EventLet compatibility fix - ensure WebSocket is registered properly
-    if hasattr(app, 'sock'):
-        print("🔧 Flask-Sock already bound to app")
-    else:
-        # Type ignore for LSP - Flask allows dynamic attributes
-        app.sock = sock  # type: ignore
-        print("🔧 Flask-Sock manually bound to app")
-    
-    # DEPLOYMENT FIX: Routes are registered during app creation
-    
-    # REMOVE HTTP route that conflicts with WebSocket upgrade
-    # The HTTP route prevents proper WebSocket upgrade in EventLet
-    # Flask-Sock should handle the WebSocket protocol upgrade automatically
-    
-    print(f"🔧 Flask-Sock in extensions: {'sock' in app.extensions}")
-    print(f"🔧 Flask-Sock app attribute: {hasattr(app, 'sock')}")
-    print(f"🔧 EventLet WebSocket mode: enabled")
-    
-    @sock.route('/ws/twilio-media')
-    def ws_twilio_media(ws):
-        """WebSocket handler - AI mode with proper TTS"""
+    # ייבוא חיצוני של MediaStreamHandler לפני יצירת routes
+    try:
         from server.media_ws_ai import MediaStreamHandler
-        print("🚨 WEBSOCKET HANDLER CALLED - AI MODE")
+        print("✅ MediaStreamHandler imported successfully")
+    except Exception as e:
+        print(f"❌ MediaStreamHandler import error: {e}")
+        MediaStreamHandler = None
+    
+    # COMPLETELY DISABLE Flask-Sock - use simple-websocket directly
+    print("🔧 Flask-Sock COMPLETELY DISABLED")
+    print("🔧 Using simple-websocket for direct WebSocket handling")
+    print("🔧 No Flask-Sock extensions registered")
+    
+    # IMMEDIATE DEBUG: Test if routes register at all
+    print("🔧 REGISTERING TEST ROUTES...")
+    
+    @app.route('/ws/test-basic', methods=['GET'])  
+    def test_basic_ws():
+        """Basic test route to verify routing works"""
+        print("🚨 BASIC TEST ROUTE CALLED!", flush=True)
+        return "Basic route works", 200
+    
+    print("🔧 TEST ROUTE REGISTERED")
+    
+    # SIMPLE WebSocket handler with enhanced debugging
+    @app.route('/ws/twilio-media', methods=['GET', 'POST'])
+    def ws_twilio_media_direct():
+        """SIMPLE WebSocket handler with comprehensive debugging"""
+        from flask import request
+        import time, os, sys
         
-        # Write debug immediately
-        import time, os
-        debug_file = "/tmp/websocket_debug.txt"
+        print("🚨 WS ROUTE CALLED!", flush=True)
+        sys.stdout.flush()
+        
+        # IMMEDIATE FILE CREATION - NO CONDITIONS
+        ts = int(time.time())
+        try:
+            with open(f"/tmp/ROUTE_DEFINITELY_CALLED_{ts}.txt", "w") as f:
+                f.write(f"ROUTE_CALLED_NO_CONDITIONS: {ts}\n")
+                f.write(f"METHOD: {request.method}\n")
+                f.write(f"PATH: {request.path}\n")
+                f.flush()
+            print(f"🚨 IMMEDIATE FILE CREATED: /tmp/ROUTE_DEFINITELY_CALLED_{ts}.txt", flush=True)
+        except Exception as e:
+            print(f"❌ IMMEDIATE FILE ERROR: {e}", flush=True)
+        
+        # IMMEDIATE debug logging
+        debug_file = "/tmp/websocket_debug.txt" 
         try:
             with open(debug_file, "w") as f:
-                f.write(f"WEBSOCKET_HANDLER_AI_MODE: {time.time()}\n")
-                f.write(f"DEPLOYMENT: {os.getenv('REPLIT_DEPLOYMENT_ID', 'local')}\n")
+                f.write(f"DIRECT_WS_ROUTE_CALLED: {time.time()}\n")
+                f.write(f"REQUEST_HEADERS: {dict(request.headers)}\n")
+                f.write(f"REQUEST_METHOD: {request.method}\n")
+                f.write(f"UPGRADE_HEADER: {request.headers.get('Upgrade', 'NONE')}\n")
                 f.flush()
+            print(f"✅ Debug file created: {debug_file}", flush=True)
         except Exception as de:
-            print(f"Debug write error: {de}")
+            print(f"Debug write error: {de}", flush=True)
         
-        try:
-            handler = MediaStreamHandler(ws)
-            handler.run()
-        except Exception as e:
-            print(f"❌ WS_HANDLER_ERROR: {e}")
+        # Check for WebSocket upgrade
+        # IMMEDIATE PRODUCTION DEBUG - FIRST LINE AFTER ROUTE CALL
+        timestamp = int(time.time())
+        production_debug_files = [
+            f"/tmp/production_ws_{timestamp}.txt",
+            f"/tmp/route_called.txt", 
+            f"/home/runner/workspace/route_debug.txt"
+        ]
+        
+        for debug_file in production_debug_files:
             try:
-                with open(debug_file, "a") as f:
-                    f.write(f"WS_HANDLER_ERROR: {e}\n")
+                with open(debug_file, "w") as f:
+                    f.write(f"PRODUCTION_WS_ROUTE_CALLED: {timestamp}\n")
+                    f.write(f"REQUEST_PATH: {request.path}\n")
+                    f.write(f"HEADERS: {dict(request.headers)}\n")
                     f.flush()
-            except:
-                pass
-        print("WS_CLOSED")
+                print(f"✅ Production debug: {debug_file}", flush=True)
+            except Exception as e:
+                print(f"❌ Production debug failed: {debug_file} - {e}", flush=True)
         
-    @sock.route('/ws/twilio-media/')
-    def ws_twilio_media_slash(ws):
-        """WebSocket handler with slash - AI mode"""
-        from server.media_ws_ai import MediaStreamHandler
-        import time
-        print("🚨 WEBSOCKET HANDLER CALLED - AI MODE (slash)")
+        if request.headers.get('Upgrade', '').lower() == 'websocket':
+            print("🚨 WebSocket upgrade detected - using simple-websocket!", flush=True)
+            try:
+                from simple_websocket import Server
+                
+                print("🚨 Creating simple-websocket Server...", flush=True)
+                ws = Server(request.environ)
+                
+                # Log successful WebSocket creation
+                try:
+                    with open(debug_file, "a") as f:
+                        f.write(f"WEBSOCKET_CREATED: {time.time()}\n")
+                        f.write(f"WS_TYPE: {type(ws)}\n")
+                        f.flush()
+                except:
+                    pass
+                
+                print("🚨 Starting MediaStreamHandler with DIRECT WebSocket...", flush=True)
+                if MediaStreamHandler:
+                    print("🚨 Creating handler instance...", flush=True)
+                    handler = MediaStreamHandler(ws)
+                    
+                    try:
+                        with open(debug_file, "a") as f:
+                            f.write(f"HANDLER_CREATED: {time.time()}\n")
+                            f.flush()
+                    except:
+                        pass
+                    
+                    print("🚨 Starting handler.run()...", flush=True)
+                    handler.run()
+                    print("🚨 Handler.run() completed!", flush=True)
+                    
+                    try:
+                        with open(debug_file, "a") as f:
+                            f.write(f"HANDLER_RUN_COMPLETED: {time.time()}\n")
+                            f.flush()
+                    except:
+                        pass
+                else:
+                    print("❌ MediaStreamHandler not available!")
+                    
+                ws.close()
+                return '', 200
+                
+            except Exception as e:
+                print(f"❌ Direct WebSocket error: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
+                
+                try:
+                    with open(debug_file, "a") as f:
+                        f.write(f"WEBSOCKET_ERROR: {e}\n")
+                        f.write(f"TRACEBACK: {traceback.format_exc()}\n")
+                        f.flush()
+                except:
+                    pass
+                
+                return f"WebSocket error: {e}", 500
+        else:
+            print("❌ No WebSocket upgrade header!", flush=True)
+            return "WebSocket upgrade required", 400
+    
+    # All Flask-Sock backup routes REMOVED
         
-        # Write debug immediately
-        with open("/tmp/websocket_debug.txt", "a") as f:
-            f.write(f"WEBSOCKET_HANDLER_AI_MODE_SLASH: {time.time()}\n")
-            f.flush()
-        
-        try:
-            handler = MediaStreamHandler(ws)
-            handler.run()
-        except Exception as e:
-            print(f"❌ WS_HANDLER_ERROR: {e}")
-            with open("/tmp/websocket_debug.txt", "a") as f:
-                f.write(f"WS_HANDLER_ERROR: {e}\n")
-                f.flush()
+    # Flask-Sock slash route REMOVED
     
     print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (One True Path)")
     
-    # PATCH 2: Alternative WS route with proper subprotocol handling
-    @sock.route('/ws/twilio-media-alt')
-    def ws_twilio_media_alt(ws):
-        """Alternative WebSocket handler - FIXED AS WEBSOCKET"""
-        from server.media_ws_ai import MediaStreamHandler
+    # CRITICAL DEBUG: Add test route directly in app_factory for production
+    @app.route('/debug-factory-http', methods=['GET', 'POST'])
+    def debug_factory_http():
+        """Test route in app_factory.py for production debugging"""
         import time
-        print("🚨 WS_ALT_HANDLER CALLED - AI MODE (alternative endpoint)")
         
-        # Write debug immediately
-        with open("/tmp/websocket_debug.txt", "a") as f:
-            f.write(f"WS_ALT_HANDLER_AI_MODE: {time.time()}\n")
+        print("🚨 APP_FACTORY HTTP HANDLER CALLED!", flush=True)
+        
+        # Immediate debug
+        with open("/tmp/factory_http_debug.txt", "w") as f:
+            f.write(f"FACTORY_HTTP_CALLED: {time.time()}\n")
+            f.write(f"METHOD: {request.method}\n")
+            f.write(f"HEADERS: {dict(request.headers)}\n")
             f.flush()
         
-        try:
-            print("🚨 WS_ALT: Starting MediaStreamHandler")
-            handler = MediaStreamHandler(ws)
-            handler.run()
-        except Exception as e:
-            print(f"❌ WS_ALT_ERROR: {e}")
-            with open("/tmp/websocket_debug.txt", "a") as f:
-                f.write(f"WS_ALT_ERROR: {e}\n")
-                f.flush()
+        return jsonify({
+            'status': 'app_factory.py HTTP handler works!',
+            'timestamp': time.time(),
+            'method': request.method,
+            'production': True
+        })
     
-    print("✅ Alternative WebSocket route: /ws/twilio-media-alt (with subprotocol)")
+    print("✅ Factory debug route registered: /debug-factory-http")
+    
+    # All Flask-Sock references completely removed
 
     # רישום בלו־פרינטים - AgentLocator 71
     # Twilio blueprint already registered above with other API blueprints

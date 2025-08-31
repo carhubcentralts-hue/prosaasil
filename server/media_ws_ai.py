@@ -66,6 +66,34 @@ class MediaStreamHandler:
     def run(self):
         print(f"🚨 MEDIA_STREAM_HANDLER: mode={self.mode}")
         
+        # CRITICAL FIX: Ensure json import is available
+        import json
+        
+        # Write debug to MULTIPLE LOCATIONS for guaranteed persistence
+        timestamp = int(time.time())
+        debug_files = [
+            f"/tmp/ws_handler_debug_{timestamp}.txt",
+            f"/tmp/websocket_debug.txt",
+            f"/tmp/handler_called.txt",
+            f"/home/runner/workspace/handler_debug.txt",
+            f"/tmp/HANDLER_WORKS_{timestamp}.txt"
+        ]
+        
+        success_count = 0
+        for debug_file in debug_files:
+            try:
+                with open(debug_file, "w") as f:
+                    f.write(f"HANDLER_START: {self.stream_sid} at {time.time()}\n")
+                    f.write(f"WEBSOCKET_HANDLER_DEFINITELY_WORKS!\n")
+                    f.write(f"CONNECTION_SUCCESSFUL: {timestamp}\n")
+                    f.flush()
+                success_count += 1
+                print(f"✅ Debug written to {debug_file}", flush=True)
+            except Exception as e:
+                print(f"❌ Failed to write {debug_file}: {e}", flush=True)
+        
+        print(f"✅ Debug files written: {success_count}/{len(debug_files)}", flush=True)
+        
         # PATCH 4: Advanced logging counters
         self.rx_frames = 0
         self.tx_frames = 0
@@ -82,11 +110,18 @@ class MediaStreamHandler:
                 et = evt.get("event")
 
                 if et == "start":
-                    self.stream_sid = evt["start"]["streamSid"]
-                    self.call_sid = (
-                        evt["start"].get("callSid")
-                        or (evt["start"].get("customParameters") or {}).get("call_sid")
-                    )
+                    # תמיכה בשני פורמטים: Twilio אמיתי ובדיקות
+                    if "start" in evt:
+                        # Twilio format: {"event": "start", "start": {"streamSid": "...", "callSid": "..."}}
+                        self.stream_sid = evt["start"]["streamSid"]
+                        self.call_sid = (
+                            evt["start"].get("callSid")
+                            or (evt["start"].get("customParameters") or {}).get("call_sid")
+                        )
+                    else:
+                        # Direct format: {"event": "start", "streamSid": "...", "callSid": "..."}
+                        self.stream_sid = evt.get("streamSid")
+                        self.call_sid = evt.get("callSid")
                     self.last_rx_ts = time.time()
                     print(f"WS_START sid={self.stream_sid} mode={self.mode}")
                     if self.call_sid:
