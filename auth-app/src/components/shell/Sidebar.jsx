@@ -39,38 +39,24 @@ const Sidebar = ({ open, onClose }) => {
           badge: null
         },
         { 
-          id: 'businesses', 
-          path: '/app/admin/businesses', 
-          icon: Building2, 
-          label: 'עסקים',
-          badge: '5'
-        },
-        { 
-          id: 'users', 
-          path: '/app/admin/users', 
-          icon: Users, 
-          label: 'משתמשים',
-          badge: null
-        },
-        { 
           id: 'leads', 
           path: '/app/admin/leads', 
           icon: UserCheck, 
-          label: 'לידים מערכתיים',
+          label: 'לידים',
           badge: '47'
         },
         { 
           id: 'whatsapp', 
           path: '/app/admin/whatsapp', 
           icon: MessageSquare, 
-          label: 'WhatsApp Panorama',
+          label: 'WhatsApp',
           badge: '12'
         },
         { 
           id: 'calls', 
           path: '/app/admin/calls', 
           icon: Phone, 
-          label: 'שיחות מערכתיות',
+          label: 'שיחות',
           badge: '3'
         },
         { 
