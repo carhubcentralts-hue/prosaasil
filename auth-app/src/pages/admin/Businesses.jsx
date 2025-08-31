@@ -24,10 +24,12 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
+// import { useToast } from '@/hooks/use-toast' - not available
 
 const Businesses = () => {
   const { user, hasPermission } = useAuth()
   const navigate = useNavigate()
+  // const { toast } = useToast() - not available
   
   // State management
   const [businesses, setBusinesses] = useState([])
@@ -231,24 +233,16 @@ const Businesses = () => {
       const businessName = businesses.find(b => b.id === businessId)?.name || 'העסק'
       
       // Show immediate success message
-      toast({
-        title: "השתלטות החלה",
-        description: `מחליף לדשבורד עסק: ${businessName}`,
-        variant: "default",
-      })
+      alert(`השתלטות החלה - מחליף לדשבורד עסק: ${businessName}`)
       
-      // Navigate to business dashboard
+      // Navigate to business dashboard - use navigate instead of window.location
       setTimeout(() => {
-        window.location.href = '/app/biz/overview'
+        navigate('/app/biz/overview')
       }, 500)
       
     } catch (error) {
       console.error('Error during impersonation:', error)
-      toast({
-        title: "שגיאה",
-        description: "שגיאה בתחילת מצב השתלטות",
-        variant: "destructive",
-      })
+      alert("שגיאה בתחילת מצב השתלטות")
     }
   }
 
@@ -257,16 +251,12 @@ const Businesses = () => {
     
     const businessName = businesses.find(b => b.id === businessId)?.name || 'העסק'
     
-    toast({
-      title: "עריכת עסק",
-      description: `פותח דף עריכה עבור: ${businessName}`,
-      variant: "default",
-    })
+    alert(`עריכת עסק - פותח דף עריכה עבור: ${businessName}`)
     
-    // For now, show a placeholder - page will be built later
+    // Navigate to edit page - for now shows message
     setTimeout(() => {
       alert(`דף עריכה עבור "${businessName}" יתווסף בהמשך פיתוח המערכת`)
-    }, 1000)
+    }, 500)
   }
 
   const handleViewDetails = (businessId) => {
@@ -274,16 +264,12 @@ const Businesses = () => {
     
     const businessName = businesses.find(b => b.id === businessId)?.name || 'העסק'
     
-    toast({
-      title: "פרטי עסק", 
-      description: `מציג פרטי עסק: ${businessName}`,
-      variant: "default",
-    })
+    alert(`פרטי עסק - מציג פרטי עסק: ${businessName}`)
     
-    // For now, show a placeholder - page will be built later
+    // Navigate to details page - for now shows message
     setTimeout(() => {
       alert(`דף פרטי עסק עבור "${businessName}" יתווסף בהמשך פיתוח המערכת`)
-    }, 1000)
+    }, 500)
   }
 
   const handleFreeze = async (businessId) => {
@@ -315,18 +301,10 @@ const Businesses = () => {
           return updated
         })
         
-        toast({
-          title: "סטטוס עסק עודכן",
-          description: `העסק "${business.name}" ${newStatus === 'active' ? 'הופעל' : 'הוקפא'} בהצלחה`,
-          variant: "default",
-        })
+        alert(`סטטוס עסק עודכן - העסק "${business.name}" ${newStatus === 'active' ? 'הופעל' : 'הוקפא'} בהצלחה`)
       } catch (error) {
         console.error('Error updating business status:', error)
-        toast({
-          title: "שגיאה",
-          description: "שגיאה בעדכון סטטוס העסק",
-          variant: "destructive",
-        })
+        alert("שגיאה בעדכון סטטוס העסק")
       }
     } else {
       console.log('User cancelled the operation')
@@ -356,18 +334,10 @@ const Businesses = () => {
             return filtered
           })
           
-          toast({
-            title: "עסק נמחק",
-            description: `העסק "${business.name}" נמחק בהצלחה (מחיקה רכה)`,
-            variant: "default",
-          })
+          alert(`עסק נמחק - העסק "${business.name}" נמחק בהצלחה (מחיקה רכה)`)
         } catch (error) {
           console.error('Error deleting business:', error)
-          toast({
-            title: "שגיאה",
-            description: "שגיאה במחיקת העסק",
-            variant: "destructive",
-          })
+          alert("שגיאה במחיקת העסק")
         }
       } else {
         console.log('User cancelled second confirmation')
@@ -570,6 +540,16 @@ const Businesses = () => {
                 >
                   {business.status === 'active' ? <PowerOff className="w-3 h-3" /> : <Power className="w-3 h-3" />}
                   {business.status === 'active' ? 'הקפאה' : 'הפעלה'}
+                </motion.button>
+                
+                <motion.button
+                  onClick={() => handleDelete(business.id)}
+                  className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors text-xs font-medium flex-shrink-0"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Trash2 className="w-3 h-3" />
+                  מחיקה
                 </motion.button>
                 
                 <motion.button
