@@ -265,15 +265,23 @@ def create_app():
     from flask_sock import Sock
     from server.media_ws_ai import MediaStreamHandler
     
-    # FORCED FIX: Force Flask-Sock registration
-    sock = Sock(app)
+    # CRITICAL FIX: Force Flask-Sock initialization
+    sock = Sock()
+    sock.init_app(app)
     
-    # Manual registration if needed
-    if 'sock' not in app.extensions:
-        app.extensions['sock'] = sock
-        print("🔧 Flask-Sock manually registered")
+    # Force registration in app extensions
+    app.extensions['sock'] = sock
+    
+    # Verify sock is properly bound to app
+    if hasattr(app, 'sock'):
+        print("🔧 Flask-Sock already bound to app")
+    else:
+        # Type ignore for LSP - Flask allows dynamic attributes
+        app.sock = sock  # type: ignore
+        print("🔧 Flask-Sock manually bound to app")
     
     print(f"🔧 Flask-Sock in extensions: {'sock' in app.extensions}")
+    print(f"🔧 Flask-Sock app attribute: {hasattr(app, 'sock')}")
     
     @sock.route('/ws/twilio-media')
     def ws_twilio_media(ws):
