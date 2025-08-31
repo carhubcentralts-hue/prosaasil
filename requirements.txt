@@ -1,1 +1,6 @@
 # Empty requirements.txt - all packages already installed via pyproject.toml
+flask
+flask-cors
+numpy
+psycopg2-binary
+requests
