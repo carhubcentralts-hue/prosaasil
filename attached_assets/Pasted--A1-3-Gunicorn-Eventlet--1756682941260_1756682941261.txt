@@ -1,0 +1,166 @@
+מעולה—מת聚סים על A1.3 (Gunicorn+Eventlet לא מקשיב) עד שזה עונה. זה פלייבוק קצר־אך־מדויק, בלי קוד אפליקטיבי—רק פעולות ופקודות עם “מה מצופה לראות” בכל שלב. תריץ בדיוק לפי הסדר.
+
+⸻
+
+A) להביא את Gunicorn להאזין באמת (ולא Dev Server)
+
+A0. אל תתקע על 5000 ידנית
+	•	בפלטפורמות מנוהלות (כמו Replit) חייבים להאזין על $PORT שהמערכת נותנת.
+	•	אם קבעת PORT=5000 ידנית — תחזיר:
+	•	הסר export ידני של PORT
+	•	echo $PORT וודא שהוא לא ריק (ב־Replit בד”כ ערך ייחודי).
+
+בדיקה:
+
+echo "PORT=$PORT"
+
+מצופה ערך (לא ריק). נשתמש בו בכל הפקודות.
+
+⸻
+
+A1. ודא מחרוזת ה־WSGI הנכונה (Import string)
+
+שגיאה נפוצה: להריץ main:app כשצריך AgentLocator.main:app.
+
+אצלך קבצי הפרויקט בנויים סביב AgentLocator.main:app.
+
+הרצה נכונה (קדימה למסך):
+
+python3 -m gunicorn \
+  AgentLocator.main:app \
+  -k eventlet -w 1 -b 0.0.0.0:$PORT \
+  --log-level debug --access-logfile '-' --error-logfile '-' \
+  --timeout 120 --graceful-timeout 30 --keep-alive 75
+
+מה מצופה לראות בלוג:
+[INFO] Booting worker with pid ...
+Listening at: http://0.0.0.0:<PORT>
+
+אם תנסה main:app והמודול לא קיים/לא חושף app, Gunicorn יפיל worker; נראה בלוג “Worker failed to boot”.
+
+⸻
+
+A2. ודא שאין app.run() שפועל בזמן import
+
+באג קלאסי: אם בקובץ main.py יש app.run(...) לא תחת
+if __name__ == "__main__": — אז כש־Gunicorn מייבא את המודול, Flask Dev Server מופעל ברקע ויכול לסתום/לסגור, ואתה תראה את ההודעה: “Running on all addresses (0.0.0.0)”.
+
+מה לעשות:
+	•	ודא שבקובץ ההפעלה אין app.run() אלא אם כן הוא בתוך ה־guard:
+if __name__ == "__main__": app.run(...).
+	•	אין שום socketio.run(app) או eventlet.wsgi שמופעלים בזמן import.
+
+בדיקה:
+	•	אחרי הפתיחה עם Gunicorn (A1) — לא אמור להופיע לוג של Flask Dev (“Running on all addresses…”).
+	•	אם מופיע—משמע קיים app.run() לא מוגן; לתקן ואז להריץ שוב A1.
+
+⸻
+
+A3. ודא שה־worker באמת חי ומקשיב
+
+בחלון טרמינל נוסף (באותו מארח/סשן):
+
+ss -ltnp | grep ":$PORT" || netstat -ltnp | grep ":$PORT"
+
+מצופה: שורה עם LISTEN ו־python/gunicorn על :$PORT.
+
+curl -sS -m 3 http://127.0.0.1:$PORT/healthz -i
+
+מצופה: HTTP/1.1 200 OK (או HTTP/2 אם יש פרוקסי מקומי).
+
+אם זה נכשל ב־“connection refused” כאן—ה־worker לא מאזין. חזור ל־A1/A2 ותסתכל בשגיאות ה־Gunicorn במסך.
+
+⸻
+
+A4. אל תריץ Dev Server במקביל
+
+מה לבדוק:
+	•	שאין עוד תהליכים:
+
+ps aux | egrep "gunicorn|flask|python.*main" | grep -v grep
+
+
+	•	אם יש — תהרוג אותם, ואז תריץ רק את A1.
+
+⸻
+
+A5. גרסאות תלויות (Eventlet/Greenlet)
+
+קריסות “שקטות” בזמן boot קורות לעיתים כש־eventlet ישנה/לא תואמת לפייתון:
+	•	ודא: eventlet >= 0.33, greenlet תואם לפייתון שלך.
+	•	אם צריך, בקש שדרוג תלויות בסביבה (לא בקוד אפליקטיבי).
+
+⸻
+
+A6. בדיקה מהחוץ (דרך ה־PUBLIC_BASE_URL)
+
+אם זה רץ בענן/ב-Replit, אל תבדוק localhost מהמחשב שלך — זה מארח אחר.
+	•	בדוק גם:
+
+curl -sS -m 5 https://<PUBLIC_BASE_URL>/healthz -i
+curl -sS -m 5 https://<PUBLIC_BASE_URL>/version -i
+
+מצופה: 200 OK ותוכן.
+
+⸻
+
+B) אחרי שהשרת עונה — מחזירים את השיחות (תקציר ממוקד)
+	1.	TwiML/webhooks מסודרים
+	•	POST /webhook/incoming_call → <Connect><Stream ...> (בלי // כפול).
+	•	POST /webhook/stream_status → קורא form ומחזיר 204 ריק.
+	•	POST /webhook/stream_ended → 204 ריק.
+בדיקה:
+
+curl -s https://<BASE>/webhook/incoming_call -d "CallSid=CA_TEST"
+curl -i -X POST https://<BASE>/webhook/stream_status \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected"
+
+
+	2.	Handshake WS — פתרון 31920
+	•	מסלול wss://<BASE>/ws/twilio-media חייב להחזיר:
+Sec-WebSocket-Protocol: audio.twilio.com
+	•	בדיקה:
+
+wscat -c wss://<BASE>/ws/twilio-media \
+      -H "Sec-WebSocket-Protocol: audio.twilio.com"
+
+מצופה: 101 Switching Protocols + אותה כותרת חוזרת.
+
+	3.	STT/TTS תקינים (מונעים “שקט”)
+	•	STT: מוזן μ-law 8k; יש STT_PARTIAL/FINAL בלוגים; קרדנציאלס GCP תקינים.
+	•	TTS: מפיק μ-law 8k מונו, שולח frames של 20ms ל־WS, יש MEDIA_TX בלוגים.
+	•	/readyz מציג "stt":"ok","tts":"ok".
+	4.	Turn-taking (בלי לופים)
+	•	מצבים: LISTENING → THINKING → SPEAKING → LISTENING.
+	•	EoU 300–600ms, BARGE_IN עוצר השמעה אם האדם מדבר.
+
+⸻
+
+C) אם עדיין לא מקשיב—טריאז’ מהיר לפי הסימפטום
+
+סימפטום	סיבה שכיחה	פעולה
+רואה “Running on all addresses (0.0.0.0)”	Dev server הופעל בזמן import	תקן A2 (להסיר/להגן app.run()), הרץ A1
+Gunicorn “רץ” אבל ss לא מראה LISTEN	worker מת/Import נכשל	בדוק לוג Gunicorn במסך; ודא AgentLocator.main:app קיים
+curl 127.0.0.1:$PORT עובד, אבל ה־URL הציבורי לא	bind לפורט אחר/אין התאמת $PORT	אל תקבע 5000 ידנית; האזן על $PORT ונסה שוב
+הלוג שקט ואז Connection Refused	init כבד (DB/GCP/OpenAI) חוסם/קורס	דחה init ל־Lazy; בדוק /readyz אחרי boot
+
+
+⸻
+
+מה אני מבקש ממך עכשיו (להוכיח שהגענו ל־PASS של A1.3)
+	1.	פלט הפעלה של Gunicorn (עם --log-level debug) שכולל Listening at: http://0.0.0.0:$PORT.
+	2.	פלט:
+
+ss -ltnp | grep ":$PORT"
+curl -sS -m 3 http://127.0.0.1:$PORT/healthz -i
+
+
+	3.	פלט מבחוץ:
+
+curl -sS -m 5 https://<PUBLIC_BASE_URL>/healthz -i
+curl -sS -m 5 https://<PUBLIC_BASE_URL>/version -i
+
+
+
+כששלושת אלה ירוקים—נעבור מיד ל־WS Handshake (צעד B2) כדי לסגור את 31920 ולהחזיר קול.

@@ -840,28 +840,10 @@ def catch_all(path):
     # For all other routes, serve the React app
     return send_from_directory('./dist', 'index.html')
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    print(f"🌐 Starting server on port {port}")
-    print(f"📖 Access at: http://localhost:{port}")
-    print(f"🔗 Auth routes: http://localhost:{port}/auth/login")
-    print(f"🛣️  SPA Routing: ALL paths serve React app (except /api/ and /webhook/)")
-    print("")
-    
-    app.run(
-        host='0.0.0.0',
-        port=port,
-        debug=True,
-        threaded=True
-    )
-# FORCE_RELOAD_1756667394
-
 @app.route("/test-simple-endpoint")
 def test_simple():
     return "Main.py works!"
 
-
-# FORCE DEBUG ENDPOINT
 @app.route("/force-debug-endpoint")
 def force_debug():
     import time
