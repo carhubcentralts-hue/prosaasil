@@ -1,0 +1,124 @@
+מעולה—אתה בדיוק בנקודה הנכונה. לפי התיאור שלך (Gunicorn כותב “Listening at: 0.0.0.0:5000” ואז curl 127.0.0.1:5000 מקבל Connection Refused), המשמעות בפועל: ה־worker עלה ואז נפל/ננעל מייד בגלל אתחול כבד בזמן ה־import/boot (GCP/OpenAI/DB), עוד לפני שקיבל בקשות.
+
+הנה הנחיה ספציפית, ממוקדת ל־A1.3/A2: איך לדחות את ה־init הכבד ל־Lazy + Warmup לא חוסם, כך שהשרת יישאר חי ויענה, ואח”כ נסגור את השיחות.
+
+⸻
+
+מה עושים עכשיו (ללא קוד — פעולות מדויקות)
+
+1) כלל־על: אין init כבד בזמן import/boot
+
+מה אסור לעשות בזמן create_app() או import של מודולים:
+	•	לא לפרסר GCP_CREDENTIALS_JSON/ליצור קובץ SA/לפתוח חיבורי GCP.
+	•	לא ליצור לקוחות STT/TTS/OpenAI.
+	•	לא להריץ db.create_all()/מיגרציות כבדות.
+	•	לא לפתוח קבצי אודיו/לקרוא מה־FS בעומס.
+	•	לא לבצע בדיקות רשת (פינג לספקים) מסינכרוני.
+
+מה כן: רק רישום Blueprints, db.init_app(app), קריאת ENV קלים, והגדרת לוגרים.
+
+⸻
+
+2) הפוך כל שירות חיצוני ל־Lazy Singleton
+
+תבנה “רישטרי שירותים” (service registry) ל־4 גורמים:
+	•	STT client (GCP Speech/Whisper)
+	•	TTS client (GCP/אחר)
+	•	OpenAI client (אם בשימוש בשיחות)
+	•	מסד נתונים — לא הלקוח, אלא חוק: ללא create_all בזמן boot
+
+איך זה נראה ברמה התנהגותית (בלי קוד):
+	•	במקום ליצור את הלקוח בזמן import, יוצרים פונקציות get_stt_client(), get_tts_client(), get_llm_client() שמבצעות:
+	•	אם יש מופע מוכן — מחזירות מיד (O(1)).
+	•	אם אין — יוצרות פעם אחת בלבד (Double-check + Lock), עם timeouts קצרים ושגיאות מטופלות.
+	•	אסור לזרוק חריגת init החוצה שתפיל את השרת; אם נכשל — מחזירים מצב “לא מוכן” וה־WS/Endpoint מייצר Fallback (לא מפיל תהליך).
+	•	קריאת ENV הכבדה (למשל JSON של GCP) מתבצעת רק בבקשה הראשונה שזקוקה לזה — לא ב־boot.
+
+תוצאה: Gunicorn ממשיך להאזין גם אם GCP לא מוגדר עדיין; הבקשה הראשונה שצריכה STT/TTS תאתחל פעם אחת, באופן נשלט.
+
+⸻
+
+3) Warmup לא חוסם (אחרי שהשרת כבר מאזין)
+
+כדי לא לשלם “מחיר התחלה” בשיחה הראשונה, הרץ חימום רקע אחרי שהשרת כבר עומד:
+	•	“on_startup” לא חוסם:
+	•	spawn_n משימה שמבצעת: get_stt_client(), get_tts_client(), get_llm_client() + פינג קצר ל־DB.
+	•	לכל קריאה מוגדר timeout (למשל 3–5 שניות). אם נכשל — לא מפיל את השרת; ינסה שוב אחרי דקה.
+	•	כתוב לוגים קצרים: WARMUP_STT_OK/WARMUP_TTS_OK/WARMUP_LLM_OK או …_ERR.
+
+תוצאה: השרת עונה מיד על /healthz//version, והשירותים מתחממים דקה אחרי, בלי לחסום.
+
+⸻
+
+4) מסד נתונים — מה כן/לא בזמן boot
+	•	כן: db.init_app(app) בזמן יצירת האפליקציה.
+	•	לא: db.create_all()/מיגרציות בזמן boot של כל ריצה (זה עלול לנעול/להפיל).
+	•	איך כן:
+	•	הפוך “יצירת סכימה” לפקודת אדמין או ל־Job חד־פעמי (או תנאי סביבתי DB_BOOTSTRAP=true שמופעל ידנית).
+	•	/readyz לא תלוי ביצירת סכימה; רק ב־“יש חיבור DB?”.
+
+⸻
+
+5) /healthz ו-/readyz אמיתיים (לא חוסמים)
+	•	/healthz — תמיד מהר: “אני חי” (200).
+	•	/readyz — בודק:
+	•	loop/WS חי,
+	•	אופציונלי: DB reachable,
+	•	לא בודק GCP/LLM בזמן אמת (כדי לא לחסום).
+	•	אם תרצה, החזר שדות סטטוס "stt":"pending"/"ok", "tts":"pending"/"ok", שמבוססים על warmup האחרון (ולא מזניקים init עכשיו).
+
+⸻
+
+6) לשבור מעגלי import (סיבה נפוצה לנפילה “שקטה”)
+	•	ודא שמודולי media_ws_*/gcp_*/ai_* לא מיובאים ב־app_factory בצורה שגורמת לריצה מיידית של init.
+	•	כל קריאה כבדה תתרחש רק מתוך ה־WS handler, דרך get_*_client().
+
+⸻
+
+7) Timeouts והגנה
+	•	כל init חיצוני: timeout קצר (למשל 3–5ש׳), retry קל, ולוג קצר.
+	•	Fallback (בשיחות): אם אין STT/TTS/LLM זמין תוך ≤6ש׳ — תשובת חירום קצרה/הקלטה, במקום נפילה.
+
+⸻
+
+איך תבדוק שהמעבר ל-Lazy פתר את A1.3
+	1.	הפעל שוב Gunicorn (עם --log-level debug).
+מצופה בלוג:
+	•	אין הדפסות של “Running on all addresses” (זה dev server).
+	•	“Listening at 0.0.0.0:$PORT” נשאר, בלי יציאה.
+	2.	בדיקות מיידיות:
+
+ss -ltnp | grep ":$PORT"      # או netstat
+curl -sS -m 3 http://127.0.0.1:$PORT/healthz -i
+curl -sS -m 5 https://<PUBLIC_BASE_URL>/healthz -i
+curl -sS -m 5 https://<PUBLIC_BASE_URL>/version -i
+
+מצופה: LISTEN על הפורט ו־HTTP/200 על כל שלושת הנתיבים; /version מציג DEPLOY_ID חדש.
+	3.	בדיקת Warmup לא חוסם:
+
+	•	בלוג אחרי 5–30 שניות: WARMUP_STT_OK / WARMUP_TTS_OK / WARMUP_LLM_OK (או _ERR בלי להפיל את השרת).
+	•	/readyz מציג "ws":"ok" וסטטוס "stt"/"tts" כ־"ok" או "pending" (לא מפיל).
+
+⸻
+
+אחרי שהשרת יציב — סוגרים את השיחות (השלמה קצרה)
+	1.	TwiML/webhooks: stream_status/stream_ended → 204 ריק, incoming_call → <Connect><Stream …> בלי //.
+	2.	Handshake WS: החזר Sec-WebSocket-Protocol: audio.twilio.com (31920 יעלם).
+	3.	STT/TTS: μ-law 8k, frames 20ms, MEDIA_TX בלוגים.
+	4.	Turn-taking: LISTENING → THINKING → SPEAKING → LISTENING, EoU 300–600ms, BARGE_IN עוצר השמעה.
+	5.	Evidence Pack:
+	•	Request Inspector (204ים),
+	•	Handshake 101 + subprotocol,
+	•	לוג שיחה: WS_START → STT_FINAL → EoU_ms → TTS_LEN_ms → MEDIA_TX → PNG_PONG,
+	•	וידאו קצר: תשובה ≤ 3–6ש׳.
+
+⸻
+
+תשובה לשאלתך “איזו פעולה מדויקת לבצע עכשיו?”
+
+בחר גם 1 וגם 3:
+	•	(1) GCP/LLM ל-Lazy: לא ליצור לקוחות/לפרסר JSON בזמן boot; ליצור רק ב־get_*_client() בקריאה הראשונה, עם timeouts.
+	•	(3) Warmup לא חוסם: לאחר שהשרת כבר מאזין, להריץ spawn_n שמחמם את הלקוחות ברקע.
+	•	(2) DB creation לא ל־Lazy — פשוט לא בזמן boot על כל ריצה. תריץ יצירת סכימה/מיגרציה כפעולה חד־פעמית (או ידנית), ואל תעשה create_all() אוטומטית בכל עלייה.
+
+ברגע שתיישם את שלושת אלה, Gunicorn יישאר מאזין, /healthz יחזור 200, ואז נמשיך ישר לצעד Handshake של WS כדי להוריד את 31920 ולהחזיר קול.

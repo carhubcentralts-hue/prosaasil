@@ -475,7 +475,7 @@ class MediaStreamHandler:
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
         """Hebrew Speech-to-Text using OpenAI Whisper"""
         try:
-            import openai
+            from server.services.lazy_services import get_openai_client
             import tempfile
             import wave
             
@@ -488,7 +488,10 @@ class MediaStreamHandler:
                     wav.writeframes(pcm16_8k)
                 
                 # Use OpenAI Whisper
-                client = openai.OpenAI()
+                client = get_openai_client()
+                if not client:
+                    print("❌ OpenAI client not available for STT")
+                    return ""
                 with open(f.name, "rb") as audio_file:
                     transcript = client.audio.transcriptions.create(
                         model="whisper-1",
@@ -509,8 +512,11 @@ class MediaStreamHandler:
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response - exactly what the conversation needs!"""
         try:
-            import openai
-            client = openai.OpenAI()
+            from server.services.lazy_services import get_openai_client
+            client = get_openai_client()
+            if not client:
+                print("❌ OpenAI client not available for AI response")
+                return "מצטער, יש בעיה טכנית."
             
             # 🎯 היסטוריה של שיחות למניעת חזרות
             if not hasattr(self, 'conversation_history'):
@@ -662,9 +668,13 @@ class MediaStreamHandler:
         """Hebrew Text-to-Speech using Google Cloud TTS"""
         try:
             print(f"🔊 TTS_START: Generating Hebrew TTS for '{text[:50]}...' (length: {len(text)} chars)")
+            from server.services.lazy_services import get_tts_client
             from google.cloud import texttospeech
             
-            client = texttospeech.TextToSpeechClient()
+            client = get_tts_client()
+            if not client:
+                print("❌ TTS client not available")
+                return None
             
             synthesis_input = texttospeech.SynthesisInput(text=text)
             voice = texttospeech.VoiceSelectionParams(

@@ -63,6 +63,10 @@ class HebrewTTSLive:
             synthesis_input = texttospeech.SynthesisInput(text=text)
             
             # Call TTS API
+            if not self.client:
+                log.error("TTS client not initialized")
+                return None
+                
             response = self.client.synthesize_speech(
                 input=synthesis_input,
                 voice=self.voice, 

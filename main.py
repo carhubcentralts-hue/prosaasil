@@ -38,8 +38,7 @@ def setup_google_credentials():
         print(f'❌ Google Cloud credentials error: {e}')
         return False
 
-# Setup credentials before creating app
-setup_google_credentials()
+# LAZY INIT: Google credentials setup moved to lazy_services.py
 
 # Use the comprehensive app factory instead of manual Flask setup
 from server.app_factory import create_app

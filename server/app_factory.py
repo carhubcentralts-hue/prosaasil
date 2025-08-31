@@ -23,13 +23,9 @@ import hashlib
 def create_app():
     """Create Flask application with React frontend (לפי ההנחיות המדויקות)"""
     
-    # CRITICAL: Setup Google credentials FIRST, before any imports
-    try:
-        from server.bootstrap_secrets import check_secrets, ensure_google_creds_file
-        ensure_google_creds_file()  # Create credentials file before TTS/STT imports
-        check_secrets()  # Check all secrets
-    except Exception as e:
-        print(f"⚠️ Credential setup warning: {e}")
+    # LAZY INIT: Defer Google credentials to first use (prevents boot blocking)
+    # GCP credentials will be initialized on first STT/TTS call
+    print("🔧 GCP credentials deferred to lazy loading")
     
     app = Flask(__name__, 
                 static_url_path="/static",
@@ -545,21 +541,7 @@ def create_app():
             # Fallback to old client if needed
             return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "assets"), filename)
 
-    @app.route('/healthz', methods=['GET'])
-    def healthz():
-        """Basic health check - fast endpoint for deployment"""
-        return "ok", 200
-    
-    @app.route('/readyz', methods=['GET'])
-    def readyz():
-        """Readiness check with system status"""
-        checks = {
-            "db": "ok",
-            "openai": "ok", 
-            "tts": "ok",
-            "twilio_secrets": "ok"
-        }
-        return jsonify(checks), 200
+    # Health endpoints moved below to prevent duplicates
         
     # Serve React for root and add login route
     @app.route('/')
@@ -681,12 +663,34 @@ def create_app():
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
     
-    # Database setup
-    with app.app_context():
-        try:
-            db.create_all()  # Create tables if they don't exist
-            print("✅ Database tables created and admin user setup complete")
-        except Exception as e:
-            print(f"⚠️ Database setup warning: {e}")
+    # Database setup - LAZY INIT: Tables creation deferred to admin command
+    # Use: python3 -c "from main import app; from server.db import db; app.app_context().push(); db.create_all()"
+    print("🔧 Database tables creation deferred - use admin command if needed")
+    
+    # Health check endpoints
+    @app.route('/healthz')
+    def healthz_check():
+        """Fast health check - always responds quickly"""
+        return {"status": "ok", "timestamp": time.time()}, 200
+        
+    @app.route('/readyz')
+    def readiness_check():
+        """Readiness check - shows service status without blocking"""
+        from server.services.lazy_services import get_service_status
+        
+        status = get_service_status()
+        # Basic checks
+        checks = {
+            "server": "ok",
+            "database": "ok",  # db.init_app already done
+            "services": status
+        }
+        
+        return {"status": "ready", "checks": checks, "timestamp": time.time()}, 200
+    
+    # DISABLE warmup temporarily to isolate boot issue
+    # from server.services.lazy_services import warmup_services_async
+    # warmup_services_async()
+    print("🔧 Warmup disabled for debugging")
     
     return app
