@@ -23,9 +23,13 @@ const Sidebar = ({ open, onClose }) => {
   
   // Remove calendar state - now handled in dedicated page
 
+  // Check if admin is impersonating a business
+  const isImpersonating = sessionStorage.getItem('impersonating_business_id')
+
   // Navigation items based on role
   const getNavItems = () => {
-    if (isAdmin()) {
+    // If admin is impersonating, show business menu
+    if (isAdmin() && !isImpersonating) {
       return [
         { 
           id: 'overview', 
@@ -190,8 +194,11 @@ const Sidebar = ({ open, onClose }) => {
                 </div>
                 <div>
                   <h2 className="font-bold text-slate-800">
-                    {isAdmin() ? 'מנהל מערכת' : 'לוח הבקרה'}
+                    {(isAdmin() && !isImpersonating) ? 'מנהל מערכת' : 'לוח הבקרה'}
                   </h2>
+                  {isImpersonating && (
+                    <p className="text-xs text-orange-600 font-medium">מתחזה כעסק</p>
+                  )}
                   <p className="text-sm text-slate-500">{user?.name}</p>
                 </div>
               </div>
@@ -247,9 +254,9 @@ const Sidebar = ({ open, onClose }) => {
                 transition={{ delay: 0.3 }}
               >
                 <NavLink
-                  to={isAdmin() ? '/app/admin/calendar' : '/app/biz/calendar'}
+                  to={(isAdmin() && !isImpersonating) ? '/app/admin/calendar' : '/app/biz/calendar'}
                   onClick={(e) => {
-                    console.log('🗓️ לחיצה על כפתור לוח שנה!', { isAdmin: isAdmin(), targetPath: isAdmin() ? '/app/admin/calendar' : '/app/biz/calendar' })
+                    console.log('🗓️ לחיצה על כפתור לוח שנה!', { isAdmin: isAdmin(), isImpersonating: !!isImpersonating, targetPath: (isAdmin() && !isImpersonating) ? '/app/admin/calendar' : '/app/biz/calendar' })
                     onClose()
                   }}
                   className={({ isActive }) => clsx(
@@ -271,7 +278,7 @@ const Sidebar = ({ open, onClose }) => {
             {/* Quick Actions */}
             <div className="p-4 border-t border-slate-200">
               <div className="space-y-2">
-                {isAdmin() && (
+                {(isAdmin() && !isImpersonating) && (
                   <motion.button
                     className="w-full flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium hover:bg-orange-200 transition-colors"
                     whileHover={{ scale: 1.02 }}
