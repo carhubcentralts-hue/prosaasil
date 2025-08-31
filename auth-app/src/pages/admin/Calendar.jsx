@@ -145,6 +145,7 @@ const Calendar = () => {
   }
 
   const handleEditEvent = (event) => {
+    console.log('לחצנו על עריכת אירוע:', event)
     setEditingEvent(event)
     setNewEvent({
       title: event.title,
@@ -420,7 +421,11 @@ const Calendar = () => {
                   
                   <div className="flex items-center gap-2">
                     <button 
-                      onClick={() => handleEditEvent(event)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        console.log('לחצנו על כפתור עריכה עבור אירוע:', event.title)
+                        handleEditEvent(event)
+                      }}
                       className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors"
                     >
                       <Edit className="w-4 h-4" />
@@ -643,7 +648,11 @@ const Calendar = () => {
                   
                   <div className="flex items-center gap-2">
                     <button 
-                      onClick={() => handleEditEvent(event)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        console.log('לחצנו על כפתור עריכה עבור אירוע:', event.title)
+                        handleEditEvent(event)
+                      }}
                       className="w-8 h-8 rounded-lg hover:bg-slate-200 flex items-center justify-center transition-colors"
                     >
                       <Edit className="w-4 h-4" />
