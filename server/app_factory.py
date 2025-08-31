@@ -265,14 +265,14 @@ def create_app():
     from flask_sock import Sock
     from server.media_ws_ai import MediaStreamHandler
     
-    # CRITICAL FIX: Force Flask-Sock initialization
+    # CRITICAL FIX: Force Flask-Sock initialization with EventLet compatibility
     sock = Sock()
     sock.init_app(app)
     
     # Force registration in app extensions
     app.extensions['sock'] = sock
     
-    # Verify sock is properly bound to app
+    # EventLet compatibility fix - ensure WebSocket is registered properly
     if hasattr(app, 'sock'):
         print("🔧 Flask-Sock already bound to app")
     else:
@@ -280,8 +280,12 @@ def create_app():
         app.sock = sock  # type: ignore
         print("🔧 Flask-Sock manually bound to app")
     
+    # DEPLOYMENT FIX: Ensure routes are registered before any requests
+    app.before_first_request_funcs = []
+    
     print(f"🔧 Flask-Sock in extensions: {'sock' in app.extensions}")
     print(f"🔧 Flask-Sock app attribute: {hasattr(app, 'sock')}")
+    print(f"🔧 EventLet WebSocket mode: enabled")
     
     @sock.route('/ws/twilio-media')
     def ws_twilio_media(ws):
@@ -290,19 +294,27 @@ def create_app():
         print("🚨 WEBSOCKET HANDLER CALLED - AI MODE")
         
         # Write debug immediately
-        import time
-        with open("/tmp/websocket_debug.txt", "w") as f:
-            f.write(f"WEBSOCKET_HANDLER_AI_MODE: {time.time()}\n")
-            f.flush()
+        import time, os
+        debug_file = "/tmp/websocket_debug.txt"
+        try:
+            with open(debug_file, "w") as f:
+                f.write(f"WEBSOCKET_HANDLER_AI_MODE: {time.time()}\n")
+                f.write(f"DEPLOYMENT: {os.getenv('REPLIT_DEPLOYMENT_ID', 'local')}\n")
+                f.flush()
+        except Exception as de:
+            print(f"Debug write error: {de}")
         
         try:
             handler = MediaStreamHandler(ws)
             handler.run()
         except Exception as e:
             print(f"❌ WS_HANDLER_ERROR: {e}")
-            with open("/tmp/websocket_debug.txt", "a") as f:
-                f.write(f"WS_HANDLER_ERROR: {e}\n")
-                f.flush()
+            try:
+                with open(debug_file, "a") as f:
+                    f.write(f"WS_HANDLER_ERROR: {e}\n")
+                    f.flush()
+            except:
+                pass
         print("WS_CLOSED")
         
     @sock.route('/ws/twilio-media/')
