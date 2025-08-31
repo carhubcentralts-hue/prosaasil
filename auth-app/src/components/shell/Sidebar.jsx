@@ -60,11 +60,18 @@ const Sidebar = ({ open, onClose }) => {
           badge: '3'
         },
         { 
+          id: 'crm', 
+          path: '/app/admin/crm', 
+          icon: UserCheck, 
+          label: 'CRM',
+          badge: '15'
+        },
+        { 
           id: 'finance', 
           path: '/app/admin/finance', 
           icon: CreditCard, 
-          label: 'כספים',
-          badge: null
+          label: 'תשלומים וחוזים',
+          badge: '3'
         },
         { 
           id: 'businesses', 
