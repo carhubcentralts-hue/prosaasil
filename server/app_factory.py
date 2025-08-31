@@ -152,14 +152,16 @@ def create_app():
                         session['_csrf_token'] = secrets.token_hex(16)
     
     # Enterprise Security Initialization
+    csrf_instance = None
+    surf_instance = None
     if CSRF_AVAILABLE and CSRFProtect and SeaSurf:
         try:
-            csrf = CSRFProtect()
-            csrf.init_app(app)
+            csrf_instance = CSRFProtect()
+            csrf_instance.init_app(app)
             
             # SeaSurf for additional CSRF protection
-            surf = SeaSurf()
-            surf.init_app(app)
+            surf_instance = SeaSurf()
+            surf_instance.init_app(app)
             print("🔒 Enterprise CSRF Protection enabled")
         except Exception as e:
             print(f"⚠️ CSRF setup warning: {e}")
@@ -346,6 +348,29 @@ def create_app():
     # רישום בלו־פרינטים - AgentLocator 71
     from server.routes_twilio import twilio_bp
     app.register_blueprint(twilio_bp)
+    
+    # CSRF Exemption for all Twilio webhooks (critical for phone system)
+    if csrf_instance:
+        try:
+            # Exempt all webhook endpoints from Flask-WTF CSRF protection
+            csrf_instance.exempt(twilio_bp)
+            print("✅ Flask-WTF CSRF exemption applied to Twilio webhooks")
+        except Exception as e:
+            print(f"⚠️ Flask-WTF CSRF exemption warning: {e}")
+            
+    if surf_instance:
+        try:
+            # SeaSurf exemption - needs tuple syntax, not list
+            surf_instance.exempt_urls(('/webhook/',))
+            print("✅ SeaSurf exemption applied to /webhook/ prefix")
+        except Exception as e:
+            print(f"⚠️ SeaSurf exemption warning: {e}")
+            # Alternative: Set exempt_urls directly as attribute
+            try:
+                surf_instance._exempt_urls = ('/webhook/',)
+                print("✅ SeaSurf direct attribute exemption applied")
+            except:
+                print("⚠️ SeaSurf could not be configured - webhooks may be blocked")
     # WhatsApp unified registration only (no more routes_whatsapp.py)
     print("✅ WhatsApp routes removed - using unified only")
     # CRM unified moved to routes_crm.py - no separate API blueprint needed
