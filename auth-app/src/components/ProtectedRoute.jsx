@@ -20,7 +20,13 @@ const ProtectedRoute = ({ children, requiredRole, requiredPermission }) => {
   // Check role requirement
   if (requiredRole) {
     const allowedRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole]
-    if (!allowedRoles.includes(user.role)) {
+    
+    // Special case: Admin impersonating business
+    const isImpersonating = sessionStorage.getItem('impersonating_business_id')
+    const isAdminImpersonating = isImpersonating && (user.role === 'admin' || user.role === 'superadmin')
+    
+    // Allow access if user has required role OR admin is impersonating
+    if (!allowedRoles.includes(user.role) && !isAdminImpersonating) {
       return <Navigate to="/unauthorized" replace />
     }
   }

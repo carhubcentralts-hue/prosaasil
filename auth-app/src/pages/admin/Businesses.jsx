@@ -550,16 +550,6 @@ const Businesses = () => {
                   <Trash2 className="w-3 h-3" />
                   מחיקה
                 </motion.button>
-                
-                <motion.button
-                  onClick={() => handleDelete(business.id)}
-                  className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors text-xs font-medium flex-shrink-0"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Trash2 className="w-3 h-3" />
-                  מחיקה
-                </motion.button>
               </div>
 
               {/* Integrations Status */}
