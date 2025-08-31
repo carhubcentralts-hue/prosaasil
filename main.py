@@ -6,6 +6,9 @@ Professional Hebrew Auth Server - Production Ready
 
 import os
 import sys
+from flask import Flask, render_template, send_from_directory, request, jsonify, session
+from flask_cors import CORS
+from datetime import datetime
 
 # Use the comprehensive app factory instead of manual Flask setup
 from server.app_factory import create_app
