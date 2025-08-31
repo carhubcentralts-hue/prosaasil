@@ -1,11 +1,14 @@
-import { motion } from 'framer-motion'
-import { Menu, Search, Bell, User, LogOut } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Menu, Search, Bell, User, LogOut, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useState } from 'react'
 
 const Header = ({ onMenuClick }) => {
   const { user, logout, impersonating, stopImpersonating } = useAuth()
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const handleLogout = () => {
     logout()
@@ -58,23 +61,137 @@ const Header = ({ onMenuClick }) => {
         {/* Left side - Actions */}
         <div className="flex items-center gap-2">
           {/* Search */}
-          <motion.button
-            className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Search className="w-5 h-5 text-slate-600" />
-          </motion.button>
+          <div className="relative">
+            <motion.button
+              onClick={() => setShowSearch(!showSearch)}
+              className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Search className="w-5 h-5 text-slate-600" />
+            </motion.button>
+            
+            <AnimatePresence>
+              {showSearch && (
+                <motion.div
+                  className="absolute left-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 p-4 z-50"
+                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <Search className="w-4 h-4 text-slate-500" />
+                    <input
+                      type="text"
+                      placeholder="חפש לידים, לקוחות, עסקים..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="flex-1 outline-none text-sm"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => setShowSearch(false)}
+                      className="p-1 hover:bg-slate-100 rounded"
+                    >
+                      <X className="w-4 h-4 text-slate-500" />
+                    </button>
+                  </div>
+                  {searchQuery ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-slate-500 mb-2">תוצאות חיפוש עבור "{searchQuery}":</p>
+                      <div className="text-sm text-slate-600 p-2 bg-slate-50 rounded">
+                        אין תוצאות מתאימות
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-xs text-slate-500 mb-2">חיפושים אחרונים:</p>
+                      <div className="text-sm text-slate-600">
+                        <div className="p-2 hover:bg-slate-50 rounded cursor-pointer">💼 שי דירות ומשרדים</div>
+                        <div className="p-2 hover:bg-slate-50 rounded cursor-pointer">👤 לקוח פוטנציאלי</div>
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           {/* Notifications */}
-          <motion.button
-            className="p-2 rounded-lg hover:bg-slate-100 transition-colors relative"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Bell className="w-5 h-5 text-slate-600" />
-            <span className="absolute -top-1 -left-1 w-3 h-3 bg-red-500 rounded-full text-xs text-white flex items-center justify-center">3</span>
-          </motion.button>
+          <div className="relative">
+            <motion.button
+              onClick={() => setShowNotifications(!showNotifications)}
+              className="p-2 rounded-lg hover:bg-slate-100 transition-colors relative"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Bell className="w-5 h-5 text-slate-600" />
+              <span className="absolute -top-1 -left-1 w-3 h-3 bg-red-500 rounded-full text-xs text-white flex items-center justify-center">3</span>
+            </motion.button>
+            
+            <AnimatePresence>
+              {showNotifications && (
+                <motion.div
+                  className="absolute left-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50"
+                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <div className="px-4 py-3 border-b border-slate-100">
+                    <div className="flex justify-between items-center">
+                      <h3 className="font-semibold text-slate-800">התראות</h3>
+                      <button
+                        onClick={() => setShowNotifications(false)}
+                        className="p-1 hover:bg-slate-100 rounded"
+                      >
+                        <X className="w-4 h-4 text-slate-500" />
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="max-h-64 overflow-y-auto">
+                    <div className="p-3 hover:bg-slate-50 border-b border-slate-100">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="text-sm font-medium text-slate-800">לקוח חדש נרשם</p>
+                          <p className="text-xs text-slate-500 mt-1">דוד כהן התעניין בדירת 3 חדרים</p>
+                        </div>
+                        <span className="text-xs text-slate-400">לפני 5 דק'</span>
+                      </div>
+                    </div>
+                    
+                    <div className="p-3 hover:bg-slate-50 border-b border-slate-100">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="text-sm font-medium text-slate-800">שיחה חדשה התקבלה</p>
+                          <p className="text-xs text-slate-500 mt-1">מספר 03-1234567 התקשר</p>
+                        </div>
+                        <span className="text-xs text-slate-400">לפני 15 דק'</span>
+                      </div>
+                    </div>
+                    
+                    <div className="p-3 hover:bg-slate-50">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="text-sm font-medium text-slate-800">תזכורת פגישה</p>
+                          <p className="text-xs text-slate-500 mt-1">פגישה עם רחל לוי בשעה 15:00</p>
+                        </div>
+                        <span className="text-xs text-slate-400">לפני שעה</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="px-4 py-2 border-t border-slate-100">
+                    <button className="text-sm text-teal-600 hover:text-teal-700">
+                      צפה בכל ההתראות
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           {/* User Menu */}
           <div className="relative">

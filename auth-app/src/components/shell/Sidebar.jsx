@@ -81,6 +81,20 @@ const Sidebar = ({ open, onClose }) => {
           badge: null
         },
         { 
+          id: 'businesses', 
+          path: '/app/admin/businesses', 
+          icon: Building2, 
+          label: 'ניהול עסקים',
+          badge: '5'
+        },
+        { 
+          id: 'users', 
+          path: '/app/admin/users', 
+          icon: Users, 
+          label: 'ניהול משתמשים',
+          badge: null
+        },
+        { 
           id: 'settings', 
           path: '/app/admin/settings', 
           icon: Settings, 
@@ -134,16 +148,14 @@ const Sidebar = ({ open, onClose }) => {
         }
       ]
 
-      // Add users management for business owners
-      if (hasPermission('manage_business_users')) {
-        items.push({
-          id: 'users', 
-          path: '/app/biz/users', 
-          icon: Users, 
-          label: 'משתמשי העסק',
-          badge: null
-        })
-      }
+      // Add users management for all business users
+      items.push({
+        id: 'users', 
+        path: '/app/biz/users', 
+        icon: Users, 
+        label: 'ניהול משתמשים',
+        badge: null
+      })
 
       items.push({
         id: 'settings', 
