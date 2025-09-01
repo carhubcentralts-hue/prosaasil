@@ -4,9 +4,9 @@ Professional Hebrew Auth Server - Production Ready
 מערכת התחברות מקצועית עם React 19 + Tailwind 4.1 + Motion
 """
 
-# CRITICAL: eventlet.monkey_patch() MUST be first for gunicorn+eventlet
-import eventlet
-eventlet.monkey_patch()
+# DON'T monkey_patch here - let gunicorn eventlet worker handle it
+# import eventlet
+# eventlet.monkey_patch()
 
 import os
 import sys
