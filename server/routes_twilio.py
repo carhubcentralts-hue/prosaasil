@@ -130,7 +130,7 @@ def handle_recording():
 @twilio_bp.route("/webhook/stream_status", methods=["POST"])
 def stream_status():
     """שלב 5: Webhooks קשיחים - קורא form.to_dict(flat=True), מחזיר 204"""
-    form = request.form.to_dict()
+    form = request.form.to_dict(flat=True)  # Fixed: flat=True לפי ההנחיות
     print(f"STREAM_STATUS call={form.get('CallSid')} stream={form.get('StreamSid')} event={form.get('Status')}")
     return ("", 204)
 

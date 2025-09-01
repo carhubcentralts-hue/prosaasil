@@ -1,24 +1,31 @@
 #!/usr/bin/env python3
 """
 Hebrew AI Call Center - eventlet Composite WSGI
-שלב 2: סדר טעינה נכון - eventlet monkey_patch ראשון!
+CRITICAL: eventlet.monkey_patch() MUST be first!
 """
-import os
-# שלב 7: NixOS compatibility - set hub before eventlet import
-os.environ['EVENTLET_NO_GREENDNS'] = '1'
-os.environ['EVENTLET_HUB'] = 'poll'
 
+# STEP 0: Set eventlet environment BEFORE import
+import os
+os.environ['EVENTLET_NO_GREENDNS'] = '1'
+os.environ['EVENTLET_HUB'] = 'poll'  # Use valid hub: poll (available)
+
+# STEP 1: eventlet.monkey_patch() FIRST - before ANY other imports
 import eventlet
 eventlet.monkey_patch()
 
+# STEP 2: Only AFTER monkey_patch, import Flask app
+import os
+import json
+from eventlet.websocket import WebSocketWSGI
+
 def create_websocket_handler():
-    """EventLet WebSocket handler עם subprotocol נכון לTwilio"""
+    """EventLet WebSocket handler with audio.twilio.com subprotocol"""
     def websocket_app(environ, start_response):
-        """WebSocket handler עם audio.twilio.com subprotocol"""
+        """WebSocket handler with proper Twilio subprotocol"""
         print("📞 EventLet WebSocket handler called!", flush=True)
         
         try:
-            # Import here after monkey_patch
+            # Import MediaStreamHandler after monkey_patch
             from server.media_ws_ai import MediaStreamHandler
             
             # Get WebSocket from eventlet environ
@@ -41,47 +48,35 @@ def create_websocket_handler():
     return websocket_app
 
 def create_composite_wsgi():
-    """שלב 3: Composite WSGI - WebSocket לפני Flask"""
-    from eventlet.websocket import WebSocketWSGI
+    """Composite WSGI: WebSocket BEFORE Flask"""
     from server.app_factory import create_app
     
     # Create Flask app
     flask_app = create_app()
     
-    # Create WebSocket WSGI with correct subprotocol
+    # Create WebSocket WSGI (protocols handled in handshake)
     websocket_handler = create_websocket_handler()
     websocket_wsgi = WebSocketWSGI(websocket_handler)
     
     def composite_app(environ, start_response):
-        """Composite WSGI - בודק PATH_INFO ומנתב"""
+        """Route WebSocket before Flask"""
         path = environ.get('PATH_INFO', '')
-        print(f"🔍 WSGI Request: {path}", flush=True)
         
-        # WebSocket route - עובר ל-EventLet
+        # WebSocket routing BEFORE Flask
         if path == '/ws/twilio-media':
-            print("📞 Routing to EventLet WebSocket with audio.twilio.com", flush=True)
+            print("📞 Routing to EventLet WebSocketWSGI", flush=True)
             return websocket_wsgi(environ, start_response)
         
-        # כל השאר - עובר ל-Flask
-        print(f"🌐 Routing to Flask: {path}", flush=True)
+        # All other routes go to Flask
         return flask_app.wsgi_app(environ, start_response)
     
     return composite_app
 
-# יצוא סופי - composite_app (לא Flask!)
+# STEP 3: Export the composite app (NOT Flask app directly!)
 app = create_composite_wsgi()
 
 print("✅ EventLet Composite WSGI created:")
-print("   📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com")
+print("   📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com")  
 print("   🌐 All other routes → Flask app")
 print("   🔧 Worker: eventlet (Twilio compatible)")
 print("🚀 Ready for Twilio Media Streams!")
-
-if __name__ == '__main__':
-    print("⚠️ Use Gunicorn with eventlet worker for production:")
-    print("   python -m gunicorn -w 1 -k eventlet -b 0.0.0.0:5000 wsgi:app")
-    # For testing only - not production!
-    import eventlet.wsgi
-    import os
-    port = int(os.environ.get('PORT', 5000))
-    eventlet.wsgi.server(eventlet.listen(('0.0.0.0', port)), app)
