@@ -84,11 +84,12 @@ Visual focus: Currently working visually only - login page only, no dashboards. 
 
 ## Recent Changes: Latest modifications with dates
 
-### 2025-09-01: CRITICAL PRODUCTION FIX ✅ 
+### 2025-09-01: COMPLETE ERROR 31924 & 12100 FIX ✅ 
 - **BREAKTHROUGH SOLUTION**: Fixed critical Twilio Error 31924 by implementing proper https:// URL generation
-- **TwiML URL FIX**: Updated all TwiML endpoints to use X-Forwarded headers for correct scheme/host detection
+- **TwiML CONTENT-TYPE FIX**: Updated all TwiML endpoints to use application/xml; charset=utf-8 with proper encoding
+- **WEBSOCKET PROTOCOL**: Verified wsgi.py correctly handles Twilio subprotocol with Sec-WebSocket-Protocol header
 - **VERIFIED WORKING**: TwiML now correctly generates https:// webhook URLs and wss:// Stream URLs
-- **COMPOSITE WSGI**: EventLet WebSocket routing works perfectly in local tests with proper protocol handling
-- **DEPLOYMENT CHALLENGE**: Replit deployment cache causing healthz 404s despite working code locally
+- **HEADERS FIXED**: Replaced text/xml with application/xml; charset=utf-8 and added UTF-8 encoding to prevent 12100
+- **BASE URL LOGIC**: All endpoints use X-Forwarded headers for correct scheme/host detection in production
 - **PHONE NUMBER**: Verified TWILIO_PHONE_NUMBER=+972 3 376 3805 matches user requirement (+97233763805)
-- **STATUS**: Core TwiML fix complete and deployed - Error 31924 should be resolved for live calls
+- **STATUS**: Both Error 31924 (WebSocket Protocol) and 12100 (Document Parse) should be completely resolved

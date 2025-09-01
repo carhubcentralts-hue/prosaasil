@@ -68,9 +68,9 @@ def incoming_call_preview():
     ]
     twiml = "".join(parts)
     
-    resp = make_response(twiml, 200)
-    resp.headers["Content-Type"] = "text/xml"
-    resp.headers["Cache-Control"] = "no-store"
+    resp = make_response(twiml.encode("utf-8"), 200)
+    resp.headers["Content-Type"] = "application/xml; charset=utf-8"
+    resp.headers["Cache-Control"] = "no-store, no-cache"
     return resp
 
 @twilio_bp.route("/webhook/incoming_call", methods=["POST"])
@@ -99,9 +99,9 @@ def incoming_call():
     twiml = "".join(parts)
     
     # החזרה מיידית ללא עיכובים
-    resp = make_response(twiml, 200)
-    resp.headers["Content-Type"] = "text/xml"     # מונע 12300
-    resp.headers["Cache-Control"] = "no-store"
+    resp = make_response(twiml.encode("utf-8"), 200)
+    resp.headers["Content-Type"] = "application/xml; charset=utf-8"  # מונע 12100
+    resp.headers["Cache-Control"] = "no-store, no-cache"
     return resp
 
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
@@ -177,7 +177,7 @@ def test_media_streams_new():
   </Connect>
 </Response>"""
     
-    resp = make_response(twiml, 200)
-    resp.headers["Content-Type"] = "text/xml"
+    resp = make_response(twiml.encode("utf-8"), 200)
+    resp.headers["Content-Type"] = "application/xml; charset=utf-8"
     resp.headers["Cache-Control"] = "no-store, no-cache"
     return resp
