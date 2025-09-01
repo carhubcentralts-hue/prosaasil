@@ -1,35 +1,49 @@
-# .replit — FIXED (TOML תקין)
+# .replit — FIXED
 
-# מה שרואים כשלוחצים על Run בסביבת הפיתוח
+# כפתור Run בסביבה (אל תתקין כאן npm/baileys)
 run = """
-bash -lc 'EVENTLET_NO_GREENDNS=1 EVENTLET_HUB=select \
-python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT \
-  --timeout 120 --keep-alive 75 --log-level info \
-  --access-logfile - --error-logfile -'
+bash -lc '
+  export EVENTLET_NO_GREENDNS=1
+  export EVENTLET_HUB=select
+  python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT \
+    --timeout 120 --keep-alive 75 --log-level info \
+    --access-logfile - --error-logfile -
+'
 """
 
-# הגדרות דיפלוי (Autoscale)
 [deployment]
 deploymentTarget = "autoscale"
 build = [
-  "pip install -r requirements.txt"
+  "bash", "-lc", "python3 -m pip install -U pip && pip install -r requirements.txt"
 ]
 run = """
-bash -lc 'EVENTLET_NO_GREENDNS=1 EVENTLET_HUB=select \
-python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT \
-  --timeout 120 --keep-alive 75 --log-level info \
-  --access-logfile - --error-logfile -'
+bash -lc '
+  export EVENTLET_NO_GREENDNS=1
+  export EVENTLET_HUB=select
+  python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT \
+    --timeout 120 --keep-alive 75 --log-level info \
+    --access-logfile - --error-logfile -
+'
 """
 
-# אל תקבע PORT ידנית! הפלטפורמה מזריקה אותו.
+# אל תקבע PORT ידנית! Replit מזריקה אותו.
 [env]
 PYTHONUNBUFFERED = "1"
 PYTHONPATH = "."
-PUBLIC_BASE_URL = "https://ai-crmd.replit.app"
 
-# Nix נשאר כמו שהיה אצלך (אפשר להשאיר בדיוק כך)
+# Nix (ה־OS) — מוסיפים Python 3.11 ו-Node 20, כדי שלא תקבל "python3: command not found"
 [nix]
 channel = "stable-25_05"
-packages = ["c-ares", "cargo", "ffmpeg-full", "freetype", "grpc", "iana-etc", "lcms2", "libiconv", "libimagequant", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "zlib", "iproute2", "nettools"]
+packages = [
+  "python311Full",
+  "nodejs_20",
+  "postgresql_16",
+  "ffmpeg-full",
+  "openssl",
+  "pkg-config",
+  "iproute2",
+  "nettools",
+  "zlib"
+]
 
-# אם היו לך [[ports]] — מיותר ב-Autoscale. אפשר למחוק אותם.
+# אין צורך במקטע [[ports]] בסביבת autoscale של Replit — מחק אם היה.
