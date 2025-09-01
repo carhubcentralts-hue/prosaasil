@@ -7,17 +7,13 @@ FORCE clean eventlet environment
 import os
 import sys
 
-# AGGRESSIVELY clean EVENTLET_HUB from all sources
-for key in list(os.environ.keys()):
-    if 'EVENTLET_HUB' in key:
-        del os.environ[key]
+# CRITICAL FIX: Force eventlet to use working hub for NixOS
+os.environ['EVENTLET_HUB'] = 'epolls'
 
 # Set ONLY safe eventlet variables
 os.environ['EVENTLET_NO_GREENDNS'] = '1'
 
-# Ensure EVENTLET_HUB is completely unset
-if 'EVENTLET_HUB' in os.environ:
-    del os.environ['EVENTLET_HUB']
+print(f"🔧 Eventlet hub forced to: {os.environ.get('EVENTLET_HUB')}")
 
 # Don't force monkey_patch - let gunicorn eventlet worker handle it
 try:
