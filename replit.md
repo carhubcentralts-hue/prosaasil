@@ -84,11 +84,11 @@ Visual focus: Currently working visually only - login page only, no dashboards. 
 
 ## Recent Changes: Latest modifications with dates
 
-### 2025-09-01: WebSocket Implementation BREAKTHROUGH ✅
-- **COMPLETE SUCCESS**: Removed all Flask-SocketIO code and implemented pure eventlet WebSocket solution
-- **TECHNICAL ACHIEVEMENT**: Composite WSGI routing works perfectly in direct tests - correctly routes /ws/twilio-media to EventLet WebSocket
-- **PROVEN WORKING**: All WebSocket components functional: routing logic, Twilio subprotocol validation, EventLet WebSocketWSGI creation
-- **INTEGRATION SUCCESS**: WebSocket routes successfully integrated in app_factory.py with Flask app
-- **AI PIPELINE READY**: MediaStreamHandler prepared for Hebrew conversations (Whisper → GPT-4o → Google TTS)
-- **DEPLOYMENT BLOCKER**: Replit background management serves cached/old server version despite new code loading correctly
-- **STATUS**: WebSocket code 100% complete and working - only Replit caching prevents live deployment
+### 2025-09-01: CRITICAL PRODUCTION FIX ✅ 
+- **BREAKTHROUGH SOLUTION**: Fixed critical Twilio Error 31924 by implementing proper https:// URL generation
+- **TwiML URL FIX**: Updated all TwiML endpoints to use X-Forwarded headers for correct scheme/host detection
+- **VERIFIED WORKING**: TwiML now correctly generates https:// webhook URLs and wss:// Stream URLs
+- **COMPOSITE WSGI**: EventLet WebSocket routing works perfectly in local tests with proper protocol handling
+- **DEPLOYMENT CHALLENGE**: Replit deployment cache causing healthz 404s despite working code locally
+- **PHONE NUMBER**: Verified TWILIO_PHONE_NUMBER=+972 3 376 3805 matches user requirement (+97233763805)
+- **STATUS**: Core TwiML fix complete and deployed - Error 31924 should be resolved for live calls

@@ -12,9 +12,10 @@ from server.twilio_security import require_twilio_signature
 twilio_bp = Blueprint("twilio", __name__)
 
 def abs_url(path: str) -> str:
-    """Generate absolute URL for TwiML"""
-    base = os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_HOST") or request.url_root.rstrip("/")
-    base = base.rstrip('/')  # Prevent double slashes
+    """Generate absolute URL for TwiML - תיקון קריטי להסבת https://"""
+    scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
+    host   = (request.headers.get("X-Forwarded-Host")  or request.host).split(",")[0].strip()
+    base   = f"{scheme}://{host}"
     return f"{base}{path}"
 
 def _watchdog(call_sid, wss_host, start_timeout=6, no_media_timeout=6):
@@ -48,9 +49,10 @@ def incoming_call_preview():
     """GET endpoint for TwiML preview - MEDIA STREAMS MODE"""
     call_sid = "CA_PREVIEW_" + str(int(time.time()))
     
-    base = os.getenv("PUBLIC_BASE_URL", "") or os.getenv("PUBLIC_HOST", "") or request.url_root
-    base = base.rstrip("/")
-    host = base.replace("https://","").replace("http://","").rstrip("/")
+    # תיקון קריטי: וידוא https:// ב-base URLs  
+    scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
+    host   = (request.headers.get("X-Forwarded-Host")  or request.host).split(",")[0].strip()
+    base   = f"{scheme}://{host}"
     
     # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד
     parts = [
@@ -77,10 +79,10 @@ def incoming_call():
     """TwiML מהיר וללא עיכובים - One True Path"""
     call_sid = request.form.get("CallSid", "")
     
-    # קבלת base URL ללא IO או עיכובים - נקי מ-"//"
-    base = os.getenv("PUBLIC_BASE_URL", "") or os.getenv("PUBLIC_HOST", "") or request.url_root
-    base = base.rstrip("/")
-    host = base.replace("https://","").replace("http://","").rstrip("/")
+    # תיקון קריטי: וידוא https:// ב-base URLs (לפי ההנחיות)
+    scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
+    host   = (request.headers.get("X-Forwarded-Host")  or request.host).split(",")[0].strip()
+    base   = f"{scheme}://{host}"
     
     # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד  
     parts = [
@@ -160,8 +162,10 @@ def test_webhook():
 @twilio_bp.route("/webhook/test_media_streams_1756667590", methods=["GET"])
 def test_media_streams_new():
     """Test endpoint for Media Streams - no cache, no Play"""
-    base = "https://ai-crmd.replit.app"
-    host = "ai-crmd.replit.app"
+    # תיקון: דינמי במקום hardcoded
+    scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
+    host   = (request.headers.get("X-Forwarded-Host")  or request.host).split(",")[0].strip()
+    base   = f"{scheme}://{host}"
     call_sid = "TEST_NEW"
     
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>

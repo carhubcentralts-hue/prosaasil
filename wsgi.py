@@ -64,6 +64,12 @@ def composite_app(environ, start_response):
     # Debug logging for all requests
     print(f"🔍 WSGI Route: {method} {path}", flush=True)
     
+    # Direct healthz handling (bypass Flask routing issues)
+    if path == '/healthz':
+        print("❤️ Direct healthz response", flush=True)
+        start_response('200 OK', [('Content-Type', 'text/plain')])
+        return [b'ok']
+    
     if path == '/ws/twilio-media':
         print("📞 Routing to EventLet WebSocketWSGI", flush=True)
         return websocket_app_with_protocol(environ, start_response)

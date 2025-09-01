@@ -366,13 +366,19 @@ def create_app():
             'production': True
         })
     
-    # EMERGENCY: Add /healthz directly since blueprint version doesn't work in deployment
+    # תיקון /healthz ישירות כפי שצריך
+    @app.route('/healthz', methods=['GET'])
+    def healthz_app_factory():
+        """Direct healthz route - WORKING VERSION"""
+        return "ok", 200
+    
     @app.route('/healthz-direct', methods=['GET'])
     def healthz_direct():
         """Direct healthz route for debugging"""
         return "ok", 200
     
     print("✅ Factory debug route registered: /debug-factory-http")
+    print("✅ /healthz route added directly to app_factory")
     print("🆘 Emergency healthz-direct route added")
     
     # All Flask-Sock references completely removed
