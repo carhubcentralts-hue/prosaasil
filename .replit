@@ -6,7 +6,7 @@ modules = ["python-3.11", "python3"]
 PYTHONUNBUFFERED = "1"
 PYTHONPATH       = "."
 EVENTLET_NO_GREENDNS = "1"
-EVENTLET_HUB         = "select"
+EVENTLET_HUB         = "pool"
 
 [deployment]
 build = ["sh", "-c", "python3 -m pip install --upgrade pip setuptools wheel && python3 -m pip install -r requirements.txt"]
