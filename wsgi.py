@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """
 WSGI Entry Point for Gunicorn
-Clean eventlet setup without forced configuration
+FORCE clean eventlet environment
 """
 
 import os
 import sys
 
-# Clean environment - remove any cached EVENTLET_HUB settings
-os.environ.pop('EVENTLET_HUB', None)
-os.environ.setdefault('EVENTLET_NO_GREENDNS', '1')
+# AGGRESSIVELY clean EVENTLET_HUB from all sources
+for key in list(os.environ.keys()):
+    if 'EVENTLET_HUB' in key:
+        del os.environ[key]
+
+# Set ONLY safe eventlet variables
+os.environ['EVENTLET_NO_GREENDNS'] = '1'
+
+# Ensure EVENTLET_HUB is completely unset
+if 'EVENTLET_HUB' in os.environ:
+    del os.environ['EVENTLET_HUB']
 
 # Don't force monkey_patch - let gunicorn eventlet worker handle it
 try:

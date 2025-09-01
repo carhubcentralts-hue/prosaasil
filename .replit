@@ -9,7 +9,7 @@ EVENTLET_NO_GREENDNS = "1"
 EVENTLET_HUB         = "select"
 
 [deployment]
-build = ["sh", "-c", "python3 -m pip install --upgrade pip setuptools wheel && python3 -m pip install -r requirements.txt && python3 - <<'PY' import sys import eventlet import importlib import eventlet.hubs.selects as _sel print(\"Eventlet OK:\", eventlet.__version__) PY"]
+build = ["sh", "-c", "python3 -m pip install --upgrade pip setuptools wheel && python3 -m pip install -r requirements.txt && python3 -c \"import eventlet; print('Eventlet OK:', eventlet.__version__)\""]
 run = ["sh", "-c", "python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"]
 deploymentTarget = "cloudrun"
 
