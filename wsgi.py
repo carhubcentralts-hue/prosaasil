@@ -53,9 +53,8 @@ def create_websocket_handler():
             import traceback
             traceback.print_exc()
         
-        # Return empty response (WebSocket handles its own protocol)
-        start_response('200 OK', [])
-        return [b'']
+        # EventLet handles WebSocket response - just complete the handler
+        return []
     
     return websocket_app
 
@@ -66,9 +65,33 @@ def create_composite_wsgi():
     # Create Flask app
     flask_app = create_app()
     
-    # Create WebSocket WSGI (protocols handled in handshake)
+    # Create custom WebSocket WSGI wrapper with subprotocol support
     websocket_handler = create_websocket_handler()
-    websocket_wsgi = WebSocketWSGI(websocket_handler)
+    
+    def websocket_with_subprotocol(environ, start_response):
+        """WebSocket wrapper that handles Twilio subprotocol in handshake"""
+        # Check for Twilio subprotocol in request
+        req_protocols = environ.get('HTTP_SEC_WEBSOCKET_PROTOCOL', '')
+        
+        if 'audio.twilio.com' in req_protocols:
+            print("🎯 Twilio subprotocol detected in handshake", flush=True)
+            
+            # Create WebSocket with subprotocol support
+            def start_response_with_protocol(status, headers, exc_info=None):
+                # Add subprotocol to response headers
+                if status.startswith('101'):  # WebSocket upgrade
+                    headers = list(headers) if headers else []
+                    headers.append(('Sec-WebSocket-Protocol', 'audio.twilio.com'))
+                    print("✅ Added Twilio subprotocol to response headers", flush=True)
+                return start_response(status, headers, exc_info)
+            
+            # Use EventLet WebSocketWSGI with modified start_response
+            websocket_wsgi = WebSocketWSGI(websocket_handler)
+            return websocket_wsgi(environ, start_response_with_protocol)
+        
+        # Fallback to regular WebSocket
+        websocket_wsgi = WebSocketWSGI(websocket_handler)
+        return websocket_wsgi(environ, start_response)
     
     def composite_app(environ, start_response):
         """Route WebSocket before Flask"""
@@ -76,8 +99,8 @@ def create_composite_wsgi():
         
         # WebSocket routing BEFORE Flask
         if path == '/ws/twilio-media':
-            print("📞 Routing to EventLet WebSocketWSGI", flush=True)
-            return websocket_wsgi(environ, start_response)
+            print("📞 Routing to WebSocket with subprotocol support", flush=True)
+            return websocket_with_subprotocol(environ, start_response)
         
         # All other routes go to Flask
         return flask_app.wsgi_app(environ, start_response)
