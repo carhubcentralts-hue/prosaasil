@@ -8,6 +8,6 @@ EVENTLET_NO_GREENDNS = "1"
 EVENTLET_HUB         = "select"
 
 [deployment]
-build = ["sh", "-c", "python -m pip install -U pip setuptools wheel && python -m pip install -r requirements.txt"]
-run = ["sh", "-c", "python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"]
+build = ["sh", "-c", "python3 -m pip install --upgrade pip setuptools wheel && python3 -m pip install -r requirements.txt"]
+run = ["sh", "-c", "python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:${PORT:-3000} --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"]
 deploymentTarget = "cloudrun"
