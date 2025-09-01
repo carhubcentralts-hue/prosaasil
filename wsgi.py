@@ -4,12 +4,10 @@ WSGI Entry Point for Gunicorn
 טוען את main.py ומחשף את app למנוע ההפעלה
 """
 
-# CRITICAL: eventlet.monkey_patch() MUST be first for gunicorn+eventlet
-# But gracefully handle dev environment issues
+# DON'T force monkey_patch - let gunicorn eventlet worker handle it
 try:
-    import eventlet
-    eventlet.monkey_patch()
-    print("✅ Eventlet loaded successfully - WebSocket ready")
+    import eventlet  # Just import, don't patch
+    print("✅ Eventlet imported successfully - WebSocket ready")
     EVENTLET_AVAILABLE = True
 except Exception as e:
     print(f"⚠️ Eventlet failed in dev environment: {e}")
@@ -22,8 +20,9 @@ import os
 
 # Set critical environment variables for eventlet stability
 os.environ.setdefault('EVENTLET_NO_GREENDNS', '1')
-os.environ.setdefault('EVENTLET_HUB', 'select')
-os.environ.setdefault('DEPLOY_ID', 'fix-python-v1')
+# Remove broken EVENTLET_HUB setting - let eventlet auto-detect
+os.environ.pop('EVENTLET_HUB', None)  # Remove if exists
+os.environ.setdefault('DEPLOY_ID', 'fix-eventlet-v1')
 print("✅ Environment variables set for eventlet stability")
 
 # טען את main.py כמודול דינמי
