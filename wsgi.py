@@ -20,6 +20,12 @@ import importlib.util
 import sys
 import os
 
+# Set critical environment variables for eventlet stability
+os.environ.setdefault('EVENTLET_NO_GREENDNS', '1')
+os.environ.setdefault('EVENTLET_HUB', 'select')
+os.environ.setdefault('DEPLOY_ID', 'fix-python-v1')
+print("✅ Environment variables set for eventlet stability")
+
 # טען את main.py כמודול דינמי
 def load_main_app():
     """טוען את main.py ומחזיר את app"""
