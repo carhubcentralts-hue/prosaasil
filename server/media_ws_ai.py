@@ -105,6 +105,7 @@ class MediaStreamHandler:
         try:
             while True:
                 # COMPATIBILITY: Handle both EventLet and Flask-Sock WebSocket APIs
+                raw = None
                 try:
                     # Try Flask-Sock/simple-websocket style first
                     if hasattr(self.ws, 'receive'):
