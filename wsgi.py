@@ -1,41 +1,34 @@
 #!/usr/bin/env python3
 """
-Professional Hebrew Auth Server - Production Ready
-מערכת התחברות מקצועית עם React 19 + Tailwind 4.1 + Motion
+Hebrew AI Call Center - Simple WSGI Entry Point
+פתרון פשוט ללא EventLet monkey patching
 """
 
 import os
 import sys
 
-# Apply eventlet monkey patching FIRST - before any imports
-os.environ['EVENTLET_HUB'] = 'selects'
+# Basic environment setup (no eventlet hub conflicts)
 os.environ['EVENTLET_NO_GREENDNS'] = '1'
 
-import eventlet
-eventlet.monkey_patch()
+print("✅ Environment setup without eventlet hub conflicts")
 
-print("✅ EventLet monkey patching applied")
-print("🔧 EVENTLET_HUB=selects for optimal performance")
-
-# Create Flask app using factory (includes WebSocket routes now!)
+# Create Flask app via app_factory (includes WebSocket route)
 from server.app_factory import create_app
 app = create_app()
 
-print("✅ Flask app created via app_factory")
-print("📞 WebSocket support integrated in app_factory.py using simple-websocket")
-print("🔧 Simplified approach: Flask handles both HTTP and WebSocket")
+print("✅ Flask app created")
+print("📞 WebSocket route: /ws/twilio-media in Flask (simple-websocket)")
+print("🔧 Using Werkzeug + simple-websocket (no eventlet monkey patching)")
 
-# The app_factory.py now includes:
+# Flask app includes everything:
 # - All HTTP routes
-# - WebSocket route: /ws/twilio-media using simple-websocket
+# - WebSocket route using simple-websocket
 # - MediaStreamHandler integration
-# - Twilio subprotocol validation
 
-print("🚀 wsgi:app ready - Flask with integrated WebSocket")
-print("📞 WebSocket: simple-websocket in Flask")
+print("🚀 wsgi:app ready for Gunicorn")
+print("📞 WebSocket: simple-websocket in Flask route")
 print("🌐 HTTP: Flask app_factory")
 
-# Entry point for testing
 if __name__ == '__main__':
-    print("⚠️ Use 'python -m gunicorn wsgi:app -k eventlet' for production")
+    print("⚠️ Use Gunicorn for production")
     app.run(host='0.0.0.0', port=5000, debug=False)

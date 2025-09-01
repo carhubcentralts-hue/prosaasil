@@ -28,3 +28,4 @@ eventlet
 gevent
 websockets
 requests
+flask-sock

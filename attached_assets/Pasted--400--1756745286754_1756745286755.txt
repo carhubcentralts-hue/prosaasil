@@ -1,0 +1,158 @@
+סבבה—ננעלים ומסיימים את ה-400/שקט אחת ולתמיד. הנה תכנית קרבית קצרה, סופר-מדויקת, לביצוע “כמו רובוט”. אם תעקוב לפי הסדר, נקבל 101 Handshake, זרימת מדיה, ושיחה חיה.
+
+⸻
+
+GO PLAN — Twilio Media Streams יציב (Eventlet + WSGI Composite)
+
+0) תנאי סף (חובה)
+
+requirements.txt (מינימום, בלי gevent/uvloop/Flask-SocketIO):
+
+Flask
+gunicorn
+eventlet==0.36.1
+greenlet>=3.0,<3.3
+simple-websocket
+
+Run (גם ב-Workspace וגם בדיפלוי):
+	•	משתנים: EVENTLET_NO_GREENDNS=1, EVENTLET_HUB=select
+	•	וורקר: gunicorn -k eventlet -w 1 --worker-connections 256
+
+⸻
+
+1) דיפלוי ב-Replit בלי Nix (בחר אחת)
+
+א. מועדף — לכפות Python: הזז/שנה-שם package.json מהשורש ל־client/ (או package.json.off).
+ואז בדיפלוי (🚀):
+	•	Build:
+python -m pip install -U pip setuptools wheel && python -m pip install -r requirements.txt
+	•	Run:
+python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -
+	•	Env: EVENTLET_NO_GREENDNS=1, EVENTLET_HUB=select, DEPLOY_ID=<stamp>
+	•	Health check: /healthz (200), Startup timeout: 300s
+
+ב. אם חייבים להשאיר package.json בשורש — להביא Python עם uv:
+	•	Build:
+curl -fsSL https://astral.sh/uv/install.sh | sh && ~/.local/bin/uv python install 3.11 && ~/.local/bin/uv pip install -r requirements.txt
+	•	Run:
+~/.local/bin/uv run --python 3.11 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -
+	•	Env/Health כמו בא’.
+
+מטרה: בדיפלוי לוגי הפתיחה תראה Using worker: eventlet ו-wsgi:app.
+
+⸻
+
+2) נקודת כניסה אחת — wsgi:app בלבד
+	•	ב־wsgi.py:
+import eventlet; eventlet.monkey_patch() בראש הקובץ.
+אחרי זה טען את אפליקציית Flask (רצוי create_app(); או from main import app אם אין מפעל).
+	•	אל תריץ app.run בשום מקום; כל ההרצה דרך Gunicorn.
+
+⸻
+
+3) ה-WebSocket לא כ-route של Flask — Composite WSGI
+
+מטרה: למנוע מ-catch-all של Flask “לבלוע” את /ws/*.
+
+ב-wsgi.py (תיאור ביצוע, בלי קוד):
+	1.	כתוב פונקציית handler ws_handler(ws) שמטפלת באירועי Twilio: start / media / stop (JSON).
+	2.	עטוף כ־eventlet.websocket.WebSocketWSGI(ws_handler, protocols=['audio.twilio.com']).
+זה מחזיר את ה-subprotocol בתשובת ה-upgrade — קריטי ל-Twilio.
+	3.	בנה Composite WSGI:
+אם PATH_INFO == '/ws/twilio-media' → קרא ל־ws_app(environ, start_response)
+אחרת → העבר ל־flask_app.wsgi_app(environ, start_response).
+	4.	הייצוא הסופי מהקובץ: app = composite_app (לא Flask).
+בלי DispatcherMiddleware אם הוא “לא נתפס” אצלך. ה-composite קודֵם לכל דבר.
+
+⸻
+
+4) לנקות מחסומים
+	•	אסור שישאר @app.route('/ws') או @app.route('/ws/<path:p>'). מחק/נטרל.
+	•	אם יש catch-all (למשל @app.route('/', defaults=...)//<path:path>): זה בסדר — ה-composite יעקוף לפני Flask. רק ודא ש-export הוא ה-composite.
+
+⸻
+
+5) TwiML נכון (בזמן דיבוג בלי <Play>)
+
+ב־incoming_call:
+
+<Connect action="https://{BASE}/webhook/stream_ended">
+  <Stream url="wss://{BASE}/ws/twilio-media"
+          statusCallback="https://{BASE}/webhook/stream_status">
+    <Parameter name="call_sid" value="{CALL_SID}"/>
+  </Stream>
+</Connect>
+
+	•	בלי // כפולים ב-URL.
+	•	stream_status מקבל form-urlencoded ומחזיר תמיד 204 (בלי אימות חתימה/extra בלוגים).
+
+⸻
+
+6) וידוא Handshake (שובר 400/31920)
+
+לפני Twilio, בדוק ידנית:
+
+wscat -c wss://{BASE}/ws/twilio-media \
+      -H "Sec-WebSocket-Protocol: audio.twilio.com"
+
+מצופה:
+	•	101 Switching Protocols
+	•	ובתשובה מופיעה כותרת Sec-WebSocket-Protocol: audio.twilio.com
+
+לא מופיע? → זה מקור ה-400:
+בדוק ש־protocols=['audio.twilio.com'] מוגדר, שה-export הוא ה-composite, ו-Gunicorn על -k eventlet.
+
+⸻
+
+7) “אין קול/שקט” – זרם מדיה נכון
+	•	Twilio שולחת frames JSON:
+start (meta), media (Base64 μ-law 8000Hz ל-20ms ≈ 160 samples), stop.
+	•	קלט: פרסר JSON → Base64→bytes → ל-STT בתור/ThreadPool (לא לחסום greenlet).
+	•	פלט: שלח frames JSON עם μ-law 8k כל 20ms בדיוק (לא WAV/MP3).
+	•	החזק Ping/Pong 5–15s כדי למנוע ניתוקים.
+
+⸻
+
+8) שיחה אנושית (בלי לופים)
+
+ENV מומלץ:
+EoU_MS=450, BARGE_IN=true, VAD_RMS=210, DEDUP_WINDOW_SEC=8
+FSM: LISTENING → THINKING → SPEAKING → LISTENING
+	•	אם מתקבל media בזמן SPEAKING → עצור TTS → חזרה ל-LISTENING.
+	•	הצגה עצמית פעם אחת בלבד.
+
+לוגים רצויים:
+WS_START, STT_PARTIAL, STT_FINAL, TTS_LEN_ms, MEDIA_TX, PNG_PONG_TX/RX.
+
+⸻
+
+9) GO/NO-GO אחרי דיפלוי
+	•	GET /version → 200 + DEPLOY_ID חדש
+	•	GET /healthz → 200 “ok”
+	•	Handshake עם wscat → 101 + subprotocol מוחזר
+	•	Twilio Request Inspector:
+incoming_call=200, stream_status=204 (פעמיים+), אין 31920/31924
+	•	בשיחה אמיתית: תשובה ≤ 3–6 שניות; בלוגים מציגים רצף האירועים.
+
+⸻
+
+10) אם עדיין 400 — עץ החלטה קצר
+	•	מופיע HTML במקום 101 → בקשה נפלה לפלסק: ודא app = composite_app הוא ה-export, אין עטיפות אחרות.
+	•	101 אבל מתנתק עם 31924 → לא חוזר subprotocol: ודא protocols=['audio.twilio.com'] ובדוק עם wscat.
+	•	“שקט” בלבד → לא משודרים פריימים כל 20ms / TTS חוסם: הוצא TTS ל-ThreadPool, שמור cadence קשיח.
+
+⸻
+
+11) הערות דיפלוי Replit (מונע קאש/גרסה ישנה)
+	•	בכל Redeploy הגדֵר DEPLOY_ID חדש וודא שהוא מופיע ב-/version.
+	•	אם הדיפלוי מזוהה כ-Node (python not found) → או להעביר package.json ל-client (פתרון א’), או להשתמש ב-uv (פתרון ב’).
+
+⸻
+
+לסיכום
+	•	Composite WSGI ב-wsgi.py שמנתב את /ws/twilio-media אל WebSocketWSGI(..., protocols=['audio.twilio.com']) לפני Flask.
+	•	Eventlet בלבד כ-worker.
+	•	μ-law 8k/20ms לשידור, Ping/Pong.
+	•	דיפלוי נקי ומאומת עם DEPLOY_ID.
+
+תן לבוט לבצע את זה אחד-אחד. אם אתה נתקע בשלב ספציפי (Handshake, /healthz, Request Inspector) תן לי את שורת הלוג/התגובה המדויקת ואכוון נקודתית.

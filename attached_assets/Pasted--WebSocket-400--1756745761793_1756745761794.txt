@@ -1,0 +1,63 @@
+כן — לפי מה שמופיע בצילום, הוא עושה את הצעדים הנכונים כדי לפתוח את ה-WebSocket ולסגור את שגיאות 400/31920.
+הנה ביקורת מהירה + מה עוד חייבים לוודא לפני GO:
+
+מה נכון כאן (טוב מאוד)
+	•	✅ הסרת @app.route('/ws') — מונע מה-Flask “לבלוע” את ה-WS ולהחזיר HTML → 400.
+	•	✅ עריכת wsgi.py — זה המקום הנכון לשים Composite WSGI (לפני Flask).
+	•	✅ טיפול ב-subprotocol — חובה ש־audio.twilio.com יוגדר ויוחזר.
+	•	✅ אימות עם wscat = 101 + subprotocol — זה האינדיקטור החשוב ביותר שה-Handshake תקין.
+	•	✅ ניקוי מחסומים ו”שלב 5 הושלם“ — נשמע שהוא עבר על כל ה־catch-all שחסמו.
+
+דגלים צהובים שכדאי לוודא עכשיו
+	1.	הרצה בפועל על Eventlet
+	•	בלוג של הדיפלוי צריך להופיע: Using worker: eventlet וגם wsgi:app.
+	•	פקודת ריצה בדיפלוי/Workspace:
+python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --worker-connections 256 --timeout 120 --keep-alive 75
+	•	Env בדיפלוי (לא רק מקומית): EVENTLET_NO_GREENDNS=1, EVENTLET_HUB=select.
+	2.	Composite באמת לפני Flask
+	•	ב־wsgi.py ה־export הסופי חייב להיות app = composite_app (לא app = flask_app).
+	•	אין עטיפות נוספות אחרי זה (Dispatcher/Proxy) שמחליפות אותו.
+	3.	אין package.json בשורש הדיפלוי
+	•	אם הכניס “Vite build tool” — שיישב בתוך /auth-app או /client.
+	•	אם יש package.json בשורש, Autoscale עלול לבחור runtime של Node → “python not found”.
+	4.	TwiML נקי
+	•	ב־incoming_call אין // כפולים; בזמן דיבוג עדיף בלי <Play> ברכה.
+	•	statusCallback מצביע ל־/webhook/stream_status.
+	5.	Webhooks קשיחים
+	•	stream_status מקבל form-urlencoded ומחזיר תמיד 204 (בלי אימות חתימה/בלי extra= בלוגים).
+	•	stream_ended → 204.
+
+בדיקות GO/NO-GO זריזות (תעשה אותן עכשיו)
+
+# 1) חיים
+curl -s https://<BASE>/version   | jq .
+curl -i https://<BASE>/healthz   # מצופה 200
+
+# 2) Handshake (החשוב ביותר)
+wscat -c wss://<BASE>/ws/twilio-media \
+      -H "Sec-WebSocket-Protocol: audio.twilio.com"
+# מצופה: 101 Switching Protocols, ובתשובה הכותרת Sec-WebSocket-Protocol: audio.twilio.com
+
+# 3) Twilio בדיקות עשן
+curl -s https://<BASE>/webhook/incoming_call -d "CallSid=CA_TEST"
+curl -i -X POST https://<BASE>/webhook/stream_status \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected"   # מצופה 204
+
+בשיחה חיה מה מחפשים
+	•	ב-Request Inspector: incoming_call=200, stream_status=204 (כמה פעמים), אין 31920/31924.
+	•	בלוגים שלך: WS_START → STT_PARTIAL → STT_FINAL → TTS_LEN_ms → MEDIA_TX → PNG_PONG.
+	•	באוזן: תשובה ראשונה תוך ‎3–6 שניות; אין לופים (עם BARGE_IN=true, EoU_MS≈450, VAD_RMS≈210).
+
+אם עדיין יש 400/HTML במקום 101
+	•	זה כמעט תמיד כי הבקשה עדיין “נופלת” לפלסק. בדוק:
+	•	app = composite_app הוא הייצוא האחרון ב־wsgi.py.
+	•	אין @app.route('/ws'...) שנשארה.
+	•	Gunicorn רץ על -k eventlet.
+	•	ה־subprotocol אכן מוגדר ב־WebSocketWSGI(..., protocols=['audio.twilio.com']).
+
+⸻
+
+סיכום
+
+כן — הכיוון שלו נכון: ניקוי ראוטי WS מפלסק, Composite ב־wsgi.py, החזרת subprotocol, ואימות עם wscat. תוודא את ארבעת הדגלים הצהובים למעלה, תריץ את בדיקות ה-GO/NO-GO, ואם כולן ירוקות — אתה מוכן לשיחה חיה.
