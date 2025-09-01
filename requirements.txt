@@ -29,3 +29,5 @@ gevent
 websockets
 requests
 flask-sock
+gevent-websocket
+gevent-websocket

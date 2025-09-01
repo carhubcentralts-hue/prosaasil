@@ -1,34 +1,23 @@
 #!/usr/bin/env python3
 """
-Hebrew AI Call Center - Simple WSGI Entry Point
-פתרון פשוט ללא EventLet monkey patching
+Hebrew AI Call Center - Simple WSGI
+פתרון פשוט עם Flask לפיתוח ובדיקות
 """
 
-import os
-import sys
+def create_flask_app():
+    """Create Flask app with all routes"""
+    from server.app_factory import create_app
+    return create_app()
 
-# Basic environment setup (no eventlet hub conflicts)
-os.environ['EVENTLET_NO_GREENDNS'] = '1'
+# Simple Flask app for production
+app = create_flask_app()
 
-print("✅ Environment setup without eventlet hub conflicts")
-
-# Create Flask app via app_factory (includes WebSocket route)
-from server.app_factory import create_app
-app = create_app()
-
-print("✅ Flask app created")
-print("📞 WebSocket route: /ws/twilio-media in Flask (simple-websocket)")
-print("🔧 Using Werkzeug + simple-websocket (no eventlet monkey patching)")
-
-# Flask app includes everything:
-# - All HTTP routes
-# - WebSocket route using simple-websocket
-# - MediaStreamHandler integration
-
-print("🚀 wsgi:app ready for Gunicorn")
-print("📞 WebSocket: simple-websocket in Flask route")
-print("🌐 HTTP: Flask app_factory")
+print("✅ Simple Flask WSGI created:")
+print("   📞 WebSocket routes handled by Flask-Sock")
+print("   🌐 All routes handled by Flask app")
+print("   🔧 Worker: sync (Flask compatible)")
+print("🚀 Ready for development and testing!")
 
 if __name__ == '__main__':
-    print("⚠️ Use Gunicorn for production")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    print("🚀 Starting Flask dev server for testing...")
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)

@@ -273,66 +273,52 @@ def create_app():
     MediaStreamHandler = None  # Will be imported on first WS connection
     print("🔧 MediaStreamHandler import deferred to lazy loading")
     
-    # COMPLETELY DISABLE Flask-Sock - use simple-websocket directly
-    print("🔧 Flask-Sock COMPLETELY DISABLED")
-    print("🔧 Using simple-websocket for direct WebSocket handling")
-    print("🔧 No Flask-Sock extensions registered")
+    # RE-ENABLE Flask-Sock for simple WebSocket handling
+    from flask_sock import Sock
+    sock = Sock(app)
+    print("🔧 Flask-Sock ENABLED for WebSocket handling")
     
     # IMMEDIATE DEBUG: Test if routes register at all
     print("🔧 REGISTERING TEST ROUTES...")
     
-    # WebSocket routes removed - handled in wsgi.py composite
-    # @app.route('/ws/test-basic', methods=['GET'])  
-    def disabled_test_basic_ws():
-        """Basic test route disabled - using wsgi.py composite"""
-        print("🚨 DISABLED ROUTE CALLED!", flush=True)
-        return "Route disabled", 400
+    # WebSocket routes with Flask-Sock
+    @sock.route('/ws/twilio-media')
+    def twilio_media_stream(ws):
+        """Twilio Media Stream WebSocket with Flask-Sock"""
+        print("📞 Twilio WebSocket connected via Flask-Sock!", flush=True)
+        
+        try:
+            # Import the media handler
+            from server.media_ws_ai import MediaStreamHandler
+            
+            # Create handler instance
+            handler = MediaStreamHandler(ws)
+            
+            # Start the handler main loop
+            handler.run()
+            
+        except Exception as e:
+            print(f"❌ Flask-Sock WebSocket error: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+        finally:
+            print("📞 Flask-Sock WebSocket disconnected", flush=True)
     
     print("🔧 TEST ROUTE REGISTERED")
     
-    # ADD WebSocket using Flask-Sock
-    from flask_sock import Sock
-    sock = Sock(app)
-    
-    @sock.route('/ws/twilio-media')
-    def handle_twilio_websocket(ws):
-        """Handle Twilio Media Stream WebSocket connections with Flask-Sock"""
-        print("📞 Twilio WebSocket route called (Flask-Sock)", flush=True)
-        
-        # Validate Twilio subprotocol if needed
-        protocols = request.headers.get('Sec-WebSocket-Protocol', '')
-        if protocols and 'audio.twilio.com' not in protocols:
-            print(f"⚠️ Subprotocol mismatch: {protocols}", flush=True)
-        
-        print("✅ WebSocket connection established", flush=True)
-        
-        try:
-            # Import and run media handler
-            from server.media_ws_ai import MediaStreamHandler
-            handler = MediaStreamHandler(ws)
-            print("✅ MediaStreamHandler created", flush=True)
-            
-            # Run the handler (this blocks until connection closes)
-            handler.run()
-            print("✅ MediaStreamHandler completed", flush=True)
-            
-        except Exception as e:
-            print(f"❌ WebSocket handling failed: {e}", flush=True)
-            import traceback
-            traceback.print_exc()
-            ws.close()
-    
-    print("✅ Flask-Sock WebSocket route registered")
-    print("📞 /ws/twilio-media ready with Flask-Sock")
+    # WebSocket routes handled by Flask-Sock
+    print("🔧 WebSocket routes handled by Flask-Sock")
+    print("📞 /ws/twilio-media → Flask-Sock WebSocket route")
     
     # DEBUG: Test route to verify which version is running
     @app.route('/test-websocket-version')
     def test_websocket_version():
         """Test route to verify WebSocket integration is active"""
         return jsonify({
-            'websocket_integration': 'active_in_app_factory',
+            'websocket_integration': 'Flask_Sock_simple',
             'route': '/ws/twilio-media',
-            'method': 'simple_websocket_upgrade',
+            'method': 'flask_sock_websocket',
+            'worker_type': 'sync_with_flask_sock',
             'timestamp': int(time.time())
         })
     

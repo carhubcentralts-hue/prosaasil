@@ -7,12 +7,10 @@ Professional Hebrew Auth Server with WebSocket Support
 import os
 import sys
 
-# Set up eventlet environment for WebSocket support
-os.environ['EVENTLET_HUB'] = 'selects'
+# Set up gevent environment for WebSocket support  
 os.environ['EVENTLET_NO_GREENDNS'] = '1'
 
-import eventlet
-print("✅ EventLet imported with selects hub")
+print("✅ Gevent setup for WebSocket support")
 
 # Create Flask app using app_factory
 from server.app_factory import create_app
@@ -26,5 +24,5 @@ print("📞 /ws/twilio-media ready for Twilio Media Streams")
 
 # Entry point for production
 if __name__ == '__main__':
-    print("⚠️ Use 'python -m gunicorn main:app -k eventlet' for production")
+    print("⚠️ Use 'python -m gunicorn wsgi:app -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker' for production")
     app.run(host='0.0.0.0', port=5000, debug=False)

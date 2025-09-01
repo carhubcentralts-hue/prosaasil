@@ -1,4 +1,4 @@
 [workflows.main]
 name = "Start application"
-command = "python3 -m gunicorn -k gevent -w 1 -b 0.0.0.0:5000 wsgi:app --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info"
+command = "python3 -m gunicorn -w 1 -b 0.0.0.0:5000 wsgi:app --timeout 120 --keep-alive 75 --log-level info"
 type = "server"

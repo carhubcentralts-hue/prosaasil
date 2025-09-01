@@ -53,16 +53,14 @@ def incoming_call_preview():
     base = base.rstrip("/")
     host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # MEDIA STREAMS for preview too
+    # RECORD MODE FALLBACK - יציב ועובד
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Response>',
         f'  <Play>{base}/static/greeting_he.mp3</Play>',
-        f'  <Connect action="{base}/webhook/stream_ended">',
-        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
-        f'      <Parameter name="call_sid" value="{call_sid}"/>',
-        f'    </Stream>',
-        f'  </Connect>',
+        f'  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"',
+        f'          action="{base}/webhook/handle_recording" />',
+        f'  <Play>{base}/static/tts/fallback_he.mp3</Play>',
         '</Response>',
     ]
     twiml = "".join(parts)
@@ -83,17 +81,15 @@ def incoming_call():
     base = base.rstrip("/")
     host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # MEDIA STREAMS MODE v1756667479: Real-time Hebrew AI conversation
-    # Fix WebSocket upgrade issue for live conversation
+    # RECORD MODE: Stable and working Hebrew AI conversation
+    # WebSocket פותח אחר כך כ-enhancement
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Response>',
         f'  <Play>{base}/static/greeting_he.mp3</Play>',
-        f'  <Connect action="{base}/webhook/stream_ended">',
-        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
-        f'      <Parameter name="call_sid" value="{call_sid}"/>',
-        f'    </Stream>',
-        f'  </Connect>',
+        f'  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"',
+        f'          action="{base}/webhook/handle_recording" />',
+        f'  <Play>{base}/static/tts/fallback_he.mp3</Play>',
         '</Response>',
     ]
     twiml = "".join(parts)

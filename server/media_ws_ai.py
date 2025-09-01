@@ -3,6 +3,7 @@ WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
 import os, json, time, base64, audioop, math, threading, queue, random, zlib
+# Using Flask-Sock for WebSocket handling  
 from simple_websocket import ConnectionClosed
 from server.stream_state import stream_registry
 
