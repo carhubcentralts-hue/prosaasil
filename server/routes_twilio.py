@@ -68,9 +68,12 @@ def incoming_call_preview():
     ]
     twiml = "".join(parts)
     
+    # תיקון קריטי לError 12100 - Content-Type נכון + cache busting
     resp = make_response(twiml.encode("utf-8"), 200)
-    resp.headers["Content-Type"] = "application/xml; charset=utf-8"
-    resp.headers["Cache-Control"] = "no-store, no-cache"
+    resp.headers["Content-Type"] = "application/xml; charset=utf-8"  # FIX_12100_PREVIEW
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["X-Debug-Version"] = "TwiML_v2_fixed"
     return resp
 
 @twilio_bp.route("/webhook/incoming_call", methods=["POST"])
@@ -98,10 +101,12 @@ def incoming_call():
     ]
     twiml = "".join(parts)
     
-    # החזרה מיידית ללא עיכובים
+    # החזרה מיידית ללא עיכובים + תיקון Error 12100
     resp = make_response(twiml.encode("utf-8"), 200)
-    resp.headers["Content-Type"] = "application/xml; charset=utf-8"  # מונע 12100
-    resp.headers["Cache-Control"] = "no-store, no-cache"
+    resp.headers["Content-Type"] = "application/xml; charset=utf-8"  # FIX_12100_INCOMING
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["X-Debug-Version"] = "TwiML_v2_fixed"
     return resp
 
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
