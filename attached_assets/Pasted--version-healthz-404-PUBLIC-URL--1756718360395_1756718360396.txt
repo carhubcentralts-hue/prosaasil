@@ -1,0 +1,111 @@
+מבין אותך—זה לא קוד, זו הפצה: /version ירוק אבל /healthz 404 ⇒ את ה־PUBLIC URL משרת דיפלוי אוטומטי ישן (Autoscale) שלא נטען מחדש מאז השינויים (wsgi.py/health). צריך לגרום ל־Replit לטעון את הבילד החדש ולא את ה־workspace הישן.
+
+להלן מה שצריך לעשות עכשיו, צעד־אחרי־צעד, עד שיש ‎200 על ‎/healthz ואז ממשיכים לשיחות:
+
+⸻
+
+A) מכריחים את Replit לטעון את הקוד החדש
+
+A1) ודא שאנחנו באמת רצים מול Autoscale (לא ה־workspace)
+	•	אם על ה־PUBLIC URL אתה רואה “Google 404”, זה אכן ה־Autoscale. טוב.
+
+A2) פותחים את Deployments ומבצעים Redeploy
+	1.	ב־Replit לחץ על אייקון 🚀 Deployments (בסייד־בר).
+	2.	פתח את ה־deployment הפעיל (זה שמחובר ל־ai-crmd.replit.app).
+	3.	לחץ Edit או New deployment (לא “Run” של ה־workspace).
+	4.	הגדרות חשובות:
+	•	Build command
+python3 -m pip install -U pip && pip install -r requirements.txt
+	•	Run command (בדיוק כך, שורה אחת):
+
+bash -lc 'export EVENTLET_NO_GREENDNS=1; export EVENTLET_HUB=select; python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -'
+
+חשוב: wsgi:app ו־$PORT (לא 5000).
+
+	•	Environment variables
+הוסף/עדכן DEPLOY_ID לערך חדש (למשל חותמת זמן) כדי שתוכל לאמת שנטען בילד חדש. אין להגדיר PORT.
+	•	Health check
+Path: /healthz
+Success codes: 200
+Interval: 10s, Startup timeout: 300s (כדי לא לקבל false negative).
+
+	5.	לחץ Deploy / Redeploy והמתן ל־“Ready”.
+
+A3) מאמתים שהדיפלוי הוא החדש
+	•	curl -sS -i https://ai-crmd.replit.app/version → צריך לראות את DEPLOY_ID החדש.
+	•	curl -sS -i https://ai-crmd.replit.app/healthz → 200 OK "ok".
+	•	אם עדיין 404: פתח Logs של ה־deployment ובדוק:
+	•	הפקודה מציגה Using worker: eventlet ו־wsgi:app (לא main:app).
+	•	חפש בלוג שלך את "✅ Health endpoints registered" או את חתימת ה־header אם הוספת X-App-Signature.
+	•	אם לא מופיע—הדיפלוי רץ מקוד אחר (ענף/נתיב). ודא שהקבצים (wsgi.py, רישום health) בתוך אותו פרויקט/ענף שמוגדר ל־deployment.
+
+טיפ: אם יש ספק—שנה זמנית את /version להחזיר שדה "marker":"healthz-v2"; אחרי Redeploy בדוק שהוא מופיע — כך תדע בוודאות שהקוד החדש טעון.
+
+⸻
+
+B) אחרי ש־/healthz ירוק — מחזירים את השיחות
+
+B1) TwiML / webhooks נכונים
+	•	POST /webhook/incoming_call מחזיר:
+
+<Connect action="https://ai-crmd.replit.app/webhook/stream_ended">
+  <Stream url="wss://ai-crmd.replit.app/ws/twilio-media"
+          statusCallback="https://ai-crmd.replit.app/webhook/stream_status">
+    <Parameter name="call_sid" value="{CallSid}"/>
+  </Stream>
+</Connect>
+
+(בלי // כפולים; בזמן דיבוג אפשר לשמור את ה־ כבוי.)
+
+	•	POST /webhook/stream_status → קורא request.form, מחזיר 204 ריק (בלי אימות חתימה, בלי extra= בלוגים).
+	•	POST /webhook/stream_ended → 204 ריק.
+
+בדיקות ידניות:
+
+curl -s https://ai-crmd.replit.app/webhook/incoming_call -d "CallSid=CA_TEST"
+curl -i -X POST https://ai-crmd.replit.app/webhook/stream_status \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected"
+# מצופה: 204
+
+B2) Handshake ל־Twilio (מוריד 31920/31924)
+
+ה־WS חייב להחזיר את תת־הפרוטוקול בזמן ה־upgrade:
+Sec-WebSocket-Protocol: audio.twilio.com
+
+בדיקה:
+
+wscat -c wss://ai-crmd.replit.app/ws/twilio-media \
+      -H "Sec-WebSocket-Protocol: audio.twilio.com"
+
+מצופה: 101 Switching Protocols ובתשובה הכותרת Sec-WebSocket-Protocol: audio.twilio.com.
+אם לא חוזר—זה שורש הניתוק אחרי הברכה → לתקן במסלול ה־WS לפני כל דבר אחר.
+
+B3) מניעת “שקט” — STT/TTS
+	•	STT נכנס: μ-law (PCMU) 8k base64; לוגים WS_START / STT_PARTIAL / STT_FINAL.
+	•	TTS יוצא: μ-law 8k מונו; שולחים חזרה פריימים של 20ms:
+{"event":"media","media":{"payload":"..."}}; לוגים TTS_LEN_ms / MEDIA_TX / PNG_PONG.
+	•	קרדנציאלס GCP: רק אחד — GOOGLE_APPLICATION_CREDENTIALS או GCP_CREDENTIALS_JSON מלא (בשורה אחת).
+
+B4) Turn-Taking (בלי לופים)
+	•	FSM: LISTENING → THINKING → SPEAKING → LISTENING.
+	•	EoU 300–600ms לפני תשובה; Barge-in עוצר TTS אם האדם התחיל לדבר; הצגה עצמית/פתיח — פעם אחת.
+
+⸻
+
+C) Baileys (WhatsApp) — לא מפיל את השרת
+	•	אל תחבר ל־Run/Deployment הראשי. הרץ ידנית או בסקריפט נפרד ברקע עם guard (אם נפל—לוג בלבד).
+	•	בדיקות:
+	•	POST /webhook/whatsapp/twilio → 204 ונשמר ב־CRM.
+	•	POST /api/whatsapp/send → שולח ושומר out+sent.
+
+⸻
+
+Quick checklist לשלוח לי אחרי Redeploy
+	•	Screenshot של Deployments → Logs עם השורה wsgi:app ו־Listening at: ...:$PORT.
+	•	פלט:
+	•	curl -sI https://ai-crmd.replit.app/version (מראה DEPLOY_ID החדש).
+	•	curl -sI https://ai-crmd.replit.app/healthz (200 OK).
+	•	wscat ל־/ws/twilio-media עם ה־subprotocol (מציג 101 + הכותרת).
+
+ברגע שאלה ירוקים—אנחנו ניגשים לטפל בשיחה עצמה (EoU, barge-in, אנטי-לופים) ולהראות הקלט/פלט בזמן אמת.
