@@ -239,6 +239,11 @@ def create_app():
         print("✅ New API blueprints registered")
         print("✅ Twilio webhooks registered")
         
+        # Health endpoints - MUST be registered
+        from server.health_endpoints import health_bp
+        app.register_blueprint(health_bp)
+        print("✅ Health endpoints registered")
+        
         app.register_blueprint(data_api)
         
         # Register UI blueprint last (after React routes are defined)
@@ -512,18 +517,7 @@ def create_app():
     # except ImportError:
     #     print("⚠️ Debug routes not available")
 
-    # Version endpoint for deployment verification
-    @app.route('/version', methods=['GET'])
-    def version():
-        """Return version info to verify deployment"""
-        import os, time
-        return jsonify({
-            "app": os.getenv("GIT_COMMIT", "AgentLocator-73-dev"),
-            "commit": os.getenv("GIT_COMMIT", "dev"),
-            "build_time": os.getenv("BUILD_TIME", "dev"),
-            "deploy_id": os.getenv("DEPLOY_ID", "dev"),
-            "ts": int(time.time())
-        }), 200
+    # Version endpoint moved to health_endpoints.py to avoid duplicates
 
     # Auth endpoints removed - handled by routes_auth.py blueprint
     
