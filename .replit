@@ -37,4 +37,8 @@ PYTHONPATH = "."
 channel = "stable-25_05"
 packages = ["ffmpeg-full", "iana-etc", "iproute2", "nettools", "nodejs_20", "openssl", "pkg-config", "postgresql_16", "python311Full", "zlib"]
 
+[[ports]]
+localPort = 5000
+externalPort = 80
+
 # אין צורך במקטע [[ports]] בסביבת autoscale של Replit — מחק אם היה.

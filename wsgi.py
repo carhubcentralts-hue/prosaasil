@@ -4,9 +4,17 @@ WSGI Entry Point for Gunicorn
 טוען את main.py ומחשף את app למנוע ההפעלה
 """
 
-# CRITICAL: eventlet.monkey_patch() MUST be first for gunicorn+eventlet
-import eventlet
-eventlet.monkey_patch()
+# Try eventlet first, fallback gracefully if not available
+try:
+    import eventlet
+    eventlet.monkey_patch()
+    print("✅ Eventlet loaded successfully")
+except ImportError as e:
+    print(f"⚠️ Eventlet not available: {e}")
+    print("🔄 Continuing without eventlet (sync mode)")
+except Exception as e:
+    print(f"⚠️ Eventlet failed to load: {e}")
+    print("🔄 Continuing without eventlet (sync mode)")
 
 import importlib.util
 import sys
@@ -45,8 +53,17 @@ def load_main_app():
         print(f"❌ Failed to load main.py: {e}")
         raise
 
-# טען את האפליקציה
-app = load_main_app()
+# Try to load main.py first, fallback to direct app_factory
+try:
+    app = load_main_app()
+    print("✅ Main.py loaded successfully")
+except Exception as e:
+    print(f"⚠️ Main.py failed, using direct app_factory: {e}")
+    # Import app_factory directly
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'server'))
+    from app_factory import create_app
+    app = create_app()
+    print("✅ Direct app_factory loaded successfully")
 
 # שסתום ביטחון - להבטיח שיש /healthz בלי לשבור כלום
 from flask import Response
