@@ -5,8 +5,7 @@ import os
 from flask import Flask, jsonify, send_from_directory, send_file, current_app, request, session, g
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
-# from flask_sock import Sock  # REMOVED - using simple-websocket only
-from simple_websocket import Server as WSServer
+# NO Flask-Sock - using EventLet WebSocketWSGI in wsgi.py composite
 try:
     from flask_seasurf import SeaSurf
     from flask_wtf.csrf import CSRFProtect
@@ -273,52 +272,31 @@ def create_app():
     MediaStreamHandler = None  # Will be imported on first WS connection
     print("🔧 MediaStreamHandler import deferred to lazy loading")
     
-    # RE-ENABLE Flask-Sock for simple WebSocket handling
-    from flask_sock import Sock
-    sock = Sock(app)
-    print("🔧 Flask-Sock ENABLED for WebSocket handling")
+    # NO Flask-Sock - WebSocket handled by EventLet WebSocketWSGI in wsgi.py
+    print("🔧 WebSocket disabled in Flask - handled by wsgi.py composite")
     
     # IMMEDIATE DEBUG: Test if routes register at all
     print("🔧 REGISTERING TEST ROUTES...")
     
-    # WebSocket routes with Flask-Sock
-    @sock.route('/ws/twilio-media')
-    def twilio_media_stream(ws):
-        """Twilio Media Stream WebSocket with Flask-Sock"""
-        print("📞 Twilio WebSocket connected via Flask-Sock!", flush=True)
-        
-        try:
-            # Import the media handler
-            from server.media_ws_ai import MediaStreamHandler
-            
-            # Create handler instance
-            handler = MediaStreamHandler(ws)
-            
-            # Start the handler main loop
-            handler.run()
-            
-        except Exception as e:
-            print(f"❌ Flask-Sock WebSocket error: {e}", flush=True)
-            import traceback
-            traceback.print_exc()
-        finally:
-            print("📞 Flask-Sock WebSocket disconnected", flush=True)
+    # NO WebSocket routes in Flask - handled by Composite WSGI in wsgi.py
+    # WebSocket צריך להיות ברמת WSGI לפני Flask
+    print("🔧 WebSocket routes removed from Flask - handled by wsgi.py composite")
     
     print("🔧 TEST ROUTE REGISTERED")
     
-    # WebSocket routes handled by Flask-Sock
-    print("🔧 WebSocket routes handled by Flask-Sock")
-    print("📞 /ws/twilio-media → Flask-Sock WebSocket route")
+    # WebSocket routes handled by EventLet WebSocketWSGI in wsgi.py
+    print("🔧 WebSocket routes handled by EventLet WebSocketWSGI in wsgi.py")
+    print("📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com")
     
     # DEBUG: Test route to verify which version is running
     @app.route('/test-websocket-version')
     def test_websocket_version():
         """Test route to verify WebSocket integration is active"""
         return jsonify({
-            'websocket_integration': 'Flask_Sock_simple',
+            'websocket_integration': 'EventLet_WebSocketWSGI_composite',
             'route': '/ws/twilio-media',
-            'method': 'flask_sock_websocket',
-            'worker_type': 'sync_with_flask_sock',
+            'method': 'eventlet_websocket_wsgi',
+            'worker_type': 'eventlet',
             'timestamp': int(time.time())
         })
     

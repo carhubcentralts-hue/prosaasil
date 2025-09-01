@@ -1,0 +1,123 @@
+המצב ברור: gevent לא עבר את שתי בדיקות ה-GO/NO-GO, וה־worker ב־Production מתאייד אחרי ה-startup. הפתרון: חוזרים ל-eventlet + Composite WSGI כמו שצריך, מסדרים את דיפלוי Replit כדי שלא “יבחר” runtime לא נכון, ומרימים Health תקין כך שהפלטפורמה לא תהרוג את ה־worker.
+
+להלן הנחיה חד־משמעית לביצוע (לפי סדר; בלי לקפוץ שלבים):
+
+⸻
+
+🔧 RESET נקי ל-eventlet (יציב לטוויליו)
+
+1) נקה תלויות והתנגשויות
+	•	השאר ב־requirements.txt רק:
+	•	Flask, gunicorn, eventlet==0.36.1, greenlet>=3.0,<3.3, simple-websocket
+	•	ודא שאין: gevent, gevent-websocket, Flask-SocketIO, uvicorn, websockets (מחוק אם קיימים).
+
+2) סדר טעינה נכון
+	•	ב־wsgi.py (הקובץ שאותו טוען gunicorn):
+	1.	השורה הראשונה: import eventlet; eventlet.monkey_patch()
+	2.	רק אחריה טען את אפליקציית Flask (רצוי דרך create_app()).
+
+3) Composite WSGI (WS לפני Flask)
+	•	בתוך wsgi.py: בנה קומפוזיט פשוט ברמת WSGI:
+	•	אם PATH_INFO == '/ws/twilio-media' → תפנה ל־WebSocketWSGI של eventlet עם
+protocols=['audio.twilio.com'] (זה מה שמחזיר את ה-subprotocol ל-Twilio).
+	•	אחרת → העבר ל־flask_app.wsgi_app.
+	•	הייצוא הסופי מהקובץ: app = composite_app (לא אובייקט ה-Flask!!).
+	•	מחק/נטרל כל @app.route('/ws'...) ב־Flask וכל catch-all שעלול לתפוס /ws/*.
+
+4) TwiML נקי בזמן דיבוג
+	•	ב־incoming_call השאר רק:
+
+<Connect action="https://{BASE}/webhook/stream_ended">
+  <Stream url="wss://{BASE}/ws/twilio-media"
+          statusCallback="https://{BASE}/webhook/stream_status">
+    <Parameter name="call_sid" value="{CALL_SID}"/>
+  </Stream>
+</Connect>
+
+
+	•	בלי <Play> ובלי // כפולים ב-URL.
+
+5) Webhooks קשיחים
+	•	POST /webhook/stream_status:
+	•	קורא request.form.to_dict(flat=True) (לא JSON), תמיד מחזיר 204.
+	•	בלי אימות חתימה ובלי extra= בלוגים.
+	•	POST /webhook/stream_ended → 204.
+
+⸻
+
+🚀 דיפלוי Replit — שלא יבחר runtime שגוי
+
+6) מניעת “Node runtime”
+	•	אם יש package.json בשורש הפרויקט – הזז אותו ל־/client או /auth-app (או שנה שם לקובץ זמני).
+	•	אחרת Autoscale עלול לבחור Node → “python not found”.
+
+7) הגדרות Deployment (במסך הדיפלוי)
+	•	Build command:
+python -m pip install -U pip setuptools wheel && python -m pip install -r requirements.txt
+	•	Run command:
+python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -
+	•	Environment:
+EVENTLET_NO_GREENDNS=1
+EVENTLET_HUB=select
+DEPLOY_ID=<תאריך/טיימסטמפ חדש>
+	•	Health check path: /healthz (ודא שקיים ומחזיר 200 תוך <50ms).
+	•	Restart policy: ברירת מחדל של Autoscale.
+
+טיפ: אם אין אפשרות להזיז package.json, השתמש ב־uv בזמן Build/Run (כדי להכריח Python):
+Build: התקן uv והרץ uv pip install -r requirements.txt
+Run: uv run -m gunicorn ... באותה פקודה שלמעלה.
+
+⸻
+
+✅ בדיקות GO/NO-GO (סדר ביצוע)
+
+A) ברגע שהדיפלוי עלה
+	•	בדוק שהלוג כותב: Using worker: eventlet ו־wsgi:app.
+	•	GET https://<BASE>/version → 200 עם DEPLOY_ID העדכני.
+	•	GET https://<BASE>/healthz → 200 “ok”.
+
+B) Handshake לפני Twilio
+	•	wscat -c wss://<BASE>/ws/twilio-media -H "Sec-WebSocket-Protocol: audio.twilio.com"
+	•	מצופה:
+	•	101 Switching Protocols
+	•	בכותרות התשובה: Sec-WebSocket-Protocol: audio.twilio.com
+	•	אם קיבלת HTML/400 → זה עדיין נבלע ע”י Flask או שאין החזרת subprotocol:
+	•	ודא app = composite_app הוא הייצוא האחרון ב־wsgi.py.
+	•	ודא שה־WSGI מוגדר עם protocols=['audio.twilio.com'].
+	•	ודא שאין שום route Flask ל־/ws/*.
+
+C) Twilio – עשן
+	•	POST /webhook/stream_status (form) → 204.
+	•	שיחה אמיתית → Request Inspector:
+	•	incoming_call=200
+	•	stream_status=204 (כמה פעמים)
+	•	אין 31920/31924.
+	•	באוזן/בלוגים:
+	•	תשובה ראשונה ≤ 3–6 שניות.
+	•	לוגים: WS_START → STT_PARTIAL → STT_FINAL → TTS_LEN_ms → MEDIA_TX → PING/PONG.
+
+⸻
+
+🧪 אם ה-worker עדיין “מת אחרי שניות”
+
+זה לא קוד — זה דיפלוי/בריאות:
+	•	Health check לא קיים/לא 200 → הפלטפורמה מחסלת את ה־worker. תקן /healthz.
+	•	Init כבד על import (GCP/DB/OpenAI) → העבר ל־lazy init בקריאה ראשונה.
+	•	שני תהליכי שרת במקביל (עוד app.run()/סקריפט אחר) → ודא שיש רק Gunicorn.
+
+⸻
+
+🎛️ Fallback מבוקר (בלי לפרק WS)
+
+אם חייב להיות שירות מידי בזמן שאתה משלים WS:
+	•	הוסף CALL_MODE=WS|RECORD.
+	•	ב־WS כושל/NO-GO → לוג + מעבר ל-RECORD לשיחה הזאת בלבד.
+	•	זה לא מבטל WS בפרויקט—רק מציל זמינות.
+
+⸻
+
+TL;DR
+	•	מחזירים סט eventlet נקי, Composite ב־wsgi.py שמחזיר subprotocol ונמצא לפני Flask, דיפלוי Replit שמכריח Python + Healthz 200.
+	•	מאמתים ב־wscat 101+subprotocol, ואז ב-Twilio.
+
+תבצע לפי הסדר הזה. אם אחד הצעדים לא עובר—תן לי את השורה המדויקת מהלוג/בדיקה (למשל יציאת ה-wscat או שורת ה-worker של Gunicorn), ואכוון מיד לנקודה.

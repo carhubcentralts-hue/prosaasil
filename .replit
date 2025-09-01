@@ -1,6 +1,6 @@
 # .replit — Workspace only
 run = "python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:${PORT:-3000} --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
-modules = ["python-3.11"]
+modules = ["python-3.11", "python3"]
 
 [env]
 PYTHONUNBUFFERED = "1"

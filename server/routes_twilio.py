@@ -53,14 +53,16 @@ def incoming_call_preview():
     base = base.rstrip("/")
     host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # RECORD MODE FALLBACK - יציב ועובד
+    # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Response>',
-        f'  <Play>{base}/static/greeting_he.mp3</Play>',
-        f'  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"',
-        f'          action="{base}/webhook/handle_recording" />',
-        f'  <Play>{base}/static/tts/fallback_he.mp3</Play>',
+        f'  <Connect action="{base}/webhook/stream_ended">',
+        f'    <Stream url="wss://{host}/ws/twilio-media"',
+        f'            statusCallback="{base}/webhook/stream_status">',
+        f'      <Parameter name="call_sid" value="{call_sid}"/>',
+        f'    </Stream>',
+        f'  </Connect>',
         '</Response>',
     ]
     twiml = "".join(parts)
@@ -81,15 +83,16 @@ def incoming_call():
     base = base.rstrip("/")
     host = base.replace("https://","").replace("http://","").rstrip("/")
     
-    # RECORD MODE: Stable and working Hebrew AI conversation
-    # WebSocket פותח אחר כך כ-enhancement
+    # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד  
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Response>',
-        f'  <Play>{base}/static/greeting_he.mp3</Play>',
-        f'  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"',
-        f'          action="{base}/webhook/handle_recording" />',
-        f'  <Play>{base}/static/tts/fallback_he.mp3</Play>',
+        f'  <Connect action="{base}/webhook/stream_ended">',
+        f'    <Stream url="wss://{host}/ws/twilio-media"',
+        f'            statusCallback="{base}/webhook/stream_status">',
+        f'      <Parameter name="call_sid" value="{call_sid}"/>',
+        f'    </Stream>',
+        f'  </Connect>',
         '</Response>',
     ]
     twiml = "".join(parts)
@@ -102,16 +105,10 @@ def incoming_call():
 
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
 def stream_ended():
-    """POST callback - return minimal TwiML to avoid 12100 parse failure"""
+    """שלב 5: Webhooks קשיחים - מחזיר 204 ללא TwiML"""
     form = request.form.to_dict()
     print(f"STREAM_ENDED call={form.get('CallSid')} stream={form.get('StreamSid')} status={form.get('Status')}")
-    
-    # Twilio expects TwiML here (action of <Connect/>). Return empty <Response/>.
-    twiml = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
-    resp = make_response(twiml, 200)
-    resp.headers["Content-Type"] = "text/xml"
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
+    return ("", 204)
 
 @twilio_bp.route("/webhook/handle_recording", methods=["POST"])
 @require_twilio_signature
@@ -132,7 +129,7 @@ def handle_recording():
 
 @twilio_bp.route("/webhook/stream_status", methods=["POST"])
 def stream_status():
-    """POST callback - מחזיר 204 מיד (One True Path)"""
+    """שלב 5: Webhooks קשיחים - קורא form.to_dict(flat=True), מחזיר 204"""
     form = request.form.to_dict()
     print(f"STREAM_STATUS call={form.get('CallSid')} stream={form.get('StreamSid')} event={form.get('Status')}")
     return ("", 204)

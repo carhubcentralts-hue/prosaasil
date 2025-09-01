@@ -1,4 +1,4 @@
 [workflows.main]
 name = "Start application"
-command = "python3 -m gunicorn -w 1 -b 0.0.0.0:5000 wsgi:app --timeout 120 --keep-alive 75 --log-level info"
+command = "env EVENTLET_NO_GREENDNS=1 EVENTLET_HUB=poll python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:5000 --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
 type = "server"
