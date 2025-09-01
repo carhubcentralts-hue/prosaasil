@@ -1,0 +1,104 @@
+סבבה—לא צריך Nix בכלל. אפשר להריץ ולפרוס ב-Replit בצורה נקייה בלי שום [nix], modules או [[ports]]. הנה הנוסחה היציבה, צעד־אחרי־צעד:
+
+מה לעשות בלי Nix
+
+1) .replit מינימלי ל־Workspace בלבד
+
+השאר את כפתור Run פשוט וברזל. הדבק את זה כמו שהוא:
+
+# .replit — Workspace only
+run = "python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:${PORT:-3000} --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
+
+[env]
+PYTHONUNBUFFERED = "1"
+PYTHONPATH       = "."
+EVENTLET_NO_GREENDNS = "1"
+EVENTLET_HUB         = "select"
+
+אל תכלול שום [nix], modules, או [[ports]]—זה רק מכניס שגיאות פרסינג.
+ה־Workspace ירוץ על פורט $PORT ואם אין—3000.
+
+2) requirements.txt (מינימום שחייב להיות)
+
+Flask
+gunicorn
+eventlet==0.36.1
+greenlet>=3.0,<3.3
+simple-websocket
+
+אין gevent/uvloop כרגע—נשארים עם eventlet כדי ש־WS יעבוד.
+
+3) הגדרת Deployment (בפאנל 🚀, לא בקובץ)
+
+ב־Deployments → Edit/New:
+	•	Build command
+
+python -m pip install --upgrade pip setuptools wheel && python -m pip install -r requirements.txt
+
+אם תיפול על “pip not found”:
+python -m ensurepip --upgrade && python -m pip install -r requirements.txt
+
+	•	Run command
+
+python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -
+
+
+	•	Environment (בדיפלוי)
+
+EVENTLET_NO_GREENDNS=1
+EVENTLET_HUB=select
+DEPLOY_ID=<stamp-חדש-לבדיקה>
+
+לא להגדיר PORT.
+
+	•	Health check
+	•	Path: /healthz
+	•	Success: 200
+	•	Startup timeout: 300s
+
+פרוס (Deploy / Redeploy) עד סטטוס Ready.
+
+4) אימות מהיר אחרי הפריסה
+
+curl -sSI https://ai-crmd.replit.app/version   # ראה DEPLOY_ID החדש
+curl -sSI https://ai-crmd.replit.app/healthz   # חייב להיות: HTTP/2 200
+
+ב־Logs של הדיפלוי תראה:
+	•	Using worker: eventlet
+	•	wsgi:app
+	•	האזנה ל־0.0.0.0:$PORT
+
+5) בדיקת WebSocket (חובה לשיחות)
+
+wscat -c wss://ai-crmd.replit.app/ws/twilio-media \
+      -H "Sec-WebSocket-Protocol: audio.twilio.com"
+
+מצופה: 101 Switching Protocols ובתשובה הכותרת
+Sec-WebSocket-Protocol: audio.twilio.com.
+אם הכותרת לא חוזרת—זה מקור 31920/31924, לתקן את ה־WS שיחזיר את ה־subprotocol.
+
+6) בדיקות ווב־הוקים של Twilio
+
+curl -s https://ai-crmd.replit.app/webhook/incoming_call -d "CallSid=CA_TEST"
+curl -i -X POST https://ai-crmd.replit.app/webhook/stream_status \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected"   # מצופה 204
+
+
+⸻
+
+למה זה עובד בלי Nix
+	•	Autoscale מריץ קונטיינר עם Python—אנחנו מתקינים תלויות דרך python -m pip … בבילד.
+	•	.replit שולט רק ב־Workspace; הדיפלוי משתמש ב-Build/Run שהגדרת בפאנל—לא צריך ולא מומלץ לערבב שם [nix]/modules.
+
+⸻
+
+תקלות נפוצות בלי Nix ומה עושים
+	•	Build נכשל: pip לא נמצא → השתמש ב־python -m ensurepip --upgrade && python -m pip ….
+	•	/healthz 404 → הפריסה רצה על קוד ישן/ה־Blueprint לא נטען; עשה Redeploy והעלה DEPLOY_ID חדש כדי לוודא.
+	•	31920/31924 → תשובת ה־WS לא מחזירה Sec-WebSocket-Protocol: audio.twilio.com.
+	•	שקט בשיחה → ודא STT/TTS רצים (קרדנציאל יחיד ל־GCP; PCMU 8k; פריימי 20ms יוצאים; לוגים STT_PARTIAL/FINAL, MEDIA_TX).
+
+⸻
+
+אם תרצה, אכתוב לך עכשיו “כרטיס עבודה קצר” לבוט להדבקה—3 משימות קטנות עם תוצאות צפויות, כדי שינסה ויחזיר פלט בכל שלב (וככה לא מתפזרים).

@@ -1,38 +1,18 @@
-# .replit — FIXED
+run = "python -m gunicorn wsgi:app --worker-class eventlet -w 1 -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
 
-# כפתור Run בסביבה (אל תתקין כאן npm/baileys)
-run = """
-bash -lc '
-  export EVENTLET_NO_GREENDNS=1
-  export EVENTLET_HUB=select
-  python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT \
-    --timeout 120 --keep-alive 75 --log-level info \
-    --access-logfile - --error-logfile -
-'
-"""
-modules = ["python-3.11", "python3"]
+modules = ["python-3.11"]
 
 [deployment]
 deploymentTarget = "autoscale"
-build = [
-  "bash", "-lc", "python3 -m pip install -U pip && pip install -r requirements.txt"
-]
-run = """
-bash -lc '
-  export EVENTLET_NO_GREENDNS=1
-  export EVENTLET_HUB=select
-  python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT \
-    --timeout 120 --keep-alive 75 --log-level info \
-    --access-logfile - --error-logfile -
-'
-"""
+build = ["python", "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel", "&&", "python", "-m", "pip", "install", "-r", "requirements.txt"]
+run = "python -m gunicorn wsgi:app --worker-class eventlet -w 1 -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
 
-# אל תקבע PORT ידנית! Replit מזריקה אותו.
 [env]
 PYTHONUNBUFFERED = "1"
 PYTHONPATH = "."
+EVENTLET_NO_GREENDNS = "1"
+EVENTLET_HUB = "select"
 
-# Nix (ה־OS) — מוסיפים Python 3.11 ו-Node 20, כדי שלא תקבל "python3: command not found"
 [nix]
 channel = "stable-25_05"
 packages = ["ffmpeg-full", "iana-etc", "iproute2", "nettools", "nodejs_20", "openssl", "pkg-config", "postgresql_16", "python311Full", "zlib"]
@@ -40,5 +20,3 @@ packages = ["ffmpeg-full", "iana-etc", "iproute2", "nettools", "nodejs_20", "ope
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-# אין צורך במקטע [[ports]] בסביבת autoscale של Replit — מחק אם היה.
