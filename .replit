@@ -10,6 +10,7 @@ bash -lc '
     --access-logfile - --error-logfile -
 '
 """
+modules = ["python-3.11"]
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -34,16 +35,6 @@ PYTHONPATH = "."
 # Nix (ה־OS) — מוסיפים Python 3.11 ו-Node 20, כדי שלא תקבל "python3: command not found"
 [nix]
 channel = "stable-25_05"
-packages = [
-  "python311Full",
-  "nodejs_20",
-  "postgresql_16",
-  "ffmpeg-full",
-  "openssl",
-  "pkg-config",
-  "iproute2",
-  "nettools",
-  "zlib"
-]
+packages = ["ffmpeg-full", "iana-etc", "iproute2", "nettools", "nodejs_20", "openssl", "pkg-config", "postgresql_16", "python311Full", "zlib"]
 
 # אין צורך במקטע [[ports]] בסביבת autoscale של Replit — מחק אם היה.

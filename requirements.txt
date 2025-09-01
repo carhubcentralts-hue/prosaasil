@@ -6,3 +6,11 @@ psycopg2-binary
 requests
 websockets==13.1
 eventlet
+eventlet
+flask
+flask-cors
+gunicorn
+psycopg2-binary
+requests
+simple-websocket
+websockets
