@@ -1,0 +1,100 @@
+נרגע—זה “שבירת ‎.replit” קלאסית של TOML: הכנסת פקודת ריצה גולמית באמצע בלוק [deployment], מחוץ למפתח run = "...". לכן הפרסר צעק על האות E של EVENTLET_….
+
+מה שגרם לקריסה
+	•	ב־.replit חייבים מפתחות תקפים של TOML.
+	•	השורות:
+
+EVENTLET_NO_GREENDNS=1 EVENTLET_HUB=select \
+python3 -m gunicorn ...
+
+הופיעו לבד (לא בתוך מחרוזת של run), ולכן הקובץ לא תקין.
+
+⸻
+
+תיקון מיידי — הדבק אחד־לאחד
+
+אם מופיע כפתור Recover original configuration files — לחץ, ואז החלף את תוכן .replit בזה (מעודכן, תקין, וכולל ריצה נכונה על $PORT + Eventlet יציב):
+
+# .replit — FIXED (TOML תקין)
+
+# מה שרואים כשלוחצים על Run בסביבת הפיתוח
+run = """
+bash -lc 'EVENTLET_NO_GREENDNS=1 EVENTLET_HUB=select \
+python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT \
+  --timeout 120 --keep-alive 75 --log-level info \
+  --access-logfile - --error-logfile -'
+"""
+
+# הגדרות דיפלוי (Autoscale)
+[deployment]
+deploymentTarget = "autoscale"
+build = [
+  "pip install -r requirements.txt"
+]
+run = """
+bash -lc 'EVENTLET_NO_GREENDNS=1 EVENTLET_HUB=select \
+python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT \
+  --timeout 120 --keep-alive 75 --log-level info \
+  --access-logfile - --error-logfile -'
+"""
+
+# אל תקבע PORT ידנית! הפלטפורמה מזריקה אותו.
+[env]
+PYTHONUNBUFFERED = "1"
+PYTHONPATH = "."
+PUBLIC_BASE_URL = "https://ai-crmd.replit.app"
+
+# Nix נשאר כמו שהיה אצלך (אפשר להשאיר בדיוק כך)
+[nix]
+channel = "stable-25_05"
+packages = ["c-ares", "cargo", "ffmpeg-full", "freetype", "grpc", "iana-etc", "lcms2", "libiconv", "libimagequant", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "zlib", "iproute2", "nettools"]
+
+# אם היו לך [[ports]] — מיותר ב-Autoscale. אפשר למחוק אותם.
+
+למה זה פותר:
+	•	פקודת הריצה נמצאת בתוך ערך run (מחרוזת), לא זרוקה בקובץ.
+	•	מאזינים על $PORT של Replit (לא 5000 קשיח), ולכן הסופרווייזר לא יהרוג אותך.
+	•	Eventlet מקבל EVENTLET_NO_GREENDNS=1 ו־EVENTLET_HUB=select — יציב בסביבה.
+
+שים לב: אל תקבע PORT = "5000" ב־[env]. זה היה מקור ה־SIGTERM אחרי כמה שניות.
+
+⸻
+
+בדיקות זריזות אחרי שמירה והרצה
+	1.	פתח מחדש (Run) וחכה שה־build יסתיים.
+	2.	אמת:
+	•	curl -sS -m 5 https://ai-crmd.replit.app/version -i → 200 + JSON
+	•	curl -sS -m 5 https://ai-crmd.replit.app/healthz -i → 200 “ok”
+	•	אם /healthz עדיין 404 — ה־Blueprint/route לא נטען. דאג שהוא נרשם על ה־app הראשי (לא תחת prefix), למשל הדפס פעם אחת את url_map ללוג כדי לראות שהוא שם.
+
+⸻
+
+תוספות חשובות כדי שלא יחזור להישבר
+	•	wsgi.py קיים ומייצא app (שאתה כבר הכנת). Gunicorn נטען מול wsgi:app.
+	•	Baileys לא בריצה הראשית: אל תחבר npm ci && node baileys_client.js ל־run. תריץ ידנית בנפרד או בסקריפט ברקע עם guard, כדי שאם הוא נופל — ה־API יישאר חי.
+
+⸻
+
+אחרי שהשרת חי (200 על /healthz) – מחזירים את השיחות
+	1.	TwiML / webhooks:
+	•	/webhook/incoming_call מחזיר <Connect><Stream ...> (בלי // כפולים).
+	•	/webhook/stream_status ו־/webhook/stream_ended → 204 ריקים (טופס, בלי אימות חתימה, בלי extra= בלוגים).
+	2.	Handshake ל־Twilio (מוריד 31920/31924):
+
+wscat -c wss://ai-crmd.replit.app/ws/twilio-media \
+      -H "Sec-WebSocket-Protocol: audio.twilio.com"
+
+מצופה 101 ובתשובה כותרת Sec-WebSocket-Protocol: audio.twilio.com. אם לא חוזר — זה השורש לניתוק אחרי הברכה, לתקן לפני הכל.
+
+	3.	בלי “שקט”: ודא ש־STT/TTS עובדים ב־μ-law 8k (פריימים 20ms), ורואים בלוגים:
+WS_START → STT_FINAL → TTS_LEN_ms → MEDIA_TX → PNG_PONG.
+
+⸻
+
+למה נשבר לך קודם
+	•	השורה של הפקודה הוכנסה מחוץ ל־run = "...", ולכן .replit כבר לא היה TOML תקין → Replit נכנס ל־Recovery Mode.
+	•	בנוסף, הגדרה קשיחה של PORT=5000 גורמת לסופרווייזר להרוג את האפליקציה (הוא מצפה לפורט אחר).
+
+⸻
+
+אם תרצה, אנסח לך גם replit.nix מינימלי ונקי, אבל כרגע אין צורך—תיקון ה־.replit למעלה יחזיר אותך מיידית לעבודה.

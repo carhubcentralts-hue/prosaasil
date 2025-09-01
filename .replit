@@ -1,34 +1,35 @@
-modules = ["python-3.11", "postgresql-16", "nodejs-20", "python3"]
-run = "python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:5000 main:app"
+# .replit — FIXED (TOML תקין)
 
+# מה שרואים כשלוחצים על Run בסביבת הפיתוח
+run = """
+bash -lc 'EVENTLET_NO_GREENDNS=1 EVENTLET_HUB=select \
+python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT \
+  --timeout 120 --keep-alive 75 --log-level info \
+  --access-logfile - --error-logfile -'
+"""
+
+# הגדרות דיפלוי (Autoscale)
 [deployment]
 deploymentTarget = "autoscale"
-build = ["pip","install","-r","requirements.txt"]
-run   = ["python3","-m","gunicorn","-k","eventlet","-w","1","-b","0.0.0.0:5000","main:app"]
+build = [
+  "pip install -r requirements.txt"
+]
+run = """
+bash -lc 'EVENTLET_NO_GREENDNS=1 EVENTLET_HUB=select \
+python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT \
+  --timeout 120 --keep-alive 75 --log-level info \
+  --access-logfile - --error-logfile -'
+"""
 
+# אל תקבע PORT ידנית! הפלטפורמה מזריקה אותו.
 [env]
-PORT = "5000"
 PYTHONUNBUFFERED = "1"
 PYTHONPATH = "."
+PUBLIC_BASE_URL = "https://ai-crmd.replit.app"
 
-[agent]
-
+# Nix נשאר כמו שהיה אצלך (אפשר להשאיר בדיוק כך)
 [nix]
 channel = "stable-25_05"
 packages = ["c-ares", "cargo", "ffmpeg-full", "freetype", "grpc", "iana-etc", "lcms2", "libiconv", "libimagequant", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "zlib", "iproute2", "nettools"]
 
-[[ports]]
-localPort = 4000
-externalPort = 3001
-
-[[ports]]
-localPort = 5000
-externalPort = 80
-
-[[ports]]
-localPort = 5001
-externalPort = 3000
-
-[[ports]]
-localPort = 8080
-externalPort = 8080
+# אם היו לך [[ports]] — מיותר ב-Autoscale. אפשר למחוק אותם.
