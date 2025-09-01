@@ -341,19 +341,8 @@ def create_app():
         print(f"  {rule.methods} {rule.rule}")
     print("🔍 Route registration complete")
     
-    # Add missing health aliases
-    @app.route('/healthz')
-    def healthz():
-        """Kubernetes-style health check"""
-        return "ok", 200
-    
-    @app.route('/health')  
-    def health_alias():
-        """Standard health check alias"""
-        return "ok", 200
-    
     print("🔧 WebSocket routes removed from Flask - handled by wsgi.py composite")
-    print("✅ Health check aliases added: /health and /healthz")
+    print("✅ Health routes handled by health_endpoints.py blueprint")
     
     # CRITICAL DEBUG: Add test route directly in app_factory for production
     @app.route('/debug-factory-http', methods=['GET', 'POST'])
@@ -377,7 +366,14 @@ def create_app():
             'production': True
         })
     
+    # EMERGENCY: Add /healthz directly since blueprint version doesn't work in deployment
+    @app.route('/healthz-direct', methods=['GET'])
+    def healthz_direct():
+        """Direct healthz route for debugging"""
+        return "ok", 200
+    
     print("✅ Factory debug route registered: /debug-factory-http")
+    print("🆘 Emergency healthz-direct route added")
     
     # All Flask-Sock references completely removed
 
@@ -599,26 +595,7 @@ def create_app():
     # Use: python3 -c "from main import app; from server.db import db; app.app_context().push(); db.create_all()"
     print("🔧 Database tables creation deferred - use admin command if needed")
     
-    # Health check endpoints
-    @app.route('/healthz')
-    def healthz_check():
-        """Fast health check - always responds quickly"""
-        return {"status": "ok", "timestamp": time.time()}, 200
-        
-    @app.route('/readyz')
-    def readiness_check():
-        """Readiness check - shows service status without blocking"""
-        from server.services.lazy_services import get_service_status
-        
-        status = get_service_status()
-        # Basic checks
-        checks = {
-            "server": "ok",
-            "database": "ok",  # db.init_app already done
-            "services": status
-        }
-        
-        return {"status": "ready", "checks": checks, "timestamp": time.time()}, 200
+    # Health endpoints removed - using health_endpoints.py blueprint only
     
     # DISABLE warmup temporarily to isolate boot issue
     # from server.services.lazy_services import warmup_services_async

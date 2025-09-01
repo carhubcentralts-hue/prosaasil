@@ -33,7 +33,6 @@ def _do_redirect(call_sid, wss_host, reason):
     twiml = f"""<Response>
   <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
           action="/webhook/handle_recording" />
-  <Play>https://{wss_host}/static/tts/fallback_he.mp3</Play>
 </Response>"""
     try:
         # Use Deployment ENV vars (critical for production)
@@ -160,14 +159,13 @@ def test_webhook():
 # All health endpoints are handled by app_factory.py to avoid conflicts
 @twilio_bp.route("/webhook/test_media_streams_1756667590", methods=["GET"])
 def test_media_streams_new():
-    """Test endpoint for Media Streams - no cache"""
+    """Test endpoint for Media Streams - no cache, no Play"""
     base = "https://ai-crmd.replit.app"
     host = "ai-crmd.replit.app"
     call_sid = "TEST_NEW"
     
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>{base}/static/greeting_he.mp3</Play>
   <Connect action="{base}/webhook/stream_ended">
     <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">
       <Parameter name="call_sid" value="{call_sid}"/>

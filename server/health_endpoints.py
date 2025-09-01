@@ -9,7 +9,7 @@ from datetime import datetime
 health_bp = Blueprint('health', __name__)
 
 @health_bp.route('/healthz', methods=['GET'])
-def healthz():
+def healthz_endpoint():
     """Basic health check"""
     return "ok", 200
 
