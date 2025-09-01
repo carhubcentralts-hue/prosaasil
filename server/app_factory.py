@@ -272,8 +272,40 @@ def create_app():
     MediaStreamHandler = None  # Will be imported on first WS connection
     print("🔧 MediaStreamHandler import deferred to lazy loading")
     
-    # NO Flask-Sock - WebSocket handled by EventLet WebSocketWSGI in wsgi.py
-    print("🔧 WebSocket disabled in Flask - handled by wsgi.py composite")
+    # FALLBACK WebSocket: אם EventLet Composite לא עובד בפריסה, Flask יטפל
+    try:
+        from simple_websocket import Server as WSServer, ConnectionClosed
+        
+        @app.route('/ws/twilio-media')
+        def websocket_fallback():
+            """FALLBACK WebSocket route for deployment if Composite WSGI fails"""
+            print("🔄 Flask WebSocket FALLBACK activated!", flush=True)
+            
+            try:
+                # Create simple WebSocket server
+                ws = WSServer.accept(request.environ)
+                print("✅ Simple WebSocket connection established", flush=True)
+                
+                # Import and use MediaStreamHandler
+                from server.media_ws_ai import MediaStreamHandler
+                handler = MediaStreamHandler(ws)
+                handler.run()
+                
+            except ConnectionClosed:
+                print("📞 WebSocket connection closed normally", flush=True)
+            except Exception as e:
+                print(f"❌ WebSocket fallback error: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
+            
+            return '', 200
+            
+        print("🔧 WebSocket FALLBACK route added: /ws/twilio-media")
+        
+    except ImportError:
+        print("⚠️ simple-websocket not available - EventLet only")
+    
+    print("🔧 WebSocket: EventLet Composite WSGI + Flask fallback")
     
     # IMMEDIATE DEBUG: Test if routes register at all
     print("🔧 REGISTERING TEST ROUTES...")
@@ -293,10 +325,11 @@ def create_app():
     def test_websocket_version():
         """Test route to verify WebSocket integration is active"""
         return jsonify({
-            'websocket_integration': 'EventLet_WebSocketWSGI_composite',
+            'websocket_integration': 'EventLet_WebSocketWSGI_composite + Flask_fallback',
             'route': '/ws/twilio-media',
-            'method': 'eventlet_websocket_wsgi',
+            'method': 'eventlet_websocket_wsgi + simple_websocket_fallback',
             'worker_type': 'eventlet',
+            'fallback_available': True,
             'timestamp': int(time.time())
         })
     
