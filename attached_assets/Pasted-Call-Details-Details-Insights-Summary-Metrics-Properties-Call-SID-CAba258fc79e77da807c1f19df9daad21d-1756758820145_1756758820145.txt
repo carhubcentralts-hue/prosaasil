@@ -1,0 +1,94 @@
+Call Details
+Details
+Insights Summary
+Metrics
+Properties
+Call SID
+CAba258fc79e77da807c1f19df9daad21d
+Date
+23:33:06 IDT 2025-09-01
+Start Time
+23:33:07 IDT 2025-09-01
+End Time
+23:33:09 IDT 2025-09-01
+Duration
+2 sec
+Cost
+$0.00
+From
++972504294724
+To
+
++97233763805
+Direction
+Incoming
+Type
+Phone
+Status
+Completed
+Stir/Shaken Status 
+—
+Errors and Warnings
+Debug Event SID
+NO46771dee008a9dc87135170453cbe331
+Error
+12100
+Message
+Document parse failure
+Debug Event SID
+NO36313d3b7eed9ad1f655e2462cc3996e
+Error
+31924Stream - Websocket - Protocol Error
+Debug Event SID
+NO1d0d304c55bcd32f8287bade4476972f
+Error
+12100
+Message
+Falling back to https://ai-crmd.replit.app/webhook/incoming_call
+Debug Event SID
+NO2c27aa5e4d2e6d215f4f40017888d132
+Error
+31924Stream - Websocket - Protocol Error
+Request Inspector
++ Expand All
+POST
+https://ai-crmd.replit.app/webhook/incoming_call
+2025-09-01 20:33:06 UTC100ms200
+Request
+Response
+Headers
+BodyShow Raw
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect action="https://ai-crmd.replit.app/webhook/stream_ended">
+        <Stream url="wss://ai-crmd.replit.app/ws/twilio-media"            statusCallback="https://ai-crmd.replit.app/webhook/stream_status">
+            <Parameter name="call_sid" value="CAba258fc79e77da807c1f19df9daad21d"/>
+        </Stream>
+    </Connect>
+</Response>
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-09-01 20:33:07 UTC71ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_ended
+2025-09-01 20:33:07 UTC81ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-09-01 20:33:07 UTC143ms204
+POST
+https://ai-crmd.replit.app/webhook/incoming_call
+2025-09-01 20:33:07 UTC66ms200
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-09-01 20:33:07 UTC139ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_ended
+2025-09-01 20:33:07 UTC119ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-09-01 20:33:07 UTC121ms204
+POST
+https://ai-crmd.replit.app/webhook/call_status
+2025-09-01 20:33:09 UTC121ms204
+
+Delete this call log

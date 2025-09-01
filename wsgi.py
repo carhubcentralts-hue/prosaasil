@@ -24,6 +24,13 @@ def create_websocket_handler():
         """WebSocket handler with proper Twilio subprotocol"""
         print("📞 EventLet WebSocket handler called!", flush=True)
         
+        # Check for Twilio subprotocol in headers
+        subprotocol = None
+        headers = environ.get('HTTP_SEC_WEBSOCKET_PROTOCOL', '')
+        if 'audio.twilio.com' in headers:
+            subprotocol = 'audio.twilio.com'
+            print(f"✅ Twilio subprotocol detected: {subprotocol}", flush=True)
+        
         try:
             # Import MediaStreamHandler after monkey_patch
             from server.media_ws_ai import MediaStreamHandler
@@ -31,6 +38,11 @@ def create_websocket_handler():
             # Get WebSocket from eventlet environ
             ws = environ['wsgi.websocket']
             print(f"✅ WebSocket connection established: {ws}", flush=True)
+            
+            # Set subprotocol on WebSocket if needed
+            if subprotocol and hasattr(ws, 'protocol'):
+                ws.protocol = subprotocol
+                print(f"✅ Subprotocol set: {subprotocol}", flush=True)
             
             # Create and run handler
             handler = MediaStreamHandler(ws)

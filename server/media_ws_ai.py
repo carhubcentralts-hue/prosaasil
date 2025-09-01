@@ -127,7 +127,7 @@ class MediaStreamHandler:
                     et = evt.get("event")
                     
                 except json.JSONDecodeError as e:
-                    print(f"⚠️ Invalid JSON received: {raw[:100]}... Error: {e}", flush=True)
+                    print(f"⚠️ Invalid JSON received: {str(raw)[:100] if raw else 'None'}... Error: {e}", flush=True)
                     continue
                 except Exception as e:
                     print(f"⚠️ WebSocket receive error: {e}", flush=True)
@@ -296,7 +296,7 @@ class MediaStreamHandler:
                 pass
             # Mark as ended
             if hasattr(self, 'call_sid') and self.call_sid:
-                stream_registry.mark_end(self.call_sid)
+                stream_registry.clear(self.call_sid)
         
         # Final cleanup
         print(f"WS_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
