@@ -289,55 +289,40 @@ def create_app():
     
     print("🔧 TEST ROUTE REGISTERED")
     
-    # SIMPLE-WEBSOCKET with proper WSGI integration
-    def websocket_handler(environ, start_response):
-        """WSGI WebSocket handler for /ws/twilio-media"""
+    # SIMPLE WebSocket route - back to basics
+    @app.route('/ws/twilio-media')
+    def handle_websocket():
+        """Simple WebSocket handler for Twilio Media Streams"""
+        from flask import request
         from simple_websocket import Server, ConnectionClosed
-        import json
         
-        print("🔗 WSGI WebSocket handler called", flush=True)
+        print("🔗 WebSocket route called", flush=True)
+        print(f"🔗 Headers: {dict(request.headers)}", flush=True)
         
         try:
-            # Create simple-websocket server
-            ws = Server(environ, subprotocols=['audio.twilio.com'])
-            print("✅ simple-websocket server created", flush=True)
+            # Create WebSocket server - let simple-websocket handle the handshake
+            ws = Server(request.environ, subprotocols=['audio.twilio.com'])
+            print("✅ WebSocket connection established", flush=True)
             
-            # Import and create MediaStreamHandler
+            # Import and start MediaStreamHandler
             from server.media_ws_ai import MediaStreamHandler
             handler = MediaStreamHandler(ws)
-            print("✅ Starting MediaStreamHandler", flush=True)
+            print("✅ Starting AI conversation handler", flush=True)
             
-            # Run the handler - this blocks until connection closes
+            # Run the conversation
             handler.run()
-            print("✅ MediaStreamHandler completed", flush=True)
+            print("✅ Conversation ended", flush=True)
+            
+            return ''
             
         except ConnectionClosed:
-            print("🔗 WebSocket connection closed", flush=True)
+            print("🔗 WebSocket closed normally", flush=True)
+            return ''
         except Exception as e:
-            print(f"❌ WebSocket handler error: {e}", flush=True)
+            print(f"❌ WebSocket error: {e}", flush=True)
             import traceback
             traceback.print_exc()
-    
-    # WSGI middleware to intercept WebSocket requests
-    def websocket_middleware(environ, start_response):
-        """WSGI middleware to handle WebSocket upgrade requests"""
-        path = environ.get('PATH_INFO', '')
-        
-        if path == '/ws/twilio-media':
-            # Check for WebSocket upgrade
-            connection = environ.get('HTTP_CONNECTION', '').lower()
-            upgrade = environ.get('HTTP_UPGRADE', '').lower()
-            
-            if 'upgrade' in connection and upgrade == 'websocket':
-                print("✅ WebSocket upgrade detected in middleware", flush=True)
-                return websocket_handler(environ, start_response)
-        
-        # Not a WebSocket request, pass to Flask app
-        return app.wsgi_app(environ, start_response)
-    
-    # Replace Flask's WSGI app with our middleware
-    app.wsgi_app = websocket_middleware
-    print("✅ WebSocket WSGI middleware installed")
+            return f"Error: {e}", 500
     
     # Add missing health aliases
     @app.route('/healthz')
