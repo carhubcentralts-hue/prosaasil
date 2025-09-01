@@ -1,0 +1,128 @@
+מבין אותך. נתקן את זה מהר ובטוח.
+כרגע /version עובד → השרת הנוכחי חי, אבל /healthz לא רשום ב־app שרץ. לא צריך להפיל שוב כלום — נוסיף “שסתום ביטחון”, נוודא שה־Blueprint נטען, ונכריח את Replit להרים את הקוד החדש.
+
+⸻
+
+מה עושים עכשיו (צעד־אחרי־צעד)
+
+1) וידוא שהריצה באמת על wsgi:app
+	•	ב־Shell של הפרויקט הרץ:
+
+ps -ef | grep gunicorn | grep -v grep
+
+מצופה לראות את הפקודה כוללת wsgi:app ו־0.0.0.0:$PORT.
+אם אתה רואה main:app או פורט קשיח (5000) – זה שרת ישן. במקרה כזה לחץ Run שוב אחרי שמירת .replit.
+
+⸻
+
+2) לבדוק אם /healthz באמת רשום בקוד שרץ
+
+הרץ ב־Shell:
+
+python3 - <<'PY'
+import wsgi
+app = wsgi.app
+print("URL MAP:", app.url_map)
+print("HEALTHZ?", any(r.rule == "/healthz" for r in app.url_map.iter_rules()))
+for r in app.url_map.iter_rules():
+    if "health" in r.rule: print(r.methods, r.rule)
+PY
+
+	•	אם מתקבל HEALTHZ? True → הנתיב קיים; ה־404 כנראה מטיווח/דיפלוי → עבור לשלב 4.
+	•	אם מתקבל False → הנתיב לא רשום (ה־Blueprint לא נטען במסלול הריצה הזה). ממשיכים לשלב 3.
+
+⸻
+
+3) “שסתום ביטחון” – להבטיח שיש /healthz בלי לשבור כלום
+
+מוסיפים 2 שורות הגנה ב־wsgi.py (לא נוגעים בלוגיקה שלך), מיד אחרי שאתה משיג את app:
+
+# ב-wsgi.py, אחרי ש-importת את ה-app
+from flask import Response
+
+# אם /healthz לא קיים – הוסף אותו מקומית כדי להציל את הבריאות
+if not any(r.rule == "/healthz" for r in app.url_map.iter_rules()):
+    @app.get("/healthz")
+    def __healthz():
+        return Response("ok", 200)
+
+זה לא מחליף את ה־Blueprint שלך—זה רק מבטיח שתמיד יהיה /healthz גם אם ה־Blueprint לא נטען במסלול הריצה.
+
+שמור קובץ → לחץ Run.
+
+בדיקות:
+
+curl -sS -m 5 https://ai-crmd.replit.app/healthz -i   # מצופה: HTTP/2 200 OK
+curl -sS -m 5 https://ai-crmd.replit.app/version -i   # עדיין 200
+
+אם עכשיו זה 200 – מעולה. בהזדמנות נתקן גם את רישום ה־Blueprint כך שלא נצטרך את השסתום (ראה “ליטוש” בסוף).
+
+⸻
+
+4) לאשר שהדיפלוי טוען את הקוד החדש
+
+לפעמים Replit מציג “שרת חי” אבל מה־build הקודם. הוספת header קל תאפשר לך לזהות:
+	•	הוסף ב־wsgi.py (או ב־app_factory שלך) ב־אזור אחרי יצירת האפליקציה:
+
+@app.after_request
+def _sig(r):
+    r.headers["X-App-Signature"] = "wsgi-healthz-v1"
+    return r
+
+
+	•	שמור → Run → בדוק:
+
+curl -sS -I https://ai-crmd.replit.app/healthz | grep X-App-Signature
+
+מצופה: X-App-Signature: wsgi-healthz-v1.
+אם לא – עדיין רץ build ישן → לחץ Run שוב/רענן, או ערוך קובץ קטן (touch) כדי להכריח rebuild.
+
+⸻
+
+5) כש־/healthz ירוק – סוגרים את השיחות
+	1.	TwiML / webhooks:
+	•	/webhook/incoming_call מחזיר <Connect><Stream …> עם:
+	•	url="wss://ai-crmd.replit.app/ws/twilio-media"
+	•	statusCallback="https://ai-crmd.replit.app/webhook/stream_status"
+	•	action="https://ai-crmd.replit.app/webhook/stream_ended"
+	•	/webhook/stream_status ו־/webhook/stream_ended → 204 (טופס, בלי אימות חתימה, בלי extra= בלוגים).
+בדוק:
+
+curl -s https://ai-crmd.replit.app/webhook/incoming_call -d "CallSid=CA_TEST"
+curl -i -X POST https://ai-crmd.replit.app/webhook/stream_status \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected"
+# מצופה: 204
+
+
+	2.	Handshake ל־Twilio (מוריד 31920/31924):
+
+wscat -c wss://ai-crmd.replit.app/ws/twilio-media \
+      -H "Sec-WebSocket-Protocol: audio.twilio.com"
+
+מצופה: 101 Switching Protocols ובתשובה כותרת Sec-WebSocket-Protocol: audio.twilio.com.
+אם אין – זה השורש לניתוק אחרי הברכה; לתקן ב־WS כך שה־subprotocol יוחזר.
+
+	3.	בלי “שקט” (STT/TTS):
+	•	STT: μ-law 8k נכנס; לוגים WS_START / STT_PARTIAL / STT_FINAL.
+	•	TTS: μ-law 8k מונו; פריימים 20ms משודרים חזרה; לוגים TTS_LEN_ms / MEDIA_TX / PNG_PONG.
+
+⸻
+
+למה קרה לך 404 על /healthz
+	•	ה־Blueprint של ה־health לא נטען במסלול הריצה שבו Gunicorn מריץ (או נרשם עם url_prefix אחר), בעוד /version כן קיים ב־app הישן.
+	•	ה־“שסתום ביטחון” ב־wsgi.py מבטל את התלות ברישום הזה כדי להחזיר את המערכת לעבודה מייד.
+
+⸻
+
+ליטוש (כשיהיה זמן, לא דחוף)
+	•	ודא שה־health_bp נרשם ב־app factory שממנה נטען ה־app של wsgi.py (אותו מודול/פונקציה).
+	•	אל תיתן url_prefix ל־health.
+	•	שמור את “שסתום הבריאות” ב־wsgi לעוד כמה דיפלויים—אפשר להסיר כשאתה רואה כמה דיפלויים רצופים ירוקים.
+
+⸻
+
+מה לשלוח לי כדי לסגור את זה
+	•	פלט של בלוק 2 (URL MAP + HEALTHZ? True/False).
+	•	תוצאה של curl -I /healthz שמראה 200 ו־X-App-Signature.
+	•	לאחר מכן נריץ wscat לווידוא ה־handshake ונחזיר את הקול.

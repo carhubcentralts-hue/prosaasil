@@ -48,6 +48,21 @@ def load_main_app():
 # טען את האפליקציה
 app = load_main_app()
 
+# שסתום ביטחון - להבטיח שיש /healthz בלי לשבור כלום
+from flask import Response
+
+# אם /healthz לא קיים – הוסף אותו מקומית כדי להציל את הבריאות
+if not any(r.rule == "/healthz" for r in app.url_map.iter_rules()):
+    @app.get("/healthz")
+    def __healthz():
+        return Response("ok", 200)
+
+# חתימת אפליקציה לזיהוי קוד חדש
+@app.after_request
+def _sig(r):
+    r.headers["X-App-Signature"] = "wsgi-healthz-v1"
+    return r
+
 # Gunicorn Entry Point
 if __name__ == "__main__":
     print("🚀 WSGI Entry Point Loaded Successfully")
