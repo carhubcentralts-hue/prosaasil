@@ -1,0 +1,75 @@
+בקצרה: הגישה שבתמונה (לעבור ל-sync ולדלג על eventlet) נכונה רק לדיבוג HTTP — אבל היא לא תאפשר שיחות. עבור Twilio Media Streams צריך WebSocket אמיתי, ו-gunicorn -k sync לא יודע לשרת WS. לכן זה יסביר למה “נפרס אבל אין קול/31920”.
+
+הדרך הנכונה לפריסה שמביאה גם שיחות:
+
+מה צריך לפריסה (נכון ויציב)
+
+1) requirements.txt
+
+שמור גרסאות תואמות ל-WS עם Flask:
+
+Flask
+gunicorn
+eventlet==0.36.1
+greenlet>=3.0,<3.3
+simple-websocket
+
+אם יש gevent/uvicorn/uvloop – אל תערבב כרגע. נשארים עם eventlet.
+
+2) Deployments → Build/Run (ללא bash עטוף)
+
+Build command
+
+python -m pip install --upgrade pip setuptools wheel && python -m pip install -r requirements.txt
+
+Run command
+
+python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -
+
+Environment (בדיפלוי)
+	•	EVENTLET_NO_GREENDNS=1
+	•	EVENTLET_HUB=select
+	•	DEPLOY_ID=<stamp> (רק כדי שתראה שעלתה גרסה חדשה)
+	•	אל תגדיר PORT ידנית
+
+Health check
+	•	Path: /healthz
+	•	Success: 200
+	•	Startup timeout: 300s
+
+3) wsgi.py
+
+תן לו לטעון את ה-app שלך. אפשר להשאיר “שסתום ביטחון” ל-/healthz אם ה-Blueprint לא נטען, אבל אל תחליף Entry-point (אל תעבור ל-wsgi_minimal) — זה יוצר בלבול בין ריצות.
+
+בדיקות GO/NO-GO
+	1.	אחרי Redeploy:
+
+GET https://ai-crmd.replit.app/version   → 200 + DEPLOY_ID החדש
+GET https://ai-crmd.replit.app/healthz   → 200 "ok"
+
+	2.	Handshake WS (מוריד 31920/31924):
+
+wscat -c wss://ai-crmd.replit.app/ws/twilio-media \
+      -H "Sec-WebSocket-Protocol: audio.twilio.com"
+
+מצופה: 101 Switching Protocols ובתשובה הכותרת
+Sec-WebSocket-Protocol: audio.twilio.com.
+אם הכותרת לא חוזרת – זה השורש לניתוק; לתקן במסלול ה-WS שיחזיר את ה-subprotocol.
+	3.	Webhooks:
+
+curl -s https://ai-crmd.replit.app/webhook/incoming_call -d "CallSid=CA_TEST"
+curl -i -X POST https://ai-crmd.replit.app/webhook/stream_status \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "CallSid=CA_TEST&StreamSid=MZ_TEST&Status=connected"   # מצופה 204
+
+למה לא sync
+	•	-k sync עובד ל-HTTP בלבד. Twilio Media Streams דורש WebSocket → צריך eventlet (או מעבר כולל ל-ASGI עם uvicorn + websockets, שזה שינוי ארכיטקטוני גדול יותר).
+
+אם ה-Build עדיין נכשל
+	•	ודא requirements.txt נטען (שגיאות pip יופיעו בלוג ה-Build).
+	•	אם “eventlet לא נמצא” – זה אומר שה-Build לא התקין; בדוק שהפקודת Build היא עם python -m pip ….
+	•	אם “python3 לא קיים” – השתמש ב-python -m … (כמו למעלה).
+
+⸻
+
+סיכום: לא, המעבר ל-sync ול-WSGI מינימלי לא נכון לפרודקשן עם שיחות. תחזיר ל-eventlet, תקבע את ה-Build/Run הפשוטים למעלה, תוודא /healthz=200, ואז תאמת Handshake שמחזיר את ה-subprotocol. משם השיחה תחזור לדבר.

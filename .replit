@@ -10,7 +10,7 @@ bash -lc '
     --access-logfile - --error-logfile -
 '
 """
-modules = ["python-3.11"]
+modules = ["python-3.11", "python3"]
 
 [deployment]
 deploymentTarget = "autoscale"

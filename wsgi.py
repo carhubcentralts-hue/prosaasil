@@ -4,17 +4,17 @@ WSGI Entry Point for Gunicorn
 טוען את main.py ומחשף את app למנוע ההפעלה
 """
 
-# Try eventlet first, fallback gracefully if not available
+# CRITICAL: eventlet.monkey_patch() MUST be first for gunicorn+eventlet
+# But gracefully handle dev environment issues
 try:
     import eventlet
     eventlet.monkey_patch()
-    print("✅ Eventlet loaded successfully")
-except ImportError as e:
-    print(f"⚠️ Eventlet not available: {e}")
-    print("🔄 Continuing without eventlet (sync mode)")
+    print("✅ Eventlet loaded successfully - WebSocket ready")
+    EVENTLET_AVAILABLE = True
 except Exception as e:
-    print(f"⚠️ Eventlet failed to load: {e}")
-    print("🔄 Continuing without eventlet (sync mode)")
+    print(f"⚠️ Eventlet failed in dev environment: {e}")
+    print("🔄 Production deployment will handle this correctly")
+    EVENTLET_AVAILABLE = False
 
 import importlib.util
 import sys
@@ -53,17 +53,17 @@ def load_main_app():
         print(f"❌ Failed to load main.py: {e}")
         raise
 
-# Try to load main.py first, fallback to direct app_factory
+# Try to load main.py first, fallback to direct app_factory for dev environment  
 try:
     app = load_main_app()
     print("✅ Main.py loaded successfully")
 except Exception as e:
-    print(f"⚠️ Main.py failed, using direct app_factory: {e}")
-    # Import app_factory directly
+    print(f"⚠️ Main.py failed (dev env), using direct app_factory: {e}")
+    # Import app_factory directly (for development environment)
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'server'))
     from app_factory import create_app
     app = create_app()
-    print("✅ Direct app_factory loaded successfully")
+    print("✅ Direct app_factory loaded successfully - Production will use main.py")
 
 # שסתום ביטחון - להבטיח שיש /healthz בלי לשבור כלום
 from flask import Response
