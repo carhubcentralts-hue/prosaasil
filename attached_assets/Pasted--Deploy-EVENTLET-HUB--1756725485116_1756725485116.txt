@@ -1,0 +1,99 @@
+כן, הוא “תיקן” חלקית אבל השורש נשאר: ה-Deploy עדיין נופל בגלל EVENTLET_HUB שגוי או שאריות קאש, ולכן Gunicorn עם -k eventlet לא מצליח לעלות ומדווח:
+ModuleNotFoundError: eventlet.hubs.select (צריך selects) / או שאין כלל הגדרה ואז חוטף קונפליקט.
+
+להלן הנחייה קצרה ומדויקת לסוכן (להדבקה אחת), שמחזירה את Eventlet למסלול בטוח בלי לעבור ל-sync:
+
+⸻
+
+🔧 Fix Deploy: Eventlet + Gunicorn (Replit Autoscale)
+
+1) נקה בחירה שגויה של Hub
+	•	מחק כל הופעה של EVENTLET_HUB (בשורש, .replit, קוד).
+	•	אם הוכנס בקוד – הסר/בטל:
+
+# ❌ אל תכריח HUB בשם "select"
+# os.environ.setdefault('EVENTLET_HUB', 'select')
+# ✔ אם חייבים – השם הנכון הוא:
+# os.environ.setdefault('EVENTLET_HUB', 'eventlet.hubs.selects')
+# אבל עדיף: לא להגדיר כלל
+import os
+os.environ.pop('EVENTLET_HUB', None)
+os.environ.setdefault('EVENTLET_NO_GREENDNS', '1')  # להשאיר – זה טוב
+
+2) אל תעשה monkey_patch ידני
+
+ב-wsgi.py:
+
+# ❌ אל תכריח monkey_patch כאן
+# import eventlet; eventlet.monkey_patch()
+try:
+    import eventlet  # טעינה בלבד; ה-worker של gunicorn מטפל ב-monkey patch
+except ImportError:
+    pass
+
+ודא שה-app נטען:
+
+from app import app as application
+app = application
+
+3) תלותים (requirements.txt)
+
+ודא שהקובץ כולל מינימום והצמדה יציבה:
+
+flask
+gunicorn==21.2.0
+eventlet==0.36.1
+greenlet>=2.0
+twilio
+python-dotenv
+requests
+
+שים לב: אם היו גרסאות אחרות – עדכן. eventlet==0.36.1 + gunicorn 21.x יציב ל-Py3.10/3.11.
+
+4) פקודות Deploy
+
+Build:
+
+python3 -m pip install --upgrade pip setuptools wheel && \
+python3 -m pip install -r requirements.txt && \
+python3 - <<'PY'
+import sys
+import eventlet
+import importlib
+import eventlet.hubs.selects as _sel
+print("Eventlet OK:", eventlet.__version__)
+PY
+
+Run:
+
+python3 -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT \
+  --worker-connections 256 --timeout 120 --keep-alive 75 \
+  --log-level info --access-logfile - --error-logfile -
+
+5) פריסה נקייה
+	•	אין package.json בשורש (שיהיה רק ב-client/ אם צריך Frontend).
+	•	עשה Redeploy ו-(אם יש) Clear build cache.
+	•	בלוגים תצפה ל-“Detected Python project / Using Python runtime” ואז:
+	•	“Eventlet OK: 0.36.1”
+	•	“Booting worker with pid … [eventlet]”
+
+⸻
+
+למה לא לעבור ל--k sync
+
+sync ייקטע WebSocket/Streaming ויכול לשבור Twilio Media Streams. המטרה היא להשאיר -k eventlet אבל להסיר את שורש הבעיה: Hub שגוי/כפוי וקאש.
+
+אם עדיין קורס
+	1.	ודא שאין EVENTLET_HUB בשום מקום.
+	2.	נסה נעילה הדוקה יותר:
+
+eventlet==0.36.1
+greenlet==3.0.3
+gunicorn==21.2.0
+
+	3.	אם מופיעה שגיאת build של greenlet (wheel) – הוסף ל-Build:
+
+python3 -m pip install --no-cache-dir --only-binary=:all: greenlet==3.0.3 || \
+python3 -m pip install --no-cache-dir greenlet==3.0.3
+
+זהו. אחרי הצעדים האלה, ה-Deploy לא ינסה יותר לטעון eventlet.hubs.select הלא-קיים, ה-worker של Gunicorn יעלה תקין עם Eventlet, ו-WebSockets/Media Streams יישארו פעילים.
