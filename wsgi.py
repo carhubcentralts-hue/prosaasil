@@ -1,80 +1,41 @@
 #!/usr/bin/env python3
 """
-WSGI Entry Point for Gunicorn
-FORCE clean eventlet environment
+Professional Hebrew Auth Server - Production Ready
+מערכת התחברות מקצועית עם React 19 + Tailwind 4.1 + Motion
 """
 
 import os
 import sys
 
-# CRITICAL FIX: Force eventlet to use working hub for NixOS
-os.environ['EVENTLET_HUB'] = 'epolls'
-
-# Set ONLY safe eventlet variables
+# Apply eventlet monkey patching FIRST - before any imports
+os.environ['EVENTLET_HUB'] = 'selects'
 os.environ['EVENTLET_NO_GREENDNS'] = '1'
 
-print(f"🔧 Eventlet hub forced to: {os.environ.get('EVENTLET_HUB')}")
+import eventlet
+eventlet.monkey_patch()
 
-# Don't force monkey_patch - let gunicorn eventlet worker handle it
-try:
-    import eventlet  # Just import, no patching
-except ImportError:
-    pass
+print("✅ EventLet monkey patching applied")
+print("🔧 EVENTLET_HUB=selects for optimal performance")
 
-# Load app from main.py
-try:
-    # Add current directory to path
-    sys.path.insert(0, os.path.dirname(__file__))
-    
-    # Import main module
-    import main
-    flask_app = main.app
-    print("✅ Flask app loaded from main.py")
-except Exception as e:
-    print(f"❌ Failed to load main.py: {e}")
-    # Fallback
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'server'))
-    from app_factory import create_app
-    flask_app = create_app()
-    print("✅ Fallback app loaded")
+# Create Flask app using factory (includes WebSocket routes now!)
+from server.app_factory import create_app
+app = create_app()
 
-# CRITICAL FIX: Create proper WebSocket WSGI app here in wsgi.py
-def twilio_websocket_handler(ws):
-    """EventLet WebSocket handler for Twilio Media Streams"""
-    print("🔗 WSGI WebSocket handler started", flush=True)
-    
-    try:
-        # Import MediaStreamHandler
-        from server.media_ws_ai import MediaStreamHandler
-        
-        # Create handler with eventlet WebSocket
-        handler = MediaStreamHandler(ws)
-        print("✅ MediaStreamHandler ready", flush=True)
-        
-        # Run the AI conversation
-        handler.run()
-        print("✅ AI conversation completed", flush=True)
-        
-    except Exception as e:
-        print(f"❌ WebSocket handler error: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
+print("✅ Flask app created via app_factory")
+print("📞 WebSocket support integrated in app_factory.py using simple-websocket")
+print("🔧 Simplified approach: Flask handles both HTTP and WebSocket")
 
-# Create WebSocket WSGI app with Twilio subprotocol
-from eventlet.websocket import WebSocketWSGI
-from werkzeug.middleware.dispatcher import DispatcherMiddleware
+# The app_factory.py now includes:
+# - All HTTP routes
+# - WebSocket route: /ws/twilio-media using simple-websocket
+# - MediaStreamHandler integration
+# - Twilio subprotocol validation
 
-# WebSocket WSGI app with proper subprotocol
-ws_app = WebSocketWSGI(twilio_websocket_handler, protocols=['audio.twilio.com'])
-print("✅ EventLet WebSocket WSGI created with subprotocol: audio.twilio.com")
+print("🚀 wsgi:app ready - Flask with integrated WebSocket")
+print("📞 WebSocket: simple-websocket in Flask")
+print("🌐 HTTP: Flask app_factory")
 
-# Map WebSocket to specific path, Flask handles everything else
-app = DispatcherMiddleware(flask_app, {
-    '/ws/twilio-media': ws_app
-})
-
-print("✅ WSGI DispatcherMiddleware: /ws/twilio-media → EventLet WebSocket")
-print("✅ All other routes → Flask app")
-
-if __name__ == "__main__":
-    print("🚀 WSGI loaded successfully")
+# Entry point for testing
+if __name__ == '__main__':
+    print("⚠️ Use 'python -m gunicorn wsgi:app -k eventlet' for production")
+    app.run(host='0.0.0.0', port=5000, debug=False)

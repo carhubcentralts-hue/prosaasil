@@ -1,0 +1,134 @@
+מעולה שאתה מתעקש על Media Streams בזמן־אמת. הנה “ספר הפעלה” קצר ומדויק, שמוציא אותך מ־400 ומחזיר את ה־WS לעבודה יציבה עם Gunicorn + eventlet — בלי לוותר על כלום.
+
+⸻
+
+יעד
+
+Handshake תקין מול Twilio (אין 400/31920), המדיה זורמת (μ-law 8k/20ms), והאפליקציה לא נתקעת.
+
+⸻
+
+0) ניקוי מיידי (לפני כתיבה)
+	•	אל תשתמש יותר ב־Flask-SocketIO ולא ב־WS דרך @app.route.
+	•	תשאיר simple-websocket רק אם הוא נחוץ לחלקים אחרים — לא לתוואי של Twilio.
+	•	ודא ש־Gunicorn רץ עם -k eventlet (לא sync), ושיש:
+	•	EVENTLET_NO_GREENDNS=1
+	•	EVENTLET_HUB=select
+
+requirements.txt (מינימום):
+
+Flask
+gunicorn
+eventlet==0.36.1
+greenlet>=3.0,<3.3
+simple-websocket
+
+
+⸻
+
+1) מונעים התנגשות “catch-all”
+
+יש לך catch-all שתופס /ws/* ומחזיר HTML → זה מה שיוצר 400.
+פתרון: חוצצים את תוואי ה־WS לפני שהוא מגיע ל־Flask, עם “אפליקציה מרוכבת” (Composite WSGI).
+
+מה לבצע (במילים, צעד־אחרי־צעד)
+	1.	פתח את wsgi.py (Entry-point של הדיפלוי).
+	2.	בראש הקובץ, לפני כל import כבד:
+	•	import eventlet; eventlet.monkey_patch()
+	3.	ייבוא Flask app בצורה “נקייה” (ללא side effects):
+	•	אם יש app_factory.create_app() – השתמש בו.
+	•	אם לא, ייבא app מתוך main.py, אבל רק אחרי ה־monkey_patch.
+	4.	צור WebSocket handler על בסיס eventlet.websocket (לא כ־route של Flask):
+	•	ws_handler(ws) שמטפל ב־frames של Twilio (start / media / stop)
+	•	עטוף אותו כ־websocket.WebSocketWSGI(ws_handler, protocols=['audio.twilio.com'])  ← זה מה שדואג שה־subprotocol יוחזר ב־Handshake.
+	5.	בנה אפליקציית WSGI מרוכבת (composite) שמנתבת לפי הנתיב:
+	•	אם PATH_INFO == '/ws/twilio-media' → קרא ל־ws_app(environ, start_response)
+	•	אחרת → העבר ל־flask_app.wsgi_app(environ, start_response)
+	6.	קבע את app = composite_app כ־export הסופי.
+חשוב: אל תעטוף שוב עם DispatcherMiddleware אם כבר בדקת שהוא “לא נתפס” אצלך. ה־composite מקדים כל catch-all ואין מצב שהוא “לא יעבוד”.
+
+למה זה פותר? כי ה־WSGI selector שלנו “שובר” את השרשרת לפני Flask, כך שה־catch-all לא ייראה את /ws/* בכלל. Gunicorn-eventlet יבצע את ה־upgrade ויחזיר את Sec-WebSocket-Protocol: audio.twilio.com אוטומטית דרך ה־WebSocketWSGI.
+
+⸻
+
+2) סגירת הפינות של Handshake
+
+בטויליו חובה subprotocol:
+	•	ודא שב־WebSocketWSGI(..., protocols=['audio.twilio.com']) אכן מוגדר.
+	•	בלוג Gunicorn תראה Using worker: eventlet.
+	•	בדיקת יד:
+
+wscat -c wss://<domain>/ws/twilio-media \
+      -H "Sec-WebSocket-Protocol: audio.twilio.com"
+
+מצופה: 101 Switching Protocols ובתשובה הכותרת Sec-WebSocket-Protocol: audio.twilio.com.
+אם אין כותרת → זו הסיבה לכל 400/31920.
+
+⸻
+
+3) מדיה נכונה (שלא יישאר “שקט”)
+	•	Twilio שולח JSON frames; ב־media.payload יש Base64 של μ-law 8k ל־20ms (≈160 דגימות).
+	•	קלט: פרסר את ה־JSON, המרות Base64→bytes, שלח ל־STT (ב־thread pool / queue, לא לחסום את greenlet).
+	•	פלט: החזר frames בפורמט JSON ש־Twilio מצפה לו, עם payload μ-law 8k בכל 20ms.
+אל תשלח WAV/MP3.
+	•	החזק Ping/Pong כל 5–15 שניות (Twilio גם יוזם; שמור הליכים קצרים בלולאה נפרדת).
+
+⸻
+
+4) Turn-Taking אנושי (בלי לופים)
+
+ENV מומלצים:
+	•	EoU_MS=450 – המתנה לשקט לפני תשובה
+	•	BARGE_IN=true – עצירת TTS כשזוהה דיבור נכנס
+	•	VAD_RMS=210 – סף טלפוניה
+	•	DEDUP_WINDOW_SEC=8 – חלון מניעת חזרות
+
+FSM ברור:
+LISTENING → THINKING → SPEAKING → LISTENING
+	•	אם בזמן SPEAKING הגיע media → עצור TTS, חזרה ל־LISTENING.
+	•	הצגה עצמית פעם אחת בלבד; אל תחזור על פתיח.
+
+לוג חובה (בזמן שיחה):
+WS_START, STT_PARTIAL, STT_FINAL, TTS_LEN_ms, MEDIA_TX=<frames>, PNG_PONG_RX/TX.
+
+⸻
+
+5) צ’ק-ליסט GO/NO-GO
+	1.	HTTP חי
+GET /version → 200 + DEPLOY_ID חדש
+GET /healthz → 200 “ok”
+	2.	Handshake (כנ״ל) → 101 + subprotocol מוחזר
+	3.	Webhooks
+	•	POST /webhook/incoming_call מחזיר TwiML <Connect><Stream …> (בלי // כפולים; בזמן דיבוג עדיף בלי <Play>)
+	•	POST /webhook/stream_status → תמיד 204
+	•	POST /webhook/stream_ended → 204
+	4.	שיחה אמיתית
+Request Inspector: incoming_call=200, stream_status=204 (פעמיים+), אין 31920/31924.
+באוזן: תשובה ≤ ‎3–6 שניות.
+בלוג: רצף האירועים שתיארנו.
+
+⸻
+
+6) תרחישים שעדיין נותנים 400 ומה עושים
+	•	ה־composite לא “תפס” ראשון: ודא ש־app = composite_app הוא ה־export הסופי ב־wsgi.py, ושלא עוטפים אותו שוב.
+	•	Gunicorn לא eventlet: בדוק בלוג “Using worker: eventlet”. אם לא — תקן את Run command של הדיפלוי.
+	•	subprotocol לא חוזר: חסר protocols=['audio.twilio.com'] ב־WebSocketWSGI.
+	•	Proxy משכתב נתיב: ודא שהנתיב המדויק הוא /ws/twilio-media גם ב־TwiML וגם ב־WS selector ב־wsgi.
+	•	catch-all אחר תופס לפני ה־composite: זה קורה רק אם ה־composite לא הוגדר ב־Entry-point (wsgi) ויצאת דרך Flask. הפתרון: composite למעלה, Flask למטה.
+
+⸻
+
+7) למה לא Record Mode
+
+Record Mode הוא מאוחר־זמן (א־סינכרוני), לא פותר זמנים, barge-in, או שיחה אמיתית. נשארים בזמן אמת.
+
+⸻
+
+סיכום חד:
+	•	תפסיקו לנסות WebSocket כ־route פלסק;
+	•	כן לעשות composite WSGI ב־wsgi.py: אם הנתיב /ws/twilio-media → WebSocketWSGI(..., protocols=['audio.twilio.com']), אחרת → Flask;
+	•	Eventlet worker בלבד;
+	•	μ-law 8k/20ms לשידור;
+	•	FSM + barge-in כדי שלא יהיו לופים.
+
+תיישם לפי הסדר הזה — וה־400 ייעלם.

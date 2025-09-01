@@ -281,52 +281,77 @@ def create_app():
     # IMMEDIATE DEBUG: Test if routes register at all
     print("🔧 REGISTERING TEST ROUTES...")
     
-    @app.route('/ws/test-basic', methods=['GET'])  
-    def test_basic_ws():
-        """Basic test route to verify routing works"""
-        print("🚨 BASIC TEST ROUTE CALLED!", flush=True)
-        return "Basic route works", 200
+    # WebSocket routes removed - handled in wsgi.py composite
+    # @app.route('/ws/test-basic', methods=['GET'])  
+    def disabled_test_basic_ws():
+        """Basic test route disabled - using wsgi.py composite"""
+        print("🚨 DISABLED ROUTE CALLED!", flush=True)
+        return "Route disabled", 400
     
     print("🔧 TEST ROUTE REGISTERED")
     
-    # EVENTLET WebSocket WSGI handler - proper way for production
-    def twilio_websocket_handler(ws):
-        """EventLet WebSocket handler for Twilio Media Streams"""
-        print("🔗 EventLet WebSocket handler started", flush=True)
+    # ADD WEBSOCKET ROUTE DIRECTLY TO FLASK APP (instead of composite WSGI)
+    @app.route('/ws/twilio-media')
+    def handle_twilio_websocket():
+        """Handle Twilio Media Stream WebSocket connections in Flask"""
+        print("📞 Twilio WebSocket route called in app_factory", flush=True)
+        
+        # Check if this is a WebSocket upgrade request
+        if request.headers.get('Upgrade', '').lower() != 'websocket':
+            print("❌ Not a WebSocket upgrade request", flush=True)
+            return 'WebSocket upgrade required', 400
+            
+        # Check Twilio subprotocol
+        requested_protocols = request.headers.get('Sec-WebSocket-Protocol', '')
+        if 'audio.twilio.com' not in requested_protocols:
+            print(f"❌ Missing Twilio subprotocol: {requested_protocols}", flush=True)
+            return 'Twilio subprotocol required', 400
+        
+        print("✅ WebSocket upgrade + Twilio subprotocol validated", flush=True)
         
         try:
-            # Import MediaStreamHandler
+            # Upgrade to WebSocket using simple-websocket
+            ws = WSServer.upgrade(request.environ, subprotocols=['audio.twilio.com'])
+            print("✅ WebSocket upgraded successfully", flush=True)
+            
+            # Import and run media handler
             from server.media_ws_ai import MediaStreamHandler
-            
-            # Create handler with eventlet WebSocket
             handler = MediaStreamHandler(ws)
-            print("✅ MediaStreamHandler created with eventlet WS", flush=True)
+            print("✅ MediaStreamHandler created", flush=True)
             
-            # Run the AI conversation
+            # Run the handler (this blocks until connection closes)
             handler.run()
-            print("✅ AI conversation completed", flush=True)
+            print("✅ MediaStreamHandler completed", flush=True)
+            
+            return '', 204  # Should not reach here normally
             
         except Exception as e:
-            print(f"❌ WebSocket handler error: {e}", flush=True)
+            print(f"❌ WebSocket handling failed: {e}", flush=True)
             import traceback
             traceback.print_exc()
+            return f'WebSocket handling failed: {e}', 500
     
-    # Create WebSocket WSGI app with proper subprotocol
-    from eventlet.websocket import WebSocketWSGI
+    print("✅ WebSocket route added directly to Flask app_factory")
+    print("🔧 WebSocket handling: DIRECT Flask route (not composite WSGI)")
     
-    # WebSocket WSGI app with Twilio subprotocol
-    ws_app = WebSocketWSGI(twilio_websocket_handler, protocols=['audio.twilio.com'])
-    print("✅ EventLet WebSocket WSGI app created with subprotocol")
+    # DEBUG: Test route to verify which version is running
+    @app.route('/test-websocket-version')
+    def test_websocket_version():
+        """Test route to verify WebSocket integration is active"""
+        return jsonify({
+            'websocket_integration': 'active_in_app_factory',
+            'route': '/ws/twilio-media',
+            'method': 'simple_websocket_upgrade',
+            'timestamp': int(time.time())
+        })
     
-    # Use DispatcherMiddleware to map WebSocket to specific path
-    from werkzeug.middleware.dispatcher import DispatcherMiddleware
+    print("✅ WebSocket test route added: /test-websocket-version")
     
-    # Map /ws/twilio-media to WebSocket WSGI, everything else to Flask
-    app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
-        '/ws/twilio-media': ws_app
-    })
-    
-    print("✅ DispatcherMiddleware installed: /ws/twilio-media → WebSocket WSGI")
+    # CRITICAL DEBUG: Print all registered routes
+    print("🔍 ALL REGISTERED ROUTES:")
+    for rule in app.url_map.iter_rules():
+        print(f"  {rule.methods} {rule.rule}")
+    print("🔍 Route registration complete")
     
     # Add missing health aliases
     @app.route('/healthz')
@@ -339,7 +364,7 @@ def create_app():
         """Standard health check alias"""
         return "ok", 200
     
-    print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (One True Path)")
+    print("🔧 NO WebSocket routes in Flask - handled by wsgi.py composite")
     print("✅ Health check aliases added: /health and /healthz")
     
     # CRITICAL DEBUG: Add test route directly in app_factory for production

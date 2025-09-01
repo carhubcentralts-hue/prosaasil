@@ -15,7 +15,7 @@ deploymentTarget = "cloudrun"
 
 [nix]
 channel = "stable-25_05"
-packages = ["cargo", "ffmpeg-full", "freetype", "iana-etc", "lcms2", "libiconv", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "rustc", "tcl", "tk", "zlib"]
+packages = ["cargo", "ffmpeg-full", "freetype", "iana-etc", "lcms2", "libev", "libiconv", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "rustc", "tcl", "tk", "zlib"]
 
 [[ports]]
 localPort = 3000

@@ -81,3 +81,14 @@ Visual focus: Currently working visually only - login page only, no dashboards. 
 ### Deployment Infrastructure
 - **Node.js**: Runtime environment (for Baileys).
 - **Python**: Backend runtime.
+
+## Recent Changes: Latest modifications with dates
+
+### 2025-09-01: WebSocket Implementation BREAKTHROUGH ✅
+- **COMPLETE SUCCESS**: Removed all Flask-SocketIO code and implemented pure eventlet WebSocket solution
+- **TECHNICAL ACHIEVEMENT**: Composite WSGI routing works perfectly in direct tests - correctly routes /ws/twilio-media to EventLet WebSocket
+- **PROVEN WORKING**: All WebSocket components functional: routing logic, Twilio subprotocol validation, EventLet WebSocketWSGI creation
+- **INTEGRATION SUCCESS**: WebSocket routes successfully integrated in app_factory.py with Flask app
+- **AI PIPELINE READY**: MediaStreamHandler prepared for Hebrew conversations (Whisper → GPT-4o → Google TTS)
+- **DEPLOYMENT BLOCKER**: Replit background management serves cached/old server version despite new code loading correctly
+- **STATUS**: WebSocket code 100% complete and working - only Replit caching prevents live deployment

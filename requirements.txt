@@ -25,3 +25,6 @@ email-validator
 greenlet>=2.0
 gunicorn==21.2.0
 eventlet
+gevent
+websockets
+requests
