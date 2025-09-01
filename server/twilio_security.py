@@ -12,9 +12,9 @@ from flask import request, abort
 def _effective_url(req):
     """Get effective URL considering proxy headers from Replit"""
     scheme = (req.headers.get("X-Forwarded-Proto") or req.scheme).split(",")[0].strip()
-    host = (req.headers.get("X-Forwarded-Host") or req.host).split(",")[0].strip()
-    path = req.full_path[:-1] if req.full_path.endswith("?") else req.full_path
-    return f"{scheme}://{host}{path}"
+    host   = (req.headers.get("X-Forwarded-Host")  or req.host).split(",")[0].strip()
+    # Twilio חתימה ל-POST form: URL בלי query string
+    return f"{scheme}://{host}{req.path}"
 
 def require_twilio_signature(f):
     """Decorator to validate Twilio webhook signatures"""
@@ -40,7 +40,10 @@ def require_twilio_signature(f):
         # Get effective URL behind proxy (Replit uses proxies)
         url = _effective_url(request)
         if not validate_signature(auth_token, signature, url, request.form):
-            print("❌ Invalid Twilio signature")
+            print(f"❌ Invalid Twilio signature:")
+            print(f"   URL calculated: {url}")
+            print(f"   X-Twilio-Signature: {signature}")
+            print(f"   Request path: {request.path}")
             abort(403)
             
         return f(*args, **kwargs)
