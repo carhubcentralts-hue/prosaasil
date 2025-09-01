@@ -327,11 +327,19 @@ def create_app():
             print("⚠️ No WebSocket upgrade header", flush=True)
             return "WebSocket upgrade required", 400
     
-    # All Flask-Sock backup routes REMOVED
-        
-    # Flask-Sock slash route REMOVED
+    # Add missing health aliases
+    @app.route('/healthz')
+    def healthz():
+        """Kubernetes-style health check"""
+        return "ok", 200
+    
+    @app.route('/health')  
+    def health_alias():
+        """Standard health check alias"""
+        return "ok", 200
     
     print("✅ WebSocket routes registered: /ws/twilio-media and /ws/twilio-media/ (One True Path)")
+    print("✅ Health check aliases added: /health and /healthz")
     
     # CRITICAL DEBUG: Add test route directly in app_factory for production
     @app.route('/debug-factory-http', methods=['GET', 'POST'])
