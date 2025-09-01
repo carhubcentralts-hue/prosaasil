@@ -22,9 +22,22 @@ import hashlib
 def create_app():
     """Create Flask application with React frontend (לפי ההנחיות המדויקות)"""
     
-    # LAZY INIT: Defer Google credentials to first use (prevents boot blocking)
-    # GCP credentials will be initialized on first STT/TTS call
-    print("🔧 GCP credentials deferred to lazy loading")
+    # GOOGLE TTS CREDENTIALS SETUP
+    # Handle both file path and JSON string credentials
+    import json, tempfile
+    gcp_creds = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
+    if gcp_creds and gcp_creds.startswith('{'):
+        # If it's a JSON string, create a temporary file
+        try:
+            creds_data = json.loads(gcp_creds)
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                json.dump(creds_data, f)
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = f.name
+            print("🔧 GCP credentials converted from JSON to file")
+        except Exception as e:
+            print(f"⚠️ GCP credentials error: {e}")
+    else:
+        print("🔧 GCP credentials loaded from file path")
     
     app = Flask(__name__, 
                 static_url_path="/static",
@@ -264,8 +277,9 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # REAL WebSocket FALLBACK: אם EventLet Composite לא עובד בפריסה, Flask-Sock יטפל
-    try:
+    # DISABLE Flask-Sock when using EventLet Composite WSGI to prevent conflicts
+    # Flask-Sock route registration completely skipped to avoid protocol errors
+    if False:  # Disabled to prevent conflict with EventLet WSGI
         from flask_sock import Sock
         sock = Sock(app)
         
@@ -287,43 +301,9 @@ def create_app():
                 import traceback
                 traceback.print_exc()
             
-        print("🔧 REAL WebSocket FALLBACK route added with Flask-Sock: /ws/twilio-media")
+        print("🔧 Flask-Sock WebSocket DISABLED - using EventLet Composite WSGI exclusively")
         
-    except ImportError:
-        print("⚠️ flask-sock not available - trying simple-websocket")
-        
-        try:
-            from simple_websocket import Server as WSServer, ConnectionClosed
-            
-            @app.route('/ws/twilio-media', methods=['GET'])
-            def websocket_simple_fallback():
-                """Simple WebSocket FALLBACK if Flask-Sock unavailable"""
-                print("🔄 Simple WebSocket FALLBACK activated!", flush=True)
-                
-                try:
-                    # Create simple WebSocket server
-                    ws = WSServer.accept(request.environ)
-                    print("✅ Simple WebSocket connection established", flush=True)
-                    
-                    # Import and use MediaStreamHandler
-                    from server.media_ws_ai import MediaStreamHandler
-                    handler = MediaStreamHandler(ws)
-                    handler.run()
-                    
-                except ConnectionClosed:
-                    print("📞 WebSocket connection closed normally", flush=True)
-                except Exception as e:
-                    print(f"❌ WebSocket fallback error: {e}", flush=True)
-                    import traceback
-                    traceback.print_exc()
-                
-                return '', 200
-                
-            print("🔧 Simple WebSocket FALLBACK route added: /ws/twilio-media")
-            
-        except ImportError:
-            print("⚠️ No WebSocket fallback available - EventLet only")
-    
+    # EventLet Composite WSGI handles WebSocket exclusively  
     print("🔧 WebSocket: EventLet Composite WSGI + Flask WebSocket fallback")
     
     # IMMEDIATE DEBUG: Test if routes register at all

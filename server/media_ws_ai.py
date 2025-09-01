@@ -104,11 +104,35 @@ class MediaStreamHandler:
         
         try:
             while True:
-                raw = self.ws.receive()
-                if raw is None:
-                    break
-                evt = json.loads(raw)
-                et = evt.get("event")
+                # COMPATIBILITY: Handle both EventLet and Flask-Sock WebSocket APIs
+                try:
+                    # Try Flask-Sock/simple-websocket style first
+                    if hasattr(self.ws, 'receive'):
+                        raw = self.ws.receive()
+                    elif hasattr(self.ws, 'recv'):
+                        raw = self.ws.recv()
+                    else:
+                        # Fallback for other WebSocket implementations
+                        raw = self.ws.receive()
+                        
+                    if raw is None or raw == '':
+                        print("📞 WebSocket connection closed normally", flush=True)
+                        break
+                        
+                    # Handle both string and bytes
+                    if isinstance(raw, bytes):
+                        raw = raw.decode('utf-8')
+                        
+                    evt = json.loads(raw)
+                    et = evt.get("event")
+                    
+                except json.JSONDecodeError as e:
+                    print(f"⚠️ Invalid JSON received: {raw[:100]}... Error: {e}", flush=True)
+                    continue
+                except Exception as e:
+                    print(f"⚠️ WebSocket receive error: {e}", flush=True)
+                    # Try to continue, might be temporary
+                    continue
 
                 if et == "start":
                     # תמיכה בשני פורמטים: Twilio אמיתי ובדיקות
@@ -244,23 +268,37 @@ class MediaStreamHandler:
 
                 if et == "stop":
                     print(f"WS_STOP sid={self.stream_sid} rx={self.rx} tx={self.tx}")
+                    # Send close frame properly
+                    try:
+                        if hasattr(self.ws, 'close'):
+                            self.ws.close()
+                    except:
+                        pass
                     break
 
         except ConnectionClosed:
             print(f"WS_CLOSED sid={self.stream_sid} rx={self.rx} tx={self.tx}")
         except Exception as e:
             print("WS_ERR:", e)
+            import traceback
+            traceback.print_exc()
         finally:
+            # Clean up TX thread
+            if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
+                self.tx_running = False
+                try:
+                    self.tx_thread.join(timeout=1.0)
+                except:
+                    pass
             try: 
                 self.ws.close()
             except: 
                 pass
-            # סגירת TX thread
-        self.tx_running = False
-        try:
-            self.tx_q.put_nowait({"type": "end"})
-        except:
-            pass
+            # Mark as ended
+            if hasattr(self, 'call_sid') and self.call_sid:
+                stream_registry.mark_end(self.call_sid)
+        
+        # Final cleanup
         print(f"WS_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
 
     def _interrupt_speaking(self):
