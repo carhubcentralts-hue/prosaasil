@@ -1,22 +1,13 @@
-run = "python -m gunicorn wsgi:app --worker-class eventlet -w 1 -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
-
-modules = ["python-3.11"]
-
-[deployment]
-deploymentTarget = "autoscale"
-build = ["python", "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel", "&&", "python", "-m", "pip", "install", "-r", "requirements.txt"]
-run = "python -m gunicorn wsgi:app --worker-class eventlet -w 1 -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
+# .replit — Workspace only
+run = "python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:${PORT:-3000} --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
 
 [env]
 PYTHONUNBUFFERED = "1"
-PYTHONPATH = "."
+PYTHONPATH       = "."
 EVENTLET_NO_GREENDNS = "1"
-EVENTLET_HUB = "select"
+EVENTLET_HUB         = "select"
 
-[nix]
-channel = "stable-25_05"
-packages = ["ffmpeg-full", "iana-etc", "iproute2", "nettools", "nodejs_20", "openssl", "pkg-config", "postgresql_16", "python311Full", "zlib"]
-
-[[ports]]
-localPort = 5000
-externalPort = 80
+[deployment]
+build = ["sh", "-c", "python -m pip install --upgrade pip setuptools wheel && python -m pip install -r requirements.txt"]
+run = ["sh", "-c", "python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"]
+deploymentTarget = "cloudrun"

@@ -1,0 +1,18 @@
+# Empty requirements.txt - all packages already installed via pyproject.toml
+flask
+flask-cors
+numpy
+psycopg2-binary
+requests
+websockets==13.1
+eventlet
+eventlet
+flask
+flask-cors
+gunicorn
+psycopg2-binary
+requests
+simple-websocket
+websockets
+eventlet==0.36.1
+greenlet>=3.0,<3.3
