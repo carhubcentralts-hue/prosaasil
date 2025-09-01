@@ -29,3 +29,4 @@ requests
 eventlet==0.36.1
 simple-websocket
 websockets
+flask-sock

@@ -264,48 +264,67 @@ def create_app():
         current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
         return resp
     
-    # 2) DISABLE Flask-Sock - use direct simple-websocket only
-    # from flask_sock import Sock
-    
-    # LAZY IMPORT: MediaStreamHandler imported only when WebSocket connects
-    # Prevents heavy init during boot
-    MediaStreamHandler = None  # Will be imported on first WS connection
-    print("🔧 MediaStreamHandler import deferred to lazy loading")
-    
-    # FALLBACK WebSocket: אם EventLet Composite לא עובד בפריסה, Flask יטפל
+    # REAL WebSocket FALLBACK: אם EventLet Composite לא עובד בפריסה, Flask-Sock יטפל
     try:
-        from simple_websocket import Server as WSServer, ConnectionClosed
+        from flask_sock import Sock
+        sock = Sock(app)
         
-        @app.route('/ws/twilio-media')
-        def websocket_fallback():
-            """FALLBACK WebSocket route for deployment if Composite WSGI fails"""
-            print("🔄 Flask WebSocket FALLBACK activated!", flush=True)
+        @sock.route('/ws/twilio-media')
+        def websocket_fallback(ws):
+            """REAL WebSocket FALLBACK route with Flask-Sock if Composite WSGI fails"""
+            print("🔄 Flask-Sock WebSocket FALLBACK activated!", flush=True)
             
             try:
-                # Create simple WebSocket server
-                ws = WSServer.accept(request.environ)
-                print("✅ Simple WebSocket connection established", flush=True)
+                print("✅ Flask-Sock WebSocket connection established", flush=True)
                 
                 # Import and use MediaStreamHandler
                 from server.media_ws_ai import MediaStreamHandler
                 handler = MediaStreamHandler(ws)
                 handler.run()
                 
-            except ConnectionClosed:
-                print("📞 WebSocket connection closed normally", flush=True)
             except Exception as e:
                 print(f"❌ WebSocket fallback error: {e}", flush=True)
                 import traceback
                 traceback.print_exc()
             
-            return '', 200
-            
-        print("🔧 WebSocket FALLBACK route added: /ws/twilio-media")
+        print("🔧 REAL WebSocket FALLBACK route added with Flask-Sock: /ws/twilio-media")
         
     except ImportError:
-        print("⚠️ simple-websocket not available - EventLet only")
+        print("⚠️ flask-sock not available - trying simple-websocket")
+        
+        try:
+            from simple_websocket import Server as WSServer, ConnectionClosed
+            
+            @app.route('/ws/twilio-media', methods=['GET'])
+            def websocket_simple_fallback():
+                """Simple WebSocket FALLBACK if Flask-Sock unavailable"""
+                print("🔄 Simple WebSocket FALLBACK activated!", flush=True)
+                
+                try:
+                    # Create simple WebSocket server
+                    ws = WSServer.accept(request.environ)
+                    print("✅ Simple WebSocket connection established", flush=True)
+                    
+                    # Import and use MediaStreamHandler
+                    from server.media_ws_ai import MediaStreamHandler
+                    handler = MediaStreamHandler(ws)
+                    handler.run()
+                    
+                except ConnectionClosed:
+                    print("📞 WebSocket connection closed normally", flush=True)
+                except Exception as e:
+                    print(f"❌ WebSocket fallback error: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
+                
+                return '', 200
+                
+            print("🔧 Simple WebSocket FALLBACK route added: /ws/twilio-media")
+            
+        except ImportError:
+            print("⚠️ No WebSocket fallback available - EventLet only")
     
-    print("🔧 WebSocket: EventLet Composite WSGI + Flask fallback")
+    print("🔧 WebSocket: EventLet Composite WSGI + Flask WebSocket fallback")
     
     # IMMEDIATE DEBUG: Test if routes register at all
     print("🔧 REGISTERING TEST ROUTES...")
@@ -325,11 +344,12 @@ def create_app():
     def test_websocket_version():
         """Test route to verify WebSocket integration is active"""
         return jsonify({
-            'websocket_integration': 'EventLet_WebSocketWSGI_composite + Flask_fallback',
+            'websocket_integration': 'EventLet_WebSocketWSGI_composite + Flask-Sock_fallback',
             'route': '/ws/twilio-media',
-            'method': 'eventlet_websocket_wsgi + simple_websocket_fallback',
+            'method': 'eventlet_websocket_wsgi + flask_sock_fallback',
             'worker_type': 'eventlet',
             'fallback_available': True,
+            'real_websocket': True,
             'timestamp': int(time.time())
         })
     
