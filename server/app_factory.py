@@ -289,128 +289,42 @@ def create_app():
     
     print("🔧 TEST ROUTE REGISTERED")
     
-    # SIMPLE WebSocket handler with enhanced debugging
+    # CLEAN WebSocket handler - minimal and working
     @app.route('/ws/twilio-media', methods=['GET', 'POST'])
     def ws_twilio_media_direct():
-        """SIMPLE WebSocket handler with comprehensive debugging"""
+        """Clean WebSocket handler for Twilio media streams"""
         from flask import request
-        import time, os, sys
         
-        print("🚨 WS ROUTE CALLED!", flush=True)
-        sys.stdout.flush()
-        
-        # IMMEDIATE FILE CREATION - NO CONDITIONS
-        ts = int(time.time())
-        try:
-            with open(f"/tmp/ROUTE_DEFINITELY_CALLED_{ts}.txt", "w") as f:
-                f.write(f"ROUTE_CALLED_NO_CONDITIONS: {ts}\n")
-                f.write(f"METHOD: {request.method}\n")
-                f.write(f"PATH: {request.path}\n")
-                f.flush()
-            print(f"🚨 IMMEDIATE FILE CREATED: /tmp/ROUTE_DEFINITELY_CALLED_{ts}.txt", flush=True)
-        except Exception as e:
-            print(f"❌ IMMEDIATE FILE ERROR: {e}", flush=True)
-        
-        # IMMEDIATE debug logging
-        debug_file = "/tmp/websocket_debug.txt" 
-        try:
-            with open(debug_file, "w") as f:
-                f.write(f"DIRECT_WS_ROUTE_CALLED: {time.time()}\n")
-                f.write(f"REQUEST_HEADERS: {dict(request.headers)}\n")
-                f.write(f"REQUEST_METHOD: {request.method}\n")
-                f.write(f"UPGRADE_HEADER: {request.headers.get('Upgrade', 'NONE')}\n")
-                f.flush()
-            print(f"✅ Debug file created: {debug_file}", flush=True)
-        except Exception as de:
-            print(f"Debug write error: {de}", flush=True)
+        print("🔗 WebSocket route called", flush=True)
         
         # Check for WebSocket upgrade
-        # IMMEDIATE PRODUCTION DEBUG - FIRST LINE AFTER ROUTE CALL
-        timestamp = int(time.time())
-        production_debug_files = [
-            f"/tmp/production_ws_{timestamp}.txt",
-            f"/tmp/route_called.txt", 
-            f"/home/runner/workspace/route_debug.txt"
-        ]
-        
-        for debug_file in production_debug_files:
-            try:
-                with open(debug_file, "w") as f:
-                    f.write(f"PRODUCTION_WS_ROUTE_CALLED: {timestamp}\n")
-                    f.write(f"REQUEST_PATH: {request.path}\n")
-                    f.write(f"HEADERS: {dict(request.headers)}\n")
-                    f.flush()
-                print(f"✅ Production debug: {debug_file}", flush=True)
-            except Exception as e:
-                print(f"❌ Production debug failed: {debug_file} - {e}", flush=True)
-        
         if request.headers.get('Upgrade', '').lower() == 'websocket':
-            print("🚨 WebSocket upgrade detected - using simple-websocket!", flush=True)
+            print("✅ WebSocket upgrade detected", flush=True)
             try:
                 from simple_websocket import Server
                 
-                # CRITICAL FIX: Add Twilio subprotocol support
-                print("🚨 Creating simple-websocket Server with Twilio subprotocol...", flush=True)
+                # Create WebSocket server with Twilio subprotocol
                 ws = Server(request.environ, subprotocols=['audio.twilio.com'])
+                print("✅ WebSocket server created", flush=True)
                 
-                # Log successful WebSocket creation
-                try:
-                    with open(debug_file, "a") as f:
-                        f.write(f"WEBSOCKET_CREATED: {time.time()}\n")
-                        f.write(f"WS_TYPE: {type(ws)}\n")
-                        f.flush()
-                except:
-                    pass
+                # Import and run MediaStreamHandler
+                from server.media_ws_ai import MediaStreamHandler
+                handler = MediaStreamHandler(ws)
+                print("✅ Starting AI conversation handler", flush=True)
                 
-                print("🚨 Starting MediaStreamHandler with DIRECT WebSocket...", flush=True)
+                # Run the handler (this blocks until WebSocket closes)
+                handler.run()
+                print("✅ WebSocket conversation ended", flush=True)
                 
-                # LAZY IMPORT: Import MediaStreamHandler only when needed
-                try:
-                    from server.media_ws_ai import MediaStreamHandler
-                    print("✅ MediaStreamHandler imported lazily")
-                    print("🚨 Creating handler instance...", flush=True)
-                    handler = MediaStreamHandler(ws)
-                    
-                    try:
-                        with open(debug_file, "a") as f:
-                            f.write(f"HANDLER_CREATED: {time.time()}\n")
-                            f.flush()
-                    except:
-                        pass
-                    
-                    print("🚨 Starting handler.run()...", flush=True)
-                    handler.run()
-                    print("🚨 Handler.run() completed!", flush=True)
-                    
-                    try:
-                        with open(debug_file, "a") as f:
-                            f.write(f"HANDLER_RUN_COMPLETED: {time.time()}\n")
-                            f.flush()
-                    except:
-                        pass
-                except ImportError as ie:
-                    print(f"❌ MediaStreamHandler import failed: {ie}")
-                    return "WebSocket handler not available", 500
-                    
-                ws.close()
                 return '', 200
                 
             except Exception as e:
-                print(f"❌ Direct WebSocket error: {e}", flush=True)
+                print(f"❌ WebSocket error: {e}", flush=True)
                 import traceback
                 traceback.print_exc()
-                
-                try:
-                    with open(debug_file, "a") as f:
-                        f.write(f"WEBSOCKET_ERROR: {e}\n")
-                        f.write(f"TRACEBACK: {traceback.format_exc()}\n")
-                        f.flush()
-                except:
-                    pass
-                
                 return f"WebSocket error: {e}", 500
         else:
-            print("❌ No WebSocket upgrade header!", flush=True)
+            print("⚠️ No WebSocket upgrade header", flush=True)
             return "WebSocket upgrade required", 400
     
     # All Flask-Sock backup routes REMOVED
