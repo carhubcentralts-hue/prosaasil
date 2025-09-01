@@ -130,7 +130,14 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription):
         log.error("DB save failed: %s", e)
 
 def save_call_status(call_sid, status):
-    """Update call status in database"""
+    """שלח עדכון סטטוס שיחה לעיבוד ברקע (Thread) למנוע timeout"""
+    thread = Thread(target=save_call_status_async, args=(call_sid, status))
+    thread.daemon = True
+    thread.start()
+    log.info("Call status queued for update: %s -> %s", call_sid, status)
+
+def save_call_status_async(call_sid, status):
+    """עדכון סטטוס שיחה אסינכרוני מלא"""
     try:
         import sqlite3
         
@@ -154,10 +161,10 @@ def save_call_status(call_sid, status):
         conn.commit()
         conn.close()
         
-        log.info("Call status updated: %s -> %s", call_sid, status)
+        log.info("Call status updated async: %s -> %s", call_sid, status)
         
     except Exception as e:
-        log.error("Failed to update call status: %s", e)
+        log.error("Failed to update call status async: %s", e)
 
 def transcribe_with_whisper_api(audio_file):
     """תמלול עם OpenAI Whisper API (לא מקומי)"""

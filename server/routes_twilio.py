@@ -9,6 +9,9 @@ from twilio.rest import Client
 from server.stream_state import stream_registry
 from server.twilio_security import require_twilio_signature
 
+# ייבוא מראש למניעת עיכובים ב-webhooks
+from server.tasks_recording import save_call_status, enqueue_recording
+
 twilio_bp = Blueprint("twilio", __name__)
 
 def abs_url(path: str) -> str:
@@ -124,7 +127,6 @@ def handle_recording():
     rec_url = request.form.get("RecordingUrl")
     if rec_url:
         try:
-            from server.tasks_recording import enqueue_recording
             enqueue_recording(request.form)
         except Exception:
             current_app.logger.exception("recording_queue_fail")
@@ -143,19 +145,23 @@ def stream_status():
 @twilio_bp.route("/webhook/call_status", methods=["POST"])
 @require_twilio_signature
 def call_status():
-    """Handle call status updates"""
+    """Handle call status updates - FAST אסינכרוני"""
     call_sid = request.form.get("CallSid")
     call_status = request.form.get("CallStatus")
-    try:
-        current_app.logger.info("CALL_STATUS", extra={"call_sid": call_sid, "status": call_status})
-        if call_status in ["completed", "busy", "no-answer", "failed", "canceled"]:
-            from server.tasks_recording import save_call_status
-            save_call_status(call_sid, call_status)
-    except Exception:
-        current_app.logger.exception("CALL_STATUS_HANDLER_ERROR")
+    
+    # החזרה מיידית ללא עיכובים
     resp = make_response("", 204)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
+    
+    # עיבוד ברקע אחרי שהחזרנו response
+    try:
+        current_app.logger.info("CALL_STATUS", extra={"call_sid": call_sid, "status": call_status})
+        if call_status in ["completed", "busy", "no-answer", "failed", "canceled"]:
+            save_call_status(call_sid, call_status)  # כעת אסינכרוני
+    except Exception:
+        current_app.logger.exception("CALL_STATUS_HANDLER_ERROR")
+    
     return resp
 
 @twilio_bp.route("/webhook/test", methods=["POST", "GET"])
