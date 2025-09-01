@@ -28,20 +28,53 @@ try:
     
     # Import main module
     import main
-    app = main.app
-    print("✅ App loaded from main.py")
+    flask_app = main.app
+    print("✅ Flask app loaded from main.py")
 except Exception as e:
     print(f"❌ Failed to load main.py: {e}")
     # Fallback
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'server'))
     from app_factory import create_app
-    app = create_app()
+    flask_app = create_app()
     print("✅ Fallback app loaded")
 
-# Simple health check
-@app.route('/healthz')
-def health():
-    return "ok", 200
+# CRITICAL FIX: Create proper WebSocket WSGI app here in wsgi.py
+def twilio_websocket_handler(ws):
+    """EventLet WebSocket handler for Twilio Media Streams"""
+    print("🔗 WSGI WebSocket handler started", flush=True)
+    
+    try:
+        # Import MediaStreamHandler
+        from server.media_ws_ai import MediaStreamHandler
+        
+        # Create handler with eventlet WebSocket
+        handler = MediaStreamHandler(ws)
+        print("✅ MediaStreamHandler ready", flush=True)
+        
+        # Run the AI conversation
+        handler.run()
+        print("✅ AI conversation completed", flush=True)
+        
+    except Exception as e:
+        print(f"❌ WebSocket handler error: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+
+# Create WebSocket WSGI app with Twilio subprotocol
+from eventlet.websocket import WebSocketWSGI
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+
+# WebSocket WSGI app with proper subprotocol
+ws_app = WebSocketWSGI(twilio_websocket_handler, protocols=['audio.twilio.com'])
+print("✅ EventLet WebSocket WSGI created with subprotocol: audio.twilio.com")
+
+# Map WebSocket to specific path, Flask handles everything else
+app = DispatcherMiddleware(flask_app, {
+    '/ws/twilio-media': ws_app
+})
+
+print("✅ WSGI DispatcherMiddleware: /ws/twilio-media → EventLet WebSocket")
+print("✅ All other routes → Flask app")
 
 if __name__ == "__main__":
     print("🚀 WSGI loaded successfully")

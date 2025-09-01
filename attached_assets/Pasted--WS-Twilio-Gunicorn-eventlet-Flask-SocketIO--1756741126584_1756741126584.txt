@@ -1,0 +1,126 @@
+מעולה—בוא נסגור את נושא ה־WS מול Twilio בדרך הכי יציבה עם Gunicorn + eventlet וללא Flask-SocketIO/“קסמים”. ה-400 קורה כי השרת לא משלים Handshake נכון (ובעיקר לא מחזיר את ה־subprotocol). הנה תהליך עבודה מדויק שהבוט יכול לבצע צעד-צעד עד “שיחה חיה”:
+
+⸻
+
+🔧 יעד: Twilio Media Stream עובד (בלי 400), עם Eventlet
+
+עקרונות (חשוב להבין)
+	•	חייבים WebSocket אמיתי. -k sync לא רלוונטי לשיחות.
+	•	Twilio דורש subprotocol: audio.twilio.com. בתשובת ה-upgrade חייבת לחזור הכותרת
+Sec-WebSocket-Protocol: audio.twilio.com.
+	•	ב־Flask בפרודקשן, הכי יציב: להשתמש ב־eventlet.websocket כ־WSGI app נפרד, ולמפות אותו ל־/ws/twilio-media דרך DispatcherMiddleware. לא לערבב עם ראוט Flask רגיל.
+
+⸻
+
+A) ניקוי תלויות והפעלה
+	1.	ודא ב־requirements.txt רק את הבסיס:
+	•	Flask, gunicorn, eventlet==0.36.1, greenlet>=3.0,<3.3, simple-websocket (רק אם צריך לכלים אחרים; ל־WS העיקר eventlet).
+	•	אין flask-socketio, אין gevent, אין uvicorn/uvloop.
+	2.	הרצת פרודקשן (Workspace/Deployments):
+	•	Run: python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info
+	•	Env: EVENTLET_NO_GREENDNS=1, EVENTLET_HUB=select
+
+⸻
+
+B) מיפוי ה־WS כ־WSGI “צמוד” ל־Flask (לא ראוט Flask)
+
+המטרה: להפסיק לנסות לטפל ב־WS בתוך @app.route. במקום זאת:
+	1.	ליצור handler של eventlet.websocket (פונקציה שמקבלת אובייקט ws).
+	2.	לעטוף אותו כ־WebSocketWSGI עם protocols=[‘audio.twilio.com’].
+	3.	למפות אותו ל־/ws/twilio-media ע״י DispatcherMiddleware מעל app.wsgi_app.
+	4.	לשמור את כל שאר הראוטים (HTTP) ב־Flask כרגיל.
+
+למה זה פותר את 400? כי Gunicorn-eventlet יזהה שזה WebSocket WSGI, יבצע את ה-upgrade בעצמו ויחזיר את ה-subprotocol ברמת ה־middleware — בדיוק מה שטוויליו מצפה.
+
+מה לבקש מהבוט לבצע (במילים):
+	•	“ב־server/app_factory.py (או בקובץ ה־wsgi הראשי), הוסף בניית ws_app עם eventlet.websocket.WebSocketWSGI, עם protocols=['audio.twilio.com'].”
+	•	“מפה את ws_app לנתיב /ws/twilio-media באמצעות werkzeug.middleware.dispatcher.DispatcherMiddleware על app.wsgi_app.”
+	•	“אל תשתמש ב־@app.route ל־WS בכלל.”
+
+⸻
+
+C) בקרה על ה־Handshake (מאוד חשוב)
+
+ב־handler עצמו:
+	•	בתחילת החיבור:
+	•	בדוק שהלקוח ביקש subprotocol: HTTP_SEC_WEBSOCKET_PROTOCOL כולל audio.twilio.com.
+	•	אם לא—סגור חיבור בנימוס (Twilio לא יתחבר).
+	•	תן PING/PONG כל 5–15 שניות (Twilio גם שולח פינג).
+	•	כתוב ללוג: WS_START, ואז כל “אירוע מדיה” שמתקבל/נשלח (ראה D).
+
+⸻
+
+D) מדיה—מה זז בפועל
+
+Twilio שולח JSON frames (לא בינארי):
+	•	start → התחלה (שם stream, metadata)
+	•	media → Base64 μ-law 8k של 20ms כל פריים (או 160 דגימות PCM u-law)
+	•	mark/stop
+
+מה שהבוט צריך לעשות:
+	•	קלט: לפרסר media.payload (base64) → bytes → להעביר ל־STT.
+	•	פלט: ליצור פריימי μ-law 8000Hz 20ms ולשלוח חזרה ל־Twilio בפורמט ה־JSON שהם מצפים (בד״כ {"event":"media","media":{"payload":"..."}} דרך ה־WS).
+	•	אין לשלוח MP3/WAV.
+	•	לשמור קצב יציאה קבוע (20ms) — אחרת תשמע “שקט”/ניתוקים.
+
+⸻
+
+E) Turn-Taking (בלי לופים, נשמע אנושי)
+	•	FSM ברור: LISTENING → THINKING → SPEAKING → LISTENING.
+	•	עצירת TTS (“barge-in”): אם מתקבל media מצד המשתמש בזמן SPEAKING → לעצור יציאה ולעבור ל-LISTENING.
+	•	EoU (סוף מבע): 450–600ms שקט לפני מעבר ל-LLM.
+	•	הימנע מברכה/הצגה עצמית פעמיים.
+	•	ENV מומלצים:
+	•	BARGE_IN=true
+	•	VAD_RMS=210 (טלפוניה)
+	•	EoU_MS=450
+	•	DEDUP_WINDOW_SEC=8
+
+⸻
+
+F) בדיקות GO/NO-GO (לפי הסדר)
+	1.	HTTP חי:
+	•	/version → 200 + DEPLOY_ID מעודכן
+	•	/healthz → 200 “ok”
+	2.	Handshake ידני (חובה):
+	•	עם כלי WS (למשל wscat):
+התחבר ל־wss://<domain>/ws/twilio-media עם כותרת
+Sec-WebSocket-Protocol: audio.twilio.com
+מצופה: 101 Switching Protocols ובתשובה הכותרת הזו מוחזרת.
+אם לא חזר subprotocol → זה מקור ה־400.
+	3.	TwiML/Webhooks:
+	•	incoming_call מחזיר <Connect><Stream …> (בלי // כפולים; הברכה <Play> אופציונלית, עדיף לכבות בזמן דיבוג).
+	•	POST /webhook/stream_status → תמיד 204.
+	•	POST /webhook/stream_ended → 204.
+	4.	שיחה אמיתית (Request Inspector):
+	•	אין 31920/31924
+	•	יש 204 ב־stream_status
+	•	שומעים מענה תוך ≤ 3–6 שניות.
+	•	בלוג שלך מופיע: WS_START → STT_PARTIAL/FINAL → TTS_LEN_ms → MEDIA_TX → PNG_PONG.
+
+⸻
+
+G) מה לא לעשות (גורם ל-400/שקט)
+	•	לא להגדיר -k sync.
+	•	לא להחזיק חיבור WS בתוך ראוט Flask רגיל (בלי ה־middleware).
+	•	לא לשלוח WAV/MP3 ב־WS; רק frames של μ-law 8k/20ms.
+	•	לא לערבב STT/TTS blocking בתוך greenlet הראשי → העבר ל־ThreadPool/queue כדי שלא תחסום את eventlet.
+
+⸻
+
+H) אם עדיין 400 — עץ החלטה קצר
+	•	400/Handshake:
+	•	בדוק בלוג Gunicorn: Using worker: eventlet?
+	•	בדוק שמדובר ב־WSGI WebSocket app (DispatcherMiddleware) ולא ראוט Flask.
+	•	אמת ש־subprotocol מוחזר בתשובה (כירורגי: זה הקריטי).
+	•	101 אבל “שקט”: STT/TTS/frames → בדוק שה־frames יוצאים כל 20ms ושה־STT מקבל μ-law 8k.
+	•	ניתוקים אקראיים: הוסף Ping/Pong; שמור tick קבוע; הגדל --timeout (120+) והפעל --keep-alive 75.
+
+⸻
+
+⸻
+
+שורה תחתונה
+
+לך על eventlet.websocket + DispatcherMiddleware (WSGI), החזר subprotocol בתשובה, שמור פריימי μ-law 8k/20ms, וודא Ping/Pong. עם זה—ה-400 נעלם, והמדיה זורמת.
+אם תרצה—אנסח לך “צ’קליסט להדבקה לבוט” עם שמות הקבצים המדויקים והחלפות “אם חסר—הוסף”, בלי לשפוך קוד, כדי שיעבור שלב-שלב בלי לקרוס.

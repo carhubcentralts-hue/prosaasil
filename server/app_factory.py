@@ -289,40 +289,44 @@ def create_app():
     
     print("🔧 TEST ROUTE REGISTERED")
     
-    # SIMPLE WebSocket route - back to basics
-    @app.route('/ws/twilio-media')
-    def handle_websocket():
-        """Simple WebSocket handler for Twilio Media Streams"""
-        from flask import request
-        from simple_websocket import Server, ConnectionClosed
-        
-        print("🔗 WebSocket route called", flush=True)
-        print(f"🔗 Headers: {dict(request.headers)}", flush=True)
+    # EVENTLET WebSocket WSGI handler - proper way for production
+    def twilio_websocket_handler(ws):
+        """EventLet WebSocket handler for Twilio Media Streams"""
+        print("🔗 EventLet WebSocket handler started", flush=True)
         
         try:
-            # Create WebSocket server - let simple-websocket handle the handshake
-            ws = Server(request.environ, subprotocols=['audio.twilio.com'])
-            print("✅ WebSocket connection established", flush=True)
-            
-            # Import and start MediaStreamHandler
+            # Import MediaStreamHandler
             from server.media_ws_ai import MediaStreamHandler
+            
+            # Create handler with eventlet WebSocket
             handler = MediaStreamHandler(ws)
-            print("✅ Starting AI conversation handler", flush=True)
+            print("✅ MediaStreamHandler created with eventlet WS", flush=True)
             
-            # Run the conversation
+            # Run the AI conversation
             handler.run()
-            print("✅ Conversation ended", flush=True)
+            print("✅ AI conversation completed", flush=True)
             
-            return ''
-            
-        except ConnectionClosed:
-            print("🔗 WebSocket closed normally", flush=True)
-            return ''
         except Exception as e:
-            print(f"❌ WebSocket error: {e}", flush=True)
+            print(f"❌ WebSocket handler error: {e}", flush=True)
             import traceback
             traceback.print_exc()
-            return f"Error: {e}", 500
+    
+    # Create WebSocket WSGI app with proper subprotocol
+    from eventlet.websocket import WebSocketWSGI
+    
+    # WebSocket WSGI app with Twilio subprotocol
+    ws_app = WebSocketWSGI(twilio_websocket_handler, protocols=['audio.twilio.com'])
+    print("✅ EventLet WebSocket WSGI app created with subprotocol")
+    
+    # Use DispatcherMiddleware to map WebSocket to specific path
+    from werkzeug.middleware.dispatcher import DispatcherMiddleware
+    
+    # Map /ws/twilio-media to WebSocket WSGI, everything else to Flask
+    app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+        '/ws/twilio-media': ws_app
+    })
+    
+    print("✅ DispatcherMiddleware installed: /ws/twilio-media → WebSocket WSGI")
     
     # Add missing health aliases
     @app.route('/healthz')

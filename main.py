@@ -50,6 +50,43 @@ from server.app_factory import create_app
 # Create the Flask app using the full factory with all blueprints
 app = create_app()
 
+# ADD EVENTLET WEBSOCKET INTEGRATION DIRECTLY IN MAIN.PY
+def twilio_websocket_handler(ws):
+    """EventLet WebSocket handler for Twilio Media Streams"""
+    print("🔗 EventLet WebSocket handler started", flush=True)
+    
+    try:
+        # Import MediaStreamHandler
+        from server.media_ws_ai import MediaStreamHandler
+        
+        # Create handler with eventlet WebSocket
+        handler = MediaStreamHandler(ws)
+        print("✅ MediaStreamHandler created with eventlet WS", flush=True)
+        
+        # Run the AI conversation
+        handler.run()
+        print("✅ AI conversation completed", flush=True)
+        
+    except Exception as e:
+        print(f"❌ WebSocket handler error: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+
+# Create WebSocket WSGI app with proper subprotocol
+from eventlet.websocket import WebSocketWSGI
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+
+# WebSocket WSGI app with Twilio subprotocol
+ws_app = WebSocketWSGI(twilio_websocket_handler, protocols=['audio.twilio.com'])
+print("✅ EventLet WebSocket WSGI app created with subprotocol")
+
+# Map /ws/twilio-media to WebSocket WSGI, everything else to Flask
+app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+    '/ws/twilio-media': ws_app
+})
+
+print("✅ DispatcherMiddleware installed in main.py: /ws/twilio-media → WebSocket WSGI")
+
 # Import Twilio routes to ensure they're registered
 try:
     from server.routes_twilio import twilio_bp
@@ -835,10 +872,10 @@ def catch_all(path):
     if path.startswith('webhook/'):
         return "Webhook endpoint not found", 404
     
-    # CRITICAL FIX: Skip WebSocket routes and let them work properly
+    # WebSocket routes handled by DispatcherMiddleware - skip catch-all
     if path.startswith('ws/'):
-        print(f"⚠️ CATCH-ALL BLOCKING WS ROUTE: {path}")
-        return "WebSocket route blocked by catch-all", 500
+        print(f"✅ WebSocket route {path} handled by DispatcherMiddleware", flush=True)
+        return "WebSocket route", 200  # This should never be reached due to middleware
     
     # For all other routes, serve the React app
     return send_from_directory('./dist', 'index.html')
