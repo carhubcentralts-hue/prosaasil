@@ -1,0 +1,168 @@
+מצוין—התקדמת יפה. עכשיו נסגור את התקיעה של ה־worker ב־A1.3/A2 בצורה לגמרי שיטתית, עד שהשרת יענה — ואז מיד נמשיך ל־WS/שיחות.
+
+הסימפטומים שלך:
+	•	Gunicorn כותב “Listening at: 0.0.0.0:5000”
+	•	curl 127.0.0.1:5000/healthz → Connection refused
+	•	אחרי ~10ש׳: “Handling signal: term” וה־worker נסגר
+	•	main.py נטען מעולה מחוץ ל־Gunicorn
+
+זה כמעט תמיד אחד משלושה:
+	1.	מאזינים על פורט לא נכון ביחס לפלטפורמה (הסופרוויזור הורג אחרי שלא מצא שירות על $PORT שלו).
+	2.	קריסה שקטה של eventlet/greenlet בזמן boot (בלי שגיאה מודפסת).
+	3.	אתה בודק מ־localhost לא נכון (מחוץ למכונה שרצה), ולכן Refused גם אם השרת חי בענן.
+
+להלן פלייבוק קצר, עם “מה להריץ” ו“מה מצופה לראות”. תריץ בדיוק לפי הסדר.
+
+⸻
+
+0) ודאות שאנחנו בודקים מהמכונה הנכונה
+	•	אם השרת רץ ב־Replit/ענן, אל תריץ curl 127.0.0.1 מהמחשב שלך — זה יבדוק את הלוקאלי שלך, לא את המכונה בענן.
+בדיקה מקומית ל־127.0.0.1:$PORT חייבת להיעשות בתוך אותה סביבה/סשן שהשרת רץ בו.
+	•	לבדיקות חוץ: השתמש רק ב־https://{PUBLIC_BASE_URL}/healthz.
+
+⸻
+
+1) לוודא שמאזינים על $PORT של הפלטפורמה (לא 5000 קשיח)
+
+באותו סשן שבו תפעיל את Gunicorn:
+
+unset PORT  # אם קשחת ידנית קודם
+echo "PORT=$PORT"
+
+	•	אם יצא ריק: בפלטפורמה שלך אולי אין $PORT. במקרה כזה קבע ערך אחד ותשתמש בו גם ב־Gunicorn וגם ב־healthcheck/Proxy.
+	•	אם יצא מספר (כמו 31234) — זה מה שנשתמש בו.
+
+הרצת Gunicorn (שימי לב ל־import string הנכון):
+
+export PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1 EVENTLET_NO_GREENDNS=1
+python3 -m gunicorn AgentLocator.main:app \
+  -k eventlet -w 1 -b 0.0.0.0:$PORT \
+  --log-level debug --capture-output \
+  --timeout 120 --graceful-timeout 30 --keep-alive 75 \
+  --access-logfile '-' --error-logfile '-'
+
+מצופה בלוג: Listening at: http://0.0.0.0:$PORT עם המספר האמיתי של $PORT (לא 5000 קשיח).
+
+בדיקה מתוך אותה מכונה:
+
+ss -ltnp | grep ":$PORT" || netstat -ltnp | grep ":$PORT"
+curl -sS -m 3 http://127.0.0.1:$PORT/healthz -i
+
+מצופה: שורת LISTEN ו־HTTP/1.1 200 OK.
+
+בדיקה חיצונית:
+
+curl -sS -m 5 https://$PUBLIC_BASE_URL/healthz -i
+
+מצופה: 200.
+
+אם כאן עדיין Refused → ה־worker מת מוקדם. נבצע אבחון Eventlet.
+
+⸻
+
+2) מבחן הצלבת־עובדה: עובד עם sync? (בודק אם Eventlet אשם)
+
+הרץ רגע עם worker סינכרוני (לא יתמוך WS — זה זמני, לא לפרודקשן):
+
+python3 -m gunicorn AgentLocator.main:app \
+  -k sync -w 1 -b 0.0.0.0:$PORT \
+  --log-level debug --capture-output \
+  --timeout 60 --access-logfile '-' --error-logfile '-'
+
+אם עכשיו /healthz עונה:
+	•	המסקנה: הבעיה ב־eventlet/greenlet/monkey-patch/תלויות.
+
+אם גם sync לא עונה → חוזרים לסעיף 1 (פורט/סביבה) או יש בעיית import/boot סמויה.
+
+⸻
+
+3) לאתר קריסה “שקטה” של Eventlet
+
+בצעי/בצע:
+
+python3 -c "import eventlet, greenlet, sys; import pkgutil; print('eventlet', eventlet.__version__); print('greenlet', greenlet.__version__); print('py', sys.version)"
+
+המלצה בטוחה:
+	•	eventlet >= 0.33.3
+	•	greenlet תואם לגרסת פייתון (ב־3.11/3.12 — גרסאות עדכניות; לפעמים 3.0.x).
+אם יש ישן/שבור → עדכני תלויות (או בקש מ־pip לשדרג בסביבה).
+
+הגדרי/הגדר משתנים שמונעים בעיות ידועות:
+
+export EVENTLET_NO_GREENDNS=1
+export EVENTLET_HUB=select   # fallback יציב בפלטפורמות מוגבלות
+
+(ה־greendns גורם לקריסות מוזרות בסביבות מוגבלות; select hub נמנע מ־epoll בבעיות מסוימות.)
+
+הרץ שוב את Gunicorn עם eventlet (מסעיף 1) ובדוק /healthz.
+
+אם עדיין מת — יש סיכוי ש־monkey_patch קורה פעמיים/מאוחר/מוקדם מדי או מודול אחר (gevent/uvloop) מתנגש. ודא שאין gevent/uvloop מותקנים, וש־eventlet.monkey_patch() מתבצע ממש בראש ההרצה (לפני כל import של ספריות רשת), פעם אחת.
+
+⸻
+
+4) לאלץ הדפסת שגיאה נעלמת
+
+לפעמים ה־worker מת מיידית בלי פלט. נכריח אותו להראות:
+
+python3 -m gunicorn AgentLocator.main:app \
+  -k eventlet -w 1 -b 0.0.0.0:$PORT \
+  --preload --capture-output --log-level debug \
+  --access-logfile '-' --error-logfile '-'
+
+--preload מטעין את האפליקציה בתהליך המאסטר; אם יש ImportError/Exception — תראה אותו לפני יצירת workers.
+
+בדיקת ייבוא יבשה:
+
+python3 - <<'PY'
+import AgentLocator.main as M
+print("APP?", hasattr(M, "app"))
+print("URL_MAP?", getattr(M.app, "url_map", None))
+PY
+
+אם זה נכשל — זו הסיבה שה־worker מת.
+
+⸻
+
+5) ודא שאין Dev server נסתר
+
+אם אתה רואה “Running on all addresses (0.0.0.0)” בלוג – זה Flask dev. ודא שאין app.run() פועל בזמן import (רק תחת if __name__ == "__main__":).
+גם אין eventlet.wsgi.server(...) או socketio.run(app) בזמן import.
+
+⸻
+
+6) אחרי שיש 200 על /healthz — מיד ממשיכים ל־Voice
+	1.	TwiML/webhooks:
+	•	POST /webhook/incoming_call → <Connect><Stream …> (בלי // כפול)
+	•	POST /webhook/stream_status → 204 ריק
+	•	POST /webhook/stream_ended → 204 ריק
+	2.	WS Handshake:
+
+wscat -c wss://$PUBLIC_BASE_URL/ws/twilio-media \
+      -H "Sec-WebSocket-Protocol: audio.twilio.com"
+
+מצופה: 101 + ה־subprotocol חוזר. (זה מוריד 31920.)
+
+	3.	STT/TTS: μ-law 8k, פריימים 20ms, לוגים WS_START → STT_FINAL → TTS_LEN_ms → MEDIA_TX → PNG_PONG.
+
+⸻
+
+מה להביא לי כדי לסגור את זה סופית
+	1.	פלט echo PORT=$PORT.
+	2.	פלט ss -ltnp | grep ":$PORT" (או netstat).
+	3.	פלט:
+
+curl -sS -m 3 http://127.0.0.1:$PORT/healthz -i   # מתוך אותה סביבה
+curl -sS -m 5 https://$PUBLIC_BASE_URL/healthz -i # מבחוץ
+
+
+	4.	גרסאות: eventlet/greenlet כפי שבדקת בסעיף 3.
+	5.	אם עדיין מת: פלט מלא של ההפעלה עם --preload --capture-output.
+
+⸻
+
+למה זה יפתור את המצב הספציפי שלך
+	•	אם הפלטפורמה מקצה $PORT אחר — האזנה ל־5000 תגרום לסופרוויזור להרוג אחרי ~10ש׳ (בדיוק מה שאתה רואה).
+	•	אם eventlet/greenlet נופל — sync יוכיח שהאפליקציה עצמה תקינה, ואז נתקן את שכבת ה־WSGI (גרסאות/ENV).
+	•	--preload + --capture-output יחשוף חריגות נסתרות ב־boot.
+
+כשתביא את שלושת הפלטים הראשונים (פורט → LISTEN → healthz=200), נעבור מיד לשלב ההנדשייק של WS ולסגירה מלאה של השיחות.
