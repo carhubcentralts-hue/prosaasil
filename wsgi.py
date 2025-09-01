@@ -70,6 +70,17 @@ def composite_app(environ, start_response):
         start_response('200 OK', [('Content-Type', 'text/plain')])
         return [b'ok']
     
+    # ⚡ Return 204 IMMEDIATELY for Twilio webhooks that must never block
+    if path in ('/webhook/stream_status', '/webhook/stream_status/', 
+                '/webhook/stream_ended', '/webhook/stream_ended/'):
+        print(f"⚡ Fast 204 for {path}", flush=True)
+        start_response('204 No Content', [
+            ('Content-Type', 'text/plain'),
+            ('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'),
+            ('Pragma', 'no-cache'),
+        ])
+        return [b'']
+    
     if path == '/ws/twilio-media':
         print("📞 Routing to EventLet WebSocketWSGI", flush=True)
         return websocket_app_with_protocol(environ, start_response)
