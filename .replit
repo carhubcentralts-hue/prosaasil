@@ -9,8 +9,8 @@ EVENTLET_NO_GREENDNS = "1"
 EVENTLET_HUB         = "pool"
 
 [deployment]
-build = ["sh", "-c", "python3 -m pip install --upgrade pip setuptools wheel && python3 -m pip install -r requirements.txt"]
-run = ["sh", "-c", "env EVENTLET_NO_GREENDNS=1 EVENTLET_HUB=poll python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"]
+build = ["sh", "-c", "[\"sh\", \"-c\", \"python3 -m pip install --upgrade pip setuptools wheel && python3 -m pip install -r requirements.txt\"]"]
+run = ["sh", "-c", "[\"sh\", \"-c\", \"env EVENTLET_NO_GREENDNS=1 EVENTLET_HUB=poll python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -\"]"]
 deploymentTarget = "cloudrun"
 
 [nix]
