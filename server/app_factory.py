@@ -289,43 +289,55 @@ def create_app():
     
     print("🔧 TEST ROUTE REGISTERED")
     
-    # CLEAN WebSocket handler - minimal and working
-    @app.route('/ws/twilio-media', methods=['GET', 'POST'])
-    def ws_twilio_media_direct():
-        """Clean WebSocket handler for Twilio media streams"""
-        from flask import request
+    # SIMPLE-WEBSOCKET with proper WSGI integration
+    def websocket_handler(environ, start_response):
+        """WSGI WebSocket handler for /ws/twilio-media"""
+        from simple_websocket import Server, ConnectionClosed
+        import json
         
-        print("🔗 WebSocket route called", flush=True)
+        print("🔗 WSGI WebSocket handler called", flush=True)
         
-        # Check for WebSocket upgrade
-        if request.headers.get('Upgrade', '').lower() == 'websocket':
-            print("✅ WebSocket upgrade detected", flush=True)
-            try:
-                from simple_websocket import Server
-                
-                # Create WebSocket server with Twilio subprotocol
-                ws = Server(request.environ, subprotocols=['audio.twilio.com'])
-                print("✅ WebSocket server created", flush=True)
-                
-                # Import and run MediaStreamHandler
-                from server.media_ws_ai import MediaStreamHandler
-                handler = MediaStreamHandler(ws)
-                print("✅ Starting AI conversation handler", flush=True)
-                
-                # Run the handler (this blocks until WebSocket closes)
-                handler.run()
-                print("✅ WebSocket conversation ended", flush=True)
-                
-                return '', 200
-                
-            except Exception as e:
-                print(f"❌ WebSocket error: {e}", flush=True)
-                import traceback
-                traceback.print_exc()
-                return f"WebSocket error: {e}", 500
-        else:
-            print("⚠️ No WebSocket upgrade header", flush=True)
-            return "WebSocket upgrade required", 400
+        try:
+            # Create simple-websocket server
+            ws = Server(environ, subprotocols=['audio.twilio.com'])
+            print("✅ simple-websocket server created", flush=True)
+            
+            # Import and create MediaStreamHandler
+            from server.media_ws_ai import MediaStreamHandler
+            handler = MediaStreamHandler(ws)
+            print("✅ Starting MediaStreamHandler", flush=True)
+            
+            # Run the handler - this blocks until connection closes
+            handler.run()
+            print("✅ MediaStreamHandler completed", flush=True)
+            
+        except ConnectionClosed:
+            print("🔗 WebSocket connection closed", flush=True)
+        except Exception as e:
+            print(f"❌ WebSocket handler error: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+    
+    # WSGI middleware to intercept WebSocket requests
+    def websocket_middleware(environ, start_response):
+        """WSGI middleware to handle WebSocket upgrade requests"""
+        path = environ.get('PATH_INFO', '')
+        
+        if path == '/ws/twilio-media':
+            # Check for WebSocket upgrade
+            connection = environ.get('HTTP_CONNECTION', '').lower()
+            upgrade = environ.get('HTTP_UPGRADE', '').lower()
+            
+            if 'upgrade' in connection and upgrade == 'websocket':
+                print("✅ WebSocket upgrade detected in middleware", flush=True)
+                return websocket_handler(environ, start_response)
+        
+        # Not a WebSocket request, pass to Flask app
+        return app.wsgi_app(environ, start_response)
+    
+    # Replace Flask's WSGI app with our middleware
+    app.wsgi_app = websocket_middleware
+    print("✅ WebSocket WSGI middleware installed")
     
     # Add missing health aliases
     @app.route('/healthz')
