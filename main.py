@@ -7,19 +7,17 @@ Hebrew AI Call Center CRM - Development Server
 import os
 import sys
 
-# For development only - production uses wsgi.py with eventlet
-print("🔧 Development server - Use wsgi.py for production with WebSocket support")
+# Import wsgi app with full WebSocket support
+from wsgi import app
 
-# Create Flask app using app_factory
-from server.app_factory import create_app
-app = create_app()
+print("✅ WSGI app loaded with EventLet WebSocket support")
+print("📞 Hebrew AI Call Center ready")
+print("🤖 Leah: Hebrew real estate AI agent")
 
-print("✅ Flask app created with app_factory")
-print("⚠️ WebSocket support requires production deployment with eventlet worker")
-print("⚠️ For production: Use 'python -m gunicorn wsgi:app --worker-class eventlet'")
-
-# Entry point for development only
+# Entry point - works with WebSocket!
 if __name__ == '__main__':
-    print("🚨 DEVELOPMENT MODE: WebSocket calls will NOT work!")
-    print("🚨 Use deployment with eventlet worker for WebSocket support")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    print("🚀 Starting Hebrew AI server with full WebSocket support...")
+    port = int(os.environ.get('PORT', 5000))
+    
+    import eventlet.wsgi
+    eventlet.wsgi.server(eventlet.listen(('0.0.0.0', port)), app)
