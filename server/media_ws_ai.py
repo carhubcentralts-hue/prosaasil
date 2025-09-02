@@ -198,7 +198,7 @@ class MediaStreamHandler:
                             time.sleep(0.8)  # חכה לראות אם יש קול
                             if ((time.time() - self.last_rx_ts) >= 0.8 and 
                                 self.state == STATE_LISTEN and not self.speaking):
-                                greet = os.getenv("AI_GREETING_HE", "שלום! מתמחה ממקסימוס נדלן - איך אני יכולה לעזור?")
+                                greet = os.getenv("AI_GREETING_HE") or "שלום! מדברת איתכם לאה מקסימוס נדלן. יש לי דירות מעולות במרכז ובפרברים. איזה אזור מעניין אתכם?"
                                 if greet.strip():
                                     print(f"🔊 SMART_GREETING: '{greet}' delay=0.8s")
                                     self._speak_with_breath(greet)
@@ -392,15 +392,16 @@ class MediaStreamHandler:
                 text = "אפשר לחזור על זה במשפט קצר?"
             print("ASR_TEXT:", text)
             
-            # PATCH 6: Anti-duplication on user text (14s window)
+            # PATCH 6: Anti-duplication on user text (14s window) - WITH DEBUG
             uh = zlib.crc32(text.strip().encode("utf-8"))
             if (self.last_user_hash == uh and 
                 (time.time() - self.last_user_hash_ts) <= DEDUP_WINDOW_SEC):
-                print("DEDUP user → ignore")
+                print(f"🚫 DEDUP user → ignore. Text: '{text}' Hash: {uh} Time_diff: {(time.time() - self.last_user_hash_ts):.1f}s")
                 self.processing = False
                 self.state = STATE_LISTEN
                 return
             self.last_user_hash, self.last_user_hash_ts = uh, time.time()
+            print(f"✅ PROCESSING new text: '{text}' Hash: {uh}")
             
             # 3. AI Response - БЕЗ micro-ack! תן לה לחשוב בשקט
             started_at = time.time()
@@ -408,12 +409,15 @@ class MediaStreamHandler:
             # ✅ השתמש בפונקציה המתקדמת עם מתמחה והמאגר הכולל!
             reply = self._ai_response(text)
             
-            # PATCH 6: Anti-duplication bot reply
+            # PATCH 6: Anti-duplication bot reply - WITH DEBUG
             rh = zlib.crc32(reply.strip().encode("utf-8"))
             if self.last_reply_hash == rh:
+                print(f"🚫 DUPLICATE bot reply detected! Original: '{reply}'")
                 reply = "הבנתי. תרצה שאפרט או להתקדם?"
                 rh = zlib.crc32(reply.encode("utf-8"))
+                print(f"✅ REPLACED with: '{reply}'")
             self.last_reply_hash = rh
+            print(f"🔊 BOT will say: '{reply}' Hash: {rh}")
             
             # 5. הוסף להיסטוריה
             self.response_history.append({
@@ -450,9 +454,9 @@ class MediaStreamHandler:
         print(f"🔊 SPEAKING: '{text}'")
         
         try:
-            # "נשימה" אנושית לפני תחילת דיבור (נותן תחושת טבעיות)
+            # קיצור זמן תגובה לתחושת מהירות
             try:
-                time.sleep(random.uniform(RESP_MIN_DELAY_MS/1000.0, RESP_MAX_DELAY_MS/1000.0))
+                time.sleep(random.uniform(0.2, 0.5))  # מהיר יותר!
             except Exception:
                 pass
                 
