@@ -1,0 +1,75 @@
+סגור – זה לא “קוד שבור”, זה דיפלוי שמתאפס/נהרג בגלל קונפיג לא עקבי. הנה פלייבוק קצר, מעשי, בלי להחליף שירות וללא קוד – רק איך להרים את זה יציב על Autoscale בריפליט.
+
+⸻
+
+1) לוודא שהדיפלוי באמת מריץ את ה־WSGI המשולב
+
+ב־Deployments → Edit של הדיפלוי הקיים:
+	•	Start command חייב להיות בדיוק:
+gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT
+(אם בלוגים אתה רואה “listening on 0.0.0.0:5000” – סימן שהוא לא לקח את $PORT ואתה לא על הפקודה הזו.)
+	•	Health check path: /**version** (לא /healthz).
+	•	Env vars בדיפלוי (לא רק בקובץ):
+PUBLIC_BASE_URL, OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
+בדוק שהן מופיעות בפאנל ה-Deployment עצמו.
+
+אם ה־Start command שונה/ריק – ריפליט מרים משהו אחר (לרוב Flask dev) וזה מקור מוחשי ל־400/סיגנל TERM.
+
+⸻
+
+2) למנוע הריגות ע”י הבריאות והסקיילר
+	•	Health check = /version מחזיר 200 מהר → אחרת האורקסטרטור יהרוג (אותו [INFO] Handling signal: term שראית).
+	•	Autoscale:
+	•	Machine Power: 1 vCPU, 1–2GB RAM (0.5GB עלול להוביל ל־OOM ו־TERM).
+	•	Max machines = 1 (טוב), אבל אם יש “Min machines” – שים 1 כדי למנוע idle-kill.
+	•	אם יש “Idle auto-stop” → בטל.
+	•	Timeouts: אין לנו בקשות HTTP ארוכות (webhooks עונים 204 מייד), אז בריפליט לא אמור להיות kill עקב request timeout. אם עדיין קורה, העלה את health check timeout בפריסה (אם ניתן).
+
+⸻
+
+3) ודאות שה־WS באמת פתוח (לפני Twilio)
+
+בדיקה ידנית (ממחשב שלך):
+	•	wscat -c "wss://<הדומיין>/ws/twilio-media" -H "Sec-WebSocket-Protocol: audio.twilio.com"
+אם זה מתחבר ומופיע בלוג “Added Twilio subprotocol to handshake” – ה־WS תקין; אם לא, ה־Start command/דומיין/פורט לא נכונים.
+
+⸻
+
+4) למה השרת “עולה ונהרג” ואיך מונעים
+
+גורמים נפוצים שראינו אצלך ומה פותרים:
+	•	Health check שגוי → האורקסטרטור מסמן unhealthy ושולח TERM (בדיוק הלוג שלך).
+✅ שימוש ב־/version פותר.
+	•	פקודת Start לא נכונה → לא מריץ Gunicorn/Eventlet/WSGI המשולב ⇒ WS נשבר/הבריאות נכשלת ⇒ TERM.
+✅ קבע Start command כנ”ל.
+	•	זיכרון 0.5GB → עומס TTS/STT/לוגים יגרום OOM kill (נראה כ־TERM לפעמים).
+✅ העלה ל־1–2GB.
+	•	ENV חסרות בדיפלוי → קריסות מאחורי הקלעים ו־TERM של האורקסטרטור.
+✅ ודא ב־Deployments שהן קיימות (לא להסתמך על .env בלבד).
+
+⸻
+
+5) צד השיחה: למה היא “שומעת רק שלום/תודה” ואיך לייצב
+
+(כבר יש מדיה סטרים – עכשיו דיוק התנהגות)
+	•	קלט ל־STT: ודא שהקוד מזין ל־STT אודיו LINEAR16 מונו, לא μ-law, ובריסמפל נכון (8k ל־Google, 16k ל־Whisper).
+	•	EOU/State machine: שיהיה סוף־משפט אמיתי (300–400ms שקט), מעבר LISTENING→PROCESSING→SPEAKING→LISTENING, ו־barge-in אמיתי (הפסקת TTS תוך ≤200ms כשאתה מתחיל לדבר).
+	•	הפחתת לוגים: כבה AUDIO_DEBUG בפרודקשן (דגימה 1/50 אם צריך), תשאיר רק מעבר מצבים, ASR_TEXT, TTS_START/END, MARK_SENT/ACK.
+לוגים עודפים לא מפילים תהליך – אבל מקשים לזהות בעיות אמיתיות.
+
+⸻
+
+6) צ’קליסט קבלה (15 שניות)
+	•	curl -i https://<דומיין>/version → 200
+	•	curl -i -X POST https://<דומיין>/webhook/stream_status → 204
+	•	wscat ... → Connected + לוג subprotocol
+	•	שיחה אמיתית → בלוגים:
+STATE -> PROCESSING | ASR_TEXT | TTS_START | MARK_ACK | STATE -> LISTENING חוזר על עצמו בלולאה.
+
+⸻
+
+אם אחרי זה עדיין רואים TERM
+	•	בדוק Deployment Events בריפליט – לרוב יופיע הסיבה: health failed / memory / start command.
+	•	אם זה OOM: העלה RAM; אם זה health: בדוק שה־domain/route של health נכונים; אם זה start: ודא שהפקודה אכן נשמרה.
+
+אין צורך להחליף ל-Reserved VM כל עוד ה־Autoscale מריץ בדיוק את ה־WSGI המשולב, הבריאות מצביעה ל־/version, ויש מספיק RAM. כך זה רץ יציב ושקט.
