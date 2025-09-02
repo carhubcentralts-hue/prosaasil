@@ -124,8 +124,13 @@ class MediaStreamHandler:
                         # EventLet RFC6455WebSocket uses wait() method
                         print(f"🎯 DETECTED EventLet RFC6455WebSocket - using wait() method", flush=True)
                         if hasattr(self.ws, 'wait'):
-                            print(f"✅ Using wait() method", flush=True)
-                            raw = self.ws.wait()
+                            print(f"✅ Calling wait() method...", flush=True)
+                            try:
+                                raw = self.ws.wait()
+                                print(f"🔍 wait() returned: {type(raw)} = {str(raw)[:100] if raw else 'None'}", flush=True)
+                            except Exception as wait_error:
+                                print(f"❌ wait() failed: {wait_error}", flush=True)
+                                raise wait_error
                         else:
                             print(f"⚠️ EventLet WebSocket missing wait() method", flush=True)
                             raise Exception(f"EventLet RFC6455WebSocket missing wait() method")

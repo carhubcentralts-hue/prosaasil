@@ -1,0 +1,87 @@
+2025-09-02 17:50:16.77
+c79a6bd0
+User
+🔍 DEBUG Available methods: ['Message', 'UTF8Decoder', 'client', 'close', 'environ', 'extensions', 'iterator', 'log', 'log_context', 'max_frame_length', 'origin', 'path', 'protocol', 'send', 'socket', 'version', 'wait', 'websocket_closed']
+2025-09-02 17:50:16.79
+c79a6bd0
+User
+🔍 DEBUG WebSocket type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 17:50:16.79
+c79a6bd0
+User
+✅ Using wait() method
+2025-09-02 17:50:16.81
+c79a6bd0
+User
+🔍 DEBUG WebSocket type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 17:50:16.81
+c79a6bd0
+User
+🔍 DEBUG Available methods: ['Message', 'UTF8Decoder', 'client', 'close', 'environ', 'extensions', 'iterator', 'log', 'log_context', 'max_frame_length', 'origin', 'path', 'protocol', 'send', 'socket', 'version', 'wait', 'websocket_closed']
+2025-09-02 17:50:16.81
+c79a6bd0
+User
+✅ Using wait() method
+2025-09-02 17:50:16.83
+c79a6bd0
+User
+🔍 DEBUG WebSocket type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 17:50:16.83
+c79a6bd0
+User
+🔍 DEBUG Available methods: ['Message', 'UTF8Decoder', 'client', 'close', 'environ', 'extensions', 'iterator', 'log', 'log_context', 'max_frame_length', 'origin', 'path', 'protocol', 'send', 'socket', 'version', 'wait', 'websocket_closed']
+2025-09-02 17:50:16.83
+c79a6bd0
+User
+🎯 DETECTED EventLet RFC6455WebSocket - using wait() method
+2025-09-02 17:50:16.83
+c79a6bd0
+User
+✅ Using wait() method
+2025-09-02 17:50:16.85
+c79a6bd0
+User
+🔍 DEBUG WebSocket type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 17:50:16.85
+c79a6bd0
+User
+🔍 DEBUG Available methods: ['Message', 'UTF8Decoder', 'client', 'close', 'environ', 'extensions', 'iterator', 'log', 'log_context', 'max_frame_length', 'origin', 'path', 'protocol', 'send', 'socket', 'version', 'wait', 'websocket_closed']
+2025-09-02 17:50:16.85
+c79a6bd0
+User
+🎯 DETECTED EventLet RFC6455WebSocket - using wait() method
+2025-09-02 17:50:16.85
+c79a6bd0
+User
+✅ Using wait() method
+2025-09-02 17:50:16.87
+c79a6bd0
+User
+🔍 DEBUG Available methods: ['Message', 'UTF8Decoder', 'client', 'close', 'environ', 'extensions', 'iterator', 'log', 'log_context', 'max_frame_length', 'origin', 'path', 'protocol', 'send', 'socket', 'version', 'wait', 'websocket_closed']
+2025-09-02 17:50:16.89
+c79a6bd0
+User
+🔍 DEBUG WebSocket type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 17:50:16.89
+c79a6bd0
+User
+🔍 DEBUG Available methods: ['Message', 'UTF8Decoder', 'client', 'close', 'environ', 'extensions', 'iterator', 'log', 'log_context', 'max_frame_length', 'origin', 'path', 'protocol', 'send', 'socket', 'version', 'wait', 'websocket_closed']
+2025-09-02 17:50:16.89
+c79a6bd0
+User
+🎯 DETECTED EventLet RFC6455WebSocket - using wait() method
+2025-09-02 17:50:16.89
+c79a6bd0
+User
+✅ Using wait() method
+2025-09-02 17:50:16.89
+c79a6bd0
+User
+2025-09-02 17:50:16.91
+c79a6bd0
+User
+🔍 DEBUG WebSocket type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 17:50:16.91
+c79a6bd0
+User
+🎯 DETECTED EventLet RFC6455WebSocket - using wait() method
