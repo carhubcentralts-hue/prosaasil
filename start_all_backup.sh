@@ -5,7 +5,7 @@ set -euo pipefail
 LOCK="/tmp/agentlocator.lock"
 if [[ -f "$LOCK" ]]; then
   echo "⚠️ LOCK exists; killing previous pids..."
-  pkill -9 -f "gunicorn|wsgi:app" || true
+  pkill -9 -f "gunicorn|main:app" || true
   pkill -9 -f "node .*baileys" || true
   rm -f "$LOCK"
 fi
@@ -73,7 +73,7 @@ fi
 
 # ---- Flask+WS עם Eventlet ----
 echo "🚀 starting gunicorn (eventlet)…"
-python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:${PORT} wsgi:app &
+python3 -m gunicorn -k eventlet -w 1 -b 0.0.0.0:${PORT} main:app &
 GUNI_PID=$!
 echo "Gunicorn PID=$GUNI_PID"
 
