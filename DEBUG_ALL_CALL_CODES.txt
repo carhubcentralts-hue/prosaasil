@@ -1,0 +1,555 @@
+================================================================================
+                    כל הקודים שמשפיעים על השיחה - לבדיקה ופתרון בעיות
+================================================================================
+
+📁 קובץ: wsgi.py (נקודת כניסה ו-WebSocket routing)
+================================================================================
+#!/usr/bin/env python3
+import eventlet; eventlet.monkey_patch()
+
+import os
+os.environ['EVENTLET_NO_GREENDNS'] = '1'
+os.environ['EVENTLET_HUB'] = 'poll'
+
+from eventlet.websocket import WebSocketWSGI
+from server.app_factory import create_app
+
+def ws_handler(ws):
+    """EventLet WebSocket handler for Twilio media streams"""
+    print("📞 WebSocket handler called!", flush=True)
+    
+    try:
+        from server.media_ws_ai import MediaStreamHandler
+        handler = MediaStreamHandler(ws)
+        handler.run()
+    except Exception as e:
+        print(f"❌ WebSocket error: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+
+class WebSocketAppWithProtocol:
+    """WebSocket WSGI app that handles Twilio subprotocol"""
+    
+    def __init__(self, handler_func):
+        self.handler_func = handler_func
+    
+    def __call__(self, environ, start_response):
+        # Check for Twilio subprotocol
+        raw = environ.get('HTTP_SEC_WEBSOCKET_PROTOCOL', '') or ''
+        # נרמל רשימת פרוטוקולים (מופרדים בפסיקים/רווחים)
+        protocols = [p.strip() for p in raw.split(',') if p.strip()]
+        wants_twilio = any(p.lower() == 'audio.twilio.com' for p in protocols)
+
+        if wants_twilio:
+            print("🎯 Twilio subprotocol requested", flush=True)
+            
+            # Wrapper for start_response that adds subprotocol
+            def twilio_start_response(status, headers, exc_info=None):
+                if status == '101 Switching Protocols':
+                    headers = list(headers)
+                    # כותרות ש-GFE אוהב לראות בהנדשייק
+                    headers.append(('Sec-WebSocket-Protocol', 'audio.twilio.com'))
+                    headers.append(('Upgrade', 'websocket'))
+                    headers.append(('Connection', 'Upgrade'))
+                    print("✅ Added Twilio subprotocol to handshake", flush=True)
+                return start_response(status, headers, exc_info)
+            
+            # Use EventLet with custom start_response
+            ws_app = WebSocketWSGI(self.handler_func)
+            return ws_app(environ, twilio_start_response)
+        
+        # Default WebSocket without subprotocol
+        ws_app = WebSocketWSGI(self.handler_func)
+        return ws_app(environ, start_response)
+
+# Create the WebSocket app
+websocket_app_with_protocol = WebSocketAppWithProtocol(ws_handler)
+
+# Create Flask app once
+flask_app = create_app()
+
+def composite_app(environ, start_response):
+    """Composite WSGI: WebSocket BEFORE Flask"""
+    path = environ.get('PATH_INFO', '')
+    method = environ.get('REQUEST_METHOD', 'GET')
+    
+    # Debug logging for all requests
+    print(f"🔍 WSGI Route: {method} {path}", flush=True)
+    
+    # Direct healthz handling (bypass Flask routing issues)
+    if path == '/healthz':
+        print("❤️ Direct healthz response", flush=True)
+        start_response('200 OK', [('Content-Type', 'text/plain')])
+        return [b'ok']
+    
+    # ⚡ Webhooks שצריכים תשובה מיידית, בלי להיכנס ל-Flask
+    if path in (
+        '/webhook/stream_status', '/webhook/stream_status/',
+        '/webhook/stream_ended', '/webhook/stream_ended/'
+    ):
+        print(f"⚡ Fast 204 for {path}", flush=True)
+        start_response('204 No Content', [
+            ('Content-Type', 'text/plain'),
+            ('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'),
+            ('Pragma', 'no-cache'),
+        ])
+        return [b'']
+
+    # TwiML חייב לחזור מייד — נחזיר כאן אם Flask עסוק
+    if path in ('/webhook/incoming_call', '/webhook/incoming_call/'):
+        print(f"⚡ Fast TwiML for {path}", flush=True)
+        # בנה TwiML נקי עם https:// ו-wss://
+        scheme = (environ.get('HTTP_X_FORWARDED_PROTO') or 'https').split(',')[0].strip()
+        host   = (environ.get('HTTP_X_FORWARDED_HOST')  or environ.get('HTTP_HOST')).split(',')[0].strip()
+        base   = f"{scheme}://{host}"
+        only_host = host
+        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect action="{base}/webhook/stream_ended">
+    <Stream url="wss://{only_host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">
+      <Parameter name="CallSid" value="{{CALL_SID}}"/>
+    </Stream>
+  </Connect>
+</Response>'''
+        start_response('200 OK', [
+            ('Content-Type', 'application/xml; charset=utf-8'),
+            ('Cache-Control', 'no-store, no-cache, must-revalidate'),
+            ('Pragma', 'no-cache'),
+        ])
+        return [twiml.encode('utf-8')]
+
+    # call_status גם יכול לקבל 204 מיידי (לא קריטי, אבל מייצב)
+    if path in ('/webhook/call_status', '/webhook/call_status/'):
+        print(f"⚡ Fast 204 for {path}", flush=True)
+        start_response('204 No Content', [
+            ('Content-Type', 'text/plain'),
+            ('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'),
+            ('Pragma', 'no-cache'),
+        ])
+        return [b'']
+    
+    # קבל גם סלש סופי כדי לא להתקפל על שינויים בפרוקסי
+    if path in ('/ws/twilio-media', '/ws/twilio-media/'):
+        print("📞 Routing to EventLet WebSocketWSGI", flush=True)
+        return websocket_app_with_protocol(environ, start_response)
+    
+    # All other routes go to Flask
+    print(f"🌐 Routing to Flask app: {path}", flush=True)
+    try:
+        return flask_app.wsgi_app(environ, start_response)
+    except Exception as e:
+        print(f"❌ Flask app error for {path}: {e}", flush=True)
+        raise
+
+app = composite_app
+
+print("✅ EventLet Composite WSGI ready")
+print("📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com")
+print("🌐 All other routes → Flask app")
+
+
+================================================================================
+📁 קובץ: server/services/lazy_services.py (שירותי OpenAI ו-Google TTS)
+================================================================================
+"""
+Lazy Service Registry - Prevents boot blocking by deferring init to first use
+"""
+import os
+import json
+import time
+import logging
+import threading
+from functools import wraps
+
+log = logging.getLogger("lazy_services")
+
+# Thread-safe singleton registry
+_service_lock = threading.Lock()
+_services = {}
+
+def lazy_singleton(service_name):
+    """Decorator for thread-safe lazy initialization"""
+    def decorator(init_func):
+        @wraps(init_func)
+        def wrapper(*args, **kwargs):
+            if service_name not in _services:
+                with _service_lock:
+                    # Double-check pattern
+                    if service_name not in _services:
+                        try:
+                            log.debug(f"Lazy init: {service_name}")
+                            service = init_func(*args, **kwargs)
+                            _services[service_name] = service
+                            log.info(f"✅ {service_name} initialized")
+                        except Exception as e:
+                            log.error(f"❌ {service_name} init failed: {e}")
+                            _services[service_name] = None  # Cache failure
+                            return None
+            return _services.get(service_name)
+        return wrapper
+    return decorator
+
+@lazy_singleton("openai_client")
+def get_openai_client():
+    """Lazy OpenAI client with timeout"""
+    import openai
+    
+    if not os.getenv("OPENAI_API_KEY"):
+        log.warning("OPENAI_API_KEY missing")
+        return None
+        
+    try:
+        client = openai.OpenAI(timeout=12.0)  # 12s timeout for Hebrew processing
+        # Quick ping test
+        client.models.list(timeout=3.0)
+        return client
+    except Exception as e:
+        log.error(f"OpenAI init failed: {e}")
+        return None
+
+@lazy_singleton("gcp_tts_client")  
+def get_tts_client():
+    """Lazy GCP TTS client with timeout"""
+    try:
+        from google.cloud import texttospeech
+        
+        # Check if credentials configured
+        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+        if not sa_json:
+            log.warning("Google TTS credentials missing")
+            return None
+            
+        # Parse and create client  
+        credentials_info = json.loads(sa_json)
+        client = texttospeech.TextToSpeechClient.from_service_account_info(credentials_info)
+        
+        # Just verify client creation worked
+        log.debug("TTS client created successfully")
+        
+        return client
+    except Exception as e:
+        log.error(f"GCP TTS init failed: {e}")
+        return None
+
+@lazy_singleton("gcp_stt_client")
+def get_stt_client():
+    """Lazy GCP STT client with timeout"""
+    try:
+        from google.cloud import speech
+        
+        # Check if credentials configured
+        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') 
+        if not sa_json:
+            log.warning("Google STT credentials missing")
+            return None
+            
+        # Parse and create client
+        credentials_info = json.loads(sa_json)
+        client = speech.SpeechClient.from_service_account_info(credentials_info)
+        
+        # Quick ping test - just verify client creation worked
+        log.debug("STT client created successfully")
+        
+        return client
+    except Exception as e:
+        log.error(f"GCP STT init failed: {e}")
+        return None
+
+def warmup_services_async():
+    """Non-blocking warmup after server is listening"""
+    def _warmup():
+        time.sleep(2)  # Let server stabilize first
+        log.info("🔥 Starting service warmup...")
+        
+        # Warmup OpenAI
+        client = get_openai_client()
+        if client:
+            log.info("WARMUP_OPENAI_OK")
+        else:
+            log.warning("WARMUP_OPENAI_ERR")
+            
+        # Warmup TTS
+        client = get_tts_client()
+        if client:
+            log.info("WARMUP_TTS_OK")
+        else:
+            log.warning("WARMUP_TTS_ERR")
+            
+        # Warmup STT
+        client = get_stt_client()
+        if client:
+            log.info("WARMUP_STT_OK")
+        else:
+            log.warning("WARMUP_STT_ERR")
+            
+        log.info("🔥 Service warmup completed")
+    
+    # Start warmup in background thread
+    warmup_thread = threading.Thread(target=_warmup, daemon=True)
+    warmup_thread.start()
+    log.info("🔥 Service warmup scheduled")
+
+def get_service_status():
+    """Get current status of all services (for /readyz)"""
+    status = {}
+    
+    # Check what's already loaded (don't trigger init)
+    for service_name in ["openai_client", "gcp_tts_client", "gcp_stt_client"]:
+        if service_name in _services:
+            status[service_name] = "ok" if _services[service_name] is not None else "error"
+        else:
+            status[service_name] = "pending"
+            
+    return status
+
+
+================================================================================
+📁 קובץ: server/routes_twilio.py (נתיבי Twilio webhooks)
+================================================================================
+"""
+Hebrew AI Call Center - Twilio Routes FIXED לפי ההנחיות המדויקות
+"""
+import os
+import time
+import threading
+from flask import Blueprint, request, current_app, make_response
+from twilio.rest import Client
+from server.stream_state import stream_registry
+from server.twilio_security import require_twilio_signature
+
+# ייבוא מראש למניעת עיכובים ב-webhooks
+from server.tasks_recording import save_call_status, enqueue_recording
+
+twilio_bp = Blueprint("twilio", __name__)
+
+def abs_url(path: str) -> str:
+    """Generate absolute URL for TwiML - תיקון קריטי להסבת https://"""
+    scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
+    host   = (request.headers.get("X-Forwarded-Host")  or request.host).split(",")[0].strip()
+    base   = f"{scheme}://{host}"
+    return f"{base}{path}"
+
+def _watchdog(call_sid, wss_host, start_timeout=6, no_media_timeout=6):
+    """Watchdog to redirect calls if WebSocket fails"""
+    time.sleep(start_timeout)
+    st = stream_registry.get(call_sid)
+    if not st.get("started"):
+        _do_redirect(call_sid, wss_host, reason="no_stream_start")
+        return
+    if time.time() - st.get("last_media_at", 0) > no_media_timeout:
+        _do_redirect(call_sid, wss_host, reason="no_media")
+
+def _do_redirect(call_sid, wss_host, reason):
+    """Watchdog redirect function"""
+    current_app.logger.warning("WATCHDOG_REDIRECT", extra={"call_sid": call_sid, "reason": reason})
+    twiml = f"""<Response>
+  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
+          action="/webhook/handle_recording" />
+</Response>"""
+    try:
+        # Use Deployment ENV vars (critical for production)
+        client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
+        client.calls(call_sid).update(twiml=twiml)
+        current_app.logger.info("WATCHDOG_REDIRECT_OK", extra={"call_sid": call_sid})
+    except Exception:
+        current_app.logger.exception("WATCHDOG_REDIRECT_FAIL")
+
+# TwiML Preview endpoint (ללא Play, מינימלי)
+@twilio_bp.route("/webhook/incoming_call_preview", methods=["GET"])
+def incoming_call_preview():
+    """GET endpoint for TwiML preview - MEDIA STREAMS MODE"""
+    call_sid = "CA_PREVIEW_" + str(int(time.time()))
+    
+    # תיקון קריטי: וידוא https:// ב-base URLs  
+    scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
+    host   = (request.headers.get("X-Forwarded-Host")  or request.host).split(",")[0].strip()
+    base   = f"{scheme}://{host}"
+    
+    # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<Response>',
+        f'  <Connect action="{base}/webhook/stream_ended">',
+        f'    <Stream url="wss://{host}/ws/twilio-media"',
+        f'            statusCallback="{base}/webhook/stream_status">',
+        f'      <Parameter name="CallSid" value="{call_sid}"/>',
+        f'    </Stream>',
+        f'  </Connect>',
+        '</Response>',
+    ]
+    twiml = "".join(parts)
+    
+    # תיקון קריטי לError 12100 - Content-Type נכון + cache busting
+    resp = make_response(twiml.encode("utf-8"), 200)
+    resp.headers["Content-Type"] = "application/xml; charset=utf-8"  # FIX_12100_PREVIEW
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["X-Debug-Version"] = "TwiML_v2_fixed"
+    return resp
+
+@twilio_bp.route("/webhook/incoming_call", methods=["POST"])
+@require_twilio_signature
+def incoming_call():
+    """TwiML מהיר וללא עיכובים - One True Path"""
+    call_sid = request.form.get("CallSid", "")
+    
+    # תיקון קריטי: וידוא https:// ב-base URLs (לפי ההנחיות)
+    scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
+    host   = (request.headers.get("X-Forwarded-Host")  or request.host).split(",")[0].strip()
+    base   = f"{scheme}://{host}"
+    
+    # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד  
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<Response>',
+        f'  <Connect action="{base}/webhook/stream_ended">',
+        f'    <Stream url="wss://{host}/ws/twilio-media"',
+        f'            statusCallback="{base}/webhook/stream_status">',
+        f'      <Parameter name="CallSid" value="{call_sid}"/>',
+        f'    </Stream>',
+        f'  </Connect>',
+        '</Response>',
+    ]
+    twiml = "".join(parts)
+    
+    # החזרה מיידית ללא עיכובים + תיקון Error 12100
+    resp = make_response(twiml.encode("utf-8"), 200)
+    resp.headers["Content-Type"] = "application/xml; charset=utf-8"  # FIX_12100_INCOMING
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["X-Debug-Version"] = "TwiML_v2_fixed"
+    return resp
+
+@twilio_bp.route("/webhook/stream_ended", methods=["POST"])
+def stream_ended():
+    """שלב 5: Webhooks קשיחים - מחזיר 204 ללא TwiML - ULTRA FAST"""
+    # החזרה מיידית ללא עיבוד כלל
+    resp = make_response("", 204)
+    resp.headers["Cache-Control"] = "no-store"
+    
+    # לוגים ברקע (לא חוסמים את הresponse)
+    try:
+        call_sid = request.form.get('CallSid', 'N/A')
+        stream_sid = request.form.get('StreamSid', 'N/A') 
+        status = request.form.get('Status', 'N/A')
+        print(f"STREAM_ENDED call={call_sid} stream={stream_sid} status={status}")
+    except:
+        pass  # אף פעם לא לחסום על לוגים
+        
+    return resp
+
+
+================================================================================
+📁 קובץ: .replit (הגדרות הפלטפורמה)
+================================================================================
+# .replit — Workspace only
+run = "python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:${PORT:-5000} --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
+modules = ["python-3.11", "python3", "postgresql-16"]
+
+[env]
+PYTHONUNBUFFERED = "1"
+PYTHONPATH       = "."
+EVENTLET_NO_GREENDNS = "1"
+EVENTLET_HUB         = "poll"
+
+[deployment]
+build = "pip install -r requirements.txt"
+run = ["sh", "-c", "gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT"]
+deploymentTarget = "cloudrun"
+
+
+================================================================================
+📁 קובץ: server/media_ws_ai.py - הקלאס הראשי (MediaStreamHandler)
+================================================================================
+
+🎯 פרמטרים קריטיים שמשפיעים על השיחה:
+
+SR = 8000                                   # תדר דגימה
+MIN_UTT_SEC = 0.8                          # זמן מינימלי לתמלול איכותי 
+MAX_UTT_SEC = 3.5                          # מונע מונולוגים ארוכים
+VAD_RMS = 90                               # פחות רגיש - מונע חיתוכים
+BARGE_IN = true                            # מאפשר הפרעות
+VAD_HANGOVER_MS = 200                      # יותר סבלנות
+RESP_MIN_DELAY_MS = 50                     # תגובה מהירה!
+RESP_MAX_DELAY_MS = 100                    # ללא השהיות מיותרות
+REPLY_REFRACTORY_MS = 400                  # קירור קצר יותר  
+BARGE_IN_VOICE_FRAMES = 15                 # 300ms לפני הפרעה
+THINKING_HINT_MS = 0                       # בלי "בודקת" - ישירות לעבודה!
+THINKING_TEXT_HE = ""                      # אין הודעת חשיבה
+DEDUP_WINDOW_SEC = 8                       # חלון קצר יותר
+
+🔧 מתודות קריטיות ב-MediaStreamHandler:
+
+1. def run() - הלולאה הראשית של השיחה (שורות 97-487)
+2. def _process_utterance_safe() - עיבוד דיבור בטוח (שורות 511-610)  
+3. def _hebrew_stt() - תמלול עברית עם Whisper (שורות 858-902)
+4. def _ai_response() - תגובת AI עם GPT-4o-mini (שורות 903-1058)
+5. def _hebrew_tts() - דיבור עברית עם Google TTS Wavenet (שורות 1059-1101)
+6. def _speak_with_breath() - דיבור עם נשימה אנושית (שורות 1129-1203)
+7. def _detect_area() - זיהוי אזורים גיאוגרפיים (שורות 1216-1248)
+
+⚠️ בעיות פוטנציאליות לבדיקה:
+
+A. זמני תגובה:
+   - RESP_DELAY: 50-100ms (מהיר)
+   - THINKING: 0ms (ללא השהייה)
+   - AI timeout: 6s/12s (אולי יותר מדי?)
+
+B. זיהוי קול (VAD):
+   - VAD_RMS: 90 (פחות רגיש)
+   - BARGE_IN_FRAMES: 15 = 300ms
+   - היסטרזיס: 100ms (יציב)
+
+C. תמלול ו-AI:
+   - OpenAI Whisper Hebrew
+   - GPT-4o-mini עם תגובות של 15-25 מילים
+   - Google TTS Wavenet he-IL-A
+
+D. WebSocket:
+   - EventLet עם audio.twilio.com protocol
+   - Safe send wrapper למניעת crashes
+   - TX Queue לשידור חלק
+
+E. ברכה ופרומפט:
+   - ברכה קצרה: "שלום, לאה מקסימוס נדלן. איזה אזור מעניין אותך?"
+   - פרומפט מינימליסטי עם 5 דירות בלבד
+   - תשובות של 15-25 מילים
+
+
+================================================================================
+                                   סיכום לבדיקה
+================================================================================
+
+🎯 קבצים לבדיקה לפי סדר חשיבות:
+
+1. server/media_ws_ai.py - הקוד הראשי של השיחה
+   - בדוק פרמטרים: VAD_RMS, RESP_DELAY, BARGE_IN_FRAMES
+   - בדוק _ai_response() - האם GPT-4o-mini מהיר מספיק?
+   - בדוק _hebrew_tts() - האם Google TTS עובד טוב?
+
+2. wsgi.py - נקודת הכניסה
+   - בדוק WebSocket routing ל-/ws/twilio-media
+   - בדוק EventLet monkey patching
+   - בדוק Twilio subprotocol handling
+
+3. server/services/lazy_services.py - השירותים
+   - בדוק אם OpenAI client מתחבר (timeout 12s)
+   - בדוק אם Google TTS client מתחבר
+   - בדוק service warmup
+
+4. server/routes_twilio.py - Webhooks
+   - בדוק TwiML generation מהיר
+   - בדוק 204 responses ללא עיכובים
+
+5. .replit - הגדרות השרת
+   - בדוק gunicorn eventlet worker
+   - בדוק environment variables
+
+🚨 בעיות פוטנציאליות:
+- AI יותר מדי איטי (6-12s timeout)
+- VAD רגיש מדי או לא מספיק רגיש  
+- WebSocket disconnections
+- TTS איטי או לא עובד
+- פרמטרי זמן לא מכוונים
+
+שם הקובץ לבדיקה: DEBUG_ALL_CALL_CODES.txt
