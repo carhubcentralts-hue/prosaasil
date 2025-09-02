@@ -114,14 +114,24 @@ class MediaStreamHandler:
                 # COMPATIBILITY: Handle both EventLet and Flask-Sock WebSocket APIs
                 raw = None
                 try:
-                    # Try Flask-Sock/simple-websocket style first
+                    # Enhanced WebSocket API compatibility
                     if hasattr(self.ws, 'receive'):
                         raw = self.ws.receive()
                     elif hasattr(self.ws, 'recv'):
                         raw = self.ws.recv()
+                    elif hasattr(self.ws, 'read_message'):
+                        raw = self.ws.read_message()
+                    elif hasattr(self.ws, 'receive_data'):
+                        raw = self.ws.receive_data()
+                    elif hasattr(self.ws, 'read'):
+                        raw = self.ws.read()
                     else:
-                        # Fallback for other WebSocket implementations
-                        raw = self.ws.receive()
+                        print(f"⚠️ Unknown WebSocket type: {type(self.ws)}, available methods: {[m for m in dir(self.ws) if not m.startswith('_')]}", flush=True)
+                        # Try common methods
+                        if hasattr(self.ws, '__call__'):
+                            raw = self.ws()
+                        else:
+                            raise Exception(f"No compatible receive method found for {type(self.ws)}")
                         
                     if raw is None or raw == '':
                         print("📞 WebSocket connection closed normally", flush=True)
