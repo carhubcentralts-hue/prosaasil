@@ -114,15 +114,23 @@ class MediaStreamHandler:
                 # COMPATIBILITY: Handle both EventLet and Flask-Sock WebSocket APIs
                 raw = None
                 try:
-                    # RFC6455WebSocket-specific handling
+                    # EXTREME DEBUG: Log everything about WebSocket type
                     ws_type = str(type(self.ws))
+                    print(f"🔍 DEBUG WebSocket type: {ws_type}", flush=True)
+                    print(f"🔍 DEBUG Available methods: {[m for m in dir(self.ws) if not m.startswith('_')]}", flush=True)
+                    
+                    # RFC6455WebSocket-specific handling
                     if 'RFC6455WebSocket' in ws_type:
                         # RFC6455WebSocket uses different method names
+                        print(f"🎯 DETECTED RFC6455WebSocket - using alternative methods", flush=True)
                         if hasattr(self.ws, 'read_message'):
+                            print(f"✅ Using read_message()", flush=True)
                             raw = self.ws.read_message()
                         elif hasattr(self.ws, 'receive_data'):
+                            print(f"✅ Using receive_data()", flush=True)
                             raw = self.ws.receive_data()
                         elif hasattr(self.ws, 'read'):
+                            print(f"✅ Using read()", flush=True)
                             raw = self.ws.read()
                         else:
                             print(f"⚠️ RFC6455WebSocket methods: {[m for m in dir(self.ws) if not m.startswith('_') and 'recv' in m.lower()]}", flush=True)
