@@ -319,9 +319,16 @@ class MediaStreamHandler:
                             if self.voice_in_row >= 10:  # 200ms של קול רציף לפני הפרעה
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
+                                # ✅ מדידת Interrupt Halt Time
+                                interrupt_start = time.time()
+                                
                                 # ✅ עצירת TTS מיידית - לא עוד פריימים!
                                 self.speaking = False
                                 self._interrupt_speaking()
+                                
+                                # ✅ מדידת זמן עצירה
+                                halt_time = (time.time() - interrupt_start) * 1000
+                                print(f"📊 INTERRUPT_HALT: {halt_time:.1f}ms (target: ≤200ms)")
                                 
                                 # ✅ מעבר מיידי ל-LISTENING
                                 self.state = STATE_LISTEN
@@ -374,6 +381,9 @@ class MediaStreamHandler:
                             # סוף מבע: דממה מספקת OR זמן יותר מדי OR באפר גדול עם שקט
                             if ((silent and buffer_big_enough) or too_long) and dur >= min_duration:
                                 print(f"🎤 END OF UTTERANCE: {dur:.1f}s audio, conversation #{self.conversation_id}")
+                                
+                                # ✅ מדידת Turn Latency - התחלת מדידה
+                                self.eou_timestamp = time.time()
                                 
                                 # מעבר לעיבוד
                                 self.processing = True
@@ -567,6 +577,12 @@ class MediaStreamHandler:
             try:
                 text = self._hebrew_stt(pcm16_8k) or ""
                 print(f"🎤 USER: {text}")
+            
+            # ✅ מדידת ASR Latency
+            if hasattr(self, 'eou_timestamp'):
+                asr_latency = time.time() - self.eou_timestamp
+                print(f"📊 ASR_LATENCY: {asr_latency:.3f}s (target: <0.7s)")
+            
             except Exception as e:
                 print(f"❌ STT ERROR: {e}")
                 text = ""
@@ -587,7 +603,7 @@ class MediaStreamHandler:
             # Processing new user input")
             
             # 3. AI Response - БЕЗ micro-ack! תן לה לחשוב בשקט
-            started_at = time.time()
+            ai_processing_start = time.time()
             
             # ✅ השתמש בפונקציה המתקדמת עם מתמחה והמאגר הכולל!
             reply = self._ai_response(text)
@@ -608,6 +624,10 @@ class MediaStreamHandler:
                 # Using alternative response")
             self.last_reply_hash = rh
             print(f"🤖 BOT: {reply}")
+            
+            # ✅ מדידת AI Processing Time
+            ai_processing_time = time.time() - ai_processing_start
+            print(f"📊 AI_PROCESSING: {ai_processing_time:.3f}s")
             
             # 5. הוסף להיסטוריה
             self.response_history.append({
@@ -657,6 +677,12 @@ class MediaStreamHandler:
         self.speaking_start_ts = time.time()
         self.state = STATE_SPEAK
         print(f"🔊 TTS_START: '{text}'")
+        
+        # ✅ מדידת Turn Latency (מ-EOU עד TTS)
+        if hasattr(self, 'eou_timestamp'):
+            turn_latency = time.time() - self.eou_timestamp
+            print(f"📊 TURN_LATENCY: {turn_latency:.3f}s (target: <1.2s)")
+            delattr(self, 'eou_timestamp')  # נקה למדידה הבאה
         
         try:
             # המתנה קצרה לתחושת טבעיות
