@@ -577,12 +577,12 @@ class MediaStreamHandler:
             try:
                 text = self._hebrew_stt(pcm16_8k) or ""
                 print(f"🎤 USER: {text}")
-            
-            # ✅ מדידת ASR Latency
-            if hasattr(self, 'eou_timestamp'):
-                asr_latency = time.time() - self.eou_timestamp
-                print(f"📊 ASR_LATENCY: {asr_latency:.3f}s (target: <0.7s)")
-            
+                
+                # ✅ מדידת ASR Latency
+                if hasattr(self, 'eou_timestamp'):
+                    asr_latency = time.time() - self.eou_timestamp
+                    print(f"📊 ASR_LATENCY: {asr_latency:.3f}s (target: <0.7s)")
+                    
             except Exception as e:
                 print(f"❌ STT ERROR: {e}")
                 text = ""
