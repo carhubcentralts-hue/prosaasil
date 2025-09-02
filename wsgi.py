@@ -101,7 +101,7 @@ def composite_app(environ, start_response):
 <Response>
   <Connect action="{base}/webhook/stream_ended">
     <Stream url="wss://{only_host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">
-      <Parameter name="call_sid" value="{{CALL_SID}}"/>
+      <Parameter name="CallSid" value="{{CALL_SID}}"/>
     </Stream>
   </Connect>
 </Response>'''
