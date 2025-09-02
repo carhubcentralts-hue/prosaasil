@@ -29,16 +29,22 @@ class WebSocketAppWithProtocol:
     
     def __call__(self, environ, start_response):
         # Check for Twilio subprotocol
-        protocols = environ.get('HTTP_SEC_WEBSOCKET_PROTOCOL', '')
-        
-        if 'audio.twilio.com' in protocols:
+        raw = environ.get('HTTP_SEC_WEBSOCKET_PROTOCOL', '') or ''
+        # נרמל רשימת פרוטוקולים (מופרדים בפסיקים/רווחים)
+        protocols = [p.strip() for p in raw.split(',') if p.strip()]
+        wants_twilio = any(p.lower() == 'audio.twilio.com' for p in protocols)
+
+        if wants_twilio:
             print("🎯 Twilio subprotocol requested", flush=True)
             
             # Wrapper for start_response that adds subprotocol
             def twilio_start_response(status, headers, exc_info=None):
                 if status == '101 Switching Protocols':
                     headers = list(headers)
+                    # כותרות ש-GFE אוהב לראות בהנדשייק
                     headers.append(('Sec-WebSocket-Protocol', 'audio.twilio.com'))
+                    headers.append(('Upgrade', 'websocket'))
+                    headers.append(('Connection', 'Upgrade'))
                     print("✅ Added Twilio subprotocol to handshake", flush=True)
                 return start_response(status, headers, exc_info)
             
@@ -116,7 +122,8 @@ def composite_app(environ, start_response):
         ])
         return [b'']
     
-    if path == '/ws/twilio-media':
+    # קבל גם סלש סופי כדי לא להתקפל על שינויים בפרוקסי
+    if path in ('/ws/twilio-media', '/ws/twilio-media/'):
         print("📞 Routing to EventLet WebSocketWSGI", flush=True)
         return websocket_app_with_protocol(environ, start_response)
     
