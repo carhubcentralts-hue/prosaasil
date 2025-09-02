@@ -149,6 +149,7 @@ class MediaStreamHandler:
                         self.stream_sid = evt["start"]["streamSid"]
                         self.call_sid = (
                             evt["start"].get("callSid")
+                            or (evt["start"].get("customParameters") or {}).get("CallSid")
                             or (evt["start"].get("customParameters") or {}).get("call_sid")
                         )
                     else:
