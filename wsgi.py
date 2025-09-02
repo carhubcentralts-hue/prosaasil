@@ -70,9 +70,44 @@ def composite_app(environ, start_response):
         start_response('200 OK', [('Content-Type', 'text/plain')])
         return [b'ok']
     
-    # ⚡ Return 204 IMMEDIATELY for Twilio webhooks that must never block
-    if path in ('/webhook/stream_status', '/webhook/stream_status/', 
-                '/webhook/stream_ended', '/webhook/stream_ended/'):
+    # ⚡ Webhooks שצריכים תשובה מיידית, בלי להיכנס ל-Flask
+    if path in (
+        '/webhook/stream_status', '/webhook/stream_status/',
+        '/webhook/stream_ended', '/webhook/stream_ended/'
+    ):
+        print(f"⚡ Fast 204 for {path}", flush=True)
+        start_response('204 No Content', [
+            ('Content-Type', 'text/plain'),
+            ('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'),
+            ('Pragma', 'no-cache'),
+        ])
+        return [b'']
+
+    # TwiML חייב לחזור מייד — נחזיר כאן אם Flask עסוק
+    if path in ('/webhook/incoming_call', '/webhook/incoming_call/'):
+        print(f"⚡ Fast TwiML for {path}", flush=True)
+        # בנה TwiML נקי עם https:// ו-wss://
+        scheme = (environ.get('HTTP_X_FORWARDED_PROTO') or 'https').split(',')[0].strip()
+        host   = (environ.get('HTTP_X_FORWARDED_HOST')  or environ.get('HTTP_HOST')).split(',')[0].strip()
+        base   = f"{scheme}://{host}"
+        only_host = host
+        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect action="{base}/webhook/stream_ended">
+    <Stream url="wss://{only_host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">
+      <Parameter name="call_sid" value="{{CALL_SID}}"/>
+    </Stream>
+  </Connect>
+</Response>'''
+        start_response('200 OK', [
+            ('Content-Type', 'application/xml; charset=utf-8'),
+            ('Cache-Control', 'no-store, no-cache, must-revalidate'),
+            ('Pragma', 'no-cache'),
+        ])
+        return [twiml.encode('utf-8')]
+
+    # call_status גם יכול לקבל 204 מיידי (לא קריטי, אבל מייצב)
+    if path in ('/webhook/call_status', '/webhook/call_status/'):
         print(f"⚡ Fast 204 for {path}", flush=True)
         start_response('204 No Content', [
             ('Content-Type', 'text/plain'),
