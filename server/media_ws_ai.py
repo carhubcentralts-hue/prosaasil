@@ -32,6 +32,13 @@ class MediaStreamHandler:
     def __init__(self, ws):
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
+        
+        # 🔧 תאימות WebSocket - EventLet vs RFC6455
+        if hasattr(ws, 'send'):
+            self._ws_send = ws.send
+        else:
+            # אם אין send, נסה send_text או כל שיטה אחרת
+            self._ws_send = getattr(ws, 'send_text', lambda x: print(f"❌ No send method: {x}"))
         self.stream_sid = None
         self.call_sid = None  # PATCH 3: For watchdog connection
         self.rx = 0
@@ -447,7 +454,7 @@ class MediaStreamHandler:
             return
             
         # CLEAR לפני שליחה
-        self.ws.send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+        self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
         
         mulaw = audioop.lin2ulaw(pcm16_8k, 2)
         FR = 160  # 20ms @ 8kHz
@@ -461,7 +468,7 @@ class MediaStreamHandler:
             if not self.speaking:
                 print(f"🚨 BARGE-IN detected! Stopped at frame {frames_sent}/{total_frames}")
                 # שלח CLEAR נוסף למקרה הצורך
-                self.ws.send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+                self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
                 break
                 
             chunk = mulaw[i:i+FR]
@@ -471,7 +478,7 @@ class MediaStreamHandler:
                 
             payload = base64.b64encode(chunk).decode("ascii")
             try:
-                self.ws.send(json.dumps({
+                self._ws_send(json.dumps({
                     "event": "media",
                     "streamSid": self.stream_sid,
                     "media": {"payload": payload}
@@ -755,17 +762,17 @@ class MediaStreamHandler:
             if item.get("type") == "end":
                 break
             if item.get("type") == "clear" and self.stream_sid:
-                self.ws.send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
+                self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
                 continue
             if item.get("type") == "media":
-                self.ws.send(json.dumps({
+                self._ws_send(json.dumps({
                     "event": "media", 
                     "streamSid": self.stream_sid,
                     "media": {"payload": item["payload"]}
                 }))
                 continue
             if item.get("type") == "mark":
-                self.ws.send(json.dumps({
+                self._ws_send(json.dumps({
                     "event": "mark", 
                     "streamSid": self.stream_sid,
                     "mark": {"name": item.get("name", "mark")}
