@@ -238,15 +238,21 @@ class MediaStreamHandler:
                     if is_strong_voice:
                         self.last_voice_ts = current_time
                     
-                    # חישוב דממה אמיתי - מאז הקול האחרון!
-                    silence_time = current_time - self.last_voice_ts if self.last_voice_ts > 0 else 0
+                    # חישוב דממה אמיתי - מאז הקול האחרון! 
+                    # אם אין קול בכלל, דממה = 0 (כדי שלא נתקע)
+                    silence_time = (current_time - self.last_voice_ts) if self.last_voice_ts > 0 else 0
                     
-                    # 🔍 DEBUG: לוג כל 25 frames עם מידע מלא
+                    # 🔍 DEBUG: לוג כל 25 frames עם מידע מלא + EOU info
                     if self.rx % 25 == 0:
                         print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={self.vad_threshold:.1f}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")
                         # תדפיס גם כמה אודיו נאסף
                         if len(self.buf) > 0:
-                            print(f"   📊 AUDIO_ACCUMULATED: {len(self.buf)/(2*SR):.1f}s duration")
+                            dur = len(self.buf) / (2 * SR)
+                            min_silence = 0.25 if dur > 1.0 else 0.3
+                            print(f"   📊 AUDIO_ACCUMULATED: {dur:.1f}s duration")
+                            print(f"   📊 EOU_CHECK: min_silence={min_silence:.2f}s, current_silence={silence_time:.2f}s")
+                            if silence_time >= min_silence and len(self.buf) > 8000:
+                                print(f"   🚨 EOU_READY: Should trigger soon!")
                         # זמן שקט אמיתי
                         print(f"   🔇 SILENCE_TIME: {silence_time:.2f}s (was_voice={is_strong_voice})")  
                     
@@ -295,14 +301,17 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ✅ זיהוי סוף מבע עם דממה אמיתית
-                            min_silence = 0.3 if dur > 1.0 else 0.4  # 300-400ms שקט
+                            # ✅ זיהוי סוף מבע עם דממה אמיתית - רגיש יותר!
+                            min_silence = 0.25 if dur > 1.0 else 0.3  # 250-300ms שקט (יותר רגיש!)
                             silent = silence_time >= min_silence
                             too_long = dur >= MAX_UTT_SEC
-                            min_duration = 0.6  # מינימום 600ms
+                            min_duration = 0.5  # מינימום 500ms (יותר רגיש!)
                             
-                            # סוף מבע: דממה מספקת או זמן יותר מדי
-                            if (silent or too_long) and dur >= min_duration:
+                            # ✅ EOU אגרסיבי: גם רק אם הבאפר גדול מספיק
+                            buffer_big_enough = len(self.buf) > 8000  # לפחות 0.5s של אודיו אמיתי
+                            
+                            # סוף מבע: דממה מספקת OR זמן יותר מדי OR באפר גדול עם שקט
+                            if ((silent and buffer_big_enough) or too_long) and dur >= min_duration:
                                 print(f"🎤 EOU DETECTED: {dur:.1f}s audio, silence={silence_time:.2f}s, conversation #{self.conversation_id}")
                                 print(f"🔍 EOU_INFO: Buffer={len(self.buf)} bytes, Silent={silent}, TooLong={too_long}")
                                 
@@ -328,7 +337,7 @@ class MediaStreamHandler:
                                         self.state = STATE_LISTEN
                                     print(f"✅ Processing complete for conversation #{current_id}")
                     
-                    # ✅ Watchdog: וודא שלא תקועים במצב
+                    # ✅ Watchdog: וודא שלא תקועים במצב + EOU כפויה
                     if self.processing and (current_time - self.processing_start_ts) > 2.5:
                         print("⚠️ PROCESSING TIMEOUT - forcing reset")
                         self.processing = False
@@ -339,6 +348,32 @@ class MediaStreamHandler:
                         print("⚠️ SPEAKING TIMEOUT - forcing reset")  
                         self.speaking = False
                         self.state = STATE_LISTEN
+                    
+                    # ✅ EOU חירום: אם יש הרבה אודיו אבל לא מזוהה EOU
+                    if (not self.processing and self.state == STATE_LISTEN and 
+                        len(self.buf) > 40000 and  # 2.5s של אודיו
+                        silence_time > 0.15):     # 150ms שקט
+                        print(f"🚨 EMERGENCY EOU: {len(self.buf)/(2*SR):.1f}s audio, silence={silence_time:.2f}s")
+                        # כפה EOU
+                        self.processing = True
+                        self.processing_start_ts = current_time
+                        self.state = STATE_THINK
+                        current_id = self.conversation_id
+                        self.conversation_id += 1
+                        
+                        utt_pcm = bytes(self.buf)
+                        self.buf.clear()
+                        self.last_voice_ts = 0
+                        
+                        print(f"🧠 EMERGENCY STATE -> PROCESSING | len={len(utt_pcm)} | silence_ms={silence_time*1000:.0f}")
+                        
+                        try:
+                            self._process_utterance_safe(utt_pcm, current_id)
+                        finally:
+                            self.processing = False
+                            if self.state == STATE_THINK:
+                                self.state = STATE_LISTEN
+                            print(f"✅ Emergency processing complete for conversation #{current_id}")
                     
                     continue
 
