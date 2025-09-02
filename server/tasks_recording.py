@@ -137,34 +137,27 @@ def save_call_status(call_sid, status):
     log.info("Call status queued for update: %s -> %s", call_sid, status)
 
 def save_call_status_async(call_sid, status):
-    """עדכון סטטוס שיחה אסינכרוני מלא"""
+    """עדכון סטטוס שיחה אסינכרוני מלא - PostgreSQL מתוקן"""
     try:
-        import sqlite3
+        # שימוש ב-PostgreSQL דרך SQLAlchemy במקום SQLite
+        from server.app_factory import create_app
+        from server.db import db
+        from server.models_sql import CallLog
         
-        # Update call status in SQLite
-        db_path = "database.db"
-        conn = sqlite3.connect(db_path)
-        
-        # Add status column if it doesn't exist
-        try:
-            conn.execute("ALTER TABLE call_logs ADD COLUMN call_status TEXT DEFAULT 'unknown'")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-        
-        # Update call status
-        conn.execute("""
-            UPDATE call_logs 
-            SET call_status = ?
-            WHERE call_sid = ?
-        """, (status, call_sid))
-            
-        conn.commit()
-        conn.close()
-        
-        log.info("Call status updated async: %s -> %s", call_sid, status)
+        app = create_app()
+        with app.app_context():
+            # עדכון מהיר ישירות ב-PostgreSQL 
+            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+            if call_log:
+                call_log.call_status = status
+                call_log.updated_at = db.func.now()
+                db.session.commit()
+                log.info("PostgreSQL call status updated: %s -> %s", call_sid, status)
+            else:
+                log.warning("Call SID not found for status update: %s", call_sid)
         
     except Exception as e:
-        log.error("Failed to update call status async: %s", e)
+        log.error("Failed to update call status (PostgreSQL): %s", e)
 
 def transcribe_with_whisper_api(audio_file):
     """תמלול עם OpenAI Whisper API (לא מקומי)"""

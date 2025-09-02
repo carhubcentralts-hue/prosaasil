@@ -30,3 +30,4 @@ eventlet==0.36.1
 simple-websocket
 eventlet==0.36.1
 websockets
+gevent-websocket

@@ -114,10 +114,21 @@ def incoming_call():
 
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
 def stream_ended():
-    """שלב 5: Webhooks קשיחים - מחזיר 204 ללא TwiML"""
-    form = request.form.to_dict()
-    print(f"STREAM_ENDED call={form.get('CallSid')} stream={form.get('StreamSid')} status={form.get('Status')}")
-    return ("", 204)
+    """שלב 5: Webhooks קשיחים - מחזיר 204 ללא TwiML - ULTRA FAST"""
+    # החזרה מיידית ללא עיבוד כלל
+    resp = make_response("", 204)
+    resp.headers["Cache-Control"] = "no-store"
+    
+    # לוגים ברקע (לא חוסמים את הresponse)
+    try:
+        call_sid = request.form.get('CallSid', 'N/A')
+        stream_sid = request.form.get('StreamSid', 'N/A') 
+        status = request.form.get('Status', 'N/A')
+        print(f"STREAM_ENDED call={call_sid} stream={stream_sid} status={status}")
+    except:
+        pass  # אף פעם לא לחסום על לוגים
+        
+    return resp
 
 @twilio_bp.route("/webhook/handle_recording", methods=["POST"])
 @require_twilio_signature
@@ -137,10 +148,21 @@ def handle_recording():
 
 @twilio_bp.route("/webhook/stream_status", methods=["POST"])
 def stream_status():
-    """שלב 5: Webhooks קשיחים - קורא form.to_dict(flat=True), מחזיר 204"""
-    form = request.form.to_dict()  # Fixed: removed flat parameter
-    print(f"STREAM_STATUS call={form.get('CallSid')} stream={form.get('StreamSid')} event={form.get('Status')}")
-    return ("", 204)
+    """שלב 5: Webhooks קשיחים - ULTRA FAST מחזיר 204"""
+    # החזרה מיידית ללא עיבוד כלל
+    resp = make_response("", 204)
+    resp.headers["Cache-Control"] = "no-store"
+    
+    # לוגים ברקע (לא חוסמים את הresponse)  
+    try:
+        call_sid = request.form.get('CallSid', 'N/A')
+        stream_sid = request.form.get('StreamSid', 'N/A')
+        event = request.form.get('Status', 'N/A')
+        print(f"STREAM_STATUS call={call_sid} stream={stream_sid} event={event}")
+    except:
+        pass  # אף פעם לא לחסום על לוגים
+        
+    return resp
 
 @twilio_bp.route("/webhook/call_status", methods=["POST"])
 @require_twilio_signature

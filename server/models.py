@@ -66,10 +66,10 @@ SAMPLE_CUSTOMERS = [
 ]
 
 # Import SQLAlchemy models for authentication
-from server.models_sql import User, Business, CallLog as SQLCallLog, db
+from server.models_sql import User, Business as SQLBusiness, CallLog as SQLCallLog, db
 
 # Re-export for compatibility
-__all__ = ['User', 'Business', 'SQLCallLog', 'Customer', 'CallLog', 'db']
+__all__ = ['User', 'SQLBusiness', 'SQLCallLog', 'Customer', 'CallLog', 'db']
 
 # Fake database placeholder for old code compatibility
 # db = None  # Now using real SQLAlchemy db
