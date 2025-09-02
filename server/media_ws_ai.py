@@ -64,6 +64,19 @@ class MediaStreamHandler:
         self.greeting_sent = False
         self.state = STATE_LISTEN        # מצב נוכחי
         
+        # ✅ תיקון קריטי: מעקב נפרד אחר קול ושקט
+        self.last_voice_ts = 0.0         # זמן הקול האחרון - לחישוב דממה אמיתי
+        self.noise_floor = 35.0          # רמת רעש בסיסית
+        self.vad_threshold = 35.0        # סף VAD דינמי
+        self.is_calibrated = False       # האם כוילרנו את רמת הרעש
+        self.calibration_frames = 0      # מונה פריימים לכיול
+        self.mark_pending = False        # האם ממתינים לסימון TTS
+        self.mark_sent_ts = 0.0          # זמן שליחת סימון
+        
+        # הגנות Watchdog
+        self.processing_start_ts = 0.0   # תחילת עיבוד
+        self.speaking_start_ts = 0.0     # תחילת דיבור
+        
         # TX Queue for smooth audio transmission
         self.tx_q = queue.Queue(maxsize=4096)
         self.tx_running = False
@@ -207,18 +220,35 @@ class MediaStreamHandler:
                     if self.rx % 50 == 0:
                         print(f"WS_MEDIA sid={self.stream_sid} rx={self.rx} state={self.state} VAD={rms}/{VAD_RMS}")
 
-                    # דרישה רגישה יותר: קול רגיל מספיק (כמו שיחה טבעיית!)
-                    is_strong_voice = rms > (VAD_RMS * 0.5)  # רגיש אבל יציב
+                    # ✅ VAD דינמי עם כיול רעש
+                    if not self.is_calibrated and self.calibration_frames < 25:
+                        # כיול רמת רעש ב-25 פריימים הראשונים (500ms)
+                        self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
+                        self.calibration_frames += 1
+                        if self.calibration_frames >= 25:
+                            self.vad_threshold = max(35, self.noise_floor * 2.2 + 8)
+                            self.is_calibrated = True
+                            print(f"🎛️ VAD_CALIBRATED: noise_floor={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
                     
-                    # 🔍 DEBUG: לוג כל 25 frames עם RMS ומצב מערכת
+                    # זיהוי קול עם סף דינמי
+                    is_strong_voice = rms > self.vad_threshold
+                    
+                    # ✅ תיקון קריטי: עדכן last_voice_ts רק כשיש קול אמיתי
+                    current_time = time.time()
+                    if is_strong_voice:
+                        self.last_voice_ts = current_time
+                    
+                    # חישוב דממה אמיתי - מאז הקול האחרון!
+                    silence_time = current_time - self.last_voice_ts if self.last_voice_ts > 0 else 0
+                    
+                    # 🔍 DEBUG: לוג כל 25 frames עם מידע מלא
                     if self.rx % 25 == 0:
-                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={VAD_RMS * 0.5}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")
+                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={self.vad_threshold:.1f}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")
                         # תדפיס גם כמה אודיו נאסף
                         if len(self.buf) > 0:
                             print(f"   📊 AUDIO_ACCUMULATED: {len(self.buf)/(2*SR):.1f}s duration")
-                        # זמן שקט
-                        silence_time = (time.time() - self.last_rx_ts) if hasattr(self, 'last_rx_ts') else 0
-                        print(f"   🔇 SILENCE_TIME: {silence_time:.2f}s")  
+                        # זמן שקט אמיתי
+                        print(f"   🔇 SILENCE_TIME: {silence_time:.2f}s (was_voice={is_strong_voice})")  
                     
                     # ספירת פריימים רצופים של קול חזק בלבד
                     if is_strong_voice:
@@ -226,65 +256,105 @@ class MediaStreamHandler:
                     else:
                         self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
 
-                    # 🚨 BARGE-IN מתקדם: עצור מיד כשמדברים מעל הבוט (מחקר 2025)
-                    if self.speaking and BARGE_IN and self.voice_in_row >= BARGE_IN_VOICE_FRAMES:
-                        print(f"🚨 NATURAL BARGE-IN! User interrupting (RMS={rms}) after {self.voice_in_row} frames (160ms)")
-                        self._interrupt_speaking()
-                        # נקה הכל ותן למשתמש לדבר
-                        self.buf.clear()
-                        self.processing = False  # עצור גם עיבוד
-                        self.state = STATE_LISTEN
-                        print("🎤 USER TURN - Bot listening naturally")
-                        # הוסף הודעה קצרה באודיו שהבוט הפסיק לדבר
-                        try:
-                            self.tx_q.put_nowait({"type": "clear"})
-                        except:
-                            pass
-                        continue
+                    # 🚨 BARGE-IN מתקדם: עצור מיד כשמדברים מעל הבוט
+                    if self.speaking and BARGE_IN and is_strong_voice and silence_time < 0.15:
+                        # ברג-אין רק אם יש קול חזק באמת (לא רעש)
+                        self.voice_in_row += 1
+                        if self.voice_in_row >= 8:  # 160ms של קול רציף
+                            print(f"🚨 BARGE-IN! User interrupting (RMS={rms:.1f}) after {self.voice_in_row} frames")
+                            self._interrupt_speaking()
+                            # נקה הכל ותן למשתמש לדבר
+                            self.buf.clear()
+                            self.processing = False
+                            self.state = STATE_LISTEN
+                            self.last_voice_ts = current_time  # אפס זמני שקט
+                            self.voice_in_row = 0
+                            print("🎤 BARGE-IN -> USER TURN")
+                            # שלח clear לטוויליו
+                            try:
+                                self.tx_q.put_nowait({"type": "clear"})
+                            except:
+                                pass
+                            continue
+                    else:
+                        self.voice_in_row = 0  # אפס ספירה אם לא בתנאים לברג-אין
                     
                     # אם המערכת מדברת ואין הפרעה - נקה קלט
                     if self.speaking:
                         self.buf.clear()
                         continue
                     
-                    # 🎯 איסוף אודיו עם זיהוי דממה נכון + חלון רפרקטורי
-                    if not self.processing:
-                        # מתעלמים מנשימות/רחש מיד אחרי שהבוט דיבר (חלון קירור)
-                        if (time.time() - self.last_tts_end_ts) < (REPLY_REFRACTORY_MS/1000.0):
+                    # ✅ איסוף אודיו עם זיהוי דממה תקין
+                    if not self.processing and self.state == STATE_LISTEN:
+                        # חלון רפרקטורי אחרי TTS
+                        if (current_time - self.last_tts_end_ts) < (REPLY_REFRACTORY_MS/1000.0):
                             continue
-                            
-                        self.buf.extend(pcm16)
-                        dur = len(self.buf) / (2 * SR)
                         
-                        # סוף-מבע אדפטיבי: מהיר למבעים קצרים (כמו שיחה אמיתית)
-                        min_sil = MIN_UTT_SEC if dur > 1.0 else max(0.25, MIN_UTT_SEC - 0.08)
-                        silent = ((time.time() - self.last_rx_ts) >= min_sil) and \
-                                 ((time.time() - self.last_rx_ts) >= (VAD_HANGOVER_MS/1000.0))
-                        too_long = dur >= MAX_UTT_SEC
-                        
-                        # 🎯 סוף מבע - רק אחרי דממה אמיתית או זמן יותר מדי
-                        if (silent or too_long) and dur > 0.28:
-                            print(f"🎤 PROCESSING: {dur:.1f}s audio (conversation #{self.conversation_id})")
-                            print(f"🔍 AUDIO_INFO: Buffer={len(self.buf)} bytes, Duration={dur:.1f}s, Silent={silent}, TooLong={too_long}")
+                        # אסוף אודיו רק כשיש קול או כשיש כבר דבר מה בבאפר
+                        if is_strong_voice or len(self.buf) > 0:
+                            self.buf.extend(pcm16)
+                            dur = len(self.buf) / (2 * SR)
                             
-                            # חסימה מוחלטת של עיבוד כפול
-                            if self.processing:
-                                print("🚫 Already processing - SKIP")
-                                continue
+                            # ✅ זיהוי סוף מבע עם דממה אמיתית
+                            min_silence = 0.3 if dur > 1.0 else 0.4  # 300-400ms שקט
+                            silent = silence_time >= min_silence
+                            too_long = dur >= MAX_UTT_SEC
+                            min_duration = 0.6  # מינימום 600ms
+                            
+                            # סוף מבע: דממה מספקת או זמן יותר מדי
+                            if (silent or too_long) and dur >= min_duration:
+                                print(f"🎤 EOU DETECTED: {dur:.1f}s audio, silence={silence_time:.2f}s, conversation #{self.conversation_id}")
+                                print(f"🔍 EOU_INFO: Buffer={len(self.buf)} bytes, Silent={silent}, TooLong={too_long}")
                                 
-                            self.processing = True
-                            current_id = self.conversation_id
-                            self.conversation_id += 1
-                            
-                            # עיבוד במנותק
-                            utt_pcm = bytes(self.buf)
-                            self.buf.clear()
-                            
-                            try:
-                                self._process_utterance_safe(utt_pcm, current_id)
-                            finally:
-                                self.processing = False
-                                print(f"✅ Processing complete for conversation #{current_id}")
+                                # מעבר לעיבוד
+                                self.processing = True
+                                self.processing_start_ts = current_time
+                                self.state = STATE_THINK
+                                current_id = self.conversation_id
+                                self.conversation_id += 1
+                                
+                                # עיבוד במנותק
+                                utt_pcm = bytes(self.buf)
+                                self.buf.clear()
+                                self.last_voice_ts = 0  # אפס לסיבוב הבא
+                                
+                                print(f"🧠 STATE -> PROCESSING | len={len(utt_pcm)} | silence_ms={silence_time*1000:.0f}")
+                                
+                                try:
+                                    self._process_utterance_safe(utt_pcm, current_id)
+                                finally:
+                                    self.processing = False
+                                    if self.state == STATE_THINK:
+                                        self.state = STATE_LISTEN
+                                    print(f"✅ Processing complete for conversation #{current_id}")
+                    
+                    # ✅ Watchdog: וודא שלא תקועים במצב
+                    if self.processing and (current_time - self.processing_start_ts) > 2.5:
+                        print("⚠️ PROCESSING TIMEOUT - forcing reset")
+                        self.processing = False
+                        self.state = STATE_LISTEN
+                        self.buf.clear()
+                    
+                    if self.speaking and (current_time - self.speaking_start_ts) > 6.0:
+                        print("⚠️ SPEAKING TIMEOUT - forcing reset")  
+                        self.speaking = False
+                        self.state = STATE_LISTEN
+                    
+                    continue
+
+                if et == "mark":
+                    # ✅ סימון TTS הושלם - חזור להאזנה
+                    mark_name = evt.get("mark", {}).get("name", "")
+                    if mark_name == "assistant_tts_end":
+                        print("🎯 TTS_MARK_ACK: assistant_tts_end -> LISTENING")
+                        self.speaking = False
+                        self.state = STATE_LISTEN
+                        self.mark_pending = False
+                        self.last_tts_end_ts = time.time()
+                        # איפוס חשוב למערכת VAD
+                        self.last_voice_ts = 0
+                        self.voice_in_row = 0
+                        print("🎤 STATE -> LISTENING | buffer_reset")
                     continue
 
                 if et == "stop":
@@ -430,9 +500,9 @@ class MediaStreamHandler:
             print(f"✅ RETURNED TO LISTEN STATE after error in conversation #{conversation_id}")
 
 
-    # 🎯 דיבור פשוט וישיר (ללא queue מורכב)
+    # ✅ דיבור מתקדם עם סימונים לטוויליו
     def _speak_simple(self, text: str):
-        """TTS פשוט עם הגנה מפני לולאות + נשימה אנושית"""
+        """TTS עם מעקב מצבים וסימונים"""
         if not text:
             return
             
@@ -441,41 +511,118 @@ class MediaStreamHandler:
             return
             
         self.speaking = True
-        print(f"🔊 SPEAKING: '{text}'")
+        self.speaking_start_ts = time.time()
+        self.state = STATE_SPEAK
+        print(f"🔊 TTS_START: '{text}'")
         
         try:
-            # קיצור זמן תגובה לתחושת מהירות
-            try:
-                time.sleep(random.uniform(0.2, 0.5))  # מהיר יותר!
-            except Exception:
-                pass
+            # המתנה קצרה לתחושת טבעיות
+            time.sleep(random.uniform(0.2, 0.4))
                 
-            # נסה TTS אמיתי עם גיבוי חכם
-            if len(text) > 150:  # אם הטקסט ארוך מדי - קצר אותו
+            # קיצור טקסט ארוך
+            if len(text) > 150:
                 text = text[:150].rsplit(' ', 1)[0] + '.'
                 print(f"🔪 TTS_SHORTENED: {text}")
             
             tts_audio = self._hebrew_tts(text)
             if tts_audio and len(tts_audio) > 1000:
                 print(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
-                self._send_pcm16_as_mulaw_frames(tts_audio)
+                self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
             else:
                 print("🔊 TTS FAILED - sending beep")
                 self._send_beep(800)
+                self._finalize_speaking()
         except Exception as e:
             print(f"🔊 TTS ERROR: {e} - sending beep")
             self._send_beep(800)
-        finally:
-            self.speaking = False
-            self.last_tts_end_ts = time.time()
-            # ✅ CRITICAL: וודא חזרה למצב האזנה אחרי דיבור
-            if self.state != STATE_LISTEN:
-                self.state = STATE_LISTEN
-                print("✅ FORCED RETURN TO LISTEN STATE after speaking")
-            print("✅ Speaking completed")
+            self._finalize_speaking()
+    
+    def _finalize_speaking(self):
+        """סיום דיבור עם חזרה להאזנה"""
+        self.speaking = False
+        self.last_tts_end_ts = time.time()
+        self.state = STATE_LISTEN
+        self.last_voice_ts = 0  # איפוס למערכת VAD
+        self.voice_in_row = 0
+        print("🎤 SPEAKING_END -> LISTEN STATE | buffer_reset")
+
+    def _send_pcm16_as_mulaw_frames_with_mark(self, pcm16_8k: bytes):
+        """שליחת אודיו עם סימון לטוויליו וברג-אין"""
+        if not self.stream_sid or not pcm16_8k:
+            self._finalize_speaking()
+            return
+            
+        # CLEAR לפני שליחה
+        self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+        
+        mulaw = audioop.lin2ulaw(pcm16_8k, 2)
+        FR = 160  # 20ms @ 8kHz
+        frames_sent = 0
+        total_frames = len(mulaw) // FR
+        
+        print(f"🔊 TTS_FRAMES: {total_frames} frames ({total_frames * 20}ms)")
+        
+        for i in range(0, len(mulaw), FR):
+            # בדיקת ברג-אין
+            if not self.speaking:
+                print(f"🚨 BARGE-IN! Stopped at frame {frames_sent}/{total_frames}")
+                self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+                self._finalize_speaking()
+                return
+                
+            # שלח פריים
+            frame = mulaw[i:i+FR].ljust(FR, b'\x00')
+            payload = base64.b64encode(frame).decode()
+            media_msg = json.dumps({
+                "event": "media",
+                "streamSid": self.stream_sid,
+                "media": {"payload": payload}
+            })
+            self._ws_send(media_msg)
+            frames_sent += 1
+            
+            # Yield לeventlet
+            if frames_sent % 5 == 0:  # כל 100ms
+                time.sleep(0)  # yield
+        
+        # הוסף 200ms שקט בסוף
+        silence_frames = 10  # 200ms @ 20ms per frame  
+        silence_mulaw = b'\x00' * FR
+        for _ in range(silence_frames):
+            if not self.speaking:
+                break
+            payload = base64.b64encode(silence_mulaw).decode()
+            media_msg = json.dumps({
+                "event": "media", 
+                "streamSid": self.stream_sid,
+                "media": {"payload": payload}
+            })
+            self._ws_send(media_msg)
+            time.sleep(0)  # yield
+        
+        # שלח סימון לטוויליו
+        self.mark_pending = True
+        self.mark_sent_ts = time.time()
+        mark_msg = json.dumps({
+            "event": "mark",
+            "streamSid": self.stream_sid,
+            "mark": {"name": "assistant_tts_end"}
+        })
+        self._ws_send(mark_msg)
+        print("🎯 TTS_MARK_SENT: assistant_tts_end")
+        
+        # Timeout fallback אם הסימון לא יחזור
+        def mark_timeout():
+            time.sleep(0.15)  # 150ms timeout
+            if self.mark_pending and (time.time() - self.mark_sent_ts) > 0.14:
+                print("⚠️ TTS_MARK_TIMEOUT -> LISTENING") 
+                self._finalize_speaking()
+        
+        import threading
+        threading.Thread(target=mark_timeout, daemon=True).start()
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
-        """שליחת אודיו עם יכולת עצירה באמצע (BARGE-IN)"""
+        """שליחת אודיו עם יכולת עצירה באמצע (BARGE-IN) - גרסה ישנה"""
         if not self.stream_sid or not pcm16_8k:
             return
             
