@@ -1057,9 +1057,9 @@ class MediaStreamHandler:
             lead_info = self._analyze_lead_completeness()
             
             # ✅ פרומפט סוכנת נדלן מקצועית לפי ההנחיות החדשות
-            smart_prompt = f"""את סוכנת נדלן טלפונית של AgentLocator. המטרה: לאסוף במהירות פרטי ליד: אזור/שכונה, סוג נכס, תקציב, טווח כניסה/זמן, שם + טלפון/וואטסאפ.
+            smart_prompt = f"""את לאה, סוכנת נדלן מקצועית של "שי דירות ומשרדים" המתמחה בנדלן במרכז הארץ. המטרה: לאסוף במהירות פרטי ליד: אזור/שכונה, סוג נכס, תקציב, טווח כניסה/זמן, שם + טלפון/וואטסאפ.
 
-כל תשובה שלך: 1–2 משפטים קצרים מאוד (+/− 15 מילים) ותמיד שאלה אחת בסוף.
+כל תשובה שלך: 2-3 משפטים טבעיים ומקצועיים (20-30 מילים) ותמיד שאלה אחת בסוף.
 אם לא שמעת/לא בטוחה – תגידי "לא בטוח ששמעתי נכון, אפשר לחזור על זה?" (אל תמציאי).
 אין להציע נכסים ספציפיים בלי נתונים; אין המצאות.
 כשלקוח קוטע אותך – עצרי מיד ותבקשי ממנו להמשיך.
@@ -1092,7 +1092,7 @@ class MediaStreamHandler:
 {lead_info['meeting_prompt']}
 
 הלקוח אומר: "{hebrew_text}"
-תגובה (מקסימום 15 מילים + שאלה אחת):"""
+תגובה (20-30 מילים + שאלה אחת בסוף):"""
 
             # ✅ GPT-4o MINI מהיר יותר לשיחה חיה!
             try:
@@ -1102,7 +1102,7 @@ class MediaStreamHandler:
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=60,            # ✅ מגביל ל-15 מילים (+/- כמה) לפי ההנחיות
+                    max_tokens=120,           # ✅ מגביל ל-20-30 מילים טבעיים
                     temperature=0.3,          # ✅ פחות creative = עקבית יותר
                     timeout=6.0               # מקס 6 שניות
                 )
@@ -1116,7 +1116,7 @@ class MediaStreamHandler:
                             {"role": "system", "content": smart_prompt},
                             {"role": "user", "content": hebrew_text}
                         ],
-                        max_tokens=60,            # ✅ מגביל ל-15 מילים (+/- כמה) לפי ההנחיות
+                        max_tokens=120,           # ✅ מגביל ל-20-30 מילים טבעיים
                         temperature=0.3,          # ✅ פחות creative = עקבית יותר
                         timeout=12.0  # ניסיון שני עם timeout כפול
                     )
@@ -1135,11 +1135,11 @@ class MediaStreamHandler:
             if content and content.strip():
                 ai_answer = content.strip()
                 
-                # ✅ אכיפת גבול 15 מילים לפי ההנחיות החדשות
+                # ✅ אכיפת גבול 30 מילים - טבעי יותר
                 words = ai_answer.split()
-                if len(words) > 18:  # מקס 18 מילים (15 + buffer קטן לשאלה)
-                    # קצר ל-15 מילים + שאלה אחת
-                    truncated = ' '.join(words[:15])
+                if len(words) > 35:  # מקס 35 מילים (30 + buffer לשאלה)
+                    # קצר ל-30 מילים + שאלה אחת
+                    truncated = ' '.join(words[:30])
                     if '?' not in truncated:
                         truncated += " איך אפשר לעזור?"
                     ai_answer = truncated
@@ -1185,7 +1185,7 @@ class MediaStreamHandler:
             elif "תודה" in hebrew_text or "ביי" in hebrew_text:
                 return "תודה רבה! אני כאן לכל שאלה."
             elif any(word in hebrew_text for word in ["שלום", "היי", "הלו"]):
-                return "שלום! איזה אזור מעניין אותך? יש לי דירות במרכז, מרכז-דרום ואזור ירושלים."
+                return "שלום! אני לאה, סוכנת נדלן מקצועית מ'שי דירות ומשרדים'. אנחנו מתמחים בנדלן במרכז הארץ. איזה אזור מעניין אותך?"
             else:
                 return "איזה אזור מעניין אותך? יש לי דירות במרכז הארץ, מרכז-דרום ואזור ירושלים."
     
