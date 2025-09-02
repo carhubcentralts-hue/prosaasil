@@ -1,0 +1,160 @@
+2025-09-02T22:20:24Z info: Deployment: fee01af0-d0ff-49d2-9643-d96793f71306
+2025-09-02T22:20:24Z info: Build: 57a187f0-7ab6-4389-8165-95c58e09290b
+2025-09-02T22:20:24Z info: Connecting to builder
+2025-09-02T22:20:26Z info: Builder connected
+2025-09-02T22:20:27Z info: Installing packages
+2025-09-02T22:20:27Z info: Starting Build
+Requirement already satisfied: flask in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 1)) (3.1.1)
+
+Requirement already satisfied: gunicorn in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 2)) (21.2.0)
+
+Requirement already satisfied: greenlet<3.3,>=3.0 in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 3)) (3.2.4)
+
+Requirement already satisfied: simple-websocket in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 4)) (1.0.0)
+
+Requirement already satisfied: flask-cors in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 5)) (6.0.1)
+
+Requirement already satisfied: flask-sqlalchemy in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 6)) (3.1.1)
+
+Requirement already satisfied: flask-login in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 7)) (0.6.3)
+
+Requirement already satisfied: flask-session in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 8)) (0.8.0)
+
+Requirement already satisfied: flask-mail in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 9)) (0.10.0)
+
+Requirement already satisfied: flask-limiter in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 10)) (3.12)
+
+Requirement already satisfied: flask-bcrypt in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 11)) (1.0.1)
+
+Requirement already satisfied: psycopg2-binary in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 12)) (2.9.10)
+
+Requirement already satisfied: requests in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 13)) (2.32.4)
+
+Requirement already satisfied: openai in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 14)) (1.12.0)
+
+Requirement already satisfied: twilio in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 15)) (9.6.5)
+
+Requirement already satisfied: qrcode in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 16)) (8.2)
+
+Requirement already satisfied: gtts in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 17)) (2.5.4)
+
+Requirement already satisfied: pillow in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 18)) (11.3.0)
+
+Requirement already satisfied: pydub in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 19)) (0.25.1)
+
+Requirement already satisfied: numpy in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 20)) (2.2.6)
+
+Requirement already satisfied: python-dotenv in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 21)) (1.1.1)
+
+Requirement already satisfied: schedule in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 22)) (1.2.2)
+
+Requirement already satisfied: bcrypt in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 23)) (4.3.0)
+
+Requirement already satisfied: email-validator in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 24)) (2.2.0)
+
+Requirement already satisfied: eventlet in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 27)) (0.36.1)
+
+Requirement already satisfied: websockets in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 32)) (15.0.1)
+
+Requirement already satisfied: gevent-websocket in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 33)) (0.10.1)
+
+Requirement already satisfied: scipy in ./.pythonlibs/lib/python3.11/site-packages (from -r requirements.txt (line 35)) (1.16.1)
+
+Requirement already satisfied: packaging in ./.pythonlibs/lib/python3.11/site-packages (from gunicorn->-r requirements.txt (line 2)) (25.0)
+
+Requirement already satisfied: dnspython>=1.15.0 in ./.pythonlibs/lib/python3.11/site-packages (from eventlet->-r requirements.txt (line 27)) (2.7.0)
+
+Requirement already satisfied: blinker>=1.9.0 in ./.pythonlibs/lib/python3.11/site-packages (from flask->-r requirements.txt (line 1)) (1.9.0)
+
+Requirement already satisfied: click>=8.1.3 in ./.pythonlibs/lib/python3.11/site-packages (from flask->-r requirements.txt (line 1)) (8.1.8)
+
+Requirement already satisfied: itsdangerous>=2.2.0 in ./.pythonlibs/lib/python3.11/site-packages (from flask->-r requirements.txt (line 1)) (2.2.0)
+
+Requirement already satisfied: jinja2>=3.1.2 in ./.pythonlibs/lib/python3.11/site-packages (from flask->-r requirements.txt (line 1)) (3.1.6)
+
+Requirement already satisfied: markupsafe>=2.1.1 in ./.pythonlibs/lib/python3.11/site-packages (from flask->-r requirements.txt (line 1)) (3.0.2)
+
+Requirement already satisfied: werkzeug>=3.1.0 in ./.pythonlibs/lib/python3.11/site-packages (from flask->-r requirements.txt (line 1)) (3.1.3)
+
+Requirement already satisfied: wsproto in ./.pythonlibs/lib/python3.11/site-packages (from simple-websocket->-r requirements.txt (line 4)) (1.2.0)
+
+Requirement already satisfied: sqlalchemy>=2.0.16 in ./.pythonlibs/lib/python3.11/site-packages (from flask-sqlalchemy->-r requirements.txt (line 6)) (2.0.35)
+
+Requirement already satisfied: msgspec>=0.18.6 in ./.pythonlibs/lib/python3.11/site-packages (from flask-session->-r requirements.txt (line 8)) (0.19.0)
+
+Requirement already satisfied: cachelib in ./.pythonlibs/lib/python3.11/site-packages (from flask-session->-r requirements.txt (line 8)) (0.13.0)
+
+Requirement already satisfied: limits>=3.13 in ./.pythonlibs/lib/python3.11/site-packages (from flask-limiter->-r requirements.txt (line 10)) (5.5.0)
+Requirement already satisfied: ordered-set<5,>4 in ./.pythonlibs/lib/python3.11/site-packages (from flask-limiter->-r requirements.txt (line 10)) (4.1.0)
+
+Requirement already satisfied: rich<14,>=12 in ./.pythonlibs/lib/python3.11/site-packages (from flask-limiter->-r requirements.txt (line 10)) (13.9.4)
+
+Requirement already satisfied: charset_normalizer<4,>=2 in ./.pythonlibs/lib/python3.11/site-packages (from requests->-r requirements.txt (line 13)) (3.4.1)
+
+Requirement already satisfied: idna<4,>=2.5 in ./.pythonlibs/lib/python3.11/site-packages (from requests->-r requirements.txt (line 13)) (3.10)
+
+Requirement already satisfied: urllib3<3,>=1.21.1 in ./.pythonlibs/lib/python3.11/site-packages (from requests->-r requirements.txt (line 13)) (2.3.0)
+
+Requirement already satisfied: certifi>=2017.4.17 in ./.pythonlibs/lib/python3.11/site-packages (from requests->-r requirements.txt (line 13)) (2025.7.9)
+
+Requirement already satisfied: anyio<5,>=3.5.0 in ./.pythonlibs/lib/python3.11/site-packages (from openai->-r requirements.txt (line 14)) (4.9.0)
+
+Requirement already satisfied: distro<2,>=1.7.0 in ./.pythonlibs/lib/python3.11/site-packages (from openai->-r requirements.txt (line 14)) (1.9.0)
+
+Requirement already satisfied: httpx<1,>=0.23.0 in ./.pythonlibs/lib/python3.11/site-packages (from openai->-r requirements.txt (line 14)) (0.27.0)
+
+Requirement already satisfied: pydantic<3,>=1.9.0 in ./.pythonlibs/lib/python3.11/site-packages (from openai->-r requirements.txt (line 14)) (2.11.7)
+
+Requirement already satisfied: sniffio in ./.pythonlibs/lib/python3.11/site-packages (from openai->-r requirements.txt (line 14)) (1.3.1)
+
+Requirement already satisfied: tqdm>4 in ./.pythonlibs/lib/python3.11/site-packages (from openai->-r requirements.txt (line 14)) (4.67.1)
+
+Requirement already satisfied: typing-extensions<5,>=4.7 in ./.pythonlibs/lib/python3.11/site-packages (from openai->-r requirements.txt (line 14)) (4.14.1)
+
+Requirement already satisfied: PyJWT<3.0.0,>=2.0.0 in ./.pythonlibs/lib/python3.11/site-packages (from twilio->-r requirements.txt (line 15)) (2.10.1)
+
+Requirement already satisfied: aiohttp>=3.8.4 in ./.pythonlibs/lib/python3.11/site-packages (from twilio->-r requirements.txt (line 15)) (3.12.14)
+
+Requirement already satisfied: aiohttp-retry>=2.8.3 in ./.pythonlibs/lib/python3.11/site-packages (from twilio->-r requirements.txt (line 15)) (2.9.1)
+
+Requirement already satisfied: gevent in ./.pythonlibs/lib/python3.11/site-packages (from gevent-websocket->-r requirements.txt (line 33)) (25.8.2)
+
+Requirement already satisfied: aiohappyeyeballs>=2.5.0 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio->-r requirements.txt (line 15)) (2.6.1)
+
+Requirement already satisfied: aiosignal>=1.4.0 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio->-r requirements.txt (line 15)) (1.4.0)
+
+Requirement already satisfied: attrs>=17.3.0 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio->-r requirements.txt (line 15)) (25.3.0)
+
+Requirement already satisfied: frozenlist>=1.1.1 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio->-r requirements.txt (line 15)) (1.7.0)
+
+Requirement already satisfied: multidict<7.0,>=4.5 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio->-r requirements.txt (line 15)) (6.6.3)
+
+Requirement already satisfied: propcache>=0.2.0 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio->-r requirements.txt (line 15)) (0.3.2)
+
+Requirement already satisfied: yarl<2.0,>=1.17.0 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio->-r requirements.txt (line 15)) (1.20.1)
+
+Requirement already satisfied: httpcore==1.* in ./.pythonlibs/lib/python3.11/site-packages (from httpx<1,>=0.23.0->openai->-r requirements.txt (line 14)) (1.0.4)
+
+Requirement already satisfied: h11<0.15,>=0.13 in ./.pythonlibs/lib/python3.11/site-packages (from httpcore==1.*->httpx<1,>=0.23.0->openai->-r requirements.txt (line 14)) (0.14.0)
+
+Requirement already satisfied: deprecated>=1.2 in ./.pythonlibs/lib/python3.11/site-packages (from limits>=3.13->flask-limiter->-r requirements.txt (line 10)) (1.2.18)
+
+Requirement already satisfied: annotated-types>=0.6.0 in ./.pythonlibs/lib/python3.11/site-packages (from pydantic<3,>=1.9.0->openai->-r requirements.txt (line 14)) (0.7.0)
+
+Requirement already satisfied: pydantic-core==2.33.2 in ./.pythonlibs/lib/python3.11/site-packages (from pydantic<3,>=1.9.0->openai->-r requirements.txt (line 14)) (2.33.2)
+
+Requirement already satisfied: typing-inspection>=0.4.0 in ./.pythonlibs/lib/python3.11/site-packages (from pydantic<3,>=1.9.0->openai->-r requirements.txt (line 14)) (0.4.1)
+
+Requirement already satisfied: markdown-it-py>=2.2.0 in ./.pythonlibs/lib/python3.11/site-packages (from rich<14,>=12->flask-limiter->-r requirements.txt (line 10)) (4.0.0)
+
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in ./.pythonlibs/lib/python3.11/site-packages (from rich<14,>=12->flask-limiter->-r requirements.txt (line 10)) (2.19.2)
+
+Requirement already satisfied: zope.event in ./.pythonlibs/lib/python3.11/site-packages (from gevent->gevent-websocket->-r requirements.txt (line 33)) (5.1.1)
+
+Requirement already satisfied: zope.interface in ./.pythonlibs/lib/python3.11/site-packages (from gevent->gevent-websocket->-r requirements.txt (line 33)) (7.2)
+
+Requirement already satisfied: wrapt<2,>=1.10 in ./.pythonlibs/lib/python3.11/site-packages (from deprecated>=1.2->limits>=3.13->flask-limiter->-r requirements.txt (line 10)) (1.17.3)
+
+Requirement already satisfied: mdurl~=0.1 in ./.pythonlibs/lib/python3.11/site-packages (from markdown-it-py>=2.2.0->rich<14,>=12->flask-limiter->-r requirements.txt (line 10)) (0.1.2)
+
+Requirement already satisfied: setuptools>=75.8.2 in /nix/store/y0iwy8ma2m45pr23bw4r7lyz69v2b6wf-python3.11-setuptools-80.7.1/lib/python3.11/site-packages (from zope.event->gevent->gevent-websocket->-r requirements.txt (line 33)) (80.7.1.post0)
