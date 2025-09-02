@@ -1235,7 +1235,9 @@ class MediaStreamHandler:
         except Exception as e:
             print(f"AI_ERROR: {e} - Using intelligent emergency response")
             # ✅ תגובת חירום חכמה על בסיס זיהוי האזור
-            print(f"🚨 CRITICAL AI_ERROR for: '{hebrew_text}' - detected area: {requested_area}")
+            # הגדרת emergency_area עבור השגיאה
+            emergency_area = self._detect_area(hebrew_text) or ""
+            print(f"🚨 CRITICAL AI_ERROR for: '{hebrew_text}' - detected area: {emergency_area}")
             
             # תגובת חירום בהתאם לאזור שזוהה (גם כאן יש requested_area שלא מוגדר)
             # צריך להגדיר אותו כאן גם כן
