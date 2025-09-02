@@ -1,0 +1,166 @@
+להלן הנחיה מקצה לקצה – מסונכרנת עם כל מה שעברנו כאן, כדי שהשיחות יעבדו חלק, דו־כיווני, בעברית, עם מדיה־סטרים, בלי ניתוקים, ועם זיהוי/תגובה מהירים.
+
+⸻
+
+1) דיפלוי נכון (Replit – Autoscale)
+	•	Start command: ודא שהדיפלוי מריץ את ה־WSGI המשולב (Eventlet/WebSocket).
+→ הפקודה בדיפלוי חייבת להיות של Gunicorn עם Eventlet, לא הרצה דבאלופ/קובץ אחר.
+	•	Health check: השתמש ב־/version (לא /healthz) כדי למנוע הריגות שווא.
+	•	ENV בדיפלוי (במסך ה־Deployments, לא רק בקובץ):
+PUBLIC_BASE_URL (עם https://), OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON (כל ה־JSON בשורה אחת).
+	•	זיכרון/משאבים: הגדר לפחות 1GB RAM (ב־0.5GB תראה OOM/TERM).
+	•	דומיין: השאר את אותו דומיין; אל תשנה כדי שלא צריך לעדכן Twilio.
+
+מה בודקים:
+	•	/version מחזיר 200 מיד.
+	•	בלוג עלייה תראה: “Composite WSGI ready / WebSocketWSGI / blueprints”.
+
+⸻
+
+2) Twilio – הגדרות מספר/וובהוקים
+	•	Voice webhook (Primary): כתובת מדויקת, ללא / בסוף.
+	•	ה־TwiML (מהשרת) חייב לכלול:
+	•	<Connect><Stream url="wss://{host}/ws/twilio-media" statusCallback="https://{base}/webhook/stream_status">
+	•	action="https://{base}/webhook/stream_ended".
+	•	חיתום: שמור אימות חתימת Twilio על incoming_call, handle_recording, call_status.
+ב־stream_status/stream_ended אין צורך (ממילא נותנים 204 מיידי ברמת WSGI).
+	•	Effective URL עבור חתימה: חשב URL ללא query string (השתמש ב־{scheme}://{host}{path}), וקח X-Forwarded-Proto/Host כשיש פרוקסי.
+
+מה בודקים:
+	•	ב־Call Inspector אין 12100/403.
+	•	ה־TwiML Preview מראה application/xml; charset=utf-8 ו־wss://…/ws/twilio-media.
+
+⸻
+
+3) וובהוקים – ללא טיימאאוטים (204 מיידי)
+
+תמיד להחזיר מייד (לפני Flask) את התגובות המסוימות הללו:
+	•	POST /webhook/stream_status → 204
+	•	POST /webhook/stream_ended → 204
+	•	POST /webhook/call_status → 204
+(כך לא תראה יותר 11205 גם תחת עומס; Twilio לא צריך תוכן במסלולים האלה.)
+בנוסף, מותר להגיש את ה־TwiML של incoming_call ישירות ברמת WSGI כדי למנוע דיליי.
+
+מה בודקים:
+	•	curl ל־3 הנתיבים מחזיר 204 < 100ms.
+	•	incoming_call_preview מחזיר XML תקין מיידית.
+
+⸻
+
+4) Handshake של WebSocket (למנוע 31924/400)
+	•	תת־פרוטוקול: החזר Sec-WebSocket-Protocol: audio.twilio.com ב־101.
+	•	כותרות: ודא שמופיעים Upgrade: websocket ו־Connection: Upgrade.
+	•	נתיב: תמוך גם ב־/ws/twilio-media/ (סלאש סופי) כדי לא ליפול על ניתוב.
+	•	דיבאג: לוג אחד בזמן handshake: “Twilio subprotocol requested / Added Twilio subprotocol to handshake”.
+
+מה בודקים:
+	•	חיבור ידני (wscat) עם header subprotocol מצליח; בלוג יש “Added subprotocol…”.
+
+⸻
+
+5) קלט אודיו → STT (טלפון 8k)
+	•	פורמט: Twilio נכנס μ-law 8k מונו → המר ל־LINEAR16 8k מונו לפני ה־STT.
+ל־Google נשארים 8k; ל־Whisper בלבד מרסמבלים ל־16k.
+	•	ניקוי: High-pass ~100Hz, Low-pass ~3.6–3.8kHz, DC-offset=0, AGC עדין (יעד ~-20dBFS).
+	•	בדיקה חיה: אחת לכמה שיחות תוציא WAV קצר (2–3s) של מה שאתה שולח ל־STT; האזן—אם חלש/מעוות, זה שורש בעיית הדיוק.
+
+⸻
+
+6) VAD ו־EOU (סוף־משפט) – כדי שלא “תיתפס רק תודה/שלום”
+	•	קליברציה: בתחילת שיחה 300–500ms למדידת noise_floor.
+	•	סף דינמי: VAD_threshold = max(35, noise_floor*2.2 + 8), עם היסטרזיס 40–80ms (מונע ריצוד).
+	•	סוף־משפט (EOU): כשהיה שקט רציף 350–500ms (או 200ms אם יש נפילת אנרגיה חדה).
+	•	גבולות: MIN_UTT ≈ 0.9–1.2s, MAX_UTT ≈ 4–5s (אם אין שקט—כפה EOU ב־MAX).
+	•	באפר:
+	•	LISTENING & Voice=True → אוגרים ל־buffer.
+	•	ב־EOU → מפסיקים לאגור, מסמנים Processing, שולחים ל־STT.
+	•	אחרי ASR → מרוקנים buffer, מחזירים LISTENING.
+
+מה בודקים:
+	•	בלוגים רואים: STATE→PROCESSING | silence_ms=… | len=… ואז ASR_TEXT.
+
+⸻
+
+7) Barge-in “אמיתי” (להפסיק TTS כשאתה מתחיל לדבר)
+	•	טריגר: בזמן SPEAKING, אם קול מעל הסף נמשך ≥180–220ms → עצור מיד את שליחת ה-TTS (אל תשלח עוד פריימים), עבור ל-LISTENING, פתח באפר חדש.
+	•	חלון חסד: ב־150–250ms הראשונים של ה־TTS אל תאפשר ברג’-אין (מונע קיטוע פתיחה).
+	•	סיום TTS: הוסף 200ms “שקט” בסוף, שלח mark (למשל assistant_tts_end), וכשיש ACK (או timeout קצר ~150ms) חזור LISTENING.
+
+מה בודקים:
+	•	כשאתה “קוטע” את הסוכן, ה־TTS נפסק ≤200ms והמערכת חוזרת להקשבה.
+
+⸻
+
+8) STT – בחירה ומדיניות
+	•	Primary מומלץ לטלפוניה: Google STT Streaming בעברית.
+	•	languageCode=he-IL (ואם לא נתמך באזורך—iw-IL).
+	•	encoding=LINEAR16, sampleRateHertz=8000, useEnhanced=true.
+	•	partial/interim results מופעלים (לטנטיות נמוכה).
+	•	speechContexts (רבעון מקוצר) לשמות עסק, אזורים, “Agent Locator”, “וואטסאפ”, ר”מ.
+	•	Fallback: Whisper (עם ריסמפל ל־16k, language='he', טמפרטורה נמוכה).
+	•	רב־תהליכיות: אל תחסום את לולאת ה־WS; הרץ STT ב-green thread/pool והחזר תוצאה אסינכרונית.
+
+מה בודקים:
+	•	ASR_TEXT מגיע <~700ms מה־EOU, דיוק יציב גם ברעש מתון.
+
+⸻
+
+9) TTS – שידור חזרה לטלפון
+	•	טולקיט: Google TTS (עברית), יציאה LINEAR16 8k, המרה ל־μ-law.
+	•	שידור: חלק ל־פריימים של 20ms (160 דגימות ב־8k), שלח בקצב קבוע.
+	•	סוף דיבור: הוסף 200ms שקט, שלח mark, המתן ACK או timeout, חזור LISTENING.
+	•	קאשינג: ברכות/“רגע, בודקת…”—החזק קאש מוכן.
+
+מה בודקים:
+	•	TTS_START, מספר פריימים, MARK_SENT/ACK, ואז STATE→LISTENING.
+
+⸻
+
+10) מדיניות דיאלוג (LLM) – להפסיק תשובות “סתם”
+	•	System role בעברית: “את סוכנת נדל״ן של AgentLocator. המטרה: לאסוף אזור, סוג נכס, תקציב, טווח תזמון, פרטי קשר; לשאול שאלה אחת ממקדת; לא להמציא; לא לסטות.”
+	•	סלוטים: שמור/עדכן לאורך השיחה (אזור/סוג/תקציב/זמן/פרטים).
+	•	Few-shot: 2–3 דוגמאות קצרות לדיאלוג אמיתי בעברית (שאלת המשך אחת כל פעם).
+	•	סגנון: 12–20 מילים לתשובה; לא שלוש שאלות בבת אחת; כשלא מבינה—בקשת ניסוח מחדש.
+	•	אסקלציה: כשאספת הכל—סכם בקצרצר ושאל לאישור/שליחה לוואטסאפ/קביעת שיחה.
+
+מה בודקים:
+	•	אין “קשקוש”; כל תשובה מסתיימת בשאלה קצרה, מתקרבים למטרה.
+
+⸻
+
+11) לוגים – רואים את העיקר, לא מציפים
+	•	כבה הדפסה פר פריים; אם חייבים—דגום 1/50.
+	•	השאר רק אירועי מפתח:
+STATE_CHANGE, EOU (len & silence_ms), ASR_TEXT + latency, TTS_START/END + frames, MARK_SENT/ACK, חריגות (timeouts/handshake).
+	•	זיהוי שיחה: הדפס תמיד call_sid כדי לנתח זרימה לפי שיחה אחת.
+
+מה בודקים:
+	•	לוג נקי, קריא, אפשר לחפש בו מחזורי LISTENING→…→LISTENING בלי “רעש”.
+
+⸻
+
+12) QA / קבלה (לפני לקוחות)
+	1.	HTTP:
+	•	POST /webhook/stream_status|stream_ended|call_status → 204 < 100ms.
+	•	incoming_call_preview → XML תקין עם https:// ו-wss://.
+	2.	WS: חיבור ידני עם subprotocol מתחבר; בלוג handshake.
+	3.	שיחה אמיתית:
+	•	אמור משפט 2–3 שניות → 0.35–0.5s שקט → STATE→PROCESSING → ASR_TEXT < ~700ms → TTS_START → MARK_ACK → STATE→LISTENING.
+	•	Barge-in: דבר מעל ה-TTS—הוא נפסק ≤200ms, חוזרים LISTENING.
+	•	רעש מתון: עדיין מזהה; לא “חותך” מדי.
+	•	תשובות קצרות + שאלה אחת; סלוטים מתקדמים.
+
+⸻
+
+13) פתרון תקלות לפי סימפטום (שולף־מהיר)
+	•	11205 (timeouts) → ודא ש־stream_status/ended/call_status מחזירים 204 ברמת WSGI.
+	•	31924/400 (Handshake) → ודא subprotocol + Upgrade/Connection; תמיכה גם ב־/ws/twilio-media/; TwiML עם wss://{host} (host בלי סכימה).
+	•	12100 (parse) → Content-Type: application/xml; charset=utf-8 ובלי תווים לפני <?xml …?>.
+	•	403 חתימה → חשב URL בלי query; קח X-Forwarded-Proto/Host.
+	•	“שומעת רק תודה/שלום” → VAD/EOU/באפר: הנמך סף, דינמיקה, 350–500ms שקט, MIN_UTT1s, MAX_UTT5s.
+	•	נחתך/קופץ בזמן דיבור → Barge-in רק אחרי ≥180–220ms, חלון חסד בתחילת TTS, mark בסוף.
+	•	תשובות סתמיות → System+few-shot+סלוטים; שאלה אחת כל פעם; אין המצאות.
+
+⸻
+
+זו ההנחיה המקיפה: אם תיושם אחת-לאחת, השיחות יעבדו יציב—WS ננעל, ה־webhooks תמיד חוזרים בזמן, הזיהוי קולט משפטים מלאים בטלפון 8k, הברג’-אין מרגיש טבעי, וה-AI מתקדם בקו ברור עם תשובות קצרות ושאלות ממקדות.

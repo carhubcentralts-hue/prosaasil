@@ -233,7 +233,7 @@ class MediaStreamHandler:
                         self.calibration_frames += 1
                         if self.calibration_frames >= 60:
                             # ✅ VAD רגיש הרבה יותר - threshold נמוך יותר
-                            self.vad_threshold = max(40, self.noise_floor * 2.0 + 15)
+                            self.vad_threshold = max(35, self.noise_floor * 2.2 + 8)
                             self.is_calibrated = True
                             print(f"🎛️ VAD_CALIBRATED: noise_floor={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f} (SENSITIVE after 800ms)")
                             
@@ -303,7 +303,15 @@ class MediaStreamHandler:
                             self.voice_in_row += 1
                             # 300ms של קול רציף = 15 frames
                             if self.voice_in_row >= 15:  # 300ms של קול רציף לפני הפרעה
-                                print(f"⚡ BARGE-IN DETECTED! RMS={rms:.1f} > threshold={barge_in_threshold:.1f} for {self.voice_in_row} frames")
+                                # ✅ חלון חסד לפי ההנחיות: 150-250ms אחרי תחילת TTS
+                                grace_period = 0.2  # 200ms חלון חסד
+                                time_since_tts_start = time.time() - self.speaking_start_ts
+                                
+                                if time_since_tts_start < grace_period:
+                                    print(f"🛡️ GRACE PERIOD: Ignoring barge-in in first {grace_period*1000:.0f}ms of TTS (elapsed: {time_since_tts_start*1000:.0f}ms)")
+                                    continue
+                                
+                                print(f"⚡ BARGE-IN DETECTED! RMS={rms:.1f} > threshold={barge_in_threshold:.1f} for {self.voice_in_row} frames (after grace period)")
                                 
                                 # ✅ עצירת TTS מיידית - לא עוד פריימים!
                                 self.speaking = False
@@ -348,8 +356,8 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ✅ זיהוי סוף מבע מהיר יותר - 500-600ms שקט
-                            min_silence = 0.5 if dur > 1.5 else 0.6  # 500-600ms שקט מאוזן
+                            # ✅ זיהוי סוף מבע לפי ההנחיות - 350-500ms שקט
+                            min_silence = 0.35 if dur > 1.5 else 0.5  # 350-500ms לפי ההנחיות
                             silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
                             min_duration = 0.8  # מינימום לתמלול איכותי
@@ -856,48 +864,101 @@ class MediaStreamHandler:
                 return pcm16_8k + pcm16_8k  # Double the data for "16kHz"
 
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
-        """Hebrew Speech-to-Text using OpenAI Whisper with high-quality audio processing"""
+        """Hebrew STT using Google STT Streaming with speech contexts (לפי ההנחיות)"""
         try:
-            from server.services.lazy_services import get_openai_client
-            import tempfile
-            import wave
+            print(f"🎤 STT_START: Processing {len(pcm16_8k)} bytes with Google STT Streaming Hebrew")
             
-            # ✅ עיבוד אודיו איכותי לפני STT
-            processed_audio = self._process_audio_for_stt(pcm16_8k)
+            from server.services.lazy_services import get_stt_client
+            from google.cloud import speech
             
-            # Save as temporary WAV file (16kHz for Whisper)
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                with wave.open(f.name, 'wb') as wav:
-                    wav.setnchannels(1)     # Mono
-                    wav.setsampwidth(2)     # 16-bit
-                    wav.setframerate(16000)  # 16kHz (Whisper optimal)
-                    wav.writeframes(processed_audio)
-                
-                # Use OpenAI Whisper with Hebrew optimization
-                client = get_openai_client()
-                if not client:
-                    print("❌ OpenAI client not available for STT")
-                    return ""
-                with open(f.name, "rb") as audio_file:
-                    transcript = client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio_file,
-                        language="he",       # Hebrew (לא זיהוי דינמי)
-                        temperature=0.1,     # נמוך למדויק יותר
-                        prompt="תמלל בעברית בדיוק מה שנאמר."  # simple transcription prompt
-                    )
-                
-                import os
-                os.unlink(f.name)
-                return transcript.text.strip()
+            client = get_stt_client()
+            if not client:
+                print("❌ Google STT client not available - fallback to Whisper")
+                return self._whisper_fallback(pcm16_8k)
+            
+            # ✅ Google STT Streaming Configuration לפי ההנחיות
+            recognition_config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=8000,  # ✅ השאר 8kHz לטלפוניה
+                language_code="he-IL",   # עברית ישראלית
+                use_enhanced=True,       # מודל משופר
+                enable_automatic_punctuation=True,
+                speech_contexts=[        # ✅ Speech contexts לעברית לפי ההנחיות
+                    speech.SpeechContext(phrases=[
+                        "מקסימוס נדלן", "לאה", "שי דירות ומשרדים",
+                        "תל אביב", "רמת גן", "רמלה", "לוד", "בית שמש", 
+                        "מודיעין", "פתח תקווה", "רחובות", "הרצליה",
+                        "דירה", "חדרים", "שכירות", "קניה", "משכנתא",
+                        "תקציב", "שקל", "אלף", "מיליון", "נדלן"
+                    ])
+                ]
+            )
+            
+            # Single request recognition (לא streaming למבע קצר)
+            audio = speech.RecognitionAudio(content=pcm16_8k)
+            
+            # ✅ עם timeout קצר לתגובה מהירה
+            response = client.recognize(
+                config=recognition_config,
+                audio=audio,
+                timeout=3.0  # 3 שניות מקס
+            )
+            
+            if response.results and response.results[0].alternatives:
+                hebrew_text = response.results[0].alternatives[0].transcript.strip()
+                confidence = response.results[0].alternatives[0].confidence
+                print(f"✅ GOOGLE_STT_SUCCESS: '{hebrew_text}' (confidence: {confidence:.2f})")
+                return hebrew_text
+            else:
+                print("❌ Google STT returned no results - fallback to Whisper")
+                return self._whisper_fallback(pcm16_8k)
                 
         except Exception as e:
-            print(f"❌ STT_CRITICAL_ERROR: {e}")
-            print(f"   Audio size: {len(pcm16_8k)} bytes")
-            print(f"   Duration: {len(pcm16_8k)/(2*8000):.1f}s")
-            # ✅ תיקון קריטי: אל תקריס - המשך לעבוד
-            import traceback
-            traceback.print_exc()
+            print(f"❌ GOOGLE_STT_ERROR: {e} - fallback to Whisper")
+            return self._whisper_fallback(pcm16_8k)
+    
+    def _whisper_fallback(self, pcm16_8k: bytes) -> str:
+        """Whisper fallback for Google STT failures"""
+        try:
+            print(f"🔄 WHISPER_FALLBACK: Processing {len(pcm16_8k)} bytes")
+            
+            from server.services.lazy_services import get_openai_client
+            client = get_openai_client()
+            if not client:
+                print("❌ OpenAI client not available")
+                return ""
+            
+            # Resample to 16kHz for Whisper
+            pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
+            
+            # Save as temporary WAV file
+            import tempfile, wave
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+                with wave.open(temp_wav.name, 'wb') as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(16000)
+                    wav_file.writeframes(pcm16_16k)
+                
+                with open(temp_wav.name, 'rb') as audio_file:
+                    transcription = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        language="he",
+                        response_format="text", 
+                        temperature=0.2
+                    )
+                
+                hebrew_text = transcription.strip() if transcription else ""
+                print(f"✅ WHISPER_FALLBACK_SUCCESS: '{hebrew_text}'")
+                
+                # Clean up
+                import os
+                os.unlink(temp_wav.name)
+                return hebrew_text
+                
+        except Exception as e:
+            print(f"❌ WHISPER_FALLBACK_ERROR: {e}")
             return ""
     
     def _ai_response(self, hebrew_text: str) -> str:
@@ -1133,6 +1194,7 @@ class MediaStreamHandler:
             
         self.speaking = True
         self.state = STATE_SPEAK
+        self.speaking_start_ts = time.time()  # ✅ חלון חסד - זמן תחילת TTS
         
         try:
             # נשימה אנושית (220-360ms)
