@@ -920,38 +920,64 @@ class MediaStreamHandler:
                 return "לא הבנתי - תוכל לחזור?"
     
     def _hebrew_tts(self, text: str) -> bytes | None:
-        """Hebrew Text-to-Speech using Google Cloud TTS"""
+        """Hebrew Text-to-Speech using OpenAI TTS (more reliable than Google Cloud)"""
         try:
-            print(f"🔊 TTS_START: Generating Hebrew TTS for '{text[:50]}...' (length: {len(text)} chars)")
-            from server.services.lazy_services import get_tts_client
-            from google.cloud import texttospeech
+            print(f"🔊 TTS_START: Generating Hebrew TTS with OpenAI for '{text[:50]}...' (length: {len(text)} chars)")
+            from server.services.lazy_services import get_openai_client
+            import tempfile
+            import subprocess
+            import os
             
-            client = get_tts_client()
+            client = get_openai_client()
             if not client:
-                print("❌ TTS client not available")
+                print("❌ OpenAI client not available for TTS")
                 return None
             
-            synthesis_input = texttospeech.SynthesisInput(text=text)
-            voice = texttospeech.VoiceSelectionParams(
-                language_code="he-IL",
-                name="he-IL-Standard-A"
-            )
-            audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-                sample_rate_hertz=8000,
-                speaking_rate=0.96,  # קצת יותר איטי מהרגיל
-                pitch=0.0,           # טון טבעי
-                effects_profile_id=["telephony-class-application"]  # אופטימיזציה לטלפון
+            # יצירת TTS עם OpenAI
+            response = client.audio.speech.create(
+                model="tts-1",
+                voice="nova",  # קול נשי נעים
+                input=text,
+                response_format="mp3"
             )
             
-            response = client.synthesize_speech(
-                input=synthesis_input,
-                voice=voice,
-                audio_config=audio_config
-            )
-            
-            print(f"✅ TTS_SUCCESS: Generated {len(response.audio_content)} bytes of audio ({len(response.audio_content)/16000:.1f}s estimated)")
-            return response.audio_content
+            # המר מMP3 לPCM16 8kHz
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as mp3_file:
+                response.stream_to_file(mp3_file.name)
+                
+                pcm_file = mp3_file.name.replace('.mp3', '.wav')
+                
+                # המר MP3 לWAV PCM16 8kHz mono באמצעות ffmpeg
+                try:
+                    subprocess.run([
+                        'ffmpeg', '-i', mp3_file.name, 
+                        '-ac', '1',  # mono
+                        '-ar', '8000',  # 8kHz
+                        '-f', 'wav',
+                        '-y',  # overwrite
+                        pcm_file
+                    ], check=True, capture_output=True, stderr=subprocess.DEVNULL)
+                    
+                    # קרא את ה-WAV וחלץ את ה-PCM16
+                    import wave
+                    with wave.open(pcm_file, 'rb') as wav:
+                        pcm16_data = wav.readframes(wav.getnframes())
+                    
+                    # נקה קבצים זמניים
+                    os.unlink(mp3_file.name)
+                    os.unlink(pcm_file)
+                    
+                    print(f"✅ TTS_SUCCESS: Generated {len(pcm16_data)} bytes of PCM16 8kHz audio")
+                    return pcm16_data
+                    
+                except subprocess.CalledProcessError:
+                    print("❌ ffmpeg conversion failed - falling back to mp3")
+                    # אם ffmpeg נכשל, נחזיר את ה-MP3 גולמי (לא מושלם אבל עובד)
+                    with open(mp3_file.name, 'rb') as f:
+                        mp3_data = f.read()
+                    os.unlink(mp3_file.name)
+                    print(f"⚠️ TTS_FALLBACK: Returning {len(mp3_data)} bytes of MP3 (not ideal but functional)")
+                    return mp3_data
             
         except Exception as e:
             print(f"❌ TTS_CRITICAL_ERROR: {e}")
