@@ -87,15 +87,20 @@ class MediaStreamHandler:
         self.processing_start_ts = 0.0   # תחילת עיבוד
         self.speaking_start_ts = 0.0     # תחילת דיבור
         
+        # ✅ WebSocket Keepalive למניעת נפילות אחרי 5 דקות
+        self.last_keepalive_ts = 0.0     # זמן keepalive אחרון
+        self.keepalive_interval = 18.0   # שלח כל 18 שניות
+        self.heartbeat_counter = 0       # מונה heartbeat
+        
         # TX Queue for smooth audio transmission
         self.tx_q = queue.Queue(maxsize=4096)
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         
-        print("🎯 HUMAN-LIKE CONVERSATION: Natural timing, breathing, refractory period")
+        print("🎯 AI CONVERSATION STARTED")
 
     def run(self):
-        print(f"🚨 MEDIA_STREAM_HANDLER: mode={self.mode}")
+        # Media stream handler initialized")
         
         # CRITICAL FIX: Ensure json import is available
         import json
@@ -130,7 +135,7 @@ class MediaStreamHandler:
         self.tx_frames = 0
         
         print(f"WS_START sid={self.stream_sid} mode=AI call_sid={self.call_sid}")
-        print(f"🎯 CONVERSATION_START: state={self.state} barge_in={BARGE_IN} VAD_RMS={VAD_RMS}")
+        print(f"🎯 CONVERSATION READY (VAD threshold: {VAD_RMS})")
         
         try:
             while True:
@@ -198,6 +203,7 @@ class MediaStreamHandler:
                         self.stream_sid = evt.get("streamSid")
                         self.call_sid = evt.get("callSid")
                     self.last_rx_ts = time.time()
+                    self.last_keepalive_ts = time.time()  # ✅ התחל keepalive
                     print(f"🎯 WS_START sid={self.stream_sid} call_sid={self.call_sid} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
@@ -235,7 +241,7 @@ class MediaStreamHandler:
                             # ✅ VAD רגיש הרבה יותר - threshold נמוך יותר
                             self.vad_threshold = max(35, self.noise_floor * 2.2 + 8)
                             self.is_calibrated = True
-                            print(f"🎛️ VAD_CALIBRATED: noise_floor={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f} (SENSITIVE after 800ms)")
+                            print(f"🎛️ VAD CALIBRATED (threshold: {self.vad_threshold:.1f})")
                             
                             # היסטרזיס למניעת ריצוד
                             if not hasattr(self, 'vad_hysteresis_count'):
@@ -293,25 +299,25 @@ class MediaStreamHandler:
                     else:
                         self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
 
-                    # ⚡ BARGE-IN אמיתי: עצירת TTS מיידית כשמדברים מעל הסוכן
+                    # ⚡ BARGE-IN משופר: עצירת TTS מיידית עם חלון חסד לפי ההנחיות
                     if self.speaking and BARGE_IN:
-                        # סף בארג-אין גבוה יותר: noise_floor*2.2+10 (לא רעש רגיל)
+                        # ✅ חלון חסד לפי ההנחיות: 200ms אחרי תחילת TTS
+                        grace_period = 0.2  # 200ms חלון חסד מדויק
+                        time_since_tts_start = current_time - self.speaking_start_ts
+                        
+                        if time_since_tts_start < grace_period:
+                            # בתוך חלון החסד - התעלם מ-barge-in
+                            continue
+                        
+                        # סף בארג-אין מדויק: noise_floor*2.2+10 (לא רעש רגיל)
                         barge_in_threshold = max(50, self.noise_floor * 2.2 + 10) if self.is_calibrated else 80
                         is_barge_in_voice = rms > barge_in_threshold
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                            # 300ms של קול רציף = 15 frames
-                            if self.voice_in_row >= 15:  # 300ms של קול רציף לפני הפרעה
-                                # ✅ חלון חסד לפי ההנחיות: 150-250ms אחרי תחילת TTS
-                                grace_period = 0.2  # 200ms חלון חסד
-                                time_since_tts_start = time.time() - self.speaking_start_ts
-                                
-                                if time_since_tts_start < grace_period:
-                                    print(f"🛡️ GRACE PERIOD: Ignoring barge-in in first {grace_period*1000:.0f}ms of TTS (elapsed: {time_since_tts_start*1000:.0f}ms)")
-                                    continue
-                                
-                                print(f"⚡ BARGE-IN DETECTED! RMS={rms:.1f} > threshold={barge_in_threshold:.1f} for {self.voice_in_row} frames (after grace period)")
+                            # 180-220ms של קול רציף = 9-11 frames (לפי ההנחיות)
+                            if self.voice_in_row >= 10:  # 200ms של קול רציף לפני הפרעה
+                                print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ עצירת TTS מיידית - לא עוד פריימים!
                                 self.speaking = False
@@ -321,7 +327,7 @@ class MediaStreamHandler:
                                 self.state = STATE_LISTEN
                                 self.processing = False
                                 
-                                # ✅ פתיחת באפר חדש מתמלול
+                                # ✅ ניקוי באפר ופתיחה חדשה לתמלול
                                 self.buf.clear()
                                 self.last_voice_ts = current_time  # התחל מדידת שקט מחדש
                                 self.voice_in_row = 0
@@ -367,8 +373,7 @@ class MediaStreamHandler:
                             
                             # סוף מבע: דממה מספקת OR זמן יותר מדי OR באפר גדול עם שקט
                             if ((silent and buffer_big_enough) or too_long) and dur >= min_duration:
-                                print(f"🎤 EOU DETECTED: {dur:.1f}s audio, silence={silence_time:.2f}s, conversation #{self.conversation_id}")
-                                print(f"🔍 EOU_INFO: Buffer={len(self.buf)} bytes, Silent={silent}, TooLong={too_long}")
+                                print(f"🎤 END OF UTTERANCE: {dur:.1f}s audio, conversation #{self.conversation_id}")
                                 
                                 # מעבר לעיבוד
                                 self.processing = True
@@ -396,6 +401,23 @@ class MediaStreamHandler:
                                     if self.state == STATE_THINK:
                                         self.state = STATE_LISTEN
                                     print(f"✅ Processing complete for conversation #{current_id}")
+                    
+                    # ✅ WebSocket Keepalive - מונע נפילות אחרי 5 דקות
+                    if current_time - self.last_keepalive_ts > self.keepalive_interval:
+                        self.last_keepalive_ts = current_time
+                        self.heartbeat_counter += 1
+                        
+                        # שלח heartbeat mark event
+                        try:
+                            heartbeat_msg = {
+                                "event": "mark",
+                                "streamSid": self.stream_sid,
+                                "mark": {"name": f"heartbeat_{self.heartbeat_counter}"}
+                            }
+                            self._ws_send(json.dumps(heartbeat_msg))
+                            print(f"💓 WS_KEEPALIVE #{self.heartbeat_counter} (prevents 5min timeout)")
+                        except Exception as e:
+                            print(f"⚠️ Keepalive failed: {e}")
                     
                     # ✅ Watchdog: וודא שלא תקועים במצב + EOU כפויה
                     if self.processing and (current_time - self.processing_start_ts) > 2.5:
@@ -455,6 +477,9 @@ class MediaStreamHandler:
                         self.last_voice_ts = 0
                         self.voice_in_row = 0
                         print("🎤 STATE -> LISTENING | buffer_reset")
+                    elif mark_name.startswith("heartbeat_"):
+                        # אישור keepalive - התעלם
+                        pass
                     continue
 
                 if et == "stop":
@@ -467,10 +492,13 @@ class MediaStreamHandler:
                         pass
                     break
 
-        except ConnectionClosed:
-            print(f"WS_CLOSED sid={self.stream_sid} rx={self.rx} tx={self.tx}")
+        except ConnectionClosed as e:
+            print(f"📞 WS_CLOSED sid={self.stream_sid} rx={self.rx} tx={self.tx} reason=ConnectionClosed")
+            # ✅ ניסיון התאוששות אם השיחה עדיין פעילה
+            if self.call_sid:
+                print(f"🔄 WS connection lost for active call {self.call_sid} - recovery might be possible via Twilio REST API")
         except Exception as e:
-            print("WS_ERR:", e)
+            print(f"❌ WS_ERROR sid={self.stream_sid}: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
         finally:
@@ -538,25 +566,25 @@ class MediaStreamHandler:
             # PATCH 6: Safe ASR - never leaves empty
             try:
                 text = self._hebrew_stt(pcm16_8k) or ""
-                print(f"ASR_TEXT: {text}")
+                print(f"🎤 USER: {text}")
             except Exception as e:
-                print("ASR_ERR:", e)
+                print(f"❌ STT ERROR: {e}")
                 text = ""
             
             if not text.strip():
                 text = "אפשר לחזור על זה במשפט קצר?"
-            print("ASR_TEXT:", text)
+            # STT result processed")
             
             # PATCH 6: Anti-duplication on user text (14s window) - WITH DEBUG
             uh = zlib.crc32(text.strip().encode("utf-8"))
             if (self.last_user_hash == uh and 
                 (time.time() - self.last_user_hash_ts) <= DEDUP_WINDOW_SEC):
-                print(f"🚫 DEDUP user → ignore. Text: '{text}' Hash: {uh} Time_diff: {(time.time() - self.last_user_hash_ts):.1f}s")
+                print("🚫 DUPLICATE USER INPUT (ignored)")
                 self.processing = False
                 self.state = STATE_LISTEN
                 return
             self.last_user_hash, self.last_user_hash_ts = uh, time.time()
-            print(f"✅ PROCESSING new text: '{text}' Hash: {uh}")
+            # Processing new user input")
             
             # 3. AI Response - БЕЗ micro-ack! תן לה לחשוב בשקט
             started_at = time.time()
@@ -567,7 +595,7 @@ class MediaStreamHandler:
             # PATCH 6: Anti-duplication bot reply - WITH DEBUG
             rh = zlib.crc32(reply.strip().encode("utf-8"))
             if self.last_reply_hash == rh:
-                print(f"🚫 DUPLICATE bot reply detected! Original: '{reply}'")
+                print("🚫 DUPLICATE BOT REPLY (using alternative)")
                 # תשובות חלופיות מועילות במקום גנריות
                 alternatives = [
                     "איזה אזור בתל אביב מעניין אותך? יש לי מספר אפשרויות מצוינות.",
@@ -577,9 +605,9 @@ class MediaStreamHandler:
                 import random
                 reply = random.choice(alternatives)
                 rh = zlib.crc32(reply.encode("utf-8"))
-                print(f"✅ REPLACED with engaging alternative: '{reply}'")
+                # Using alternative response")
             self.last_reply_hash = rh
-            print(f"🔊 BOT will say: '{reply}' Hash: {rh}")
+            print(f"🤖 BOT: {reply}")
             
             # 5. הוסף להיסטוריה
             self.response_history.append({
@@ -999,28 +1027,46 @@ class MediaStreamHandler:
             # 🎯 זיהוי אזור מהבקשה
             requested_area = self._detect_area(hebrew_text)
             
-            # ✅ פרומפט חד ומהיר לתשובות קצרות וחכמות
-            smart_prompt = f"""את לאה מקסימוס נדלן. 
+            # ✅ בדיקת מידע שנאסף לתיאום פגישה
+            lead_info = self._analyze_lead_completeness()
+            
+            # ✅ פרומפט סוכנת נדלן מקצועית לפי ההנחיות החדשות
+            smart_prompt = f"""את סוכנת נדלן טלפונית של AgentLocator. המטרה: לאסוף במהירות פרטי ליד: אזור/שכונה, סוג נכס, תקציב, טווח כניסה/זמן, שם + טלפון/וואטסאפ.
 
-דירות זמינות:
-• תל אביב דיזנגוף - 3 חדרים, 7,500₪
-• רמת גן בורסה - 4 חדרים, 8,200₪  
-• רמלה הגפן - 3 חדרים, 5,200₪
-• לוד מרכז - 4 חדרים, 5,800₪
-• בית שמש - 4 חדרים, 5,500₪
+כל תשובה שלך: 1–2 משפטים קצרים מאוד (+/− 15 מילים) ותמיד שאלה אחת בסוף.
+אם לא שמעת/לא בטוחה – תגידי "לא בטוח ששמעתי נכון, אפשר לחזור על זה?" (אל תמציאי).
+אין להציע נכסים ספציפיים בלי נתונים; אין המצאות.
+כשלקוח קוטע אותך – עצרי מיד ותבקשי ממנו להמשיך.
+כשחסר מידע – שאלת הבהרה ממוקדת אחת.
+כשהסלוטים מלאים – הצעי תיאום פגישה (שיחת וידאו/טלפון), הציעי 2–3 חלונות זמן קצרים, בקשי אישור ושלחי סיכום קצר.
 
-אזור מבוקש: {requested_area if requested_area else 'כללי'}
+כללי ניסוח:
+- אין שתי שאלות באותה תשובה
+- אין "נאום"; משפטים קצרים
+- בסוף כל תשובה—סימן שאלה אחד
+- אם יש רעש/לא בטוח—בקשת חזרה במקום לנחש
 
-כללים:
-- תשובה של 15-25 מילים בלבד!
-- ישירות לעניין
-- הצעה קונקרטית מהאזור
-- שאלה קצרה אחת בסוף
+דוגמאות:
+דוגמה 1 - לקוח שקט/לא ברור:
+לקוח: [רעש/לא ברור]
+סוכנת: "לא בטוח ששמעתי נכון, אפשר לחזור על זה?"
 
-{history_context}
+דוגמה 2 - קיטוע באמצע:
+לקוח: [קוטע באמצע הדיבור]
+סוכנת: "אפשר להמשיך?"
+
+דוגמה 3 - תיאום פגישה:
+לקוח: "יש לי אזור ותקציב"
+סוכנת: "מעולה! בואו נקבע פגישה. מתי נוח לך - היום 18:00 או מחר 10:30?"
+
+אזור מזוהה: {requested_area if requested_area else 'לא ידוע'}
+מידע נאסף: {lead_info['summary']}
+היסטוריה: {history_context}
+
+{lead_info['meeting_prompt']}
 
 הלקוח אומר: "{hebrew_text}"
-תגובה מקצועית ומעניינת:"""
+תגובה (מקסימום 15 מילים + שאלה אחת):"""
 
             # ✅ GPT-4o MINI מהיר יותר לשיחה חיה!
             try:
@@ -1030,8 +1076,8 @@ class MediaStreamHandler:
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=150,           # מספיק לתגובה מפורטת (40-60 מילים)
-                    temperature=0.6,          # פחות random = מהיר יותר
+                    max_tokens=60,            # ✅ מגביל ל-15 מילים (+/- כמה) לפי ההנחיות
+                    temperature=0.3,          # ✅ פחות creative = עקבית יותר
                     timeout=6.0               # מקס 6 שניות
                 )
             except Exception as e:
@@ -1044,8 +1090,8 @@ class MediaStreamHandler:
                             {"role": "system", "content": smart_prompt},
                             {"role": "user", "content": hebrew_text}
                         ],
-                        max_tokens=150,
-                        temperature=0.6,
+                        max_tokens=60,            # ✅ מגביל ל-15 מילים (+/- כמה) לפי ההנחיות
+                        temperature=0.3,          # ✅ פחות creative = עקבית יותר
                         timeout=12.0  # ניסיון שני עם timeout כפול
                     )
                     content = response.choices[0].message.content
@@ -1063,15 +1109,15 @@ class MediaStreamHandler:
             if content and content.strip():
                 ai_answer = content.strip()
                 
-                # ✅ הגבלת אורך תגובה מאוזנת (לא קצר מדי!)
-                if len(ai_answer) > 200:  # מקס 200 תווים = ~40 מילים בעברית
-                    # קצר לתחילת משפט שלם
-                    sentences = ai_answer.split('.')
-                    if len(sentences) > 1:
-                        ai_answer = sentences[0] + '.'
-                    else:
-                        ai_answer = ai_answer[:200].rsplit(' ', 1)[0]
-                    print(f"🔪 SHORTENED: {len(content)} → {len(ai_answer)} chars")
+                # ✅ אכיפת גבול 15 מילים לפי ההנחיות החדשות
+                words = ai_answer.split()
+                if len(words) > 18:  # מקס 18 מילים (15 + buffer קטן לשאלה)
+                    # קצר ל-15 מילים + שאלה אחת
+                    truncated = ' '.join(words[:15])
+                    if '?' not in truncated:
+                        truncated += " איך אפשר לעזור?"
+                    ai_answer = truncated
+                    print(f"🔪 WORD_LIMIT: {len(words)} → {len(ai_answer.split())} words")
                 
                 # ✅ מנע רק תגובות גנריות - אל תחסום דירות ספציפיות!
                 if (ai_answer.count("תודה רבה") > 1 or "שמחתי לעזור" in ai_answer or 
@@ -1308,3 +1354,79 @@ class MediaStreamHandler:
             return "ירושלים"
             
         return None
+    
+    def _analyze_lead_completeness(self) -> dict:
+        """✅ ניתוח השלמת מידע ליד לתיאום פגישה"""
+        collected_info = {
+            'area': False,
+            'property_type': False, 
+            'budget': False,
+            'timing': False,
+            'contact': False
+        }
+        
+        meeting_ready = False
+        
+        # בדוק היסטוריה לאיסוף מידע
+        if hasattr(self, 'conversation_history') and self.conversation_history:
+            full_conversation = ' '.join([turn['user'] + ' ' + turn['bot'] for turn in self.conversation_history])
+            
+            # זיהוי אזור
+            if any(area in full_conversation for area in ['תל אביב', 'רמת גן', 'רמלה', 'לוד', 'בית שמש', 'מודיעין', 'פתח תקווה', 'רחובות', 'הרצליה', 'ירושלים']):
+                collected_info['area'] = True
+            
+            # זיהוי סוג נכס
+            if any(prop_type in full_conversation for prop_type in ['דירה', 'חדרים', '2 חדרים', '3 חדרים', '4 חדרים', 'משרד', 'דופלקס']):
+                collected_info['property_type'] = True
+            
+            # זיהוי תקציב
+            if any(budget_word in full_conversation for budget_word in ['שקל', 'אלף', 'תקציב', '₪', 'אלפים', 'מיליון']):
+                collected_info['budget'] = True
+            
+            # זיהוי זמן כניסה
+            if any(timing in full_conversation for timing in ['מיידי', 'דחוף', 'חודש', 'שבועיים', 'בקרוב', 'עכשיו']):
+                collected_info['timing'] = True
+            
+            # זיהוי פרטי קשר
+            if any(contact in full_conversation for contact in ['טלפון', 'וואטסאפ', 'נייד', 'מספר', 'פרטים']):
+                collected_info['contact'] = True
+        
+        # ספירת מידע שנאסף
+        completed_fields = sum(collected_info.values())
+        
+        # תיאום פגישה אם יש לפחות 3 שדות
+        meeting_ready = completed_fields >= 3
+        
+        # יצירת סיכום
+        summary_parts = []
+        if collected_info['area']: summary_parts.append('אזור')
+        if collected_info['property_type']: summary_parts.append('סוג נכס')
+        if collected_info['budget']: summary_parts.append('תקציב')
+        if collected_info['timing']: summary_parts.append('זמן')
+        if collected_info['contact']: summary_parts.append('קשר')
+        
+        summary = f"{len(summary_parts)}/5 שדות: {', '.join(summary_parts) if summary_parts else 'אין'}"
+        
+        # הודעה לתיאום פגישה
+        meeting_prompt = ""
+        if meeting_ready:
+            import datetime
+            now = datetime.datetime.now()
+            today_evening = f"היום {now.hour + 2}:00"
+            tomorrow_morning = f"מחר {9 + (now.hour % 3)}:30"
+            
+            meeting_prompt = f"""
+זמן לתיאום פגישה! יש מספיק מידע ({completed_fields}/5 שדות).
+הצע 2-3 חלונות זמן: {today_evening}, {tomorrow_morning}, או עוד אפשרות קצרה.
+בקש אישור ושלח סיכום קצר."""
+        else:
+            missing = 3 - completed_fields
+            meeting_prompt = f"צריך עוד {missing} שדות מידע לפני תיאום פגישה."
+        
+        return {
+            'collected': collected_info,
+            'completed_count': completed_fields,
+            'meeting_ready': meeting_ready,
+            'summary': summary,
+            'meeting_prompt': meeting_prompt
+        }
