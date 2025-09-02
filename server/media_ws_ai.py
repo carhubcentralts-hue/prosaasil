@@ -57,7 +57,7 @@ class MediaStreamHandler:
                 if self.failed_send_count <= 3:  # Only log first 3 errors
                     print(f"❌ WebSocket send error #{self.failed_send_count}: {e}")
                 
-                if self.failed_send_count >= 5:  # After 5 failures, mark as dead
+                if self.failed_send_count >= 10:  # Increased threshold - After 10 failures, mark as dead
                     self.ws_connection_failed = True
                     print(f"🚨 WebSocket connection marked as FAILED after {self.failed_send_count} attempts")
                 
@@ -947,6 +947,20 @@ class MediaStreamHandler:
         try:
             print(f"🎤 STT_START: Processing {len(pcm16_8k)} bytes with Google STT Streaming Hebrew")
             
+            # Check if audio has sufficient content for recognition
+            try:
+                import audioop
+                max_amplitude = audioop.max(pcm16_8k, 2)
+                rms = audioop.rms(pcm16_8k, 2)
+                print(f"📊 AUDIO_STATS: max_amplitude={max_amplitude}, rms={rms}, duration={len(pcm16_8k)/(2*8000):.1f}s")
+                
+                if max_amplitude < 200:  # Very quiet audio
+                    print("🔇 STT_SKIP: Audio too quiet for Google STT - fallback to Whisper")
+                    return self._whisper_fallback(pcm16_8k)
+                    
+            except Exception as e:
+                print(f"⚠️ Audio analysis failed: {e}")
+            
             from server.services.lazy_services import get_stt_client
             from google.cloud import speech
             
@@ -1001,6 +1015,16 @@ class MediaStreamHandler:
         try:
             print(f"🔄 WHISPER_FALLBACK: Processing {len(pcm16_8k)} bytes")
             
+            # Check if audio has actual content
+            import audioop
+            max_amplitude = audioop.max(pcm16_8k, 2)
+            rms = audioop.rms(pcm16_8k, 2)
+            print(f"📊 AUDIO_ANALYSIS: max_amplitude={max_amplitude}, rms={rms}")
+            
+            if max_amplitude < 100:  # Very quiet audio
+                print("🔇 WHISPER_SKIP: Audio too quiet (silence detected)")
+                return ""
+            
             from server.services.lazy_services import get_openai_client
             client = get_openai_client()
             if not client:
@@ -1009,6 +1033,7 @@ class MediaStreamHandler:
             
             # Resample to 16kHz for Whisper
             pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
+            print(f"🔄 RESAMPLED: {len(pcm16_8k)} bytes @ 8kHz → {len(pcm16_16k)} bytes @ 16kHz")
             
             # Save as temporary WAV file
             import tempfile, wave
@@ -1259,6 +1284,8 @@ class MediaStreamHandler:
     
     def _tx_loop(self):
         """TX Queue loop for smooth audio transmission"""
+        print("🔊 TX_LOOP_START: Audio transmission thread started")
+        tx_count = 0
         while self.tx_running:
             try:
                 item = self.tx_q.get(timeout=0.5)
@@ -1266,23 +1293,30 @@ class MediaStreamHandler:
                 continue
             
             if item.get("type") == "end":
+                print("🔚 TX_LOOP_END: End signal received")
                 break
             if item.get("type") == "clear" and self.stream_sid:
-                self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
+                success = self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
+                print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
                 continue
             if item.get("type") == "media":
-                self._ws_send(json.dumps({
+                success = self._ws_send(json.dumps({
                     "event": "media", 
                     "streamSid": self.stream_sid,
                     "media": {"payload": item["payload"]}
                 }))
+                tx_count += 1
+                if tx_count % 50 == 0:  # Log every 50 frames (1 second)
+                    print(f"🎵 TX_MEDIA: Frame {tx_count} {'SUCCESS' if success else 'FAILED'}")
                 continue
             if item.get("type") == "mark":
-                self._ws_send(json.dumps({
+                success = self._ws_send(json.dumps({
                     "event": "mark", 
                     "streamSid": self.stream_sid,
                     "mark": {"name": item.get("name", "mark")}
                 }))
+                print(f"📍 TX_MARK: {item.get('name', 'mark')} {'SUCCESS' if success else 'FAILED'}")
+        print(f"🔊 TX_LOOP_DONE: Transmitted {tx_count} frames total")
     
     def _speak_with_breath(self, text: str):
         """דיבור עם נשימה אנושית ו-TX Queue - תמיד משדר משהו"""
