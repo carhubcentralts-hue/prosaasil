@@ -316,22 +316,22 @@ class MediaStreamHandler:
 
                     # ⚡ BARGE-IN משופר: עצירת TTS מיידית עם חלון חסד לפי ההנחיות
                     if self.speaking and BARGE_IN:
-                        # ✅ חלון חסד לפי ההנחיות: 200ms אחרי תחילת TTS
-                        grace_period = 0.2  # 200ms חלון חסד מדויק
+                        # ✅ חלון חסד מוגדל: 600ms אחרי תחילת TTS לתת לה לדבר
+                        grace_period = 0.6  # 600ms חלון חסד - תן לה להתחיל
                         time_since_tts_start = current_time - self.speaking_start_ts
                         
                         if time_since_tts_start < grace_period:
                             # בתוך חלון החסד - התעלם מ-barge-in
                             continue
                         
-                        # סף בארג-אין מדויק: noise_floor*2.2+10 (לא רעש רגיל)
-                        barge_in_threshold = max(50, self.noise_floor * 2.2 + 10) if self.is_calibrated else 80
+                        # סף בארג-אין מוגדל: פחות רגיש לרעשים
+                        barge_in_threshold = max(120, self.noise_floor * 3.0 + 20) if self.is_calibrated else 150
                         is_barge_in_voice = rms > barge_in_threshold
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                            # 180-220ms של קול רציף = 9-11 frames (לפי ההנחיות)
-                            if self.voice_in_row >= 10:  # 200ms של קול רציף לפני הפרעה
+                            # 400-500ms של קול רציף = 20-25 frames (פחות רגיש)
+                            if self.voice_in_row >= 20:  # 400ms של קול רציף לפני הפרעה
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
@@ -633,21 +633,29 @@ class MediaStreamHandler:
             # ✅ השתמש בפונקציה המתקדמת עם מתמחה והמאגר הכולל!
             reply = self._ai_response(text)
             
-            # PATCH 6: Anti-duplication bot reply - WITH DEBUG
-            rh = zlib.crc32(reply.strip().encode("utf-8"))
-            if self.last_reply_hash == rh:
-                print("🚫 DUPLICATE BOT REPLY (using alternative)")
-                # תשובות חלופיות מועילות במקום גנריות
+            # ✅ מניעת כפילויות מתקדמת - בדיקת 3 תשובות אחרונות
+            if not hasattr(self, 'recent_replies'):
+                self.recent_replies = []
+            
+            # בדוק אם התשובה כבר נאמרה ב-3 התשובות האחרונות
+            reply_trimmed = reply.strip()
+            if reply_trimmed in self.recent_replies:
+                print("🚫 DUPLICATE BOT REPLY detected in recent history - using alternative")
+                # תשובות חלופיות מועילות ומגוונות
                 alternatives = [
-                    "איזה אזור בתל אביב מעניין אותך? יש לי מספר אפשרויות מצוינות.",
-                    "בואו נמצא לך משהו מתאים. איזה תקציב יש לך בחשבון?",
-                    "יש לי דירות יפות במרכז. מה חשוב לך יותר - גודל או מיקום?"
+                    "בואו נתקדם עם הפרטים. איזה אזור מעניין אותך הכי הרבה?",
+                    "אני כאן לעזור לך למצוא בית חלומות. איזה תקציב יש לך?", 
+                    "יש לי דירות מדהימות לכל תקציב. מה חשוב לך יותר - מיקום או גודל?",
+                    "בואו נמצא לך משהו מושלם. באיזה שכונה אתה מעוניין?"
                 ]
                 import random
                 reply = random.choice(alternatives)
-                rh = zlib.crc32(reply.encode("utf-8"))
-                # Using alternative response")
-            self.last_reply_hash = rh
+                reply_trimmed = reply.strip()
+                
+            # עדכן היסטוריה - שמור רק 3 אחרונות
+            self.recent_replies.append(reply_trimmed)
+            if len(self.recent_replies) > 3:
+                self.recent_replies = self.recent_replies[-3:]
             print(f"🤖 BOT: {reply}")
             
             # ✅ מדידת AI Processing Time
@@ -1053,7 +1061,7 @@ class MediaStreamHandler:
                         temperature=0.2
                     )
                 
-                hebrew_text = transcription.strip() if transcription else ""
+                hebrew_text = str(transcription).strip() if transcription else ""
                 print(f"✅ WHISPER_FALLBACK_SUCCESS: '{hebrew_text}'")
                 
                 # Clean up
@@ -1101,7 +1109,7 @@ class MediaStreamHandler:
                     history_context += f"לקוח אמר: '{turn['user'][:40]}' ענינו: '{turn['bot'][:40]}' | "
             
             # 🎯 זיהוי אזור מהבקשה
-            requested_area = self._detect_area(hebrew_text)
+            requested_area = self._detect_area(hebrew_text) or ""
             
             # ✅ בדיקת מידע שנאסף לתיאום פגישה
             lead_info = self._analyze_lead_completeness()
@@ -1109,7 +1117,7 @@ class MediaStreamHandler:
             # ✅ פרומפט סוכנת נדלן מקצועית לפי ההנחיות החדשות
             smart_prompt = f"""את לאה, סוכנת נדלן מקצועית של "שי דירות ומשרדים" המתמחה בנדלן במרכז הארץ. המטרה: לאסוף במהירות פרטי ליד: אזור/שכונה, סוג נכס, תקציב, טווח כניסה/זמן, שם + טלפון/וואטסאפ.
 
-כל תשובה שלך: 2-3 משפטים טבעיים ומקצועיים (20-30 מילים) ותמיד שאלה אחת בסוף.
+כל תשובה שלך: 3-4 משפטים טבעיים ומקצועיים (40-60 מילים) ותמיד שאלה אחת בסוף. תני תשובות מלאות ומועילות.
 אם לא שמעת/לא בטוחה – תגידי "לא בטוח ששמעתי נכון, אפשר לחזור על זה?" (אל תמציאי).
 אין להציע נכסים ספציפיים בלי נתונים; אין המצאות.
 כשלקוח קוטע אותך – עצרי מיד ותבקשי ממנו להמשיך.
@@ -1135,14 +1143,14 @@ class MediaStreamHandler:
 לקוח: "יש לי אזור ותקציב"
 סוכנת: "מעולה! בואו נקבע פגישה. מתי נוח לך - היום 18:00 או מחר 10:30?"
 
-אזור מזוהה: {requested_area if requested_area else 'לא ידוע'}
+אזור מזוהה: {requested_area or 'לא ידוע'}
 מידע נאסף: {lead_info['summary']}
 היסטוריה: {history_context}
 
 {lead_info['meeting_prompt']}
 
 הלקוח אומר: "{hebrew_text}"
-תגובה (20-30 מילים + שאלה אחת בסוף):"""
+תגובה (40-60 מילים, תשובה מלאה ומועילה + שאלה אחת בסוף):"""
 
             # ✅ GPT-4o MINI מהיר יותר לשיחה חיה!
             try:
@@ -1152,7 +1160,7 @@ class MediaStreamHandler:
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=120,           # ✅ מגביל ל-20-30 מילים טבעיים
+                    max_tokens=200,           # ✅ מגביל ל-40-60 מילים טבעיים
                     temperature=0.3,          # ✅ פחות creative = עקבית יותר
                     timeout=6.0               # מקס 6 שניות
                 )
@@ -1166,7 +1174,7 @@ class MediaStreamHandler:
                             {"role": "system", "content": smart_prompt},
                             {"role": "user", "content": hebrew_text}
                         ],
-                        max_tokens=120,           # ✅ מגביל ל-20-30 מילים טבעיים
+                        max_tokens=200,           # ✅ מגביל ל-40-60 מילים טבעיים
                         temperature=0.3,          # ✅ פחות creative = עקבית יותר
                         timeout=12.0  # ניסיון שני עם timeout כפול
                     )
@@ -1176,7 +1184,7 @@ class MediaStreamHandler:
                 except Exception as e2:
                     print(f"⏰ Second AI attempt failed ({e2}) - using intelligent emergency response")
                 # ✅ תגובת חירום חכמה על בסיס האזור שזוהה
-                if requested_area:
+                if requested_area and requested_area.strip():
                     return f"סליחה על ההשהיה! איזה סוג דירה אתה מחפש ב{requested_area}? יש לי כמה אפשרויות מעניינות."
                 else:
                     return "סליחה על ההשהיה הטכנית! איזה אזור מעניין אותך - מרכז, מרכז-דרום או אזור ירושלים?"
@@ -1229,9 +1237,11 @@ class MediaStreamHandler:
             # ✅ תגובת חירום חכמה על בסיס זיהוי האזור
             print(f"🚨 CRITICAL AI_ERROR for: '{hebrew_text}' - detected area: {requested_area}")
             
-            # תגובת חירום בהתאם לאזור שזוהה
-            if requested_area:
-                return f"מצטערת להשהיה! איזה סוג דירה אתה מחפש ב{requested_area}? יש לי כמה אפשרויות."
+            # תגובת חירום בהתאם לאזור שזוהה (גם כאן יש requested_area שלא מוגדר)
+            # צריך להגדיר אותו כאן גם כן
+            emergency_area = self._detect_area(hebrew_text) or ""
+            if emergency_area:
+                return f"מצטערת להשהיה! איזה סוג דירה אתה מחפש ב{emergency_area}? יש לי כמה אפשרויות."
             elif "תודה" in hebrew_text or "ביי" in hebrew_text:
                 return "תודה רבה! אני כאן לכל שאלה."
             elif any(word in hebrew_text for word in ["שלום", "היי", "הלו"]):
@@ -1451,7 +1461,7 @@ class MediaStreamHandler:
         elif any(word in text for word in ["ירושלים"]):
             return "ירושלים"
             
-        return None
+        return ""  # Return empty string instead of None
     
     def _analyze_lead_completeness(self) -> dict:
         """✅ ניתוח השלמת מידע ליד לתיאום פגישה"""
