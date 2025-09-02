@@ -930,7 +930,7 @@ class MediaStreamHandler:
                     temperature=0.7,          # טבעי אבל עקבי
                     frequency_penalty=0.5,    # מנע חזרות חזקות
                     presence_penalty=0.3,     # מגוון בביטויים
-                    timeout=3.0               # מקס 3 שניות לתגובה מהירה
+                    timeout=10.0              # מקס 10 שניות לGPT-4 Hebrew processing
                 )
             except Exception as e:
                 print(f"⏰ AI timeout/error ({e}) - using quick fallback")

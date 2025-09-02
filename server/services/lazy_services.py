@@ -46,7 +46,7 @@ def get_openai_client():
         return None
         
     try:
-        client = openai.OpenAI(timeout=5.0)  # 5s timeout
+        client = openai.OpenAI(timeout=12.0)  # 12s timeout for Hebrew processing
         # Quick ping test
         client.models.list(timeout=3.0)
         return client
