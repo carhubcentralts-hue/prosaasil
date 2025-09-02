@@ -215,7 +215,7 @@ class MediaStreamHandler:
                     
                     if not self.greeting_sent:
                         print("🎯 SENDING IMMEDIATE GREETING!")
-                        greet = "שלום, לאה מקסימוס נדלן. איזה אזור מעניין אותך?"
+                        greet = "שלום! אני לאה, סוכנת נדלן מקצועית מ'שי דירות ומשרדים'. אנחנו מתמחים בנדלן במרכז הארץ. איזה אזור מעניין אותך?"
                         self._speak_simple(greet)
                         self.greeting_sent = True
                     continue
@@ -653,7 +653,7 @@ class MediaStreamHandler:
             # ✅ תגובת חירום מפורטת ומועילה
             try:
                 self.state = STATE_SPEAK
-                emergency_response = "מצטערת, לא שמעתי טוב בגלל החיבור. אני מתמחה ממקסימוס נדל\"ן ויש לי דירות מדהימות במרכז. בואו נתחיל מחדש - איזה סוג נכס אתה מחפש ובאיזה אזור?"
+                emergency_response = "מצטערת, לא שמעתי טוב בגלל החיבור. אני לאה מ'שי דירות ומשרדים' ויש לי דירות מדהימות במרכז. בואו נתחיל מחדש - איזה סוג נכס אתה מחפש ובאיזה אזור?"
                 self._speak_with_breath(emergency_response)
                 self.state = STATE_LISTEN
                 print(f"✅ RETURNED TO LISTEN STATE after error in conversation #{conversation_id}")
@@ -939,7 +939,7 @@ class MediaStreamHandler:
                 enable_automatic_punctuation=True,
                 speech_contexts=[        # ✅ Speech contexts לעברית לפי ההנחיות
                     speech.SpeechContext(phrases=[
-                        "מקסימוס נדלן", "לאה", "שי דירות ומשרדים",
+                        "שי דירות ומשרדים", "לאה", "סוכנת נדלן",
                         "תל אביב", "רמת גן", "רמלה", "לוד", "בית שמש", 
                         "מודיעין", "פתח תקווה", "רחובות", "הרצליה",
                         "דירה", "חדרים", "שכירות", "קניה", "משכנתא",
