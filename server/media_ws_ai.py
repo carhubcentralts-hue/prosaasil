@@ -8,19 +8,19 @@ from simple_websocket import ConnectionClosed
 from server.stream_state import stream_registry
 
 SR = 8000
-# 🎯 פרמטרים אופטימליים לשיחה טבעיית (מחקר 2025)!
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.3"))        # מהיר יותר כמו בן אדם
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "4.0"))        # קצר יותר למניעת monologues
-VAD_RMS = int(os.getenv("VAD_RMS", "70"))                   # רגיש אבל לא יותר מדי
+# 🎯 פרמטרים מותאמים לשיחה מהירה וחלקה!
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.8"))        # זמן מינימלי לתמלול איכותי
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "3.5"))        # מונע מונולוגים ארוכים
+VAD_RMS = int(os.getenv("VAD_RMS", "90"))                   # פחות רגיש - מונע חיתוכים
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # מהיר יותר - כמו שיחה אמיתית
-RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "150")) # "נשימה" קצרה יותר
-RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "250")) # תגובה מהירה יותר
-REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "750")) # קירור אחרי דיבור
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","8"))  # איזון: 160ms לinterruption טבעיות
-THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "800"))       # מהיר יותר
-THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "שנייה… בודקת")   # מקצועי יותר
-DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "14"))        # חלון דה-דופליקציה
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "200"))  # יותר סבלנות
+RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # תגובה מהירה!
+RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "100")) # ללא השהיות מיותרות
+REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "400")) # קירור קצר יותר
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","15"))  # 300ms לפני הפרעה
+THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
+THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
+DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
 LLM_NATURAL_STYLE = True  # תגובות טבעיות לפי השיחה
 
 # מכונת מצבים
@@ -209,7 +209,7 @@ class MediaStreamHandler:
                     
                     if not self.greeting_sent:
                         print("🎯 SENDING IMMEDIATE GREETING!")
-                        greet = "שלום! מדברת איתכם לאה מקסימוס נדלן. יש לי דירות מעולות במרכז ובפרברים. איזה אזור מעניין אתכם?"
+                        greet = "שלום, לאה מקסימוס נדלן. איזה אזור מעניין אותך?"
                         self._speak_simple(greet)
                         self.greeting_sent = True
                     continue
@@ -231,9 +231,9 @@ class MediaStreamHandler:
                         # קליברציה ארוכה יותר: 300-500ms = 15-25 frames, נשתמש ב-40 להיות בטוחים
                         self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
                         self.calibration_frames += 1
-                        if self.calibration_frames >= 40:
+                        if self.calibration_frames >= 60:
                             # ✅ VAD רגיש הרבה יותר - threshold נמוך יותר
-                            self.vad_threshold = max(25, self.noise_floor * 1.5 + 5)
+                            self.vad_threshold = max(40, self.noise_floor * 2.0 + 15)
                             self.is_calibrated = True
                             print(f"🎛️ VAD_CALIBRATED: noise_floor={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f} (SENSITIVE after 800ms)")
                             
@@ -260,10 +260,10 @@ class MediaStreamHandler:
                         zcr_voice = zero_crossings > 0.05  # דיבור רך עם הרבה מעברי אפס
                         enhanced_voice = basic_voice or (zcr_voice and rms > self.vad_threshold * 0.6)
                         
-                        # היסטרזיס: 40-80ms = 2-4 frames למניעת ריצוד
+                        # היסטרזיס: 100ms = 5 frames למניעת ריצוד
                         if enhanced_voice != self.last_vad_state:
                             self.vad_hysteresis_count += 1
-                            if self.vad_hysteresis_count >= 3:  # 60ms היסטרזיס
+                            if self.vad_hysteresis_count >= 5:  # 100ms היסטרזיס חזק יותר
                                 is_strong_voice = enhanced_voice
                                 self.last_vad_state = enhanced_voice
                                 self.vad_hysteresis_count = 0
@@ -301,8 +301,8 @@ class MediaStreamHandler:
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                            # 150ms של קול רציף = 7.5 frames ≈ 8 frames
-                            if self.voice_in_row >= 8:  # 150ms-160ms של קול רציף
+                            # 300ms של קול רציף = 15 frames
+                            if self.voice_in_row >= 15:  # 300ms של קול רציף לפני הפרעה
                                 print(f"⚡ BARGE-IN DETECTED! RMS={rms:.1f} > threshold={barge_in_threshold:.1f} for {self.voice_in_row} frames")
                                 
                                 # ✅ עצירת TTS מיידית - לא עוד פריימים!
@@ -348,14 +348,14 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ✅ זיהוי סוף מבע איכותי - 300-400ms שקט כפי שמומלץ
-                            min_silence = 0.3 if dur > 1.0 else 0.4  # 300-400ms שקט (איכותי!)
-                            silent = silence_time >= min_silence
+                            # ✅ זיהוי סוף מבע מהיר יותר - 500-600ms שקט
+                            min_silence = 0.5 if dur > 1.5 else 0.6  # 500-600ms שקט מאוזן
+                            silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
-                            min_duration = 0.6  # מינימום 600ms (איכותי!)
+                            min_duration = 0.8  # מינימום לתמלול איכותי
                             
                             # ✅ EOU איכותי: באפר מספיק גדול לתמלול משמעותי
-                            buffer_big_enough = len(self.buf) > 9600  # לפחות 0.6s של אודיו אמיתי
+                            buffer_big_enough = len(self.buf) > 12800  # לפחות 0.8s של אודיו איכותי
                             
                             # סוף מבע: דממה מספקת OR זמן יותר מדי OR באפר גדול עם שקט
                             if ((silent and buffer_big_enough) or too_long) and dur >= min_duration:
@@ -938,40 +938,23 @@ class MediaStreamHandler:
             # 🎯 זיהוי אזור מהבקשה
             requested_area = self._detect_area(hebrew_text)
             
-            # ✅ פרומפט מאוזן לשיחה מציאותית (לא קצר מדי!)
-            smart_prompt = f"""את לאה מתמחה ממקסימוס נדלן עם 8 שנות ניסיון בכל הארץ.
+            # ✅ פרומפט חד ומהיר לתשובות קצרות וחכמות
+            smart_prompt = f"""את לאה מקסימוס נדלן. 
 
-דירות זמינות עכשיו:
+דירות זמינות:
+• תל אביב דיזנגוף - 3 חדרים, 7,500₪
+• רמת גן בורסה - 4 חדרים, 8,200₪  
+• רמלה הגפן - 3 חדרים, 5,200₪
+• לוד מרכז - 4 חדרים, 5,800₪
+• בית שמש - 4 חדרים, 5,500₪
 
-🏙️ מרכז הארץ:
-• תל אביב דיזנגוף 150 - 3 חדרים, 85 מ"ר, 7,500₪/חודש, מרפסת שמש
-• רמת גן הבורסה - 4 חדרים, 95 מ"ר, 8,200₪/חודש, חניה וממ"ד
-• פלורנטין חדש - 2 חדרים, 65 מ"ר, 6,800₪/חודש, משופצת לחלוטין
-• גבעתיים הרצל - 3.5 חדרים, 90 מ"ר, 7,800₪/חודש, קרוב לרכבת
-• הרצליה פיתוח - 3 חדרים, 88 מ"ר, 9,200₪/חודש, נוף לים וחניה
+אזור מבוקש: {requested_area if requested_area else 'כללי'}
 
-🏡 מרכז ודרום:
-• רחובות מרכז - 4 חדרים, 110 מ"ר, 6,500₪/חודש, בית עם חצר
-• רמלה שכונת הגפן - 3 חדרים, 80 מ"ר, 5,200₪/חודש, משופצת
-• לוד מרכז - 4 חדרים, 100 מ"ר, 5,800₪/חודש, קרוב לרכבת
-• פתח תקווה שכ' אם המושבות - 3.5 חדרים, 90 מ"ר, 6,800₪/חודש
-• מודיעין מרכז - 4 חדרים, 105 מ"ר, 7,200₪/חודש, עיר חדשה
-
-🏔️ אזור ירושלים:
-• בית שמש רמה ב' - 4 חדרים, 95 מ"ר, 5,500₪/חודש, דתי ללא חילוני
-• מעלה אדומים - 5 חדרים, 120 מ"ר, 6,200₪/חודש, נוף מדהים
-
-אזור מבוקש: {requested_area if requested_area else 'לא צוין'}
-
-כללי שיחה מציאותית:
-- תני תגובות מפורטות של 40-70 מילים
-- עני ישירות על השאלה עם פרטים קונקרטיים
-- הציעי דירות ספציפיות מהאזור שהלקוח מבקש!
-- אם הלקוח מבקש אזור ספציפי - תני רק דירות מהאזור הזה
-- אם אין לך דירות באזור - אמרי זאת בכנות ותציעי אזורים דומים
-- שאלי שאלות ממוקדות לקידום הלקוח (תקציב, אזור, חדרים)
-- תני מידע שימושי על השכונות והמחירים
-- התאימי את התשובה לבקשה הספציפית - אל תציעי תל אביב למי שמבקש רמלה!
+כללים:
+- תשובה של 15-25 מילים בלבד!
+- ישירות לעניין
+- הצעה קונקרטית מהאזור
+- שאלה קצרה אחת בסוף
 
 {history_context}
 
