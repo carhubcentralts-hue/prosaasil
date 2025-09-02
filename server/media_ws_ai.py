@@ -562,12 +562,20 @@ class MediaStreamHandler:
         except Exception as e:
             print(f"❌ CRITICAL Processing error: {e}")
             print(f"   Text was: '{text}' ({len(text)} chars)")
+            # ✅ תיקון קריטי: דבק לטראסבק ואל תקריס
+            import traceback
+            traceback.print_exc()
             # ✅ תגובת חירום מפורטת ומועילה
-            self.state = STATE_SPEAK
-            emergency_response = "מצטערת, לא שמעתי טוב בגלל החיבור. אני מתמחה ממקסימוס נדל\"ן ויש לי דירות מדהימות במרכז. בואו נתחיל מחדש - איזה סוג נכס אתה מחפש ובאיזה אזור?"
-            self._speak_with_breath(emergency_response)
-            self.state = STATE_LISTEN
-            print(f"✅ RETURNED TO LISTEN STATE after error in conversation #{conversation_id}")
+            try:
+                self.state = STATE_SPEAK
+                emergency_response = "מצטערת, לא שמעתי טוב בגלל החיבור. אני מתמחה ממקסימוס נדל\"ן ויש לי דירות מדהימות במרכז. בואו נתחיל מחדש - איזה סוג נכס אתה מחפש ובאיזה אזור?"
+                self._speak_with_breath(emergency_response)
+                self.state = STATE_LISTEN
+                print(f"✅ RETURNED TO LISTEN STATE after error in conversation #{conversation_id}")
+            except Exception as emergency_err:
+                print(f"❌ EMERGENCY RESPONSE FAILED: {emergency_err}")
+                self.state = STATE_LISTEN
+                # ✅ חזור למצב האזנה בכל מקרה
 
 
     # ✅ דיבור מתקדם עם סימונים לטוויליו
@@ -858,6 +866,9 @@ class MediaStreamHandler:
             print(f"❌ STT_CRITICAL_ERROR: {e}")
             print(f"   Audio size: {len(pcm16_8k)} bytes")
             print(f"   Duration: {len(pcm16_8k)/(2*8000):.1f}s")
+            # ✅ תיקון קריטי: אל תקריס - המשך לעבוד
+            import traceback
+            traceback.print_exc()
             return ""
     
     def _ai_response(self, hebrew_text: str) -> str:
@@ -1050,6 +1061,9 @@ class MediaStreamHandler:
             print(f"❌ TTS_CRITICAL_ERROR: {e}")
             print(f"   Text was: '{text}'")
             print(f"   Check Google Cloud credentials!")
+            # ✅ תיקון קריטי: אל תקריס - המשך לעבוד
+            import traceback
+            traceback.print_exc()
             return None
     
     def _tx_loop(self):

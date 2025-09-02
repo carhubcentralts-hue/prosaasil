@@ -1,0 +1,113 @@
+2025-09-02 22:34:54.39
+79c66c4a
+User
+{'HEAD', 'GET', 'OPTIONS'} /test-websocket-version
+2025-09-02 22:34:54.39
+79c66c4a
+User
+🔍 Route registration complete
+2025-09-02 22:34:54.39
+79c66c4a
+User
+🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+2025-09-02 22:34:54.39
+79c66c4a
+User
+2025-09-02 22:34:54.39
+79c66c4a
+User
+✅ Health routes handled by health_endpoints.py blueprint
+2025-09-02 22:34:54.40
+79c66c4a
+User
+✅ Factory debug route registered: /debug-factory-http
+2025-09-02 22:34:54.40
+79c66c4a
+User
+✅ /healthz route added directly to app_factory
+2025-09-02 22:34:54.40
+79c66c4a
+User
+🆘 Emergency healthz-direct route added
+2025-09-02 22:34:54.40
+79c66c4a
+User
+✅ Flask-WTF CSRF exemption applied to Twilio webhooks
+2025-09-02 22:34:54.40
+79c66c4a
+User
+✅ Flask-WTF CSRF exemption applied to auth API
+2025-09-02 22:34:54.40
+79c66c4a
+User
+✅ CSRF bypass flag set for auth endpoints
+2025-09-02 22:34:54.40
+79c66c4a
+User
+2025-09-02 22:34:54.40
+79c66c4a
+User
+✅ SeaSurf exemption applied to /api/auth/ prefix
+2025-09-02 22:34:54.40
+79c66c4a
+User
+✅ SeaSurf exemption applied to /webhook/ and /api/auth/ prefixes
+2025-09-02 22:34:54.40
+79c66c4a
+User
+✅ WhatsApp routes removed - using unified only
+2025-09-02 22:34:54.40
+79c66c4a
+User
+2025-09-02 22:34:54.47
+79c66c4a
+User
+🔧 Database tables creation deferred - use admin command if needed
+2025-09-02 22:34:54.47
+79c66c4a
+User
+🔧 Warmup disabled for debugging
+2025-09-02 22:34:54.47
+79c66c4a
+User
+✅ EventLet Composite WSGI ready
+2025-09-02 22:34:54.47
+79c66c4a
+User
+📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com
+2025-09-02 22:34:54.47
+79c66c4a
+User
+🌐 All other routes → Flask app
+2025-09-02 22:34:54.47
+79c66c4a
+User
+🔍 WSGI Route: POST /webhook/stream_status
+2025-09-02 22:34:54.47
+79c66c4a
+User
+⚡ Fast 204 for /webhook/stream_status
+2025-09-02 22:34:54.47
+79c66c4a
+User
+🔍 WSGI Route: POST /webhook/stream_ended
+2025-09-02 22:34:54.47
+79c66c4a
+User
+⚡ Fast 204 for /webhook/stream_ended
+2025-09-02 22:34:54.73
+79c66c4a
+User
+🔍 WSGI Route: POST /webhook/call_status
+2025-09-02 22:34:54.73
+79c66c4a
+User
+⚡ Fast 204 for /webhook/call_status
+2025-09-02 22:56:23.50
+79c66c4a
+System
+system: received signal terminated
+
+Wrap
+
+Colors
