@@ -10,7 +10,7 @@ EVENTLET_HUB         = "poll"
 
 [deployment]
 build = "pip install -r requirements.txt"
-run = "python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
+run = ["sh", "-c", "gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT"]
 deploymentTarget = "cloudrun"
 
 [nix]
