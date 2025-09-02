@@ -33,12 +33,22 @@ class MediaStreamHandler:
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
         
-        # 🔧 תאימות WebSocket - EventLet vs RFC6455
+        # 🔧 תאימות WebSocket - EventLet vs RFC6455 עם טיפול שגיאות
         if hasattr(ws, 'send'):
-            self._ws_send = ws.send
+            self._ws_send_method = ws.send
         else:
             # אם אין send, נסה send_text או כל שיטה אחרת
-            self._ws_send = getattr(ws, 'send_text', lambda x: print(f"❌ No send method: {x}"))
+            self._ws_send_method = getattr(ws, 'send_text', lambda x: print(f"❌ No send method: {x}"))
+        
+        # 🛡️ Safe WebSocket send wrapper
+        def _safe_ws_send(data):
+            try:
+                self._ws_send_method(data)
+            except Exception as e:
+                print(f"❌ WebSocket send error (recovered): {e}")
+                # Don't re-raise - keep connection alive
+        
+        self._ws_send = _safe_ws_send
         self.stream_sid = None
         self.call_sid = None  # PATCH 3: For watchdog connection
         self.rx = 0
@@ -168,7 +178,9 @@ class MediaStreamHandler:
                     continue
                 except Exception as e:
                     print(f"⚠️ WebSocket receive error: {e}", flush=True)
-                    # Try to continue, might be temporary
+                    import traceback
+                    traceback.print_exc()
+                    # Try to continue, might be temporary - don't crash the connection
                     continue
 
                 if et == "start":
@@ -366,6 +378,11 @@ class MediaStreamHandler:
                                 
                                 try:
                                     self._process_utterance_safe(utt_pcm, current_id)
+                                except Exception as proc_err:
+                                    print(f"❌ Audio processing failed for conversation #{current_id}: {proc_err}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    # Continue without crashing WebSocket
                                 finally:
                                     self.processing = False
                                     if self.state == STATE_THINK:
@@ -404,6 +421,11 @@ class MediaStreamHandler:
                         
                         try:
                             self._process_utterance_safe(utt_pcm, current_id)
+                        except Exception as proc_err:
+                            print(f"❌ Emergency audio processing failed for conversation #{current_id}: {proc_err}")
+                            import traceback
+                            traceback.print_exc()
+                            # Continue without crashing WebSocket
                         finally:
                             self.processing = False
                             if self.state == STATE_THINK:
