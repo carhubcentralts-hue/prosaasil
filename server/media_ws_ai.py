@@ -134,9 +134,7 @@ class MediaStreamHandler:
                     if 'RFC6455WebSocket' in ws_type:
                         # EventLet RFC6455WebSocket uses wait() method
                         raw = self.ws.wait()
-                        # Only log every 100 messages to avoid spam
-                        if self.rx_frames % 100 == 0:
-                            print(f"📊 WS_STATUS: Frame #{self.rx_frames}, Type: {ws_type}")
+                        # רק ספירה בלי spam
                         self.rx_frames += 1
                     else:
                         # Standard WebSocket APIs
@@ -775,22 +773,23 @@ class MediaStreamHandler:
             audio_float = audio_int16.astype(np.float32) / 32768.0  # normalize to [-1, 1]
             
             # ✅ 1. DC-offset removal
-            audio_float = audio_float - np.mean(audio_float)
+            audio_float = audio_float - float(np.mean(audio_float))
             
             # ✅ 2. High-pass filter (100Hz) - מטאטא זמזום
             sos_hp = signal.butter(4, 100, btype='high', fs=8000, output='sos')
-            audio_float = signal.sosfilt(sos_hp, audio_float)
+            audio_float = np.array(signal.sosfilt(sos_hp, audio_float), dtype=np.float32)
             
             # ✅ 3. Low-pass filter (3.6kHz) - טלפוני רגיל  
             sos_lp = signal.butter(4, 3600, btype='low', fs=8000, output='sos')
-            audio_float = signal.sosfilt(sos_lp, audio_float)
+            audio_float = np.array(signal.sosfilt(sos_lp, audio_float), dtype=np.float32)
             
             # ✅ 4. AGC עדין - נרמול לטווח מטרה (-20dBFS ≈ 0.1)
-            rms = float(np.sqrt(np.mean(audio_float ** 2)))
+            rms_squared = np.mean(audio_float * audio_float)
+            rms = float(np.sqrt(rms_squared))
             if rms > 0.001:  # אם יש אודיו אמיתי
                 target_rms = 0.1  # -20dBFS
                 gain = min(target_rms / rms, 3.0)  # מגביל גיין ל-3x
-                audio_float = audio_float * float(gain)
+                audio_float = np.array(audio_float * gain, dtype=np.float32)
             
             # ✅ 5. Clipping protection
             audio_float = np.clip(audio_float, -0.95, 0.95)
@@ -848,7 +847,7 @@ class MediaStreamHandler:
                         file=audio_file,
                         language="he",       # Hebrew (לא זיהוי דינמי)
                         temperature=0.1,     # נמוך למדויק יותר
-                        prompt="אתה סוכן נדלן בישראל. דבר בעברית על דירות ומשרדים."  # context
+                        prompt="תמלל בעברית בדיוק מה שנאמר."  # simple transcription prompt
                     )
                 
                 import os
