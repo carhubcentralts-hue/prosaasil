@@ -216,23 +216,55 @@ class MediaStreamHandler:
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
                     
-                    # לוגים מתקדמים כל 50 פריימים + PATCH 10
-                    if self.rx % 50 == 0:
-                        print(f"WS_MEDIA sid={self.stream_sid} rx={self.rx} state={self.state} VAD={rms}/{VAD_RMS}")
-
-                    # ✅ VAD דינמי עם כיול רעש
-                    if not self.is_calibrated and self.calibration_frames < 25:
-                        # כיול רמת רעש ב-25 פריימים הראשונים (500ms)
+                    # 📊 VAD דינמי משופר עם קליברציה ארוכה יותר והיסטרזיס
+                    if not self.is_calibrated and self.calibration_frames < 40:
+                        # קליברציה ארוכה יותר: 300-500ms = 15-25 frames, נשתמש ב-40 להיות בטוחים
                         self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
                         self.calibration_frames += 1
-                        if self.calibration_frames >= 25:
+                        if self.calibration_frames >= 40:
                             # ✅ VAD רגיש הרבה יותר - threshold נמוך יותר
                             self.vad_threshold = max(25, self.noise_floor * 1.5 + 5)
                             self.is_calibrated = True
-                            print(f"🎛️ VAD_CALIBRATED: noise_floor={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f} (SENSITIVE)")
+                            print(f"🎛️ VAD_CALIBRATED: noise_floor={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f} (SENSITIVE after 800ms)")
+                            
+                            # היסטרזיס למניעת ריצוד
+                            if not hasattr(self, 'vad_hysteresis_count'):
+                                self.vad_hysteresis_count = 0
+                            if not hasattr(self, 'last_vad_state'):
+                                self.last_vad_state = False
                     
-                    # זיהוי קול עם סף דינמי
-                    is_strong_voice = rms > self.vad_threshold
+                    # 📊 זיהוי קול משופר עם היסטרזיס ו-Zero-Crossing Rate
+                    if self.is_calibrated:
+                        # חישוב Zero-Crossing Rate למדידת דיבור רך
+                        import numpy as np
+                        try:
+                            pcm_np = np.frombuffer(pcm16, dtype=np.int16)
+                            zero_crossings = np.sum(np.diff(np.sign(pcm_np)) != 0) / len(pcm_np) if len(pcm_np) > 0 else 0
+                        except:
+                            zero_crossings = 0
+                        
+                        # VAD בסיסי
+                        basic_voice = rms > self.vad_threshold
+                        
+                        # VAD משופר עם Zero-Crossing Rate
+                        zcr_voice = zero_crossings > 0.05  # דיבור רך עם הרבה מעברי אפס
+                        enhanced_voice = basic_voice or (zcr_voice and rms > self.vad_threshold * 0.6)
+                        
+                        # היסטרזיס: 40-80ms = 2-4 frames למניעת ריצוד
+                        if enhanced_voice != self.last_vad_state:
+                            self.vad_hysteresis_count += 1
+                            if self.vad_hysteresis_count >= 3:  # 60ms היסטרזיס
+                                is_strong_voice = enhanced_voice
+                                self.last_vad_state = enhanced_voice
+                                self.vad_hysteresis_count = 0
+                            else:
+                                is_strong_voice = self.last_vad_state  # השאר מצב קודם
+                        else:
+                            is_strong_voice = enhanced_voice
+                            self.vad_hysteresis_count = 0
+                    else:
+                        # לפני קליברציה - VAD פשוט
+                        is_strong_voice = rms > 60
                     
                     # ✅ תיקון קריטי: עדכן last_voice_ts רק כשיש קול אמיתי
                     current_time = time.time()
@@ -243,23 +275,7 @@ class MediaStreamHandler:
                     # אם אין קול בכלל, דממה = 0 (כדי שלא נתקע)
                     silence_time = (current_time - self.last_voice_ts) if self.last_voice_ts > 0 else 0
                     
-                    # ✅ DEBUG מתקדם לזיהוי בעיות VAD
-                    if self.rx % 100 == 0 and len(self.buf) > 0:
-                        print(f"🔍 VAD_DEBUG: RMS={rms}, threshold={self.vad_threshold:.1f}, is_voice={is_strong_voice}, silence={silence_time:.2f}s")
-                    
-                    # 🔍 DEBUG: לוג כל 25 frames עם מידע מלא + EOU info
-                    if self.rx % 25 == 0:
-                        print(f"📊 AUDIO_DEBUG: Frame #{self.rx}, RMS={rms}, VAD_threshold={self.vad_threshold:.1f}, Voice={is_strong_voice}, State={self.state}, Speaking={self.speaking}, Processing={self.processing}, Buffer_size={len(self.buf)}")
-                        # תדפיס גם כמה אודיו נאסף
-                        if len(self.buf) > 0:
-                            dur = len(self.buf) / (2 * SR)
-                            min_silence = 0.25 if dur > 1.0 else 0.3
-                            print(f"   📊 AUDIO_ACCUMULATED: {dur:.1f}s duration")
-                            print(f"   📊 EOU_CHECK: min_silence={min_silence:.2f}s, current_silence={silence_time:.2f}s")
-                            if silence_time >= min_silence and len(self.buf) > 8000:
-                                print(f"   🚨 EOU_READY: Should trigger soon!")
-                        # זמן שקט אמיתי
-                        print(f"   🔇 SILENCE_TIME: {silence_time:.2f}s (was_voice={is_strong_voice})")  
+                    # ✅ לוגים נקיים - רק אירועים חשובים (לא כל frame)  
                     
                     # ספירת פריימים רצופים של קול חזק בלבד
                     if is_strong_voice:
@@ -267,28 +283,44 @@ class MediaStreamHandler:
                     else:
                         self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
 
-                    # 🚨 BARGE-IN מתקדם: עצור מיד כשמדברים מעל הבוט
-                    if self.speaking and BARGE_IN and is_strong_voice and silence_time < 0.15:
-                        # ברג-אין רק אם יש קול חזק באמת (לא רעש)
-                        self.voice_in_row += 1
-                        if self.voice_in_row >= 8:  # 160ms של קול רציף
-                            print(f"🚨 BARGE-IN! User interrupting (RMS={rms:.1f}) after {self.voice_in_row} frames")
-                            self._interrupt_speaking()
-                            # נקה הכל ותן למשתמש לדבר
-                            self.buf.clear()
-                            self.processing = False
-                            self.state = STATE_LISTEN
-                            self.last_voice_ts = current_time  # אפס זמני שקט
-                            self.voice_in_row = 0
-                            print("🎤 BARGE-IN -> USER TURN")
-                            # שלח clear לטוויליו
-                            try:
-                                self.tx_q.put_nowait({"type": "clear"})
-                            except:
-                                pass
-                            continue
+                    # ⚡ BARGE-IN אמיתי: עצירת TTS מיידית כשמדברים מעל הסוכן
+                    if self.speaking and BARGE_IN:
+                        # סף בארג-אין גבוה יותר: noise_floor*2.2+10 (לא רעש רגיל)
+                        barge_in_threshold = max(50, self.noise_floor * 2.2 + 10) if self.is_calibrated else 80
+                        is_barge_in_voice = rms > barge_in_threshold
+                        
+                        if is_barge_in_voice:
+                            self.voice_in_row += 1
+                            # 150ms של קול רציף = 7.5 frames ≈ 8 frames
+                            if self.voice_in_row >= 8:  # 150ms-160ms של קול רציף
+                                print(f"⚡ BARGE-IN DETECTED! RMS={rms:.1f} > threshold={barge_in_threshold:.1f} for {self.voice_in_row} frames")
+                                
+                                # ✅ עצירת TTS מיידית - לא עוד פריימים!
+                                self.speaking = False
+                                self._interrupt_speaking()
+                                
+                                # ✅ מעבר מיידי ל-LISTENING
+                                self.state = STATE_LISTEN
+                                self.processing = False
+                                
+                                # ✅ פתיחת באפר חדש מתמלול
+                                self.buf.clear()
+                                self.last_voice_ts = current_time  # התחל מדידת שקט מחדש
+                                self.voice_in_row = 0
+                                
+                                print("🎤 BARGE-IN -> LISTENING (user can speak now)")
+                                
+                                # שלח clear לטוויליו כדי לנקות אודיו תקוע
+                                try:
+                                    self.tx_q.put_nowait({"type": "clear"})
+                                except:
+                                    pass
+                                continue
+                        else:
+                            # אם אין קול חזק מספיק - קזז את הספירה
+                            self.voice_in_row = max(0, self.voice_in_row - 1)
                     else:
-                        self.voice_in_row = 0  # אפס ספירה אם לא בתנאים לברג-אין
+                        self.voice_in_row = 0  # אפס ספירה אם לא במצב speaking
                     
                     # אם המערכת מדברת ואין הפרעה - נקה קלט
                     if self.speaking:
@@ -306,14 +338,14 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ✅ זיהוי סוף מבע עם דממה אמיתית - SUPER רגיש!
-                            min_silence = 0.2 if dur > 1.0 else 0.25  # 200-250ms שקט (סופר רגיש!)
+                            # ✅ זיהוי סוף מבע איכותי - 300-400ms שקט כפי שמומלץ
+                            min_silence = 0.3 if dur > 1.0 else 0.4  # 300-400ms שקט (איכותי!)
                             silent = silence_time >= min_silence
                             too_long = dur >= MAX_UTT_SEC
-                            min_duration = 0.4  # מינימום 400ms (סופר רגיש!)
+                            min_duration = 0.6  # מינימום 600ms (איכותי!)
                             
-                            # ✅ EOU אגרסיבי: גם רק אם הבאפר גדול מספיק
-                            buffer_big_enough = len(self.buf) > 6400  # לפחות 0.4s של אודיו אמיתי
+                            # ✅ EOU איכותי: באפר מספיק גדול לתמלול משמעותי
+                            buffer_big_enough = len(self.buf) > 9600  # לפחות 0.6s של אודיו אמיתי
                             
                             # סוף מבע: דממה מספקת OR זמן יותר מדי OR באפר גדול עם שקט
                             if ((silent and buffer_big_enough) or too_long) and dur >= min_duration:
@@ -354,10 +386,10 @@ class MediaStreamHandler:
                         self.speaking = False
                         self.state = STATE_LISTEN
                     
-                    # ✅ EOU חירום אגרסיבי: מכריח עיבוד אם הבאפר גדול
+                    # ✅ EOU חירום: מכריח עיבוד אם הבאפר גדול מדי
                     if (not self.processing and self.state == STATE_LISTEN and 
-                        len(self.buf) > 24000 and  # 1.5s של אודיו (יותר אגרסיבי!)
-                        silence_time > 0.1):      # 100ms שקט (יותר אגרסיבי!)
+                        len(self.buf) > 32000 and  # 2.0s של אודיו (סביר!)
+                        silence_time > 0.2):      # 200ms שקט (סביר!)
                         print(f"🚨 EMERGENCY EOU: {len(self.buf)/(2*SR):.1f}s audio, silence={silence_time:.2f}s")
                         # כפה EOU
                         self.processing = True
@@ -732,22 +764,80 @@ class MediaStreamHandler:
             out.extend(val.to_bytes(2, "little", signed=True))
         return bytes(out)
     
+    def _process_audio_for_stt(self, pcm16_8k: bytes) -> bytes:
+        """🎵 עיבוד אודיו איכותי לפני STT: AGC, פילטרים, resample ל-16kHz"""
+        try:
+            import numpy as np
+            from scipy import signal
+            
+            # המר ל-numpy array
+            audio_int16 = np.frombuffer(pcm16_8k, dtype=np.int16)
+            audio_float = audio_int16.astype(np.float32) / 32768.0  # normalize to [-1, 1]
+            
+            # ✅ 1. DC-offset removal
+            audio_float = audio_float - np.mean(audio_float)
+            
+            # ✅ 2. High-pass filter (100Hz) - מטאטא זמזום
+            sos_hp = signal.butter(4, 100, btype='high', fs=8000, output='sos')
+            audio_float = signal.sosfilt(sos_hp, audio_float)
+            
+            # ✅ 3. Low-pass filter (3.6kHz) - טלפוני רגיל  
+            sos_lp = signal.butter(4, 3600, btype='low', fs=8000, output='sos')
+            audio_float = signal.sosfilt(sos_lp, audio_float)
+            
+            # ✅ 4. AGC עדין - נרמול לטווח מטרה (-20dBFS ≈ 0.1)
+            rms = np.sqrt(np.mean(audio_float ** 2))
+            if rms > 0.001:  # אם יש אודיו אמיתי
+                target_rms = 0.1  # -20dBFS
+                gain = min(target_rms / rms, 3.0)  # מגביל גיין ל-3x
+                audio_float = audio_float * gain
+            
+            # ✅ 5. Clipping protection
+            audio_float = np.clip(audio_float, -0.95, 0.95)
+            
+            # ✅ 6. Resample 8kHz → 16kHz (Whisper עובד טוב יותר ב-16k)
+            audio_16k = signal.resample(audio_float, len(audio_float) * 2)
+            
+            # המר חזרה ל-int16
+            audio_16k_int16 = (audio_16k * 32767).astype(np.int16)
+            
+            return audio_16k_int16.tobytes()
+            
+        except Exception as e:
+            print(f"⚠️ Audio processing failed, using simple resample: {e}")
+            # Fallback: resample פשוט ל-16kHz
+            try:
+                import numpy as np
+                from scipy import signal
+                audio_int16 = np.frombuffer(pcm16_8k, dtype=np.int16)
+                audio_float = audio_int16.astype(np.float32) / 32768.0
+                audio_16k = signal.resample(audio_float, len(audio_float) * 2)
+                audio_16k_int16 = (audio_16k * 32767).astype(np.int16)
+                return audio_16k_int16.tobytes()
+            except Exception as e2:
+                print(f"⚠️ Even simple resample failed: {e2}")
+                # Ultimate fallback: duplicate samples (crude but works)
+                return pcm16_8k + pcm16_8k  # Double the data for "16kHz"
+
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
-        """Hebrew Speech-to-Text using OpenAI Whisper"""
+        """Hebrew Speech-to-Text using OpenAI Whisper with high-quality audio processing"""
         try:
             from server.services.lazy_services import get_openai_client
             import tempfile
             import wave
             
-            # Save as temporary WAV file
+            # ✅ עיבוד אודיו איכותי לפני STT
+            processed_audio = self._process_audio_for_stt(pcm16_8k)
+            
+            # Save as temporary WAV file (16kHz for Whisper)
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                 with wave.open(f.name, 'wb') as wav:
-                    wav.setnchannels(1)  # Mono
-                    wav.setsampwidth(2)  # 16-bit
-                    wav.setframerate(8000)  # 8kHz
-                    wav.writeframes(pcm16_8k)
+                    wav.setnchannels(1)     # Mono
+                    wav.setsampwidth(2)     # 16-bit
+                    wav.setframerate(16000)  # 16kHz (Whisper optimal)
+                    wav.writeframes(processed_audio)
                 
-                # Use OpenAI Whisper
+                # Use OpenAI Whisper with Hebrew optimization
                 client = get_openai_client()
                 if not client:
                     print("❌ OpenAI client not available for STT")
@@ -756,7 +846,9 @@ class MediaStreamHandler:
                     transcript = client.audio.transcriptions.create(
                         model="whisper-1",
                         file=audio_file,
-                        language="he"  # Hebrew
+                        language="he",       # Hebrew (לא זיהוי דינמי)
+                        temperature=0.1,     # נמוך למדויק יותר
+                        prompt="אתה סוכן נדלן בישראל. דבר בעברית על דירות ומשרדים."  # context
                     )
                 
                 import os

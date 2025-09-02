@@ -31,3 +31,5 @@ simple-websocket
 eventlet==0.36.1
 websockets
 gevent-websocket
+numpy
+scipy
