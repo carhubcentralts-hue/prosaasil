@@ -114,23 +114,33 @@ class MediaStreamHandler:
                 # COMPATIBILITY: Handle both EventLet and Flask-Sock WebSocket APIs
                 raw = None
                 try:
-                    # Enhanced WebSocket API compatibility
-                    if hasattr(self.ws, 'receive'):
-                        raw = self.ws.receive()
-                    elif hasattr(self.ws, 'recv'):
-                        raw = self.ws.recv()
-                    elif hasattr(self.ws, 'read_message'):
-                        raw = self.ws.read_message()
-                    elif hasattr(self.ws, 'receive_data'):
-                        raw = self.ws.receive_data()
-                    elif hasattr(self.ws, 'read'):
-                        raw = self.ws.read()
-                    else:
-                        print(f"⚠️ Unknown WebSocket type: {type(self.ws)}, available methods: {[m for m in dir(self.ws) if not m.startswith('_')]}", flush=True)
-                        # Try common methods
-                        if hasattr(self.ws, '__call__'):
-                            raw = self.ws()
+                    # RFC6455WebSocket-specific handling
+                    ws_type = str(type(self.ws))
+                    if 'RFC6455WebSocket' in ws_type:
+                        # RFC6455WebSocket uses different method names
+                        if hasattr(self.ws, 'read_message'):
+                            raw = self.ws.read_message()
+                        elif hasattr(self.ws, 'receive_data'):
+                            raw = self.ws.receive_data()
+                        elif hasattr(self.ws, 'read'):
+                            raw = self.ws.read()
                         else:
+                            print(f"⚠️ RFC6455WebSocket methods: {[m for m in dir(self.ws) if not m.startswith('_') and 'recv' in m.lower()]}", flush=True)
+                            raise Exception(f"No compatible receive method found for RFC6455WebSocket")
+                    else:
+                        # Standard WebSocket APIs
+                        if hasattr(self.ws, 'receive'):
+                            raw = self.ws.receive()
+                        elif hasattr(self.ws, 'recv'):
+                            raw = self.ws.recv()
+                        elif hasattr(self.ws, 'read_message'):
+                            raw = self.ws.read_message()
+                        elif hasattr(self.ws, 'receive_data'):
+                            raw = self.ws.receive_data()
+                        elif hasattr(self.ws, 'read'):
+                            raw = self.ws.read()
+                        else:
+                            print(f"⚠️ Unknown WebSocket type: {type(self.ws)}, available methods: {[m for m in dir(self.ws) if not m.startswith('_')]}", flush=True)
                             raise Exception(f"No compatible receive method found for {type(self.ws)}")
                         
                     if raw is None or raw == '':
