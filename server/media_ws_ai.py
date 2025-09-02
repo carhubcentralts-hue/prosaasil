@@ -969,8 +969,29 @@ class MediaStreamHandler:
                     timeout=6.0               # מקס 6 שניות
                 )
             except Exception as e:
-                print(f"⏰ AI timeout/error ({e}) - using quick fallback")
-                return "רגע, אני בודקת... איזה אזור מעניין אותך?"
+                print(f"⏰ AI timeout/error ({e}) - extending timeout and retrying once")
+                # ✅ ניסיון שני עם timeout יותר ארוך
+                try:
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": smart_prompt},
+                            {"role": "user", "content": hebrew_text}
+                        ],
+                        max_tokens=150,
+                        temperature=0.6,
+                        timeout=12.0  # ניסיון שני עם timeout כפול
+                    )
+                    content = response.choices[0].message.content
+                    if content and content.strip():
+                        return content.strip()
+                except Exception as e2:
+                    print(f"⏰ Second AI attempt failed ({e2}) - using intelligent emergency response")
+                # ✅ תגובת חירום חכמה על בסיס האזור שזוהה
+                if requested_area:
+                    return f"סליחה על ההשהיה! איזה סוג דירה אתה מחפש ב{requested_area}? יש לי כמה אפשרויות מעניינות."
+                else:
+                    return "סליחה על ההשהיה הטכנית! איזה אזור מעניין אותך - מרכז, מרכז-דרום או אזור ירושלים?"
             
             content = response.choices[0].message.content
             if content and content.strip():
@@ -1008,48 +1029,27 @@ class MediaStreamHandler:
                     
                 return ai_answer
             else:
-                print("AI returned empty response, using fallback")
-                # ✅ תגובות חירום מאוזנות ומועילות
-                if "תודה" in hebrew_text or "ביי" in hebrew_text:
-                    return "תודה רבה! אני כאן לכל שאלה - מתמחה ממקסימוס נדלן"
-                elif "שלום" in hebrew_text:
-                    return "שלום וברוכים הבאים! מתמחה ממקסימוס נדלן. יש לי דירות מעולות במרכז הארץ - איך אני יכולה לעזור?"
-                elif "דירה" in hebrew_text:
-                    return "מעולה! יש לי מבחר גדול במרכז. איזה אזור מעניין אותך - תל אביב, רמת גן או גבעתיים? וכמה חדרים אתה צריך?"
-                elif "משרד" in hebrew_text:
-                    return "יש לי משרדים נהדרים במרכז! איזה גודל משרד אתה מחפש ובאיזה אזור - תל אביב או רמת גן?"
-                elif any(word in hebrew_text for word in ["מחיר", "כמה", "עולה"]):
-                    return "המחירים שלי נעים בין 6,800 ל-8,200 שקל לחודש. איזה אזור מעניין אותך ומה התקציב שלך?"
-                elif any(word in hebrew_text for word in ["תל אביב", "דיזנגוף"]):
-                    return "בדיזנגוף 150 יש לי דירת 3 חדרים מושלמת, 85 מ״ר, 7,500 שקל. רוצה לשמוע פרטים?"
+                print("AI returned empty response - should not happen with good prompt")
+                # ✅ תגובת חירום חכמה רק אם באמת אין תוכן
+                if requested_area:
+                    return f"איזה סוג דירה אתה מחפש ב{requested_area}? יש לי כמה אפשרויות מעניינות."
                 else:
-                    return "לא הבנתי לגמרי - תוכל לחזור על השאלה? אני כאן לעזור עם דירות במרכז הארץ"
+                    return "איזה אזור מעניין אותך? יש לי דירות במרכז הארץ, מרכז-דרום ואזור ירושלים."
             
         except Exception as e:
-            print(f"AI_ERROR: {e} - Using emergency responses")
-            # תגובות חירום מקצועיות עם הצעות קונקרטיות
-            print(f"🚨 AI_ERROR fallback for: '{hebrew_text}'")
+            print(f"AI_ERROR: {e} - Using intelligent emergency response")
+            # ✅ תגובת חירום חכמה על בסיס זיהוי האזור
+            print(f"🚨 CRITICAL AI_ERROR for: '{hebrew_text}' - detected area: {requested_area}")
             
-            if "תודה" in hebrew_text or "ביי" in hebrew_text:
-                return "להתראות!"
-            elif "שלום" in hebrew_text:
-                return "שלום! איך אני יכולה לעזור?"
-            elif "דירה" in hebrew_text:
-                return "איזה אזור מעניין אותך?"
-            elif any(word in hebrew_text for word in ["תל אביב", "דיזנגוף", "פלורנטין", "נווה צדק"]):
-                return "כמה חדרים אתה צריך בתל אביב?"
-            elif any(word in hebrew_text for word in ["רמת גן", "גבעתיים"]):
-                return "איזה תקציב מתאים לך?"
-            elif any(word in hebrew_text for word in ["2", "3", "4", "חדרים", "חדר"]):
-                return "איזה תקציב יש לך?"
-            elif any(word in hebrew_text for word in ["שקל", "אלף", "תקציב", "מחיר", "7000", "8000"]):
-                return "רוצה לשמוע על הדירות?"
-            elif "משרד" in hebrew_text:
-                return "איזה גודל משרד אתה מחפש?"
-            elif any(word in hebrew_text for word in ["פגישה", "צפייה", "לראות", "ביקור"]):
-                return "מתי נוח לך?"
+            # תגובת חירום בהתאם לאזור שזוהה
+            if requested_area:
+                return f"מצטערת להשהיה! איזה סוג דירה אתה מחפש ב{requested_area}? יש לי כמה אפשרויות."
+            elif "תודה" in hebrew_text or "ביי" in hebrew_text:
+                return "תודה רבה! אני כאן לכל שאלה."
+            elif any(word in hebrew_text for word in ["שלום", "היי", "הלו"]):
+                return "שלום! איזה אזור מעניין אותך? יש לי דירות במרכז, מרכז-דרום ואזור ירושלים."
             else:
-                return "לא הבנתי - תוכל לחזור?"
+                return "איזה אזור מעניין אותך? יש לי דירות במרכז הארץ, מרכז-דרום ואזור ירושלים."
     
     def _hebrew_tts(self, text: str) -> bytes | None:
         """Hebrew Text-to-Speech using Google Cloud TTS with Wavenet voice"""
