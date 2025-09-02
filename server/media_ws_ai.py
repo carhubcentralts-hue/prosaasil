@@ -786,11 +786,11 @@ class MediaStreamHandler:
             audio_float = signal.sosfilt(sos_lp, audio_float)
             
             # ✅ 4. AGC עדין - נרמול לטווח מטרה (-20dBFS ≈ 0.1)
-            rms = np.sqrt(np.mean(audio_float ** 2))
+            rms = float(np.sqrt(np.mean(audio_float ** 2)))
             if rms > 0.001:  # אם יש אודיו אמיתי
                 target_rms = 0.1  # -20dBFS
                 gain = min(target_rms / rms, 3.0)  # מגביל גיין ל-3x
-                audio_float = audio_float * gain
+                audio_float = audio_float * float(gain)
             
             # ✅ 5. Clipping protection
             audio_float = np.clip(audio_float, -0.95, 0.95)
@@ -799,7 +799,7 @@ class MediaStreamHandler:
             audio_16k = signal.resample(audio_float, len(audio_float) * 2)
             
             # המר חזרה ל-int16
-            audio_16k_int16 = (audio_16k * 32767).astype(np.int16)
+            audio_16k_int16 = np.array(audio_16k * 32767, dtype=np.int16)
             
             return audio_16k_int16.tobytes()
             
@@ -812,7 +812,7 @@ class MediaStreamHandler:
                 audio_int16 = np.frombuffer(pcm16_8k, dtype=np.int16)
                 audio_float = audio_int16.astype(np.float32) / 32768.0
                 audio_16k = signal.resample(audio_float, len(audio_float) * 2)
-                audio_16k_int16 = (audio_16k * 32767).astype(np.int16)
+                audio_16k_int16 = np.array(audio_16k * 32767, dtype=np.int16)
                 return audio_16k_int16.tobytes()
             except Exception as e2:
                 print(f"⚠️ Even simple resample failed: {e2}")
