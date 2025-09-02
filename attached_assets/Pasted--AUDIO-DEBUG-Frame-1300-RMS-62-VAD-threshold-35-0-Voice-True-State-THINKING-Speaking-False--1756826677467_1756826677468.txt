@@ -1,0 +1,89 @@
+📊 AUDIO_DEBUG: Frame #1300, RMS=62, VAD_threshold=35.0, Voice=True, State=THINKING, Speaking=False, Processing=False, Buffer_size=0
+2025-09-02 18:24:01.69
+1183ddca
+User
+🔇 SILENCE_TIME: 0.00s
+2025-09-02 18:24:01.70
+1183ddca
+User
+📊 AUDIO_DEBUG: Frame #1325, RMS=1054, VAD_threshold=35.0, Voice=True, State=THINKING, Speaking=False, Processing=False, Buffer_size=0
+2025-09-02 18:24:01.70
+1183ddca
+User
+🔇 SILENCE_TIME: 0.00s
+2025-09-02 18:24:01.70
+1183ddca
+User
+WS_MEDIA sid=MZ3f09aa2a3c83534edb7650ef582d31d8 rx=1350 state=THINKING VAD=48/70
+2025-09-02 18:24:01.70
+1183ddca
+User
+📊 AUDIO_DEBUG: Frame #1350, RMS=48, VAD_threshold=35.0, Voice=True, State=THINKING, Speaking=False, Processing=False, Buffer_size=0
+2025-09-02 18:24:01.70
+1183ddca
+User
+🔇 SILENCE_TIME: 0.00s
+2025-09-02 18:24:01.71
+1183ddca
+User
+📊 AUDIO_DEBUG: Frame #1375, RMS=5627, VAD_threshold=35.0, Voice=True, State=THINKING, Speaking=False, Processing=False, Buffer_size=0
+2025-09-02 18:24:01.71
+1183ddca
+User
+🔇 SILENCE_TIME: 0.00s
+2025-09-02 18:24:01.71
+1183ddca
+User
+📊 WS_STATUS: Frame #1400, Type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 18:24:01.71
+1183ddca
+User
+WS_MEDIA sid=MZ3f09aa2a3c83534edb7650ef582d31d8 rx=1400 state=THINKING VAD=302/70
+2025-09-02 18:24:01.71
+1183ddca
+User
+📊 AUDIO_DEBUG: Frame #1400, RMS=302, VAD_threshold=35.0, Voice=True, State=THINKING, Speaking=False, Processing=False, Buffer_size=0
+2025-09-02 18:24:01.71
+1183ddca
+User
+🔇 SILENCE_TIME: 0.00s
+2025-09-02 18:24:01.72
+1183ddca
+User
+📊 AUDIO_DEBUG: Frame #1425, RMS=17, VAD_threshold=35.0, Voice=False, State=THINKING, Speaking=False, Processing=False, Buffer_size=0
+2025-09-02 18:24:01.72
+1183ddca
+User
+🔇 SILENCE_TIME: 0.00s
+2025-09-02 18:24:01.87
+1183ddca
+User
+WS_MEDIA sid=MZ3f09aa2a3c83534edb7650ef582d31d8 rx=1450 state=THINKING VAD=118/70
+2025-09-02 18:24:01.87
+1183ddca
+User
+📊 AUDIO_DEBUG: Frame #1450, RMS=118, VAD_threshold=35.0, Voice=True, State=THINKING, Speaking=False, Processing=False, Buffer_size=0
+2025-09-02 18:24:01.87
+1183ddca
+User
+🔇 SILENCE_TIME: 0.00s
+2025-09-02 18:24:02.37
+1183ddca
+User
+📊 AUDIO_DEBUG: Frame #1475, RMS=9, VAD_threshold=35.0, Voice=False, State=THINKING, Speaking=False, Processing=False, Buffer_size=1280
+2025-09-02 18:24:02.37
+1183ddca
+User
+📊 AUDIO_ACCUMULATED: 0.1s duration
+2025-09-02 18:24:02.37
+1183ddca
+User
+🔇 SILENCE_TIME: 0.00s
+2025-09-02 18:24:02.85
+1183ddca
+User
+📊 WS_STATUS: Frame #1500, Type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 18:24:02.87
+1183ddca
+User
+WS_MEDIA sid=MZ3f09aa2a3c83534edb7650ef582d31d8 rx=1500 state=THINKING VAD=8/70

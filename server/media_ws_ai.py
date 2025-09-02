@@ -415,6 +415,10 @@ class MediaStreamHandler:
             # PATCH 6: Always speak something
             self._speak_simple(reply)
             
+            # ✅ CRITICAL: חזור למצב האזנה אחרי כל תגובה!
+            self.state = STATE_LISTEN
+            print(f"✅ RETURNED TO LISTEN STATE after conversation #{conversation_id}")
+            
         except Exception as e:
             print(f"❌ CRITICAL Processing error: {e}")
             print(f"   Text was: '{text}' ({len(text)} chars)")
@@ -423,6 +427,7 @@ class MediaStreamHandler:
             emergency_response = "מצטערת, לא שמעתי טוב בגלל החיבור. אני מתמחה ממקסימוס נדל\"ן ויש לי דירות מדהימות במרכז. בואו נתחיל מחדש - איזה סוג נכס אתה מחפש ובאיזה אזור?"
             self._speak_with_breath(emergency_response)
             self.state = STATE_LISTEN
+            print(f"✅ RETURNED TO LISTEN STATE after error in conversation #{conversation_id}")
 
 
     # 🎯 דיבור פשוט וישיר (ללא queue מורכב)
@@ -463,6 +468,10 @@ class MediaStreamHandler:
         finally:
             self.speaking = False
             self.last_tts_end_ts = time.time()
+            # ✅ CRITICAL: וודא חזרה למצב האזנה אחרי דיבור
+            if self.state != STATE_LISTEN:
+                self.state = STATE_LISTEN
+                print("✅ FORCED RETURN TO LISTEN STATE after speaking")
             print("✅ Speaking completed")
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
