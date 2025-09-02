@@ -1,0 +1,99 @@
+אתה צודק—לא חייבים Reserved VM. גם עם Autoscale זה יעבוד. הבעיה אצלך כרגע היא לא “שירות”, אלא איך הדיפלוי רץ: אם ה־Autoscale מריץ python main.py / Flask dev / משהו אחר – ה־WebSocket לא יקבל הנדשייק נכון ותקבל 400/שקט.
+
+בוא נסדר את זה בלי לשנות סוג דיפלוי בכלל:
+
+מה לתקן (בלי להחליף Autoscale)
+
+1) הפקודת Start של הדיפלוי
+
+ב־Replit → Deployments → ⚙️ Edit (של הדיפלוי הקיים):
+	•	תחת Start command שים בדיוק:
+
+gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT
+
+זה מחייב את ה־Composite WSGI שלך (שכולל את /ws/twilio-media + כל ההגנות והעקיפות שהוספנו).
+אם רץ משהו אחר (כמו python main.py/Flask dev) – ה־WS ייפול.
+
+	•	Health check: שים /version (לא /healthz).
+	•	ודא שהדומיין נשאר זהה (לא לשנות כדי לא לגעת ב-Twilio).
+
+2) ודא שהקוד המעודכן בפרודקשן
+
+כבר יש לך את הפאץ’ ב־wsgi.py (בדקנו):
+	•	מחזיר 204 מיידי ל־/webhook/stream_status|stream_ended|call_status
+	•	מחזיר TwiML מיידי ל־/webhook/incoming_call
+	•	מסלול WS: מקבל גם /ws/twilio-media/
+	•	הנדשייק: מחזיר Sec-WebSocket-Protocol: audio.twilio.com + Upgrade + Connection
+
+וודא שהדיפלוי באמת מריץ את הקוד הזה (אחרי Redeploy).
+
+3) אימות חתימה – תקין, לא מבטלים
+
+השאר @require_twilio_signature על:
+	•	/webhook/incoming_call
+	•	/webhook/handle_recording
+	•	/webhook/call_status
+לא צריך חתימה על stream_status/ended (ממילא עונים ב-WSGI).
+
+4) משתני סביבה בדיפלוי (לא רק ב-.env של הפרויקט)
+
+בדף הדיפלוי עצמו (Environment):
+
+PUBLIC_BASE_URL=https://ai-crmd.replit.app
+OPENAI_API_KEY=...
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON={"type":"service_account",...}   # כל ה-JSON בשורה אחת
+
+5) בדיקות מיידיות
+	•	Webhooks (צריך 204 מהר):
+
+curl -i -X POST https://ai-crmd.replit.app/webhook/stream_status
+curl -i -X POST https://ai-crmd.replit.app/webhook/stream_ended
+curl -i -X POST https://ai-crmd.replit.app/webhook/call_status
+
+	•	TwiML Preview:
+
+curl -i https://ai-crmd.replit.app/webhook/incoming_call_preview
+# Content-Type: application/xml; charset=utf-8
+# wss://ai-crmd.replit.app/ws/twilio-media
+
+	•	(אופציונלי) Handshake ידני:
+
+# אם יש לך wscat מקומי
+wscat -c "wss://ai-crmd.replit.app/ws/twilio-media" -H "Sec-WebSocket-Protocol: audio.twilio.com"
+
+בלוג של הדיפלוי תחפש:
+
+📞 Routing to EventLet WebSocketWSGI
+🎯 Twilio subprotocol requested
+✅ Added Twilio subprotocol to handshake
+
+6) Twilio – ודא URL מדויק
+
+במספר הטלפון → Voice:
+	•	Webhook: POST https://ai-crmd.replit.app/webhook/incoming_call  (ללא סלש בסוף)
+	•	אין query params.
+
+⸻
+
+למה זה הפתרון (ולא “מסתבך”)
+	•	Autoscale כן יכול לעבוד – בתנאי שה־Start command מריץ את Gunicorn עם Eventlet ואת wsgi:app שלך. אז הפרוקסי של Replit (“Google Frontend”) מעביר WS תקין, והקוד שלך מחזיר בדיוק את ה־headers שטוויליו צריך.
+	•	כל שאר הבעיות (11205) כבר נפתרו עם ה־204 המיידי ברמת WSGI.
+
+⸻
+
+טקסט קצר לאייג’נט (אפשר להדביק לו)
+
+ב-Replit Deployments ערוך את הדיפלוי הקיים (Autoscale) ושנה את Start command ל:
+  gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT
+
+השאר Health ל-/version, השאר דומיין זהה, ודא כל ה-ENV בדיפלוי.
+אחר כך עשה Redeploy.
+
+בדוק:
+- POST /webhook/stream_status|stream_ended|call_status → 204 מיד
+- GET /webhook/incoming_call_preview → XML עם wss://
+- התקשר מהטלפון; ב-Logs חפש "Added Twilio subprotocol to handshake" ואז WS_MEDIA/ASR_TEXT/TTS_SUCCESS.
+
+אם אחרי זה עדיין תראה 400 ב-WS—תשלח לי את ה-Logs של הדיפלוי (מההתחלה של השרת ועד ניסיון ההתחברות), ואני אצביע על השורה המדויקת.
