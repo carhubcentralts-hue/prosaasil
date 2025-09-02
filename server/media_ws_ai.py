@@ -917,20 +917,17 @@ class MediaStreamHandler:
 הלקוח אומר: "{hebrew_text}"
 תגובה מקצועית ומעניינת:"""
 
-            # ✅ GPT-4 יציב ומהיר עם timeout לשיחה חיה!
-            import asyncio
+            # ✅ GPT-4o MINI מהיר יותר לשיחה חיה!
             try:
                 response = client.chat.completions.create(
-                    model="gpt-4",
+                    model="gpt-4o-mini",      # מהיר יותר מGPT-4
                     messages=[
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=150,           # ✅ תשובות מאוזנות (30-50 מילים)  
-                    temperature=0.7,          # טבעי אבל עקבי
-                    frequency_penalty=0.5,    # מנע חזרות חזקות
-                    presence_penalty=0.3,     # מגוון בביטויים
-                    timeout=10.0              # מקס 10 שניות לGPT-4 Hebrew processing
+                    max_tokens=80,            # קצר יותר = מהיר יותר
+                    temperature=0.6,          # פחות random = מהיר יותר
+                    timeout=6.0               # מקס 6 שניות
                 )
             except Exception as e:
                 print(f"⏰ AI timeout/error ({e}) - using quick fallback")
@@ -1035,7 +1032,7 @@ class MediaStreamHandler:
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.LINEAR16,
                 sample_rate_hertz=8000,
-                speaking_rate=0.96,  # קצת יותר איטי מהרגיל
+                speaking_rate=1.1,   # מהיר יותר
                 pitch=0.0,           # טון טבעי
                 effects_profile_id=["telephony-class-application"]  # אופטימיזציה לטלפון
             )
