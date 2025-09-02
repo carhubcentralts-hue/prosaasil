@@ -3,7 +3,7 @@ import eventlet; eventlet.monkey_patch()
 
 import os
 os.environ['EVENTLET_NO_GREENDNS'] = '1'
-os.environ['EVENTLET_HUB'] = 'select'
+os.environ['EVENTLET_HUB'] = 'poll'
 
 from eventlet.websocket import WebSocketWSGI
 from server.app_factory import create_app
