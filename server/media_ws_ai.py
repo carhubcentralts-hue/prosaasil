@@ -114,26 +114,17 @@ class MediaStreamHandler:
                 # COMPATIBILITY: Handle both EventLet and Flask-Sock WebSocket APIs
                 raw = None
                 try:
-                    # EXTREME DEBUG: Log everything about WebSocket type
+                    # Simplified WebSocket handling - no spam logs
                     ws_type = str(type(self.ws))
-                    print(f"🔍 DEBUG WebSocket type: {ws_type}", flush=True)
-                    print(f"🔍 DEBUG Available methods: {[m for m in dir(self.ws) if not m.startswith('_')]}", flush=True)
                     
                     # RFC6455WebSocket-specific handling (EventLet)
                     if 'RFC6455WebSocket' in ws_type:
                         # EventLet RFC6455WebSocket uses wait() method
-                        print(f"🎯 DETECTED EventLet RFC6455WebSocket - using wait() method", flush=True)
-                        if hasattr(self.ws, 'wait'):
-                            print(f"✅ Calling wait() method...", flush=True)
-                            try:
-                                raw = self.ws.wait()
-                                print(f"🔍 wait() returned: {type(raw)} = {str(raw)[:100] if raw else 'None'}", flush=True)
-                            except Exception as wait_error:
-                                print(f"❌ wait() failed: {wait_error}", flush=True)
-                                raise wait_error
-                        else:
-                            print(f"⚠️ EventLet WebSocket missing wait() method", flush=True)
-                            raise Exception(f"EventLet RFC6455WebSocket missing wait() method")
+                        raw = self.ws.wait()
+                        # Only log every 100 messages to avoid spam
+                        if self.rx_frames % 100 == 0:
+                            print(f"📊 WS_STATUS: Frame #{self.rx_frames}, Type: {ws_type}")
+                        self.rx_frames += 1
                     else:
                         # Standard WebSocket APIs
                         if hasattr(self.ws, 'receive'):
@@ -184,26 +175,20 @@ class MediaStreamHandler:
                         self.stream_sid = evt.get("streamSid")
                         self.call_sid = evt.get("callSid")
                     self.last_rx_ts = time.time()
-                    print(f"WS_START sid={self.stream_sid} mode={self.mode}")
+                    print(f"🎯 WS_START sid={self.stream_sid} call_sid={self.call_sid} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
-                    # ✅ ברכה חכמה: רק אם אין קול ב-0.8s הראשונות
+                    # ✅ ברכה מיידית - בלי השהיה!
                     if not self.tx_running:
                         self.tx_running = True
                         self.tx_thread.start()
                     
                     if not self.greeting_sent:
-                        def _smart_greet():
-                            time.sleep(0.8)  # חכה לראות אם יש קול
-                            if ((time.time() - self.last_rx_ts) >= 0.8 and 
-                                self.state == STATE_LISTEN and not self.speaking):
-                                greet = os.getenv("AI_GREETING_HE") or "שלום! מדברת איתכם לאה מקסימוס נדלן. יש לי דירות מעולות במרכז ובפרברים. איזה אזור מעניין אתכם?"
-                                if greet.strip():
-                                    print(f"🔊 SMART_GREETING: '{greet}' delay=0.8s")
-                                    self._speak_with_breath(greet)
-                                    self.greeting_sent = True
-                        threading.Thread(target=_smart_greet, daemon=True).start()
+                        print("🎯 SENDING IMMEDIATE GREETING!")
+                        greet = "שלום! מדברת איתכם לאה מקסימוס נדלן. יש לי דירות מעולות במרכז ובפרברים. איזה אזור מעניין אתכם?"
+                        self._speak_simple(greet)
+                        self.greeting_sent = True
                     continue
 
                 if et == "media":

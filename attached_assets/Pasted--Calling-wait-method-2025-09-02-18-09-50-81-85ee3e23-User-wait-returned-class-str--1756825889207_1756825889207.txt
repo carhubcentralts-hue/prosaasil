@@ -1,0 +1,80 @@
+✅ Calling wait() method...
+2025-09-02 18:09:50.81
+85ee3e23
+User
+🔍 wait() returned: <class 'str'> = {"event":"media","sequenceNumber":"1796","media":{"track":"inbound","chunk":"1795","timestamp":"3615
+2025-09-02 18:09:50.81
+85ee3e23
+User
+🔍 DEBUG WebSocket type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 18:09:50.81
+85ee3e23
+User
+🔍 DEBUG Available methods: ['Message', 'UTF8Decoder', 'client', 'close', 'environ', 'extensions', 'iterator', 'log', 'log_context', 'max_frame_length', 'origin', 'path', 'protocol', 'send', 'socket', 'version', 'wait', 'websocket_closed']
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🎯 DETECTED EventLet RFC6455WebSocket - using wait() method
+2025-09-02 18:09:50.82
+85ee3e23
+User
+✅ Calling wait() method...
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🔍 wait() returned: <class 'str'> = {"event":"media","sequenceNumber":"1797","media":{"track":"inbound","chunk":"1796","timestamp":"3617
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🔍 DEBUG WebSocket type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🔍 DEBUG Available methods: ['Message', 'UTF8Decoder', 'client', 'close', 'environ', 'extensions', 'iterator', 'log', 'log_context', 'max_frame_length', 'origin', 'path', 'protocol', 'send', 'socket', 'version', 'wait', 'websocket_closed']
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🎯 DETECTED EventLet RFC6455WebSocket - using wait() method
+2025-09-02 18:09:50.82
+85ee3e23
+User
+✅ Calling wait() method...
+2025-09-02 18:09:50.82
+85ee3e23
+User
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🔍 wait() returned: <class 'str'> = {"event":"media","sequenceNumber":"1798","media":{"track":"inbound","chunk":"1797","timestamp":"3619
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🔍 DEBUG WebSocket type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🔍 DEBUG Available methods: ['Message', 'UTF8Decoder', 'client', 'close', 'environ', 'extensions', 'iterator', 'log', 'log_context', 'max_frame_length', 'origin', 'path', 'protocol', 'send', 'socket', 'version', 'wait', 'websocket_closed']
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🎯 DETECTED EventLet RFC6455WebSocket - using wait() method
+2025-09-02 18:09:50.82
+85ee3e23
+User
+✅ Calling wait() method...
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🔍 wait() returned: <class 'str'> = {"event":"media","sequenceNumber":"1799","media":{"track":"inbound","chunk":"1798","timestamp":"3621
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🔍 DEBUG WebSocket type: <class 'eventlet.websocket.RFC6455WebSocket'>
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🔍 DEBUG Available methods: ['Message', 'UTF8Decoder', 'client', 'close', 'environ', 'extensions', 'iterator', 'log', 'log_context', 'max_frame_length', 'origin', 'path', 'protocol', 'send', 'socket', 'version', 'wait', 'websocket_closed']
+2025-09-02 18:09:50.82
+85ee3e23
+User
+🎯 DETECTED EventLet RFC6455WebSocket - using wait() method
