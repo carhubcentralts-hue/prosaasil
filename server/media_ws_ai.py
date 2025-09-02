@@ -226,9 +226,10 @@ class MediaStreamHandler:
                         self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
                         self.calibration_frames += 1
                         if self.calibration_frames >= 25:
-                            self.vad_threshold = max(35, self.noise_floor * 2.2 + 8)
+                            # ✅ VAD רגיש הרבה יותר - threshold נמוך יותר
+                            self.vad_threshold = max(25, self.noise_floor * 1.5 + 5)
                             self.is_calibrated = True
-                            print(f"🎛️ VAD_CALIBRATED: noise_floor={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
+                            print(f"🎛️ VAD_CALIBRATED: noise_floor={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f} (SENSITIVE)")
                     
                     # זיהוי קול עם סף דינמי
                     is_strong_voice = rms > self.vad_threshold
@@ -241,6 +242,10 @@ class MediaStreamHandler:
                     # חישוב דממה אמיתי - מאז הקול האחרון! 
                     # אם אין קול בכלל, דממה = 0 (כדי שלא נתקע)
                     silence_time = (current_time - self.last_voice_ts) if self.last_voice_ts > 0 else 0
+                    
+                    # ✅ DEBUG מתקדם לזיהוי בעיות VAD
+                    if self.rx % 100 == 0 and len(self.buf) > 0:
+                        print(f"🔍 VAD_DEBUG: RMS={rms}, threshold={self.vad_threshold:.1f}, is_voice={is_strong_voice}, silence={silence_time:.2f}s")
                     
                     # 🔍 DEBUG: לוג כל 25 frames עם מידע מלא + EOU info
                     if self.rx % 25 == 0:
@@ -301,14 +306,14 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ✅ זיהוי סוף מבע עם דממה אמיתית - רגיש יותר!
-                            min_silence = 0.25 if dur > 1.0 else 0.3  # 250-300ms שקט (יותר רגיש!)
+                            # ✅ זיהוי סוף מבע עם דממה אמיתית - SUPER רגיש!
+                            min_silence = 0.2 if dur > 1.0 else 0.25  # 200-250ms שקט (סופר רגיש!)
                             silent = silence_time >= min_silence
                             too_long = dur >= MAX_UTT_SEC
-                            min_duration = 0.5  # מינימום 500ms (יותר רגיש!)
+                            min_duration = 0.4  # מינימום 400ms (סופר רגיש!)
                             
                             # ✅ EOU אגרסיבי: גם רק אם הבאפר גדול מספיק
-                            buffer_big_enough = len(self.buf) > 8000  # לפחות 0.5s של אודיו אמיתי
+                            buffer_big_enough = len(self.buf) > 6400  # לפחות 0.4s של אודיו אמיתי
                             
                             # סוף מבע: דממה מספקת OR זמן יותר מדי OR באפר גדול עם שקט
                             if ((silent and buffer_big_enough) or too_long) and dur >= min_duration:
@@ -349,10 +354,10 @@ class MediaStreamHandler:
                         self.speaking = False
                         self.state = STATE_LISTEN
                     
-                    # ✅ EOU חירום: אם יש הרבה אודיו אבל לא מזוהה EOU
+                    # ✅ EOU חירום אגרסיבי: מכריח עיבוד אם הבאפר גדול
                     if (not self.processing and self.state == STATE_LISTEN and 
-                        len(self.buf) > 40000 and  # 2.5s של אודיו
-                        silence_time > 0.15):     # 150ms שקט
+                        len(self.buf) > 24000 and  # 1.5s של אודיו (יותר אגרסיבי!)
+                        silence_time > 0.1):      # 100ms שקט (יותר אגרסיבי!)
                         print(f"🚨 EMERGENCY EOU: {len(self.buf)/(2*SR):.1f}s audio, silence={silence_time:.2f}s")
                         # כפה EOU
                         self.processing = True
