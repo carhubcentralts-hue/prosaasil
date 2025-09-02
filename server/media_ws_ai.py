@@ -119,22 +119,16 @@ class MediaStreamHandler:
                     print(f"🔍 DEBUG WebSocket type: {ws_type}", flush=True)
                     print(f"🔍 DEBUG Available methods: {[m for m in dir(self.ws) if not m.startswith('_')]}", flush=True)
                     
-                    # RFC6455WebSocket-specific handling
+                    # RFC6455WebSocket-specific handling (EventLet)
                     if 'RFC6455WebSocket' in ws_type:
-                        # RFC6455WebSocket uses different method names
-                        print(f"🎯 DETECTED RFC6455WebSocket - using alternative methods", flush=True)
-                        if hasattr(self.ws, 'read_message'):
-                            print(f"✅ Using read_message()", flush=True)
-                            raw = self.ws.read_message()
-                        elif hasattr(self.ws, 'receive_data'):
-                            print(f"✅ Using receive_data()", flush=True)
-                            raw = self.ws.receive_data()
-                        elif hasattr(self.ws, 'read'):
-                            print(f"✅ Using read()", flush=True)
-                            raw = self.ws.read()
+                        # EventLet RFC6455WebSocket uses wait() method
+                        print(f"🎯 DETECTED EventLet RFC6455WebSocket - using wait() method", flush=True)
+                        if hasattr(self.ws, 'wait'):
+                            print(f"✅ Using wait() method", flush=True)
+                            raw = self.ws.wait()
                         else:
-                            print(f"⚠️ RFC6455WebSocket methods: {[m for m in dir(self.ws) if not m.startswith('_') and 'recv' in m.lower()]}", flush=True)
-                            raise Exception(f"No compatible receive method found for RFC6455WebSocket")
+                            print(f"⚠️ EventLet WebSocket missing wait() method", flush=True)
+                            raise Exception(f"EventLet RFC6455WebSocket missing wait() method")
                     else:
                         # Standard WebSocket APIs
                         if hasattr(self.ws, 'receive'):
