@@ -40,13 +40,28 @@ class MediaStreamHandler:
             # אם אין send, נסה send_text או כל שיטה אחרת
             self._ws_send_method = getattr(ws, 'send_text', lambda x: print(f"❌ No send method: {x}"))
         
-        # 🛡️ Safe WebSocket send wrapper
+        # 🛡️ Safe WebSocket send wrapper with connection health
+        self.ws_connection_failed = False
+        self.failed_send_count = 0
+        
         def _safe_ws_send(data):
+            if self.ws_connection_failed:
+                return False  # Don't spam when connection is dead
+                
             try:
                 self._ws_send_method(data)
+                self.failed_send_count = 0  # Reset on success
+                return True
             except Exception as e:
-                print(f"❌ WebSocket send error (recovered): {e}")
-                # Don't re-raise - keep connection alive
+                self.failed_send_count += 1
+                if self.failed_send_count <= 3:  # Only log first 3 errors
+                    print(f"❌ WebSocket send error #{self.failed_send_count}: {e}")
+                
+                if self.failed_send_count >= 5:  # After 5 failures, mark as dead
+                    self.ws_connection_failed = True
+                    print(f"🚨 WebSocket connection marked as FAILED after {self.failed_send_count} attempts")
+                
+                return False
         
         self._ws_send = _safe_ws_send
         self.stream_sid = None
@@ -341,11 +356,14 @@ class MediaStreamHandler:
                                 
                                 print("🎤 BARGE-IN -> LISTENING (user can speak now)")
                                 
-                                # שלח clear לטוויליו כדי לנקות אודיו תקוע
-                                try:
-                                    self.tx_q.put_nowait({"type": "clear"})
-                                except:
-                                    pass
+                                # שלח clear לטוויליו כדי לנקות אודיו תקוע (אם החיבור תקין)
+                                if not self.ws_connection_failed:
+                                    try:
+                                        self.tx_q.put_nowait({"type": "clear"})
+                                    except:
+                                        pass
+                                else:
+                                    print("💔 SKIPPING barge-in clear - WebSocket connection failed")
                                 continue
                         else:
                             # אם אין קול חזק מספיק - קזז את הספירה
@@ -417,17 +435,21 @@ class MediaStreamHandler:
                         self.last_keepalive_ts = current_time
                         self.heartbeat_counter += 1
                         
-                        # שלח heartbeat mark event
-                        try:
-                            heartbeat_msg = {
-                                "event": "mark",
-                                "streamSid": self.stream_sid,
-                                "mark": {"name": f"heartbeat_{self.heartbeat_counter}"}
-                            }
-                            self._ws_send(json.dumps(heartbeat_msg))
-                            print(f"💓 WS_KEEPALIVE #{self.heartbeat_counter} (prevents 5min timeout)")
-                        except Exception as e:
-                            print(f"⚠️ Keepalive failed: {e}")
+                        # שלח heartbeat mark event אם החיבור תקין
+                        if not self.ws_connection_failed:
+                            try:
+                                heartbeat_msg = {
+                                    "event": "mark",
+                                    "streamSid": self.stream_sid,
+                                    "mark": {"name": f"heartbeat_{self.heartbeat_counter}"}
+                                }
+                                success = self._ws_send(json.dumps(heartbeat_msg))
+                                if success:
+                                    print(f"💓 WS_KEEPALIVE #{self.heartbeat_counter} (prevents 5min timeout)")
+                            except Exception as e:
+                                print(f"⚠️ Keepalive failed: {e}")
+                        else:
+                            print(f"💔 SKIPPING keepalive - WebSocket connection failed")
                     
                     # ✅ Watchdog: וודא שלא תקועים במצב + EOU כפויה
                     if self.processing and (current_time - self.processing_start_ts) > 2.5:
@@ -545,11 +567,14 @@ class MediaStreamHandler:
         except:
             pass
             
-        # שלח CLEAR לטוויליו
-        try:
-            self.tx_q.put_nowait({"type": "clear"})
-        except:
-            pass
+        # שלח CLEAR לטוויליו אם החיבור תקין
+        if not self.ws_connection_failed:
+            try:
+                self.tx_q.put_nowait({"type": "clear"})
+            except:
+                pass
+        else:
+            print("💔 SKIPPING clear - WebSocket connection failed")
         
         print("✅ Bot is now silent - user can speak")
 
@@ -1273,9 +1298,12 @@ class MediaStreamHandler:
             breath_delay = random.uniform(RESP_MIN_DELAY_MS/1000.0, RESP_MAX_DELAY_MS/1000.0)
             time.sleep(breath_delay)
             
-            # clear + שידור
-            if self.stream_sid:
+            # clear + שידור אם החיבור תקין
+            if self.stream_sid and not self.ws_connection_failed:
                 self.tx_q.put_nowait({"type": "clear"})
+            elif self.ws_connection_failed:
+                print("💔 SKIPPING TTS clear - WebSocket connection failed")
+                return None
             
             # נסה TTS אמיתי
             pcm = None
@@ -1307,9 +1335,12 @@ class MediaStreamHandler:
                 # אודיו חירום - צפצוף
                 pcm = self._beep_pcm16_8k_v2(300)
             
-            # שלח דרך TX Queue
-            if self.stream_sid:
+            # שלח דרך TX Queue אם החיבור תקין
+            if self.stream_sid and not self.ws_connection_failed:
                 self.tx_q.put_nowait({"type": "clear"})
+            elif self.ws_connection_failed:
+                print("💔 SKIPPING audio clear - WebSocket connection failed")
+                return
             
             # המר ל-µ-law ושלח ב-20ms chunks
             mulaw = audioop.lin2ulaw(pcm, 2)
@@ -1323,12 +1354,19 @@ class MediaStreamHandler:
                 if len(chunk) < FR:
                     break
                     
-                b64 = base64.b64encode(chunk).decode("ascii")
-                self.tx_q.put_nowait({"type": "media", "payload": b64})
-                self.tx += 1
+                if not self.ws_connection_failed:
+                    b64 = base64.b64encode(chunk).decode("ascii")
+                    self.tx_q.put_nowait({"type": "media", "payload": b64})
+                    self.tx += 1
+                else:
+                    print("💔 SKIPPING media chunk - WebSocket connection failed")
+                    break
             
-            # סיום
-            self.tx_q.put_nowait({"type": "mark", "name": "tts_done"})
+            # סיום אם החיבור תקין
+            if not self.ws_connection_failed:
+                self.tx_q.put_nowait({"type": "mark", "name": "tts_done"})
+            else:
+                print("💔 SKIPPING tts_done mark - WebSocket connection failed")
             
         finally:
             self.speaking = False
