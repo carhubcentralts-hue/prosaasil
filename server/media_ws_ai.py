@@ -253,10 +253,10 @@ class MediaStreamHandler:
                         self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
                         self.calibration_frames += 1
                         if self.calibration_frames >= 60:
-                            # ✅ MUCH HIGHER threshold to prevent false positives
-                            self.vad_threshold = max(120, self.noise_floor * 4.0 + 50)  # Much stricter
+                            # ✅ HEBREW-OPTIMIZED: Much higher threshold for Hebrew speech
+                            self.vad_threshold = max(200, self.noise_floor * 6.0 + 120)  # Hebrew needs higher threshold
                             self.is_calibrated = True
-                            print(f"🎛️ VAD CALIBRATED (threshold: {self.vad_threshold:.1f})")
+                            print(f"🎛️ VAD CALIBRATED for HEBREW (threshold: {self.vad_threshold:.1f})")
                             
                             # היסטרזיס למניעת ריצוד
                             if not hasattr(self, 'vad_hysteresis_count'):
@@ -294,8 +294,8 @@ class MediaStreamHandler:
                             is_strong_voice = enhanced_voice
                             self.vad_hysteresis_count = 0
                     else:
-                        # לפני קליברציה - VAD חזק יותר למניעת false positives
-                        is_strong_voice = rms > 200  # Much higher threshold
+                        # לפני קליברציה - VAD חזק יותר לעברית
+                        is_strong_voice = rms > 300  # Even higher for Hebrew speech
                     
                     # ✅ FIXED: Update last_voice_ts only with VERY strong voice
                     current_time = time.time()
@@ -329,14 +329,14 @@ class MediaStreamHandler:
                             # Inside grace period - NO barge-in allowed
                             continue
                         
-                        # ✅ MUCH HIGHER barge-in threshold to prevent false positives
-                        barge_in_threshold = max(300, self.noise_floor * 5.0 + 100) if self.is_calibrated else 400
+                        # ✅ HEBREW BARGE-IN: Extra high threshold
+                        barge_in_threshold = max(500, self.noise_floor * 8.0 + 200) if self.is_calibrated else 600
                         is_barge_in_voice = rms > barge_in_threshold
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                            # ✅ דרישה מאוזנת: 1s קול רציף לפני הפרעה
-                            if self.voice_in_row >= 50:  # 1000ms (1s) של קול רציף לפני barge-in
+                                # ✅ HEBREW SPEECH: Require 1.5s continuous voice to prevent false interrupts
+                            if self.voice_in_row >= 75:  # 1500ms (1.5s) of continuous voice - Hebrew needs more time
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
@@ -1041,8 +1041,8 @@ class MediaStreamHandler:
             rms = audioop.rms(pcm16_8k, 2)
             print(f"📊 AUDIO_ANALYSIS: max_amplitude={max_amplitude}, rms={rms}")
             
-            if max_amplitude < 80:  # רק רעש ממש חלש
-                print("🔇 WHISPER_SKIP: Audio too quiet (silence detected)")
+            if max_amplitude < 200 or rms < 150:  # HEBREW: Much stricter threshold 
+                print("🔇 WHISPER_SKIP: Audio too quiet or likely noise (Hebrew optimized)")
                 return ""
             
             from server.services.lazy_services import get_openai_client
@@ -1098,12 +1098,20 @@ class MediaStreamHandler:
             if not hasattr(self, 'conversation_history'):
                 self.conversation_history = []
             
-            # ✅ זיהוי לולאות מוגבל - רק אם יש 3+ תגובות זהות
-            if len(self.conversation_history) >= 3:
-                last_responses = [item['bot'] for item in self.conversation_history[-3:]]
-                if len(set(last_responses)) == 1 and len(last_responses) >= 3:
-                    print(f"🚫 CRITICAL_LOOP: 3+ identical responses - breaking")
-                    return "באיזה אזור אתה מחפש?"
+            # ✅ זיהוי לולאות משופר - מניעת חזרות
+            if len(self.conversation_history) >= 2:
+                last_responses = [item['bot'] for item in self.conversation_history[-4:]]  # בדוק 4 אחרונים
+                # בדוק האם יש יותר מידי דמיון
+                response_count = {}
+                for resp in last_responses:
+                    key_words = ' '.join(resp.split()[:5])  # 5 מילים ראשונות
+                    response_count[key_words] = response_count.get(key_words, 0) + 1
+                    if response_count[key_words] >= 2:
+                        print(f"🚫 RESPONSE_LOOP_DETECTED: Preventing repetitive responses")
+                        if "תודה" in hebrew_text:
+                            return "איזה אזור מעניין אותך?"
+                        else:
+                            return "איזה סוג נכס אתה מחפש?"
                     
             # 📜 הקשר מהיסטוריה (להבנה טובה יותר)
             history_context = ""
@@ -1119,28 +1127,29 @@ class MediaStreamHandler:
             # ✅ בדיקת מידע שנאסף לתיאום פגישה
             lead_info = self._analyze_lead_completeness()
             
-            # ✅ פרומפט מתקדם עם תשובות ספציפיות יותר
-            smart_prompt = f"""את לאה, סוכנת נדלן מקצועית ואדיבה של "שי דירות ומשרדים". אנחנו מתמחים בנדלן באיכות גבוהה במרכז הארץ ויש לנו מגוון רחב של דירות ומשרדים.
+            # ✅ אם זו השיחה הראשונה - ברכה מלאה
+            is_first_call = len(self.conversation_history) == 0
+            
+            if is_first_call:
+                greeting_prompt = """את סוכנת נדלן של "שי דירות ומשרדים". 
+                
+                התחילי בברכה חמה: "שלום! אני לאה מ'שי דירות ומשרדים'. אני כאן לעזור לך למצוא את הנכס המושלם!"
+                
+                אחרי הברכה שאלי שאלה אחת: "איזה אזור מעניין אותך?"""
+            else:
+                greeting_prompt = """את סוכנת נדלן מקצועית. אל תזכירי שוב את שמך או את שם החברה.
+                
+                תני תגובה ישירה ומוקדת למה שהלקוח אומר."""
+            
+            # ✅ פרומפט נקי ללא ברכות חוזרות
+            smart_prompt = f"""{greeting_prompt}
 
-מטרה: לאסוף במהירות את הפרטים הבאים - אזור מועדף, סוג נכס (דירה/משרד/חנות), תקציב, זמן כניסה רצוי, שם ודרך יצירת קשר.
+מטרה: לאסוף את הפרטים - אזור, סוג נכס, תקציב, זמן כניסה, שם וטלפון.
 
-תשובות איכותיות:
-- תני מידע רלוונטי על האזור שהלקוח מזכיר ("תל אביב מעולה לנגישות תחבורה")
-- הסבירי למה אתה שואלת ("כדי למצוא לך בדיוק מה שמתאים")
-- תני הקשר מקצועי ("ראיתי הרבה לקוחות מחפשים דירות שם")
-- אל תגידי "אני צריכה עוד פרטים" - תשאלי שאלה ספציפית
-- אל תסיימי עם "איך אפשר לעזור" - תשאלי משהו ספציפי
-
-אם זאת השיחה הראשונה - התחילי בברכה: "שלום! אני לאה מ'שי דירות ומשרדים'. אני כאן לעזור לך למצוא את הנכס המושלם!"
-
-דוגמאות לתשובות איכותיות:
-לקוח: "תל אביב"
-טוב: "תל אביב אזור מעולה עם נגישות מצוינת לתחבורה ציבורית! איזה סוג נכס אתה מחפש - דירה, משרד או חנות?"
-רע: "מעולה, תל אביב פופולרי! אני צריכה עוד פרטים - איך אפשר לעזור?"
-
-לקוח: "דירה"
-טוב: "מצוין! דירות בתל אביב מאוד מבוקשות. איזה תקציב אתה שוקל להשקיע?"
-רע: "נהדר! אני צריכה לדעת עוד פרטים - איך אפשר לעזור?"
+תשובות טובות:
+- תני מידע מקצועי על האזור
+- הסבירי למה את שואלת
+- שאלי שאלה אחת בסוף
 
 אזור מזוהה: {requested_area or 'לא ידוע'}
 מידע נאסף: {lead_info['summary']}
@@ -1179,14 +1188,17 @@ class MediaStreamHandler:
                 
                 # ✅ אל תקצר מדי - תן לה לתת תשובות מלאות!
                 words = ai_answer.split()
-                if len(words) > 18:  # מקס 18 מילים - קצר יותר!
-                    # אל תחתוך באמצע - מצא סיום משפט טבעי
-                    sentences = ai_answer.split('.')
-                    if len(sentences) > 2:
-                        ai_answer = '. '.join(sentences[:2]) + '.'
+                if len(words) > 16:  # מקס 16 מילים - קצר ויעיל!
+                    # קיצור חכם - שמור על משמעות ושאלה
+                    if '?' in ai_answer:
+                        first_question = ai_answer.split('?')[0] + '?'
+                        if len(first_question.split()) <= 16:
+                            ai_answer = first_question
+                        else:
+                            ai_answer = ' '.join(words[:14]) + '?'
                     else:
-                        ai_answer = ' '.join(words[:32]) + '?'  # שמור שאלה
-                    print(f"🔪 BALANCED_LENGTH: {len(words)} → {len(ai_answer.split())} words")
+                        ai_answer = ' '.join(words[:14]) + '?'
+                    print(f"🔪 SHORTENED: {len(words)} → {len(ai_answer.split())} words")
                 
                 # ✅ חסימת תגובות גנריות וקליטות - עודד ספציפיות
                 generic_phrases = [
