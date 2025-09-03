@@ -230,7 +230,7 @@ class MediaStreamHandler:
                     
                     if not self.greeting_sent:
                         print("🎯 SENDING IMMEDIATE GREETING!")
-                        greet = "שלום! אני לאה משי דירות ומשרדים. באיזה אזור אתה מעוניין?"  # קצר וישר
+                        greet = "שלום! אני לאה משי דירות ומשרדים. איך אני יכולה לעזור?"  # קצר וישר
                         self._speak_simple(greet)
                         self.greeting_sent = True
                     continue
@@ -1246,7 +1246,7 @@ class MediaStreamHandler:
             elif "תודה" in hebrew_text or "ביי" in hebrew_text:
                 return "תודה רבה! אני כאן לכל שאלה."
             elif any(word in hebrew_text for word in ["שלום", "היי", "הלו"]):
-                return "שלום! אני לאה משי דירות ומשרדים. באיזה אזור אתה מעוניין?"
+                return "שלום! אני לאה משי דירות ומשרדים. איך אני יכולה לעזור?"
             else:
                 return "איזה אזור מעניין אותך? יש לי דירות במרכז הארץ, מרכז-דרום ואזור ירושלים."
     
