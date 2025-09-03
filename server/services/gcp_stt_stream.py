@@ -112,7 +112,7 @@ class GcpHebrewStreamer:
                 language_code="he-IL",
                 sample_rate_hertz=self.rate,
                 enable_automatic_punctuation=True,
-                model="latest_short",  # ✅ FASTER for real-time conversation
+                # NO MODEL - use default for Hebrew (latest_short not supported)
                 speech_contexts=speech_contexts,  # ✅ Hebrew real estate terms
                 use_enhanced=True  # ✅ Better quality
             )

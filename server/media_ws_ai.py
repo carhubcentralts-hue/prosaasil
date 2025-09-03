@@ -253,8 +253,8 @@ class MediaStreamHandler:
                         self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
                         self.calibration_frames += 1
                         if self.calibration_frames >= 60:
-                            # ✅ VAD רגיש הרבה יותר - threshold נמוך יותר
-                            self.vad_threshold = max(35, self.noise_floor * 2.2 + 8)
+                            # ✅ MUCH HIGHER threshold to prevent false positives
+                            self.vad_threshold = max(120, self.noise_floor * 4.0 + 50)  # Much stricter
                             self.is_calibrated = True
                             print(f"🎛️ VAD CALIBRATED (threshold: {self.vad_threshold:.1f})")
                             
@@ -294,13 +294,18 @@ class MediaStreamHandler:
                             is_strong_voice = enhanced_voice
                             self.vad_hysteresis_count = 0
                     else:
-                        # לפני קליברציה - VAD פשוט
-                        is_strong_voice = rms > 60
+                        # לפני קליברציה - VAD חזק יותר למניעת false positives
+                        is_strong_voice = rms > 200  # Much higher threshold
                     
-                    # ✅ תיקון קריטי: עדכן last_voice_ts רק כשיש קול אמיתי
+                    # ✅ FIXED: Update last_voice_ts only with VERY strong voice
                     current_time = time.time()
-                    if is_strong_voice:
+                    # ✅ EXTRA CHECK: Only if RMS is significantly above threshold
+                    if is_strong_voice and rms > (getattr(self, 'vad_threshold', 200) * 1.2):
                         self.last_voice_ts = current_time
+                        # Debug only strong voice detection (max once per 3 seconds)
+                        if not hasattr(self, 'last_debug_ts') or (current_time - self.last_debug_ts) > 3.0:
+                            print(f"🎙️ REAL_VOICE: rms={rms}, threshold={getattr(self, 'vad_threshold', 'uncalibrated')}")
+                            self.last_debug_ts = current_time
                     
                     # חישוב דממה אמיתי - מאז הקול האחרון! 
                     # אם אין קול בכלל, דממה = 0 (כדי שלא נתקע)
@@ -314,24 +319,24 @@ class MediaStreamHandler:
                     else:
                         self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
 
-                    # ⚡ BARGE-IN משופר: עצירת TTS מיידית עם חלון חסד לפי ההנחיות
+                    # ⚡ FIXED BARGE-IN: Prevent false interruptions
                     if self.speaking and BARGE_IN:
-                        # ✅ חלון חסד מוגדל: 600ms אחרי תחילת TTS לתת לה לדבר
-                        grace_period = 0.6  # 600ms חלון חסד - תן לה להתחיל
+                        # ✅ MUCH LONGER grace period: 1.5s to let her speak
+                        grace_period = 1.5  # 1.5 seconds - enough for her to start
                         time_since_tts_start = current_time - self.speaking_start_ts
                         
                         if time_since_tts_start < grace_period:
-                            # בתוך חלון החסד - התעלם מ-barge-in
+                            # Inside grace period - NO barge-in allowed
                             continue
                         
-                        # סף בארג-אין מוגדל: פחות רגיש לרעשים
-                        barge_in_threshold = max(120, self.noise_floor * 3.0 + 20) if self.is_calibrated else 150
+                        # ✅ MUCH HIGHER barge-in threshold to prevent false positives
+                        barge_in_threshold = max(300, self.noise_floor * 5.0 + 100) if self.is_calibrated else 400
                         is_barge_in_voice = rms > barge_in_threshold
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                            # 400-500ms של קול רציף = 20-25 frames (פחות רגיש)
-                            if self.voice_in_row >= 20:  # 400ms של קול רציף לפני הפרעה
+                            # ✅ MUCH LONGER requirement: 800ms of continuous voice before interruption
+                            if self.voice_in_row >= 40:  # 800ms of continuous voice before barge-in
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
@@ -458,8 +463,9 @@ class MediaStreamHandler:
                         self.state = STATE_LISTEN
                         self.buf.clear()
                     
-                    if self.speaking and (current_time - self.speaking_start_ts) > 6.0:
-                        print("⚠️ SPEAKING TIMEOUT - forcing reset")  
+                    # ✅ LONGER speaking timeout to prevent cutoff mid-sentence
+                    if self.speaking and (current_time - self.speaking_start_ts) > 15.0:
+                        print("⚠️ SPEAKING TIMEOUT - forcing reset after 15s")  
                         self.speaking = False
                         self.state = STATE_LISTEN
                     
@@ -813,10 +819,10 @@ class MediaStreamHandler:
         self._ws_send(mark_msg)
         print("🎯 TTS_MARK_SENT: assistant_tts_end")
         
-        # Timeout fallback אם הסימון לא יחזור
+        # ✅ LONGER timeout to prevent premature cutoff
         def mark_timeout():
-            time.sleep(0.15)  # 150ms timeout
-            if self.mark_pending and (time.time() - self.mark_sent_ts) > 0.14:
+            time.sleep(0.5)  # 500ms timeout (longer)
+            if self.mark_pending and (time.time() - self.mark_sent_ts) > 0.45:
                 print("⚠️ TTS_MARK_TIMEOUT -> LISTENING") 
                 self._finalize_speaking()
         
@@ -978,12 +984,12 @@ class MediaStreamHandler:
                 print("❌ Google STT client not available - fallback to Whisper")
                 return self._whisper_fallback(pcm16_8k)
             
-            # ✅ OPTIMIZED Google STT Configuration for fast Hebrew
+            # ✅ FIXED Google STT Configuration - use default model for Hebrew
             recognition_config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=8000,  # Keep 8kHz for telephony
                 language_code="he-IL",   # Hebrew Israel
-                model="latest_short",    # ✅ FASTER for real-time
+                # NO MODEL specified - use default for Hebrew (latest_short not supported)
                 use_enhanced=True,       # Better quality
                 enable_automatic_punctuation=True,
                 speech_contexts=[        # ✅ Hebrew real estate terms
@@ -1089,19 +1095,20 @@ class MediaStreamHandler:
             if not hasattr(self, 'conversation_history'):
                 self.conversation_history = []
             
-            # 🚫 מנע לולאות - בדוק אם זה אותה שאלה או תגובה זהה מאוחרת
+            # ✅ ENHANCED loop detection to prevent repetition
             if len(self.conversation_history) >= 2:
-                last_two = self.conversation_history[-2:]
-                # בדוק אם 2 התגובות האחרונות שלנו זהות
-                if (last_two[0]['bot'] == last_two[1]['bot'] and 
-                    last_two[0]['bot'].count("דיזנגוף") > 0):
-                    print(f"🚫 BOT LOOP DETECTED - same response repeated!")
-                    return "איזה אזור מעניין אותך יותר?"
-                    
-                # בדוק אם המשתמש חוזר על אותה שאלה
-                if last_two[-1]['user'].strip() == hebrew_text.strip():
-                    print(f"🚫 USER LOOP DETECTED: Same input repeated")
-                    return "בואי ננסה משהו אחר - איזה תקציב יש לך?"
+                last_responses = [item['bot'] for item in self.conversation_history[-3:]]
+                # Check if same response appears multiple times
+                for response in last_responses:
+                    if last_responses.count(response) > 1:
+                        print(f"🚫 LOOP_DETECTED: Same response repeated")
+                        return "אפשר לחזור על מה שאמרת?"
+                        
+                # Check if user repeated exact input
+                recent_user_inputs = [item['user'].strip() for item in self.conversation_history[-2:]]
+                if hebrew_text.strip() in recent_user_inputs:
+                    print(f"🚫 USER_REPEAT_DETECTED")
+                    return "איזה תקציב יש לך לנכס?"
                     
             # 📜 הקשר מהיסטוריה (להבנה טובה יותר)
             history_context = ""
@@ -1194,22 +1201,24 @@ class MediaStreamHandler:
             if content and content.strip():
                 ai_answer = content.strip()
                 
-                # ✅ אכיפת גבול 30 מילים - טבעי יותר
+                # ✅ SHORTER responses for speed + prevent hallucinations
                 words = ai_answer.split()
-                if len(words) > 35:  # מקס 35 מילים (30 + buffer לשאלה)
-                    # קצר ל-30 מילים + שאלה אחת
-                    truncated = ' '.join(words[:30])
+                if len(words) > 20:  # Max 20 words for speed
+                    truncated = ' '.join(words[:15])
                     if '?' not in truncated:
                         truncated += " איך אפשר לעזור?"
                     ai_answer = truncated
-                    print(f"🔪 WORD_LIMIT: {len(words)} → {len(ai_answer.split())} words")
+                    print(f"🔪 SHORTENED: {len(words)} → {len(ai_answer.split())} words")
                 
-                # ✅ מנע רק תגובות גנריות - אל תחסום דירות ספציפיות!
-                if (ai_answer.count("תודה רבה") > 1 or "שמחתי לעזור" in ai_answer or 
-                    "תמיד פה לעזור" in ai_answer or len(ai_answer.strip()) < 15):
-                    # תחליף בשאלה מעניינת רק אם התגובה גנרית
-                    ai_answer = "איזה אזור מעניין אותך יותר? יש לי אפשרויות מצוינות במרכז."
-                    print(f"🚫 BLOCKED ONLY GENERIC RESPONSES: Using engaging question instead")
+                # ✅ STRICT anti-hallucination + generic response blocking
+                blocked_phrases = [
+                    "תודה רבה", "שמחתי לעזור", "תמיד פה", "יש לי דירה", "אני מכירה", 
+                    "אני מציעה", "מחיר", "שקל", "5 חדרים", "3 חדרים", "חניה", "מעלית"
+                ]
+                if (any(phrase in ai_answer for phrase in blocked_phrases) or 
+                    len(ai_answer.strip()) < 8 or ai_answer.count('?') > 1):
+                    ai_answer = "איזה אזור מעניין אותך?"
+                    print(f"🚫 BLOCKED_HALLUCINATION: Using safe question")
                 
                 print(f"🤖 AI SUCCESS: {ai_answer}")
                 
