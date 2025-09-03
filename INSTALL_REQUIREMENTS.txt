@@ -1,0 +1,232 @@
+# 📦 דרישות התקנה למערכת שיחות עברית - לאה AI Agent
+# Hebrew AI Call Center - Installation Requirements
+
+# ================================
+# 🐍 Python Dependencies
+# ================================
+
+# Core web framework
+flask==3.1.1
+flask-sock==0.7.0
+eventlet==0.36.1
+gunicorn==21.2.0
+
+# WebSocket support  
+simple-websocket==1.0.0
+websockets==12.0
+
+# OpenAI integration
+openai==1.51.0
+
+# Google Cloud services (STT/TTS)
+google-cloud-speech==2.24.1
+google-cloud-texttospeech==2.17.2
+google-api-core==2.17.0
+google-auth==2.27.0
+google-auth-oauthlib==1.2.0
+
+# Twilio integration
+twilio==9.0.4
+
+# Audio processing
+pydub==0.25.1
+audioop==0.1.0  # Built into Python
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+python-dateutil==2.8.2
+
+# Security & validation
+bcrypt==4.1.2
+jwt==1.3.1
+email-validator==2.1.0.post1
+
+# Database (optional - if you want to save conversations)
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+
+# Development & testing
+pytest==7.4.4
+black==23.12.1
+flake8==7.0.0
+
+# ================================
+# 📋 System Requirements
+# ================================
+
+# Python: 3.9+
+# Operating System: Linux/macOS/Windows
+# RAM: 512MB minimum, 1GB recommended
+# Disk: 100MB free space
+
+# ================================
+# 🔧 Installation Commands
+# ================================
+
+# 1. Create virtual environment:
+#    python -m venv hebrew-ai-call-env
+#    source hebrew-ai-call-env/bin/activate  # Linux/Mac
+#    hebrew-ai-call-env\Scripts\activate     # Windows
+
+# 2. Install requirements:
+#    pip install -r INSTALL_REQUIREMENTS.txt
+
+# 3. Install system dependencies (Ubuntu/Debian):
+#    sudo apt-get update
+#    sudo apt-get install -y python3-dev build-essential
+#    sudo apt-get install -y portaudio19-dev  # For audio processing
+
+# 4. Install system dependencies (macOS):
+#    brew install portaudio
+#    xcode-select --install
+
+# 5. Install system dependencies (Windows):
+#    # Download and install Microsoft C++ Build Tools
+#    # Install portaudio: pip install pyaudio
+
+# ================================
+# 🌐 Google Cloud Setup
+# ================================
+
+# 1. Create Google Cloud Project
+# 2. Enable Speech-to-Text API
+# 3. Enable Text-to-Speech API  
+# 4. Create Service Account
+# 5. Download JSON credentials file
+# 6. Set environment variable or copy JSON content to .env
+
+# Commands:
+# gcloud projects create hebrew-ai-calls
+# gcloud services enable speech.googleapis.com
+# gcloud services enable texttospeech.googleapis.com
+# gcloud iam service-accounts create hebrew-ai-service
+
+# ================================
+# 📞 Twilio Setup
+# ================================
+
+# 1. Create Twilio account at twilio.com
+# 2. Get Account SID and Auth Token from Console
+# 3. Purchase Israeli phone number (+972 prefix)
+# 4. Configure webhooks in Twilio Console:
+#    - Voice URL: https://yourdomain.com/webhook/incoming_call
+#    - Method: POST
+#    - Status Callback: https://yourdomain.com/webhook/stream_status
+
+# ================================
+# 🤖 OpenAI Setup
+# ================================
+
+# 1. Create account at platform.openai.com
+# 2. Add payment method (required for API access)
+# 3. Generate API key
+# 4. Set usage limits (recommended: $10/month for testing)
+
+# ================================
+# 🚀 Deployment Options
+# ================================
+
+# Option 1: Replit (Recommended for testing)
+# - Fork this code to Replit
+# - Add secrets (environment variables)
+# - Run with: python COMPLETE_CALL_SYSTEM.py
+
+# Option 2: Heroku
+# - Create Procfile: web: gunicorn wsgi:app
+# - Set environment variables in dashboard
+# - Deploy with git
+
+# Option 3: DigitalOcean/AWS/GCP
+# - Set up Ubuntu server
+# - Install nginx for SSL termination
+# - Run with systemd service
+
+# Option 4: Local development with ngrok
+# - Install ngrok: https://ngrok.com/
+# - Run: ngrok http 5000
+# - Use ngrok URL for Twilio webhooks
+
+# ================================
+# 🔒 SSL/HTTPS Requirements
+# ================================
+
+# Twilio requires HTTPS for production webhooks
+# Options:
+# 1. Use hosting platform with built-in SSL (Replit, Heroku)
+# 2. Set up nginx with Let's Encrypt
+# 3. Use Cloudflare for SSL termination
+# 4. For testing: use ngrok tunnel
+
+# ================================
+# 🧪 Testing & Validation
+# ================================
+
+# 1. Test environment variables:
+#    python -c "from COMPLETE_CALL_SYSTEM import CallSystemConfig; CallSystemConfig().validate()"
+
+# 2. Test Google Cloud credentials:
+#    python -c "from google.cloud import speech; print('STT OK')"
+#    python -c "from google.cloud import texttospeech; print('TTS OK')"
+
+# 3. Test OpenAI API:
+#    python -c "import openai; openai.api_key='your-key'; print(openai.Model.list())"
+
+# 4. Test Twilio credentials:
+#    python -c "from twilio.rest import Client; Client('sid', 'token').account.fetch()"
+
+# 5. Run full system test:
+#    python COMPLETE_CALL_SYSTEM.py
+
+# ================================
+# 🐛 Common Issues & Solutions
+# ================================
+
+# Issue: "No module named 'audioop'"
+# Solution: audioop is built into Python 3.9+, use alternative for older versions
+
+# Issue: Google Cloud authentication fails
+# Solution: Set GOOGLE_APPLICATION_CREDENTIALS environment variable or embed JSON
+
+# Issue: WebSocket connection drops
+# Solution: Enable keepalive, check firewall settings, use stable hosting
+
+# Issue: Hebrew text appears as gibberish
+# Solution: Ensure UTF-8 encoding in all files and terminal
+
+# Issue: High latency in speech recognition
+# Solution: Check internet connection, use streaming STT, optimize audio chunks
+
+# ================================
+# 📊 Performance Monitoring
+# ================================
+
+# Monitor these metrics:
+# - Call connection success rate
+# - Speech recognition accuracy  
+# - Response latency (<2 seconds)
+# - WebSocket stability
+# - API error rates
+# - Cost per conversation
+
+# Tools:
+# - Application logs
+# - Twilio Console metrics
+# - Google Cloud monitoring
+# - OpenAI usage dashboard
+
+# ================================
+# 🔄 Maintenance & Updates
+# ================================
+
+# Regular tasks:
+# 1. Update dependencies monthly
+# 2. Rotate API keys quarterly
+# 3. Monitor and optimize costs
+# 4. Test with real calls weekly
+# 5. Backup conversation logs
+# 6. Update AI prompts based on feedback
+
+# Update commands:
+# pip list --outdated
+# pip install --upgrade package_name
