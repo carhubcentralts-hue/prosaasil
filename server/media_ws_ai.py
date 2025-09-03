@@ -618,8 +618,12 @@ class MediaStreamHandler:
                 print(f"❌ STT ERROR: {e}")
                 text = ""
             
+            # ✅ FIXED: אל תגיב על טקסט ריק - פשוט חזור להאזנה!
             if not text.strip():
-                text = "אפשר לחזור על זה במשפט קצר?"
+                print("🚫 NO_SPEECH_DETECTED: Returning to listen mode without response")
+                self.state = STATE_LISTEN
+                self.processing = False
+                return  # ✅ אל תגיב בכלל - פשוט המשך להאזין
             # STT result processed")
             
             # PATCH 6: Anti-duplication on user text (14s window) - WITH DEBUG
@@ -639,12 +643,19 @@ class MediaStreamHandler:
             # ✅ השתמש בפונקציה המתקדמת עם מתמחה והמאגר הכולל!
             reply = self._ai_response(text)
             
+            # ✅ FIXED: אם AI החזיר None (אין טקסט אמיתי) - אל תגיב!
+            if reply is None:
+                print("🚫 AI_RETURNED_NONE: No response needed - returning to listen mode")
+                self.processing = False
+                self.state = STATE_LISTEN
+                return
+            
             # ✅ מניעת כפילויות משופרת - בדיקת 8 תשובות אחרונות (פחות רגיש)
             if not hasattr(self, 'recent_replies'):
                 self.recent_replies = []
             
             # ✅ FIXED: מניעת כפילויות חכמה - רק כפילויות מרובות ממש
-            reply_trimmed = reply.strip()
+            reply_trimmed = reply.strip() if reply else ""
             exact_duplicates = [r for r in self.recent_replies if r == reply_trimmed]
             if len(exact_duplicates) >= 3:  # ✅ FIXED: רק אחרי 3 כפילויות מדויקות
                 print("🚫 EXACT DUPLICATE detected (3+ times) - adding variation")
@@ -655,25 +666,32 @@ class MediaStreamHandler:
                 reply_trimmed = reply.strip()
                 
             # עדכן היסטוריה - שמור רק 8 אחרונות
-            self.recent_replies.append(reply_trimmed)
+            if reply_trimmed:  # ✅ רק אם יש תשובה אמיתית
+                self.recent_replies.append(reply_trimmed)
             if len(self.recent_replies) > 8:
                 self.recent_replies = self.recent_replies[-8:]
-            print(f"🤖 BOT: {reply}")
             
-            # ✅ מדידת AI Processing Time
-            ai_processing_time = time.time() - ai_processing_start
-            print(f"📊 AI_PROCESSING: {ai_processing_time:.3f}s")
-            
-            # 5. הוסף להיסטוריה
-            self.response_history.append({
-                'id': conversation_id,
-                'user': text,
-                'bot': reply,
-                'time': time.time()
-            })
-            
-            # PATCH 6: Always speak something
-            self._speak_simple(reply)
+            # ✅ FIXED: רק אם יש תשובה אמיתית - דפס, שמור ודבר
+            if reply and reply.strip():
+                print(f"🤖 BOT: {reply}")
+                
+                # ✅ מדידת AI Processing Time
+                ai_processing_time = time.time() - ai_processing_start
+                print(f"📊 AI_PROCESSING: {ai_processing_time:.3f}s")
+                
+                # 5. הוסף להיסטוריה
+                self.response_history.append({
+                    'id': conversation_id,
+                    'user': text,
+                    'bot': reply,
+                    'time': time.time()
+                })
+                
+                # 6. דבר רק אם יש מה לומר
+                self._speak_simple(reply)
+            else:
+                print("🚫 NO_VALID_RESPONSE: AI returned empty/None - staying silent")
+                # לא דופסים, לא שומרים בהיסטוריה, לא מדברים
             
             # ✅ CRITICAL: חזור למצב האזנה אחרי כל תגובה!
             self.state = STATE_LISTEN
@@ -1496,10 +1514,16 @@ class MediaStreamHandler:
                     return "איזה אזור מעניין אותך? יש לי דירות במרכז הארץ, מרכז-דרום ואזור ירושלים."
             
         except Exception as e:
-            print(f"AI_ERROR: {e} - Using intelligent emergency response")
-            # ✅ תגובת חירום חכמה על בסיס זיהוי האזור
+            print(f"AI_ERROR: {e} - Checking if valid text for emergency response")
+            
+            # ✅ FIXED: אל תגיב על טקסט ריק אפילו בחירום!
+            if not hebrew_text or not hebrew_text.strip():
+                print("🚫 AI_ERROR_ON_EMPTY_TEXT: No emergency response for empty input")
+                return None  # אל תגיב בכלל
+            
+            # ✅ רק אם יש טקסט אמיתי - אז תגיב חירום
             emergency_area = self._detect_area(hebrew_text) or ""
-            print(f"🚨 CRITICAL AI_ERROR for: '{hebrew_text}' - detected area: {emergency_area}")
+            print(f"🚨 AI_ERROR for REAL text: '{hebrew_text}' - detected area: {emergency_area}")
             if emergency_area:
                 return f"מצטערת להשהיה! איזה סוג דירה אתה מחפש ב{emergency_area}? יש לי כמה אפשרויות."
             elif "תודה" in hebrew_text or "ביי" in hebrew_text:
