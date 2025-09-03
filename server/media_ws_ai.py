@@ -643,12 +643,11 @@ class MediaStreamHandler:
             if not hasattr(self, 'recent_replies'):
                 self.recent_replies = []
             
-            # בדוק אם התשובה כבר נאמרה ב-8 התשובות האחרונות (רק אם זהה ממש)
+            # ✅ FIXED: מניעת כפילויות חכמה - רק כפילויות מרובות ממש
             reply_trimmed = reply.strip()
             exact_duplicates = [r for r in self.recent_replies if r == reply_trimmed]
-            if len(exact_duplicates) >= 1:  # אפילו כפילות אחת - מנע מיד
-                print("🚫 EXACT DUPLICATE detected - need variation")
-                # רק אם זה באמת כפילות מדויקת - תן לליאה לענות טבעית
+            if len(exact_duplicates) >= 3:  # ✅ FIXED: רק אחרי 3 כפילויות מדויקות
+                print("🚫 EXACT DUPLICATE detected (3+ times) - adding variation")
                 if "תודה" in text.lower():
                     reply = "בשמחה! יש לי עוד אפשרויות אם אתה מעוניין."
                 else:
@@ -984,35 +983,33 @@ class MediaStreamHandler:
                 print("❌ Google STT client not available - fallback to Whisper")
                 return self._whisper_fallback(pcm16_8k)
             
-            # ✅ FIXED Google STT Configuration - use default model for Hebrew
+            # ✅ אופטימיזציה מקסימלית של Google STT לעברית
             recognition_config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                sample_rate_hertz=8000,  # Keep 8kHz for telephony
-                language_code="he-IL",   # Hebrew Israel
-                # NO MODEL specified - use default for Hebrew (latest_short not supported)
-                use_enhanced=True,       # Better quality
-                enable_automatic_punctuation=True,
-                speech_contexts=[        # ✅ Hebrew real estate terms
+                sample_rate_hertz=8000,  # 8kHz לטלפוניה
+                language_code="he-IL",   # עברית ישראל
+                use_enhanced=False,      # ✅ FIXED: Basic model עובד טוב יותר לעברית
+                enable_automatic_punctuation=False,  # ✅ FIXED: עלול להפריע לזיהוי
+                # ✅ קונטקסט מצומצם לביצועים טובים יותר
+                speech_contexts=[
                     speech.SpeechContext(phrases=[
-                        "שי דירות ומשרדים", "לאה", "סוכנת נדלן",
-                        "תל אביב", "רמת גן", "רמלה", "לוד", "בית שמש", 
-                        "מודיעין", "פתח תקווה", "רחובות", "הרצליה",
-                        "דירה", "חדרים", "שכירות", "קניה", "משכנתא",
-                        "תקציב", "שקל", "אלף", "מיליון", "נדלן", 
-                        "שלום", "כן", "לא", "בסדר", "נהדר", "לאה", "תודה", "ביי", "להתראות"  # ✅ מילות פרידה לזיהוי נכון
-                    ])
+                        "שלום", "תודה", "כן", "לא", "בסדר", "נהדר", "ביי",
+                        "דירה", "תל אביב", "רמת גן", "אלף", "מיליון"
+                    ], boost=10.0)  # ✅ מילים חשובות עם boost
                 ]
             )
             
             # Single request recognition (לא streaming למבע קצר)
             audio = speech.RecognitionAudio(content=pcm16_8k)
             
-            # ✅ FAST timeout for real-time conversation
+            # ✅ אופטימלי לעברית: timeout ארוך יותר ללוגיקה טובה יותר
             response = client.recognize(
                 config=recognition_config,
                 audio=audio,
-                timeout=1.5  # ✅ FASTER: 1.5 seconds max for real-time
+                timeout=3.0  # ✅ FIXED: 3 שניות - מספיק לעברית איכותית
             )
+            
+            print(f"📊 GOOGLE_STT_ATTEMPT: Processed audio in {len(pcm16_8k)} bytes")
             
             if response.results and response.results[0].alternatives:
                 hebrew_text = response.results[0].alternatives[0].transcript.strip()
@@ -1095,16 +1092,16 @@ class MediaStreamHandler:
             if not hasattr(self, 'conversation_history'):
                 self.conversation_history = []
             
-            # ✅ זיהוי לולאות משופר - פחות רגיש יותר
-            if len(self.conversation_history) >= 3:  # דרישה של 3+ שיחות
-                last_responses = [item['bot'] for item in self.conversation_history[-8:]]  # בדוק 8 אחרונים
-                # בדוק האם יש יותר מידי דמיון (פחות רגיש)
+            # ✅ FIXED: מניעת לולאות רק למקרים חמורים
+            if len(self.conversation_history) >= 5:  # ✅ רק אחרי 5+ שיחות
+                last_responses = [item['bot'] for item in self.conversation_history[-6:]]  # בדוק 6 אחרונים
+                # בדוק רק כפילויות מדויקות ממש
                 response_count = {}
                 for resp in last_responses:
-                    key_words = ' '.join(resp.split()[:3])  # רק 3 מילים ראשונות
+                    key_words = ' '.join(resp.split()[:5])  # ✅ 5 מילים - יותר ספציפי
                     response_count[key_words] = response_count.get(key_words, 0) + 1
-                    if response_count[key_words] >= 2:  # דרישה של 2+ חזרות
-                        print(f"🚫 RESPONSE_LOOP_DETECTED: Too many similar responses")
+                    if response_count[key_words] >= 4:  # ✅ FIXED: רק אחרי 4+ חזרות מדויקות
+                        print(f"🚫 SEVERE_LOOP_DETECTED: 4+ identical responses pattern")
                         if "תודה" in hebrew_text:
                             return "בשמחה! אני כאן לכל שאלה."
                         else:
@@ -1363,9 +1360,10 @@ class MediaStreamHandler:
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.LINEAR16,
                 sample_rate_hertz=8000,
-                speaking_rate=1.0,   # קצב דיבור טבעי
-                pitch=0.0,           # טון טבעי
-                effects_profile_id=["telephony-class-application"]  # אופטימיזציה לטלפון
+                speaking_rate=1.2,   # ✅ מעט יותר מהיר לשיחות חיות
+                pitch=0.0,
+                effects_profile_id=["telephony-class-application"],  # אופטימיזציה לטלפון
+                volume_gain_db=2.0   # ✅ עוצמה קצת יותר נגישה
             )
             
             response = client.synthesize_speech(
@@ -1374,7 +1372,9 @@ class MediaStreamHandler:
                 audio_config=audio_config
             )
             
-            print(f"✅ TTS_SUCCESS: Generated {len(response.audio_content)} bytes of Wavenet audio ({len(response.audio_content)/16000:.1f}s estimated)")
+            # ✅ תיקון חישוב זמן נכון: 8000Hz, 2 bytes per sample
+            duration_seconds = len(response.audio_content) / (8000 * 2)
+            print(f"✅ TTS_SUCCESS: Generated {len(response.audio_content)} bytes of Wavenet audio ({duration_seconds:.1f}s actual)")
             return response.audio_content
             
         except Exception as e:

@@ -1,0 +1,175 @@
+
+2025-09-04 02:12:43.84
+ad26b63e
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/revenue
+2025-09-04 02:14:02.81
+ad26b63e
+User
+🚫 EXACT DUPLICATE detected - need variation
+2025-09-04 02:14:02.81
+ad26b63e
+User
+🤖 BOT: מעולה! איזה סוג נכס מעניין אותך? דירה, משרד או נכס השקעה? או אפשר עוד פרטים?
+2025-09-04 02:14:02.81
+ad26b63e
+User
+📊 AI_PROCESSING: 0.849s
+2025-09-04 02:14:02.81
+ad26b63e
+User
+🔊 TTS_START: 'מעולה! איזה סוג נכס מעניין אותך? דירה, משרד או נכס השקעה? או אפשר עוד פרטים?'
+2025-09-04 02:14:03.04
+ad26b63e
+User
+🔊 TTS_START: Generating Hebrew TTS with Google Wavenet for 'מעולה! איזה סוג נכס מעניין אותך? דירה, משרד או נכס...' (length: 76 chars)
+2025-09-04 02:14:03.84
+ad26b63e
+User
+✅ TTS_SUCCESS: Generated 107254 bytes of Wavenet audio (6.7s estimated)
+2025-09-04 02:14:03.84
+ad26b63e
+User
+🔊 TTS SUCCESS: 107254 bytes
+2025-09-04 02:14:03.84
+ad26b63e
+User
+🔊 TTS_FRAMES: 335 frames (6700ms)
+2025-09-04 02:14:03.85
+ad26b63e
+User
+🎯 TTS_MARK_SENT: assistant_tts_end
+2025-09-04 02:14:03.85
+ad26b63e
+User
+✅ RETURNED TO LISTEN STATE after conversation #6
+2025-09-04 02:14:03.85
+ad26b63e
+User
+✅ Emergency processing complete for conversation #6
+2025-09-04 02:14:03.86
+ad26b63e
+User
+🎙️ REAL_VOICE: rms=1358, threshold=35.0
+2025-09-04 02:14:04.35
+ad26b63e
+User
+⚠️ TTS_MARK_TIMEOUT -> LISTENING
+2025-09-04 02:14:04.35
+ad26b63e
+User
+🎤 SPEAKING_END -> LISTEN STATE | buffer_reset
+2025-09-04 02:14:04.87
+ad26b63e
+User
+💓 WS_KEEPALIVE #3 (prevents 5min timeout)
+2025-09-04 02:14:07.19
+ad26b63e
+User
+🎤 END OF UTTERANCE: 1.5s audio, conversation #7
+2025-09-04 02:14:07.19
+ad26b63e
+User
+🧠 STATE -> PROCESSING | len=23680 | silence_ms=1009
+2025-09-04 02:14:07.19
+ad26b63e
+User
+🎤 SAFE PROCESSING: conversation #7
+2025-09-04 02:14:07.19
+ad26b63e
+User
+🎤 STT_START: Processing 23680 bytes with Google STT Streaming Hebrew
+2025-09-04 02:14:07.19
+ad26b63e
+User
+📊 AUDIO_STATS: max_amplitude=988, rms=103, duration=1.5s
+2025-09-04 02:14:07.19
+ad26b63e
+User
+2025-09-04 02:14:07.49
+ad26b63e
+User
+❌ Google STT returned no results - fallback to Whisper
+2025-09-04 02:14:07.49
+ad26b63e
+User
+🔄 WHISPER_FALLBACK: Processing 23680 bytes
+2025-09-04 02:14:07.49
+ad26b63e
+User
+📊 AUDIO_ANALYSIS: max_amplitude=988, rms=103
+2025-09-04 02:14:07.49
+ad26b63e
+User
+🔄 RESAMPLED: 23680 bytes @ 8kHz → 47358 bytes @ 16kHz
+2025-09-04 02:14:09.18
+ad26b63e
+User
+✅ WHISPER_FALLBACK_SUCCESS: 'תודה רבה.'
+2025-09-04 02:14:09.18
+ad26b63e
+User
+🎤 USER: תודה רבה.
+2025-09-04 02:14:09.18
+ad26b63e
+User
+📊 ASR_LATENCY: 1.996s (target: <0.7s)
+2025-09-04 02:14:09.18
+ad26b63e
+User
+🚫 RESPONSE_LOOP_DETECTED: Too many similar responses
+2025-09-04 02:14:09.18
+ad26b63e
+User
+🤖 BOT: בשמחה! אני כאן לכל שאלה.
+2025-09-04 02:14:09.18
+ad26b63e
+User
+📊 AI_PROCESSING: 0.000s
+2025-09-04 02:14:09.18
+ad26b63e
+User
+🔊 TTS_START: 'בשמחה! אני כאן לכל שאלה.'
+2025-09-04 02:14:09.18
+ad26b63e
+User
+📊 TURN_LATENCY: 1.996s (target: <1.2s)
+2025-09-04 02:14:09.55
+ad26b63e
+User
+🔊 TTS_START: Generating Hebrew TTS with Google Wavenet for 'בשמחה! אני כאן לכל שאלה....' (length: 24 chars)
+2025-09-04 02:14:10.07
+ad26b63e
+User
+✅ TTS_SUCCESS: Generated 38070 bytes of Wavenet audio (2.4s estimated)
+2025-09-04 02:14:10.07
+ad26b63e
+User
+🔊 TTS SUCCESS: 38070 bytes
+2025-09-04 02:14:10.07
+ad26b63e
+User
+🔊 TTS_FRAMES: 118 frames (2360ms)
+2025-09-04 02:14:10.08
+ad26b63e
+User
+🎯 TTS_MARK_SENT: assistant_tts_end
+2025-09-04 02:14:10.08
+ad26b63e
+User
+2025-09-04 02:14:10.08
+ad26b63e
+User
+✅ RETURNED TO LISTEN STATE after conversation #7
+2025-09-04 02:14:10.08
+ad26b63e
+User
+✅ Processing complete for conversation #7
+2025-09-04 02:14:10.08
+ad26b63e
+User
+🎙️ REAL_VOICE: rms=335, threshold=35.0
+2025-09-04 02:14:10.10
+ad26b63e
+User
+🎯 TTS_MARK_ACK: assistant_tts_end -> LISTENING
