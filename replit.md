@@ -25,11 +25,9 @@ Preferred communication style: Simple, everyday language.
 - **Authentication**: JWT-based authentication with role-based access control (admin, business_owner, business_agent, read_only)
 
 ## Frontend Architecture
-- **Framework**: React with Vite as the build tool
-- **Styling**: Tailwind CSS 4.1 with RTL (right-to-left) support for Hebrew
-- **UI Components**: Custom components with planned Radix Primitives integration
-- **Font**: Heebo font for Hebrew and Latin text support
-- **Routing**: Client-side routing with SPA fallback handling
+- **Status**: Frontend components temporarily removed - backend-only system currently active
+- **Missing**: React app, Vite build tool, Tailwind CSS setup, Hebrew UI components
+- **Available**: Complete backend API endpoints ready for frontend integration
 
 ## Real-time Communication
 - **Twilio Integration**: Media Streams WebSocket with enhanced stability and keepalive mechanisms
