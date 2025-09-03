@@ -321,8 +321,8 @@ class MediaStreamHandler:
 
                     # ⚡ FIXED BARGE-IN: Prevent false interruptions
                     if self.speaking and BARGE_IN:
-                        # ✅ הגדלת Grace period - תן לה לגמור לדבר!
-                        grace_period = 2.5  # 2.5 שניות - יותר זמן לגמור משפט
+                        # ✅ Grace period מאוזן - לא יותר מדי
+                        grace_period = 2.0  # 2 שניות - מספיק לגמור משפט
                         time_since_tts_start = current_time - self.speaking_start_ts
                         
                         if time_since_tts_start < grace_period:
@@ -335,8 +335,8 @@ class MediaStreamHandler:
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                            # ✅ דרישה ארוכה יותר: 1.2s קול רציף לפני הפרעה
-                            if self.voice_in_row >= 60:  # 1200ms (1.2s) של קול רציף לפני barge-in
+                            # ✅ דרישה מאוזנת: 1s קול רציף לפני הפרעה
+                            if self.voice_in_row >= 50:  # 1000ms (1s) של קול רציף לפני barge-in
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
@@ -709,8 +709,11 @@ class MediaStreamHandler:
             return
             
         if self.speaking:
-            print("🚫 Already speaking - cannot start new speech")
-            return
+            print("🚫 Already speaking - stopping current and starting new")
+            # ✅ עצור TTS נוכחי והתחל חדש
+            self.speaking = False
+            self.state = STATE_LISTEN
+            time.sleep(0.05)  # המתנה קצרה
             
         self.speaking = True
         self.speaking_start_ts = time.time()
@@ -969,8 +972,8 @@ class MediaStreamHandler:
                 print(f"📊 AUDIO_STATS: max_amplitude={max_amplitude}, rms={rms}, duration={len(pcm16_8k)/(2*8000):.1f}s")
                 
                 # ✅ הגדלת VAD threshold - מניעת זיהוי רעש כקול 
-                if max_amplitude < 150:  # גבוה אבל לא מדי - מאזן בין זיהוי שקר לאיבוד דיבור רך
-                    print("🔇 STT_SKIP: Audio too quiet (likely noise, not speech)")
+                if max_amplitude < 100:  # מאוזן - יזהה דיבור רך אבל לא רעש רקע
+                    print("🔇 STT_SKIP: Audio too quiet (likely background noise)")
                     return ""  # החזר ריק עבור רעש
                     
             except Exception as e:
@@ -1038,7 +1041,7 @@ class MediaStreamHandler:
             rms = audioop.rms(pcm16_8k, 2)
             print(f"📊 AUDIO_ANALYSIS: max_amplitude={max_amplitude}, rms={rms}")
             
-            if max_amplitude < 100:  # Very quiet audio
+            if max_amplitude < 80:  # רק רעש ממש חלש
                 print("🔇 WHISPER_SKIP: Audio too quiet (silence detected)")
                 return ""
             
@@ -1095,20 +1098,12 @@ class MediaStreamHandler:
             if not hasattr(self, 'conversation_history'):
                 self.conversation_history = []
             
-            # ✅ ENHANCED loop detection to prevent repetition
-            if len(self.conversation_history) >= 2:
+            # ✅ זיהוי לולאות מוגבל - רק אם יש 3+ תגובות זהות
+            if len(self.conversation_history) >= 3:
                 last_responses = [item['bot'] for item in self.conversation_history[-3:]]
-                # Check if same response appears multiple times
-                for response in last_responses:
-                    if last_responses.count(response) > 1:
-                        print(f"🚫 LOOP_DETECTED: Same response repeated")
-                        return "אפשר לחזור על מה שאמרת?"
-                        
-                # Check if user repeated exact input
-                recent_user_inputs = [item['user'].strip() for item in self.conversation_history[-2:]]
-                if hebrew_text.strip() in recent_user_inputs:
-                    print(f"🚫 USER_REPEAT_DETECTED")
-                    return "איזה תקציב יש לך לנכס?"
+                if len(set(last_responses)) == 1 and len(last_responses) >= 3:
+                    print(f"🚫 CRITICAL_LOOP: 3+ identical responses - breaking")
+                    return "באיזה אזור אתה מחפש?"
                     
             # 📜 הקשר מהיסטוריה (להבנה טובה יותר)
             history_context = ""
