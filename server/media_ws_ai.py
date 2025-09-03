@@ -8,16 +8,16 @@ from simple_websocket import ConnectionClosed
 from server.stream_state import stream_registry
 
 SR = 8000
-# 🎯 פרמטרים מותאמים לשיחה מהירה וחלקה!
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.8"))        # זמן מינימלי לתמלול איכותי
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "3.5"))        # מונע מונולוגים ארוכים
-VAD_RMS = int(os.getenv("VAD_RMS", "90"))                   # פחות רגיש - מונע חיתוכים
+# 🎯 פרמטרים מותאמים לשיחה מהירה וחלקה! - OPTIMIZED
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.4"))        # זמן קצר יותר לתגובה מהירה
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "2.5"))        # מקצר מונולוגים
+VAD_RMS = int(os.getenv("VAD_RMS", "45"))                   # רגיש יותר לקול רך
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "200"))  # יותר סבלנות
-RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # תגובה מהירה!
-RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "100")) # ללא השהיות מיותרות
-REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "400")) # קירור קצר יותר
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","15"))  # 300ms לפני הפרעה
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # פחות סבלנות = תגובה מהירה
+RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "30")) # תגובה מיידית!
+RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "80")) # ללא השהיות
+REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "250")) # קירור מהיר יותר
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","8"))  # 160ms לפני הפרעה - מהיר!
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
@@ -1169,8 +1169,8 @@ class MediaStreamHandler:
                         {"role": "user", "content": hebrew_text}
                     ],
                     max_tokens=120,           # ✅ אפשר תשובות יותר מלאות
-                    temperature=0.6,          # ✅ Balanced
-                    timeout=2.0               # ✅ FAST: 2 seconds max!
+                    temperature=0.2,          # ✅ More consistent responses
+                    timeout=1.5               # ✅ SUPER FAST: 1.5 seconds max!
                 )
             except Exception as e:
                 print(f"⏰ AI timeout/error ({e}) - FAST emergency response")
@@ -1270,7 +1270,7 @@ class MediaStreamHandler:
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.LINEAR16,
                 sample_rate_hertz=8000,
-                speaking_rate=1.1,   # מהיר יותר
+                speaking_rate=1.4,   # מהיר יותר לשיחה חלקה
                 pitch=0.0,           # טון טבעי
                 effects_profile_id=["telephony-class-application"]  # אופטימיזציה לטלפון
             )
