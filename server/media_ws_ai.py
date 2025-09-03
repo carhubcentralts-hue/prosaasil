@@ -1110,13 +1110,19 @@ class MediaStreamHandler:
                         else:
                             return "איך אני יכולה לעזור לך היום?"
                     
-            # 📜 הקשר מהיסטוריה (להבנה טובה יותר)
-            history_context = ""
+            # 💾 בניית messages array עם היסטוריה מלאה לזיכרון מושלם
+            from typing import Any
+            messages: list[dict[str, Any]] = [{"role": "system", "content": ""}]  # נמלא אחרי הפרומפט
+            
+            # הוסף היסטוריה אחרונה (מקסימום 6 החלפות = 12 הודעות)
             if self.conversation_history:
-                recent = self.conversation_history[-2:]  # 2 אחרונים
-                history_context = "הקשר שיחה: "
-                for turn in recent:
-                    history_context += f"לקוח אמר: '{turn['user'][:40]}' ענינו: '{turn['bot'][:40]}' | "
+                recent_history = self.conversation_history[-6:]  # 6 החלפות אחרונות
+                for turn in recent_history:
+                    messages.append({"role": "user", "content": turn['user']})
+                    messages.append({"role": "assistant", "content": turn['bot']})
+            
+            # הוסף את ההודעה הנוכחית
+            messages.append({"role": "user", "content": hebrew_text})
             
             # 🎯 זיהוי אזור מהבקשה
             requested_area = self._detect_area(hebrew_text) or ""
@@ -1240,27 +1246,29 @@ class MediaStreamHandler:
 {greeting_prompt}
 
 מידע נוכחי על הלקוח:
-- אזור שהזכיר: {requested_area or 'לא ידוע עדיין'}
+- אזור שהזכיר: {requested_area or 'לא ידוע עדיין'}  
 - מה שכבר אספת: {lead_info['summary']}
-- הקשר השיחה: {history_context}
 
 {lead_info['meeting_prompt']}
 
-הלקוח אומר כעת: "{hebrew_text}"
-
 תני תגובה קצרה, ישירה ומועילה (15-25 מילים בלבד):"""
+            
+            # הגדר את ה-system prompt בתחילת המערך
+            messages[0]["content"] = comprehensive_prompt
+            
+            # 📊 לוגינג לבדיקת זיכרון
+            history_count = len(self.conversation_history) if self.conversation_history else 0
+            messages_count = len(messages) - 1  # מינוס system prompt
+            print(f"🧠 MEMORY: {history_count} היסטוריה → {messages_count} messages ל-OpenAI")
 
             # ✅ GPT-4o MINI מהיר יותר לשיחה חיה!
             try:
                 response = client.chat.completions.create(
                     model="gpt-4o-mini",      # Fast model
-                    messages=[
-                        {"role": "system", "content": comprehensive_prompt},
-                        {"role": "user", "content": hebrew_text}
-                    ],
+                    messages=messages,         # ✅ כולל היסטוריה מלאה לזיכרון מושלם! # type: ignore
                     max_tokens=120,           # ✅ תשובות קצרות וממוקדות
                     temperature=0.7,          # ✅ More natural human-like responses
-                    timeout=1.5               # ✅ SUPER FAST: 1.5 seconds max!
+                    timeout=2.5               # ✅ 2.5 שניות - מספיק לעיבוד היסטוריה
                 )
             except Exception as e:
                 print(f"⏰ AI timeout/error ({e}) - FAST emergency response")
