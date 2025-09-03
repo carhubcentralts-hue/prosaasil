@@ -13,11 +13,11 @@ MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.4"))        # זמן קצר יו
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "2.5"))        # מקצר מונולוגים
 VAD_RMS = int(os.getenv("VAD_RMS", "45"))                   # רגיש יותר לקול רך
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # פחות סבלנות = תגובה מהירה
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "300"))  # יותר סבלנות = לא חותך באמצע
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "30")) # תגובה מיידית!
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "80")) # ללא השהיות
-REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "250")) # קירור מהיר יותר
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","8"))  # 160ms לפני הפרעה - מהיר!
+REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "500")) # קירור בטוח אחרי תשובה
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","35"))  # 700ms לפני הפרעה - בטוח יותר!
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
@@ -322,7 +322,7 @@ class MediaStreamHandler:
                     # ⚡ FIXED BARGE-IN: Prevent false interruptions
                     if self.speaking and BARGE_IN:
                         # ✅ Grace period מאוזן - לא יותר מדי
-                        grace_period = 2.0  # 2 שניות - מספיק לגמור משפט
+                        grace_period = 4.0  # 4 שניות - מספיק לתשובות ארוכות
                         time_since_tts_start = current_time - self.speaking_start_ts
                         
                         if time_since_tts_start < grace_period:
@@ -336,7 +336,7 @@ class MediaStreamHandler:
                         if is_barge_in_voice:
                             self.voice_in_row += 1
                                 # ✅ HEBREW SPEECH: Require 1.5s continuous voice to prevent false interrupts
-                            if self.voice_in_row >= 75:  # 1500ms (1.5s) of continuous voice - Hebrew needs more time
+                            if self.voice_in_row >= 125:  # 2500ms (2.5s) of continuous voice - Safe for Hebrew
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
