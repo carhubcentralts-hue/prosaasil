@@ -1,6 +1,6 @@
 # .replit — Workspace only
 run = "python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:${PORT:-5000} --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
-modules = ["python-3.11", "python3", "postgresql-16", "nodejs-20"]
+modules = ["python-3.11", "postgresql-16", "nodejs-20"]
 
 [env]
 PYTHONUNBUFFERED = "1"
@@ -9,21 +9,17 @@ EVENTLET_NO_GREENDNS = "1"
 EVENTLET_HUB         = "poll"
 
 [deployment]
-run = ["sh", "-c", "gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --access-logfile - --error-logfile -"]
+run = ["sh", "-c", "gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 --access-logfile - --error-logfile -"]
 deploymentTarget = "cloudrun"
 
 [nix]
 channel = "stable-25_05"
-packages = ["c-ares", "cargo", "ffmpeg", "ffmpeg-full", "freetype", "grpc", "iana-etc", "lcms2", "libev", "libiconv", "libimagequant", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "websocat", "xsimd", "zlib"]
-
-[[ports]]
-localPort = 3000
-externalPort = 80
+packages = ["c-ares", "ffmpeg", "freetype", "grpc", "iana-etc", "lcms2", "libev", "libiconv", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "tcl", "tk", "websocat", "xsimd", "zlib"]
 
 [[ports]]
 localPort = 5000
-externalPort = 5000
+externalPort = 80
 
 [[ports]]
-localPort = 5001
+localPort = 3000
 externalPort = 3000
