@@ -1,0 +1,148 @@
+יאללה—זה בדיוק מה שצריך לשלוח לו כדי שזה יעמוד יציב ויעבוד בפרודקשן. תדביק לו אחד-לאחד👇
+
+⸻
+
+🔧 תשובה לביצוע מיידי – שהשרת ירוץ יציב בפרודקשן
+
+הבעיה שלך אינה בקוד (הוא עובד עם python wsgi.py) — הבעיה היא איך מרימים אותו כ־תהליך פרודקשן שנשאר חי, עם בריאות נכונה ו־WebSocket. הפתרון: להריץ דרך Replit Deployments עם Gunicorn+Eventlet, בריאות נכונה, ו־ENVים במקום הנכון.
+
+1) מרימים דיפלוי נכון (לא “Run” בסרגל שמאל)
+	1.	פתח ב-Replit: Deployments → Create / Edit לדיפלוי הקיים.
+	2.	Start command (בחר לפי המיקום של wsgi.py):
+	•	אם אתה נמצא בתיקייה AgentLocator/ ויש שם wsgi.py:
+
+gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --access-logfile - --error-logfile -
+
+
+	•	אם אתה מריץ משורש הפרויקט שמכיל תיקייה AgentLocator/ בפנים:
+
+gunicorn AgentLocator.wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --access-logfile - --error-logfile -
+
+
+חשוב: אסור להריץ python wsgi.py בפרודקשן. רק Gunicorn עם Eventlet.
+
+	3.	Health check: שים /version (לא /healthz).
+	4.	ENV בפריסת הדיפלוי (לא רק בקבצים):
+
+PUBLIC_BASE_URL=https://ai-crmd.replit.app
+OPENAI_API_KEY=...
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON={"type":"service_account",...}   # כל ה-JSON בשורה אחת
+
+וגם כוונונים שמייצבים את השיחה (בלי לגעת בקוד):
+
+MIN_UTT_SEC=1.0
+MAX_UTT_SEC=4.5
+REPLY_REFRACTORY_MS=1000
+BARGE_IN=true
+BARGE_IN_VOICE_FRAMES=10     # ≈ 200ms קול רציף
+VAD_HANGOVER_MS=200
+
+
+	5.	משאבים: Machine עם ≥1GB RAM. (0.5GB מוביל ל-OOM/TERM.)
+	6.	Autoscale: Min machines = 1 (כדי שלא יירד ל־idle).
+	7.	פרוס (Deploy). אם יש דיפלוי ישן—עצור אותו שלא ירוץ במקביל.
+
+מה לראות בלוג בהפעלה:
+
+EventLet Composite WSGI ready
+📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com
+All blueprints registered
+Listening on 0.0.0.0:$PORT
+
+
+⸻
+
+2) מוודאים שה-WebSocket והוובהוקים חיים
+	•	בדוק שה-WS באמת מתחבר (בלוג: Added Twilio subprotocol to handshake).
+	•	וובהוקים חייבים להשיב מיד:
+	•	POST /webhook/stream_status → 204
+	•	POST /webhook/stream_ended → 204
+	•	POST /webhook/call_status → 204
+	•	TwiML Preview: GET /webhook/incoming_call_preview מחזיר XML עם
+wss://ai-crmd.replit.app/ws/twilio-media
+
+⸻
+
+3) למה “השרת עולה ומת” ואיך מנעים
+
+אם אתה רואה בלוגים:
+
+[INFO] Handling signal: TERM
+
+זה כמעט תמיד:
+	•	Health check לא נכון → תיקן עם /version.
+	•	Start command לא נכון (לא Gunicorn/Eventlet/PORT) → תיקן.
+	•	זיכרון נמוך (OOM) → תן ≥1GB.
+	•	ENV חסרה בדיפלוי (לא בקובץ) → הוסף בפאנל ה-Deployments.
+
+⸻
+
+4) יציבות שיחה ארוכה (WS מתנתק אחרי דקות)
+
+כבר יש לך Heartbeat בקוד—וודא שהוא פעיל:
+	•	שולח mark heartbeat כל ~15–20 שניות.
+	•	אם אין אודיו יוצא דקה+ — שלח heartbeat/שקט קצר כדי למנוע idle-timeout.
+	•	ב־on_close: לוג סיבה ויציאה מנומסת (אפשר SMS/WhatsApp follow-up).
+
+⸻
+
+5) תלותים — לא להשאיר כפילויות (מייצב מאוד)
+
+ב-requirements.txt להשאיר גרסאות נקיות (ללא כפילויות). לדוגמה:
+
+flask
+gunicorn==21.2.0
+eventlet==0.36.1
+greenlet>=3.0,<3.3
+simple-websocket
+twilio
+openai
+google-cloud-speech
+google-cloud-texttospeech
+numpy
+scipy
+requests
+
+(אם הייתה לך יותר מגרסה אחת ל-eventlet/greenlet/gunicorn—זה מקור לקריסות מוזרות.)
+
+⸻
+
+6) בדיקות קבלה – 60 שניות
+	1.	GET /version → 200.
+	2.	שלוש הוובהוקים → 204 מיידי.
+	3.	TwiML preview → XML תקין עם wss://.
+	4.	התקשרות מבחן: בלוגים מחזור קלאסי בכל תור:
+EOU → ASR_TEXT → TTS_START → MARK_ACK → LISTENING
+וב-WS מופיעים WS_KEEPALIVE heartbeat#N כל ~18s.
+
+⸻
+
+הערה אחרונה על “בעיה בשם קלאס TTS”
+
+ראיתי שנגעת בזה בדרך—היום זה כבר מוצדק וקונסיסטנטי בקוד. אם שוב תופיע שגיאת import/class name, ודא שה-start command מייבא את המודול הנכון (כאמור למעלה) ושה-PYTHONPATH הוא תיקיית הפרויקט הנוכחית (בריפליט זה אוטומטי כשמריצים מדירקטורי הנכון).
+
+⸻
+
+TL;DR לשליחה ב־וואטסאפ/Slack לאיש הטכני
+
+הקוד בסדר. תפעיל בפרודקשן דרך Deployments:
+
+1) Start:
+   # אם נמצאים בתיקיית AgentLocator שיש בה wsgi.py:
+   gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --access-logfile - --error-logfile -
+   # אחרת:
+   gunicorn AgentLocator.wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --access-logfile - --error-logfile -
+
+2) Health: /version
+3) ENV בדיפלוי (לא בקבצים): PUBLIC_BASE_URL, OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
+   וגם: MIN_UTT_SEC=1.0, MAX_UTT_SEC=4.5, REPLY_REFRACTORY_MS=1000, BARGE_IN=true, BARGE_IN_VOICE_FRAMES=10
+4) משאבים: ≥1GB RAM, Min machines=1
+5) ווידוא:
+   - /webhook/stream_status|stream_ended|call_status → 204
+   - /webhook/incoming_call_preview → XML עם wss://
+   - בלוגים: Added Twilio subprotocol + WS_KEEPALIVE heartbeat כל ~18s
+6) אם מופיע [INFO] Handling signal: TERM → זה Health/Start/Memory. תקן לפי הסעיפים למעלה.
+
+זה ינעל את הדיפלוי. אם אחרי זה עדיין יהיה אירוע מוזר—תשלח לי צילום מסך של Deployment Events בריפליט (לא לוג האפליקציה אלא אירועי הדיפלוי), ואני אגיד בדיוק מה להפוך.
