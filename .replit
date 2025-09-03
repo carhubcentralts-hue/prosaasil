@@ -14,7 +14,7 @@ deploymentTarget = "cloudrun"
 
 [nix]
 channel = "stable-25_05"
-packages = ["c-ares", "ffmpeg", "freetype", "grpc", "iana-etc", "lcms2", "libev", "libiconv", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "tcl", "tk", "websocat", "xsimd", "zlib"]
+packages = ["c-ares", "cargo", "ffmpeg", "ffmpeg-full", "freetype", "grpc", "iana-etc", "lcms2", "libev", "libiconv", "libimagequant", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "websocat", "xsimd", "zlib"]
 
 [[ports]]
 localPort = 5000
