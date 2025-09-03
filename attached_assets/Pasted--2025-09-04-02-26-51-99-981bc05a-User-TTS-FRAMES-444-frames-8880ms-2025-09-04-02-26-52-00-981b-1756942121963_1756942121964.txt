@@ -1,0 +1,121 @@
+
+2025-09-04 02:26:51.99
+981bc05a
+User
+🔊 TTS_FRAMES: 444 frames (8880ms)
+2025-09-04 02:26:52.00
+981bc05a
+User
+🎯 TTS_MARK_SENT: assistant_tts_end
+2025-09-04 02:26:52.00
+981bc05a
+User
+✅ RETURNED TO LISTEN STATE after conversation #2
+2025-09-04 02:26:52.00
+981bc05a
+User
+✅ Emergency processing complete for conversation #2
+2025-09-04 02:26:52.50
+981bc05a
+User
+⚠️ TTS_MARK_TIMEOUT -> LISTENING
+2025-09-04 02:26:52.50
+981bc05a
+User
+🎤 SPEAKING_END -> LISTEN STATE | buffer_reset
+2025-09-04 02:26:59.62
+981bc05a
+User
+🎙️ REAL_VOICE: rms=1611, threshold=35.0
+2025-09-04 02:27:00.84
+981bc05a
+User
+🎤 END OF UTTERANCE: 1.2s audio, conversation #3
+2025-09-04 02:27:00.84
+981bc05a
+User
+🧠 STATE -> PROCESSING | len=19840 | silence_ms=1019
+2025-09-04 02:27:00.84
+981bc05a
+User
+🎤 SAFE PROCESSING: conversation #3
+2025-09-04 02:27:00.84
+981bc05a
+User
+🎤 STT_START: Processing 19840 bytes with Google STT Streaming Hebrew
+2025-09-04 02:27:00.84
+981bc05a
+User
+📊 AUDIO_STATS: max_amplitude=11900, rms=1026, duration=1.2s
+2025-09-04 02:27:01.12
+981bc05a
+User
+📊 GOOGLE_STT_ATTEMPT: Processed audio in 19840 bytes
+2025-09-04 02:27:01.12
+981bc05a
+User
+❌ Google STT returned no results - fallback to Whisper
+2025-09-04 02:27:01.12
+981bc05a
+User
+🔄 WHISPER_FALLBACK: Processing 19840 bytes
+2025-09-04 02:27:01.12
+981bc05a
+User
+📊 AUDIO_ANALYSIS: max_amplitude=11900, rms=1026
+2025-09-04 02:27:01.12
+981bc05a
+User
+🔄 RESAMPLED: 19840 bytes @ 8kHz → 39678 bytes @ 16kHz
+2025-09-04 02:27:02.33
+981bc05a
+User
+✅ WHISPER_FALLBACK_SUCCESS: 'תודה.'
+2025-09-04 02:27:02.33
+981bc05a
+User
+🎤 USER: תודה.
+2025-09-04 02:27:02.33
+981bc05a
+User
+📊 ASR_LATENCY: 1.492s (target: <0.7s)
+2025-09-04 02:27:02.33
+981bc05a
+User
+🧠 MEMORY: 3 היסטוריה → 7 messages ל-OpenAI
+2025-09-04 02:27:03.38
+981bc05a
+User
+🤖 AI SUCCESS: בבקשה! אם תצטרך עזרה נוספת או מידע על נכסים, אל תהסס לפנות אלי. יום טוב!
+2025-09-04 02:27:03.38
+981bc05a
+User
+🤖 BOT: בבקשה! אם תצטרך עזרה נוספת או מידע על נכסים, אל תהסס לפנות אלי. יום טוב!
+2025-09-04 02:27:03.38
+981bc05a
+User
+📊 AI_PROCESSING: 1.049s
+2025-09-04 02:27:03.38
+981bc05a
+User
+🔊 TTS_START: 'בבקשה! אם תצטרך עזרה נוספת או מידע על נכסים, אל תהסס לפנות אלי. יום טוב!'
+2025-09-04 02:27:03.38
+981bc05a
+User
+📊 TURN_LATENCY: 2.541s (target: <1.2s)
+2025-09-04 02:27:03.71
+981bc05a
+User
+🔊 TTS_START: Generating Hebrew TTS with Google Wavenet for 'בבקשה! אם תצטרך עזרה נוספת או מידע על נכסים, אל תה...' (length: 72 chars)
+2025-09-04 02:27:04.27
+981bc05a
+User
+✅ TTS_SUCCESS: Generated 95170 bytes of Wavenet audio (5.9s actual)
+2025-09-04 02:27:04.27
+981bc05a
+User
+🔊 TTS SUCCESS: 95170 bytes
+2025-09-04 02:27:04.27
+981bc05a
+User
+🔊 TTS_FRAMES: 297 frames (5940ms)

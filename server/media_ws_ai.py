@@ -958,22 +958,58 @@ class MediaStreamHandler:
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
         """Hebrew STT using Google STT Streaming with speech contexts (לפי ההנחיות)"""
         try:
-            print(f"🎤 STT_START: Processing {len(pcm16_8k)} bytes with Google STT Streaming Hebrew")
+            print(f"🎵 STT_PROCEED: Processing {len(pcm16_8k)} bytes with Google STT (audio validated)")
             
-            # Check if audio has sufficient content for recognition
+            # ✅ FIXED: בדיקת איכות אודיו מתקדמת - מניעת עיבוד של רעש/שקט
             try:
                 import audioop
+                import numpy as np
+                
                 max_amplitude = audioop.max(pcm16_8k, 2)
                 rms = audioop.rms(pcm16_8k, 2)
-                print(f"📊 AUDIO_STATS: max_amplitude={max_amplitude}, rms={rms}, duration={len(pcm16_8k)/(2*8000):.1f}s")
+                duration = len(pcm16_8k) / (2 * 8000)
+                print(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
                 
-                # ✅ הגדלת VAD threshold - מניעת זיהוי רעש כקול 
-                if max_amplitude < 50:  # ✅ מותאם לעברית - יזהה דיבור רך יותר
-                    print("🔇 STT_SKIP: Audio too quiet (likely background noise)")
-                    return ""  # החזר ריק עבור רעש
+                # ✅ בדיקות מרובות לזיהוי דיבור אמיתי
+                
+                # 1. בדיקת עוצמה בסיסית
+                if max_amplitude < 100:  # ✅ חמור יותר מ-50
+                    print("🚫 STT_BLOCKED: Audio too quiet (max_amplitude < 100)")
+                    return ""
+                
+                # 2. בדיקת RMS לזיהוי אנרגיה שמעותית
+                if rms < 80:  # ✅ בדיקת אנרגיה מינימלית
+                    print("🚫 STT_BLOCKED: Audio energy too low (rms < 80)")
+                    return ""
+                
+                # 3. בדיקת אורך מינימלי
+                if duration < 0.2:  # פחות מ-200ms
+                    print("🚫 STT_BLOCKED: Audio too short (< 200ms)")
+                    return ""
+                
+                # 4. ✅ בדיקת שינוי אנרגיה - האם יש דיבור אמיתי?
+                try:
+                    pcm_array = np.frombuffer(pcm16_8k, dtype=np.int16)
+                    energy_variance = np.var(pcm_array.astype(np.float32))
+                    
+                    if energy_variance < 500000:  # אנרגיה מונוטונית = רעש
+                        print(f"🚫 STT_BLOCKED: Monotonic audio (variance={energy_variance}) - likely noise")
+                        return ""
+                    
+                    # 5. בדיקת Zero Crossing Rate - דיבור יש לו מעברי אפס
+                    zero_crossings = np.sum(np.diff(np.sign(pcm_array)) != 0) / len(pcm_array)
+                    if zero_crossings < 0.01:  # שיעור נמוך מאוד = לא דיבור
+                        print(f"🚫 STT_BLOCKED: Low ZCR ({zero_crossings:.3f}) - not speech")
+                        return ""
+                    
+                    print(f"✅ AUDIO_VALIDATED: variance={energy_variance}, zcr={zero_crossings:.3f} - proceeding to STT")
+                    
+                except Exception as numpy_error:
+                    print(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
+                    # אם נכשלנו בבדיקות מתקדמות - המשך עם בסיסיות
                     
             except Exception as e:
-                print(f"⚠️ Audio analysis failed: {e}")
+                print(f"⚠️ Audio quality check failed: {e} - proceeding anyway")
             
             from server.services.lazy_services import get_stt_client
             from google.cloud import speech
@@ -983,33 +1019,35 @@ class MediaStreamHandler:
                 print("❌ Google STT client not available - fallback to Whisper")
                 return self._whisper_fallback(pcm16_8k)
             
-            # ✅ אופטימיזציה מקסימלית של Google STT לעברית
+            # ✅ FIXED: Google STT גמיש ופתוח לכל עברית - לא רק מילים מסוימות!
             recognition_config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                sample_rate_hertz=8000,  # 8kHz לטלפוניה
+                sample_rate_hertz=8000,  
                 language_code="he-IL",   # עברית ישראל
-                use_enhanced=False,      # ✅ FIXED: Basic model עובד טוב יותר לעברית
-                enable_automatic_punctuation=False,  # ✅ FIXED: עלול להפריע לזיהוי
-                # ✅ קונטקסט מצומצם לביצועים טובים יותר
+                use_enhanced=True,       # ✅ FIXED: Enhanced model לאיכות טובה יותר
+                enable_automatic_punctuation=False,  # מניעת הפרעות
+                # ✅ FIXED: רק קונטקסט עדין עם boost נמוך - לא חוסם כלום!
                 speech_contexts=[
                     speech.SpeechContext(phrases=[
                         "שלום", "תודה", "כן", "לא", "בסדר", "נהדר", "ביי",
-                        "דירה", "תל אביב", "רמת גן", "אלף", "מיליון"
-                    ], boost=10.0)  # ✅ מילים חשובות עם boost
+                        "דירה", "בית", "נדלן", "משרד", "חדרים", "שכירות", "קניה",
+                        "תל אביב", "רמת גן", "רמלה", "לוד", "מודיעין",
+                        "אלף", "מיליון", "שקל", "תקציב", "מחיר"
+                    ], boost=2.0)  # ✅ FIXED: boost נמוך מאוד - רק רמז קל לא חסימה!
                 ]
             )
             
             # Single request recognition (לא streaming למבע קצר)
             audio = speech.RecognitionAudio(content=pcm16_8k)
             
-            # ✅ אופטימלי לעברית: timeout ארוך יותר ללוגיקה טובה יותר
+            # ✅ FIXED: נסה ראשון עם enhanced model, אם נכשל - נסה basic
             response = client.recognize(
                 config=recognition_config,
                 audio=audio,
-                timeout=3.0  # ✅ FIXED: 3 שניות - מספיק לעברית איכותית
+                timeout=2.5  # ✅ קצת יותר מהיר ל-enhanced model
             )
             
-            print(f"📊 GOOGLE_STT_ATTEMPT: Processed audio in {len(pcm16_8k)} bytes")
+            print(f"📊 GOOGLE_STT_ENHANCED: Processed {len(pcm16_8k)} bytes")
             
             if response.results and response.results[0].alternatives:
                 hebrew_text = response.results[0].alternatives[0].transcript.strip()
@@ -1017,15 +1055,146 @@ class MediaStreamHandler:
                 print(f"✅ GOOGLE_STT_SUCCESS: '{hebrew_text}' (confidence: {confidence:.2f})")
                 return hebrew_text
             else:
-                print("❌ Google STT returned no results - fallback to Whisper")
-                return self._whisper_fallback(pcm16_8k)
+                print("⚠️ ENHANCED_MODEL_FAILED - trying BASIC model")
+                # ✅ FIXED: נסה basic model לפני Whisper!
+                return self._google_stt_basic_fallback(pcm16_8k)
                 
         except Exception as e:
-            print(f"❌ GOOGLE_STT_ERROR: {e} - fallback to Whisper")
-            return self._whisper_fallback(pcm16_8k)
+            print(f"❌ GOOGLE_STT_ERROR: {e} - trying basic model")
+            return self._google_stt_basic_fallback(pcm16_8k)
+    
+    def _google_stt_basic_fallback(self, pcm16_8k: bytes) -> str:
+        """✅ FIXED: Google STT basic model כ-fallback לפני Whisper"""
+        try:
+            print(f"🔄 GOOGLE_STT_BASIC: Trying basic model as fallback")
+            from server.services.lazy_services import get_stt_client
+            from google.cloud import speech
+            
+            client = get_stt_client()
+            if not client:
+                print("❌ Google STT client not available - fallback to Whisper")
+                return self._whisper_fallback(pcm16_8k)
+            
+            # ✅ Basic model עם אפס speech contexts - מאוד גמיש!
+            recognition_config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=8000,
+                language_code="he-IL",
+                use_enhanced=False,      # Basic model
+                enable_automatic_punctuation=False,
+                # ✅ אפס speech contexts - מקבל כל עברית!
+            )
+            
+            audio = speech.RecognitionAudio(content=pcm16_8k)
+            response = client.recognize(
+                config=recognition_config,
+                audio=audio,
+                timeout=2.0  # קצר יותר ל-basic
+            )
+            
+            print(f"📊 GOOGLE_STT_BASIC: Processed {len(pcm16_8k)} bytes")
+            
+            if response.results and response.results[0].alternatives:
+                hebrew_text = response.results[0].alternatives[0].transcript.strip()
+                confidence = response.results[0].alternatives[0].confidence
+                print(f"✅ GOOGLE_STT_BASIC_SUCCESS: '{hebrew_text}' (confidence: {confidence:.2f})")
+                return hebrew_text
+            else:
+                print("❌ Both Google STT models failed - fallback to Whisper with validation")
+                return self._whisper_fallback_validated(pcm16_8k)
+                
+        except Exception as e:
+            print(f"❌ GOOGLE_STT_BASIC_ERROR: {e} - fallback to Whisper with validation")
+            return self._whisper_fallback_validated(pcm16_8k)
+    
+    def _whisper_fallback_validated(self, pcm16_8k: bytes) -> str:
+        """✅ FIXED: Whisper fallback with smart validation - לא ימציא מילים!"""
+        try:
+            print(f"🔄 WHISPER_VALIDATED: Processing {len(pcm16_8k)} bytes with fabrication prevention")
+            
+            # ✅ בדיקת איכות אודיו חמורה יותר
+            import audioop
+            max_amplitude = audioop.max(pcm16_8k, 2)
+            rms = audioop.rms(pcm16_8k, 2)
+            duration = len(pcm16_8k) / (2 * 8000)
+            print(f"📊 AUDIO_VALIDATION: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
+            
+            # ✅ STRICT validation - אסור ל-Whisper להמציא דברים!
+            if max_amplitude < 200 or rms < 120:  # הרבה יותר חמור!
+                print("🚫 WHISPER_BLOCKED: Audio too weak - preventing fabrication")
+                return ""  # פשוט אל תתן ל-Whisper להמציא!
+            
+            if duration < 0.3:  # פחות מ-300ms
+                print("🚫 WHISPER_BLOCKED: Audio too short - likely noise")
+                return ""
+            
+            # ✅ בדיקת שיווי אנרגיה - האם יש דיבור אמיתי?
+            try:
+                import numpy as np
+                pcm_array = np.frombuffer(pcm16_8k, dtype=np.int16)
+                energy_variance = np.var(pcm_array.astype(np.float32))
+                if energy_variance < 1000000:  # אנרגיה מונוטונית = רעש
+                    print(f"🚫 WHISPER_BLOCKED: Low energy variance ({energy_variance}) - likely background noise")
+                    return ""
+            except:
+                pass  # אם נכשל בבדיקה - המשך
+            
+            from server.services.lazy_services import get_openai_client
+            client = get_openai_client()
+            if not client:
+                print("❌ OpenAI client not available")
+                return ""
+            
+            # Resample to 16kHz for Whisper
+            pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
+            print(f"🔄 RESAMPLED: {len(pcm16_8k)} bytes @ 8kHz → {len(pcm16_16k)} bytes @ 16kHz")
+            
+            # ✅ Whisper עם פרמטרים חמורים נגד המצאות
+            import tempfile
+            import wave
+            
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+                with wave.open(temp_wav.name, 'wb') as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(16000)
+                    wav_file.writeframes(pcm16_16k)
+                
+                with open(temp_wav.name, 'rb') as audio_file:
+                    # ✅ FIXED: פרמטרים חמורים נגד המצאה
+                    transcript = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        language="he",  # חייב עברית
+                        prompt="זוהי שיחת טלפון בעברית על נדלן. אם אין דיבור ברור - אל תנסה לנחש.",  # הנחיה חמורה!
+                        temperature=0.1  # נמוך מאוד - פחות יצירתיות
+                    )
+            
+            import os
+            os.unlink(temp_wav.name)
+            
+            result = transcript.text.strip()
+            
+            # ✅ FINAL validation - בדיקת תוצאה חשודה
+            if not result or len(result) < 2:
+                print("✅ WHISPER_VALIDATED: Empty/minimal result - good!")
+                return ""
+            
+            # ✅ בדיקת מילים חשודות ש-Whisper אוהב להמציא
+            suspicious_words = ["תודה", "נהדר", "נהדרת", "מעולה", "בראבו"] 
+            if len(result.split()) == 1 and any(word in result for word in suspicious_words):
+                print(f"🚫 WHISPER_FABRICATION_DETECTED: Suspicious single word '{result}' - blocking")
+                return ""
+            
+            print(f"✅ WHISPER_VALIDATED_SUCCESS: '{result}'")
+            return result
+            
+        except Exception as e:
+            print(f"❌ WHISPER_VALIDATED_ERROR: {e}")
+            return ""
     
     def _whisper_fallback(self, pcm16_8k: bytes) -> str:
-        """Whisper fallback for Google STT failures"""
+        """⚠️ DEPRECATED: Old Whisper fallback - עכשיו שימוש ב-validated version"""
         try:
             print(f"🔄 WHISPER_FALLBACK: Processing {len(pcm16_8k)} bytes")
             
