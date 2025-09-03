@@ -1,0 +1,112 @@
+מעולה—פתחתי ובדקתי את AgentLocator.zip מקצה לקצה. הנה דוח ביקורת קצר, חד, ועם הנחיות מיידיות ליישום. (עבדתי על התיקייה שפרסתי: /mnt/data/AgentLocator_full_audit/AgentLocator/)
+
+מה תקין (ירוק)
+	•	WSGI קומפוזיט עם Eventlet + הידוק הנדשייק: Sec-WebSocket-Protocol: audio.twilio.com, Upgrade, Connection ✅
+(ראה wsgi.py – יש גם טיפול בשני הנתיבים /ws/twilio-media ועם/בלי /).
+	•	TwiML מוחזר מיידית (WSGI) עם <Connect><Stream …> + statusCallback/action ✅
+(אותו גם ב־Flask routes).
+	•	Webhooks (/webhook/stream_status, /stream_ended, /call_status) מחזירים 204 מיידי ✅
+(מוגדרים ב־wsgi.py וגם ב־routes_twilio.py).
+	•	אימות חתימה: _effective_url משתמש ב־X-Forwarded-* ו־req.path (בלי query) ✅
+(server/twilio_security.py).
+	•	Keepalive ל־WS: heartbeat כל ~18s עם mark heartbeat_N ✅
+(server/media_ws_ai.py – יש מונה heartbeat ולוג 💓).
+	•	EOU/VAD דינמי + ZCR: יש קליברציית רעש, היסטרזיס, חישוב דממה מאז קול אחרון ✅
+(ממש דומה למה שהצעתי).
+	•	Google STT כ־Primary + Whisper כ־Fallback ✅
+(media_ws_ai.py משתמש ב־google.cloud.speech → recognize(); Fallback ל־Whisper).
+
+נקודות לשיפור (צהוב → להפוך את השיחה ל“מרגישה אנושית”)
+	1.	Barge-in “חלון חסד” ארוך מדי
+כרגע מוגדר ~600ms, וזה מסביר למה לפעמים היא לא נעצרת כשאתה קוטע.
+מה לעשות:
+• ב־server/media_ws_ai.py חפש את החסימה בתחילת TTS (הערה “חלון חסד”).
+• קבע grace_period = 0.18–0.25 (לא 0.6).
+• השאר BARGE_IN_VOICE_FRAMES סביב 9–11 (≈180–220ms קול רציף).
+	2.	קטיעות/קיצור יתר של משפטים
+ברירת מחדל: MIN_UTT_SEC=0.8, MAX_UTT_SEC=3.5. זה חותך מהר מדי.
+מה לעשות:
+• קבע MIN_UTT_SEC=1.0 ו־MAX_UTT_SEC=4.5 (ENV או בקובץ).
+• תנאי EOU כבר נכון (350–500ms שקט) — השאר.
+	3.	ריבאונד אחרי TTS קצר מדי
+REPLY_REFRACTORY_MS=400 גורם לפינג־פונג עם partials.
+מה לעשות: קבע REPLY_REFRACTORY_MS=1000–1200.
+	4.	דרוג רגישות Barge-in
+כבר יש סף דינמי לפי noise floor. כדי להיות יציב ברעש קו:
+מה לעשות: ודא שהסף ל־barge-in הוא לפחות max(120, noise_floor*3 + 20) (כבר קיים), ושהקול הרציף נבדק בקצב של ~200ms (מסומן אצלך כ־BARGE_IN_VOICE_FRAMES).
+	5.	TwiML <Parameter> – קוסמטי
+ב־wsgi.py יש <Parameter name="CallSid" value="{CALL_SID}"/> (placeholder). בפועל Twilio כבר שולח callSid באירוע start. אין נזק, אבל אין צורך ב־placeholder.
+מה לעשות: אפשר למחוק את ה־<Parameter> או להשאיר—לא קריטי.
+	6.	אבטחה – דגל דליפה אפשרי
+ב־server/twilio_security.py בדקתי את תנאי הדילוג על החתימה. אם קיימת בדיקה כמו or os.getenv("PUBLIC_HOST") (נראה שקיימת), יש סיכון שבפרודקשן תדלג.
+מה לעשות: השאר דילוג רק ל־FLASK_ENV=development. אל תדלג בפרודקשן.
+	7.	אריזת תלותים (requirements) – כפילויות/קונפליקטים
+מצאתי כפילויות (כמה אירועים של greenlet, eventlet, gunicorn, simple-websocket, ועוד). זה גורם להתנהגות לא צפויה.
+מה לעשות (קריטי):
+	•	השאר גרסה אחת לכל חבילה.
+	•	לדוגמה:
+
+flask
+gunicorn==21.2.0
+eventlet==0.36.1
+greenlet>=3.0,<3.3
+simple-websocket
+numpy
+scipy
+openai
+twilio
+google-cloud-speech
+google-cloud-texttospeech
+requests
+
+
+	•	מחק כפילויות (eventlet הופיע 3 פעמים), ומודולים לא בשימוש (למשל gevent-websocket אם לא בשימוש).
+
+	8.	פרומפטינג (התנהגות הסוכנת)
+יש מנגנון איסוף סלוטים, אבל כדי למנוע “דירות לא רלוונטיות” ולהשיג תיאום פגישה יציב:
+מה לעשות:
+	•	System בעברית קצר: תשובות ≤20 מילים, שאלה אחת בסוף, “לא שמעתי—אפשר לחזור על זה?” במקום לנחש, עצירה מיידית בקיטוע, וכשמבשיל—להציע 2–3 חלונות לתיאום + סיכום לוואטסאפ.
+	•	הוסף 2–3 few-shot (קטיעה/הבהרה/תיאום פגישה).
+(זה קונפיג בלבד – אין צורך לגעת בקוד).
+
+אפשרי אבל לא חובה (אחרי הייצוב)
+	•	Google STT Streaming (partials) אם תרצה לטנסי עוד יותר קצר: כרגע אתה משתמש ב־recognize() (מבע קצר, timeout 3s). עובד, אבל סטרימינג ייתן תחושה “חיה” יותר. זה שדרוג—not blocker.
+	•	Watchdog Redirect כבר קיים; שמור Heartbeat כל 15–20s (יש) והמשך.
+
+Check-list ENV מוכן להדבקה
+
+שמור את אלו בדיפלוי (כדי לא לגעת בקוד):
+
+MIN_UTT_SEC=1.0
+MAX_UTT_SEC=4.5
+REPLY_REFRACTORY_MS=1000
+BARGE_IN=true
+BARGE_IN_VOICE_FRAMES=10
+VAD_HANGOVER_MS=200
+THINKING_HINT_MS=0
+
+וגם (אם חסר):
+
+GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON=…  # (ה־JSON כטקסט)
+TWILIO_ACCOUNT_SID=…
+TWILIO_AUTH_TOKEN=…
+OPENAI_API_KEY=…
+
+בדיקות קבלה מהירות אחרי התיקונים
+	1.	שיחה 10–15 דק בלי ניתוק WS — תראה בלוג 💓 WS_KEEPALIVE #N כל ~18s.
+	2.	Barge-in: כשאתה קוטע – TTS נעצר ≤200ms וחוזר להאזנה.
+	3.	מחזור Turn: EOU → ASR_TEXT → TTS_START → TTS_MARK_ACK → LISTENING עם Turn Latency <~1.2s.
+	4.	התנהגות: כשלא שומעת—בקשת חזרה; כשהסלוטים מלאים—הצעת פגישה (2–3 חלונות), אישור, סיכום ווטסאפ.
+
+⸻
+
+סיכום ישים
+	•	תשתיתית אתה כמעט מושלם.
+	•	מה שחסר כדי ש“ירגיש בן-אדם”: 4 כיוונונים קטנים (grace 0.18–0.25s, REPLY_REFRACTORY_MS=1000, MIN/MAX_UTT, ניקוי requirements) + פרומפט חד.
+	•	אעשה זאת בסדר עדיפויות:
+	1.	ניקוי requirements.txt (קריטי ליציבות).
+	2.	ENV כפי שמעל (לא דורש קוד).
+	3.	System+few-shot בעברית (בקונפיג).
+	4.	בדיקת שיחה ארוכה + Barge-in.
+
+רוצה שאנסח לך עכשיו את טקסט ה-System+few-shot בעברית מוכן להדבקה (20 שורות סך־הכל)?
