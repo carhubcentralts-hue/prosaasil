@@ -230,7 +230,7 @@ class MediaStreamHandler:
                     
                     if not self.greeting_sent:
                         print("🎯 SENDING IMMEDIATE GREETING!")
-                        greet = "שלום וברוכים הבאים! אני לאה, סוכנת נדלן מקצועית מ'שי דירות ומשרדים'. אני מתמחה בנכסים באיכות גבוהה במרכז הארץ ואשמח לעזור לכם למצוא את הנכס המושלם. באיזה אזור אתם מעוניינים?"
+                        greet = "שלום! אני לאה משי דירות ומשרדים. באיזה אזור אתה מעוניין?"  # קצר וישר
                         self._speak_simple(greet)
                         self.greeting_sent = True
                     continue
@@ -321,8 +321,8 @@ class MediaStreamHandler:
 
                     # ⚡ FIXED BARGE-IN: Prevent false interruptions
                     if self.speaking and BARGE_IN:
-                        # ✅ MUCH LONGER grace period: 1.5s to let her speak
-                        grace_period = 1.5  # 1.5 seconds - enough for her to start
+                        # ✅ הגדלת Grace period - תן לה לגמור לדבר!
+                        grace_period = 2.5  # 2.5 שניות - יותר זמן לגמור משפט
                         time_since_tts_start = current_time - self.speaking_start_ts
                         
                         if time_since_tts_start < grace_period:
@@ -335,8 +335,8 @@ class MediaStreamHandler:
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                            # ✅ MUCH LONGER requirement: 800ms of continuous voice before interruption
-                            if self.voice_in_row >= 40:  # 800ms of continuous voice before barge-in
+                            # ✅ דרישה ארוכה יותר: 1.2s קול רציף לפני הפרעה
+                            if self.voice_in_row >= 60:  # 1200ms (1.2s) של קול רציף לפני barge-in
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
@@ -968,10 +968,10 @@ class MediaStreamHandler:
                 rms = audioop.rms(pcm16_8k, 2)
                 print(f"📊 AUDIO_STATS: max_amplitude={max_amplitude}, rms={rms}, duration={len(pcm16_8k)/(2*8000):.1f}s")
                 
-                # ✅ MUCH MORE LENIENT: Allow even soft Hebrew speech 
-                if max_amplitude < 50:  # Very lenient for soft speech
-                    print("🔇 STT_SKIP: Audio too quiet (silence detected)")
-                    return self._whisper_fallback(pcm16_8k)
+                # ✅ הגדלת VAD threshold - מניעת זיהוי רעש כקול 
+                if max_amplitude < 150:  # גבוה אבל לא מדי - מאזן בין זיהוי שקר לאיבוד דיבור רך
+                    print("🔇 STT_SKIP: Audio too quiet (likely noise, not speech)")
+                    return ""  # החזר ריק עבור רעש
                     
             except Exception as e:
                 print(f"⚠️ Audio analysis failed: {e}")
@@ -999,7 +999,7 @@ class MediaStreamHandler:
                         "מודיעין", "פתח תקווה", "רחובות", "הרצליה",
                         "דירה", "חדרים", "שכירות", "קניה", "משכנתא",
                         "תקציב", "שקל", "אלף", "מיליון", "נדלן", 
-                        "תודה", "שלום", "כן", "לא", "בסדר", "נהדר"  # Common words
+                        "שלום", "כן", "לא", "בסדר", "נהדר", "לאה"  # הוסרתי 'תודה' - גורם לזיהוי שקר
                     ])
                 ]
             )
@@ -1184,7 +1184,7 @@ class MediaStreamHandler:
                 
                 # ✅ אל תקצר מדי - תן לה לתת תשובות מלאות!
                 words = ai_answer.split()
-                if len(words) > 35:  # מקס 35 מילים (תשובה מלאה אבל לא ארוכה מדי)
+                if len(words) > 18:  # מקס 18 מילים - קצר יותר!
                     # אל תחתוך באמצע - מצא סיום משפט טבעי
                     sentences = ai_answer.split('.')
                     if len(sentences) > 2:
@@ -1204,7 +1204,7 @@ class MediaStreamHandler:
                     if requested_area:
                         ai_answer = f"מעולה! {requested_area} אזור מבוקש. איזה סוג נכס אתה מחפש?"
                     else:
-                        ai_answer = "שלום! אני לאה מ'שי דירות ומשרדים'. באיזה אזור אתה מעוניין?"
+                        ai_answer = "שלום! אני לאה. באיזה אזור אתה מעוניין?"
                     print(f"🚫 BLOCKED_GENERIC: Using specific question")
                 
                 print(f"🤖 AI SUCCESS: {ai_answer}")
@@ -1239,7 +1239,7 @@ class MediaStreamHandler:
             elif "תודה" in hebrew_text or "ביי" in hebrew_text:
                 return "תודה רבה! אני כאן לכל שאלה."
             elif any(word in hebrew_text for word in ["שלום", "היי", "הלו"]):
-                return "שלום וברוכים הבאים! אני לאה, סוכנת נדלן מקצועית מ'שי דירות ומשרדים'. אני מתמחה בנכסים באיכות גבוהה במרכז הארץ. באיזה אזור אתם מעוניינים?"
+                return "שלום! אני לאה משי דירות ומשרדים. באיזה אזור אתה מעוניין?"
             else:
                 return "איזה אזור מעניין אותך? יש לי דירות במרכז הארץ, מרכז-דרום ואזור ירושלים."
     
