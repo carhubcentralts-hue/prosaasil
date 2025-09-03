@@ -1,0 +1,169 @@
+Search
+Time
+Deployment
+Source
+Log
+2025-09-04 00:51:26.93
+b6f0f485
+User
+{'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/businesses
+2025-09-04 00:55:02.17
+b6f0f485
+User
+⚠️ TTS_MARK_TIMEOUT -> LISTENING
+2025-09-04 00:55:02.17
+b6f0f485
+User
+🎤 SPEAKING_END -> LISTEN STATE | buffer_reset
+2025-09-04 00:55:02.33
+b6f0f485
+User
+🎙️ REAL_VOICE: rms=533, threshold=35.0
+2025-09-04 00:55:02.67
+b6f0f485
+User
+💓 WS_KEEPALIVE #8 (prevents 5min timeout)
+2025-09-04 00:55:03.47
+b6f0f485
+User
+🎤 END OF UTTERANCE: 0.8s audio, conversation #28
+2025-09-04 00:55:03.47
+b6f0f485
+User
+🧠 STATE -> PROCESSING | len=13120 | silence_ms=800
+2025-09-04 00:55:03.47
+b6f0f485
+User
+🎤 SAFE PROCESSING: conversation #28
+2025-09-04 00:55:03.47
+b6f0f485
+User
+🎤 STT_START: Processing 13120 bytes with Google STT Streaming Hebrew
+2025-09-04 00:55:03.47
+b6f0f485
+User
+📊 AUDIO_STATS: max_amplitude=924, rms=77, duration=0.8s
+2025-09-04 00:55:03.68
+b6f0f485
+User
+❌ Google STT returned no results - fallback to Whisper
+2025-09-04 00:55:03.68
+b6f0f485
+User
+🔄 WHISPER_FALLBACK: Processing 13120 bytes
+2025-09-04 00:55:03.68
+b6f0f485
+User
+📊 AUDIO_ANALYSIS: max_amplitude=924, rms=77
+2025-09-04 00:55:03.68
+b6f0f485
+User
+🔇 WHISPER_SKIP: Audio too quiet or likely noise (Hebrew optimized)
+2025-09-04 00:55:03.68
+b6f0f485
+User
+🎤 USER:
+2025-09-04 00:55:03.68
+b6f0f485
+User
+📊 ASR_LATENCY: 0.212s (target: <0.7s)
+2025-09-04 00:55:03.68
+b6f0f485
+User
+🚫 RESPONSE_LOOP_DETECTED: Preventing repetitive responses
+2025-09-04 00:55:03.68
+b6f0f485
+User
+🚫 DUPLICATE BOT REPLY detected in recent history - using alternative
+2025-09-04 00:55:03.68
+b6f0f485
+User
+🤖 BOT: יש לי דירות מדהימות לכל תקציב. מה חשוב לך יותר - מיקום או גודל?
+2025-09-04 00:55:03.68
+b6f0f485
+User
+📊 AI_PROCESSING: 0.000s
+2025-09-04 00:55:03.68
+b6f0f485
+User
+🔊 TTS_START: 'יש לי דירות מדהימות לכל תקציב. מה חשוב לך יותר - מיקום או גודל?'
+2025-09-04 00:55:03.68
+b6f0f485
+User
+📊 TURN_LATENCY: 0.212s (target: <1.2s)
+2025-09-04 00:55:04.08
+b6f0f485
+User
+🔊 TTS_START: Generating Hebrew TTS with Google Wavenet for 'יש לי דירות מדהימות לכל תקציב. מה חשוב לך יותר - מ...' (length: 63 chars)
+2025-09-04 00:55:04.48
+b6f0f485
+User
+✅ TTS_SUCCESS: Generated 63692 bytes of Wavenet audio (4.0s estimated)
+2025-09-04 00:55:04.48
+b6f0f485
+User
+🔊 TTS SUCCESS: 63692 bytes
+2025-09-04 00:55:04.48
+b6f0f485
+User
+🔊 TTS_FRAMES: 199 frames (3980ms)
+2025-09-04 00:55:04.48
+b6f0f485
+User
+🎯 TTS_MARK_SENT: assistant_tts_end
+2025-09-04 00:55:04.48
+b6f0f485
+User
+✅ RETURNED TO LISTEN STATE after conversation #28
+2025-09-04 00:55:04.48
+b6f0f485
+User
+✅ Processing complete for conversation #28
+2025-09-04 00:55:04.51
+b6f0f485
+User
+🎯 TTS_MARK_ACK: assistant_tts_end -> LISTENING
+2025-09-04 00:55:04.51
+b6f0f485
+User
+🎤 STATE -> LISTENING | buffer_reset
+2025-09-04 00:55:05.89
+b6f0f485
+User
+🎤 END OF UTTERANCE: 0.8s audio, conversation #29
+2025-09-04 00:55:05.89
+b6f0f485
+User
+🧠 STATE -> PROCESSING | len=13120 | silence_ms=620
+2025-09-04 00:55:05.89
+b6f0f485
+User
+🎤 SAFE PROCESSING: conversation #29
+2025-09-04 00:55:05.89
+b6f0f485
+User
+🎤 STT_START: Processing 13120 bytes with Google STT Streaming Hebrew
+2025-09-04 00:55:05.89
+b6f0f485
+User
+📊 AUDIO_STATS: max_amplitude=1244, rms=235, duration=0.8s
+2025-09-04 00:55:06.11
+b6f0f485
+User
+❌ Google STT returned no results - fallback to Whisper
+2025-09-04 00:55:06.11
+b6f0f485
+User
+🔄 WHISPER_FALLBACK: Processing 13120 bytes
+2025-09-04 00:55:06.11
+b6f0f485
+User
+📊 AUDIO_ANALYSIS: max_amplitude=1244, rms=235
+2025-09-04 00:55:06.11
+b6f0f485
+User
+🔄 RESAMPLED: 13120 bytes @ 8kHz → 26238 bytes @ 16kHz
+2025-09-04 00:55:07.18
+b6f0f485
+User
+✅ WHISPER_FALLBACK_SUCCESS: 'תודה.'

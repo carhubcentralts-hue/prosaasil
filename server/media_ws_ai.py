@@ -253,8 +253,8 @@ class MediaStreamHandler:
                         self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
                         self.calibration_frames += 1
                         if self.calibration_frames >= 60:
-                            # ✅ HEBREW-OPTIMIZED: Much higher threshold for Hebrew speech
-                            self.vad_threshold = max(200, self.noise_floor * 6.0 + 120)  # Hebrew needs higher threshold
+                            # ✅ HEBREW-OPTIMIZED: Balanced threshold for Hebrew speech
+                            self.vad_threshold = max(120, self.noise_floor * 4.0 + 80)  # מותאם לעברית - לא גבוה מדי
                             self.is_calibrated = True
                             print(f"🎛️ VAD CALIBRATED for HEBREW (threshold: {self.vad_threshold:.1f})")
                             
@@ -639,29 +639,26 @@ class MediaStreamHandler:
             # ✅ השתמש בפונקציה המתקדמת עם מתמחה והמאגר הכולל!
             reply = self._ai_response(text)
             
-            # ✅ מניעת כפילויות מתקדמת - בדיקת 3 תשובות אחרונות
+            # ✅ מניעת כפילויות משופרת - בדיקת 8 תשובות אחרונות (פחות רגיש)
             if not hasattr(self, 'recent_replies'):
                 self.recent_replies = []
             
-            # בדוק אם התשובה כבר נאמרה ב-3 התשובות האחרונות
+            # בדוק אם התשובה כבר נאמרה ב-8 התשובות האחרונות (רק אם זהה ממש)
             reply_trimmed = reply.strip()
-            if reply_trimmed in self.recent_replies:
-                print("🚫 DUPLICATE BOT REPLY detected in recent history - using alternative")
-                # תשובות חלופיות מועילות ומגוונות
-                alternatives = [
-                    "בואו נתקדם עם הפרטים. איזה אזור מעניין אותך הכי הרבה?",
-                    "אני כאן לעזור לך למצוא בית חלומות. איזה תקציב יש לך?", 
-                    "יש לי דירות מדהימות לכל תקציב. מה חשוב לך יותר - מיקום או גודל?",
-                    "בואו נמצא לך משהו מושלם. באיזה שכונה אתה מעוניין?"
-                ]
-                import random
-                reply = random.choice(alternatives)
+            exact_duplicates = [r for r in self.recent_replies if r == reply_trimmed]
+            if len(exact_duplicates) >= 2:  # רק אם יש 2+ זהות ממש
+                print("🚫 EXACT DUPLICATE detected - need variation")
+                # רק אם זה באמת כפילות מדויקת - תן לליאה לענות טבעית
+                if "תודה" in text.lower():
+                    reply = "בשמחה! יש לי עוד אפשרויות אם אתה מעוניין."
+                else:
+                    reply = reply + " או אפשר עוד פרטים?"
                 reply_trimmed = reply.strip()
                 
-            # עדכן היסטוריה - שמור רק 3 אחרונות
+            # עדכן היסטוריה - שמור רק 8 אחרונות
             self.recent_replies.append(reply_trimmed)
-            if len(self.recent_replies) > 3:
-                self.recent_replies = self.recent_replies[-3:]
+            if len(self.recent_replies) > 8:
+                self.recent_replies = self.recent_replies[-8:]
             print(f"🤖 BOT: {reply}")
             
             # ✅ מדידת AI Processing Time
@@ -972,7 +969,7 @@ class MediaStreamHandler:
                 print(f"📊 AUDIO_STATS: max_amplitude={max_amplitude}, rms={rms}, duration={len(pcm16_8k)/(2*8000):.1f}s")
                 
                 # ✅ הגדלת VAD threshold - מניעת זיהוי רעש כקול 
-                if max_amplitude < 100:  # מאוזן - יזהה דיבור רך אבל לא רעש רקע
+                if max_amplitude < 50:  # ✅ מותאם לעברית - יזהה דיבור רך יותר
                     print("🔇 STT_SKIP: Audio too quiet (likely background noise)")
                     return ""  # החזר ריק עבור רעש
                     
@@ -1002,7 +999,7 @@ class MediaStreamHandler:
                         "מודיעין", "פתח תקווה", "רחובות", "הרצליה",
                         "דירה", "חדרים", "שכירות", "קניה", "משכנתא",
                         "תקציב", "שקל", "אלף", "מיליון", "נדלן", 
-                        "שלום", "כן", "לא", "בסדר", "נהדר", "לאה"  # הוסרתי 'תודה' - גורם לזיהוי שקר
+                        "שלום", "כן", "לא", "בסדר", "נהדר", "לאה", "תודה", "ביי", "להתראות"  # ✅ מילות פרידה לזיהוי נכון
                     ])
                 ]
             )
@@ -1041,7 +1038,7 @@ class MediaStreamHandler:
             rms = audioop.rms(pcm16_8k, 2)
             print(f"📊 AUDIO_ANALYSIS: max_amplitude={max_amplitude}, rms={rms}")
             
-            if max_amplitude < 200 or rms < 150:  # HEBREW: Much stricter threshold 
+            if max_amplitude < 100 or rms < 80:  # ✅ תיקון לעברית - thresholds נמוכים יותר
                 print("🔇 WHISPER_SKIP: Audio too quiet or likely noise (Hebrew optimized)")
                 return ""
             
@@ -1098,20 +1095,20 @@ class MediaStreamHandler:
             if not hasattr(self, 'conversation_history'):
                 self.conversation_history = []
             
-            # ✅ זיהוי לולאות משופר - מניעת חזרות
-            if len(self.conversation_history) >= 2:
-                last_responses = [item['bot'] for item in self.conversation_history[-4:]]  # בדוק 4 אחרונים
-                # בדוק האם יש יותר מידי דמיון
+            # ✅ זיהוי לולאות משופר - פחות רגיש יותר
+            if len(self.conversation_history) >= 3:  # דרישה של 3+ שיחות
+                last_responses = [item['bot'] for item in self.conversation_history[-8:]]  # בדוק 8 אחרונים
+                # בדוק האם יש יותר מידי דמיון (פחות רגיש)
                 response_count = {}
                 for resp in last_responses:
-                    key_words = ' '.join(resp.split()[:5])  # 5 מילים ראשונות
+                    key_words = ' '.join(resp.split()[:3])  # רק 3 מילים ראשונות
                     response_count[key_words] = response_count.get(key_words, 0) + 1
-                    if response_count[key_words] >= 2:
-                        print(f"🚫 RESPONSE_LOOP_DETECTED: Preventing repetitive responses")
+                    if response_count[key_words] >= 4:  # דרישה של 4+ חזרות
+                        print(f"🚫 RESPONSE_LOOP_DETECTED: Too many similar responses")
                         if "תודה" in hebrew_text:
-                            return "איזה אזור מעניין אותך?"
+                            return "בשמחה! אני כאן לכל שאלה."
                         else:
-                            return "איזה סוג נכס אתה מחפש?"
+                            return "איך אני יכולה לעזור לך היום?"
                     
             # 📜 הקשר מהיסטוריה (להבנה טובה יותר)
             history_context = ""
@@ -1149,6 +1146,7 @@ class MediaStreamHandler:
 מטרה: לאסוף פרטים - אזור, סוג נכס, תקציב, זמן כניסה, שם וטלפון.
 
 איך לענות טוב:
+- אם הלקוח אומר "תודה", "ביי", "להתראות" - תני פרידה חמה ונעימה
 - תני מידע מעניין ומועיל על הנושא 
 - הסבירי למה זה חשוב או מעניין
 - ענה על השאלה שלו במלואה
