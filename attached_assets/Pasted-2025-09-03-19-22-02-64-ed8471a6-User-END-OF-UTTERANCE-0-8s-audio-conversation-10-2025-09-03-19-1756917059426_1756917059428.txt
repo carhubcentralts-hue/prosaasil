@@ -1,0 +1,131 @@
+2025-09-03 19:22:02.64
+ed8471a6
+User
+🎤 END OF UTTERANCE: 0.8s audio, conversation #10
+2025-09-03 19:22:02.64
+ed8471a6
+User
+🧠 STATE -> PROCESSING | len=13120 | silence_ms=800
+2025-09-03 19:22:02.64
+ed8471a6
+User
+🎤 SAFE PROCESSING: conversation #10
+2025-09-03 19:22:02.64
+ed8471a6
+User
+🎤 STT_START: Processing 13120 bytes with Google STT Streaming Hebrew
+2025-09-03 19:22:02.64
+ed8471a6
+User
+📊 AUDIO_STATS: max_amplitude=748, rms=58, duration=0.8s
+2025-09-03 19:22:02.64
+ed8471a6
+User
+⚠️ TTS_MARK_TIMEOUT -> LISTENING
+2025-09-03 19:22:02.64
+ed8471a6
+User
+🎤 SPEAKING_END -> LISTEN STATE | buffer_reset
+2025-09-03 19:22:03.26
+ed8471a6
+User
+❌ Google STT returned no results - fallback to Whisper
+2025-09-03 19:22:03.26
+ed8471a6
+User
+🔄 WHISPER_FALLBACK: Processing 13120 bytes
+2025-09-03 19:22:03.26
+ed8471a6
+User
+📊 AUDIO_ANALYSIS: max_amplitude=748, rms=58
+2025-09-03 19:22:03.34
+ed8471a6
+User
+🔄 RESAMPLED: 13120 bytes @ 8kHz → 26238 bytes @ 16kHz
+2025-09-03 19:22:05.12
+ed8471a6
+User
+✅ WHISPER_FALLBACK_SUCCESS: 'תודה.'
+2025-09-03 19:22:05.24
+ed8471a6
+User
+🎤 USER: תודה.
+2025-09-03 19:22:05.24
+ed8471a6
+User
+📊 ASR_LATENCY: 2.599s (target: <0.7s)
+2025-09-03 19:22:07.14
+ed8471a6
+User
+🤖 AI SUCCESS: בשמחה! כדי שנוכל להתקדם, אני מציעה לקבוע פגישה. מתי נוח לך - היום בשעה 18:00, מחר בשעה 10:30, או אולי בשעה 14:00? אשמח לשמוע מה מתאים לך.
+2025-09-03 19:22:07.14
+ed8471a6
+User
+🤖 BOT: בשמחה! כדי שנוכל להתקדם, אני מציעה לקבוע פגישה. מתי נוח לך - היום בשעה 18:00, מחר בשעה 10:30, או אולי בשעה 14:00? אשמח לשמוע מה מתאים לך.
+2025-09-03 19:22:07.14
+ed8471a6
+User
+📊 AI_PROCESSING: 1.901s
+2025-09-03 19:22:07.14
+ed8471a6
+User
+🔊 TTS_START: 'בשמחה! כדי שנוכל להתקדם, אני מציעה לקבוע פגישה. מתי נוח לך - היום בשעה 18:00, מחר בשעה 10:30, או אולי בשעה 14:00? אשמח לשמוע מה מתאים לך.'
+2025-09-03 19:22:07.14
+ed8471a6
+User
+📊 TURN_LATENCY: 4.500s (target: <1.2s)
+2025-09-03 19:22:07.35
+ed8471a6
+User
+🔊 TTS_START: Generating Hebrew TTS with Google Wavenet for 'בשמחה! כדי שנוכל להתקדם, אני מציעה לקבוע פגישה. מת...' (length: 137 chars)
+2025-09-03 19:22:08.44
+ed8471a6
+User
+✅ TTS_SUCCESS: Generated 209148 bytes of Wavenet audio (13.1s estimated)
+2025-09-03 19:22:08.44
+ed8471a6
+User
+🔊 TTS SUCCESS: 209148 bytes
+2025-09-03 19:22:08.44
+ed8471a6
+User
+🔊 TTS_FRAMES: 653 frames (13060ms)
+2025-09-03 19:22:09.14
+ed8471a6
+User
+🎯 TTS_MARK_SENT: assistant_tts_end
+2025-09-03 19:22:09.44
+ed8471a6
+User
+✅ RETURNED TO LISTEN STATE after conversation #10
+2025-09-03 19:22:09.44
+ed8471a6
+User
+✅ Processing complete for conversation #10
+2025-09-03 19:22:10.54
+ed8471a6
+User
+WS_STOP sid=MZ786b58010f5db1a83c2900156fb7ee50 rx=2609 tx=0
+2025-09-03 19:22:10.54
+ed8471a6
+User
+⚠️ TTS_MARK_TIMEOUT -> LISTENING
+2025-09-03 19:22:10.54
+ed8471a6
+User
+🎤 SPEAKING_END -> LISTEN STATE | buffer_reset
+2025-09-03 19:22:10.54
+ed8471a6
+User
+🔊 TX_LOOP_DONE: Transmitted 0 frames total
+2025-09-03 19:22:10.54
+ed8471a6
+User
+WS_DONE sid=MZ786b58010f5db1a83c2900156fb7ee50 rx=2609 tx=0
+2025-09-03 19:22:10.64
+ed8471a6
+User
+server=ai-crmd.replit.app//ws/twilio-media client=127.0.0.1:35888 socket shutdown error: [Errno 9] Bad file descriptor
+
+Wrap
+

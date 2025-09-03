@@ -95,12 +95,26 @@ class GcpHebrewStreamer:
     def _stream_worker(self):
         """Background worker for streaming recognition"""
         try:
+            # ✅ OPTIMIZED: Hebrew real estate speech recognition
+            speech_contexts = [
+                speech.SpeechContext(
+                    phrases=[
+                        "שי דירות ומשרדים", "דירה", "משרד", "מחיר", "שכר", "מכירה",
+                        "חדרים", "מטר", "קומה", "מעלית", "חניה", "מרפסת", "אזור",
+                        "תל אביב", "ירושלים", "חיפה", "פתח תקווה", "רמת גן",
+                        "שקל", "אלף", "מיליון", "תקציב", "משכנתא"
+                    ]
+                )
+            ]
+            
             config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 language_code="he-IL",
                 sample_rate_hertz=self.rate,
                 enable_automatic_punctuation=True,
-                model="latest_long",
+                model="latest_short",  # ✅ FASTER for real-time conversation
+                speech_contexts=speech_contexts,  # ✅ Hebrew real estate terms
+                use_enhanced=True  # ✅ Better quality
             )
             
             streaming_config = speech.StreamingRecognitionConfig(

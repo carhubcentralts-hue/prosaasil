@@ -962,8 +962,9 @@ class MediaStreamHandler:
                 rms = audioop.rms(pcm16_8k, 2)
                 print(f"📊 AUDIO_STATS: max_amplitude={max_amplitude}, rms={rms}, duration={len(pcm16_8k)/(2*8000):.1f}s")
                 
-                if max_amplitude < 200:  # Very quiet audio
-                    print("🔇 STT_SKIP: Audio too quiet for Google STT - fallback to Whisper")
+                # ✅ MUCH MORE LENIENT: Allow even soft Hebrew speech 
+                if max_amplitude < 50:  # Very lenient for soft speech
+                    print("🔇 STT_SKIP: Audio too quiet (silence detected)")
                     return self._whisper_fallback(pcm16_8k)
                     
             except Exception as e:
@@ -977,20 +978,22 @@ class MediaStreamHandler:
                 print("❌ Google STT client not available - fallback to Whisper")
                 return self._whisper_fallback(pcm16_8k)
             
-            # ✅ Google STT Streaming Configuration לפי ההנחיות
+            # ✅ OPTIMIZED Google STT Configuration for fast Hebrew
             recognition_config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                sample_rate_hertz=8000,  # ✅ השאר 8kHz לטלפוניה
-                language_code="he-IL",   # עברית ישראלית
-                use_enhanced=True,       # מודל משופר
+                sample_rate_hertz=8000,  # Keep 8kHz for telephony
+                language_code="he-IL",   # Hebrew Israel
+                model="latest_short",    # ✅ FASTER for real-time
+                use_enhanced=True,       # Better quality
                 enable_automatic_punctuation=True,
-                speech_contexts=[        # ✅ Speech contexts לעברית לפי ההנחיות
+                speech_contexts=[        # ✅ Hebrew real estate terms
                     speech.SpeechContext(phrases=[
                         "שי דירות ומשרדים", "לאה", "סוכנת נדלן",
                         "תל אביב", "רמת גן", "רמלה", "לוד", "בית שמש", 
                         "מודיעין", "פתח תקווה", "רחובות", "הרצליה",
                         "דירה", "חדרים", "שכירות", "קניה", "משכנתא",
-                        "תקציב", "שקל", "אלף", "מיליון", "נדלן"
+                        "תקציב", "שקל", "אלף", "מיליון", "נדלן", 
+                        "תודה", "שלום", "כן", "לא", "בסדר", "נהדר"  # Common words
                     ])
                 ]
             )
@@ -998,11 +1001,11 @@ class MediaStreamHandler:
             # Single request recognition (לא streaming למבע קצר)
             audio = speech.RecognitionAudio(content=pcm16_8k)
             
-            # ✅ עם timeout קצר לתגובה מהירה
+            # ✅ FAST timeout for real-time conversation
             response = client.recognize(
                 config=recognition_config,
                 audio=audio,
-                timeout=3.0  # 3 שניות מקס
+                timeout=1.5  # ✅ FASTER: 1.5 seconds max for real-time
             )
             
             if response.results and response.results[0].alternatives:
@@ -1155,29 +1158,27 @@ class MediaStreamHandler:
             # ✅ GPT-4o MINI מהיר יותר לשיחה חיה!
             try:
                 response = client.chat.completions.create(
-                    model="gpt-4o-mini",      # מהיר יותר מGPT-4
+                    model="gpt-4o-mini",      # Fast model
                     messages=[
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=200,           # ✅ מגביל ל-40-60 מילים טבעיים
-                    temperature=0.3,          # ✅ פחות creative = עקבית יותר
-                    timeout=6.0               # מקס 6 שניות
+                    max_tokens=80,            # ✅ SHORTER for speed
+                    temperature=0.6,          # ✅ Balanced
+                    timeout=2.0               # ✅ FAST: 2 seconds max!
                 )
             except Exception as e:
-                print(f"⏰ AI timeout/error ({e}) - extending timeout and retrying once")
-                # ✅ ניסיון שני עם timeout יותר ארוך
+                print(f"⏰ AI timeout/error ({e}) - FAST emergency response")
+                # ✅ NO RETRY - use immediate emergency response for speed
+                if requested_area and requested_area.strip():
+                    return f"סליחה! איזה סוג דירה אתה מחפש ב{requested_area}?"
+                elif "תודה" in hebrew_text:
+                    return "בשמחה! יש לי עוד אפשרויות אם אתה מעוניין."
+                else:
+                    return "איזה אזור מעניין אותך? יש לי נכסים במרכז הארץ."
+                # Skip the slow retry completely
                 try:
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": smart_prompt},
-                            {"role": "user", "content": hebrew_text}
-                        ],
-                        max_tokens=200,           # ✅ מגביל ל-40-60 מילים טבעיים
-                        temperature=0.3,          # ✅ פחות creative = עקבית יותר
-                        timeout=12.0  # ניסיון שני עם timeout כפול
-                    )
+                    pass  # Placeholder to maintain structure
                     content = response.choices[0].message.content
                     if content and content.strip():
                         return content.strip()
