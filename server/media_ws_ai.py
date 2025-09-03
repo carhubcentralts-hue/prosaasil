@@ -1176,26 +1176,13 @@ class MediaStreamHandler:
                 )
             except Exception as e:
                 print(f"⏰ AI timeout/error ({e}) - FAST emergency response")
-                # ✅ NO RETRY - use immediate emergency response for speed
+                # ✅ CLEAN emergency response - NO retry needed for speed
                 if requested_area and requested_area.strip():
                     return f"סליחה! איזה סוג דירה אתה מחפש ב{requested_area}?"
                 elif "תודה" in hebrew_text:
                     return "בשמחה! יש לי עוד אפשרויות אם אתה מעוניין."
                 else:
                     return "איזה אזור מעניין אותך? יש לי נכסים במרכז הארץ."
-                # Skip the slow retry completely
-                try:
-                    pass  # Placeholder to maintain structure
-                    content = response.choices[0].message.content
-                    if content and content.strip():
-                        return content.strip()
-                except Exception as e2:
-                    print(f"⏰ Second AI attempt failed ({e2}) - using intelligent emergency response")
-                # ✅ תגובת חירום חכמה על בסיס האזור שזוהה
-                if requested_area and requested_area.strip():
-                    return f"סליחה על ההשהיה! איזה סוג דירה אתה מחפש ב{requested_area}? יש לי כמה אפשרויות מעניינות."
-                else:
-                    return "סליחה על ההשהיה הטכנית! איזה אזור מעניין אותך - מרכז, מרכז-דרום או אזור ירושלים?"
             
             content = response.choices[0].message.content
             if content and content.strip():
@@ -1245,13 +1232,8 @@ class MediaStreamHandler:
         except Exception as e:
             print(f"AI_ERROR: {e} - Using intelligent emergency response")
             # ✅ תגובת חירום חכמה על בסיס זיהוי האזור
-            # הגדרת emergency_area עבור השגיאה
             emergency_area = self._detect_area(hebrew_text) or ""
             print(f"🚨 CRITICAL AI_ERROR for: '{hebrew_text}' - detected area: {emergency_area}")
-            
-            # תגובת חירום בהתאם לאזור שזוהה (גם כאן יש requested_area שלא מוגדר)
-            # צריך להגדיר אותו כאן גם כן
-            emergency_area = self._detect_area(hebrew_text) or ""
             if emergency_area:
                 return f"מצטערת להשהיה! איזה סוג דירה אתה מחפש ב{emergency_area}? יש לי כמה אפשרויות."
             elif "תודה" in hebrew_text or "ביי" in hebrew_text:
@@ -1374,60 +1356,18 @@ class MediaStreamHandler:
             else:
                 print(f"🔊 TTS SUCCESS: {len(pcm)} bytes")
             
-            # שלח את האודיו
-            if pcm:
+            # ✅ שלח את האודיו דרך TX Queue (אם החיבור תקין)
+            if pcm and self.stream_sid and not self.ws_connection_failed:
                 self._send_pcm16_as_mulaw_frames(pcm)
-            time.sleep(breath_delay)
-            print(f"💨 HUMAN BREATH: {breath_delay*1000:.0f}ms")
-            
-            # TTS
-            pcm = None
-            try:
-                pcm = self._hebrew_tts(text)
-            except Exception as e:
-                print(f"TTS_ERR: {e}")
-            
-            if not pcm or len(pcm) < 400:
-                # אודיו חירום - צפצוף
-                pcm = self._beep_pcm16_8k_v2(300)
-            
-            # שלח דרך TX Queue אם החיבור תקין
-            if self.stream_sid and not self.ws_connection_failed:
-                self.tx_q.put_nowait({"type": "clear"})
             elif self.ws_connection_failed:
                 print("💔 SKIPPING audio clear - WebSocket connection failed")
                 return
             
-            # המר ל-µ-law ושלח ב-20ms chunks
-            mulaw = audioop.lin2ulaw(pcm, 2)
-            FR = 160  # 20ms @ 8kHz
-            
-            for i in range(0, len(mulaw), FR):
-                if not self.speaking:  # אם נפסק באמצע
-                    break
-                    
-                chunk = mulaw[i:i+FR]
-                if len(chunk) < FR:
-                    break
-                    
-                if not self.ws_connection_failed:
-                    b64 = base64.b64encode(chunk).decode("ascii")
-                    self.tx_q.put_nowait({"type": "media", "payload": b64})
-                    self.tx += 1
-                else:
-                    print("💔 SKIPPING media chunk - WebSocket connection failed")
-                    break
-            
-            # סיום אם החיבור תקין
-            if not self.ws_connection_failed:
-                self.tx_q.put_nowait({"type": "mark", "name": "tts_done"})
-            else:
-                print("💔 SKIPPING tts_done mark - WebSocket connection failed")
+            # ✅ Audio already sent by _send_pcm16_as_mulaw_frames() above
             
         finally:
-            self.speaking = False
-            self.last_tts_end_ts = time.time()
-            self.state = STATE_LISTEN
+            # ✅ Clean finalization
+            self._finalize_speaking()
     
     def _beep_pcm16_8k_v2(self, ms: int) -> bytes:
         """יצירת צפצוף PCM16 8kHz"""
