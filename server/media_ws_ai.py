@@ -1144,21 +1144,27 @@ class MediaStreamHandler:
             # ✅ פרומפט נקי ללא ברכות חוזרות
             smart_prompt = f"""{greeting_prompt}
 
-מטרה: לאסוף את הפרטים - אזור, סוג נכס, תקציב, זמן כניסה, שם וטלפון.
+דברי בצורה טבעית וחמה כמו בן אדם אמיתי! תני תגובות מלאות ומועילות.
 
-תשובות טובות:
-- תני מידע מקצועי על האזור
-- הסבירי למה את שואלת
-- שאלי שאלה אחת בסוף
+מטרה: לאסוף פרטים - אזור, סוג נכס, תקציב, זמן כניסה, שם וטלפון.
 
-אזור מזוהה: {requested_area or 'לא ידוע'}
-מידע נאסף: {lead_info['summary']}
-היסטוריה: {history_context}
+איך לענות טוב:
+- תני מידע מעניין ומועיל על הנושא 
+- הסבירי למה זה חשוב או מעניין
+- ענה על השאלה שלו במלואה
+- שאלי שאלה טבעית בסוף
+- דברי כמו חברה וסוכנת מנוסה
+
+מידע על הלקוח:
+- אזור שהזכיר: {requested_area or 'לא ידוע עדיין'}
+- מה שכבר יודעת: {lead_info['summary']}
+- הקשר: {history_context}
 
 {lead_info['meeting_prompt']}
 
 הלקוח אומר: "{hebrew_text}"
-תגובה (40-60 מילים, תשובה מלאה ומועילה + שאלה אחת בסוף):"""
+
+תני לו תשובה טבעית, מועילה ומעניינת (עד 50 מילים):"""
 
             # ✅ GPT-4o MINI מהיר יותר לשיחה חיה!
             try:
@@ -1168,8 +1174,8 @@ class MediaStreamHandler:
                         {"role": "system", "content": smart_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=120,           # ✅ אפשר תשובות יותר מלאות
-                    temperature=0.2,          # ✅ More consistent responses
+                    max_tokens=200,           # ✅ תשובות מלאות וטבעיות
+                    temperature=0.7,          # ✅ More natural human-like responses
                     timeout=1.5               # ✅ SUPER FAST: 1.5 seconds max!
                 )
             except Exception as e:
@@ -1188,31 +1194,26 @@ class MediaStreamHandler:
                 
                 # ✅ אל תקצר מדי - תן לה לתת תשובות מלאות!
                 words = ai_answer.split()
-                if len(words) > 16:  # מקס 16 מילים - קצר ויעיל!
+                if len(words) > 50:  # מקס 50 מילים - תשובות טבעיות!
                     # קיצור חכם - שמור על משמעות ושאלה
                     if '?' in ai_answer:
                         first_question = ai_answer.split('?')[0] + '?'
                         if len(first_question.split()) <= 16:
                             ai_answer = first_question
                         else:
-                            ai_answer = ' '.join(words[:14]) + '?'
+                            ai_answer = ' '.join(words[:45]) + '?'
                     else:
-                        ai_answer = ' '.join(words[:14]) + '?'
+                        ai_answer = ' '.join(words[:45]) + '?'
                     print(f"🔪 SHORTENED: {len(words)} → {len(ai_answer.split())} words")
                 
-                # ✅ חסימת תגובות גנריות וקליטות - עודד ספציפיות
-                generic_phrases = [
-                    "איך אפשר לעזור", "אני צריכה עוד פרטים", "תודה רבה", "שמחתי לעזור", 
-                    "תמיד פה", "יש לי דירה", "אני מציעה", "5 חדרים", "3 חדרים"
-                ]
-                if (any(phrase in ai_answer for phrase in generic_phrases) or 
-                    len(ai_answer.strip()) < 10 or ai_answer.count('?') > 1):
-                    # תשובה ספציפית יותר לפי הקשר
+                # ✅ בדיקה בסיסית - רק תשובות קצרות מדי או ריקות
+                if len(ai_answer.strip()) < 5:
+                    # תשובת חירום רק במקרה קיצוני
                     if requested_area:
-                        ai_answer = f"מעולה! {requested_area} אזור מבוקש. איזה סוג נכס אתה מחפש?"
+                        ai_answer = f"נהדר! {requested_area} זה אזור מעולה. איזה סוג נכס אתה מחפש שם?"
                     else:
-                        ai_answer = "שלום! אני לאה. באיזה אזור אתה מעוניין?"
-                    print(f"🚫 BLOCKED_GENERIC: Using specific question")
+                        ai_answer = "איזה אזור מעניין אותך? אני מכירה היטב את השוק."
+                    print(f"🚫 EMERGENCY_FALLBACK: Too short answer")
                 
                 print(f"🤖 AI SUCCESS: {ai_answer}")
                 
