@@ -10,7 +10,7 @@ from server.stream_state import stream_registry
 SR = 8000
 # 🎯 פרמטרים מותאמים לשיחה מהירה וחלקה! - OPTIMIZED
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.4"))        # זמן קצר יותר לתגובה מהירה
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "2.5"))        # מקצר מונולוגים
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "8.0"))        # נותן זמן לדבר
 VAD_RMS = int(os.getenv("VAD_RMS", "45"))                   # רגיש יותר לקול רך
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
 VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "300"))  # יותר סבלנות = לא חותך באמצע
@@ -322,7 +322,7 @@ class MediaStreamHandler:
                     # ⚡ FIXED BARGE-IN: Prevent false interruptions
                     if self.speaking and BARGE_IN:
                         # ✅ Grace period מאוזן - לא יותר מדי
-                        grace_period = 4.0  # 4 שניות - מספיק לתשובות ארוכות
+                        grace_period = 1.5  # 1.5 שניות - מאפשר הפרעה טבעית יותר
                         time_since_tts_start = current_time - self.speaking_start_ts
                         
                         if time_since_tts_start < grace_period:
@@ -336,7 +336,7 @@ class MediaStreamHandler:
                         if is_barge_in_voice:
                             self.voice_in_row += 1
                                 # ✅ HEBREW SPEECH: Require 1.5s continuous voice to prevent false interrupts
-                            if self.voice_in_row >= 125:  # 2500ms (2.5s) of continuous voice - Safe for Hebrew
+                            if self.voice_in_row >= 50:  # 1000ms (1s) of continuous voice - רגיש יותר
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
@@ -393,7 +393,7 @@ class MediaStreamHandler:
                             dur = len(self.buf) / (2 * SR)
                             
                             # ✅ זיהוי סוף מבע לפי ההנחיות - 350-500ms שקט
-                            min_silence = 0.35 if dur > 1.5 else 0.5  # 350-500ms לפי ההנחיות
+                            min_silence = 1.0  # 1 שנייה שקט לפני עיבוד - נותן זמן לחשוב
                             silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
                             min_duration = 0.8  # מינימום לתמלול איכותי
@@ -646,7 +646,7 @@ class MediaStreamHandler:
             # בדוק אם התשובה כבר נאמרה ב-8 התשובות האחרונות (רק אם זהה ממש)
             reply_trimmed = reply.strip()
             exact_duplicates = [r for r in self.recent_replies if r == reply_trimmed]
-            if len(exact_duplicates) >= 2:  # רק אם יש 2+ זהות ממש
+            if len(exact_duplicates) >= 1:  # אפילו כפילות אחת - מנע מיד
                 print("🚫 EXACT DUPLICATE detected - need variation")
                 # רק אם זה באמת כפילות מדויקת - תן לליאה לענות טבעית
                 if "תודה" in text.lower():
@@ -1103,7 +1103,7 @@ class MediaStreamHandler:
                 for resp in last_responses:
                     key_words = ' '.join(resp.split()[:3])  # רק 3 מילים ראשונות
                     response_count[key_words] = response_count.get(key_words, 0) + 1
-                    if response_count[key_words] >= 4:  # דרישה של 4+ חזרות
+                    if response_count[key_words] >= 2:  # דרישה של 2+ חזרות
                         print(f"🚫 RESPONSE_LOOP_DETECTED: Too many similar responses")
                         if "תודה" in hebrew_text:
                             return "בשמחה! אני כאן לכל שאלה."
@@ -1221,7 +1221,7 @@ class MediaStreamHandler:
 
 💬 האופן שלך לשיחה טבעית:
 - דברי בחמימות ומקצועיות, כמו חברה מנוסה
-- כשמבקשים פרטים - תני 2-3 דוגמאות ספציפיות מהרשימה למעלה
+- כשמבקשים פרטים - תני מידע קצר וישיר, לא רשימות ארוכות
 - אם שואלים על אזור - תני מחירים ויתרונות ספציפיים
 - אל תקפצי לפגישה מהר מדי - המשיכי שיחה ותני ערך
 - שתפי ידע שוק אמיתי - מחירים, טרנדים, המלצות
@@ -1248,7 +1248,7 @@ class MediaStreamHandler:
 
 הלקוח אומר כעת: "{hebrew_text}"
 
-תני תגובה מקצועית, מועילה ומלאת מידע (30-60 מילים):"""
+תני תגובה קצרה, ישירה ומועילה (15-25 מילים בלבד):"""
 
             # ✅ GPT-4o MINI מהיר יותר לשיחה חיה!
             try:
@@ -1258,7 +1258,7 @@ class MediaStreamHandler:
                         {"role": "system", "content": comprehensive_prompt},
                         {"role": "user", "content": hebrew_text}
                     ],
-                    max_tokens=300,           # ✅ תשובות ארוכות ומפורטות
+                    max_tokens=120,           # ✅ תשובות קצרות וממוקדות
                     temperature=0.7,          # ✅ More natural human-like responses
                     timeout=1.5               # ✅ SUPER FAST: 1.5 seconds max!
                 )
@@ -1278,16 +1278,16 @@ class MediaStreamHandler:
                 
                 # ✅ אל תקצר מדי - תן לה לתת תשובות מלאות!
                 words = ai_answer.split()
-                if len(words) > 70:  # מקס 70 מילים - תשובות מפורטות ומועילות!
+                if len(words) > 25:  # מקס 25 מילים - תשובות קצרות וישירות!
                     # קיצור חכם - שמור על משמעות ושאלה
                     if '?' in ai_answer:
                         first_question = ai_answer.split('?')[0] + '?'
-                        if len(first_question.split()) <= 25:
+                        if len(first_question.split()) <= 15:
                             ai_answer = first_question
                         else:
-                            ai_answer = ' '.join(words[:60]) + '?'
+                            ai_answer = ' '.join(words[:20]) + '?'
                     else:
-                        ai_answer = ' '.join(words[:60]) + '?'
+                        ai_answer = ' '.join(words[:20]) + '?'
                     print(f"🔪 SHORTENED: {len(words)} → {len(ai_answer.split())} words")
                 
                 # ✅ בדיקה בסיסית - רק תשובות קצרות מדי או ריקות
@@ -1355,7 +1355,7 @@ class MediaStreamHandler:
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.LINEAR16,
                 sample_rate_hertz=8000,
-                speaking_rate=1.4,   # מהיר יותר לשיחה חלקה
+                speaking_rate=1.0,   # קצב דיבור טבעי
                 pitch=0.0,           # טון טבעי
                 effects_profile_id=["telephony-class-application"]  # אופטימיזציה לטלפון
             )
@@ -1573,8 +1573,7 @@ class MediaStreamHandler:
 בקש אישור ושלח סיכום קצר."""
         elif completed_fields == 3:
             meeting_prompt = """
-יש מידע בסיסי טוב! עכשיו הצגי 2-3 דוגמאות נכסים ספציפיות מהרשימה שלך שמתאימות לצרכים שלו.
-תני פרטים: גודל, מיקום מדויק, מחיר, יתרונות. אחר כך שאלי על העדפות נוספות לפני קביעת פגישה."""
+יש מידע בסיסי טוב! עכשיו תני דוגמה אחת ספציפית מתאימה ושאלי שאלה ממוקדת לפני קביעת פגישה."""
         else:
             missing = 4 - completed_fields
             meeting_prompt = f"צריך עוד {missing} שדות מידע לפני הצגת אופציות. המשיכי שיחה טבעית ותני פרטים נוספים על השוק והאזור."
