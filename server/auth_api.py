@@ -74,8 +74,9 @@ def login():
             'email': user.email
         }
         
-        # Store in session for UI compatibility
+        # Store in session for UI compatibility (both keys for compatibility)
         session['user'] = user_data
+        session['al_user'] = user_data
         session['token'] = f"session_{user.id}"  # Simple session token
         
         return jsonify({
