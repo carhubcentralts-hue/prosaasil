@@ -15,7 +15,7 @@ def require_roles(*allowed_roles):
         def decorated_function(*args, **kwargs):
             user = session.get('al_user') or session.get('user')
             if not user:
-                return redirect("/login")
+                return redirect("/")
             
             user_role = user.get('role', '')
             if user_role not in allowed_roles:
@@ -1001,7 +1001,7 @@ def api_logout():
     try:
         session.clear()
         if request.method == 'GET':
-            return redirect("/login")
+            return redirect("/")
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500

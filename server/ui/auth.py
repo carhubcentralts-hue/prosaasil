@@ -28,11 +28,11 @@ def require_roles(*roles):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             if not g.user:
-                return redirect("/login")
+                return redirect("/")
             
             user_role = g.user.get('role')
             if user_role not in roles:
-                return redirect("/login")
+                return redirect("/")
             
             return f(*args, **kwargs)
         return decorated_function
@@ -43,6 +43,6 @@ def require_login(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not g.user:
-            return redirect("/login")
+            return redirect("/")
         return f(*args, **kwargs)
     return decorated_function
