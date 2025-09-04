@@ -12,9 +12,9 @@ import {
   CheckCircle
 } from 'lucide-react';
 
-function Dashboard({ business, permissions }) {
-  const [stats, setStats] = useState({});
-  const [recentActivity, setRecentActivity] = useState([]);
+function Dashboard({ business, permissions }: { business: any; permissions: any }) {
+  const [stats, setStats] = useState<any>({});
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

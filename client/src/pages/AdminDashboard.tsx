@@ -13,11 +13,11 @@ import {
   Activity
 } from 'lucide-react';
 
-function AdminDashboard({ user }) {
-  const [businesses, setBusinesses] = useState([]);
-  const [systemStats, setSystemStats] = useState({});
+function AdminDashboard({ user }: { user: any }) {
+  const [businesses, setBusinesses] = useState<any[]>([]);
+  const [systemStats, setSystemStats] = useState<any>({});
   const [loading, setLoading] = useState(true);
-  const [editingBusiness, setEditingBusiness] = useState(null);
+  const [editingBusiness, setEditingBusiness] = useState<any>(null);
 
   useEffect(() => {
     fetchAdminData();
@@ -33,7 +33,7 @@ function AdminDashboard({ user }) {
 
       if (businessesRes.ok) {
         const businessesData = await businessesRes.json();
-        setBusinesses(businessesData.businesses || []);
+        setBusinesses(businessesData.items || businessesData.businesses || []);
       }
 
       if (statsRes.ok) {
@@ -47,7 +47,7 @@ function AdminDashboard({ user }) {
     }
   };
 
-  const updateBusinessPermissions = async (businessId, permissions) => {
+  const updateBusinessPermissions = async (businessId: any, permissions: any) => {
     try {
       const response = await fetch(`/api/admin/businesses/${businessId}/permissions`, {
         method: 'PUT',
@@ -59,7 +59,7 @@ function AdminDashboard({ user }) {
 
       if (response.ok) {
         // עדכן את הרשימה המקומית
-        setBusinesses(businesses.map(business => 
+        setBusinesses(businesses.map((business: any) => 
           business.id === businessId 
             ? { ...business, ...permissions }
             : business
@@ -71,7 +71,7 @@ function AdminDashboard({ user }) {
     }
   };
 
-  const loginAsBusiness = async (businessId) => {
+  const loginAsBusiness = async (businessId: any) => {
     try {
       const response = await fetch(`/api/admin/impersonate/${businessId}`, {
         method: 'POST'
