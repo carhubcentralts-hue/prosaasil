@@ -19,10 +19,14 @@ def require_roles(*allowed_roles):
             
             user_role = user.get('role', '')
             if user_role not in allowed_roles:
-                # Smart role-based redirect
-                if user_role in ("admin", "superadmin"):
-                    return redirect("/app/admin")
-                return redirect("/app/biz")
+                # Smart role-based redirect based on NEW role structure
+                if user_role == "manager":
+                    return redirect("/ui/admin/overview")
+                elif user_role == "business":
+                    return redirect("/ui/biz/contacts")
+                else:
+                    # Unknown role - redirect to business page as fallback
+                    return redirect("/ui/biz/contacts")
                 
             return f(*args, **kwargs)
         return decorated_function
@@ -35,10 +39,10 @@ def effective_business_id():
     
     # Check if admin is impersonating a business
     impersonating = session.get('impersonating_business_id')
-    if impersonating and user and user.get("role") in ("admin","superadmin"):
+    if impersonating and user and user.get("role") in ("manager"):
         bid = impersonating
     
-    if user and user.get("role") not in ("admin","superadmin"):
+    if user and user.get("role") not in ("manager"):
         bid = user.get("business_id")
     return bid
 
@@ -87,7 +91,7 @@ def _load_counters_for_business(bid):
 # @ui_bp.route('/login')
 
 @ui_bp.route('/app/admin')
-@require_roles('manager', 'admin', 'superadmin')
+@require_roles("manager")
 def admin_home():
     """Professional admin dashboard"""
     user = session.get('al_user') or session.get('user')
@@ -97,7 +101,7 @@ def admin_home():
     return send_file(dist_path)
 
 @ui_bp.route('/app/biz')
-@require_roles('admin','superadmin','manager','agent')
+@require_roles("manager","business")
 def biz_home():
     """Professional business dashboard"""
     user = session.get('al_user') or session.get('user')
@@ -109,7 +113,7 @@ def biz_home():
 
 # === ADMIN HTMX ROUTES ===
 @ui_bp.route("/ui/admin/overview")
-@require_roles("manager","admin","superadmin")
+@require_roles("manager")
 def ui_admin_overview():
     """KPIs for admin dashboard"""
     counters = _load_counters_for_admin()
@@ -175,7 +179,7 @@ def ui_admin_overview():
     """
 
 @ui_bp.route("/ui/admin/switch_business")
-@require_roles("manager","admin","superadmin")
+@require_roles("manager")
 def ui_admin_switch_business():
     """Switch business for admin view"""
     bid = request.args.get("business_id","")
@@ -183,7 +187,7 @@ def ui_admin_switch_business():
     return redirect(f"/app/admin?business_id={bid}")
 
 @ui_bp.route("/ui/admin/tenants/new")
-@require_roles("manager","admin","superadmin")
+@require_roles("manager")
 def ui_admin_tenants_new():
     """Modal for creating new tenant"""
     return """
@@ -247,7 +251,7 @@ def ui_admin_tenants_new():
     """
 
 @ui_bp.route("/ui/admin/users/new")
-@require_roles("manager","admin","superadmin")
+@require_roles("manager")
 def ui_admin_users_new():
     """Modal for creating new user"""
     try:
@@ -334,7 +338,7 @@ def ui_admin_users_new():
     """
 
 @ui_bp.route("/ui/admin/tenants")
-@require_roles("manager","admin","superadmin")
+@require_roles("manager")
 def ui_admin_tenants():
     """Load tenants table via HTMX"""
     try:
@@ -405,7 +409,7 @@ def ui_admin_tenants():
         return f'<div id="tenantsTable" class="bg-white rounded-xl border border-red-200 p-6 text-center text-red-600">שגיאה: {str(e)}</div>'
 
 @ui_bp.route("/ui/admin/users")
-@require_roles("manager","admin","superadmin")
+@require_roles("manager")
 def ui_admin_users():
     """Load users table via HTMX"""
     try:
@@ -492,7 +496,7 @@ def ui_admin_users():
 
 # === WHATSAPP HTMX ROUTES ===
 @ui_bp.route("/ui/whatsapp/threads")
-@require_roles("admin","superadmin","manager","agent")
+@require_roles("manager","business")
 def ui_whatsapp_threads():
     """Load WhatsApp threads via HTMX"""
     bid = effective_business_id()
@@ -542,7 +546,7 @@ def ui_whatsapp_threads():
     return threads_html
 
 @ui_bp.route("/ui/whatsapp/messages")
-@require_roles("admin","superadmin","manager","agent")
+@require_roles("manager","business")
 def ui_whatsapp_messages():
     """Load WhatsApp messages for thread via HTMX"""
     thread_id = request.args.get('thread_id')
@@ -575,7 +579,7 @@ def ui_whatsapp_messages():
     return messages_html
 
 @ui_bp.route("/ui/whatsapp/send", methods=['POST'])
-@require_roles("admin","superadmin","manager","agent")
+@require_roles("manager","business")
 def ui_whatsapp_send():
     """Send WhatsApp message via HTMX"""
     text = request.form.get('text', '').strip()
@@ -596,7 +600,7 @@ def ui_whatsapp_send():
 
 # === CALLS HTMX ROUTES ===
 @ui_bp.route("/ui/calls/active")
-@require_roles("admin","superadmin","manager","agent")
+@require_roles("manager","business")
 def ui_calls_active():
     """Load active calls via HTMX"""
     return """
@@ -609,7 +613,7 @@ def ui_calls_active():
     """
 
 @ui_bp.route("/ui/calls/history")
-@require_roles("admin","superadmin","manager","agent")
+@require_roles("manager","business")
 def ui_calls_history():
     """Load call history via HTMX"""
     q = request.args.get('q', '').strip()
@@ -662,7 +666,7 @@ def ui_calls_history():
 
 # === CRM HTMX ROUTES ===
 @ui_bp.route("/ui/biz/contacts")
-@require_roles("admin","superadmin","manager","agent")
+@require_roles("manager","business")
 def ui_biz_contacts():
     """Load CRM contacts via HTMX"""
     bid = effective_business_id()
@@ -727,7 +731,7 @@ def ui_biz_contacts():
     return contacts_html
 
 @ui_bp.route("/ui/biz/contacts/new")
-@require_roles("admin","superadmin","manager","agent")
+@require_roles("manager","business")
 def ui_biz_contacts_new():
     """Modal for creating new contact"""
     return """
@@ -857,7 +861,7 @@ def ui_biz_users_new():
     """
 
 @ui_bp.route("/ui/biz/users")
-@require_roles("admin","superadmin","manager","agent")
+@require_roles("manager","business")
 def ui_biz_users():
     """Load business users table via HTMX"""
     try:
@@ -1004,7 +1008,7 @@ def api_logout():
 
 # === API ENDPOINTS FOR HTMX FORMS ===
 @ui_bp.route('/api/admin/tenants', methods=['POST'])
-@require_roles('manager', 'admin', 'superadmin')
+@require_roles("manager")
 @audit_action('CREATE', 'tenant')
 def api_admin_tenants_create():
     """Create new tenant"""
@@ -1026,7 +1030,7 @@ def api_admin_tenants_create():
         return jsonify({'success': False, 'error': f'שגיאת יצירת עסק: {str(e)}'}), 500
 
 @ui_bp.route('/api/admin/users', methods=['POST'])
-@require_roles('manager', 'admin', 'superadmin')
+@require_roles("manager")
 @audit_action('CREATE', 'user')
 def api_admin_users_create():
     """Create new user"""
@@ -1049,7 +1053,7 @@ def api_admin_users_create():
         return jsonify({'success': False, 'error': f'שגיאת יצירת משתמש: {str(e)}'}), 500
 
 @ui_bp.route('/api/biz/users', methods=['POST'])
-@require_roles('manager','admin','superadmin')
+@require_roles("manager")
 def api_biz_users_create():
     """Create new business user"""
     try:
@@ -1071,7 +1075,7 @@ def api_biz_users_create():
         return jsonify({'success': False, 'error': f'שגיאת יצירת משתמש: {str(e)}'}), 500
 
 @ui_bp.route('/api/crm/contacts', methods=['POST'])
-@require_roles('admin','superadmin','manager','agent')
+@require_roles("manager","business")
 def api_crm_contacts_create():
     """Create new CRM contact"""
     try:
@@ -1087,7 +1091,7 @@ def api_crm_contacts_create():
 
 # === ADMIN IMPERSONATION SYSTEM ===
 @ui_bp.route('/admin/impersonate/<int:business_id>', methods=['POST'])
-@require_roles('manager', 'admin', 'superadmin')
+@require_roles("manager")
 @audit_action('IMPERSONATE', 'business')
 def admin_impersonate_business(business_id):
     """השתלטות כעסק למנהלים"""
@@ -1111,7 +1115,7 @@ def admin_impersonate_business(business_id):
         return jsonify({'error': f'שגיאה בהשתלטות: {str(e)}'}), 500
 
 @ui_bp.route('/admin/stop-impersonate', methods=['POST'])
-@require_roles('manager', 'admin', 'superadmin')
+@require_roles("manager")
 def admin_stop_impersonation():
     """סיום השתלטות"""
     try:
@@ -1133,7 +1137,7 @@ def admin_stop_impersonation():
 
 # === FINANCIAL SYSTEM ===
 @ui_bp.route('/biz/invoices')
-@require_roles('manager','admin','superadmin')
+@require_roles("manager")
 def ui_biz_invoices():
     """חשבוניות עסק"""
     business_id = effective_business_id()
@@ -1152,7 +1156,7 @@ def ui_biz_invoices():
         return render_error_state(f'שגיאה בטעינת חשבוניות: {str(e)}')
 
 @ui_bp.route('/biz/contracts')
-@require_roles('manager','admin','superadmin')
+@require_roles("manager")
 def ui_biz_contracts():
     """חוזים עסק"""
     business_id = effective_business_id()

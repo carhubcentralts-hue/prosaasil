@@ -45,9 +45,12 @@ export default function ModernLogin() {
           
           // Redirect based on user role to server-side pages
           setTimeout(() => {
-            if (data.user.role === 'admin') {
+            if (data.user.role === 'manager') {
               window.location.href = '/ui/admin/overview';
+            } else if (data.user.role === 'business') {
+              window.location.href = '/ui/biz/contacts';
             } else {
+              // Fallback for unknown roles
               window.location.href = '/ui/biz/contacts';
             }
           }, 1000);
