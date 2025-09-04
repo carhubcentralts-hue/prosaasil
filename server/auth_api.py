@@ -237,7 +237,7 @@ def get_current_user():
         return jsonify({'error': str(e)}), 500
 
 @auth_api.route('/current', methods=['GET'])
-def get_current_user():
+def get_current_user_legacy():
     """Get current logged in user data"""
     try:
         user = session.get('user') or session.get('al_user')
