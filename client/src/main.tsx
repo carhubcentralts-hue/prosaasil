@@ -2,85 +2,63 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 
-// Simple test app
 function App() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8" dir="rtl">
-      <div className="max-w-4xl mx-auto">
-        {/* Brand Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 text-white rounded-full mb-4">
-            <span className="text-2xl font-bold">ש</span>
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8" dir="rtl">
+      <div className="max-w-md w-full space-y-8">
+        <div>
+          <div className="mx-auto h-16 w-16 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+            <span className="text-white font-bold text-2xl">ש</span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          <h2 className="mt-6 text-center text-3xl font-bold text-gray-900">
             שי דירות ומשרדים בע״מ
-          </h1>
-          <p className="text-gray-600">
-            מערכת CRM חכמה עם AI לנדל״ן
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            התחברות למערכת ניהול
           </p>
         </div>
-
-        {/* Test Components */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-            <h3 className="font-semibold text-gray-900 mb-2">✅ React פועל</h3>
-            <p className="text-gray-600 text-sm">React app נטען בהצלחה</p>
-          </div>
-          
-          <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-            <h3 className="font-semibold text-gray-900 mb-2">✅ Tailwind פועל</h3>
-            <p className="text-gray-600 text-sm">CSS מעוצב נכון</p>
-          </div>
-          
-          <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-            <h3 className="font-semibold text-gray-900 mb-2">✅ RTL פועל</h3>
-            <p className="text-gray-600 text-sm">כיוון עברית נכון</p>
-          </div>
-        </div>
-
-        {/* Login Form */}
-        <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-8">
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-6">
-            התחברות למערכת
-          </h2>
-          
-          <form className="space-y-4">
+        
+        <form className="mt-8 space-y-6">
+          <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
                 כתובת אימייל
               </label>
               <input
+                id="email"
                 type="email"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="manager@shai-realestate.co.il"
+                className="appearance-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="הזן כתובת אימייל"
               />
             </div>
-            
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
                 סיסמה
               </label>
               <input
+                id="password"
                 type="password"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="appearance-none relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
                 placeholder="הזן סיסמה"
               />
             </div>
-            
+          </div>
+
+          <div>
             <button
               type="submit"
-              className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
             >
               התחבר למערכת
             </button>
-          </form>
-          
-          <div className="mt-4 text-center">
-            <button className="text-blue-600 hover:text-blue-800 text-sm">
-              שכחת סיסמה?
-            </button>
           </div>
-        </div>
+
+          <div className="text-center">
+            <a href="#" className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+              שכחת סיסמה?
+            </a>
+          </div>
+        </form>
       </div>
     </div>
   )
