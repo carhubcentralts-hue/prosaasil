@@ -172,6 +172,70 @@ def logout():
     session.clear()
     return jsonify({'success': True})
 
+@auth_api.route('/me', methods=['GET'])
+def get_current_user():
+    """
+    GET /api/auth/me
+    Returns current user data from session
+    Expected by frontend auth system
+    """
+    try:
+        # Check if user is in session (handle both session keys)
+        user_data = session.get('user') or session.get('al_user')
+        if not user_data:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        # Get user from database to ensure data is fresh
+        user = User.query.get(user_data.get('id'))
+        if not user or not user.is_active:
+            return jsonify({'error': 'User not found or inactive'}), 401
+        
+        # Get business info if exists
+        business = None
+        if user.business_id:
+            business = Business.query.get(user.business_id)
+        
+        # Prepare user data
+        user_response = {
+            'id': user.id,
+            'name': user.name or user.email,
+            'email': user.email,
+            'role': user.role,
+            'business_id': user.business_id,
+            'enabled': user.is_active,
+            'created_at': user.created_at.isoformat() if user.created_at else None
+        }
+        
+        # Prepare business data
+        business_response = None
+        if business:
+            business_response = {
+                'id': business.id,
+                'name': business.name,
+                'phone': business.phone,
+                'email': business.email,
+                'is_active': business.is_active,
+                'created_at': business.created_at.isoformat() if business.created_at else None
+            }
+        
+        # Basic permissions based on role
+        permissions = {
+            'calls_enabled': True,
+            'whatsapp_enabled': True,
+            'crm_enabled': True,
+            'admin_panel': user.role in ['admin', 'manager']
+        }
+        
+        return jsonify({
+            'user': user_response,
+            'business': business_response,
+            'permissions': permissions
+        })
+    
+    except Exception as e:
+        print(f"Error in /api/auth/me: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @auth_api.route('/current', methods=['GET'])
 def get_current_user():
     """Get current logged in user data"""
