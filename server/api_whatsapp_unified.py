@@ -255,7 +255,6 @@ def get_messages():
             "success": True,
             "messages": messages_data.get("messages", []),
             "pagination": messages_data.get("pagination", {})
-            }
         })
         
     except Exception as e:

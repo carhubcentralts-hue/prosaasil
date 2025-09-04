@@ -4,3 +4,14 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Environment files
+.env
+
+# Baileys auth state (session data) - NEVER commit
+baileys-service/auth_info_baileys/
+auth_info_baileys/
+
+# Logs
+*.log
+server.log

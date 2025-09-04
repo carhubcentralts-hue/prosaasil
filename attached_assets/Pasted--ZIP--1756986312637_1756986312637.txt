@@ -1,0 +1,50 @@
+עברתי עכשיו על ה-ZIP האחרון ובדקתי אותו לעומק. כן—רוב מה שביקשנו יושם. הנה דו״ח מצב קצר + מה עוד נשאר לסגור:
+
+מה ש־✅ בוצע בפועל
+	•	פקודת הרצה לפרוד: יש Procfile עם
+gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT wsgi:app --timeout 60  ➜ טוב לפרוד (אפשר לשקול להגדיל timeout ל-120 בהמשך אם תרצה שיחות ארוכות יותר).
+	•	מיגרציות DB באתחול: ב־server/app_factory.py יש קריאה ל-apply_migrations() בתוך app.app_context() ➜ “Database migrations applied successfully”.
+	•	WSGI מהיר לוובהוקים + TwiML נקי: wsgi.py מחזיר 204 מהירים ל־/webhook/stream_status ו־/webhook/stream_ended, וטוען TwiML מהיר ל־/webhook/incoming_call. ‏/webhook/call_status מוגדר גם כ-fast-path 204 (אם תרצה אימות חתימה גם עליו—אפשר להוציא מה-fast-path).
+	•	TwiML תקין (https/wss): routes_twilio.py מייצר wss://<host>/ws/twilio-media ו-https://<host>/webhook/... כולל action ו-statusCallback נכונים.
+	•	SPA Routing: app_factory.py מגיש dist/ עם fallback ל־index.html לכל נתיבי ה-UI; חריגים ל־/api/*, /webhook/*, /ws/*, /version|/readyz|/livez.
+	•	WhatsApp Unified:
+	•	וובהוקים קיימים: /webhook/whatsapp/twilio (עם אימות חתימה) ו־/webhook/whatsapp/baileys (בודק X-BAILEYS-SECRET).
+	•	Outbound API: /api/whatsapp/send.
+	•	WHATSAPP_PROVIDER=auto + Failover ל-Twilio ו-24h rule—ממומש בשכבת whatsapp_provider.py.
+	•	Idempotency: In/Out דרך DAO (בדיקות כפילות לפני insert).
+	•	בייליס כשירות נפרד: ספרייה baileys-service/ עם server.js ו-package.json:
+	•	מאזין על process.env.PORT ✔
+	•	GET /health ו-POST /send ✔
+	•	שולח אליך ל-/webhook/whatsapp/baileys עם הכותרת X-BAILEYS-SECRET ✔
+	•	ניקוי קבצים: אין .env חי בריפו; api_baileys.py הוסר (עובדים עם unified) ואין אליו הפניות.
+
+שני דברים קטנים שעדיין חסרים/מומלצים (⚠️)
+	1.	ייחודיות DB לכפילויות הודעות
+	•	המיגרציה יוצרת טבלת messages עם עמודת provider_msg_id, אבל אין Constraint/Index ייחודי שמכריח (provider, provider_msg_id) להיות יחיד.
+	•	המלצה: הוסף מיגרציה קטנה שמנסה ליצור Unique Index משולב (או לפחות Index רגיל) על (provider, provider_msg_id) בטבלת messages.
+	•	ב-ORM של WhatsAppMessage יש עמודה provider_message_id (שם שונה). כיום אינך כותב לשם, אבל אם תשתמש בו—תוודא גם שם ייחודיות מקבילה.
+	2.	דיפלוי בפועל כשני שירותים נפרדים
+	•	הקוד מוכן לכך (Flask ↔ Baileys), אבל חשוב שבפרוד באמת ירוצו שני דיפלויים:
+	•	Flask/API: עם הפקודה שב־Procfile ומיגרציות באתחול.
+	•	Baileys Node: npm start מהתיקייה baileys-service/, שומר auth-state על אחסון מתמיד (כדי לא לבקש QR בכל דיפלוי).
+	•	ודא:
+	•	BAILEYS_WEBHOOK_TARGET=https://<דומיין-Flask>/webhook/whatsapp/baileys בצד ה-Node.
+	•	BAILEYS_OUTBOUND_URL=https://<דומיין-Node>/send בצד ה-Python.
+	•	אותו BAILEYS_WEBHOOK_SECRET בשני הצדדים.
+	•	ב-Twilio Console: webhook = https://<דומיין-Flask>/webhook/whatsapp/twilio.
+
+בדיקות עשן מהירות לפני GO (רשימת “כן/לא”)
+	•	Flask: GET /version ו-/readyz → 200.
+	•	Baileys: GET /health → {connected:true}.
+	•	סימולציית Inbound מ-Baileys: POST /webhook/whatsapp/baileys עם X-BAILEYS-SECRET → 204.
+	•	הודעת Twilio נכנסת: POST ל־/webhook/whatsapp/twilio → 204.
+	•	Outbound: POST /api/whatsapp/send → נשלח דרך הספק הנכון (Reply-via-source), ובכיבוי ה-Node יש Failover אוטומטי ל-Twilio.
+	•	אין 500 על כתיבה לטבלאות; ה-Idempotency עובד (אין כפילויות).
+
+סיכום “כמה אתה קרוב?”
+
+אתה ב-~95%. הקוד והארכיטקטורה מוכנים. ברמת “מסמר אחרון” נשאר:
+	•	להוסיף Unique (provider, provider_msg_id) ב-messages,
+	•	ולוודא שה-Deploy הוא באמת שני שירותים נפרדים עם ENV נכונים ואחסון מתמיד ל-auth-state של Baileys.
+
+תרצה שאוסיף לך טקסט מוכן למיגרציה (DDL) ל-Unique Index המשולב + צ’ק שמדלג אם הוא כבר קיים? או קובץ RUNBOOK_DEPLOY.md מסודר עם כל הצעדים והפקודות?

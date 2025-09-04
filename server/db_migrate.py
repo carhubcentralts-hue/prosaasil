@@ -25,6 +25,15 @@ def check_table_exists(table_name):
     """), {"table_name": table_name})
     return result.fetchone() is not None
 
+def check_index_exists(index_name):
+    """Check if index exists"""
+    from sqlalchemy import text
+    result = db.session.execute(text("""
+        SELECT indexname FROM pg_indexes 
+        WHERE indexname = :index_name
+    """), {"index_name": index_name})
+    return result.fetchone() is not None
+
 def apply_migrations():
     """Apply all pending migrations"""
     migrations_applied = []
@@ -112,6 +121,33 @@ def apply_migrations():
         db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_msgs_thread_time ON messages(thread_id, created_at)"))
         migrations_applied.append("create_messages_table")
         log.info("Applied migration: create_messages_table")
+    
+    # Migration 6: Add unique index for message deduplication
+    if check_table_exists('messages') and not check_index_exists('uniq_msg_provider_id'):
+        from sqlalchemy import text
+        try:
+            # First remove any existing duplicates (keep the earliest)
+            db.session.execute(text("""
+                DELETE FROM messages 
+                WHERE id NOT IN (
+                    SELECT MIN(id) 
+                    FROM messages 
+                    WHERE provider_msg_id IS NOT NULL AND provider_msg_id != ''
+                    GROUP BY provider_msg_id
+                )
+                AND provider_msg_id IS NOT NULL AND provider_msg_id != ''
+            """))
+            
+            # Create unique index on provider_msg_id (for non-null values)
+            db.session.execute(text("""
+                CREATE UNIQUE INDEX uniq_msg_provider_id 
+                ON messages(provider_msg_id) 
+                WHERE provider_msg_id IS NOT NULL AND provider_msg_id != ''
+            """))
+            migrations_applied.append("add_unique_provider_msg_id")
+            log.info("Applied migration: add_unique_provider_msg_id")
+        except Exception as e:
+            log.warning(f"Could not create unique index (may already exist): {e}")
     
     if migrations_applied:
         db.session.commit()
