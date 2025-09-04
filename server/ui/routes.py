@@ -87,7 +87,7 @@ def _load_counters_for_business(bid):
 # @ui_bp.route('/login')
 
 @ui_bp.route('/app/admin')
-@require_roles('admin', 'superadmin')
+@require_roles('manager', 'admin', 'superadmin')
 def admin_home():
     """Professional admin dashboard"""
     user = session.get('al_user') or session.get('user')
@@ -109,7 +109,7 @@ def biz_home():
 
 # === ADMIN HTMX ROUTES ===
 @ui_bp.route("/ui/admin/overview")
-@require_roles("admin","superadmin")
+@require_roles("manager","admin","superadmin")
 def ui_admin_overview():
     """KPIs for admin dashboard"""
     counters = _load_counters_for_admin()
@@ -175,7 +175,7 @@ def ui_admin_overview():
     """
 
 @ui_bp.route("/ui/admin/switch_business")
-@require_roles("admin","superadmin")
+@require_roles("manager","admin","superadmin")
 def ui_admin_switch_business():
     """Switch business for admin view"""
     bid = request.args.get("business_id","")
@@ -183,7 +183,7 @@ def ui_admin_switch_business():
     return redirect(f"/app/admin?business_id={bid}")
 
 @ui_bp.route("/ui/admin/tenants/new")
-@require_roles("admin","superadmin")
+@require_roles("manager","admin","superadmin")
 def ui_admin_tenants_new():
     """Modal for creating new tenant"""
     return """
@@ -247,7 +247,7 @@ def ui_admin_tenants_new():
     """
 
 @ui_bp.route("/ui/admin/users/new")
-@require_roles("admin","superadmin")
+@require_roles("manager","admin","superadmin")
 def ui_admin_users_new():
     """Modal for creating new user"""
     try:
@@ -334,7 +334,7 @@ def ui_admin_users_new():
     """
 
 @ui_bp.route("/ui/admin/tenants")
-@require_roles("admin","superadmin")
+@require_roles("manager","admin","superadmin")
 def ui_admin_tenants():
     """Load tenants table via HTMX"""
     try:
@@ -405,7 +405,7 @@ def ui_admin_tenants():
         return f'<div id="tenantsTable" class="bg-white rounded-xl border border-red-200 p-6 text-center text-red-600">שגיאה: {str(e)}</div>'
 
 @ui_bp.route("/ui/admin/users")
-@require_roles("admin","superadmin")
+@require_roles("manager","admin","superadmin")
 def ui_admin_users():
     """Load users table via HTMX"""
     try:
@@ -998,7 +998,7 @@ def api_logout():
 
 # === API ENDPOINTS FOR HTMX FORMS ===
 @ui_bp.route('/api/admin/tenants', methods=['POST'])
-@require_roles('admin', 'superadmin')
+@require_roles('manager', 'admin', 'superadmin')
 @audit_action('CREATE', 'tenant')
 def api_admin_tenants_create():
     """Create new tenant"""
@@ -1020,7 +1020,7 @@ def api_admin_tenants_create():
         return jsonify({'success': False, 'error': f'שגיאת יצירת עסק: {str(e)}'}), 500
 
 @ui_bp.route('/api/admin/users', methods=['POST'])
-@require_roles('admin', 'superadmin')
+@require_roles('manager', 'admin', 'superadmin')
 @audit_action('CREATE', 'user')
 def api_admin_users_create():
     """Create new user"""
@@ -1043,7 +1043,7 @@ def api_admin_users_create():
         return jsonify({'success': False, 'error': f'שגיאת יצירת משתמש: {str(e)}'}), 500
 
 @ui_bp.route('/api/biz/users', methods=['POST'])
-@require_roles('admin','superadmin','manager')
+@require_roles('manager','admin','superadmin')
 def api_biz_users_create():
     """Create new business user"""
     try:
@@ -1081,7 +1081,7 @@ def api_crm_contacts_create():
 
 # === ADMIN IMPERSONATION SYSTEM ===
 @ui_bp.route('/admin/impersonate/<int:business_id>', methods=['POST'])
-@require_roles('admin', 'superadmin')
+@require_roles('manager', 'admin', 'superadmin')
 @audit_action('IMPERSONATE', 'business')
 def admin_impersonate_business(business_id):
     """השתלטות כעסק למנהלים"""
@@ -1105,7 +1105,7 @@ def admin_impersonate_business(business_id):
         return jsonify({'error': f'שגיאה בהשתלטות: {str(e)}'}), 500
 
 @ui_bp.route('/admin/stop-impersonate', methods=['POST'])
-@require_roles('admin', 'superadmin')
+@require_roles('manager', 'admin', 'superadmin')
 def admin_stop_impersonation():
     """סיום השתלטות"""
     try:
@@ -1127,7 +1127,7 @@ def admin_stop_impersonation():
 
 # === FINANCIAL SYSTEM ===
 @ui_bp.route('/biz/invoices')
-@require_roles('admin','superadmin','manager')
+@require_roles('manager','admin','superadmin')
 def ui_biz_invoices():
     """חשבוניות עסק"""
     business_id = effective_business_id()
@@ -1146,7 +1146,7 @@ def ui_biz_invoices():
         return render_error_state(f'שגיאה בטעינת חשבוניות: {str(e)}')
 
 @ui_bp.route('/biz/contracts')
-@require_roles('admin','superadmin','manager')
+@require_roles('manager','admin','superadmin')
 def ui_biz_contracts():
     """חוזים עסק"""
     business_id = effective_business_id()
