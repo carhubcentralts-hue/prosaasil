@@ -43,12 +43,12 @@ export default function ModernLogin() {
           setMessage("התחברות הצליחה!");
           setMessageType('success');
           
-          // Redirect based on user role
+          // Redirect based on user role to server-side pages
           setTimeout(() => {
             if (data.user.role === 'admin') {
-              window.location.href = '/app/admin';
+              window.location.href = '/ui/admin/overview';
             } else {
-              window.location.href = '/app/biz';
+              window.location.href = '/ui/biz/contacts';
             }
           }, 1000);
         } else {
