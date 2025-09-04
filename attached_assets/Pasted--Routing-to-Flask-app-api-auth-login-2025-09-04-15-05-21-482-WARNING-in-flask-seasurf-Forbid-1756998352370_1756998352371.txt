@@ -1,0 +1,21 @@
+
+🌐 Routing to Flask app: /api/auth/login
+[2025-09-04 15:05:21,482] WARNING in flask_seasurf: Forbidden (CSRF token missing or incorrect.): /api/auth/login
+10.81.0.143 - - [04/Sep/2025:15:05:21 +0000] "POST /api/auth/login HTTP/1.1" 403 119 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/auth/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+🔍 WSGI Route: POST /api/auth/login
+🌐 Routing to Flask app: /api/auth/login
+[2025-09-04 15:05:21,804] WARNING in flask_seasurf: Forbidden (CSRF token missing or incorrect.): /api/auth/login
+10.81.0.143 - - [04/Sep/2025:15:05:21 +0000] "POST /api/auth/login HTTP/1.1" 403 119 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/auth/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B🔍 WSGI Route: GET /auth/login
+🌐 Routing to Flask app: /auth/login
+10.81.7.155 - - [04/Sep/2025:15:05:33 +0000] "GET /auth/login HTTP/1.1" 304 0 "https://replit.com/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /assets/index-DovoPK1b.js
+🌐 Routing to Flask app: /assets/index-DovoPK1b.js
+10.81.7.155 - - [04/Sep/2025:15:05:33 +0000] "GET /assets/index-DovoPK1b.js HTTP/1.1" 304 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/auth/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /assets/index-Cg7c9qhL.css
+🌐 Routing to Flask app: /assets/index-Cg7c9qhL.css
+10.81.2.61 - - [04/Sep/2025:15:05:33 +0000] "GET /assets/index-Cg7c9qhL.css HTTP/1.1" 304 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/auth/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/auth/me
+🌐 Routing to Flask app: /api/auth/me
+10.81.2.61 - - [04/Sep/2025:15:05:33 +0000] "GET /api/auth/me HTTP/1.1" 404 207 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/auth/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[A^[[D

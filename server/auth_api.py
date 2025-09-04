@@ -35,6 +35,10 @@ def get_csrf_token():
 @auth_api.route('/login', methods=['POST', 'OPTIONS'])
 @csrf_exempt
 def login():
+    """Login endpoint with CSRF bypass"""
+    from flask import g
+    # Extra CSRF bypass to be sure
+    g.csrf_exempt = True
     """
     POST /api/auth/login
     Expected response: {user:{id,name,role,business_id}, token?}

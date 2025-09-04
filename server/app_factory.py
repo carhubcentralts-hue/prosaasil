@@ -427,8 +427,8 @@ def create_app():
             surf_instance.exempt_urls(('/webhook/', '/api/auth/'))
             print("✅ SeaSurf exemption applied to /webhook/ and /api/auth/ prefixes")
             # Add UI login to CSRF exemption
-            surf_instance.exempt_urls(('/api/ui/login',))
-            print("✅ CSRF exemption applied to /api/ui/login")
+            surf_instance.exempt_urls(('/api/ui/login', '/api/auth/login'))
+            print("✅ CSRF exemption applied to /api/ui/login and /api/auth/login")
         except Exception as e:
             print(f"⚠️ SeaSurf exemption warning: {e}")
             # Alternative: Set exempt_urls directly as attribute
