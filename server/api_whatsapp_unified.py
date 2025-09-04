@@ -83,27 +83,33 @@ def send_message():
             service = get_whatsapp_service(provider_pref, thread_data)
             result = service.send_message(to_number, message)
         
-        # Save to database
+        # Save to unified DAO system (no duplicates)
         message_id = None
         try:
-            wa_message = WhatsAppMessage()
-            wa_message.business_id = business_id
-            wa_message.to_number = to_number
-            wa_message.direction = "out/sent"  # שמירה ב-CRM כ-out/sent
-            wa_message.body = message
-            wa_message.message_type = "text"
-            wa_message.status = result.get("status", "sent")  # Default to sent
-            wa_message.provider = result.get("provider", routing_result.get("provider_recommendation", provider or "unknown"))
-            wa_message.provider_message_id = result.get("sid")
+            provider_used = result.get("provider", routing_result.get("provider_recommendation", provider or "unknown"))
             
-            db.session.add(wa_message)
-            db.session.commit()
+            # Find/create thread for outbound message
+            thread_id = upsert_thread(
+                business_id=business_id, 
+                type_="whatsapp", 
+                provider=provider_used, 
+                peer_number=to_number
+            )
             
-            message_id = wa_message.id
-            logger.info(f"Message sent and saved: {to_number}")
+            # Record outbound message with idempotency
+            message_id = insert_message(
+                thread_id=thread_id,
+                direction="out",
+                message_type="text",
+                content_text=message,
+                provider_msg_id=result.get("sid"),
+                status=result.get("status", "sent")
+            )
+            
+            logger.info(f"Message sent and saved via DAO: {to_number} (thread: {thread_id}, msg: {message_id})")
             
         except Exception as db_error:
-            logger.error(f"Failed to save sent message: {db_error}")
+            logger.error(f"Failed to save sent message via DAO: {db_error}")
         
         return jsonify({
             "success": True,

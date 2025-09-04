@@ -1,0 +1,152 @@
+מושלם—אתה במקום נכון. עכשיו עושים Deploy נקי של שני שירותים (Flask + Baileys) בצורה שמייצבת הכול. הנה ההנחיה המדויקת לפי מה שכבר יישמת ובדיוק מה שצריך לסגור.
+
+⸻
+
+1) ארכיטקטורת פריסה (שני דיפלויים נפרדים)
+	•	דיפלוי A – Flask/API: ה־WSGI שלך (עם Eventlet, וובהוקים, SPA, DB).
+	•	דיפלוי B – Baileys Node: שירות ה־Node שמחובר ל־WhatsApp (‎/send, ‎/health) ושולח אליך Inbound.
+
+למה נפרד? כל שירות מקבל $PORT משלו, מנוהל בנפרד, לא קורסים יחד, ופיילאובר ל-Twilio עובד נקי.
+
+⸻
+
+2) דיפלוי A – Flask / Gunicorn+Eventlet
+
+פקודת Start
+	•	סטארט אחד, בלי &, מאזין ל-$PORT:
+
+gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT wsgi:app
+
+Environment Variables (ב־Deployments, לא רק Secrets של ה־Workspace)
+
+חובה:
+	•	PUBLIC_HOST=https://<הדומיין-שלך>  (או PUBLIC_BASE_URL לפי הקוד)
+	•	DATABASE_URL=...  (UTF8/utf8mb4, Pool תקין)
+	•	OPENAI_API_KEY=...
+	•	TWILIO_ACCOUNT_SID=...
+	•	TWILIO_AUTH_TOKEN=...
+	•	WHATSAPP_PROVIDER=auto
+	•	BAILEYS_OUTBOUND_URL=https://<דומיין-node>/send
+	•	BAILEYS_WEBHOOK_SECRET=<הטוקן זהה לצד ה-Node>
+
+Health/Readiness
+	•	GET /version → 200
+	•	GET /readyz → 200 (כולל DB ping)
+	•	GET /livez → 200
+
+מיגרציות DB (סוגר 500)
+	•	דאג ש־apply_migrations() רץ באתחול (או הרץ ידנית פעם אחת בדיפלוי הראשון).
+	•	ודא אינדקס ייחודי על (provider, provider_msg_id) בטבלת ההודעות שלך—זה חלק מה-Idempotency.
+
+SPA Routing
+	•	React build מ־dist/ + fallback ל־dist/index.html לכל נתיבי ה-UI (/login, /forgot, /reset, /app/*, /calendar).
+	•	חריגים שלא נופלים ל-SPA: /api/*, /webhook/*, /ws/*, /version|/readyz|/livez.
+
+⸻
+
+3) דיפלוי B – Baileys Node (HTTP + סשן קבוע)
+
+Start Script
+	•	שרת Express/Fastify שמאזין ל-0.0.0.0:(process.env.PORT||3000)
+	•	נתיבים:
+	•	GET /health → {connected:true} כשהסשן מחובר
+	•	POST /send → {to,type,text/mediaUrl,idempotencyKey} → מחזיר {ok:true,messageId} במהירות
+
+ENV
+	•	BAILEYS_WEBHOOK_SECRET=<אותו טוקן כמו ב-Flask>
+	•	BAILEYS_WEBHOOK_TARGET=https://<דומיין-Flask>/webhook/whatsapp/baileys
+	•	(אופציונלי) PUBLIC_URL=https://<דומיין-node>
+
+סשן Baileys
+	•	חובה אחסון מתמיד ל־auth-state (דיסק/Volume/Redis/S3) כדי שלא תידרש QR בכל דיפלוי.
+	•	אם הפלטפורמה שלך אינה שומרת דיסק בין דיפלויים (חלק מה־PaaS) – שמור את ה-auth-state מחוץ לקונטיינר.
+
+⸻
+
+4) חיבורים בין השירותים
+
+Twilio Console
+	•	WhatsApp Webhook:
+POST https://<דומיין-Flask>/webhook/whatsapp/twilio
+(חתימת טוויליו כבר מאומצת אצלך)
+
+Baileys → Flask (Inbound)
+	•	Node שולח אליך:
+POST https://<דומיין-Flask>/webhook/whatsapp/baileys
+עם כותרת: X-BAILEYS-SECRET: <הטוקן>
+
+Flask → Baileys (Outbound)
+	•	BAILEYS_OUTBOUND_URL=https://<דומיין-node>/send
+
+מדיניות ספקים (כבר אצלך)
+	•	WHATSAPP_PROVIDER=auto → Reply-via-source, Failover ל-Twilio אם Baileys DOWN, ו-24h rule (מחוץ ל-24 שעות → Twilio Template בלבד).
+
+⸻
+
+5) בחירת שכבת נתונים אחת להודעות (מונע כפילות)
+
+בחר אחד:
+	•	DAO threads/messages (מומלץ): השבת כתיבה ל-WhatsAppMessage אם עדיין קיימת.
+או
+	•	SQLAlchemy WhatsAppMessage: השבת כתיבה ל-DAO.
+
+עיקרון: מקור אמת יחיד + אינדקס ייחודי (provider, provider_msg_id).
+
+⸻
+
+6) Smoke Tests אחרי הדיפלוי (על ה-URLs הציבוריים)
+
+Flask
+
+curl -sfS https://<Flask>/version
+curl -sfS https://<Flask>/readyz
+
+Baileys
+
+curl -sfS https://<Node>/health
+curl -sS -X POST https://<Node>/send \
+  -H 'Content-Type: application/json' \
+  -d '{"to":"9725XXXXXXX","type":"text","text":"שלום!","idempotencyKey":"demo-1"}'
+
+Inbound סימולציה
+
+curl -sS -X POST https://<Flask>/webhook/whatsapp/baileys \
+  -H "Content-Type: application/json" \
+  -H "X-BAILEYS-SECRET: <הטוקן>" \
+  -d '{"from":"9725XXXXXXX","body":"מה נשמע?","id":"ABCD123"}' -i
+# מצופה: 204
+
+Twilio אמיתי
+שלח הודעה → רואה POST ל־/webhook/whatsapp/twilio → 204.
+
+Failover
+עצור זמנית את דיפלוי ה-Node → שליחה מה-CRM נופלת לטוויליו אוטומטית.
+
+⸻
+
+7) יציבות פרודקשן (הקשחות קצרות)
+	•	DB Pooling: pool_pre_ping=true, גדלים סבירים.
+	•	UTF-8: DB ו-client encoding = utf8/utf8mb4.
+	•	Idempotency: Inbound (Twilio: MessageSid, Baileys: key.id+remoteJid), Outbound דורש idempotencyKey.
+	•	אבטחה: Twilio signature ✅, X-BAILEYS-SECRET ✅, HTTPS בלבד.
+	•	לוגים: וובהוקים 204 < 100ms; שגיאות עם Trace קצר (בלי סודות).
+	•	ניקיון קבצים: בלי .env “חי”, רק .env.example. server.js ל-dev בלבד.
+
+⸻
+
+8) Definition of Done (ה-12/12)
+	•	דיפלוי A+B רצים יציב ומאזינים ל-$PORT.
+	•	מיגרציות רצות באתחול; אין 500 על כתיבה/קריאה.
+	•	Webhooks מצביעים ל-/webhook/whatsapp/*.
+	•	ספקים עובדים: Reply-via-source, Failover, 24h rule.
+	•	מקור נתונים יחיד; 0 כפילויות.
+	•	/version//readyz//livez ירוקים; /health של Baileys ירוק.
+	•	SPA (‎/app/* וכו’) נטענת, ו־/api/*//webhook/*//ws/* לא “נבלעים” ל-SPA.
+
+⸻
+
+איפה אתה עומד עכשיו?
+	•	לפי העדכון שלך: 8/12 טסטים ירוקים, “Database migrations applied successfully”, Gunicorn+Eventlet OK, Baileys HTTP על $PORT OK, Webhooks קיימים.
+	•	זה אומר שאתה מאוד קרוב. ברגע שתעשה Deploy אמיתי לשני שירותים נפרדים, תיישר את ה-webhooks בקונסולות, ותוודא Data-layer יחיד—אתה מגיע ל-Production יציב.
+
+אם תרצה, אכין לך (בקובץ Markdown) RUNBOOK_DEPLOY.md עם כל הפקודות וה-checklist כדי שכל דיפלוי עתידי יהיה “one-click + ירוק”.

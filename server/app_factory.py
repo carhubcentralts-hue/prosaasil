@@ -620,20 +620,23 @@ def create_app():
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def spa_fallback(path):
-        """Serve React SPA for all unmatched routes except API/webhook"""
-        # Don't interfere with API routes, webhooks, or static assets
+        """Serve React SPA for all unmatched routes except API/webhook/health"""
+        # Don't serve SPA for backend routes (per deployment guidelines)
         if (path.startswith('api/') or 
             path.startswith('webhook/') or 
+            path.startswith('ws/') or
             path.startswith('static/') or
             path.startswith('assets/') or
-            path.startswith('ws/')):
+            path in ['version', 'readyz', 'livez', 'healthz'] or
+            path == 'favicon.ico' or
+            '/.' in path):  # Hidden files/dirs
             # Let Flask handle these normally (will likely 404)
             from flask import abort
             abort(404)
         
-        # Serve SPA for all other routes (like /app/admin, /login, etc.)
+        # Serve SPA for UI routes (/app/*, /login, /forgot, /reset, /calendar, etc.)
         import os
-        dist_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'dist', 'index.html')
+        dist_path = os.path.join(os.path.dirname(__file__), '..', 'dist', 'index.html')
         try:
             return send_file(dist_path)
         except FileNotFoundError:

@@ -283,17 +283,25 @@ def whatsapp_send():
         if not thread_id or not text:
             return jsonify({'error': 'Missing thread_id or text'}), 400
         
-        # Create outgoing message record
-        message = WhatsAppMessage()
-        message.business_id = 1  # TODO: Get from session user
-        message.to_number = thread_id
-        message.direction = 'out'
-        message.body = text
-        message.status = 'sent'
-        message.provider = 'baileys'
+        # Create outgoing message via unified DAO (no duplicates)
+        from server.dao_crm import upsert_thread, insert_message
         
-        db.session.add(message)
-        db.session.commit()
+        # Find/create thread for this contact
+        dao_thread_id = upsert_thread(
+            business_id=1,  # TODO: Get from session user
+            type_="whatsapp",
+            provider="baileys",
+            peer_number=thread_id
+        )
+        
+        # Record outbound message with idempotency
+        dao_message_id = insert_message(
+            thread_id=dao_thread_id,
+            direction="out",
+            message_type="text",
+            content_text=text,
+            status="sent"
+        )
         
         # TODO: Actually send via WhatsApp provider
         print(f"📱 Would send WhatsApp to {thread_id}: {text}")
