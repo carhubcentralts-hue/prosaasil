@@ -3,7 +3,7 @@ import { Building2, Phone, Shield, User, LogOut } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 
-function LoginPage({ onLogin }) {
+function LoginPage({ onLogin }: { onLogin: () => void }) {
   const [credentials, setCredentials] = useState({
     email: '',
     password: ''
@@ -11,7 +11,7 @@ function LoginPage({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
@@ -149,9 +149,9 @@ function LoginPage({ onLogin }) {
 }
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [business, setBusiness] = useState(null);
-  const [permissions, setPermissions] = useState({});
+  const [user, setUser] = useState<any>(null);
+  const [business, setBusiness] = useState<any>(null);
+  const [permissions, setPermissions] = useState<any>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
