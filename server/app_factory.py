@@ -251,6 +251,11 @@ def create_app():
         print("✅ New API blueprints registered")
         print("✅ Twilio webhooks registered")
         
+        # Register API Adapter Blueprint - Frontend Compatibility Layer
+        from server.api_adapter import api_adapter_bp
+        app.register_blueprint(api_adapter_bp)
+        print("✅ API Adapter blueprint registered")
+        
         # Health endpoints - MUST be registered
         from server.health_endpoints import health_bp
         app.register_blueprint(health_bp)
