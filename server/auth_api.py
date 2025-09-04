@@ -188,8 +188,8 @@ def get_current_user():
             if business_obj:
                 business = {
                     'id': business_obj.id,
-                    'name': business_obj.business_name,
-                    'phone': business_obj.phone
+                    'name': business_obj.name,
+                    'phone': business_obj.phone_number
                 }
         
         # Basic permissions based on role
