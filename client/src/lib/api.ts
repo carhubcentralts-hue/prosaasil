@@ -13,7 +13,7 @@ async function post(url:string, body:any){
 }
 
 export const api = {
-  login: (email:string, password:string)=> post("/api/ui/login", {email, password}),
+  login: (email:string, password:string)=> post("/api/auth/login", {email, password}),
   forgot: (email:string)=> post("/api/auth/forgot", {email}),
   reset: (token:string, password:string)=> post("/api/auth/reset", {token, password}),
 };

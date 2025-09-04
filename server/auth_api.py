@@ -172,6 +172,44 @@ def logout():
     session.clear()
     return jsonify({'success': True})
 
+@auth_api.route('/current', methods=['GET'])
+def get_current_user():
+    """Get current logged in user data"""
+    try:
+        user = session.get('user') or session.get('al_user')
+        if not user:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        # Get business info if exists
+        business = None
+        if user.get('business_id'):
+            from server.models_sql import Business
+            business_obj = Business.query.get(user['business_id'])
+            if business_obj:
+                business = {
+                    'id': business_obj.id,
+                    'name': business_obj.business_name,
+                    'phone': business_obj.phone
+                }
+        
+        # Basic permissions based on role
+        permissions = {
+            'view_calls': True,
+            'view_whatsapp': True,
+            'view_customers': True,
+            'manage_users': user.get('role') == 'manager',
+            'manage_business': user.get('role') == 'manager'
+        }
+        
+        return jsonify({
+            'user': user,
+            'business': business,
+            'permissions': permissions
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # Auth decorator for API routes
 def require_api_auth(roles=None):
     """Decorator for API routes that require authentication"""

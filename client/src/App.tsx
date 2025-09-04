@@ -160,7 +160,9 @@ function App() {
 
   const fetchUserData = async () => {
     try {
-      const response = await fetch('/api/user/current');
+      const response = await fetch('/api/auth/current', {
+        credentials: 'include'  // Include session cookies
+      });
       if (response.ok) {
         const userData = await response.json();
         setUser(userData.user);
