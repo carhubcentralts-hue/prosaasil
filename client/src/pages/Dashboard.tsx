@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'wouter';
 import { 
   Phone, 
   MessageCircle, 
@@ -173,10 +172,9 @@ function Dashboard({ business, permissions }) {
         {quickActions.filter(action => action.enabled).map((action) => {
           const Icon = action.icon;
           return (
-            <Link
+            <div
               key={action.name}
-              href={action.href}
-              className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-6 block"
+              className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-6 cursor-pointer"
             >
               <div className="flex items-center justify-between mb-4">
                 <div className={`${action.color} p-3 rounded-lg text-white`}>
@@ -197,7 +195,7 @@ function Dashboard({ business, permissions }) {
               <p className="text-gray-600 text-sm">
                 {action.description}
               </p>
-            </Link>
+            </div>
           );
         })}
       </div>
