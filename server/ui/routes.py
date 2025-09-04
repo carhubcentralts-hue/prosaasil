@@ -334,7 +334,7 @@ def ui_admin_users_new():
     """
 
 @ui_bp.route("/ui/admin/tenants")
-@require_roles("admin","superadmin","manager")
+@require_roles("admin","superadmin")
 def ui_admin_tenants():
     """Load tenants table via HTMX"""
     try:
