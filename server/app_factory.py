@@ -396,9 +396,12 @@ def create_app():
         
         # CRITICAL FIX: Exempt auth API AFTER it's registered - COMPLETE BYPASS
         from server.auth_api import auth_api
+        from server.ui.routes import ui_bp
         if csrf_instance:
             csrf_instance.exempt(auth_api)
+            csrf_instance.exempt(ui_bp)  # Exempt entire UI blueprint including login
             print("✅ Flask-WTF CSRF exemption applied to auth API")
+            print("✅ Flask-WTF CSRF exemption applied to UI blueprint")
             
         # DISABLE CSRF VALIDATION for auth endpoints via g.csrf_exempt
         @app.before_request
@@ -423,6 +426,9 @@ def create_app():
             # SeaSurf exemption - CRITICAL FIX: exempt both webhook and auth
             surf_instance.exempt_urls(('/webhook/', '/api/auth/'))
             print("✅ SeaSurf exemption applied to /webhook/ and /api/auth/ prefixes")
+            # Add UI login to CSRF exemption
+            surf_instance.exempt_urls(('/api/ui/login',))
+            print("✅ CSRF exemption applied to /api/ui/login")
         except Exception as e:
             print(f"⚠️ SeaSurf exemption warning: {e}")
             # Alternative: Set exempt_urls directly as attribute

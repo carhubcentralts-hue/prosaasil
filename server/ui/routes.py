@@ -927,6 +927,9 @@ def api_login():
     """Handle login form submission"""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "לא התקבלו נתונים"}), 400
+            
         email = (data.get("email") or "").strip().lower()
         password = data.get("password") or ""
         
