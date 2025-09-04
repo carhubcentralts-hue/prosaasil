@@ -643,7 +643,7 @@ def create_app():
         
         # Serve React SPA for ALL frontend routes (not just login)
         import os
-        dist_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'dist', 'index.html')
+        dist_path = os.path.join(os.path.dirname(__file__), '..', 'dist', 'index.html')
         try:
             return send_file(dist_path)
         except FileNotFoundError:

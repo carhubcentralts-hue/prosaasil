@@ -1,0 +1,149 @@
+$ python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:5000 --timeout 60 --keep-alive 30 --log-level info --access-logfile - --error-logfile - --preload
+🔧 GCP credentials converted from JSON to file
+🚩 APP_START {'app': 'AgentLocator-71', 'commit': 'dev', 'build_time': 'dev', 'deploy_id': 'dev', 'startup_ts': 1757026897}
+🔒 Enterprise CSRF Protection enabled
+✅ Auth blueprints registered
+✅ New API blueprints registered
+✅ Twilio webhooks registered
+✅ API Adapter blueprint registered
+✅ Health endpoints registered
+🔧 Registering UI Blueprint: <Blueprint 'ui'>
+✅ All blueprints registered
+🔧 WebSocket: EventLet Composite WSGI + Flask WebSocket fallback
+🔧 REGISTERING TEST ROUTES...
+🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+🔧 TEST ROUTE REGISTERED
+🔧 WebSocket routes handled by EventLet WebSocketWSGI in wsgi.py
+📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com
+✅ WebSocket test route added: /test-websocket-version
+🔍 ALL REGISTERED ROUTES:
+  {'OPTIONS', 'GET', 'HEAD'} /<path:filename>
+  {'OPTIONS', 'GET', 'HEAD'} /api/auth/csrf-token
+  {'POST', 'OPTIONS'} /api/auth/login
+  {'POST', 'OPTIONS'} /api/auth/forgot
+  {'POST', 'OPTIONS'} /api/auth/reset
+  {'POST', 'OPTIONS'} /api/auth/logout
+  {'OPTIONS', 'GET', 'HEAD'} /api/auth/me
+  {'OPTIONS', 'GET', 'HEAD'} /api/auth/current
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/overview
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/calls
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/whatsapp
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/businesses
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/revenue
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/tenants
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/calls
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/threads
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/threads/<thread_id>/messages
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/customers
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/active
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/history
+  {'POST', 'OPTIONS'} /api/crm/payments/create
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/paypal/return/success
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/paypal/return/cancel
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/tranzila/return/success
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/tranzila/return/fail
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/invoices/<invoice_number>
+  {'POST', 'OPTIONS'} /api/crm/contracts/sign
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/deals
+  {'POST', 'OPTIONS'} /api/crm/deals
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/business/<int:business_id>
+  {'POST', 'OPTIONS'} /api/admin/business
+  {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id>
+  {'POST', 'OPTIONS'} /api/admin/business/<int:business_id>/change-password
+  {'POST', 'OPTIONS'} /api/admin/user
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/user/<int:user_id>
+  {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id>
+  {'POST', 'OPTIONS'} /api/admin/user/<int:user_id>/change-password
+  {'POST', 'OPTIONS'} /api/admin/user/<int:user_id>/toggle-status
+  {'POST', 'OPTIONS'} /api/admin/login-as-business/<int:business_id>
+  {'OPTIONS', 'GET', 'HEAD'} /webhook/incoming_call_preview
+  {'POST', 'OPTIONS'} /webhook/incoming_call
+  {'POST', 'OPTIONS'} /webhook/stream_ended
+  {'POST', 'OPTIONS'} /webhook/handle_recording
+  {'POST', 'OPTIONS'} /webhook/stream_status
+  {'POST', 'OPTIONS'} /webhook/call_status
+  {'POST', 'OPTIONS', 'GET', 'HEAD'} /webhook/test
+  {'OPTIONS', 'GET', 'HEAD'} /webhook/test_media_streams_1756667590
+  {'OPTIONS', 'GET', 'HEAD'} /api/dashboard/stats
+  {'OPTIONS', 'GET', 'HEAD'} /api/dashboard/activity
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/stats
+  {'OPTIONS', 'GET', 'HEAD'} /healthz
+  {'OPTIONS', 'GET', 'HEAD'} /readyz
+  {'OPTIONS', 'GET', 'HEAD'} /version
+  {'OPTIONS', 'GET', 'HEAD'} /livez
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/calls
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/whatsapp
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/businesses
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/revenue
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/tenants
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/calls
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/threads
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/threads/<thread_id>/messages
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/customers
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/active
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/history
+  {'POST', 'OPTIONS'} /api/whatsapp/send
+  {'OPTIONS', 'GET', 'HEAD'} /app/admin
+  {'OPTIONS', 'GET', 'HEAD'} /app/biz
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/overview
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/switch_business
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/tenants/new
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/users/new
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/tenants
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/users
+  {'OPTIONS', 'GET', 'HEAD'} /ui/whatsapp/threads
+  {'OPTIONS', 'GET', 'HEAD'} /ui/whatsapp/messages
+  {'POST', 'OPTIONS'} /ui/whatsapp/send
+  {'OPTIONS', 'GET', 'HEAD'} /ui/calls/active
+  {'OPTIONS', 'GET', 'HEAD'} /ui/calls/history
+  {'OPTIONS', 'GET', 'HEAD'} /ui/biz/contacts
+  {'OPTIONS', 'GET', 'HEAD'} /ui/biz/contacts/new
+  {'OPTIONS', 'GET', 'HEAD'} /ui/biz/users/new
+  {'OPTIONS', 'GET', 'HEAD'} /ui/biz/users
+  {'POST', 'OPTIONS'} /api/ui/login
+  {'POST', 'OPTIONS', 'GET', 'HEAD'} /api/ui/logout
+  {'POST', 'OPTIONS'} /api/admin/tenants
+  {'POST', 'OPTIONS'} /api/admin/users
+  {'POST', 'OPTIONS'} /api/biz/users
+  {'POST', 'OPTIONS'} /api/crm/contacts
+  {'POST', 'OPTIONS'} /admin/impersonate/<int:business_id>
+  {'POST', 'OPTIONS'} /admin/stop-impersonate
+  {'OPTIONS', 'GET', 'HEAD'} /biz/invoices
+  {'OPTIONS', 'GET', 'HEAD'} /biz/contracts
+  {'OPTIONS', 'GET', 'HEAD'} /logout
+  {'OPTIONS', 'GET', 'HEAD'} /unauthorized
+  {'OPTIONS', 'GET', 'HEAD'} /test-websocket-version
+🔍 Route registration complete
+🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+✅ Health routes handled by health_endpoints.py blueprint
+✅ Factory debug route registered: /debug-factory-http
+✅ /healthz route added directly to app_factory
+🆘 Emergency healthz-direct route added
+✅ Flask-WTF CSRF exemption applied to Twilio webhooks
+✅ Flask-WTF CSRF exemption applied to auth API
+✅ Flask-WTF CSRF exemption applied to UI blueprint
+✅ CSRF bypass flag set for auth endpoints
+✅ SeaSurf exemption applied to /api/auth/ prefix
+✅ SeaSurf exemption applied to /webhook/ and /api/auth/ prefixes
+✅ CSRF exemption applied to /api/ui/login and /api/auth/login
+✅ WhatsApp routes removed - using unified only
+✅ Database migrations applied successfully
+🔧 Warmup disabled for debugging
+✅ SPA fallback route added for React Router
+✅ EventLet Composite WSGI ready
+📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com
+🌐 All other routes → Flask app
+[2025-09-04 23:01:39 +0000] [2873] [INFO] Starting gunicorn 21.2.0
+[2025-09-04 23:01:39 +0000] [2873] [ERROR] Connection in use: ('0.0.0.0', 5000)
+[2025-09-04 23:01:39 +0000] [2873] [ERROR] Retrying in 1 second.
+[2025-09-04 23:01:40 +0000] [2873] [ERROR] Connection in use: ('0.0.0.0', 5000)
+[2025-09-04 23:01:40 +0000] [2873] [ERROR] Retrying in 1 second.
+[2025-09-04 23:01:41 +0000] [2873] [ERROR] Connection in use: ('0.0.0.0', 5000)
+[2025-09-04 23:01:41 +0000] [2873] [ERROR] Retrying in 1 second.
+[2025-09-04 23:01:42 +0000] [2873] [ERROR] Connection in use: ('0.0.0.0', 5000)
+[2025-09-04 23:01:42 +0000] [2873] [ERROR] Retrying in 1 second.
+[2025-09-04 23:01:43 +0000] [2873] [ERROR] Connection in use: ('0.0.0.0', 5000)
+[2025-09-04 23:01:43 +0000] [2873] [ERROR] Retrying in 1 second.
+[2025-09-04 23:01:44 +0000] [2873] [ERROR] Can't connect to ('0.0.0.0', 5000)
+~/workspace$ 
