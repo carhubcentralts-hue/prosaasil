@@ -599,9 +599,15 @@ def create_app():
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
     
-    # Database setup - LAZY INIT: Tables creation deferred to admin command
-    # Use: python3 -c "from main import app; from server.db import db; app.app_context().push(); db.create_all()"
-    print("🔧 Database tables creation deferred - use admin command if needed")
+    # Apply database migrations on boot (prevents 500 errors)
+    try:
+        with app.app_context():
+            from server.db_migrate import apply_migrations
+            apply_migrations()
+            print("✅ Database migrations applied successfully")
+    except Exception as e:
+        print(f"⚠️ Database migration error: {e}")
+        # Continue startup - don't crash on migration failures
     
     # Health endpoints removed - using health_endpoints.py blueprint only
     
