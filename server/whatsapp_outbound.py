@@ -10,7 +10,7 @@ from server.dao_crm import insert_message
 
 log = logging.getLogger(__name__)
 
-def send_whatsapp_message(to: str, text: str = None, media_url: str = None, provider: str = "auto") -> dict:
+def send_whatsapp_message(to: str, text: str | None = None, media_url: str | None = None, provider: str = "auto") -> dict:
     """
     Send WhatsApp message through specified or auto-selected provider
     Returns: {"ok": True/False, "provider_used": "twilio"/"baileys", "provider_msg_id": "...", "error": "..."}
@@ -58,7 +58,7 @@ def resolve_provider() -> str:
     else:
         raise Exception("No WhatsApp provider enabled")
 
-def _send_twilio(to: str, text: str = None, media_url: str = None) -> dict:
+def _send_twilio(to: str, text: str | None = None, media_url: str | None = None) -> dict:
     """Send via Twilio WhatsApp API"""
     try:
         client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
@@ -87,7 +87,7 @@ def _send_twilio(to: str, text: str = None, media_url: str = None) -> dict:
         log.error(f"Twilio WhatsApp send failed: {e}")
         return {"ok": False, "error": str(e), "provider_used": "twilio"}
 
-def _send_baileys(to: str, text: str = None, media_url: str = None) -> dict:
+def _send_baileys(to: str, text: str | None = None, media_url: str | None = None) -> dict:
     """Send via Baileys bridge (local HTTP)"""
     try:
         port = int(os.getenv("WA_BAILEYS_PORT", "8000"))
@@ -117,8 +117,8 @@ def _send_baileys(to: str, text: str = None, media_url: str = None) -> dict:
         log.error(f"Baileys WhatsApp send failed: {e}")
         return {"ok": False, "error": str(e), "provider_used": "baileys"}
 
-def send_and_record(to: str, text: str = None, media_url: str = None, provider: str = "auto", 
-                   thread_id: int = None, business_id: int = 1) -> dict:
+def send_and_record(to: str, text: str | None = None, media_url: str | None = None, provider: str = "auto", 
+                   thread_id: int | None = None, business_id: int = 1) -> dict:
     """
     Send WhatsApp message and record in CRM
     """
@@ -142,9 +142,9 @@ def send_and_record(to: str, text: str = None, media_url: str = None, provider: 
             thread_id=thread_id,
             direction="out",
             message_type="text" if not media_url else "media",
-            content_text=text,
-            media_url=media_url,
-            provider_msg_id=result.get("provider_msg_id"),
+            content_text=text or "",
+            media_url=media_url or "",
+            provider_msg_id=result.get("provider_msg_id") or "",
             status=status
         )
     except Exception as e:
