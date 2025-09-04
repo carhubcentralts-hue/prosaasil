@@ -28,17 +28,35 @@ export default function ModernLogin() {
         return;
       }
 
-      // Simulate login
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      if (email === "admin@maximus.co.il" && password === "admin123") {
-        setMessage("התחברות הצליחה!");
-        setMessageType('success');
-      } else if (email === "manager@shai-realestate.co.il" && password === "business123456") {
-        setMessage("התחברות הצליחה!");
-        setMessageType('success');
-      } else {
-        setMessage("פרטי התחברות שגויים");
+      // Real API login
+      try {
+        const response = await fetch('/api/ui/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ email, password })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          setMessage("התחברות הצליחה!");
+          setMessageType('success');
+          
+          // Redirect based on user role
+          setTimeout(() => {
+            if (data.user.role === 'admin') {
+              window.location.href = '/app/admin';
+            } else {
+              window.location.href = '/app/biz';
+            }
+          }, 1000);
+        } else {
+          setMessage(data.error || "פרטי התחברות שגויים");
+          setMessageType('error');
+        }
+      } catch (error) {
+        setMessage("שגיאת רשת - נסה שוב");
         setMessageType('error');
       }
     } else {
