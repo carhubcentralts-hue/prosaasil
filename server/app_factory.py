@@ -640,18 +640,13 @@ def create_app():
             from flask import abort
             abort(404)
         
-        # Serve SPA for login routes only (/login, /forgot, /reset, root)
-        if path in ['', 'login', 'forgot', 'reset', 'home'] or path == '':
-            import os
-            dist_path = os.path.join(os.path.dirname(__file__), '..', 'dist', 'index.html')
-            try:
-                return send_file(dist_path)
-            except FileNotFoundError:
-                return "SPA not built - run npm run build", 503
-        
-        # For other routes, let Flask handle normally (likely 404 or server pages)
-        from flask import abort
-        abort(404)
+        # Serve React SPA for ALL frontend routes (not just login)
+        import os
+        dist_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'dist', 'index.html')
+        try:
+            return send_file(dist_path)
+        except FileNotFoundError:
+            return "SPA not built - run npm run build", 503
     
     print("✅ SPA fallback route added for React Router")
     
