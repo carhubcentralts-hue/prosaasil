@@ -933,8 +933,26 @@ def api_login():
         if not email or not password:
             return jsonify({"success": False, "error": "נדרשים אימייל וסיסמה"}), 400
 
-        # Simple admin login for development
-        if email == "admin@admin.com" and password == "admin123":
+        # Check database users first
+        from server.models_sql import User
+        from werkzeug.security import check_password_hash
+        
+        user = User.query.filter_by(email=email, is_active=True).first()
+        if user and check_password_hash(user.password_hash, password):
+            session["al_user"] = {
+                "id": str(user.id),
+                "name": user.name,
+                "email": user.email,
+                "role": user.role,
+                "business_id": user.business_id,
+            }
+            return jsonify({
+                "success": True,
+                "user": session["al_user"]
+            })
+        
+        # Fallback to hardcoded admin for development
+        elif email == "admin@admin.com" and password == "admin123":
             session["al_user"] = {
                 "id": "admin-1",
                 "name": "מנהל מערכת",
