@@ -4,6 +4,7 @@ DAO functions for unified CRM system
 from server.db import db
 from sqlalchemy import text
 import logging
+from datetime import datetime
 
 log = logging.getLogger(__name__)
 
@@ -138,3 +139,40 @@ def get_thread_messages(thread_id: int, limit: int = 100, offset: int = 0) -> li
     except Exception as e:
         log.error(f"Error getting thread messages: {e}")
         return []
+
+def get_thread_by_peer(business_id: int, type_: str, peer_number: str) -> dict | None:
+    """
+    Get thread data by peer number for smart routing
+    Returns thread data with last message info
+    """
+    try:
+        # Get thread with last message info
+        result = db.session.execute(text("""
+            SELECT t.id, t.provider, t.last_message_at,
+                   m.direction as last_direction, m.created_at as last_message_time
+            FROM threads t
+            LEFT JOIN messages m ON t.id = m.thread_id
+            WHERE t.business_id = :business_id AND t.type = :type AND t.peer_number = :peer_number
+            ORDER BY m.created_at DESC
+            LIMIT 1
+        """), {
+            "business_id": business_id,
+            "type": type_,
+            "peer_number": peer_number
+        })
+        
+        row = result.fetchone()
+        if row:
+            return {
+                "thread_id": row[0],
+                "last_provider": row[1],
+                "last_message_at": row[2],
+                "last_direction": row[3],
+                "last_user_message_time": row[4] if row[3] == "in" else None
+            }
+        
+        return None
+        
+    except Exception as e:
+        log.error(f"Error getting thread by peer: {e}")
+        return None

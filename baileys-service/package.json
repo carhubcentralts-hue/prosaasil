@@ -1,0 +1,18 @@
+{
+  "name": "baileys-whatsapp-service",
+  "version": "1.0.0",
+  "description": "Baileys WhatsApp service for AgentLocator CRM",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.8",
+    "express": "^4.19.2",
+    "qrcode-terminal": "^0.12.0",
+    "node-cache": "^5.1.2",
+    "crypto": "^1.0.1"
+  }
+}

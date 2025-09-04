@@ -7,11 +7,16 @@ from flask import Blueprint, request, jsonify, current_app
 from server.whatsapp_provider import get_whatsapp_service  
 from server.models_sql import WhatsAppMessage, Business
 from server.db import db
-from server.dao_crm import upsert_thread, insert_message
+from server.dao_crm import upsert_thread, insert_message, get_thread_by_peer
+from server.whatsapp_templates import validate_and_route_message, send_template_message, get_template_list
 from server.twilio_security import require_twilio_signature
 from twilio.twiml.messaging_response import MessagingResponse
 from datetime import datetime
 import logging
+import hashlib
+import hmac
+import os
+from flask import abort
 
 # Single unified WhatsApp blueprint - no more duplicates
 whatsapp_unified_bp = Blueprint("whatsapp_unified", __name__)
@@ -57,9 +62,26 @@ def send_message():
                 "error": "to and message are required"
             }), 400
         
-        # Send via service (עם provider per-request לפי הדו"ח)
-        service = get_whatsapp_service(provider)
-        result = service.send_message(to_number, message)
+        # Smart routing with 24-hour window validation
+        routing_result = validate_and_route_message(
+            to_number, message, business_id,
+            context={"customer_name": data.get("customer_name"), "area": data.get("area")}
+        )
+        
+        if routing_result["route"] == "template_required":
+            # Send template message via Twilio
+            result = send_template_message(
+                to_number,
+                routing_result["template"]["name"],
+                routing_result["template_parameters"],
+                "twilio"
+            )
+        else:
+            # Send regular message with smart provider routing
+            thread_data = routing_result.get("window_status")
+            provider_pref = routing_result.get("provider_recommendation", provider)
+            service = get_whatsapp_service(provider_pref, thread_data)
+            result = service.send_message(to_number, message)
         
         # Save to database
         message_id = None
@@ -71,7 +93,7 @@ def send_message():
             wa_message.body = message
             wa_message.message_type = "text"
             wa_message.status = result.get("status", "sent")  # Default to sent
-            wa_message.provider = result.get("provider", provider or "unknown")
+            wa_message.provider = result.get("provider", routing_result.get("provider_recommendation", provider or "unknown"))
             wa_message.provider_message_id = result.get("sid")
             
             db.session.add(wa_message)
@@ -86,7 +108,12 @@ def send_message():
         return jsonify({
             "success": True,
             "result": result,
-            "message_id": message_id
+            "message_id": message_id,
+            "routing_info": {
+                "window_status": routing_result["window_status"],
+                "route_used": routing_result["route"],
+                "template_used": routing_result.get("template", {}).get("name") if routing_result["route"] == "template_required" else None
+            }
         })
         
     except Exception as e:
@@ -139,29 +166,54 @@ def wa_in_twilio():
 
 @whatsapp_unified_bp.route("/webhook/whatsapp/baileys", methods=["POST"])
 def wa_in_baileys():
-    """Handle Baileys WhatsApp inbound messages"""
+    """Handle Baileys WhatsApp inbound messages with security validation"""
     try:
+        # Security: Validate webhook signature
+        webhook_secret = os.environ.get('BAILEYS_WEBHOOK_SECRET', '')
+        if webhook_secret:
+            signature = request.headers.get('X-Signature')
+            if not signature or not _verify_baileys_signature(request.data, signature, webhook_secret):
+                current_app.logger.warning("Baileys webhook signature validation failed")
+                abort(401)
+        
         data = request.get_json() or {}
-        from_number = data.get("from", "")
+        
+        # Enhanced payload validation
+        from_number = data.get("from", "").replace("@c.us", "")
         body = data.get("body", "")
         message_id = data.get("id", "")
+        message_type = data.get("type", "text")
+        media_url = data.get("mediaUrl", "")
+        
+        if not from_number or not message_id:
+            current_app.logger.warning("Invalid Baileys webhook payload")
+            return jsonify({"success": False, "error": "Invalid payload"}), 400
+
+        current_app.logger.info("WA_IN_BAILEYS", extra={
+            "from": from_number, "body_len": len(body), "type": message_type
+        })
 
         # Find/create thread
         thread_id = upsert_thread(business_id=1, type_="whatsapp", provider="baileys", peer_number=from_number)
 
-        # Record message
+        # Record message with enhanced type detection
         insert_message(
             thread_id=thread_id,
             direction="in",
-            message_type="text",
+            message_type=message_type,
             content_text=body,
-            media_url="",
+            media_url=media_url,
             provider_msg_id=message_id,
             status="received"
         )
 
-        # Generate and send Hebrew response
+        # Generate Hebrew response
         response_text = handle_whatsapp_logic(body)
+        
+        # Send auto-response via Baileys (not through API to avoid loops)
+        if response_text and len(response_text.strip()) > 0:
+            # Queue response for Baileys to send
+            _queue_baileys_response(from_number, response_text)
         
         return jsonify({
             "success": True,
@@ -337,6 +389,51 @@ def get_conversation_history(phone_number):
         logger.error(f"Error fetching conversation history: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+def _verify_baileys_signature(payload: bytes, signature: str, secret: str) -> bool:
+    """Verify Baileys webhook signature"""
+    try:
+        expected_signature = hmac.new(
+            secret.encode('utf-8'),
+            payload,
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Support both 'sha256=' prefixed and raw hex signatures
+        if signature.startswith('sha256='):
+            signature = signature[7:]
+        
+        return hmac.compare_digest(expected_signature, signature)
+    except Exception as e:
+        logger.error(f"Signature verification error: {e}")
+        return False
+
+def _queue_baileys_response(to: str, text: str):
+    """Queue response message for Baileys to send (avoid webhook loops)"""
+    try:
+        import requests
+        import os
+        
+        baileys_url = os.environ.get('BAILEYS_OUTBOUND_URL', 'http://localhost:3001')
+        
+        payload = {
+            "to": to,
+            "type": "text",
+            "text": text,
+            "webhook_response": True  # Flag to prevent loops
+        }
+        
+        # Fire and forget - don't wait for response
+        requests.post(
+            f"{baileys_url}/send",
+            json=payload,
+            timeout=2
+        )
+        
+        logger.info(f"Queued Baileys response to {to}")
+        
+    except Exception as e:
+        logger.error(f"Failed to queue Baileys response: {e}")
+
 def handle_whatsapp_logic(body: str) -> str:
     """Handle WhatsApp message logic with Hebrew responses"""
     try:
@@ -361,3 +458,37 @@ def handle_whatsapp_logic(body: str) -> str:
     except Exception as e:
         logger.error(f"WhatsApp logic error: {e}")
         return "תודה על הפנייה! נחזור אליכם בהקדם."
+
+@whatsapp_unified_bp.route("/api/whatsapp/templates", methods=["GET"])
+def get_templates():
+    """Get list of approved WhatsApp templates"""
+    try:
+        templates = get_template_list()
+        return jsonify({
+            "success": True,
+            "templates": templates
+        })
+    except Exception as e:
+        logger.error(f"Error getting templates: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@whatsapp_unified_bp.route("/api/whatsapp/window-check", methods=["POST"])
+def check_messaging_window():
+    """Check 24-hour messaging window status for a number"""
+    try:
+        data = request.get_json()
+        if not data or not data.get("to"):
+            return jsonify({"success": False, "error": "Phone number required"}), 400
+        
+        from server.whatsapp_templates import window_manager
+        business_id = data.get("business_id", 1)
+        window_status = window_manager.check_messaging_window(business_id, data["to"])
+        
+        return jsonify({
+            "success": True,
+            "window_status": window_status
+        })
+        
+    except Exception as e:
+        logger.error(f"Error checking messaging window: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
