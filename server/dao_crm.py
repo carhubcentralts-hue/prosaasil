@@ -191,3 +191,74 @@ def get_thread_by_peer(business_id: int, type_: str, peer_number: str) -> dict |
     except Exception as e:
         log.error(f"Error getting thread by peer: {e}")
         return None
+
+def get_messages_by_business(business_id: int, direction: str | None = None, status: str | None = None, page: int = 1, per_page: int = 20) -> dict:
+    """
+    Get messages for a business with pagination - UNIFIED VERSION
+    """
+    try:
+        offset = (page - 1) * per_page
+        where_clause = "WHERE t.business_id = :business_id"
+        params = {"business_id": business_id, "limit": per_page, "offset": offset}
+        
+        if direction:
+            where_clause += " AND m.direction = :direction"
+            params["direction"] = direction
+            
+        if status:
+            where_clause += " AND m.status = :status"
+            params["status"] = status
+        
+        # Get messages with thread info
+        result = db.session.execute(text(f"""
+            SELECT m.id, m.direction, m.message_type, m.content_text, m.media_url, 
+                   m.provider_msg_id, m.status, m.created_at,
+                   t.provider, t.peer_number, t.business_id
+            FROM messages m
+            JOIN threads t ON m.thread_id = t.id
+            {where_clause}
+            ORDER BY m.created_at DESC
+            LIMIT :limit OFFSET :offset
+        """), params)
+        
+        messages = []
+        for row in result.fetchall():
+            messages.append({
+                "id": row[0],
+                "direction": row[1], 
+                "message_type": row[2],
+                "body": row[3],  # content_text -> body for compatibility
+                "media_url": row[4],
+                "provider_message_id": row[5], 
+                "status": row[6],
+                "created_at": row[7].isoformat() if row[7] else None,
+                "provider": row[8],
+                "to_number": row[9],  # peer_number -> to_number for compatibility
+                "business_id": row[10]
+            })
+        
+        # Get total count for pagination
+        count_params = {k: v for k, v in params.items() if k not in ["limit", "offset"]}
+        count_result = db.session.execute(text(f"""
+            SELECT COUNT(*)
+            FROM messages m
+            JOIN threads t ON m.thread_id = t.id
+            {where_clause}
+        """), count_params)
+        
+        count_row = count_result.fetchone()
+        total = count_row[0] if count_row else 0
+        
+        return {
+            "messages": messages,
+            "pagination": {
+                "page": page,
+                "per_page": per_page,
+                "total": total,
+                "pages": (total + per_page - 1) // per_page
+            }
+        }
+        
+    except Exception as e:
+        log.error(f"Error getting messages by business: {e}")
+        return {"messages": [], "pagination": {"page": page, "per_page": per_page, "total": 0, "pages": 0}}

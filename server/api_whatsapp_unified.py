@@ -232,60 +232,29 @@ def wa_in_baileys():
 
 @whatsapp_unified_bp.route("/messages", methods=["GET"])
 def get_messages():
-    """Get WhatsApp messages with pagination"""
+    """Get WhatsApp messages with pagination - UNIFIED DAO VERSION"""
     try:
         # Query parameters
         business_id = request.args.get("business_id", type=int)
         direction = request.args.get("direction")  # "in" or "out"
         status = request.args.get("status")
-        
-        # Base query
-        query = WhatsAppMessage.query
-        
-        # Apply filters
-        if business_id:
-            query = query.filter(WhatsAppMessage.business_id == business_id)
-        
-        if direction:
-            query = query.filter(WhatsAppMessage.direction == direction)
-        
-        if status:
-            query = query.filter(WhatsAppMessage.status == status)
-        
-        # Order by newest first
-        query = query.order_by(WhatsAppMessage.created_at.desc())
-        
-        # Get results with basic pagination
         page = request.args.get('page', 1, type=int)
         per_page = min(request.args.get('per_page', 20, type=int), 100)
         
-        messages = query.offset((page - 1) * per_page).limit(per_page).all()
-        total = query.count()
+        # Use DAO instead of WhatsAppMessage for consistency
+        from server.dao_crm import get_messages_by_business
+        messages_data = get_messages_by_business(
+            business_id=business_id or 1,  # Default to business 1 if not specified
+            direction=direction,
+            status=status,
+            page=page,
+            per_page=per_page
+        )
         
         return jsonify({
             "success": True,
-            "messages": [
-                {
-                    "id": msg.id,
-                    "business_id": msg.business_id,
-                    "to_number": msg.to_number,
-                    "direction": msg.direction,
-                    "body": msg.body,
-                    "message_type": msg.message_type,
-                    "media_url": msg.media_url,
-                    "status": msg.status,
-                    "provider": msg.provider,
-                    "provider_message_id": msg.provider_message_id,
-                    "created_at": msg.created_at.isoformat(),
-                    "delivered_at": msg.delivered_at.isoformat() if msg.delivered_at else None,
-                    "read_at": msg.read_at.isoformat() if msg.read_at else None
-                } for msg in messages
-            ],
-            "pagination": {
-                "page": page,
-                "per_page": per_page,
-                "total": total,
-                "pages": (total + per_page - 1) // per_page
+            "messages": messages_data.get("messages", []),
+            "pagination": messages_data.get("pagination", {})
             }
         })
         

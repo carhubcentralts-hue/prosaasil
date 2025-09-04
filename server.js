@@ -1,10 +1,18 @@
 #!/usr/bin/env node
+/**
+ * DEVELOPMENT-ONLY React Server
+ * ⚠️ DO NOT RUN IN PRODUCTION - SPA is served by Flask
+ * Use this only for frontend development when working separately from Flask
+ */
 
 const express = require('express');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;  // Changed to avoid conflict with Flask
+
+console.log("⚠️ DEVELOPMENT SERVER - Frontend only!");
+console.log("⚠️ In production, React SPA is served by Flask on port 5000");
 
 // Serve static files from React build
 app.use(express.static(path.join(__dirname, 'client/dist')));
@@ -15,6 +23,7 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 React Server running on port ${PORT}`);
-  console.log(`📱 App available at http://0.0.0.0:${PORT}`);
+  console.log(`🚀 DEV-ONLY React Server running on port ${PORT}`);
+  console.log(`📱 Dev app available at http://0.0.0.0:${PORT}`);
+  console.log(`⚠️ Use Flask on port 5000 for production!`);
 });

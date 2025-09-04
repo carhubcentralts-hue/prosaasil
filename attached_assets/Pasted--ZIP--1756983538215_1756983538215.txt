@@ -1,0 +1,73 @@
+בדקתי את ה-ZIP האחרון מקצה לקצה. הנה הסטטוס האמיתי + מה עוד צריך ליישר כדי שזה יהיה “ירוק” לפרודקשן:
+
+מה תקין ומיושם ✅
+	•	WSGI מרוכב + Eventlet (wsgi.py):
+Fast-path ל־/webhook/stream_status//webhook/stream_ended (204 מיידי), TwiML מיידי ל־/webhook/incoming_call, ו־WebSocket עם Sec-WebSocket-Protocol: audio.twilio.com.
+	•	TwiML דינמי ונכון (server/routes_twilio.py): בונה https:// + wss://{host}/ws/twilio-media לפי כותרות ה-proxy.
+	•	אימות טוויליו (server/twilio_security.py) + שימוש בו על Webhooks.
+	•	בריאות/מוכנות (server/health_endpoints.py): ‎/version, /readyz, /livez.
+	•	SPA-routing (server/app_factory.py): הגשת dist/ עם fallback ל־index.html בכל נתיבי ה-UI; חריגים ל־/api/*, /webhook/*, /ws/*.
+	•	WhatsApp Unified (server/api_whatsapp_unified.py + server/whatsapp_provider.py):
+	•	Webhooks: ‎/webhook/whatsapp/twilio (עם חתימה) ו־/webhook/whatsapp/baileys (עם X-BAILEYS-SECRET).
+	•	Outbound: ‎/api/whatsapp/send, 24h-rule + Failover ל-Twilio.
+	•	Idempotency לטיפול בכפילויות.
+	•	Baileys Service כלול בפרויקט (baileys-service/server.js):
+מאזין על process.env.PORT, נתיבים /health ו־/send, מעביר אליך Inbound עם X-BAILEYS-SECRET, ניהול session (auth-state) ושחזורים.
+
+פערים אחרונים לסגירה ⚠️
+	1.	Procfile חסר (בדיפלוי ה-Flask):
+בקוד הנוכחי אין Procfile. אם הפלטפורמה שלך נשענת עליו—צריך להוסיף (Start: gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT wsgi:app).
+אם אתה לא משתמש ב-Procfile (למשל מגדיר Start Command דרך ה-UI), זה בסדר—פשוט ודא שהפקודה למעלה היא זו שרצה.
+	2.	מיגרציות DB אינן נקראות אוטומטית:
+יש server/db_migrate.py עם apply_migrations() אבל אין קריאה אליו באתחול. אם כבר הרצת ידנית — מצוין; בכל מקרה מומלץ:
+	•	לקרוא ל־apply_migrations() ב־startup (אחרי db.init_app(app)), או להריץ ידנית פעם אחת בכל דיפלוי חדש.
+	•	לוודא שקיים אינדקס/Constraint ייחודי למניעת כפילויות: אם אתה הולך עם שכבת ה-DAO (threads/messages) — עדיף ייחודיות על (provider, provider_msg_id). כרגע בקוד ה-DAO נבדק רק provider_msg_id, וב-server/database_indexes.sql אין אינדקס כזה—מומלץ להוסיף.
+	3.	שכבת נתונים כפולה להודעות:
+Inbound נשמר דרך ה-DAO (threads/messages), ואילו Outbound נשמר גם כ־WhatsAppMessage (SQLAlchemy).
+בחר מקור אמת אחד (מומלץ להישאר עם ה-DAO האחיד) והסר/נטרל את הכתיבה לשכבה השנייה—כדי למנוע חוסר עקביות וריפליקציה מיותרת.
+	4.	קובצי ENV:
+יש .env קטן עם HOST/PUBLIC_HOST. כדי למנוע בלבול: השאר רק .env.example לערכים מדומים, ואת הערכים האמיתיים שמור ב-Environment Variables של הדיפלוי.
+	5.	שרת FE מקביל:
+יש server.js בשורש שמגיש את ה-SPA. בפרודקשן ה-SPA כבר מוגש מפלאסק—השאר את server.js לשימוש פיתוח בלבד (לא להרים אותו לצד Flask בפרודקשן).
+
+צ’ק-ליסט “GO” קצר (בצע לפי הסדר)
+
+A. דיפלוי Flask (API/WSGI)
+	•	סטארט: gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT wsgi:app
+	•	ENV ב-Deployment:
+PUBLIC_HOST/PUBLIC_BASE_URL, DATABASE_URL, OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
+WHATSAPP_PROVIDER=auto, BAILEYS_OUTBOUND_URL=https://<דומיין-node>/send, BAILEYS_WEBHOOK_SECRET=<טוקן זהה>.
+	•	להריץ/לקרוא apply_migrations() עד שהטבלאות והאינדקסים במקום.
+	•	לוודא: ‎/version//readyz//livez = 200.
+
+B. דיפלוי Baileys (Node)
+	•	baileys-service/package.json → npm start מריץ node server.js, מאזין על 0.0.0.0:(process.env.PORT||3000).
+	•	ENV:
+BAILEYS_WEBHOOK_SECRET=<אותו טוקן>,
+BAILEYS_WEBHOOK_TARGET=https://<Flask>/webhook/whatsapp/baileys.
+	•	שמירת auth-state על אחסון מתמיד (כדי שלא תידרש סריקת QR בכל דיפלוי).
+	•	בדיקה: GET /health מחזיר {connected:true}.
+
+C. חיבורים חיצוניים
+	•	Twilio Console → WhatsApp Webhook: POST https://<Flask>/webhook/whatsapp/twilio.
+	•	Outbound מה-Python ל-Baileys: נשלח ל־BAILEYS_OUTBOUND_URL=/send.
+	•	Failover & 24h rule: נשארים דלוקים (Reply-via-source, מחוץ ל-24h → Twilio Template).
+
+D. בדיקות עשן (על דומיינים ציבוריים)
+	•	Flask: GET /version, GET /readyz → 200.
+	•	Baileys: GET /health → connected:true, POST /send → {ok:true}.
+	•	Inbound סימולציה ל-Baileys→Flask (עם X-BAILEYS-SECRET) → 204.
+	•	Twilio inbound אמיתי → 204.
+	•	Failover: עצור זמנית את ה-Node, שליחה מה-CRM נופלת לטוויליו אוטומטית.
+
+כמה אתה קרוב?
+
+מאוד. בפועל אתה על ~90–95%. ברגע שתוודא:
+	•	Start command נכון לדיפלוי (או Procfile),
+	•	מיגרציות רצות/נרשמות,
+	•	שכבת נתונים אחת להודעות,
+	•	ו-ENV רק בדיפלוי—
+
+אתה בפרודקשן יציב.
+
+רוצה שאארוז לך מזה RUNBOOK_DEPLOY.md (צעד-אחר-צעד) שתשימו בריפו, כדי שכל דיפלוי עתידי יהיה “one-click + ירוק”?
