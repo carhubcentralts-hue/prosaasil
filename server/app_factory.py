@@ -610,4 +610,29 @@ def create_app():
     # warmup_services_async()
     print("🔧 Warmup disabled for debugging")
     
+    # SPA Fallback Route - Must be LAST to catch unmatched routes
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def spa_fallback(path):
+        """Serve React SPA for all unmatched routes except API/webhook"""
+        # Don't interfere with API routes, webhooks, or static assets
+        if (path.startswith('api/') or 
+            path.startswith('webhook/') or 
+            path.startswith('static/') or
+            path.startswith('assets/') or
+            path.startswith('ws/')):
+            # Let Flask handle these normally (will likely 404)
+            from flask import abort
+            abort(404)
+        
+        # Serve SPA for all other routes (like /app/admin, /login, etc.)
+        import os
+        dist_path = os.path.join(os.path.dirname(__file__), '..', 'client', 'dist', 'index.html')
+        try:
+            return send_file(dist_path)
+        except FileNotFoundError:
+            return "SPA not built - run npm run build", 503
+    
+    print("✅ SPA fallback route added for React Router")
+    
     return app

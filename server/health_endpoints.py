@@ -33,3 +33,11 @@ def version():
         "build_time": datetime.now().isoformat(),
         "business": "שי דירות ומשרדים בע״מ"
     }), 200
+
+@health_bp.route('/livez', methods=['GET'])
+def livez():
+    """Liveness check - server is alive"""
+    return jsonify({
+        "status": "alive",
+        "timestamp": datetime.now().isoformat()
+    }), 200

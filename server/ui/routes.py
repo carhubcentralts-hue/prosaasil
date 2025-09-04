@@ -1,6 +1,7 @@
 # Clean UI Routes - Professional Hebrew CRM
 # Based on exact specification from attached_assets
-from flask import Blueprint, render_template, request, session, g, redirect, url_for, jsonify, render_template_string
+from flask import Blueprint, request, session, g, redirect, url_for, jsonify, send_file
+import os
 from functools import wraps
 from datetime import datetime
 from server.security_audit import audit_action
@@ -91,13 +92,9 @@ def admin_home():
     """Professional admin dashboard"""
     user = session.get('al_user') or session.get('user')
     counters = _load_counters_for_admin()
-    return render_template('admin.html', 
-                         page_title="דשבורד מנהל",
-                         role=user.get('role') if user else None,
-                         current_user=user,
-                         active='admin_home',
-                         current_business_id=effective_business_id(),
-                         counters=counters)
+    # SPA fallback - return React app
+    dist_path = os.path.join(os.path.dirname(__file__), '..', '..', 'client', 'dist', 'index.html')
+    return send_file(dist_path)
 
 @ui_bp.route('/app/biz')
 @require_roles('admin','superadmin','manager','agent')
@@ -106,13 +103,9 @@ def biz_home():
     user = session.get('al_user') or session.get('user')
     bid = effective_business_id() or (user.get('business_id') if user else None)
     counters = _load_counters_for_business(bid)
-    return render_template('business.html', 
-                         page_title="מרכז הבקרה",
-                         role=user.get('role') if user else None,
-                         current_user=user,
-                         active='biz_whatsapp',
-                         current_business_id=bid,
-                         counters=counters)
+    # SPA fallback - return React app
+    dist_path = os.path.join(os.path.dirname(__file__), '..', '..', 'client', 'dist', 'index.html')
+    return send_file(dist_path)
 
 # === ADMIN HTMX ROUTES ===
 @ui_bp.route("/ui/admin/overview")
@@ -186,7 +179,8 @@ def ui_admin_overview():
 def ui_admin_switch_business():
     """Switch business for admin view"""
     bid = request.args.get("business_id","")
-    return render_template_string('<div id="switchHook"></div><script>location = "/app/admin?business_id={{bid}}"</script>', bid=bid)
+    # Redirect to React app with business_id
+    return redirect(f"/app/admin?business_id={bid}")
 
 @ui_bp.route("/ui/admin/tenants/new")
 @require_roles("admin","superadmin")
@@ -1124,7 +1118,8 @@ def ui_biz_invoices():
             {'id': 2, 'invoice_number': f'INV-{business_id}-002', 'customer_name': 'לקוח אחר', 'amount': 2300, 'status': 'pending'},
         ]
         
-        return render_template('partials/biz_invoices.html', invoices=invoices)
+        # Return JSON for SPA instead of template
+        return jsonify({"invoices": invoices})
     except Exception as e:
         from server.ui_components import render_error_state
         return render_error_state(f'שגיאה בטעינת חשבוניות: {str(e)}')
@@ -1142,7 +1137,8 @@ def ui_biz_contracts():
             {'id': 2, 'title': 'חוזה משרד רמת גן', 'client': 'חברת ABC', 'status': 'pending', 'amount': 800000},
         ]
         
-        return render_template('partials/biz_contracts.html', contracts=contracts)
+        # Return JSON for SPA instead of template  
+        return jsonify({"contracts": contracts})
     except Exception as e:
         from server.ui_components import render_error_state
         return render_error_state(f'שגיאה בטעינת חוזים: {str(e)}')

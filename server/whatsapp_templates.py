@@ -8,6 +8,30 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from server.dao_crm import get_thread_by_peer
 
+def is_within_24h_window(last_message_time: datetime) -> bool:
+    """Check if a timestamp is within the 24-hour messaging window"""
+    if not last_message_time:
+        return False
+    now = datetime.now()
+    time_diff = now - last_message_time
+    return time_diff <= timedelta(hours=24)
+
+def select_template(template_name: str, **params) -> Dict[str, Any] | None:
+    """Select and prepare a template with parameters"""
+    if template_name not in APPROVED_TEMPLATES:
+        return None
+    
+    template = APPROVED_TEMPLATES[template_name].copy()
+    
+    # Replace parameters in template text
+    if "text" in template:
+        text = template["text"]
+        for i, (key, value) in enumerate(params.items(), 1):
+            text = text.replace(f"{{{{{i}}}}}", str(value))
+        template["text"] = text
+    
+    return template
+
 logger = logging.getLogger(__name__)
 
 # Template definitions for Hebrew real estate agent "Leah"

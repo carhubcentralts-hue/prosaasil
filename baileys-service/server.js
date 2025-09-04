@@ -408,7 +408,7 @@ app.use((req, res) => {
 app.listen(PORT, () => {
   console.log(`Baileys WhatsApp Service running on port ${PORT}`);
   console.log('Environment:', {
-    webhookUrl: PYTHON_WEBHOOK_URL,
+    webhookUrl: BAILEYS_WEBHOOK_TARGET,
     hasWebhookSecret: !!WEBHOOK_SECRET,
     port: PORT
   });

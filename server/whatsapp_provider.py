@@ -385,7 +385,7 @@ class WhatsAppService:
             
             # Check provider-specific health
             if hasattr(self.provider, '_check_health'):
-                health = self.provider._check_health()
+                health = getattr(self.provider, '_check_health', lambda: True)()
             else:
                 health = True  # Assume Twilio is always available
             
