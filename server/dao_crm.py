@@ -8,7 +8,7 @@ from datetime import datetime
 
 log = logging.getLogger(__name__)
 
-def upsert_thread(business_id: int, type_: str, provider: str, peer_number: str, title: str = None) -> int:
+def upsert_thread(business_id: int, type_: str, provider: str, peer_number: str, title: str | None = None) -> int:
     """
     Find or create a thread for unified messaging
     Returns thread_id
@@ -48,7 +48,10 @@ def upsert_thread(business_id: int, type_: str, provider: str, peer_number: str,
             "title": title or f"{provider} {peer_number}"
         })
         
-        thread_id = result.fetchone()[0]
+        row = result.fetchone()
+        if not row:
+            raise Exception("Failed to create thread")
+        thread_id = row[0]
         db.session.commit()
         log.info(f"Created new thread {thread_id} for {provider} {peer_number}")
         return thread_id
@@ -58,13 +61,22 @@ def upsert_thread(business_id: int, type_: str, provider: str, peer_number: str,
         log.error(f"Error upserting thread: {e}")
         raise
 
-def insert_message(thread_id: int, direction: str, message_type: str, content_text: str = None, 
-                  media_url: str = None, provider_msg_id: str = None, status: str = "received") -> int:
+def insert_message(thread_id: int, direction: str, message_type: str, content_text: str | None = None, 
+                  media_url: str | None = None, provider_msg_id: str | None = None, status: str = "received") -> int:
     """
-    Insert a message into the unified messaging system
+    Insert a message into the unified messaging system with idempotency protection
     Returns message_id
     """
     try:
+        # Check for duplicate provider_msg_id (idempotency)
+        if provider_msg_id:
+            existing = db.session.execute(text("""
+                SELECT id FROM messages WHERE provider_msg_id = :provider_msg_id
+            """), {"provider_msg_id": provider_msg_id}).fetchone()
+            
+            if existing:
+                log.info(f"Message {provider_msg_id} already exists (idempotency), returning existing ID {existing[0]}")
+                return existing[0]
         result = db.session.execute(text("""
             INSERT INTO messages (thread_id, direction, message_type, content_text, media_url, provider_msg_id, status, created_at)
             VALUES (:thread_id, :direction, :message_type, :content_text, :media_url, :provider_msg_id, :status, CURRENT_TIMESTAMP)
@@ -73,13 +85,16 @@ def insert_message(thread_id: int, direction: str, message_type: str, content_te
             "thread_id": thread_id,
             "direction": direction,
             "message_type": message_type,
-            "content_text": content_text,
-            "media_url": media_url,
-            "provider_msg_id": provider_msg_id,
+            "content_text": content_text or "",
+            "media_url": media_url or "",
+            "provider_msg_id": provider_msg_id or "",
             "status": status
         })
         
-        message_id = result.fetchone()[0]
+        row = result.fetchone()
+        if not row:
+            raise Exception("Failed to create message")
+        message_id = row[0]
         
         # Update thread's last_message_at
         db.session.execute(text("""
@@ -87,7 +102,7 @@ def insert_message(thread_id: int, direction: str, message_type: str, content_te
         """), {"thread_id": thread_id})
         
         db.session.commit()
-        log.info(f"Inserted message {message_id} to thread {thread_id}")
+        log.info(f"Inserted new message {message_id} to thread {thread_id} (provider_msg_id: {provider_msg_id})")
         return message_id
         
     except Exception as e:
@@ -95,7 +110,7 @@ def insert_message(thread_id: int, direction: str, message_type: str, content_te
         log.error(f"Error inserting message: {e}")
         raise
 
-def get_threads(business_id: int, type_: str = None, limit: int = 50, offset: int = 0) -> list:
+def get_threads(business_id: int, type_: str | None = None, limit: int = 50, offset: int = 0) -> list:
     """
     Get threads for a business with optional filtering
     """
@@ -103,7 +118,7 @@ def get_threads(business_id: int, type_: str = None, limit: int = 50, offset: in
         where_clause = "WHERE business_id = :business_id"
         params = {"business_id": business_id, "limit": limit, "offset": offset}
         
-        if type_:
+        if type_ is not None:
             where_clause += " AND type = :type"
             params["type"] = type_
         

@@ -247,7 +247,7 @@ def send_template_message(to: str, template_name: str, parameters: Dict[str, str
         }
 
 def validate_and_route_message(to: str, message: str, business_id: int = 1, 
-                             context: Dict[str, Any] = None) -> Dict[str, Any]:
+                             context: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """
     Validate messaging window and route to appropriate sending method
     """

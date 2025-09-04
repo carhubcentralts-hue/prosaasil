@@ -171,9 +171,9 @@ def wa_in_baileys():
         # Security: Validate webhook signature
         webhook_secret = os.environ.get('BAILEYS_WEBHOOK_SECRET', '')
         if webhook_secret:
-            signature = request.headers.get('X-Signature')
-            if not signature or not _verify_baileys_signature(request.data, signature, webhook_secret):
-                current_app.logger.warning("Baileys webhook signature validation failed")
+            received_secret = request.headers.get('X-BAILEYS-SECRET')
+            if not received_secret or received_secret != webhook_secret:
+                current_app.logger.warning("Baileys webhook secret validation failed")
                 abort(401)
         
         data = request.get_json() or {}

@@ -15,8 +15,23 @@ import crypto from 'crypto';
 const app = express();
 const PORT = process.env.PORT || 3001;
 const WEBHOOK_SECRET = process.env.BAILEYS_WEBHOOK_SECRET || '';
-const PYTHON_WEBHOOK_URL = process.env.PUBLIC_BASE_URL ? 
+const BAILEYS_WEBHOOK_TARGET = process.env.PUBLIC_BASE_URL ? 
   `${process.env.PUBLIC_BASE_URL}/webhook/whatsapp/baileys` : null;
+
+// Validate required environment variables
+if (!WEBHOOK_SECRET) {
+  console.error('FATAL: BAILEYS_WEBHOOK_SECRET is required for security');
+  process.exit(1);
+}
+
+if (!BAILEYS_WEBHOOK_TARGET) {
+  console.error('WARNING: PUBLIC_BASE_URL not set - webhook forwarding disabled');
+}
+
+console.log('Baileys service configuration:');
+console.log('- Port:', PORT);
+console.log('- Webhook target:', BAILEYS_WEBHOOK_TARGET || 'DISABLED');
+console.log('- Security enabled:', !!WEBHOOK_SECRET);
 
 // Middleware
 app.use(express.json());
@@ -147,7 +162,7 @@ async function handleIncomingMessage(message) {
     console.log(`Incoming message from ${from}: ${body.substring(0, 50)}...`);
 
     // Forward to Python webhook if configured
-    if (PYTHON_WEBHOOK_URL && WEBHOOK_SECRET) {
+    if (BAILEYS_WEBHOOK_TARGET && WEBHOOK_SECRET) {
       const payload = {
         from: from.replace('@c.us', ''),
         body,
@@ -163,11 +178,11 @@ async function handleIncomingMessage(message) {
         .digest('hex');
 
       try {
-        const response = await fetch(PYTHON_WEBHOOK_URL, {
+        const response = await fetch(BAILEYS_WEBHOOK_TARGET, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Signature': `sha256=${signature}`
+            'X-BAILEYS-SECRET': WEBHOOK_SECRET
           },
           body: JSON.stringify(payload)
         });
@@ -251,16 +266,23 @@ async function sendWhatsAppMessage(to, type, content, idempotencyKey) {
 // API Routes
 
 /**
- * Health check endpoint
+ * Enhanced health check endpoint with detailed status
  */
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
+  const health = {
+    status: connectionState === 'connected' ? 'ok' : 'degraded',
     connection: connectionState,
+    connected: connectionState === 'connected',
+    ready: connectionState === 'connected' && !!sock,
     lastConnected: lastConnectionTime,
     uptime: process.uptime(),
-    qrAvailable: !!qrCode
-  });
+    qrAvailable: !!qrCode,
+    timestamp: new Date().toISOString()
+  };
+  
+  // Set appropriate HTTP status
+  const httpStatus = health.connected ? 200 : 503;
+  res.status(httpStatus).json(health);
 });
 
 /**
@@ -327,6 +349,15 @@ app.post('/send', async (req, res) => {
     }
 
     const result = await sendWhatsAppMessage(to, type, content, idempotencyKey);
+    
+    // Cache successful send for deduplication
+    if (result.messageId && idempotencyKey) {
+      sentMessages.set(idempotencyKey, {
+        messageId: result.messageId,
+        timestamp: Date.now(),
+        to: to
+      });
+    }
     
     res.json({
       success: true,
