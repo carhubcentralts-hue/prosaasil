@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import eventlet; eventlet.monkey_patch()
 
-import os
+import os, sys
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
 os.environ['EVENTLET_NO_GREENDNS'] = '1'
 os.environ['EVENTLET_HUB'] = 'poll'
 

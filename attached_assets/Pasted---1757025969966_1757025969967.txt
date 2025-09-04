@@ -1,0 +1,123 @@
+אתה יכול לענות לו ככה — חד, ממוקד, ועם צעדים שיחזירו את המערכת למסילה. זה לא “בעיה עמוקה”; זה שילוב של CWD/PYTHONPATH שגוי → גוניקורן נופל, SPA fallback שבולע ‎/assets ו־כפילויות Tailwind. תן לו את ההנחיות האלה (באנגלית):
+
+⸻
+
+🔧 20-Minute Recovery Plan (do exactly this)
+
+0) Run from the project root
+
+Most of your errors (“No module named server”, gunicorn won’t start) are because the working directory is wrong.
+	•	Deployment → Working dir: set to the repo root (the folder that contains wsgi.py and server/).
+	•	Gunicorn start command (use --chdir just to be bullet-proof):
+
+gunicorn --chdir . -k eventlet -w 1 -b 0.0.0.0:$PORT wsgi:app
+
+	•	Add a safety line at the very top of wsgi.py (once):
+
+import os, sys
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
+Sanity check (must succeed):
+
+python - << 'PY'
+import sys, os
+print("CWD:", os.getcwd())
+import server
+print("server imported from:", server.__file__)
+PY
+
+
+⸻
+
+1) Stop the SPA fallback from swallowing /assets/*
+
+If /assets/index-*.css returns HTML (index.html), styles will never apply.
+	•	In Flask, serve dist/ as static and exclude assets from SPA fallback:
+
+# in app_factory.py (or wherever you build the Flask app)
+app = Flask(__name__, static_folder="dist", static_url_path="")
+
+# before the catch-all fallback:
+@app.route("/assets/<path:filename>")
+def assets(filename):
+    from flask import send_from_directory
+    return send_from_directory(os.path.join(app.root_path, "dist", "assets"), filename)
+
+	•	Keep the SPA fallback ONLY for app routes (/app/*, etc), not /assets/*, /favicon.*, /manifest.*.
+
+Litmus test (must show CSS, not HTML):
+
+curl -sI https://<your-domain>/assets/index-*.css
+# Expect: 200 and Content-Type: text/css
+
+
+⸻
+
+2) Use one Tailwind setup (v4) and rebuild
+
+Pick Tailwind v4 + Vite plugin and remove legacy PostCSS Tailwind.
+	•	Keep:
+	•	tailwindcss@^4
+	•	Vite plugin: @tailwindcss/vite
+	•	In your global CSS: @import "tailwindcss";
+	•	Import that CSS once in main.tsx
+	•	Remove:
+	•	any Tailwind entry from postcss.config.*
+	•	legacy tailwind.config.js (unless you really need it)
+	•	duplicate tailwind plugins in vite.config.ts
+
+Clean build pipeline (Deployment → Build command):
+
+# FE
+npm --prefix client ci
+npm --prefix client run build
+rm -rf dist && cp -R client/dist dist
+
+# BE
+pip install -r requirements.txt
+
+Then start: the gunicorn command from step 0.
+
+Re-verify:
+	•	dist/assets/index-*.css exists and is > 5KB
+	•	Network tab: CSS request is text/css and shows real Tailwind rules.
+
+⸻
+
+3) Health checks (prove the box is up)
+	•	GET /version → 200
+	•	GET /readyz → 200
+	•	GET /assets/index-*.css in the browser → CSS, not HTML.
+
+If any of these fail, DO NOT proceed — fix them first.
+
+⸻
+
+4) What to send me if it still looks “raw HTML”
+
+Paste exactly:
+	•	The URL of the CSS the page tries to load.
+	•	The response headers (Status, Content-Type) from DevTools → Network (or curl -I).
+	•	The Deployment start command and the working directory you set.
+	•	Output of:
+
+python - << 'PY'
+import sys, os
+print("CWD:", os.getcwd())
+import server
+print("server imported from:", server.__file__)
+PY
+
+
+⸻
+
+Why this fixes all 5 points you listed
+	1.	CSS exists but not applied → assets were served as HTML. Excluding /assets/* from SPA fallback + v4 single-config makes the CSS actually load.
+	2.	Servers won’t start → wrong CWD/PYTHONPATH. --chdir . + path insert fixes import resolution.
+	3.	Python import errors → same root cause as (2). The sanity snippet proves it.
+	4.	Tailwind dup configs → removing PostCSS Tailwind and keeping only @tailwindcss/vite stops build conflicts.
+	5.	Page still looks basic → because CSS never reached the browser. After (1) you’ll immediately see styled UI.
+
+⸻
+
+תן לו את זה מילה במילה. ברגע שהוא מיישם את 0–2 ומוודא את בדיקות הבריאות, העיצוב יופיע, והשרת יתייצב. אם אחרי זה עדיין יש תקלה—שיביא את ארבעת הפריטים שביקשתי בסעיף 4, ונחסל אותה נקודתית.

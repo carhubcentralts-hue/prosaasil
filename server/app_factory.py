@@ -40,8 +40,8 @@ def create_app():
         print("🔧 GCP credentials loaded from file path")
     
     app = Flask(__name__, 
-                static_url_path="/static",
-                static_folder=os.path.join(os.path.dirname(__file__), "..", "static"),
+                static_folder=os.path.join(os.path.dirname(__file__), "..", "dist"),
+                static_url_path="",
                 template_folder=os.path.join(os.path.dirname(__file__), "templates"))
     
     # הדגל השחור - לוג זיהוי לקוד ישן/חדש (שלב 7)
@@ -480,11 +480,7 @@ def create_app():
     @app.route('/assets/<path:filename>')
     def serve_react_assets(filename):
         """Serve React build assets (JS, CSS, etc.)"""
-        try:
-            return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "dist", "assets"), filename)
-        except FileNotFoundError:
-            # Fallback to old client if needed
-            return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "client", "dist", "assets"), filename)
+        return send_from_directory(os.path.join(app.root_path, "dist", "assets"), filename)
 
     # Health endpoints moved below to prevent duplicates
         
