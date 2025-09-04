@@ -1179,3 +1179,23 @@ def ui_biz_contracts():
 def logout():
     """Direct logout route"""
     return api_logout()
+
+# === UNAUTHORIZED PAGE FIX ===
+@ui_bp.route('/unauthorized')
+def unauthorized():
+    """Handle unauthorized access - redirect based on login status and role"""
+    user = session.get('al_user') or session.get('user')
+    
+    if not user:
+        # Not logged in - redirect to login
+        return redirect('/')
+    
+    # User is logged in - redirect to appropriate page based on role
+    user_role = user.get('role', '')
+    if user_role == 'manager':
+        return redirect('/ui/admin/overview')
+    elif user_role == 'business':
+        return redirect('/ui/biz/contacts')
+    else:
+        # Unknown role - redirect to login
+        return redirect('/')
