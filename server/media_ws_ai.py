@@ -8,19 +8,20 @@ from simple_websocket import ConnectionClosed
 from server.stream_state import stream_registry
 
 SR = 8000
-# 🎯 פרמטרים מותאמים לשיחה מהירה וחלקה! - OPTIMIZED
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.4"))        # זמן קצר יותר לתגובה מהירה
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "8.0"))        # נותן זמן לדבר
+# ✅ FIXED: פרמטרים לפי ההנחיות המקצועיות
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "1.0"))        # ✅ 1.0s - תופס "כן/לא" אבל לא חותך נשימות
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "4.5"))        # ✅ 4.5s - חותך מונולוגים, שומר קצב
 VAD_RMS = int(os.getenv("VAD_RMS", "45"))                   # רגיש יותר לקול רך
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "300"))  # יותר סבלנות = לא חותך באמצע
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "200"))  # ✅ 200ms - "זנב" כדי לא לחתוך הברה אחרונה
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "30")) # תגובה מיידית!
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "80")) # ללא השהיות
-REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "500")) # קירור בטוח אחרי תשובה
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","35"))  # 700ms לפני הפרעה - בטוח יותר!
+REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1000")) # ✅ 1000ms - "קירור" אחרי תשובה, מונע פינג-פונג
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","10"))  # ✅ 10 frames = ≈200ms קול רציף לקטיעה
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
+TTS_SPEAKING_RATE = float(os.getenv("TTS_SPEAKING_RATE", "1.1"))  # ✅ 1.1x מהירות - דיבור קצב מהיר לטלפון
 LLM_NATURAL_STYLE = True  # תגובות טבעיות לפי השיחה
 
 # מכונת מצבים
@@ -342,8 +343,7 @@ class MediaStreamHandler:
                                 # ✅ מדידת Interrupt Halt Time
                                 interrupt_start = time.time()
                                 
-                                # ✅ עצירת TTS מיידית - לא עוד פריימים!
-                                self.speaking = False
+                                # ✅ FIXED: רק בצע interrupt, הוא יטפל בכל המצבים
                                 self._interrupt_speaking()
                                 
                                 # ✅ מדידת זמן עצירה
@@ -559,30 +559,39 @@ class MediaStreamHandler:
         print(f"WS_DONE sid={self.stream_sid} rx={self.rx} tx={self.tx}")
 
     def _interrupt_speaking(self):
-        """עצירה מיידית של דיבור הבוט (BARGE-IN משופר)"""
-        if not self.speaking:
-            return
-            
-        print("🚨 BARGE-IN: interrupt")
-        self.speaking = False
+        """✅ FIXED: עצירה מיידית של דיבור הבוט - סדר פעולות נכון"""
+        print("🚨 INTERRUPT_START: Beginning full interrupt sequence")
         
-        # נקה את תור השידור
-        try:
-            while not self.tx_q.empty():
-                self.tx_q.get_nowait()
-        except:
-            pass
-            
-        # שלח CLEAR לטוויליו אם החיבור תקין
+        # ✅ STEP 1: שלח clear לטוויליו ראשון
         if not self.ws_connection_failed:
             try:
                 self.tx_q.put_nowait({"type": "clear"})
-            except:
-                pass
-        else:
-            print("💔 SKIPPING clear - WebSocket connection failed")
+                print("✅ CLEAR_SENT: Twilio clear command sent")
+            except Exception as e:
+                print(f"⚠️ CLEAR_FAILED: {e}")
         
-        print("✅ Bot is now silent - user can speak")
+        # ✅ STEP 2: נקה את תור השידור אחר clear
+        try:
+            cleared_count = 0
+            while not self.tx_q.empty():
+                self.tx_q.get_nowait()
+                cleared_count += 1
+            if cleared_count > 0:
+                print(f"✅ TX_QUEUE_CLEARED: Removed {cleared_count} pending audio frames")
+        except Exception as e:
+            print(f"⚠️ TX_CLEAR_FAILED: {e}")
+        
+        # ✅ STEP 3: עדכן מצבים
+        self.state = STATE_LISTEN
+        self.mark_pending = False
+        self.last_voice_ts = 0
+        self.voice_in_row = 0
+        self.processing = False
+        
+        # ✅ STEP 4: רק בסוף - עדכן speaking=False
+        self.speaking = False
+        
+        print("✅ INTERRUPT_COMPLETE: Full interrupt sequence finished - ready to listen")
 
     # 🎯 עיבוד מבע פשוט וביטוח (ללא כפילויות)
     def _process_utterance_safe(self, pcm16_8k: bytes, conversation_id: int):
@@ -724,9 +733,8 @@ class MediaStreamHandler:
             
         if self.speaking:
             print("🚫 Already speaking - stopping current and starting new")
-            # ✅ עצור TTS נוכחי והתחל חדש
-            self.speaking = False
-            self.state = STATE_LISTEN
+            # ✅ FIXED: בצע interrupt מלא לפני התחלת TTS חדש
+            self._interrupt_speaking()
             time.sleep(0.05)  # המתנה קצרה
             
         self.speaking = True
@@ -1435,7 +1443,7 @@ class MediaStreamHandler:
 
 {lead_info['meeting_prompt']}
 
-תני תגובה קצרה, ישירה ומועילה (15-25 מילים בלבד):"""
+תני תגובה ממוקדת וישירה (מקסימום 15 מילים) עם שאלה אחת קונקרטית בסוף:"""
             
             # הגדר את ה-system prompt בתחילת המערך
             messages[0]["content"] = comprehensive_prompt
@@ -1450,7 +1458,7 @@ class MediaStreamHandler:
                 response = client.chat.completions.create(
                     model="gpt-4o-mini",      # Fast model
                     messages=messages,         # ✅ כולל היסטוריה מלאה לזיכרון מושלם! # type: ignore
-                    max_tokens=120,           # ✅ תשובות קצרות וממוקדות
+                    max_tokens=50,            # ✅ מגבלה חמורה ל-15 מילים מקסימום
                     temperature=0.7,          # ✅ More natural human-like responses
                     timeout=2.5               # ✅ 2.5 שניות - מספיק לעיבוד היסטוריה
                 )
@@ -1519,7 +1527,7 @@ class MediaStreamHandler:
             # ✅ FIXED: אל תגיב על טקסט ריק אפילו בחירום!
             if not hebrew_text or not hebrew_text.strip():
                 print("🚫 AI_ERROR_ON_EMPTY_TEXT: No emergency response for empty input")
-                return None  # אל תגיב בכלל
+                return ""  # ✅ החזר ריק לא None
             
             # ✅ רק אם יש טקסט אמיתי - אז תגיב חירום
             emergency_area = self._detect_area(hebrew_text) or ""
@@ -1553,7 +1561,7 @@ class MediaStreamHandler:
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.LINEAR16,
                 sample_rate_hertz=8000,
-                speaking_rate=1.2,   # ✅ מעט יותר מהיר לשיחות חיות
+                speaking_rate=TTS_SPEAKING_RATE,   # ✅ קצב דיבור מותאם מסביבה
                 pitch=0.0,
                 effects_profile_id=["telephony-class-application"],  # אופטימיזציה לטלפון
                 volume_gain_db=2.0   # ✅ עוצמה קצת יותר נגישה
