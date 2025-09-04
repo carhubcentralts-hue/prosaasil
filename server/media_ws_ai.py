@@ -9,15 +9,15 @@ from server.stream_state import stream_registry
 
 SR = 8000
 # ✅ FIXED: פרמטרים לפי ההנחיות המקצועיות
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "1.0"))        # ✅ 1.0s - תופס "כן/לא" אבל לא חותך נשימות
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "4.5"))        # ✅ 4.5s - חותך מונולוגים, שומר קצב
-VAD_RMS = int(os.getenv("VAD_RMS", "45"))                   # רגיש יותר לקול רך
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "1.5"))        # ✅ 1.5s - יותר זמן לעברית, מפחית קטיעות
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "8.0"))        # ✅ 8.0s - זמן מספיק לתיאור נכסים מפורט
+VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "200"))  # ✅ 200ms - "זנב" כדי לא לחתוך הברה אחרונה
-RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "30")) # תגובה מיידית!
-RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "80")) # ללא השהיות
-REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1000")) # ✅ 1000ms - "קירור" אחרי תשובה, מונע פינג-פונג
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","10"))  # ✅ 10 frames = ≈200ms קול רציף לקטיעה
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "400"))  # ✅ 400ms - זנב ארוך יותר למילים אחרונות
+RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "80")) # ✅ יותר מתון - נותן זמן לסיים
+RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "200")) # ✅ יותר מתון - פחות חיפזון
+REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1500")) # ✅ 1500ms - יותר "קירור" אחרי תגובה
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","40"))  # ✅ 40 frames = ≈800ms קול רציף נדרש לקטיעה
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
@@ -330,14 +330,14 @@ class MediaStreamHandler:
                             # Inside grace period - NO barge-in allowed
                             continue
                         
-                        # ✅ HEBREW BARGE-IN: Extra high threshold
-                        barge_in_threshold = max(500, self.noise_floor * 8.0 + 200) if self.is_calibrated else 600
+                        # ✅ HEBREW BARGE-IN: Higher threshold to prevent interruptions
+                        barge_in_threshold = max(800, self.noise_floor * 10.0 + 300) if self.is_calibrated else 900
                         is_barge_in_voice = rms > barge_in_threshold
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                                # ✅ HEBREW SPEECH: Require 1.5s continuous voice to prevent false interrupts
-                            if self.voice_in_row >= 50:  # 1000ms (1s) of continuous voice - רגיש יותר
+                                # ✅ HEBREW SPEECH: Require 800ms continuous voice to prevent false interrupts  
+                            if self.voice_in_row >= BARGE_IN_VOICE_FRAMES:  # 800ms קול רציף - מפחית קטיעות שגויות
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time

@@ -9,8 +9,9 @@ EVENTLET_NO_GREENDNS = "1"
 EVENTLET_HUB         = "poll"
 
 [deployment]
-run = ["sh", "-c", "gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --timeout 60 --keep-alive 30 --access-logfile - --error-logfile - --preload"]
+run = ["sh", "-c", "gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:$PORT --timeout 120 --log-level info"]
 deploymentTarget = "cloudrun"
+build = ["sh", "-c", "cd baileys-service && npm install"]
 
 [nix]
 channel = "stable-25_05"
