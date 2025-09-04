@@ -119,8 +119,8 @@ def get_threads(business_id: int, type_: str | None = None, limit: int = 50, off
         params = {"business_id": business_id, "limit": limit, "offset": offset}
         
         if type_ is not None:
-            where_clause += " AND type = :type"
-            params["type"] = type_
+            where_clause += " AND type = :type_filter"
+            params["type_filter"] = type_
         
         result = db.session.execute(text(f"""
             SELECT id, type, provider, peer_number, title, last_message_at, created_at
