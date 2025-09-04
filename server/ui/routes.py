@@ -925,6 +925,9 @@ def ui_biz_users():
 @ui_bp.route('/api/ui/login', methods=['POST'])
 def api_login():
     """Handle login form submission"""
+    from flask import g
+    # Bypass CSRF for login
+    g.csrf_exempt = True
     try:
         data = request.get_json()
         if not data:
@@ -988,6 +991,9 @@ def api_login():
 @ui_bp.route('/api/ui/logout', methods=['GET', 'POST'])
 def api_logout():
     """Handle logout"""
+    from flask import g
+    # Bypass CSRF for logout
+    g.csrf_exempt = True
     try:
         session.clear()
         if request.method == 'GET':
