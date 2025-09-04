@@ -476,11 +476,6 @@ def create_app():
         """Serve static TTS files"""
         return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "static", "tts"), filename)
     
-    # React app assets serving - Updated for new auth app
-    @app.route('/assets/<path:filename>')
-    def serve_react_assets(filename):
-        """Serve React build assets (JS, CSS, etc.)"""
-        return send_from_directory(os.path.join(app.root_path, "dist", "assets"), filename)
 
     # Health endpoints moved below to prevent duplicates
         
@@ -622,6 +617,17 @@ def create_app():
     # from server.services.lazy_services import warmup_services_async
     # warmup_services_async()
     print("🔧 Warmup disabled for debugging")
+    
+    # React app assets serving - Updated for new auth app
+    # IMPORTANT: This must be defined BEFORE SPA fallback route!
+    @app.route('/assets/<path:filename>')
+    def serve_react_assets(filename):
+        """Serve React build assets (JS, CSS, etc.)"""
+        return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "dist", "assets"), filename)
+    
+    print("✅ Assets route registered: /assets/<path:filename>")
+    
+    # IMPORTANT: Define specific routes BEFORE the catch-all SPA fallback!
     
     # SPA Fallback Route - Must be LAST to catch unmatched routes
     @app.route('/', defaults={'path': ''})
