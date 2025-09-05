@@ -85,15 +85,18 @@ export function useAuthState(): AuthState & {
     }
   }, []);
 
-  // 🚀 Advanced initialization with auth page check
+  // 🚀 Conditional initialization - no refetch on auth pages
   useEffect(() => {
     if (!isInitializedRef.current) {
       isInitializedRef.current = true;
       
-      // Only refetch if not on auth pages
+      // Only refetch if we're in protected routes
       const currentPath = window.location.pathname;
-      if (!currentPath.startsWith('/login') && !currentPath.startsWith('/forgot') && !currentPath.startsWith('/reset')) {
-        refetch(); // Only on first mount and not on auth pages
+      if (currentPath.startsWith('/app/')) {
+        console.log('🔄 Refetching auth state for protected route:', currentPath);
+        refetch();
+      } else {
+        console.log('🚫 Skipping refetch on auth page:', currentPath);
       }
     }
     

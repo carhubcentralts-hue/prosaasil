@@ -26,12 +26,9 @@ export function LoginPage() {
       console.log('🚀 Attempting login with:', { email, passwordLength: password.length });
       await login(email, password);
       
-      console.log('✅ Login successful, waiting for state update...');
-      // Wait a moment for state to update before navigating
-      setTimeout(() => {
-        console.log('🚀 Navigating to dashboard...');
-        navigate('/app/admin/overview', { replace: true });
-      }, 100);
+      console.log('✅ Login successful, navigating immediately...');
+      // Navigate immediately - AuthProvider won't refetch on login page
+      navigate('/app/admin/overview', { replace: true });
     } catch (err) {
       setError('אימייל או סיסמה שגויים');
     } finally {
