@@ -91,7 +91,13 @@ export function useAuthState(): AuthState & {
     };
   }, []); // 🎯 Run only once - no dependencies
 
-  return { ...state, login, logout, refetch };
+  // 🎯 Stable return object to prevent unnecessary re-renders
+  return useMemo(() => ({
+    ...state,
+    login,
+    logout,
+    refetch
+  }), [state.user, state.tenant, state.isLoading, state.isAuthenticated, login, logout, refetch]);
 }
 
 export function useAuth() {
@@ -102,21 +108,13 @@ export function useAuth() {
   return context;
 }
 
-// 🚀 Clean and optimized AuthProvider 
+// 🚀 Simple and stable AuthProvider
 export const AuthProvider = React.memo(({ children }: { children: React.ReactNode }) => {
   const authState = useAuthState();
   
-  // 🎯 Memoized context value to prevent unnecessary re-renders
-  const contextValue = useMemo(() => authState, [
-    authState.user, 
-    authState.tenant, 
-    authState.isLoading, 
-    authState.isAuthenticated
-  ]);
-  
   return React.createElement(
     AuthContext.Provider,
-    { value: contextValue },
+    { value: authState },
     children
   );
 });
