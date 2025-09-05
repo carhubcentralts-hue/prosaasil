@@ -27,6 +27,7 @@ import {
   WifiOff
 } from 'lucide-react';
 import { cn } from '../../shared/utils/cn';
+import { BusinessEditModal } from '../../shared/components/ui/BusinessEditModal';
 
 interface BusinessDetails {
   id: number;
@@ -149,6 +150,7 @@ export function BusinessDetailsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [business, setBusiness] = useState<BusinessDetails | null>(null);
   const [users, setUsers] = useState<BusinessUser[]>([]);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false); // Start immediately, no loading screen
 
@@ -626,6 +628,26 @@ export function BusinessDetailsPage() {
           </div>
         </div>
       </div>
+
+      {/* Edit Business Modal */}
+      <BusinessEditModal
+        isOpen={editModalOpen}
+        onClose={() => setEditModalOpen(false)}
+        business={business ? {
+          id: business.id,
+          name: business.name,
+          domain: business.domain,
+          defaultPhoneE164: business.defaultPhoneE164,
+          whatsappJid: business.whatsappJid,
+          status: business.status,
+          prompt: '',
+          permissions: ['calls', 'whatsapp', 'crm']
+        } : null}
+        onSave={(updatedBusiness) => {
+          console.log('עסק עודכן:', updatedBusiness);
+          // TODO: Update business data
+        }}
+      />
     </div>
   );
 }

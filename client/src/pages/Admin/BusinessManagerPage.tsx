@@ -20,6 +20,7 @@ import {
   XCircle,
   Clock
 } from 'lucide-react';
+import { BusinessEditModal } from '../../shared/components/ui/BusinessEditModal';
 import { cn } from '../../shared/utils/cn';
 import { useAuthState } from '../../features/auth/hooks';
 
@@ -339,6 +340,8 @@ export function BusinessManagerPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('all');
   const [filteredBusinesses, setFilteredBusinesses] = useState<Business[]>(mockBusinesses);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const { user } = useAuthState();
   const navigate = useNavigate();
 
@@ -373,13 +376,12 @@ export function BusinessManagerPage() {
         break;
       case 'edit':
         console.log(`עריכת עסק: ${business.name}`);
-        // Navigate to edit mode in details page
-        navigate(`/app/admin/businesses/${business.id}?mode=edit`);
+        setSelectedBusiness(business);
+        setEditModalOpen(true);
         break;
       case 'more':
         console.log(`תפריט פעולות עבור: ${business.name}`);
-        // TODO: Show dropdown with more actions
-        alert(`תפריט פעולות: התחזות, השעיה, מחיקה - בפיתוח`);
+        handleImpersonate(business);
         break;
       default:
         break;
@@ -390,6 +392,28 @@ export function BusinessManagerPage() {
     // TODO: Open new business creation modal
     console.log('פתיחת טופס הוספת עסק חדש');
     alert('טופס הוספת עסק חדש יפתח כאן (בפיתוח)');
+  };
+
+  const handleSaveBusiness = (updatedBusiness: Business) => {
+    setFilteredBusinesses(prev => prev.map(b => 
+      b.id === updatedBusiness.id ? updatedBusiness : b
+    ));
+    console.log('עסק עודכן:', updatedBusiness);
+  };
+
+  const handleImpersonate = (business: Business) => {
+    // Confirm impersonation
+    if (confirm(`האם אתה בטוח שאתה רוצה להתחזות לעסק "${business.name}"?\nאתה תועבר לדשבורד של העסק.`)) {
+      // Store original user data for exit impersonation
+      const originalUser = JSON.stringify(user);
+      localStorage.setItem('impersonation_original_user', originalUser);
+      localStorage.setItem('is_impersonating', 'true');
+      localStorage.setItem('impersonating_business_id', business.id.toString());
+      
+      // Navigate to business dashboard
+      console.log(`התחזות לעסק: ${business.name}`);
+      navigate('/app/business/dashboard');
+    }
   };
 
   return (
@@ -499,6 +523,14 @@ export function BusinessManagerPage() {
           </>
         )}
       </div>
+
+      {/* Edit Business Modal */}
+      <BusinessEditModal
+        isOpen={editModalOpen}
+        onClose={() => setEditModalOpen(false)}
+        business={selectedBusiness}
+        onSave={handleSaveBusiness}
+      />
     </div>
   );
 }

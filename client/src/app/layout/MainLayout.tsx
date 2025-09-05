@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAuthState } from '../../features/auth/hooks';
 import { NotificationPanel } from '../../shared/components/ui/NotificationPanel';
+import { ImpersonationBar } from '../../shared/components/ui/ImpersonationBar';
 import { SearchModal } from '../../shared/components/ui/SearchModal';
 import { cn } from '../../shared/utils/cn';
 
@@ -137,6 +138,8 @@ export function MainLayout() {
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0); // Will be set from notifications
+  const [isImpersonating, setIsImpersonating] = useState(false);
+  const [impersonatingBusinessName, setImpersonatingBusinessName] = useState('');
   const { user, tenant, logout } = useAuthState();
   const location = useLocation();
   const navigate = useNavigate();
@@ -364,7 +367,10 @@ export function MainLayout() {
                   <Bell className="h-5 w-5" />
                   {/* Notification badge */}
                   {unreadNotifications > 0 && (
-                    <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                    <span 
+                      className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center"
+                      data-testid="unread-count-badge"
+                    >
                       {unreadNotifications}
                     </span>
                   )}

@@ -475,7 +475,10 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
             <Bell className="h-5 w-5 text-slate-600" />
             <h2 className="text-lg font-semibold text-slate-900">התראות</h2>
             {unreadCount > 0 && (
-              <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5 font-medium">
+              <span 
+                className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5 font-medium"
+                data-testid="unread-count-panel"
+              >
                 {unreadCount}
               </span>
             )}
