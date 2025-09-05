@@ -1,9 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthState } from '../../features/auth/hooks';
-import { Button } from '../../shared/components/Button';
-import { Input } from '../../shared/components/Input';
-import { Card, CardContent } from '../../shared/components/Card';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -26,18 +23,8 @@ export function LoginPage() {
     try {
       await login(email, password);
       
-      // Role-based redirect
-      const { user } = await import('../../features/auth/hooks').then(module => 
-        module.useAuthState()
-      );
-      
-      // Navigate based on role or return to attempted page
-      if (from !== '/app/admin/overview') {
-        navigate(from, { replace: true });
-      } else {
-        // Default navigation based on role will be handled by route protection
-        navigate('/app/admin/overview', { replace: true });
-      }
+      // Simple redirect to overview - role routing handled by guards
+      navigate('/app/admin/overview', { replace: true });
     } catch (err) {
       setError('אימייל או סיסמה שגויים');
     } finally {
@@ -46,25 +33,23 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8" dir="rtl">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4" dir="rtl">
+      <div className="w-full max-w-md">
         {/* Brand */}
-        <div className="flex justify-center">
-          <div className="w-16 h-16 bg-blue-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-2xl">ש</span>
+        <div className="text-center mb-8">
+          <div className="mx-auto w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg">
+            <span className="text-white font-bold text-3xl">ש</span>
           </div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            שי דירות ומשרדים
+          </h1>
+          <p className="text-gray-600">
+            מערכת ניהול לידים
+          </p>
         </div>
-        <h2 className="mt-6 text-center text-3xl font-bold text-gray-900">
-          התחברות למערכת
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          שי דירות ומשרדים - מערכת ניהול לידים
-        </p>
-      </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <Card>
-          <CardContent className="py-8">
+        {/* Login Card */}
+        <div className="bg-white rounded-2xl shadow-xl p-8">
             <form onSubmit={handleSubmit} className="space-y-6">
               {error && (
                 <div 
@@ -76,27 +61,33 @@ export function LoginPage() {
                 </div>
               )}
 
-              <Input
-                label="כתובת אימייל"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-                placeholder="example@company.com"
-                data-testid="input-email"
-              />
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">כתובת אימייל</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                  placeholder="example@company.com"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base transition-all"
+                  data-testid="input-email"
+                />
+              </div>
 
-              <Input
-                label="סיסמה"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                placeholder="הכנס סיסמה"
-                data-testid="input-password"
-              />
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">סיסמה</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  placeholder="הכנס סיסמה"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base transition-all"
+                  data-testid="input-password"
+                />
+              </div>
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
@@ -125,23 +116,21 @@ export function LoginPage() {
                 </div>
               </div>
 
-              <Button
+              <button
                 type="submit"
-                className="w-full"
-                isLoading={isLoading}
-                disabled={!email || !password}
+                disabled={!email || !password || isLoading}
+                className="w-full bg-blue-600 text-white py-3 px-4 rounded-xl font-medium text-base hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="button-login"
               >
                 {isLoading ? 'מתחבר...' : 'התחבר'}
-              </Button>
+              </button>
             </form>
-          </CardContent>
-        </Card>
-
+        </div>
+        
         {/* Footer */}
-        <div className="mt-8 text-center">
+        <div className="text-center mt-6">
           <p className="text-xs text-gray-500">
-            © 2025 שי דירות ומשרדים בע״מ. כל הזכויות שמורות.
+            © 2025 שי דירות ומשרדים בע״מ
           </p>
         </div>
       </div>
