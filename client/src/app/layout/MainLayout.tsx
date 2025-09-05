@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Users, 
@@ -35,6 +35,7 @@ export function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, tenant, logout } = useAuthState();
   const location = useLocation();
+  const navigate = useNavigate();
 
   const handleComingSoon = () => {
     alert('בקרוב! תכונה זו תהיה זמינה בגרסה הבאה.');
@@ -53,7 +54,7 @@ export function MainLayout() {
   );
 
   return (
-    <div className="h-screen flex bg-gray-50" dir="rtl">
+    <div className="h-screen flex flex-row-reverse bg-gray-50" dir="rtl">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div 
@@ -62,10 +63,10 @@ export function MainLayout() {
         />
       )}
 
-      {/* Sidebar - Always visible on tablet+ */}
+      {/* Sidebar - RTL (from right side) */}
       <div className={`
-        fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl transform transition-transform duration-200 ease-in-out
-        md:relative md:translate-x-0 md:w-72
+        fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl transform transition-transform duration-300 ease-in-out
+        md:relative md:translate-x-0 md:w-72 md:order-first
         ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'}
       `}>
         {/* Sidebar header */}
@@ -138,7 +139,7 @@ export function MainLayout() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden md:order-last">
         {/* Top bar - Mobile App Style */}
         <header className="bg-white shadow-sm border-b border-gray-200">
           <div className="px-4 md:px-6">
@@ -172,28 +173,44 @@ export function MainLayout() {
         </main>
       </div>
 
-      {/* Mobile bottom navigation - App Style */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-2 py-2 shadow-xl">
+      {/* Mobile bottom navigation - Modern App Style */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-1 py-1 shadow-2xl">
         <div className="flex justify-around items-center">
-          {filteredMenuItems.slice(0, 5).map((item, index) => {
+          {filteredMenuItems.slice(0, 4).map((item, index) => {
             const isActive = item.to && location.pathname === item.to;
             return (
-              <button
+              <a
                 key={index}
-                className={`flex flex-col items-center p-2 min-h-[56px] transition-colors rounded-lg ${
+                href={item.to || '#'}
+                className={`flex flex-col items-center p-2 min-h-[60px] transition-all duration-200 rounded-xl ${
                   isActive 
-                    ? 'text-blue-600 bg-blue-50' 
-                    : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'
+                    ? 'text-blue-600 bg-blue-50 scale-105' 
+                    : 'text-gray-500 hover:text-blue-600 active:scale-95'
                 }`}
-                onClick={item.to ? () => window.location.href = item.to : handleComingSoon}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (item.to) {
+                    navigate(item.to);
+                  } else {
+                    handleComingSoon();
+                  }
+                }}
               >
-                <item.icon className="h-5 w-5 mb-1" />
-                <span className="text-[10px] font-medium leading-tight text-center">
-                  {item.label.length > 6 ? item.label.substring(0, 6) + '...' : item.label}
+                <item.icon className="h-6 w-6 mb-1" />
+                <span className="text-[11px] font-medium leading-tight text-center">
+                  {item.label.length > 7 ? item.label.substring(0, 7) + '...' : item.label}
                 </span>
-              </button>
+              </a>
             );
           })}
+          {/* Menu button for more options */}
+          <button
+            className="flex flex-col items-center p-2 min-h-[60px] transition-all duration-200 rounded-xl text-gray-500 hover:text-blue-600 active:scale-95"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <Menu className="h-6 w-6 mb-1" />
+            <span className="text-[11px] font-medium leading-tight text-center">עוד</span>
+          </button>
         </div>
       </div>
     </div>
