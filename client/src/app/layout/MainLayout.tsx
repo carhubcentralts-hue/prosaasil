@@ -18,6 +18,8 @@ import {
   User
 } from 'lucide-react';
 import { useAuthState } from '../../features/auth/hooks';
+import { NotificationPanel } from '../../shared/components/ui/NotificationPanel';
+import { SearchModal } from '../../shared/components/ui/SearchModal';
 import { cn } from '../../shared/utils/cn';
 
 const menuItems = [
@@ -132,6 +134,8 @@ function SidebarItem({ icon, label, to, active, onClick, comingSoon }: SidebarIt
 export function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
   const { user, tenant, logout } = useAuthState();
   const location = useLocation();
   const navigate = useNavigate();
@@ -228,7 +232,7 @@ export function MainLayout() {
         )}
         role="navigation"
         aria-label="תפריט ראשי"
-        aria-expanded={sidebarOpen ? 'true' : 'false'}
+        aria-expanded={sidebarOpen}
         id="sidebar"
       >
         {/* Sidebar header */}
@@ -323,7 +327,7 @@ export function MainLayout() {
                   ref={toggleButtonRef}
                   className="md:hidden p-2 rounded-xl hover:bg-slate-100 transition-colors"
                   onClick={() => setSidebarOpen(true)}
-                  aria-expanded={sidebarOpen ? 'true' : 'false'}
+                  aria-expanded={sidebarOpen}
                   aria-controls="sidebar"
                   aria-label="פתח תפריט"
                   data-testid="button-menu"
@@ -342,7 +346,7 @@ export function MainLayout() {
                 {/* Quick Search */}
                 <button
                   className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative"
-                  onClick={() => alert('חיפוש מהיר בפיתוח!')}
+                  onClick={() => setSearchModalOpen(true)}
                   data-testid="button-search"
                   title="חיפוש מהיר"
                 >
@@ -352,7 +356,7 @@ export function MainLayout() {
                 {/* Notifications */}
                 <button
                   className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative"
-                  onClick={() => alert('התראות בפיתוח!')}
+                  onClick={() => setNotificationsPanelOpen(!notificationsPanelOpen)}
                   data-testid="button-notifications"
                   title="התראות"
                 >
@@ -477,6 +481,18 @@ export function MainLayout() {
           })}
         </div>
       </div>
+
+      {/* Notification Panel */}
+      <NotificationPanel
+        isOpen={notificationsPanelOpen}
+        onClose={() => setNotificationsPanelOpen(false)}
+      />
+
+      {/* Search Modal */}
+      <SearchModal
+        isOpen={searchModalOpen}
+        onClose={() => setSearchModalOpen(false)}
+      />
     </div>
   );
 }

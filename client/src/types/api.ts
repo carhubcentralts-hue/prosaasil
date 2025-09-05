@@ -4,6 +4,7 @@ export interface User {
   email: string;
   role: 'admin' | 'manager' | 'business';
   name?: string;
+  business_id?: number;
 }
 
 export interface Tenant {
