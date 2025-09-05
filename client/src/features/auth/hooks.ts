@@ -1,7 +1,8 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { authApi } from './api';
 import { AuthContextType, AuthState } from './types';
 
+// 🎯 Advanced Context with proper typing  
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function useAuthState(): AuthState & {
@@ -16,10 +17,18 @@ export function useAuthState(): AuthState & {
     isAuthenticated: false,
   });
 
+  // 🔥 Advanced optimization: Stable ref for lifecycle management
+  const isMountedRef = useRef(true);
+  const isInitializedRef = useRef(false);
+
   const refetch = useCallback(async () => {
+    if (!isMountedRef.current) return; // Prevent memory leaks
+    
     setState(prev => ({ ...prev, isLoading: true }));
     try {
       const response = await authApi.me();
+      if (!isMountedRef.current) return; // Check again after async
+      
       setState({
         user: response.user,
         tenant: response.tenant,
@@ -27,6 +36,8 @@ export function useAuthState(): AuthState & {
         isAuthenticated: true,
       });
     } catch (error) {
+      if (!isMountedRef.current) return;
+      
       setState({
         user: null,
         tenant: null,
@@ -34,7 +45,7 @@ export function useAuthState(): AuthState & {
         isAuthenticated: false,
       });
     }
-  }, []);
+  }, []); // 🎯 Empty deps - stable function
 
   const login = useCallback(async (email: string, password: string) => {
     setState(prev => ({ ...prev, isLoading: true }));
@@ -68,9 +79,17 @@ export function useAuthState(): AuthState & {
     }
   }, []);
 
+  // 🚀 Advanced initialization with cleanup
   useEffect(() => {
-    refetch();
-  }, [refetch]);
+    if (!isInitializedRef.current) {
+      isInitializedRef.current = true;
+      refetch(); // Only on first mount
+    }
+    
+    return () => {
+      isMountedRef.current = false; // Cleanup
+    };
+  }, []); // 🎯 Run only once - no dependencies
 
   return { ...state, login, logout, refetch };
 }
@@ -82,5 +101,26 @@ export function useAuth() {
   }
   return context;
 }
+
+// 🚀 Clean and optimized AuthProvider 
+export const AuthProvider = React.memo(({ children }: { children: React.ReactNode }) => {
+  const authState = useAuthState();
+  
+  // 🎯 Memoized context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => authState, [
+    authState.user, 
+    authState.tenant, 
+    authState.isLoading, 
+    authState.isAuthenticated
+  ]);
+  
+  return React.createElement(
+    AuthContext.Provider,
+    { value: contextValue },
+    children
+  );
+});
+
+AuthProvider.displayName = 'AuthProvider';
 
 export { AuthContext };
