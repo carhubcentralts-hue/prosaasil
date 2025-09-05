@@ -12,6 +12,7 @@ import {
   Activity
 } from 'lucide-react';
 import { Card, StatCard, Badge } from '../../shared/components/ui/Card';
+import { QuickManagementActions } from '../../shared/components/ui/ManagementCard';
 import { cn } from '../../shared/utils/cn';
 
 // Mock data - will be replaced with API calls  
@@ -189,6 +190,12 @@ export function BusinessHomePage() {
             value={mockBusinessStats.meetings.today}
             icon={<Calendar className="h-6 w-6" />}
           />
+        </div>
+
+        {/* Management Actions - User management only */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">ניהול משתמשים</h3>
+          <QuickManagementActions />
         </div>
 
         {/* Quick Actions */}

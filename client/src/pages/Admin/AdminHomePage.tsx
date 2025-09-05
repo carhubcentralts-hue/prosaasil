@@ -12,6 +12,7 @@ import {
   Activity
 } from 'lucide-react';
 import { Card, StatCard, Badge } from '../../shared/components/ui/Card';
+import { QuickManagementActions } from '../../shared/components/ui/ManagementCard';
 import { cn } from '../../shared/utils/cn';
 
 // Mock data - will be replaced with API calls
@@ -150,8 +151,7 @@ export function AdminHomePage() {
         <ProviderStatusCard />
 
         {/* KPI Row 1 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <ProviderStatusCard />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <StatCard
             title="עסקים (פעילים/סה״כ)"
             value={`${mockAdminStats.businesses.active}/${mockAdminStats.businesses.total}`}
@@ -163,6 +163,12 @@ export function AdminHomePage() {
             subtitle="כל המערכת"
             icon={<Bell className="h-6 w-6" />}
           />
+        </div>
+
+        {/* Management Actions */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">פעולות ניהול</h3>
+          <QuickManagementActions />
         </div>
 
         {/* KPI Row 2 */}
