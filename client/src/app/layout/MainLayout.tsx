@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Users, 
@@ -20,20 +20,21 @@ import { SidebarItem } from '../../shared/components/SidebarItem';
 const menuItems = [
   { icon: LayoutDashboard, label: 'סקירה כללית', to: '/app/admin/overview', roles: ['admin', 'manager'] },
   { icon: LayoutDashboard, label: 'סקירה כללית', to: '/app/business/overview', roles: ['business'] },
-  { icon: Users, label: 'לידים', disabled: true },
-  { icon: MessageCircle, label: 'WhatsApp', disabled: true },
-  { icon: Phone, label: 'שיחות', disabled: true },
-  { icon: Building2, label: 'CRM', disabled: true },
-  { icon: CreditCard, label: 'תשלומים וחוזים', disabled: true },
-  { icon: UserCog, label: 'ניהול עסקים', disabled: true, roles: ['admin', 'manager'] },
-  { icon: Users, label: 'ניהול משתמשים', disabled: true, roles: ['admin', 'manager'] },
-  { icon: Settings, label: 'הגדרות מערכת', disabled: true },
-  { icon: Calendar, label: 'לוח שנה', disabled: true },
+  { icon: Users, label: 'לידים' },
+  { icon: MessageCircle, label: 'WhatsApp' },
+  { icon: Phone, label: 'שיחות' },
+  { icon: Building2, label: 'CRM' },
+  { icon: CreditCard, label: 'תשלומים' },
+  { icon: UserCog, label: 'ניהול עסקים', roles: ['admin', 'manager'] },
+  { icon: Users, label: 'משתמשים', roles: ['admin', 'manager'] },
+  { icon: Settings, label: 'הגדרות' },
+  { icon: Calendar, label: 'לוח שנה' },
 ];
 
 export function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, tenant, logout } = useAuthState();
+  const location = useLocation();
 
   const handleComingSoon = () => {
     alert('בקרוב! תכונה זו תהיה זמינה בגרסה הבאה.');
@@ -56,15 +57,15 @@ export function MainLayout() {
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
+          className="fixed inset-0 z-40 bg-black bg-opacity-50 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar - Always visible on tablet+ */}
       <div className={`
-        fixed inset-y-0 right-0 z-50 w-72 bg-white shadow-lg transform transition-transform duration-300 ease-in-out
-        lg:relative lg:translate-x-0
+        fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl transform transition-transform duration-200 ease-in-out
+        md:relative md:translate-x-0 md:w-72
         ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'}
       `}>
         {/* Sidebar header */}
@@ -81,7 +82,7 @@ export function MainLayout() {
             </div>
           </div>
           <button
-            className="lg:hidden p-2 rounded-lg hover:bg-gray-100"
+            className="md:hidden p-2 rounded-lg hover:bg-gray-100"
             onClick={() => setSidebarOpen(false)}
           >
             <X className="h-6 w-6" />
@@ -111,15 +112,14 @@ export function MainLayout() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
           {filteredMenuItems.map((item, index) => (
             <SidebarItem
               key={index}
-              to={item.disabled ? undefined : item.to}
+              to={item.to}
               icon={<item.icon className="h-5 w-5" />}
               label={item.label}
-              onClick={item.disabled ? handleComingSoon : undefined}
-              disabled={item.disabled}
+              onClick={!item.to ? handleComingSoon : undefined}
             />
           ))}
         </nav>
@@ -139,50 +139,61 @@ export function MainLayout() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top bar */}
+        {/* Top bar - Mobile App Style */}
         <header className="bg-white shadow-sm border-b border-gray-200">
-          <div className="px-6 lg:px-8">
-            <div className="flex justify-between items-center h-20">
+          <div className="px-4 md:px-6">
+            <div className="flex justify-between items-center h-16 md:h-20">
               <div className="flex items-center">
                 <button
-                  className="lg:hidden p-3 rounded-xl hover:bg-gray-100 transition-colors"
+                  className="md:hidden p-2 rounded-xl hover:bg-gray-100 transition-colors"
                   onClick={() => setSidebarOpen(true)}
                   data-testid="button-menu"
                 >
                   <Menu className="h-6 w-6" />
                 </button>
-                <h1 className="mr-4 text-2xl font-bold text-gray-900">
-                  מערכת ניהול לידים
+                <h1 className="mr-3 text-lg md:text-2xl font-bold text-gray-900">
+                  שי דירות
                 </h1>
               </div>
-              <div className="hidden lg:flex items-center">
-                <span className="text-sm text-gray-600 px-3 py-1 bg-gray-100 rounded-lg">
-                  {user?.email}
-                </span>
+              <div className="flex items-center">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
+                  <span className="text-white font-bold text-sm">
+                    {user?.email.charAt(0).toUpperCase()}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto pb-20 lg:pb-0">
+        <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
           <Outlet />
         </main>
       </div>
 
-      {/* Mobile bottom navigation */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-2 py-3 shadow-lg">
-        <div className="flex justify-around">
-          {filteredMenuItems.slice(0, 4).map((item, index) => (
-            <button
-              key={index}
-              className="flex flex-col items-center p-3 min-h-[60px] text-gray-600 hover:text-blue-600 transition-colors rounded-xl hover:bg-gray-50"
-              onClick={item.disabled ? handleComingSoon : undefined}
-            >
-              <item.icon className="h-6 w-6 mb-1" />
-              <span className="text-xs font-medium">{item.label}</span>
-            </button>
-          ))}
+      {/* Mobile bottom navigation - App Style */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-2 py-2 shadow-xl">
+        <div className="flex justify-around items-center">
+          {filteredMenuItems.slice(0, 5).map((item, index) => {
+            const isActive = item.to && location.pathname === item.to;
+            return (
+              <button
+                key={index}
+                className={`flex flex-col items-center p-2 min-h-[56px] transition-colors rounded-lg ${
+                  isActive 
+                    ? 'text-blue-600 bg-blue-50' 
+                    : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'
+                }`}
+                onClick={item.to ? () => window.location.href = item.to : handleComingSoon}
+              >
+                <item.icon className="h-5 w-5 mb-1" />
+                <span className="text-[10px] font-medium leading-tight text-center">
+                  {item.label.length > 6 ? item.label.substring(0, 6) + '...' : item.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

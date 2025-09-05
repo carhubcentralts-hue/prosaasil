@@ -23,10 +23,10 @@ export function SidebarItem({
   const active = isActive ?? (to ? location.pathname === to : false);
   
   const baseStyles = cn(
-    'flex items-center px-4 py-3 text-sm font-medium transition-colors',
+    'flex items-center px-4 py-3 text-sm font-medium transition-colors rounded-xl',
     'hover:bg-gray-100 hover:text-gray-900',
     'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset',
-    active && 'bg-blue-50 text-blue-700 border-l-4 border-blue-600',
+    active && 'bg-blue-50 text-blue-700 border-r-4 border-blue-600',
     disabled && 'opacity-50 cursor-not-allowed'
   );
 
@@ -37,12 +37,11 @@ export function SidebarItem({
     </>
   );
 
-  if (disabled || !to) {
+  if (!to) {
     return (
       <button
         className={baseStyles}
         onClick={onClick}
-        disabled={disabled}
         data-testid={`sidebar-${label.toLowerCase().replace(/\s+/g, '-')}`}
       >
         {content}
