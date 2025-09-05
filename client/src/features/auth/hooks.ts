@@ -51,13 +51,19 @@ export function useAuthState(): AuthState & {
     setState(prev => ({ ...prev, isLoading: true }));
     try {
       const response = await authApi.login({ email, password });
-      setState({
+      console.log('🔍 Login response:', response);
+      
+      const newState = {
         user: response.user,
         tenant: response.tenant,
         isLoading: false,
         isAuthenticated: true,
-      });
+      };
+      
+      setState(newState);
+      console.log('🔄 Auth state updated:', newState);
     } catch (error) {
+      console.error('❌ Login error:', error);
       setState(prev => ({ ...prev, isLoading: false }));
       throw error;
     }
