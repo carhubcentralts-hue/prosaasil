@@ -184,21 +184,43 @@ export function BusinessDetailsPage() {
   };
 
   const handleAction = (action: string) => {
+    if (!business) return;
+    
     switch (action) {
       case 'edit':
-        alert(`עריכת ${business?.name} - בפיתוח`);
+        console.log(`עריכת עסק: ${business.name}`);
+        // TODO: Open edit form modal or navigate to edit page
+        alert(`עריכת פרטי עסק "${business.name}" - טופס עריכה יפתח כאן`);
         break;
       case 'impersonate':
-        alert(`התחזות ל-${business?.name} - בפיתוח`);
+        console.log(`התחזות לעסק: ${business.name}`);
+        if (confirm(`האם אתה בטוח שאתה רוצה להתחזות לעסק "${business.name}"?`)) {
+          alert(`מתחזה לעסק "${business.name}" - יש לבצע כאן אינטגרציה עם השרת`);
+        }
         break;
       case 'suspend':
-        alert(`השעיית ${business?.name} - בפיתוח`);
+        console.log(`השעיית עסק: ${business.name}`);
+        if (confirm(`האם אתה בטוח שאתה רוצה להשעות את העסק "${business.name}"?`)) {
+          setBusiness({...business, status: 'suspended'});
+          alert(`העסק "${business.name}" הושעה`);
+        }
         break;
       case 'resume':
-        alert(`הפעלת ${business?.name} - בפיתוח`);
+        console.log(`הפעלת עסק: ${business.name}`);
+        if (confirm(`האם אתה בטוח שאתה רוצה להפעיל מחדש את העסק "${business.name}"?`)) {
+          setBusiness({...business, status: 'active'});
+          alert(`העסק "${business.name}" הופעל מחדש`);
+        }
         break;
       case 'delete':
-        alert(`מחיקת ${business?.name} - בפיתוח`);
+        console.log(`מחיקת עסק: ${business.name}`);
+        const confirmDelete = prompt(`לאישור מחיקה, הקלד את שם העסק: "${business.name}"`);
+        if (confirmDelete === business.name) {
+          alert(`העסק "${business.name}" נמחק (מחיקה רכה) - יש לבצע קריאה לשרת`);
+          navigate('/app/admin/businesses');
+        } else {
+          alert('מחיקה בוטלה - שם העסק לא תואם');
+        }
         break;
       default:
         break;

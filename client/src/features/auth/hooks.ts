@@ -13,7 +13,7 @@ export function useAuthState(): AuthState & {
   const [state, setState] = useState<AuthState>({
     user: null,
     tenant: null,
-    isLoading: true,
+    isLoading: false, // Start as false to prevent loading screen
     isAuthenticated: false,
   });
 

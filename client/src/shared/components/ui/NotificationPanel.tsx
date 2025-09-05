@@ -412,9 +412,10 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkAsRead }
 interface NotificationPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  onUnreadCountChange?: (count: number) => void;
 }
 
-export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
+export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: NotificationPanelProps) {
   const { user } = useAuthState();
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -422,8 +423,11 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
 
   // Initialize notifications when component mounts or user changes
   React.useEffect(() => {
-    setNotifications(generateNotifications(user?.role || 'business', user?.business_id));
-  }, [user?.role, user?.business_id]);
+    const newNotifications = generateNotifications(user?.role || 'business', user?.business_id);
+    setNotifications(newNotifications);
+    const initialUnreadCount = newNotifications.filter(n => !n.read).length;
+    onUnreadCountChange?.(initialUnreadCount);
+  }, [user?.role, user?.business_id, onUnreadCountChange]);
 
   if (!isOpen) return null;
 
@@ -437,13 +441,22 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
   };
 
   const markAsRead = (notificationId: string) => {
-    setNotifications(prev => prev.map(n => 
-      n.id === notificationId ? { ...n, read: true } : n
-    ));
+    setNotifications(prev => {
+      const updated = prev.map(n => 
+        n.id === notificationId ? { ...n, read: true } : n
+      );
+      const newUnreadCount = updated.filter(n => !n.read).length;
+      onUnreadCountChange?.(newUnreadCount);
+      return updated;
+    });
   };
 
   const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    setNotifications(prev => {
+      const updated = prev.map(n => ({ ...n, read: true }));
+      onUnreadCountChange?.(0);
+      return updated;
+    });
   };
 
   const handleDetailModalClose = () => {

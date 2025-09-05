@@ -372,12 +372,14 @@ export function BusinessManagerPage() {
         navigate(`/app/admin/businesses/${business.id}`);
         break;
       case 'edit':
-        // TODO: Open edit drawer
-        alert(`עריכת ${business.name} - בפיתוח`);
+        console.log(`עריכת עסק: ${business.name}`);
+        // Navigate to edit mode in details page
+        navigate(`/app/admin/businesses/${business.id}?mode=edit`);
         break;
       case 'more':
-        // TODO: Show more actions menu
-        alert(`פעולות נוספות עבור ${business.name} - בפיתוח`);
+        console.log(`תפריט פעולות עבור: ${business.name}`);
+        // TODO: Show dropdown with more actions
+        alert(`תפריט פעולות: התחזות, השעיה, מחיקה - בפיתוח`);
         break;
       default:
         break;
@@ -385,7 +387,9 @@ export function BusinessManagerPage() {
   };
 
   const handleNewBusiness = () => {
-    alert('הוספת עסק חדש - בפיתוח');
+    // TODO: Open new business creation modal
+    console.log('פתיחת טופס הוספת עסק חדש');
+    alert('טופס הוספת עסק חדש יפתח כאן (בפיתוח)');
   };
 
   return (

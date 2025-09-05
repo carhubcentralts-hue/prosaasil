@@ -136,6 +136,7 @@ export function MainLayout() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(3); // Dynamic counter
   const { user, tenant, logout } = useAuthState();
   const location = useLocation();
   const navigate = useNavigate();
@@ -362,9 +363,11 @@ export function MainLayout() {
                 >
                   <Bell className="h-5 w-5" />
                   {/* Notification badge */}
-                  <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                    3
-                  </span>
+                  {unreadNotifications > 0 && (
+                    <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                      {unreadNotifications}
+                    </span>
+                  )}
                 </button>
 
                 {/* User Avatar with Dropdown */}
@@ -486,6 +489,7 @@ export function MainLayout() {
       <NotificationPanel
         isOpen={notificationsPanelOpen}
         onClose={() => setNotificationsPanelOpen(false)}
+        onUnreadCountChange={setUnreadNotifications}
       />
 
       {/* Search Modal */}

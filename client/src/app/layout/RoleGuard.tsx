@@ -10,11 +10,14 @@ interface RoleGuardProps {
 export function RoleGuard({ roles, children }: RoleGuardProps) {
   const { user, isLoading } = useAuthState();
 
-  // Show loading spinner while checking auth
+  // Show minimal loading - redirect immediately
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="flex items-center gap-3 text-slate-600">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+          <span className="text-sm">בודק הרשאות...</span>
+        </div>
       </div>
     );
   }
