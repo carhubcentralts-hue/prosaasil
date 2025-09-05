@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Building2, 
   MessageCircle, 
@@ -9,7 +9,9 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Activity
+  Activity,
+  CalendarDays,
+  Filter
 } from 'lucide-react';
 import { Card, StatCard, Badge } from '../../shared/components/ui/Card';
 import { QuickManagementActions } from '../../shared/components/ui/ManagementCard';
@@ -123,6 +125,29 @@ function RecentActivityCard() {
 }
 
 export function AdminHomePage() {
+  const [timeFilter, setTimeFilter] = useState<'today' | 'week' | 'month' | 'custom'>('today');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [dateRange, setDateRange] = useState({
+    from: new Date(),
+    to: new Date()
+  });
+
+  const handleTimeFilterChange = (filter: 'today' | 'week' | 'month' | 'custom') => {
+    setTimeFilter(filter);
+    if (filter === 'custom') {
+      setShowDatePicker(true);
+    } else {
+      setShowDatePicker(false);
+      // Update data based on filter
+      console.log(`מעדכן נתונים עבור: ${filter}`);
+    }
+  };
+
+  const handleDateRangeChange = (from: Date, to: Date) => {
+    setDateRange({ from, to });
+    console.log(`מעדכן נתונים עבור טווח: ${from.toDateString()} - ${to.toDateString()}`);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-6" dir="rtl">
       <div className="max-w-7xl mx-auto">
@@ -131,7 +156,7 @@ export function AdminHomePage() {
           <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">
             מנהל מערכת 👋
           </h1>
-          <div className="flex items-center gap-4 mt-2">
+          <div className="flex flex-col md:flex-row md:items-center gap-4 mt-2">
             <p className="text-slate-600">
               היום: {new Date().toLocaleDateString('he-IL', { 
                 weekday: 'long', 
@@ -140,11 +165,99 @@ export function AdminHomePage() {
                 day: 'numeric' 
               })}
             </p>
-            <div className="flex gap-2">
-              <button className="btn-secondary text-xs px-3 py-1">היום</button>
-              <button className="btn-ghost text-xs px-3 py-1">7 ימים</button>
+            
+            {/* Time Filter Buttons */}
+            <div className="flex flex-wrap gap-2">
+              <button 
+                onClick={() => handleTimeFilterChange('today')}
+                className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                  timeFilter === 'today' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                היום
+              </button>
+              <button 
+                onClick={() => handleTimeFilterChange('week')}
+                className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                  timeFilter === 'week' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                7 ימים
+              </button>
+              <button 
+                onClick={() => handleTimeFilterChange('month')}
+                className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                  timeFilter === 'month' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                30 ימים
+              </button>
+              <button 
+                onClick={() => handleTimeFilterChange('custom')}
+                className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                  timeFilter === 'custom' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <CalendarDays className="h-3 w-3" />
+                טווח מותאם
+              </button>
             </div>
           </div>
+
+          {/* Custom Date Range Picker */}
+          {showDatePicker && (
+            <div className="mt-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+              <h4 className="text-sm font-medium text-slate-900 mb-3 flex items-center gap-2">
+                <Filter className="h-4 w-4" />
+                בחר טווח תאריכים
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-600 mb-1">מתאריך</label>
+                  <input
+                    type="date"
+                    value={dateRange.from.toISOString().split('T')[0]}
+                    onChange={(e) => handleDateRangeChange(new Date(e.target.value), dateRange.to)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 mb-1">עד תאריך</label>
+                  <input
+                    type="date"
+                    value={dateRange.to.toISOString().split('T')[0]}
+                    onChange={(e) => handleDateRangeChange(dateRange.from, new Date(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  onClick={() => setShowDatePicker(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  ביטול
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDatePicker(false);
+                    handleDateRangeChange(dateRange.from, dateRange.to);
+                  }}
+                  className="px-3 py-1.5 text-xs bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors"
+                >
+                  החל
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Provider Status */}

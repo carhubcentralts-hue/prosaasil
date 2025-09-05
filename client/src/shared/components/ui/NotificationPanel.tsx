@@ -263,9 +263,10 @@ interface NotificationDetailModalProps {
   notification: Notification | null;
   isOpen: boolean;
   onClose: () => void;
+  onMarkAsRead?: (id: string) => void;
 }
 
-function NotificationDetailModal({ notification, isOpen, onClose }: NotificationDetailModalProps) {
+function NotificationDetailModal({ notification, isOpen, onClose, onMarkAsRead }: NotificationDetailModalProps) {
   if (!isOpen || !notification) return null;
 
   const formatTime = (date: Date) => {
@@ -392,12 +393,14 @@ function NotificationDetailModal({ notification, isOpen, onClose }: Notification
             </button>
             <button
               onClick={() => {
-                // Mark as read functionality
+                if (notification && !notification.read && onMarkAsRead) {
+                  onMarkAsRead(notification.id);
+                }
                 onClose();
               }}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
-              סמן כנקרא
+              {notification?.read ? 'סגור' : 'סמן כנקרא'}
             </button>
           </div>
         </div>
@@ -415,15 +418,32 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
   const { user } = useAuthState();
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
+  // Initialize notifications when component mounts or user changes
+  React.useEffect(() => {
+    setNotifications(generateNotifications(user?.role || 'business', user?.business_id));
+  }, [user?.role, user?.business_id]);
 
   if (!isOpen) return null;
 
-  const notifications = generateNotifications(user?.role || 'business', user?.business_id);
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const handleNotificationClick = (notification: Notification) => {
     setSelectedNotification(notification);
     setIsDetailModalOpen(true);
+    // Auto mark as read when opening detail
+    markAsRead(notification.id);
+  };
+
+  const markAsRead = (notificationId: string) => {
+    setNotifications(prev => prev.map(n => 
+      n.id === notificationId ? { ...n, read: true } : n
+    ));
+  };
+
+  const markAllAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
   const handleDetailModalClose = () => {
@@ -477,9 +497,18 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
 
         {/* Footer */}
         <div className="p-4 border-t border-slate-200 bg-slate-50">
-          <button className="w-full text-sm text-slate-600 hover:text-slate-800 transition-colors">
-            ראה את כל ההתראות
-          </button>
+          <div className="flex justify-between items-center">
+            <button 
+              onClick={markAllAsRead}
+              className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
+              disabled={unreadCount === 0}
+            >
+              סמן הכל כנקרא ({unreadCount})
+            </button>
+            <button className="text-sm text-slate-600 hover:text-slate-800 transition-colors">
+              ראה הכל
+            </button>
+          </div>
         </div>
       </div>
 
@@ -488,6 +517,7 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
         notification={selectedNotification}
         isOpen={isDetailModalOpen}
         onClose={handleDetailModalClose}
+        onMarkAsRead={markAsRead}
       />
     </>
   );
