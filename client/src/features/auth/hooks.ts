@@ -85,25 +85,18 @@ export function useAuthState(): AuthState & {
     }
   }, []);
 
-  // 🚀 Conditional initialization - no refetch on auth pages
+  // 🚀 NO auto refetch - prevent loading screens
   useEffect(() => {
     if (!isInitializedRef.current) {
       isInitializedRef.current = true;
-      
-      // Only refetch if we're in protected routes
-      const currentPath = window.location.pathname;
-      if (currentPath.startsWith('/app/')) {
-        console.log('🔄 Refetching auth state for protected route:', currentPath);
-        refetch();
-      } else {
-        console.log('🚫 Skipping refetch on auth page:', currentPath);
-      }
+      console.log('🚫 Skipping auto refetch to prevent loading screens');
+      // No automatic refetch - only manual login
     }
     
     return () => {
       isMountedRef.current = false; // Cleanup
     };
-  }, []); // 🎯 Run only once - no dependencies
+  }, []);
 
   // 🎯 Stable return object to prevent unnecessary re-renders
   return useMemo(() => ({
