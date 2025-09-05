@@ -150,19 +150,17 @@ export function BusinessDetailsPage() {
   const [business, setBusiness] = useState<BusinessDetails | null>(null);
   const [users, setUsers] = useState<BusinessUser[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Start immediately, no loading screen
 
-  // Load business details
+  // Load business details immediately
   useEffect(() => {
     if (!id) return;
     
-    // Simulate API call
-    setTimeout(() => {
-      setBusiness(mockBusinessDetails);
-      setUsers(mockUsers);
-      setAuditEntries(mockAuditEntries);
-      setIsLoading(false);
-    }, 500);
+    // Load data immediately without delay
+    setBusiness(mockBusinessDetails);
+    setUsers(mockUsers);
+    setAuditEntries(mockAuditEntries);
+    setIsLoading(false);
   }, [id]);
 
   const formatDateTime = (dateStr: string) => {
@@ -227,18 +225,7 @@ export function BusinessDetailsPage() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 p-4 md:p-6" dir="rtl">
-        <div className="max-w-7xl mx-auto">
-          <div className="animate-pulse">
-            <div className="h-8 bg-slate-200 rounded w-1/3 mb-6"></div>
-            <div className="h-64 bg-slate-200 rounded-xl"></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Remove loading state - load immediately without delay
 
   if (!business) {
     return (

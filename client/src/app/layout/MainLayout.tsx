@@ -136,7 +136,7 @@ export function MainLayout() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
-  const [unreadNotifications, setUnreadNotifications] = useState(3); // Dynamic counter
+  const [unreadNotifications, setUnreadNotifications] = useState(0); // Will be set from notifications
   const { user, tenant, logout } = useAuthState();
   const location = useLocation();
   const navigate = useNavigate();
