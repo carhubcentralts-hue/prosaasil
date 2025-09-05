@@ -79,11 +79,16 @@ export function useAuthState(): AuthState & {
     }
   }, []);
 
-  // 🚀 Advanced initialization with cleanup
+  // 🚀 Advanced initialization with auth page check
   useEffect(() => {
     if (!isInitializedRef.current) {
       isInitializedRef.current = true;
-      refetch(); // Only on first mount
+      
+      // Only refetch if not on auth pages
+      const currentPath = window.location.pathname;
+      if (!currentPath.startsWith('/login') && !currentPath.startsWith('/forgot') && !currentPath.startsWith('/reset')) {
+        refetch(); // Only on first mount and not on auth pages
+      }
     }
     
     return () => {

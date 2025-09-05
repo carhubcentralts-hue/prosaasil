@@ -21,10 +21,13 @@ class HttpClient {
     try {
       const response = await fetch(url, config);
       
-      // Handle 401 globally
+      // Handle 401 globally - but only redirect if not already on auth pages
       if (response.status === 401) {
-        // Clear auth context and redirect to login
-        window.location.href = '/login';
+        const currentPath = window.location.pathname;
+        if (!currentPath.startsWith('/login') && !currentPath.startsWith('/forgot') && !currentPath.startsWith('/reset')) {
+          // Clear auth context and redirect to login
+          window.location.href = '/login';
+        }
         throw new Error('Unauthorized');
       }
 
