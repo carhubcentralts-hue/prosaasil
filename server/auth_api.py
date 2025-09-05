@@ -212,7 +212,7 @@ def get_current_user():
             business_response = {
                 'id': business.id,
                 'name': business.name,
-                'phone': business.phone,
+                'phone': business.phone_number,
                 'email': business.email,
                 'is_active': business.is_active,
                 'created_at': business.created_at.isoformat() if business.created_at else None
