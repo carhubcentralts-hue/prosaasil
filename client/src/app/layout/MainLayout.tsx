@@ -131,11 +131,13 @@ function SidebarItem({ icon, label, to, active, onClick, comingSoon }: SidebarIt
 
 export function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { user, tenant, logout } = useAuthState();
   const location = useLocation();
   const navigate = useNavigate();
   const sidebarRef = useRef<HTMLDivElement>(null);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   // Filter menu items based on user role
   const filteredMenuItems = menuItems.filter(item => 
@@ -179,6 +181,31 @@ export function MainLayout() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [sidebarOpen]);
+
+  // User menu click outside handler
+  useEffect(() => {
+    if (!userMenuOpen) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setUserMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [userMenuOpen]);
 
   return (
     <div className="h-screen flex flex-row-reverse bg-slate-50" dir="rtl">
@@ -336,23 +363,77 @@ export function MainLayout() {
                   </span>
                 </button>
 
-                {/* Desktop Logout */}
-                <button
-                  className="hidden md:flex p-2.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
-                  onClick={handleLogout}
-                  data-testid="button-logout-header"
-                  title="התנתקות"
-                >
-                  <LogOut className="h-5 w-5" />
-                </button>
-
-                {/* User Avatar */}
-                <div className="flex items-center mr-2">
-                  <div className="w-10 h-10 gradient-brand rounded-full flex items-center justify-center">
+                {/* User Avatar with Dropdown */}
+                <div className="relative mr-2" ref={userMenuRef}>
+                  <button
+                    className="w-10 h-10 gradient-brand rounded-full flex items-center justify-center hover:ring-4 hover:ring-blue-100 transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-blue-200"
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    data-testid="button-user-menu"
+                    title="תפריט משתמש"
+                  >
                     <span className="text-white font-bold text-sm">
                       {user?.email.charAt(0).toUpperCase()}
                     </span>
-                  </div>
+                  </button>
+
+                  {/* User Dropdown Menu */}
+                  {userMenuOpen && (
+                    <div className="absolute left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50">
+                      {/* User Info Header */}
+                      <div className="px-4 py-3 border-b border-slate-100">
+                        <div className="flex items-center">
+                          <div className="w-12 h-12 gradient-brand rounded-xl flex items-center justify-center">
+                            <span className="text-white font-bold text-lg">
+                              {user?.email.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="mr-3 flex-1">
+                            <p className="text-base font-medium text-slate-900 truncate">
+                              {user?.name || user?.email}
+                            </p>
+                            <div className="mt-1">
+                              <span className={cn(
+                                'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                                user?.role === 'admin' ? 'bg-violet-100 text-violet-800' :
+                                user?.role === 'manager' ? 'bg-blue-100 text-blue-800' :
+                                'bg-slate-100 text-slate-800'
+                              )}>
+                                {user?.role === 'admin' ? 'מנהל מערכת' : 
+                                 user?.role === 'manager' ? 'מנהל' : 'עסק'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Menu Items */}
+                      <div className="py-2">
+                        <button
+                          className="w-full flex items-center px-4 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-right"
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            alert('הגדרות פרופיל בפיתוח!');
+                          }}
+                          data-testid="button-profile"
+                        >
+                          <User className="h-4 w-4 ml-3" />
+                          הגדרות פרופיל
+                        </button>
+                        
+                        <button
+                          className="w-full flex items-center px-4 py-2 text-red-700 hover:bg-red-50 transition-colors text-right border-t border-slate-100 mt-2 pt-3"
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            handleLogout();
+                          }}
+                          data-testid="button-logout-dropdown"
+                        >
+                          <LogOut className="h-4 w-4 ml-3" />
+                          יציאה מהמערכת
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
