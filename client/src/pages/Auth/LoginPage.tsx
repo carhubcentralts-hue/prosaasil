@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthState } from '../../features/auth/hooks';
+import { Eye, EyeOff } from 'lucide-react';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -21,8 +23,10 @@ export function LoginPage() {
     setIsLoading(true);
 
     try {
+      console.log('🚀 Attempting login with:', { email, passwordLength: password.length });
       await login(email, password);
       
+      console.log('✅ Login successful, redirecting...');
       // Simple redirect to overview - role routing handled by guards
       navigate('/app/admin/overview', { replace: true });
     } catch (err) {
@@ -77,16 +81,26 @@ export function LoginPage() {
 
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">סיסמה</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                  placeholder="הכנס סיסמה"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base transition-all"
-                  data-testid="input-password"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    placeholder="הכנס סיסמה"
+                    className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base transition-all"
+                    data-testid="input-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                    data-testid="button-toggle-password"
+                  >
+                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center justify-between">
