@@ -1,2 +1,128 @@
 @import "tailwindcss";
-@import "./shared/styles/app.css";
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&family=Inter:wght@400;600&display=swap');
+
+/* Design Tokens */
+:root {
+  --brand: #2563eb;      /* primary blue-600 */
+  --brand-600: #2563eb;
+  --brand-500: #3b82f6;
+  --brand-700: #1d4ed8;
+  --ok: #16a34a;         /* success */
+  --warn: #f59e0b;       /* warning */
+  --danger: #ef4444;     /* error */
+  --bg: #f8fafc;         /* slate-50 */
+  --card: #ffffff;
+  --text: #0f172a;       /* slate-900 */
+  --muted: #64748b;      /* slate-500 */
+  --ring: #93c5fd;       /* blue-300 */
+}
+
+/* Typography */
+.tabular-nums { 
+  font-feature-settings: "tnum" 1; 
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Hebrew text */
+body, html {
+  font-family: 'Heebo', ui-sans-serif, system-ui, sans-serif;
+  direction: rtl;
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+/* Numbers and Latin text should be LTR with Inter */
+.font-inter {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Focus styles */
+.focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ring);
+  border-radius: 0.75rem;
+}
+
+@layer base {
+  * {
+    @apply border-slate-200;
+  }
+  
+  html {
+    @apply scroll-smooth;
+  }
+  
+  body {
+    @apply antialiased;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    @apply w-2;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-100;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  /* RTL utilities */
+  .rtl-flip {
+    transform: scaleX(-1);
+  }
+  
+  /* Custom gradients */
+  .gradient-brand {
+    background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+  }
+  
+  /* Card styles */
+  .card {
+    @apply rounded-2xl bg-white shadow-sm border border-slate-200;
+  }
+  
+  .card-hover {
+    @apply hover:shadow-md transition-shadow duration-200;
+  }
+  
+  /* Button styles */
+  .btn-primary {
+    @apply bg-[var(--brand)] text-white hover:bg-[var(--brand-700)] disabled:opacity-50 rounded-xl px-5 py-2.5 font-medium transition-colors;
+  }
+  
+  .btn-primary:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ring);
+  }
+  
+  .btn-secondary {
+    @apply bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl px-5 py-2.5 font-medium transition-colors;
+  }
+  
+  .btn-secondary:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ring);
+  }
+  
+  .btn-ghost {
+    @apply hover:bg-slate-100 text-slate-700 rounded-xl px-4 py-2 font-medium transition-colors;
+  }
+  
+  .btn-ghost:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ring);
+  }
+}

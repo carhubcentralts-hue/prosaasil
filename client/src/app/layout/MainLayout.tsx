@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -15,95 +15,233 @@ import {
   LogOut
 } from 'lucide-react';
 import { useAuthState } from '../../features/auth/hooks';
-import { SidebarItem } from '../../shared/components/SidebarItem';
+import { cn } from '../../shared/utils/cn';
 
 const menuItems = [
-  { icon: LayoutDashboard, label: 'סקירה כללית', to: '/app/admin/overview', roles: ['admin', 'manager'] },
-  { icon: LayoutDashboard, label: 'סקירה כללית', to: '/app/business/overview', roles: ['business'] },
-  { icon: Users, label: 'לידים' },
-  { icon: MessageCircle, label: 'WhatsApp' },
-  { icon: Phone, label: 'שיחות' },
-  { icon: Building2, label: 'CRM' },
-  { icon: CreditCard, label: 'תשלומים' },
-  { icon: UserCog, label: 'ניהול עסקים', roles: ['admin', 'manager'] },
-  { icon: Users, label: 'משתמשים', roles: ['admin', 'manager'] },
-  { icon: Settings, label: 'הגדרות' },
-  { icon: Calendar, label: 'לוח שנה' },
+  { 
+    icon: LayoutDashboard, 
+    label: 'סקירה כללית', 
+    to: '/app/admin/overview', 
+    roles: ['admin', 'manager'] 
+  },
+  { 
+    icon: LayoutDashboard, 
+    label: 'סקירה כללית', 
+    to: '/app/business/overview', 
+    roles: ['business'] 
+  },
+  { 
+    icon: Users, 
+    label: 'לידים',
+    comingSoon: true
+  },
+  { 
+    icon: MessageCircle, 
+    label: 'WhatsApp',
+    comingSoon: true
+  },
+  { 
+    icon: Phone, 
+    label: 'שיחות',
+    comingSoon: true
+  },
+  { 
+    icon: Building2, 
+    label: 'CRM',
+    comingSoon: true
+  },
+  { 
+    icon: CreditCard, 
+    label: 'תשלומים וחוזים',
+    comingSoon: true
+  },
+  { 
+    icon: UserCog, 
+    label: 'ניהול עסקים', 
+    roles: ['admin', 'manager'],
+    comingSoon: true
+  },
+  { 
+    icon: Users, 
+    label: 'ניהול משתמשים', 
+    roles: ['admin', 'manager'],
+    comingSoon: true
+  },
+  { 
+    icon: Settings, 
+    label: 'הגדרות מערכת',
+    comingSoon: true
+  },
+  { 
+    icon: Calendar, 
+    label: 'לוח שנה',
+    comingSoon: true
+  },
 ];
+
+interface SidebarItemProps {
+  icon: React.ReactNode;
+  label: string;
+  to?: string;
+  active?: boolean;
+  onClick?: () => void;
+  comingSoon?: boolean;
+}
+
+function SidebarItem({ icon, label, to, active, onClick, comingSoon }: SidebarItemProps) {
+  const content = (
+    <div className="flex items-center">
+      <div className="ml-3 text-slate-500">
+        {icon}
+      </div>
+      <span className="flex-1">{label}</span>
+      {comingSoon && (
+        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+          בקרוב
+        </span>
+      )}
+    </div>
+  );
+
+  const baseStyles = cn(
+    'flex items-center px-4 py-3 text-sm font-medium transition-all duration-200 rounded-xl mx-2',
+    'hover:bg-slate-100 hover:text-slate-900',
+    'focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1',
+    active && 'bg-slate-100 text-slate-900 border border-slate-200',
+    comingSoon && 'cursor-pointer'
+  );
+
+  if (to && !comingSoon) {
+    return (
+      <a href={to} className={baseStyles}>
+        {content}
+      </a>
+    );
+  }
+
+  return (
+    <button className={baseStyles} onClick={onClick}>
+      {content}
+    </button>
+  );
+}
 
 export function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, tenant, logout } = useAuthState();
   const location = useLocation();
   const navigate = useNavigate();
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const toggleButtonRef = useRef<HTMLButtonElement>(null);
 
-  const handleComingSoon = () => {
-    alert('בקרוב! תכונה זו תהיה זמינה בגרסה הבאה.');
-  };
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } catch (error) {
-      console.error('Logout failed:', error);
-    }
-  };
-
+  // Filter menu items based on user role
   const filteredMenuItems = menuItems.filter(item => 
     !item.roles || (user && item.roles.includes(user.role))
   );
 
+  // Handle coming soon click
+  const handleComingSoon = () => {
+    alert('בקרוב! תכונה זו תהיה זמינה בגרסה הבאה.');
+    setSidebarOpen(false);
+  };
+
+  // Handle logout
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
+  // Focus trap for mobile drawer
+  useEffect(() => {
+    if (!sidebarOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSidebarOpen(false);
+        toggleButtonRef.current?.focus();
+      }
+    };
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
+        setSidebarOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [sidebarOpen]);
+
   return (
-    <div className="h-screen flex flex-row-reverse bg-gray-50" dir="rtl">
+    <div className="h-screen flex flex-row-reverse bg-slate-50" dir="rtl">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div 
           className="fixed inset-0 z-40 bg-black bg-opacity-50 md:hidden"
           onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
         />
       )}
 
-      {/* Sidebar - RTL (from right side) */}
-      <div className={`
-        fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl transform transition-transform duration-300 ease-in-out
-        md:relative md:translate-x-0 md:w-72 md:order-first
-        ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'}
-      `}>
+      {/* Sidebar - Desktop fixed, Mobile drawer */}
+      <aside 
+        ref={sidebarRef}
+        className={cn(
+          'fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl transform transition-transform duration-300 ease-in-out',
+          'md:relative md:translate-x-0 md:w-72 md:shadow-sm md:border-l md:border-slate-200',
+          sidebarOpen ? 'translate-x-0' : 'translate-x-full'
+        )}
+        role="navigation"
+        aria-label="תפריט ראשי"
+        aria-expanded={sidebarOpen ? 'true' : 'false'}
+        id="sidebar"
+      >
         {/* Sidebar header */}
-        <div className="flex items-center justify-between h-20 px-6 border-b border-gray-200">
+        <div className="flex items-center justify-between h-20 px-6 border-b border-slate-200">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center">
+              <div className="w-12 h-12 gradient-brand rounded-xl flex items-center justify-center">
                 <span className="text-white font-bold text-xl">ש</span>
               </div>
             </div>
             <div className="mr-4">
-              <h1 className="text-lg font-bold text-gray-900">שי דירות</h1>
-              <p className="text-sm text-gray-500">{tenant?.name}</p>
+              <h1 className="text-lg font-semibold text-slate-900">שי דירות</h1>
+              <p className="text-sm text-slate-500">{tenant?.name || 'ומשרדים בע״מ'}</p>
             </div>
           </div>
           <button
-            className="md:hidden p-2 rounded-lg hover:bg-gray-100"
+            className="md:hidden p-2 rounded-xl hover:bg-slate-100 transition-colors"
             onClick={() => setSidebarOpen(false)}
+            aria-label="סגור תפריט"
           >
             <X className="h-6 w-6" />
           </button>
         </div>
 
         {/* User info */}
-        <div className="p-6 border-b border-gray-200">
+        <div className="p-6 border-b border-slate-200">
           <div className="flex items-center">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
+            <div className="w-12 h-12 gradient-brand rounded-xl flex items-center justify-center">
               <span className="text-white font-bold text-lg">
                 {user?.email.charAt(0).toUpperCase()}
               </span>
             </div>
             <div className="mr-4 flex-1">
-              <p className="text-base font-medium text-gray-900 truncate">{user?.email}</p>
+              <p className="text-base font-medium text-slate-900 truncate">
+                {user?.name || user?.email}
+              </p>
               <div className="mt-1">
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                  user?.role === 'admin' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
-                }`}>
+                <span className={cn(
+                  'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                  user?.role === 'admin' ? 'bg-violet-100 text-violet-800' :
+                  user?.role === 'manager' ? 'bg-blue-100 text-blue-800' :
+                  'bg-slate-100 text-slate-800'
+                )}>
                   {user?.role === 'admin' ? 'מנהל מערכת' : 
                    user?.role === 'manager' ? 'מנהל' : 'עסק'}
                 </span>
@@ -113,22 +251,27 @@ export function MainLayout() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-          {filteredMenuItems.map((item, index) => (
-            <SidebarItem
-              key={index}
-              to={item.to}
-              icon={<item.icon className="h-5 w-5" />}
-              label={item.label}
-              onClick={!item.to ? handleComingSoon : undefined}
-            />
-          ))}
+        <nav className="flex-1 py-6 overflow-y-auto">
+          {filteredMenuItems.map((item, index) => {
+            const isActive = item.to && location.pathname === item.to;
+            return (
+              <SidebarItem
+                key={index}
+                icon={<item.icon className="h-5 w-5" />}
+                label={item.label}
+                to={item.to}
+                active={isActive}
+                onClick={item.comingSoon ? handleComingSoon : undefined}
+                comingSoon={item.comingSoon}
+              />
+            );
+          })}
         </nav>
 
         {/* Logout button */}
-        <div className="p-6 border-t border-gray-200">
+        <div className="p-6 border-t border-slate-200">
           <button
-            className="w-full flex items-center px-4 py-3 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors"
+            className="w-full flex items-center px-4 py-3 text-slate-700 rounded-xl hover:bg-slate-100 transition-colors btn-ghost"
             onClick={handleLogout}
             data-testid="button-logout"
           >
@@ -136,28 +279,32 @@ export function MainLayout() {
             יציאה מהמערכת
           </button>
         </div>
-      </div>
+      </aside>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden md:order-last">
-        {/* Top bar - Mobile App Style */}
-        <header className="bg-white shadow-sm border-b border-gray-200">
-          <div className="px-4 md:px-6">
-            <div className="flex justify-between items-center h-16 md:h-20">
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {/* Mobile header */}
+        <header className="md:hidden bg-white shadow-sm border-b border-slate-200">
+          <div className="px-4">
+            <div className="flex justify-between items-center h-16">
               <div className="flex items-center">
                 <button
-                  className="md:hidden p-2 rounded-xl hover:bg-gray-100 transition-colors"
+                  ref={toggleButtonRef}
+                  className="p-2 rounded-xl hover:bg-slate-100 transition-colors"
                   onClick={() => setSidebarOpen(true)}
+                  aria-expanded={sidebarOpen ? 'true' : 'false'}
+                  aria-controls="sidebar"
+                  aria-label="פתח תפריט"
                   data-testid="button-menu"
                 >
                   <Menu className="h-6 w-6" />
                 </button>
-                <h1 className="mr-3 text-lg md:text-2xl font-bold text-gray-900">
+                <h1 className="mr-3 text-lg font-semibold text-slate-900">
                   שי דירות
                 </h1>
               </div>
               <div className="flex items-center">
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
+                <div className="w-10 h-10 gradient-brand rounded-full flex items-center justify-center">
                   <span className="text-white font-bold text-sm">
                     {user?.email.charAt(0).toUpperCase()}
                   </span>
@@ -168,49 +315,40 @@ export function MainLayout() {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
+        <div className="flex-1 overflow-y-auto">
           <Outlet />
-        </main>
-      </div>
+        </div>
+      </main>
 
-      {/* Mobile bottom navigation - Modern App Style */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-1 py-1 shadow-2xl">
+      {/* Bottom Navigation for mobile (optional - top 4 items) */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-2 py-2 shadow-xl">
         <div className="flex justify-around items-center">
           {filteredMenuItems.slice(0, 4).map((item, index) => {
             const isActive = item.to && location.pathname === item.to;
             return (
-              <a
+              <button
                 key={index}
-                href={item.to || '#'}
-                className={`flex flex-col items-center p-2 min-h-[60px] transition-all duration-200 rounded-xl ${
+                className={cn(
+                  'flex flex-col items-center p-2 min-h-[60px] transition-all duration-200 rounded-xl',
                   isActive 
-                    ? 'text-blue-600 bg-blue-50 scale-105' 
-                    : 'text-gray-500 hover:text-blue-600 active:scale-95'
-                }`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (item.to) {
+                    ? 'text-[var(--brand)] bg-blue-50 scale-105' 
+                    : 'text-slate-500 hover:text-[var(--brand)] active:scale-95'
+                )}
+                onClick={() => {
+                  if (item.to && !item.comingSoon) {
                     navigate(item.to);
-                  } else {
+                  } else if (item.comingSoon) {
                     handleComingSoon();
                   }
                 }}
               >
-                <item.icon className="h-6 w-6 mb-1" />
+                <item.icon className="h-5 w-5 mb-1" />
                 <span className="text-[11px] font-medium leading-tight text-center">
-                  {item.label.length > 7 ? item.label.substring(0, 7) + '...' : item.label}
+                  {item.label.length > 7 ? item.label.substring(0, 6) + '...' : item.label}
                 </span>
-              </a>
+              </button>
             );
           })}
-          {/* Menu button for more options */}
-          <button
-            className="flex flex-col items-center p-2 min-h-[60px] transition-all duration-200 rounded-xl text-gray-500 hover:text-blue-600 active:scale-95"
-            onClick={() => setSidebarOpen(true)}
-          >
-            <Menu className="h-6 w-6 mb-1" />
-            <span className="text-[11px] font-medium leading-tight text-center">עוד</span>
-          </button>
         </div>
       </div>
     </div>
