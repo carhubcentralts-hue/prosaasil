@@ -12,6 +12,8 @@ import { ResetPasswordPage } from '../pages/Auth/ResetPasswordPage';
 // Protected Pages  
 import { AdminHomePage } from '../pages/Admin/AdminHomePage';
 import { BusinessHomePage } from '../pages/Business/BusinessHomePage';
+import { BusinessManagerPage } from '../pages/Admin/BusinessManagerPage';
+import { BusinessDetailsPage } from '../pages/Admin/BusinessDetailsPage';
 
 export function AppRoutes() {
   return (
@@ -36,6 +38,22 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['admin', 'manager']}>
               <AdminHomePage />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="admin/businesses"
+          element={
+            <RoleGuard roles={['admin', 'manager']}>
+              <BusinessManagerPage />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="admin/businesses/:id"
+          element={
+            <RoleGuard roles={['admin', 'manager']}>
+              <BusinessDetailsPage />
             </RoleGuard>
           }
         />

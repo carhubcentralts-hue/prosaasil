@@ -8,6 +8,8 @@ This is AgentLocator, a Hebrew CRM system with AI-powered real-time call process
 - **Secure Authentication System**: Login, forgot/reset password with JWT and role-based access control
 - **Professional Admin Dashboard**: System-wide KPIs, provider status, activity monitoring for admin/manager roles
 - **Business Dashboard**: Tenant-specific overview with leads, calls, WhatsApp metrics and quick actions
+- **Business Manager System**: Complete admin interface for managing all businesses with advanced CRUD operations
+- **Notifications & Search**: Real-time notification system and global search functionality with role-based permissions
 - **Responsive RTL Layout**: Professional sidebar navigation with mobile bottom nav and Hebrew typography
 - **Enhanced WebSocket Stability**: Heartbeat mechanism every 15-20 seconds prevents idle timeouts
 - **Improved Barge-in Handling**: 200ms grace period with immediate TTS interruption for natural conversation flow  

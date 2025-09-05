@@ -63,8 +63,8 @@ const menuItems = [
   { 
     icon: UserCog, 
     label: 'ניהול עסקים', 
-    roles: ['admin', 'manager'],
-    comingSoon: true
+    to: '/app/admin/businesses',
+    roles: ['admin', 'manager']
   },
   { 
     icon: Users, 
@@ -232,7 +232,7 @@ export function MainLayout() {
         )}
         role="navigation"
         aria-label="תפריט ראשי"
-        aria-expanded={sidebarOpen}
+        aria-expanded={sidebarOpen ? 'true' : 'false'}
         id="sidebar"
       >
         {/* Sidebar header */}
@@ -287,7 +287,7 @@ export function MainLayout() {
         {/* Navigation */}
         <nav className="flex-1 py-6 overflow-y-auto">
           {filteredMenuItems.map((item, index) => {
-            const isActive = item.to && location.pathname === item.to;
+            const isActive = !!(item.to && location.pathname === item.to);
             return (
               <SidebarItem
                 key={index}
@@ -327,7 +327,7 @@ export function MainLayout() {
                   ref={toggleButtonRef}
                   className="md:hidden p-2 rounded-xl hover:bg-slate-100 transition-colors"
                   onClick={() => setSidebarOpen(true)}
-                  aria-expanded={sidebarOpen}
+                  aria-expanded={sidebarOpen ? 'true' : 'false'}
                   aria-controls="sidebar"
                   aria-label="פתח תפריט"
                   data-testid="button-menu"

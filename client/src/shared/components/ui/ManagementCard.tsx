@@ -1,5 +1,6 @@
 import React from 'react';
 import { LucideIcon, ChevronRight, Building2, UserCog } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '../../utils/cn';
 import { useAuthState } from '../../../features/auth/hooks';
 
@@ -83,9 +84,10 @@ interface QuickManagementActionsProps {
 
 export function QuickManagementActions({ className }: QuickManagementActionsProps) {
   const { user } = useAuthState();
+  const navigate = useNavigate();
 
   const handleBusinessManagement = () => {
-    alert('ניהול עסקים בפיתוח! כאן תוכלו לנהל את כל העסקים במערכת.');
+    navigate('/app/admin/businesses');
   };
 
   const handleUserManagement = () => {
