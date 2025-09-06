@@ -1,0 +1,105 @@
+הבנתי. כשמישהו אומר “עשיתי”—ואצלך לא זז כלום—צריך להפוך את זה לבלתי־ניתן־לוויכוח, עם הוכחות חיות מאותה סביבה. תן לו את ההנחיה הבאה, מילה־במילה. היא תכריח את ה-Preview להציג שינוי, תבדיל בין FE/BE, תאמת קוקיות התחזות, ותוודא שה-Calendar באמת נכנס ל-Sidebar. אין פה “אולי”; או שזה עובר—או שמקבלים ראיה איפה זה נשבר.
+
+⸻
+
+DO THIS NOW — Proof-based fix (Preview)
+
+0) נועלים מצב עבודה אחד (Flask מגיש FE) עד שנסגור את זה
+
+# מהשורש, לא מתיקיית client
+rm -rf dist
+npm --prefix client ci
+npm --prefix client run build
+cp -R client/dist dist
+python wsgi.py
+
+1) הוכחת שינוי שאי אפשר לפספס (FE)
+
+ב־client/index.html:
+	•	שנה <title> ל־AI CRM — FIX PINK 03
+	•	הוסף (בתוך <head>):
+<meta name="x-version" content="FIX-PINK-03">
+	•	הוסף (מייד אחרי <body>):
+<div id="__proof" style="position:fixed;inset:auto 0 0 0;background:#ff00a8;color:white;padding:6px 10px;font:600 14px/1 Heebo,Inter,sans-serif;z-index:99999">BUILD: FIX-PINK-03</div>
+
+בצע שוב את הפקודות בסעיף 0.
+פתח / → View Source חייב להראות את FIX-PINK-03.
+פתח /assets/index-*.css ו־/assets/index-*.js → חייבים להיות text/css ו־application/javascript (לא HTML).
+אם לא—אתה לא רואה את ה-build החדש (חזור לסעיף 0; נקה Service Worker ב-DevTools → Application → Unregister + Clear storage).
+
+2) תיקון התחזות — הוכחה ברמת קוקיות (BE+FE)
+
+שרת (Flask) — מפתח חייב לאשר:
+	•	משתמשים אך ורק ב־session['user'] (לא user_id).
+	•	POST /api/admin/businesses/:id/impersonate:
+	•	קובע:
+
+session['original_user'] = <admin_serialized>
+session['user'] = <tenant_user_serialized with role:'business', tenant_id>
+session['tenant_id'] = <tenant_id>
+session['impersonating'] = True
+
+
+	•	מחזיר 200 {"ok":true,...} (ללא redirect).
+
+	•	POST /api/admin/impersonate/exit משחזר את הסשן המקורי.
+	•	GET /api/auth/me מחזיר 200 עם { user, tenant_id, impersonating:true|false } אם יש session['user']; אחרת 401.
+	•	בפריוויו (HTTP):
+SESSION_COOKIE_SECURE=False, SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_PATH='/'.
+
+בדיקת עשן שאי אפשר להתווכח איתה (באותו טרמינל של Replit):
+
+# 1) לוגין → שמירה לקובץ קוקיות
+curl -i -c /tmp/c.txt -b /tmp/c.txt \
+  -X POST http://localhost:5000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"admin@your.co.il","password":"..."}'
+
+# 2) מי אני?
+curl -i -c /tmp/c.txt -b /tmp/c.txt http://localhost:5000/api/auth/me
+
+# 3) התחזות לטננט X
+curl -i -c /tmp/c.txt -b /tmp/c.txt \
+  -X POST http://localhost:5000/api/admin/businesses/10/impersonate
+
+# 4) מי אני עכשיו? (חייב להחזיר impersonating:true ו-role:'business')
+curl -i -c /tmp/c.txt -b /tmp/c.txt http://localhost:5000/api/auth/me
+
+אם שלב 4 מחזיר 401 או שאין impersonating:true—הבעיה בשרת (קוקי לא נשמר / /me לא מכבד מצב התחזות). אם 4 תקין אבל ה-SPA זורק ל־/login—הבעיה ב-FE (לא שולחים credentials:'include' / ה-guard משתמש ב־state ישן; צריך refetch של /me לפני ניווט).
+
+צד לקוח (חובה):
+	•	כל fetch ל־/api/** עם credentials:'include'.
+	•	בהנדלר התחזות: POST /impersonate → מיד GET /api/auth/me → רק אם impersonating:true לנווט ל־/app/business/overview.
+	•	ה־RoleGuard חייב “להאמין” ל־me.impersonating===true (מתייחס ל־user.role כ-business).
+
+3) ה-Calendar בסיידבר — מקור יחיד לאייטמים
+	•	ודא שיש מערך יחיד של פריטי ניווט, שמיובא גם ל-Sidebar דסקטופ וגם ל-Drawer מובייל. הוסף לשם:
+
+{ key:'calendar', label:'לוח שנה', to:'/app/calendar', icon:CalendarIcon }
+
+
+	•	הוסף ראוט placeholder:
+
+<Route path="/app/calendar" element={<div class="p-6">Calendar — coming soon</div>} />
+
+
+	•	רענן. אם עדיין לא מופיע—אתה מרנדר מקור אחר במובייל/דסקטופ; איחד למקור אחד.
+
+4) מבדקי “לא עובד לי בקצה שלי”
+	•	Disable cache ב-Network + Hard Reload.
+	•	Service Worker: Unregister + Clear storage.
+	•	ודא ה-URL הוא של השרת שרץ הרגע (לא Preview של פורט אחר/דומיין אחר).
+	•	ps -ef | grep -i gunicorn כדי לראות שה־Flask שרץ הוא הטרי.
+	•	lsof -i -P -n | grep LISTEN לאשר פורטים (5000).
+
+⸻
+
+Acceptance Checklist (חייבים לעמוד בכולן)
+	•	View Source מציג <meta name="x-version" content="FIX-PINK-03"> + פס ורוד בתחתית (“BUILD: FIX-PINK-03”).
+	•	/assets/index-*.css/js מחזירים MIME נכון (לא HTML).
+	•	בדיקת ה-curl בשלב 2 מצליחה: /api/auth/me אחרי התחזות → impersonating:true.
+	•	ב-SPA: אחרי התחזות לא קופץ ל־/login; נכנס ל־/app/business/overview.
+	•	“לוח שנה” מופיע בסיידבר גם בדסקטופ וגם במובייל; /app/calendar נטען (placeholder תקין).
+	•	אין שגיאות אדומות בקונסול.
+
+אם אפילו סעיף אחד נכשל—זו הוכחה היכן זה נשבר (FE build, הגשת נכסים, קוקיות/סשן, או ניווט/Guard). אחרי זה, הבעיה כבר לא “תחושה”—יש נקודת כשל ספציפית לתקן.
