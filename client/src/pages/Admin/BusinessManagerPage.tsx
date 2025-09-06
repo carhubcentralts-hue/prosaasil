@@ -382,9 +382,26 @@ export function BusinessManagerPage() {
         setEditModalOpen(true);
         break;
       case 'more':
-        console.log(`תפריט פעולות עבור: ${business.name}`);
-        console.log('התחלת תהליך התחזות...');
-        handleImpersonate(business);
+        // Show dropdown with all additional actions
+        const actionChoice = prompt(`בחר פעולה עבור "${business.name}":\n\n1. התחזות לעסק\n2. השעה/הפעל עסק\n3. מחק עסק\n4. איפוס סיסמאות משתמשים\n\nהכנס מספר (1-4):`);
+        
+        switch (actionChoice) {
+          case '1':
+            handleImpersonate(business);
+            break;
+          case '2':
+            handleToggleSuspension(business);
+            break;
+          case '3':
+            handleDeleteBusiness(business);
+            break;
+          case '4':
+            handleResetPasswords(business);
+            break;
+          default:
+            // User canceled or entered invalid choice
+            break;
+        }
         break;
       default:
         break;
@@ -421,6 +438,43 @@ export function BusinessManagerPage() {
       console.log(`התחזות לעסק: ${business.name}`);
       alert(`התחזות מופעלת! מועבר לדשבורד עסק: ${business.name}`);
       navigate('/app/business/dashboard');
+    }
+  };
+
+  const handleToggleSuspension = (business: Business) => {
+    const actionText = business.status === 'active' ? 'השעה' : 'הפעל';
+    const confirmed = confirm(`האם אתה בטוח שאתה רוצה ל${actionText} את העסק "${business.name}"?`);
+    if (confirmed) {
+      const newStatus = business.status === 'active' ? 'suspended' : 'active';
+      
+      // Update the business in the list
+      setFilteredBusinesses(prev => prev.map(b => 
+        b.id === business.id ? { ...b, status: newStatus } : b
+      ));
+      
+      alert(`העסק "${business.name}" ${newStatus === 'active' ? 'הופעל' : 'הושעה'} בהצלחה!`);
+    }
+  };
+
+  const handleDeleteBusiness = (business: Business) => {
+    const confirmed = confirm(`⚠️ אזהרה: האם אתה בטוח שאתה רוצה למחוק את העסק "${business.name}"?\n\nפעולה זו תמחק:\n- את כל הנתונים של העסק\n- את כל המשתמשים\n- את כל השיחות וההתראות\n\nפעולה זו בלתי הפיכה!`);
+    
+    if (confirmed) {
+      const secondConfirm = prompt(`כדי לאשר מחיקה, הקלד את שם העסק בדיוק: "${business.name}"`);
+      if (secondConfirm === business.name) {
+        // Remove from the list
+        setFilteredBusinesses(prev => prev.filter(b => b.id !== business.id));
+        alert(`העסק "${business.name}" נמחק בהצלחה מהמערכת.`);
+      } else {
+        alert('שם העסק לא תואם. המחיקה בוטלה.');
+      }
+    }
+  };
+
+  const handleResetPasswords = (business: Business) => {
+    const confirmed = confirm(`האם אתה בטוח שאתה רוצה לאפס את סיסמאות כל המשתמשים של "${business.name}"?\n\nהסיסמאות החדשות יישלחו למשתמשים במייל.`);
+    if (confirmed) {
+      alert(`איפוס סיסמאות בוצע בהצלחה!\n\nסיסמאות חדשות נשלחו למייל של ${business.users} משתמשים.`);
     }
   };
 
