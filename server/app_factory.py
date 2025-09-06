@@ -244,10 +244,12 @@ def create_app():
         from server.routes_crm import crm_bp
         from server.routes_business_management import biz_mgmt_bp
         from server.routes_twilio import twilio_bp
+        from server.routes_calendar import calendar_bp
         app.register_blueprint(admin_bp)
         app.register_blueprint(crm_bp)
         app.register_blueprint(biz_mgmt_bp)
         app.register_blueprint(twilio_bp)
+        app.register_blueprint(calendar_bp)
         print("✅ New API blueprints registered")
         print("✅ Twilio webhooks registered")
         
