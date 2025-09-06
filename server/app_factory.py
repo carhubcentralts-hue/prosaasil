@@ -222,17 +222,13 @@ def create_app():
         # Register auth system FIRST (after security middleware)
         # Using simplified auth from auth_api.py only
         
-        # Session configuration for security (לפי המפרט)
-        app.config.update({
-            'SESSION_COOKIE_HTTPONLY': True,
-            'SESSION_COOKIE_SAMESITE': 'Lax',
-            'SESSION_COOKIE_SECURE': True if os.getenv('FLASK_ENV') == 'production' else False,
-        })
+        # Session configuration for development (exact dev cookie flags)
         app.config.update({
             'SESSION_COOKIE_NAME': 'al_sess',
             'SESSION_COOKIE_HTTPONLY': True,
-            'SESSION_COOKIE_SECURE': False,  # Set to True in production with HTTPS
+            'SESSION_COOKIE_SECURE': False,  # Dev mode - no HTTPS required
             'SESSION_COOKIE_SAMESITE': 'Lax',
+            'SESSION_COOKIE_PATH': '/',
         })
         
         # Register auth blueprint - single clean system

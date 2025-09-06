@@ -318,7 +318,7 @@ def toggle_user_status(user_id):
             return jsonify({"error": "משתמש לא נמצא"}), 404
         
         # Don't allow disabling the current admin user
-        current_user = session.get('al_user')
+        current_user = session.get('user')
         if current_user and current_user.get('id') == user_id:
             return jsonify({"error": "לא ניתן להשהות את המשתמש הנוכחי"}), 400
         

@@ -78,9 +78,8 @@ def login():
             'email': user.email
         }
         
-        # Store in session for UI compatibility (both keys for compatibility)
+        # Store in session - single session key only
         session['user'] = user_data
-        session['al_user'] = user_data
         session['token'] = f"session_{user.id}"  # Simple session token
         
         return jsonify({
@@ -176,13 +175,12 @@ def logout():
 def get_current_user():
     """
     GET /api/auth/me
-    Returns current user data from session
-    Expected by frontend auth system
+    Returns current user data from session - single source of truth
     """
     try:
         u = session.get('user')
         if not u:
-            return jsonify({"error":"unauthenticated"}), 401
+            return jsonify({"error":"Not authenticated"}), 401
         
         return jsonify({
             "user": u, 
