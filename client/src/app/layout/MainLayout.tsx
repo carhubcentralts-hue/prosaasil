@@ -119,9 +119,9 @@ function SidebarItem({ icon, label, to, active, onClick, comingSoon }: SidebarIt
 
   if (to && !comingSoon) {
     return (
-      <a href={to} className={baseStyles}>
+      <button onClick={() => window.location.href = to} className={baseStyles}>
         {content}
-      </a>
+      </button>
     );
   }
 
