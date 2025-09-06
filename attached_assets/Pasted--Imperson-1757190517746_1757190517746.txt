@@ -1,0 +1,176 @@
+הנה הנחיה ממוקדת לבוט/מפתח שלך שתוציא אתכם מהלופ: מחזירים את השרת למצב יציב, מתקנים התחזות (Impersonate) כך שלא יקפוץ ל-/login, ומבטיחים ש-Calendar באמת מופיע בסיידבר. ההנחיה כתובה לביצוע ישיר, עם נקודות עצירה אם משהו נשבר.
+
+⸻
+
+DO THIS NOW — Reset, Fix Impersonation, Show Calendar (no shortcuts)
+
+0) Reset to a clean, single preview mode (Flask serves FE)
+
+עד שמתקנים Auth, עובדים רק כך: Flask מגיש את ה־build (אותו מקור → קוקיות עובדות).
+
+# from repo root (not client/)
+pkill -f gunicorn || true
+rm -rf dist
+npm --prefix client ci
+npm --prefix client run build
+cp -R client/dist dist
+python wsgi.py
+
+Proof-of-change: ב־client/index.html שים:
+	•	<title>AI CRM — FIX-IMP-04</title>
+	•	<meta name="x-version" content="FIX-IMP-04">
+	•	פס ורוד ברור מיד אחרי <body>:
+
+<div id="__proof" style="position:fixed;inset:auto 0 0 0;background:#ff00a8;color:#fff;padding:6px 10px;font:600 14px Heebo,Inter,sans-serif;z-index:99999">BUILD: FIX-IMP-04</div>
+
+
+
+רענן:
+	•	View Source חייב להראות FIX-IMP-04.
+	•	/assets/index-*.css/js חייבים להיות MIME נכון (text/css, application/javascript), לא HTML. אם לא—עצור ותקן את הגשת הסטטיק לפני הכל.
+
+⸻
+
+1) Restore session/CSRF sanely (no global disable)
+
+לא לבטל CSRF וסשן גנרית. מגדירים exempt רק למסלולים ספציפיים.
+
+	•	Config (preview HTTP בלבד):
+
+SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_PATH = '/'
+
+
+	•	אם יש before_request שמנקה סשן (SessionSecurity):
+אל תנקה לפני /api/auth/login, /api/auth/logout, /api/auth/me,
+/api/admin/businesses/<id>/impersonate, /api/admin/impersonate/exit.
+(Exempt לשמות endpoint או ל-prefixes המתאימים).
+
+⸻
+
+2) One source of truth for Auth (שבור כפילויות)
+
+כרגע קיימות שתי גרסאות; מאחדים. אל תשנה שמות endpoints—רק התנהגות.
+
+היכן לתקן: server/auth_api.py (או הקובץ שמטפל ב־Auth בפועל)
+	•	בלוגין: שמור אך ורק session['user'] = {id,email,role, tenant_id?}
+(אם אתה חייב תאימות: גם session['al_user']=..., אבל הכל קורא תמיד מ־session['user']).
+	•	GET /api/auth/me — תהיה גרסה אחת (הסר כפילויות ממקומות אחרים):
+
+u = session.get('user')
+if not u: return 401
+return { "user": u, "tenant_id": session.get('tenant_id'), "impersonating": bool(session.get('impersonating')) }, 200
+
+אל תשתמש ב־session['user_id']. זה המקור לכל הבעיות.
+
+⸻
+
+3) Fix Impersonation (server + client)
+
+Server — POST /api/admin/businesses/<id>/impersonate
+	•	אחרי בדיקת הרשאות אדמין:
+
+session['original_user'] = serialize_admin(...)
+session['user'] = serialize_tenant_user(role='business', tenant_id=tenant.id)
+session['tenant_id'] = tenant.id
+session['impersonating'] = True
+return { "ok": True, "tenantUser": session['user'], "tenant": {"id": tenant.id, "name": tenant.name} }, 200
+
+
+	•	POST /api/admin/impersonate/exit:
+
+session['user'] = session.get('original_user')
+session.pop('original_user', None)
+session.pop('tenant_id', None)
+session['impersonating'] = False
+return { "ok": True }, 200
+
+
+
+Client — call with credentials, navigate only after /me
+	•	כל הקריאות ל־/api/** עם credentials:'include'.
+	•	Handler להתחזות (ב־hook/Service מרכזי):
+	1.	POST /impersonate
+	2.	מיד GET /api/auth/me
+	3.	אם 200 ויש impersonating:true או user.role === 'business' → navigate('/app/business/overview')
+אחרת הצג toast “Impersonation failed” ואל תנווט.
+	•	<RoleGuard>: אם impersonating===true—קבל את ה־role של המשתמש המתחזה (business).
+
+⸻
+
+4) Sidebar Calendar — single source of nav items
+
+פריט ה־Calendar צריך להגיע מאותו מערך items לדסקטופ ולמובייל.
+
+	•	מקור יחיד: client/src/shared/navItems.ts (לדוגמה)
+
+export const NAV_ITEMS = [
+  /* ...existing... */
+  { key:'calendar', label:'לוח שנה', to:'/app/calendar', icon:CalendarIcon }
+]
+
+
+	•	ב־Sidebar וב־MobileDrawer — ייבא את אותו NAV_ITEMS.
+	•	ראוט placeholder:
+
+<Route path="/app/calendar" element={<div className="p-6">Calendar — coming soon</div>} />
+
+
+	•	רענון מלא. אם לא מופיע — אתה לא מרנדר את אותו מקור במובייל/דסקטופ → תקן שיקראו לאותו קובץ.
+
+⸻
+
+5) Smoke test that cannot lie (same-origin curl)
+
+מריצים מהשרת עצמו כדי לעקוף דפדפן/קאש.
+
+# 1) login (שמור קוקיות)
+curl -i -c /tmp/c.txt -b /tmp/c.txt \
+  -X POST http://localhost:5000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"admin@your.co.il","password":"<PASS>"}'
+
+# 2) me (צריך 200)
+curl -i -c /tmp/c.txt -b /tmp/c.txt http://localhost:5000/api/auth/me
+
+# 3) impersonate לדוגמה לטננט 10
+curl -i -c /tmp/c.txt -b /tmp/c.txt \
+  -X POST http://localhost:5000/api/admin/businesses/10/impersonate
+
+# 4) me שוב (חייב 200 + impersonating:true + role business)
+curl -i -c /tmp/c.txt -b /tmp/c.txt http://localhost:5000/api/auth/me
+
+עצור אם:
+	•	(2) מחזיר 401 → /api/auth/me לא קורא session['user'] או שהקוקי לא נקלט (בדוק flags בסעיף 1).
+	•	(4) מחזיר 401/לא impersonating → בעיית שרת ב־impersonate/exit.
+
+⸻
+
+6) Only after auth passes — bring back Gunicorn+Eventlet
+
+כשתם הטסטים עוברים:
+
+pkill -f gunicorn || true
+gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT wsgi:app
+
+
+⸻
+
+7) Acceptance (תצלם ותשלח אם משהו נופל)
+	•	View Source מציג FIX-IMP-04 + פס ורוד בתחתית.
+	•	/assets/index-*.css/js → MIME נכון (לא HTML).
+	•	curl (2) → 200 עם user.
+	•	curl (4) → 200 עם impersonating:true ו־user.role:'business'.
+	•	כניסה ל־/app/business/overview בלי קפיצה ל־/login.
+	•	“לוח שנה” מופיע בסיידבר (דסקטופ/מובייל) ונטען /app/calendar.
+
+⸻
+
+אם משהו נשבר — איפה לעצור ומה לדווח
+	•	נשבר ב־0/Build/MIME → תקן הגשת סטטיק/SPA fallback לפני הכל.
+	•	נשבר ב־2//api/auth/me → איחוד session keys ל־session['user'] בלבד.
+	•	נשבר ב־3/Impersonate → ודא ש־session מתעדכן באותה תגובה ושאין redirect; בדוק flags של הקוקי.
+	•	נשבר ב־4/Sidebar → ודא מקור יחיד ל־nav items בשני הרכיבים.
+
+זה יחזיר אתכם למסלול: תראה שינויים מיד, ההתחזות תעבוד, וה־Calendar יהיה בסיידבר.

@@ -123,12 +123,16 @@ def create_app():
             
         return response
     
-    # Session Management and Rotation - DISABLED FOR AUTH DEBUG
-    # @app.before_request
-    def manage_session_security_disabled():
+    # Session Management and Rotation - with auth exemptions
+    @app.before_request
+    def manage_session_security():
         """Enhanced session security management"""
-        # Skip for static files, health endpoints, and React routes
-        if request.endpoint in ['static', 'health', 'readyz', 'version'] or request.path in ['/', '/login', '/forgot', '/reset', '/home']:
+        # Skip for static files, health endpoints, React routes, and auth endpoints
+        auth_paths = ['/api/auth/login', '/api/auth/logout', '/api/auth/me', 
+                     '/api/admin/businesses', '/api/admin/impersonate/exit']
+        if (request.endpoint in ['static', 'health', 'readyz', 'version'] or 
+            request.path in ['/', '/login', '/forgot', '/reset', '/home'] or
+            any(request.path.startswith(p) for p in auth_paths)):
             return
             
         # Session timeout check
@@ -159,10 +163,25 @@ def create_app():
                         session['_session_start'] = datetime.now().isoformat()
                         session['_csrf_token'] = secrets.token_hex(16)
     
-    # Enterprise Security Initialization - DISABLED FOR AUTH DEBUG
+    # Enterprise Security Initialization - Enabled with auth exemptions
     csrf_instance = None
     surf_instance = None
-    print("🔧 CSRF Protection DISABLED for auth debugging")
+    if CSRF_AVAILABLE and CSRFProtect and SeaSurf:
+        try:
+            csrf_instance = CSRFProtect()
+            csrf_instance.init_app(app)
+            
+            # SeaSurf for additional CSRF protection with auth exemptions
+            surf_instance = SeaSurf()
+            surf_instance.init_app(app)
+            
+            # Exempt auth endpoints from CSRF
+            surf_instance.exempt_urls(('/api/auth/',))
+            print("🔒 Enterprise CSRF Protection enabled with auth exemptions")
+        except Exception as e:
+            print(f"⚠️ CSRF setup warning: {e}")
+    else:
+        print("⚠️ Running with basic security (CSRF packages not available)")
     
     # CORS with security restrictions
     CORS(app, 
@@ -187,11 +206,14 @@ def create_app():
         from server.security_audit import AuditLogger, SessionSecurity
         audit_logger = AuditLogger(app)
         
-        # @app.before_request  - DISABLED FOR AUTH DEBUG
-        def setup_security_context_disabled():
+        @app.before_request  
+        def setup_security_context():
             """Setup security context for each request"""
-            # Skip React auth routes completely
-            if request.path in ['/', '/login', '/forgot', '/reset', '/home']:
+            # Skip React auth routes and auth API endpoints
+            auth_paths = ['/api/auth/login', '/api/auth/logout', '/api/auth/me',
+                         '/api/admin/businesses', '/api/admin/impersonate/exit']
+            if (request.path in ['/', '/login', '/forgot', '/reset', '/home'] or
+                any(request.path.startswith(p) for p in auth_paths)):
                 return
                 
             g.audit_logger = audit_logger
