@@ -90,7 +90,7 @@ export function useAuthState(): AuthState & {
   useEffect(() => {
     if (!isInitializedRef.current) {
       isInitializedRef.current = true;
-      console.log('🚫 Skipping automatic session check - login required');
+      console.log('🟢 Auth system initialized');
     }
     
     return () => {
