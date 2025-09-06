@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuthState } from '../../features/auth/hooks';
+import { useAuth } from '../../features/auth/hooks';
 import { Eye, EyeOff, Building2, Mail, Lock, ArrowLeft } from 'lucide-react';
 import { cn } from '../../shared/utils/cn';
 
@@ -12,7 +12,7 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const { login } = useAuthState();
+  const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
