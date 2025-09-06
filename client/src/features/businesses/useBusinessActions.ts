@@ -149,12 +149,14 @@ export function useBusinessActions() {
         localStorage.setItem('impersonating_business_domain', business.domain);
       }
 
-      await impersonateAction(business.id);
+      const result = await impersonateAction(business.id);
+      console.log('התחזות הושלמה:', result);
+      
       await refetchAuth(); // Refresh auth state
       showToast.success(`התחזות לעסק "${business.name}" הופעלה`);
       
-      // Navigate to business dashboard
-      navigate('/app/business/overview');
+      // Force page reload to ensure all state is updated correctly
+      window.location.href = '/app/business/overview';
     } catch (error) {
       // Clear impersonation data on error
       localStorage.removeItem('impersonation_original_user');
