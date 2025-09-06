@@ -340,8 +340,13 @@ def toggle_user_status(user_id):
 def login_as_business(business_id):
     """Allow admin to login as business"""
     try:
+        logger.info(f"🔄 Impersonation attempt for business {business_id}")
+        current_user = session.get('al_user') or session.get('user')
+        logger.info(f"📋 Current user: {current_user}")
+        
         business = Business.query.filter_by(id=business_id).first()
         if not business:
+            logger.error(f"❌ Business {business_id} not found")
             return jsonify({"error": "עסק לא נמצא"}), 404
         
         if not business.is_active:
@@ -365,7 +370,8 @@ def login_as_business(business_id):
             "is_admin_login": True  # Mark this as admin login
         }
         
-        logger.info(f"Admin logged in as business {business_id}")
+        logger.info(f"✅ Admin successfully logged in as business {business_id}")
+        logger.info(f"📋 New session: {session.get('al_user')}")
         
         return jsonify({
             "success": True,

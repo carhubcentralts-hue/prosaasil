@@ -57,11 +57,28 @@ export class BusinessAPI {
     });
   }
 
-  // Impersonate business
+  // Impersonate business  
   async impersonate(id: number): Promise<ImpersonationData> {
-    return http.post(`/api/admin/login-as-business/${id}`, {
-      _idempotencyKey: this.generateIdempotencyKey()
+    // First try direct fetch with proper credentials
+    const response = await fetch(`/api/admin/login-as-business/${id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'include', // Important for cookies
+      body: JSON.stringify({
+        _idempotencyKey: this.generateIdempotencyKey()
+      })
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Impersonation failed:', response.status, errorText);
+      throw new Error(`שגיאה בהתחזות: ${response.status}`);
+    }
+
+    return response.json();
   }
 
   // Exit impersonation
