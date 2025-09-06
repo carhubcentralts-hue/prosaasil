@@ -109,9 +109,10 @@ export function useBusinessActions() {
     setActionLoading(`reset-${business.id}`, true);
     
     try {
-      const result = await resetPasswordAction(business.id, userId);
+      const tempPassword = Math.random().toString(36).slice(-8) + '123';
+      const result = await resetPasswordAction(business.id, tempPassword);
       if (result.ok) {
-        showToast.success('איפוס סיסמה נשלח בהצלחה');
+        showToast.success(`${result.message}\nסיסמה זמנית: ${tempPassword}`);
       } else {
         showToast.error(result.message || 'שגיאה באיפוס סיסמה');
       }

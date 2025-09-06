@@ -27,13 +27,13 @@ export async function editBusinessAction(
 
 export async function resetPasswordAction(
   id: number, 
-  userId?: number
+  password: string
 ): Promise<BusinessActionResponse> {
   try {
-    await businessAPI.resetPassword(id, userId);
+    await businessAPI.resetPassword(id, password);
     return {
       ok: true,
-      message: 'איפוס סיסמה נשלח בהצלחה'
+      message: 'סיסמה אופסה בהצלחה'
     };
   } catch (error) {
     return {

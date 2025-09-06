@@ -25,7 +25,7 @@ export class BusinessAPI {
 
   // Get single business details
   async getBusiness(id: number): Promise<Business> {
-    return http.get(`/api/admin/businesses/${id}`);
+    return http.get(`/api/admin/business/${id}`);
   }
 
   // Get business users
@@ -35,7 +35,7 @@ export class BusinessAPI {
 
   // Edit business
   async editBusiness(id: number, data: BusinessEditData): Promise<BusinessActionResponse> {
-    return http.patch(`/api/admin/businesses/${id}`, {
+    return http.put(`/api/admin/business/${id}`, {
       ...data,
       _idempotencyKey: this.generateIdempotencyKey()
     });
@@ -43,30 +43,30 @@ export class BusinessAPI {
 
   // Create new business
   async createBusiness(data: BusinessEditData): Promise<BusinessActionResponse> {
-    return http.post('/api/admin/businesses', {
+    return http.post('/api/admin/business', {
       ...data,
       _idempotencyKey: this.generateIdempotencyKey()
     });
   }
 
   // Reset business password (owner or specific user)
-  async resetPassword(id: number, userId?: number): Promise<BusinessActionResponse> {
-    return http.post(`/api/admin/businesses/${id}/reset-password`, {
-      userId,
+  async resetPassword(id: number, password: string): Promise<BusinessActionResponse> {
+    return http.post(`/api/admin/business/${id}/change-password`, {
+      password,
       _idempotencyKey: this.generateIdempotencyKey()
     });
   }
 
   // Impersonate business
   async impersonate(id: number): Promise<ImpersonationData> {
-    return http.post(`/api/admin/businesses/${id}/impersonate`, {
+    return http.post(`/api/admin/login-as-business/${id}`, {
       _idempotencyKey: this.generateIdempotencyKey()
     });
   }
 
   // Exit impersonation
   async exitImpersonation(): Promise<BusinessActionResponse> {
-    return http.post('/api/admin/impersonate/exit');
+    return http.post('/admin/stop-impersonate');
   }
 
   // Suspend business
