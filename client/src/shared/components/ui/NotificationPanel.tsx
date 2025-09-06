@@ -429,6 +429,12 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
     onUnreadCountChange?.(initialUnreadCount);
   }, [user?.role, user?.business_id, onUnreadCountChange]);
 
+  // Update parent whenever notifications change
+  React.useEffect(() => {
+    const currentUnreadCount = notifications.filter(n => !n.read).length;
+    onUnreadCountChange?.(currentUnreadCount);
+  }, [notifications, onUnreadCountChange]);
+
   if (!isOpen) return null;
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -468,7 +474,7 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
     <>
       <div className="fixed inset-0 bg-black bg-opacity-25 z-40" onClick={onClose} />
       
-      <div className="fixed top-16 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-white rounded-xl shadow-xl border border-slate-200 z-50 max-h-[80vh] overflow-hidden">
+      <div className="fixed top-16 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-white rounded-xl shadow-xl border border-slate-200 z-50 max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
           <div className="flex items-center gap-2">
@@ -491,8 +497,8 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
           </button>
         </div>
 
-        {/* Notifications List */}
-        <div className="overflow-y-auto max-h-[60vh]">
+        {/* Notifications List - Fixed scrolling */}
+        <div className="flex-1 overflow-y-auto" style={{ maxHeight: 'calc(80vh - 140px)' }}>
           {notifications.length === 0 ? (
             <div className="p-8 text-center text-slate-500">
               <Bell className="h-12 w-12 mx-auto mb-3 text-slate-300" />
@@ -518,11 +524,23 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
               onClick={markAllAsRead}
               className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
               disabled={unreadCount === 0}
+              data-testid="button-mark-all-read"
             >
               סמן הכל כנקרא ({unreadCount})
             </button>
-            <button className="text-sm text-slate-600 hover:text-slate-800 transition-colors">
-              ראה הכל
+            <button 
+              onClick={() => {
+                // Mark first unread notification as read for testing
+                const firstUnread = notifications.find(n => !n.read);
+                if (firstUnread) {
+                  markAsRead(firstUnread.id);
+                }
+              }}
+              className="text-sm text-slate-600 hover:text-slate-800 transition-colors"
+              disabled={unreadCount === 0}
+              data-testid="button-mark-one-read"
+            >
+              סמן אחד כנקרא
             </button>
           </div>
         </div>

@@ -33,6 +33,8 @@ interface Business {
   users: number;
   status: 'active' | 'suspended';
   createdAt: string;
+  prompt?: string;
+  permissions?: string[];
 }
 
 // Mock data - In real app this would come from API
@@ -381,6 +383,7 @@ export function BusinessManagerPage() {
         break;
       case 'more':
         console.log(`תפריט פעולות עבור: ${business.name}`);
+        console.log('התחלת תהליך התחזות...');
         handleImpersonate(business);
         break;
       default:
@@ -403,7 +406,8 @@ export function BusinessManagerPage() {
 
   const handleImpersonate = (business: Business) => {
     // Confirm impersonation
-    if (confirm(`האם אתה בטוח שאתה רוצה להתחזות לעסק "${business.name}"?\nאתה תועבר לדשבורד של העסק.`)) {
+    const confirmed = confirm(`האם אתה בטוח שאתה רוצה להתחזות לעסק "${business.name}"?\nאתה תועבר לדשבורד של העסק.`);
+    if (confirmed) {
       // Store original user data for exit impersonation
       const originalUser = JSON.stringify(user);
       localStorage.setItem('impersonation_original_user', originalUser);
@@ -412,6 +416,7 @@ export function BusinessManagerPage() {
       
       // Navigate to business dashboard
       console.log(`התחזות לעסק: ${business.name}`);
+      alert(`התחזות מופעלת! מועבר לדשבורד עסק: ${business.name}`);
       navigate('/app/business/dashboard');
     }
   };

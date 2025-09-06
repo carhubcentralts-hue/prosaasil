@@ -13,7 +13,7 @@ export function useAuthState(): AuthState & {
   const [state, setState] = useState<AuthState>({
     user: null,
     tenant: null,
-    isLoading: false, // Start as false to prevent loading screen
+    isLoading: false, // Never show loading screen by default
     isAuthenticated: false,
   });
 
@@ -24,7 +24,7 @@ export function useAuthState(): AuthState & {
   const refetch = useCallback(async () => {
     if (!isMountedRef.current) return; // Prevent memory leaks
     
-    setState(prev => ({ ...prev, isLoading: true }));
+    // Don't show loading screen on refetch
     try {
       const response = await authApi.me();
       if (!isMountedRef.current) return; // Check again after async
@@ -48,6 +48,7 @@ export function useAuthState(): AuthState & {
   }, []); // 🎯 Empty deps - stable function
 
   const login = useCallback(async (email: string, password: string) => {
+    // Show brief loading only during login
     setState(prev => ({ ...prev, isLoading: true }));
     try {
       const response = await authApi.login({ email, password });
@@ -70,7 +71,7 @@ export function useAuthState(): AuthState & {
   }, []);
 
   const logout = useCallback(async () => {
-    setState(prev => ({ ...prev, isLoading: true }));
+    // No loading screen on logout
     try {
       await authApi.logout();
     } catch (error) {
