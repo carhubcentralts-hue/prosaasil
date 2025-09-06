@@ -129,6 +129,55 @@ class Contract(db.Model):
     signed_ip = db.Column(db.String(64))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+# === CALENDAR & APPOINTMENTS ===
+
+class Appointment(db.Model):
+    __tablename__ = "appointments"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("businesses.id"), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=True, index=True)
+    deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=True, index=True)
+    call_log_id = db.Column(db.Integer, db.ForeignKey("call_log.id"), nullable=True, index=True)  # Link to call that scheduled this
+    whatsapp_message_id = db.Column(db.Integer, db.ForeignKey("whatsapp_message.id"), nullable=True, index=True)  # Link to WhatsApp message
+    
+    # Appointment details
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    start_time = db.Column(db.DateTime, nullable=False, index=True)
+    end_time = db.Column(db.DateTime, nullable=False, index=True)
+    location = db.Column(db.String(500))  # Address or "זום", "טלפון" etc
+    
+    # Status and type
+    status = db.Column(db.String(32), default="scheduled")  # scheduled/confirmed/completed/cancelled/no_show
+    appointment_type = db.Column(db.String(64), default="viewing")  # viewing/meeting/signing/call_followup
+    priority = db.Column(db.String(16), default="medium")  # low/medium/high/urgent
+    
+    # Contact info (for cases without customer record)
+    contact_name = db.Column(db.String(255))
+    contact_phone = db.Column(db.String(64))
+    contact_email = db.Column(db.String(255))
+    
+    # Reminders and notifications
+    reminder_sent = db.Column(db.Boolean, default=False)
+    reminder_sent_at = db.Column(db.DateTime)
+    whatsapp_reminder_sent = db.Column(db.Boolean, default=False)
+    email_reminder_sent = db.Column(db.Boolean, default=False)
+    
+    # Meeting notes and follow-up
+    notes = db.Column(db.Text)
+    outcome = db.Column(db.String(64))  # successful/no_show/rescheduled/cancelled
+    follow_up_needed = db.Column(db.Boolean, default=False)
+    follow_up_date = db.Column(db.DateTime)
+    
+    # Metadata
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # AI-generated flag (if appointment was auto-created from call/WhatsApp)
+    auto_generated = db.Column(db.Boolean, default=False)
+    source = db.Column(db.String(32), default="manual")  # manual/phone_call/whatsapp/ai_suggested
+
 class User(db.Model):
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
