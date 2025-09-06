@@ -1,0 +1,128 @@
+מעולה—מיקדנו את זה: השרת “נטען” אבל לא מאזין לפורט. זה בדרך-כלל אחד משלושה:
+	1.	הוא מאזין ל־$PORT הדינמי של Replit ולא ל־5000;
+	2.	יש תהליך קודם שתופס את הפורט;
+	3.	Gunicorn רץ בלי bind נכון / wsgi:app לא נטען.
+
+להלן הנחיה קצרה, סגורה, עם בדיקות שלא משאירות ספק. תעתיק אחד־לאחד:
+
+⸻
+
+FIX NOW — Port Binding, Impersonation, Calendar (no guesswork)
+
+0) הרג כל השרתים הקודמים (כדי לשחרר פורטים)
+
+pkill -f gunicorn || true
+pkill -f "python wsgi.py" || true
+sleep 1
+lsof -i -P -n | grep LISTEN || true   # וידוא שאין מאזינים
+
+1) אשר מהו הפורט שבו Replit מצפה
+
+echo "PORT=$PORT"
+
+	•	אם ריק → בפריוויו נקבע 5000:
+
+export PORT=5000
+
+
+
+2) הרץ בדיקת עשן עם Flask Dev (רק לאבחון, אותו מקור = קוקיות עובדות)
+
+rm -rf dist
+npm --prefix client ci
+npm --prefix client run build
+cp -R client/dist dist
+
+python - <<'PY'
+import os
+from server.app_factory import create_app
+app = create_app()
+port = int(os.environ.get("PORT", 5000))
+print(f"[*] Flask DEV starting on 0.0.0.0:{port}")
+app.run(host="0.0.0.0", port=port, debug=False)
+PY
+
+בדוק עכשיו:
+
+lsof -i -P -n | grep LISTEN
+curl -i http://localhost:$PORT/version
+
+	•	אם אין LISTEN או curl נכשל → עצור כאן ודווח “Flask dev לא מאזין” (יש בעיית קוד/אתחול).
+	•	אם זה עובד → בעיית ה־bind היא ב־Gunicorn, המשך.
+
+3) הרץ Gunicorn+Eventlet נכון (מחייב bind ל־$PORT)
+
+pkill -f gunicorn || true
+gunicorn -k eventlet -w 1 -b 0.0.0.0:${PORT:-5000} wsgi:app
+
+בדוק:
+
+lsof -i -P -n | grep LISTEN
+curl -i http://localhost:$PORT/version
+
+✔ אם זה עונה 200 → השרת מאזין נכון.
+✖ אם לא מאזין / 404 HTML במקום JSON:
+	•	ודא שקובץ wsgi.py בשורש מייצר app כך:
+
+# wsgi.py (תיקוף בלבד, לא חייבים להדביק אם כבר כך)
+import os
+from server.app_factory import create_app
+app = create_app()
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
+
+	•	ודא שהמודול נקרא באמת wsgi:app (לא main:app).
+	•	אם bind לא צוין, Gunicorn מאזין ברירת מחדל ל־127.0.0.1:8000 → Replit לא יחשוף אותו. הקפד על -b 0.0.0.0:$PORT.
+
+4) החזרי אימות מהירים (שלא ניתנים לוויכוח)
+
+# login → שמירת קוקיות
+curl -i -c /tmp/c.txt -b /tmp/c.txt -X POST \
+  http://localhost:$PORT/api/auth/login \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"admin@your.co.il","password":"<PASS>"}'
+
+# me → חייב 200
+curl -i -c /tmp/c.txt -b /tmp/c.txt http://localhost:$PORT/api/auth/me
+
+# impersonate לדוגמה (tenant_id=10) → חייב 200
+curl -i -c /tmp/c.txt -b /tmp/c.txt -X POST \
+  http://localhost:$PORT/api/admin/businesses/10/impersonate
+
+# me שוב → חייב להחזיר impersonating:true ו-role=business
+curl -i -c /tmp/c.txt -b /tmp/c.txt http://localhost:$PORT/api/auth/me
+
+אם (2) או (4) מחזירים 401 → בצד השרת עדיין יש ערבוב בין session['user']/session['user_id'] או שה־cookie flags שגויים. בפריוויו הקפד:
+
+SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_PATH = '/'
+
+5) Calendar בסיידבר (וידוא סופי)
+	•	מקור יחיד של ניווט (קובץ אחד שמיובא גם ל־Sidebar וגם ל־Mobile Drawer) כולל:
+
+{ key:'calendar', label:'לוח שנה', to:'/app/calendar', icon:CalendarIcon }
+
+
+	•	ויש ראוט:
+
+<Route path="/app/calendar" element={<div className="p-6">Calendar — coming soon</div>} />
+
+
+
+⸻
+
+למה זה יפתור
+	•	שלב 2 מבטיח שאם אפילו Flask dev לא מאזין—זו בעיה בקוד/אתחול, לא ב־Gunicorn/פורט.
+	•	שלב 3 מכריח את Gunicorn להיקשר ל־0.0.0.0:$PORT (מה ש־Replit דורש).
+	•	curl־ים מאמתים session/impersonation בלי תלות בדפדפן.
+	•	Calendar נשלף מאותו מקור לשני המצבים (דסקטופ/מובייל)—לא יכול “להיעלם”.
+
+מה לדווח אם עדיין נופל (בדיוק)
+	•	פלט lsof -i -P -n | grep LISTEN אחרי שלב 2 ואחרי שלב 3.
+	•	פלט echo $PORT.
+	•	תגובת curl -i http://localhost:$PORT/version.
+	•	תגובת curl -i … /api/auth/me אחרי login והתחזות.
+
+עם 4 הדברים האלה, אדע להגיד בשורה איפה זה נתקע (bind, מודול WSGI, session, או ראוטים).
