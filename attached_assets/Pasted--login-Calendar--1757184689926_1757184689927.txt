@@ -1,0 +1,118 @@
+הבנתי – אין שינוי נראה לעין, ההתחזות עדיין זורקת ל־/login, וה־Calendar לא מופיע. הנה הנחיה אחת, ממוקדת וקצרה לביצוע שמכריחה את הדברים לעבוד ומוכיחה את זה. תעתיק למפתח/בוט as-is.
+
+⸻
+
+DO THIS NOW — make changes visible, fix impersonation, show Calendar
+
+0) Work in one preview mode (Flask serves FE) until fixed
+
+We want same-origin cookies to debug impersonation. No Vite dev during this fix.
+
+# rebuild FE and serve from Flask (same origin)
+rm -rf dist
+npm --prefix client ci
+npm --prefix client run build
+cp -R client/dist dist
+python wsgi.py
+
+Proof-of-change (must be visible in View Source):
+	•	In client/index.html add:
+<meta name="x-version" content="fix-impersonate-02"> and change <title> slightly.
+	•	Reload / and check View Source shows fix-impersonate-02.
+	•	Open /assets/index-*.css and /assets/index-*.js → must be text/css / application/javascript (not HTML).
+
+⸻
+
+A) Fix IMPERSONATION redirecting to /login
+
+A1) Server (Flask): use a single session key and honor it in /me
+	•	In POST /api/admin/businesses/:id/impersonate:
+
+# after validating admin:
+session['original_user'] = current_admin_serialized  # {id,email,role:'admin',...}
+session['user'] = tenant_user_serialized             # {id,email,role:'business', tenant_id: ...}
+session['tenant_id'] = tenant.id
+session['impersonating'] = True
+return jsonify({"ok": True, "tenantUser": session['user'], "tenant": {"id": tenant.id, "name": tenant.name}}), 200
+
+	•	In POST /api/admin/impersonate/exit:
+
+session['user'] = session.get('original_user')
+session.pop('original_user', None)
+session.pop('tenant_id', None)
+session['impersonating'] = False
+return jsonify({"ok": True}), 200
+
+	•	In exactly one place (remove duplicates), define GET /api/auth/me:
+
+u = session.get('user')
+if not u:
+    return jsonify({"error":"unauthenticated"}), 401
+return jsonify({
+  "user": u, 
+  "tenant_id": session.get('tenant_id'),
+  "impersonating": bool(session.get('impersonating', False))
+}), 200
+
+Stop using session['user_id']. Use only session['user'] everywhere.
+
+	•	Dev cookie flags (Preview / HTTP):
+
+SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_PATH = '/'
+
+A2) Client: include credentials; navigate only after /me confirms
+	•	Every fetch to /api/** must use credentials:'include'.
+	•	Impersonate handler:
+
+await api.post(`/api/admin/businesses/${id}/impersonate`, {}, { credentials:'include' })
+const me = await api.get('/api/auth/me', { credentials:'include' })
+if (me.ok && (me.data.impersonating || me.data.user?.role === 'business')) {
+  navigate('/app/business/overview')
+} else {
+  toast.error('Impersonation failed'); return
+}
+
+	•	<RoleGuard> must pass when me.impersonating===true (treat role as business).
+
+A3) Verify in DevTools (must pass all 3)
+	1.	POST /impersonate → 200 + Set-Cookie (no Secure on HTTP).
+	2.	Next GET /api/auth/me → 200 with impersonating:true and user.role:'business'.
+	3.	/app/business/overview loads (no bounce to /login).
+
+⸻
+
+B) Show Calendar in the sidebar (desktop + mobile)
+	1.	Use one nav items array for both desktop sidebar & mobile drawer (import the same file).
+Add this item (do not role-gate it for now):
+
+{ key:'calendar', label:'לוח שנה', to:'/app/calendar', icon:CalendarIcon }
+
+	2.	Add a placeholder route so it won’t 404:
+
+<Route path="/app/calendar" element={<div className="p-6">Calendar — coming soon</div>} />
+
+	3.	Hard-refresh. Check both desktop breakpoint and mobile drawer.
+If it still doesn’t show, you’re rendering different nav sources; refactor both to read the same items list.
+
+⸻
+
+C) Kill the “I changed it but nothing shows” issue (proof)
+	•	View Source shows <meta name="x-version" content="fix-impersonate-02">.
+	•	/assets/index-*.css/js return proper MIME (not HTML).
+	•	No Service Worker (Application → Unregister).
+	•	If any of these fails → you’re not serving the new build; repeat the build steps above.
+
+⸻
+
+D) Send back these 5 screenshots (for confirmation)
+	1.	View Source showing fix-impersonate-02.
+	2.	Network → Headers of /assets/index-*.css with Content-Type: text/css.
+	3.	Network → POST /impersonate response headers showing Set-Cookie.
+	4.	Network → GET /api/auth/me body with impersonating:true.
+	5.	Sidebar on desktop and mobile showing “לוח שנה” + /app/calendar page.
+
+⸻
+
+אם אחרי זה עדיין לא מופיע – תגיד לי בדיוק איזה צ’ק־בוקס נפל (מ־A3/B/C/D), ואני אתן תיקון נקודתי לפי הסקרינשוט.
