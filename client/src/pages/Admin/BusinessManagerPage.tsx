@@ -18,26 +18,18 @@ import {
   Trash2,
   CheckCircle,
   XCircle,
-  Clock
+  Clock,
+  UserX
 } from 'lucide-react';
-import { BusinessEditModal } from '../../shared/components/ui/BusinessEditModal';
+import { BusinessEditModal } from '../../features/businesses/components/BusinessEditModal';
+import { useBusinessActions } from '../../features/businesses/useBusinessActions';
+import { Business } from '../../features/businesses/types';
 import { cn } from '../../shared/utils/cn';
 import { useAuth } from '../../features/auth/hooks';
 
-interface Business {
-  id: number;
-  name: string;
-  domain: string;
-  defaultPhoneE164: string;
-  whatsappJid: string;
-  users: number;
-  status: 'active' | 'suspended';
-  createdAt: string;
-  prompt?: string;
-  permissions?: string[];
-}
+// Business interface is imported from the centralized types
 
-// Mock data - In real app this would come from API
+// Mock data - TODO: Replace with real API call
 const mockBusinesses: Business[] = [
   {
     id: 1,
@@ -190,6 +182,7 @@ function BusinessTable({ businesses, onBusinessClick, onActionClick }: BusinessT
                       }}
                       className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                       title="צפייה"
+                      data-testid={`button-view-${business.id}`}
                     >
                       <Eye className="h-4 w-4" />
                     </button>
@@ -200,9 +193,46 @@ function BusinessTable({ businesses, onBusinessClick, onActionClick }: BusinessT
                       }}
                       className="p-1.5 text-slate-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
                       title="עריכה"
+                      data-testid={`button-edit-${business.id}`}
                     >
                       <Edit className="h-4 w-4" />
                     </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onActionClick('impersonate', business);
+                      }}
+                      className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                      title="התחזות"
+                      data-testid={`button-impersonate-${business.id}`}
+                    >
+                      <UserX className="h-4 w-4" />
+                    </button>
+                    {business.status === 'active' ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onActionClick('suspend', business);
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                        title="השעה"
+                        data-testid={`button-suspend-${business.id}`}
+                      >
+                        <Pause className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onActionClick('resume', business);
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                        title="הפעל"
+                        data-testid={`button-resume-${business.id}`}
+                      >
+                        <Play className="h-4 w-4" />
+                      </button>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -210,6 +240,7 @@ function BusinessTable({ businesses, onBusinessClick, onActionClick }: BusinessT
                       }}
                       className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
                       title="עוד פעולות"
+                      data-testid={`button-more-${business.id}`}
                     >
                       <MoreVertical className="h-4 w-4" />
                     </button>
@@ -306,6 +337,7 @@ function BusinessCardList({ businesses, onBusinessClick, onActionClick }: Busine
                   onActionClick('view', business);
                 }}
                 className="flex items-center gap-2 px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-sm"
+                data-testid={`card-view-${business.id}`}
               >
                 <Eye className="h-4 w-4" />
                 צפייה
@@ -316,9 +348,21 @@ function BusinessCardList({ businesses, onBusinessClick, onActionClick }: Busine
                   onActionClick('edit', business);
                 }}
                 className="flex items-center gap-2 px-3 py-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors text-sm"
+                data-testid={`card-edit-${business.id}`}
               >
                 <Edit className="h-4 w-4" />
                 עריכה
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onActionClick('impersonate', business);
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors text-sm"
+                data-testid={`card-impersonate-${business.id}`}
+              >
+                <UserX className="h-4 w-4" />
+                התחזות
               </button>
             </div>
             <button
@@ -346,6 +390,9 @@ export function BusinessManagerPage() {
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
+  
+  // Use centralized business actions
+  const businessActions = useBusinessActions();
 
   // Filter businesses based on search and status
   useEffect(() => {
@@ -368,35 +415,49 @@ export function BusinessManagerPage() {
   }, [searchQuery, statusFilter]);
 
   const handleBusinessClick = (business: Business) => {
-    navigate(`/app/admin/businesses/${business.id}`);
+    businessActions.viewBusiness(business);
   };
 
   const handleActionClick = (action: string, business: Business) => {
     switch (action) {
       case 'view':
-        navigate(`/app/admin/businesses/${business.id}`);
+        businessActions.viewBusiness(business);
         break;
       case 'edit':
-        console.log(`עריכת עסק: ${business.name}`);
         setSelectedBusiness(business);
         setEditModalOpen(true);
         break;
+      case 'impersonate':
+        businessActions.impersonate(business);
+        break;
+      case 'suspend':
+        businessActions.suspend(business);
+        break;
+      case 'resume':
+        businessActions.resume(business);
+        break;
+      case 'delete':
+        businessActions.softDelete(business);
+        break;
+      case 'reset':
+        businessActions.resetPassword(business);
+        break;
       case 'more':
-        // Show dropdown with all additional actions
-        const actionChoice = prompt(`בחר פעולה עבור "${business.name}":\n\n1. התחזות לעסק\n2. השעה/הפעל עסק\n3. מחק עסק\n4. איפוס סיסמאות משתמשים\n\nהכנס מספר (1-4):`);
+        // Show action menu for mobile
+        const actionChoice = prompt(`בחר פעולה עבור "${business.name}":\n\n1. התחזות לעסק\n2. ${business.status === 'active' ? 'השעה' : 'הפעל'} עסק\n3. מחק עסק\n4. איפוס סיסמאות משתמשים\n\nהכנס מספר (1-4):`);
         
         switch (actionChoice) {
           case '1':
-            handleImpersonate(business);
+            businessActions.impersonate(business);
             break;
           case '2':
-            handleToggleSuspension(business);
+            business.status === 'active' ? businessActions.suspend(business) : businessActions.resume(business);
             break;
           case '3':
-            handleDeleteBusiness(business);
+            businessActions.softDelete(business);
             break;
           case '4':
-            handleResetPasswords(business);
+            businessActions.resetPassword(business);
             break;
           default:
             // User canceled or entered invalid choice
@@ -417,65 +478,18 @@ export function BusinessManagerPage() {
     }
   };
 
-  const handleSaveBusiness = (updatedBusiness: Business) => {
-    setFilteredBusinesses(prev => prev.map(b => 
-      b.id === updatedBusiness.id ? updatedBusiness : b
-    ));
-    console.log('עסק עודכן:', updatedBusiness);
-  };
-
-  const handleImpersonate = (business: Business) => {
-    // Confirm impersonation
-    const confirmed = confirm(`האם אתה בטוח שאתה רוצה להתחזות לעסק "${business.name}"?\nאתה תועבר לדשבורד של העסק.`);
-    if (confirmed) {
-      // Store original user data for exit impersonation
-      const originalUser = JSON.stringify(user);
-      localStorage.setItem('impersonation_original_user', originalUser);
-      localStorage.setItem('is_impersonating', 'true');
-      localStorage.setItem('impersonating_business_id', business.id.toString());
-      
-      // Navigate to business dashboard
-      console.log(`התחזות לעסק: ${business.name}`);
-      alert(`התחזות מופעלת! מועבר לדשבורד עסק: ${business.name}`);
-      navigate('/app/business/dashboard');
-    }
-  };
-
-  const handleToggleSuspension = (business: Business) => {
-    const actionText = business.status === 'active' ? 'השעה' : 'הפעל';
-    const confirmed = confirm(`האם אתה בטוח שאתה רוצה ל${actionText} את העסק "${business.name}"?`);
-    if (confirmed) {
-      const newStatus = business.status === 'active' ? 'suspended' : 'active';
-      
-      // Update the business in the list
-      setFilteredBusinesses(prev => prev.map(b => 
-        b.id === business.id ? { ...b, status: newStatus } : b
-      ));
-      
-      alert(`העסק "${business.name}" ${newStatus === 'active' ? 'הופעל' : 'הושעה'} בהצלחה!`);
-    }
-  };
-
-  const handleDeleteBusiness = (business: Business) => {
-    const confirmed = confirm(`⚠️ אזהרה: האם אתה בטוח שאתה רוצה למחוק את העסק "${business.name}"?\n\nפעולה זו תמחק:\n- את כל הנתונים של העסק\n- את כל המשתמשים\n- את כל השיחות וההתראות\n\nפעולה זו בלתי הפיכה!`);
+  const handleSaveBusiness = async (data: any) => {
+    if (!selectedBusiness) return;
     
-    if (confirmed) {
-      const secondConfirm = prompt(`כדי לאשר מחיקה, הקלד את שם העסק בדיוק: "${business.name}"`);
-      if (secondConfirm === business.name) {
-        // Remove from the list
-        setFilteredBusinesses(prev => prev.filter(b => b.id !== business.id));
-        alert(`העסק "${business.name}" נמחק בהצלחה מהמערכת.`);
-      } else {
-        alert('שם העסק לא תואם. המחיקה בוטלה.');
-      }
-    }
-  };
-
-  const handleResetPasswords = (business: Business) => {
-    const confirmed = confirm(`האם אתה בטוח שאתה רוצה לאפס את סיסמאות כל המשתמשים של "${business.name}"?\n\nהסיסמאות החדשות יישלחו למשתמשים במייל.`);
-    if (confirmed) {
-      alert(`איפוס סיסמאות בוצע בהצלחה!\n\nסיסמאות חדשות נשלחו למייל של ${business.users} משתמשים.`);
-    }
+    await businessActions.editBusiness(selectedBusiness, data);
+    setEditModalOpen(false);
+    setSelectedBusiness(null);
+    
+    // TODO: Refresh business list from API
+    // For now, update local state optimistically
+    setFilteredBusinesses(prev => prev.map(b => 
+      b.id === selectedBusiness.id ? { ...b, ...data } : b
+    ));
   };
 
   return (
@@ -588,10 +602,14 @@ export function BusinessManagerPage() {
 
       {/* Edit Business Modal */}
       <BusinessEditModal
-        isOpen={editModalOpen}
-        onClose={() => setEditModalOpen(false)}
         business={selectedBusiness}
+        isOpen={editModalOpen}
+        onClose={() => {
+          setEditModalOpen(false);
+          setSelectedBusiness(null);
+        }}
         onSave={handleSaveBusiness}
+        isLoading={businessActions.isLoading('edit', selectedBusiness?.id)}
       />
     </div>
   );
