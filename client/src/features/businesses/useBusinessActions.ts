@@ -135,17 +135,38 @@ export function useBusinessActions() {
     setActionLoading(`impersonate-${business.id}`, true);
     
     try {
+      // Store original user data for impersonation banner
+      if (user) {
+        localStorage.setItem('impersonation_original_user', JSON.stringify({
+          name: user.email.split('@')[0] || user.email,
+          email: user.email,
+          role: user.role
+        }));
+        localStorage.setItem('is_impersonating', 'true');
+        localStorage.setItem('impersonating_business_id', business.id.toString());
+        localStorage.setItem('impersonating_business_name', business.name);
+        localStorage.setItem('impersonating_business_domain', business.domain);
+      }
+
       await impersonateAction(business.id);
       await refetchAuth(); // Refresh auth state
       showToast.success(`התחזות לעסק "${business.name}" הופעלה`);
+      
       // Navigate to business dashboard
       navigate('/app/business/overview');
     } catch (error) {
+      // Clear impersonation data on error
+      localStorage.removeItem('impersonation_original_user');
+      localStorage.removeItem('is_impersonating');
+      localStorage.removeItem('impersonating_business_id');
+      localStorage.removeItem('impersonating_business_name');
+      localStorage.removeItem('impersonating_business_domain');
+      
       showToast.error(error instanceof Error ? error.message : 'שגיאה בהתחזות לעסק');
     } finally {
       setActionLoading(`impersonate-${business.id}`, false);
     }
-  }, [capabilities.canImpersonate, navigate, setActionLoading, refetchAuth]);
+  }, [capabilities.canImpersonate, navigate, setActionLoading, refetchAuth, user]);
 
   // Exit impersonation
   const exitImpersonation = useCallback(async () => {
@@ -153,14 +174,19 @@ export function useBusinessActions() {
     
     try {
       const result = await exitImpersonationAction();
-      if (result.ok) {
-        await refetchAuth(); // Refresh auth state
-        showToast.success('יצאת מהתחזות בהצלחה');
-        // Navigate back to admin
-        navigate('/app/admin/overview');
-      } else {
-        showToast.error(result.message || 'שגיאה ביציאה מהתחזות');
-      }
+      
+      // Clear all impersonation data from localStorage
+      localStorage.removeItem('impersonation_original_user');
+      localStorage.removeItem('is_impersonating');
+      localStorage.removeItem('impersonating_business_id');
+      localStorage.removeItem('impersonating_business_name');
+      localStorage.removeItem('impersonating_business_domain');
+      
+      await refetchAuth(); // Refresh auth state
+      showToast.success('יצאת מהתחזות בהצלחה');
+      
+      // Navigate back to admin
+      navigate('/app/admin/overview');
     } catch (error) {
       showToast.error(error instanceof Error ? error.message : 'שגיאה ביציאה מהתחזות');
     } finally {
