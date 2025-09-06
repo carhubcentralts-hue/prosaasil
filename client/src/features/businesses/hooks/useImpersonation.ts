@@ -107,6 +107,18 @@ export function useImpersonation() {
     }
   }, [user, refetch, checkImpersonationState]);
 
+  const clearImpersonationState = useCallback(() => {
+    localStorage.removeItem('impersonation_original_user');
+    localStorage.removeItem('is_impersonating');
+    localStorage.removeItem('impersonating_business_id');
+    
+    setImpersonationState({
+      isImpersonating: false,
+      originalUser: null,
+      impersonatedBusiness: null
+    });
+  }, []);
+
   const exitImpersonation = useCallback(async () => {
     try {
       console.log('🔄 Exiting impersonation...');
@@ -128,18 +140,6 @@ export function useImpersonation() {
       throw error;
     }
   }, [refetch, clearImpersonationState]);
-
-  const clearImpersonationState = useCallback(() => {
-    localStorage.removeItem('impersonation_original_user');
-    localStorage.removeItem('is_impersonating');
-    localStorage.removeItem('impersonating_business_id');
-    
-    setImpersonationState({
-      isImpersonating: false,
-      originalUser: null,
-      impersonatedBusiness: null
-    });
-  }, []);
 
   return {
     ...impersonationState,

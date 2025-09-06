@@ -119,7 +119,7 @@ function SidebarItem({ icon, label, to, active, onClick, comingSoon, navigate }:
     comingSoon && 'cursor-pointer'
   );
 
-  if (to && !comingSoon) {
+  if (to && !comingSoon && navigate) {
     return (
       <button onClick={() => navigate(to)} className={baseStyles}>
         {content}
