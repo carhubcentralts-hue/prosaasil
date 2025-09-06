@@ -335,14 +335,17 @@ def toggle_user_status(user_id):
         logger.error(f"Error toggling status for user {user_id}: {e}")
         return jsonify({"error": "שגיאה בשינוי סטטוס המשתמש"}), 500
 
-@biz_mgmt_bp.route('/api/admin/login-as-business/<int:business_id>', methods=['POST'])
+@biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST'])
 @require_api_auth(['admin', 'manager'])
-def login_as_business(business_id):
-    """Allow admin to login as business"""
+def impersonate_business(business_id):
+    """Allow admin to impersonate business"""
     try:
         logger.info(f"🔄 Impersonation attempt for business {business_id}")
-        current_user = session.get('al_user') or session.get('user')
-        logger.info(f"📋 Current user: {current_user}")
+        current_admin = session.get('user')
+        logger.info(f"📋 Current admin: {current_admin}")
+        
+        if not current_admin or current_admin.get('role') not in ['admin', 'manager']:
+            return jsonify({"error": "Unauthorized"}), 401
         
         business = Business.query.filter_by(id=business_id).first()
         if not business:
@@ -353,45 +356,74 @@ def login_as_business(business_id):
             return jsonify({"error": "העסק אינו פעיל"}), 400
         
         # Find business admin user
-        admin_user = User.query.filter_by(
+        tenant_user = User.query.filter_by(
             business_id=business_id,
             role='business'
         ).first()
         
-        if not admin_user:
+        if not tenant_user:
             return jsonify({"error": "לא נמצא מנהל לעסק זה"}), 404
         
-        # Store original user for restoration later
-        current_user = session.get('user')
-        if current_user:
-            session['original_user'] = current_user.copy()
-            
-        # Switch session to business user
-        session['user'] = {
-            "id": admin_user.id,
-            "name": admin_user.name,
-            "email": admin_user.email,
-            "role": "business",  # Always business role when impersonating
-            "business_id": admin_user.business_id,
+        # Store original admin for restoration later
+        current_admin_serialized = {
+            "id": current_admin.get('id'),
+            "name": current_admin.get('name'),
+            "email": current_admin.get('email'),
+            "role": current_admin.get('role'),
+            "business_id": current_admin.get('business_id')
         }
-        session['tenant_id'] = business_id
+        session['original_user'] = current_admin_serialized
+        
+        # Switch session to business user
+        tenant_user_serialized = {
+            "id": tenant_user.id,
+            "name": tenant_user.name,
+            "email": tenant_user.email,
+            "role": "business",
+            "business_id": tenant_user.business_id,
+        }
+        session['user'] = tenant_user_serialized
+        session['tenant_id'] = business.id
         session['impersonating'] = True
         
-        logger.info(f"✅ Admin successfully logged in as business {business_id}")
+        logger.info(f"✅ Admin successfully impersonating business {business_id}")
         logger.info(f"📋 New session: {session.get('user')}")
         
         return jsonify({
-            "success": True,
-            "business": {
-                "id": business.id,
-                "name": business.name
-            },
-            "user": session['user']
-        })
+            "ok": True, 
+            "tenantUser": session['user'], 
+            "tenant": {"id": business.id, "name": business.name}
+        }), 200
         
     except Exception as e:
-        logger.error(f"Error logging in as business {business_id}: {e}")
-        return jsonify({"error": "שגיאה בהתחברות לעסק"}), 500
+        logger.error(f"Error impersonating business {business_id}: {e}")
+        return jsonify({"error": "שגיאה בהתחזות לעסק"}), 500
+
+@biz_mgmt_bp.route('/api/admin/impersonate/exit', methods=['POST'])
+@require_api_auth(['admin', 'manager'])
+def exit_impersonation():
+    """Exit impersonation and restore original user"""
+    try:
+        logger.info("🔄 Exiting impersonation")
+        
+        # Restore original user
+        original_user = session.get('original_user')
+        if not original_user:
+            logger.warning("❌ No original user found to restore")
+            return jsonify({"error": "No impersonation session found"}), 400
+        
+        session['user'] = original_user
+        session.pop('original_user', None)
+        session.pop('tenant_id', None)
+        session['impersonating'] = False
+        
+        logger.info(f"✅ Successfully exited impersonation, restored: {session.get('user')}")
+        
+        return jsonify({"ok": True}), 200
+        
+    except Exception as e:
+        logger.error(f"Error exiting impersonation: {e}")
+        return jsonify({"error": "שגיאה ביציאה מהתחזות"}), 500
 
 # === ADDITIONAL BUSINESS ENDPOINTS FROM api_business.py ===
 

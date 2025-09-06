@@ -180,81 +180,15 @@ def get_current_user():
     Expected by frontend auth system
     """
     try:
-        # Check if user is in session (use single session key)
-        user_data = session.get('user') or session.get('al_user')
-        if not user_data:
-            return jsonify({'error': 'Not authenticated'}), 401
+        u = session.get('user')
+        if not u:
+            return jsonify({"error":"unauthenticated"}), 401
         
-        # Check if impersonating
-        is_impersonating = session.get('impersonating', False)
-        tenant_id = session.get('tenant_id')
-        
-        # If impersonating, return the session data directly (already switched)
-        if is_impersonating:
-            user_response = {
-                'id': user_data.get('id'),
-                'name': user_data.get('name') or user_data.get('email'),
-                'email': user_data.get('email'),
-                'role': user_data.get('role'),  # This should be 'business' during impersonation
-                'business_id': user_data.get('business_id'),
-                'enabled': True
-            }
-        else:
-            # Normal authentication - get fresh data from database
-            user = User.query.get(user_data.get('id'))
-            if not user or not user.is_active:
-                return jsonify({'error': 'User not found or inactive'}), 401
-            
-            user_response = {
-                'id': user.id,
-                'name': user.name or user.email,
-                'email': user.email,
-                'role': user.role,
-                'business_id': user.business_id,
-                'enabled': user.is_active,
-                'created_at': user.created_at.isoformat() if user.created_at else None
-            }
-        
-        # Get business info
-        business = None
-        business_id = user_response.get('business_id') or tenant_id
-        if business_id:
-            business = Business.query.get(business_id)
-        
-        # Prepare business data
-        business_response = None
-        if business:
-            business_response = {
-                'id': business.id,
-                'name': business.name,
-                'phone': business.phone_number,
-                'is_active': business.is_active,
-                'created_at': business.created_at.isoformat() if business.created_at else None
-            }
-        
-        # Basic permissions based on role
-        user_role = user_response.get('role')
-        permissions = {
-            'calls_enabled': True,
-            'whatsapp_enabled': True,
-            'crm_enabled': True,
-            'admin_panel': user_role in ['admin', 'manager'] and not is_impersonating
-        }
-        
-        response_data = {
-            'user': user_response,
-            'business': business_response,
-            'permissions': permissions,
-            'impersonating': is_impersonating
-        }
-        
-        # Add impersonation header
-        from flask import make_response
-        response = make_response(jsonify(response_data))
-        if is_impersonating:
-            response.headers['X-Impersonating'] = '1'
-        
-        return response
+        return jsonify({
+            "user": u, 
+            "tenant_id": session.get('tenant_id'),
+            "impersonating": bool(session.get('impersonating', False))
+        }), 200
     
     except Exception as e:
         print(f"Error in /api/auth/me: {e}")
