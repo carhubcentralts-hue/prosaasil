@@ -282,9 +282,9 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkAsRead }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl max-w-lg w-full max-h-[80vh] overflow-hidden shadow-xl">
+      <div className="bg-white rounded-xl max-w-lg w-full max-h-[80vh] shadow-xl flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-slate-200">
+        <div className="flex items-center justify-between p-6 border-b border-slate-200 flex-shrink-0">
           <h2 className="text-lg font-semibold text-slate-900">פרטי התראה</h2>
           <button
             onClick={onClose}
@@ -294,8 +294,8 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkAsRead }
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto">
+        {/* Content - NOW with proper scrolling */}
+        <div className="p-6 overflow-y-scroll flex-1" style={{ maxHeight: 'calc(80vh - 100px)' }}>
           <div className="space-y-4">
             <div>
               <h3 className="font-medium text-slate-900 mb-1">{notification.title}</h3>
@@ -426,13 +426,14 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
     const newNotifications = generateNotifications(user?.role || 'business', user?.business_id);
     setNotifications(newNotifications);
     const initialUnreadCount = newNotifications.filter(n => !n.read).length;
+    console.log('🔔 NotificationPanel מאתחל עם', initialUnreadCount, 'התראות לא נקראות');
     onUnreadCountChange?.(initialUnreadCount);
-  }, [user?.role, user?.business_id, onUnreadCountChange]);
+  }, [user?.role, user?.business_id]);
 
   // Update parent count whenever notifications array changes 
   React.useEffect(() => {
     const currentUnreadCount = notifications.filter(n => !n.read).length;
-    console.log('🔄 Notifications changed, unread count:', currentUnreadCount);
+    console.log('🔄 NotificationPanel שולח עדכון:', currentUnreadCount);
     onUnreadCountChange?.(currentUnreadCount);
   }, [notifications, onUnreadCountChange]);
 

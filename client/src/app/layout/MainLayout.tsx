@@ -140,6 +140,7 @@ export function MainLayout() {
   const [unreadNotifications, setUnreadNotifications] = useState(0); // Will be set from notifications
   
   const handleUnreadCountChange = (count: number) => {
+    console.log('📮 MainLayout מקבל עדכון מונה:', count);
     setUnreadNotifications(count);
   };
   const [isImpersonating, setIsImpersonating] = useState(false);
