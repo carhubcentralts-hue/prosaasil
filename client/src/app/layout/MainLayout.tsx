@@ -138,6 +138,10 @@ export function MainLayout() {
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0); // Will be set from notifications
+  
+  const handleUnreadCountChange = (count: number) => {
+    setUnreadNotifications(count);
+  };
   const [isImpersonating, setIsImpersonating] = useState(false);
   const [impersonatingBusinessName, setImpersonatingBusinessName] = useState('');
   const { user, tenant, logout } = useAuthState();
@@ -495,7 +499,7 @@ export function MainLayout() {
       <NotificationPanel
         isOpen={notificationsPanelOpen}
         onClose={() => setNotificationsPanelOpen(false)}
-        onUnreadCountChange={setUnreadNotifications}
+        onUnreadCountChange={handleUnreadCountChange}
       />
 
       {/* Search Modal */}
