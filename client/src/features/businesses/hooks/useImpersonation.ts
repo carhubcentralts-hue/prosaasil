@@ -57,18 +57,16 @@ export function useImpersonation() {
     }
   }, []);
 
-  const startImpersonation = useCallback(async (businessId: number) => {
+  const startImpersonation = useCallback(async (businessId: number, navigate: (path: string) => void) => {
     try {
-      // Step 1: Call the impersonation API and wait
       console.log('🔄 Starting impersonation for business:', businessId);
-      const result = await businessAPI.impersonate(businessId);
-      console.log('✅ Impersonation API call successful:', result);
       
-      // Step 2: Immediately check /api/auth/me to confirm impersonation 
-      const authResponse = await fetch('/api/auth/me', {
-        method: 'GET',
-        credentials: 'include'
-      });
+      // Step 1: Call impersonation API
+      await businessAPI.impersonate(businessId);
+      console.log('✅ Impersonation API call successful');
+      
+      // Step 2: Verify with /api/auth/me
+      const authResponse = await fetch('/api/auth/me', { credentials: 'include' });
       
       if (!authResponse.ok) {
         throw new Error('Failed to verify impersonation');
@@ -77,30 +75,31 @@ export function useImpersonation() {
       const authData = await authResponse.json();
       console.log('🔍 Auth check after impersonation:', authData);
       
-      // Step 3: Verify we're impersonating or have business role
-      if (!authData.impersonating && authData.user?.role !== 'business') {
-        throw new Error('Impersonation was not successful');
+      // Step 3: Navigate only after confirmation
+      if (authData.impersonating || authData.user?.role === 'business') {
+        console.log('🎉 Impersonation verified, navigating to business overview...');
+        navigate('/app/business/overview');
+        
+        // Store UI state for banners
+        if (user) {
+          localStorage.setItem('impersonation_original_user', JSON.stringify({
+            name: user.email.split('@')[0] || user.email,
+            email: user.email,
+            role: user.role
+          }));
+          localStorage.setItem('is_impersonating', 'true');
+          localStorage.setItem('impersonating_business_id', businessId.toString());
+        }
+        
+        // Refresh auth context
+        await refetch();
+        checkImpersonationState();
+        
+        return { ok: true };
+      } else {
+        console.error('❌ Impersonation failed - not confirmed:', authData);
+        throw new Error('Impersonation failed');
       }
-      
-      // Store impersonation state in localStorage for UI state
-      if (user) {
-        localStorage.setItem('impersonation_original_user', JSON.stringify({
-          name: user.email.split('@')[0] || user.email,
-          email: user.email,
-          role: user.role
-        }));
-        localStorage.setItem('is_impersonating', 'true');
-        localStorage.setItem('impersonating_business_id', businessId.toString());
-      }
-      
-      // Refresh auth to get new permissions in the React context
-      await refetch();
-      
-      // Update local state
-      checkImpersonationState();
-      
-      console.log('🎉 Impersonation completed successfully');
-      return result;
     } catch (error) {
       console.error('❌ שגיאה בהתחלת התחזות:', error);
       throw error;

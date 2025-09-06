@@ -59,17 +59,14 @@ export class BusinessAPI {
 
   // Impersonate business  
   async impersonate(id: number): Promise<ImpersonationData> {
-    // First try direct fetch with proper credentials
-    const response = await fetch(`/api/admin/login-as-business/${id}`, {
+    const response = await fetch(`/api/admin/businesses/${id}/impersonate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest'
       },
       credentials: 'include', // Important for cookies
-      body: JSON.stringify({
-        _idempotencyKey: this.generateIdempotencyKey()
-      })
+      body: JSON.stringify({})
     });
 
     if (!response.ok) {
@@ -83,7 +80,7 @@ export class BusinessAPI {
 
   // Exit impersonation
   async exitImpersonation(): Promise<BusinessActionResponse> {
-    const response = await fetch('/admin/stop-impersonate', {
+    const response = await fetch('/api/admin/impersonate/exit', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
