@@ -27,8 +27,9 @@ class HttpClient {
         if (!currentPath.startsWith('/login') && !currentPath.startsWith('/forgot') && !currentPath.startsWith('/reset')) {
           // Clear auth context and redirect to login
           window.location.href = '/login';
+          throw new Error('Unauthorized');
         }
-        throw new Error('Unauthorized');
+        // For login pages, let the normal error handling continue to get the real error message
       }
 
       if (!response.ok) {
