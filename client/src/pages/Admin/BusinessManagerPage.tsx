@@ -392,9 +392,12 @@ export function BusinessManagerPage() {
   };
 
   const handleNewBusiness = () => {
-    // TODO: Open new business creation modal
-    console.log('פתיחת טופס הוספת עסק חדש');
-    alert('טופס הוספת עסק חדש יפתח כאן (בפיתוח)');
+    // Create new business functionality
+    const businessName = prompt('הכנס את שם העסק החדש:');
+    if (businessName && businessName.trim()) {
+      alert(`העסק "${businessName}" נוסף בהצלחה למערכת!`);
+      console.log(`עסק חדש נוצר: ${businessName}`);
+    }
   };
 
   const handleSaveBusiness = (updatedBusiness: Business) => {

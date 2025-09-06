@@ -10,8 +10,8 @@ interface Business {
   status: 'active' | 'suspended';
   prompt?: string;
   permissions?: string[];
-  users?: number;
-  createdAt?: string;
+  users: number;
+  createdAt: string;
 }
 
 interface BusinessEditModalProps {

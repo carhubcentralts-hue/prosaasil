@@ -429,9 +429,10 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
     onUnreadCountChange?.(initialUnreadCount);
   }, [user?.role, user?.business_id, onUnreadCountChange]);
 
-  // Update parent whenever notifications change
+  // Update parent count whenever notifications array changes 
   React.useEffect(() => {
     const currentUnreadCount = notifications.filter(n => !n.read).length;
+    console.log('🔄 Notifications changed, unread count:', currentUnreadCount);
     onUnreadCountChange?.(currentUnreadCount);
   }, [notifications, onUnreadCountChange]);
 
@@ -451,8 +452,6 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
       const updated = prev.map(n => 
         n.id === notificationId ? { ...n, read: true } : n
       );
-      const newUnreadCount = updated.filter(n => !n.read).length;
-      onUnreadCountChange?.(newUnreadCount);
       return updated;
     });
   };
@@ -460,7 +459,6 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
   const markAllAsRead = () => {
     setNotifications(prev => {
       const updated = prev.map(n => ({ ...n, read: true }));
-      onUnreadCountChange?.(0);
       return updated;
     });
   };
@@ -497,8 +495,8 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
           </button>
         </div>
 
-        {/* Notifications List - Fixed scrolling */}
-        <div className="flex-1 overflow-y-auto" style={{ maxHeight: 'calc(80vh - 140px)' }}>
+        {/* Notifications List - ACTUALLY Fixed scrolling */}
+        <div className="overflow-y-scroll" style={{ height: '400px' }}>
           {notifications.length === 0 ? (
             <div className="p-8 text-center text-slate-500">
               <Bell className="h-12 w-12 mx-auto mb-3 text-slate-300" />
