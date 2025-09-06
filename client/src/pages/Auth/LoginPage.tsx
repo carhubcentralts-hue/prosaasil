@@ -27,9 +27,8 @@ export function LoginPage() {
       console.log('🚀 Attempting login with:', { email, passwordLength: password.length });
       await login(email, password);
       
-      console.log('✅ Login successful - auth state updated, waiting for redirect...');
-      // Let AuthGuard handle the redirect based on auth state
-      // navigate('/app/admin/overview', { replace: true });
+      console.log('✅ Login successful, navigating to dashboard...');
+      navigate('/app/admin/overview', { replace: true });
     } catch (err) {
       setError('אימייל או סיסמה שגויים');
     } finally {

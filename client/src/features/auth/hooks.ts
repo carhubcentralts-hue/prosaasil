@@ -86,10 +86,32 @@ export function useAuthState(): AuthState & {
     }
   }, []);
 
-  // 🚀 NO automatic session check - only manual login
+  // 🚀 Automatic session check on initialization
   useEffect(() => {
     if (!isInitializedRef.current) {
       isInitializedRef.current = true;
+      
+      const checkExistingSession = async () => {
+        try {
+          console.log('🔍 Checking for existing session...');
+          const authData = await authApi.me();
+          if (!isMountedRef.current) return;
+          
+          setState({
+            user: authData.user,
+            tenant: authData.tenant,
+            isLoading: false,
+            isAuthenticated: true
+          });
+          console.log('✅ Session restored:', { user: authData.user.email, role: authData.user.role });
+        } catch (error) {
+          if (!isMountedRef.current) return;
+          console.log('❌ No valid session found');
+          setState(prev => ({ ...prev, isLoading: false }));
+        }
+      };
+      
+      checkExistingSession();
       console.log('🟢 Auth system initialized');
     }
     

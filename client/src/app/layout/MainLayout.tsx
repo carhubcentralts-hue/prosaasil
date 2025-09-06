@@ -92,9 +92,10 @@ interface SidebarItemProps {
   active?: boolean;
   onClick?: () => void;
   comingSoon?: boolean;
+  navigate?: (path: string) => void;
 }
 
-function SidebarItem({ icon, label, to, active, onClick, comingSoon }: SidebarItemProps) {
+function SidebarItem({ icon, label, to, active, onClick, comingSoon, navigate }: SidebarItemProps) {
   const content = (
     <div className="flex items-center">
       <div className="ml-3 text-slate-500">
@@ -119,7 +120,7 @@ function SidebarItem({ icon, label, to, active, onClick, comingSoon }: SidebarIt
 
   if (to && !comingSoon) {
     return (
-      <button onClick={() => window.location.href = to} className={baseStyles}>
+      <button onClick={() => navigate(to)} className={baseStyles}>
         {content}
       </button>
     );
@@ -306,6 +307,7 @@ export function MainLayout() {
                 active={isActive}
                 onClick={item.comingSoon ? handleComingSoon : undefined}
                 comingSoon={item.comingSoon}
+                navigate={navigate}
               />
             );
           })}

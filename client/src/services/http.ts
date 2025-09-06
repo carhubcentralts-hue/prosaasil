@@ -26,7 +26,13 @@ class HttpClient {
         const currentPath = window.location.pathname;
         if (!currentPath.startsWith('/login') && !currentPath.startsWith('/forgot') && !currentPath.startsWith('/reset')) {
           // Clear auth context and redirect to login
-          window.location.href = '/login';
+          // Use React Router navigation if possible, fallback to window location
+          const navigateToLogin = () => {
+            if (typeof window !== 'undefined' && window.location) {
+              window.location.href = '/login';
+            }
+          };
+          navigateToLogin();
           throw new Error('Unauthorized');
         }
         // For login pages, let the normal error handling continue to get the real error message
