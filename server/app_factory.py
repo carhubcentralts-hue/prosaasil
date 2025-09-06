@@ -222,11 +222,11 @@ def create_app():
         # Register auth system FIRST (after security middleware)
         # Using simplified auth from auth_api.py only
         
-        # Session configuration for development (exact dev cookie flags)
+        # Session configuration for Preview (HTTP) mode
         app.config.update({
             'SESSION_COOKIE_NAME': 'al_sess',
             'SESSION_COOKIE_HTTPONLY': True,
-            'SESSION_COOKIE_SECURE': False,  # Dev mode - no HTTPS required
+            'SESSION_COOKIE_SECURE': False,  # Preview/HTTP mode
             'SESSION_COOKIE_SAMESITE': 'Lax',
             'SESSION_COOKIE_PATH': '/',
         })

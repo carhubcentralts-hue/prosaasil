@@ -1,10 +1,21 @@
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, g
 from werkzeug.security import generate_password_hash
 from server.models_sql import Business, User, db
 from server.routes_admin import require_api_auth
+from functools import wraps
 import logging
 
 logger = logging.getLogger(__name__)
+
+# CSRF bypass decorator
+def csrf_exempt(f):
+    """Bypass all CSRF protection for this endpoint"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Set flag to bypass CSRF
+        g.csrf_exempt = True
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Business Management Blueprint
 biz_mgmt_bp = Blueprint('business_management', __name__)
@@ -336,6 +347,7 @@ def toggle_user_status(user_id):
         return jsonify({"error": "שגיאה בשינוי סטטוס המשתמש"}), 500
 
 @biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST'])
+@csrf_exempt
 @require_api_auth(['admin', 'manager'])
 def impersonate_business(business_id):
     """Allow admin to impersonate business"""
@@ -400,6 +412,7 @@ def impersonate_business(business_id):
         return jsonify({"error": "שגיאה בהתחזות לעסק"}), 500
 
 @biz_mgmt_bp.route('/api/admin/impersonate/exit', methods=['POST'])
+@csrf_exempt
 @require_api_auth(['admin', 'manager'])
 def exit_impersonation():
     """Exit impersonation and restore original user"""
