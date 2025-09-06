@@ -1,0 +1,183 @@
+מעולה—כמו שביקשת: הנחיה למפתח (באנגלית) שתסדר שכל הכפתורים ב“ניהול עסקים” יעבדו עקבי, כולל Edit / Impersonate / Reset Password / Suspend|Resume / Delete, מכל מקום בממשק, בלי לשבור את הבקאנד.
+
+⸻
+
+DEV BRIEF — Make all Business Manager actions work everywhere (safely)
+
+0) Goal
+
+Unify and harden all actions for Business Manager so they work from every entry point (table row menu, details header, mobile card menu) with consistent UX, security, and backend contracts — without renaming backend endpoints. If FE/BE shapes differ, use a FE adapter.
+
+⸻
+
+1) Single source of truth for actions
+
+Create a centralized hook/service and use it everywhere.
+	•	Files (suggested):
+
+client/src/features/businesses/actions.ts        // pure functions calling APIs
+client/src/features/businesses/useBusinessActions.ts // hook exposing handlers
+client/src/features/businesses/types.ts
+client/src/features/businesses/api.ts            // fetchers (TanStack Query)
+
+
+	•	Export a single hook:
+
+const {
+  editBusiness,
+  resetPassword,
+  impersonate,
+  suspend,
+  resume,
+  softDelete
+} = useBusinessActions()
+
+
+	•	All UI triggers (table row kebab, details page header buttons, mobile card menu) must call these same handlers. No inline fetch in components.
+
+⸻
+
+2) Routing & permissions
+	•	Guard routes:
+	•	/app/admin/businesses and /app/admin/businesses/:id behind:
+	•	<AuthGuard/> and <RoleGuard roles={['admin','manager']}/>
+	•	Add a capabilities map to hide/disable buttons:
+	•	can('impersonate'), can('suspend'), can('delete'), etc. (derive from /api/auth/me or /api/permissions).
+	•	If role mismatch occurs server-side (403), show toast and keep user in place (or redirect to /app/admin/overview).
+
+⸻
+
+3) Backend contracts (do not rename; adapt in FE if needed)
+
+Use these endpoints (adjust payload mapping in FE if actual paths differ):
+	•	Edit
+PATCH /api/admin/businesses/:id
+Body: { name, domain, defaultPhoneE164, whatsappJid, timezone, businessHours, address }
+Returns: 200 { ok:true }
+	•	Reset password (for owner or selected user)
+POST /api/admin/businesses/:id/reset-password (optional { userId })
+Returns: 200 { ok:true } (don’t leak user existence)
+	•	Impersonate
+POST /api/admin/businesses/:id/impersonate
+Sets HttpOnly cookie (impersonation) + returns { tenantUser, tenant }
+POST /api/admin/impersonate/exit → exits
+	•	Suspend / Resume
+PATCH /api/admin/businesses/:id/status with { status:'suspended' | 'active' }
+Returns: 200 { ok:true, status }
+	•	Delete (soft)
+DELETE /api/admin/businesses/:id → 200 { ok:true, deletedAt }
+
+If FE previously called /api/businesses (legacy), add a server adapter or a FE mapping to hit the admin paths above.
+
+⸻
+
+4) Impersonation — end-to-end behavior
+	•	FE flow:
+	1.	Open confirm modal (require admin password or one-time confirmation).
+	2.	await impersonate(id) → on 200:
+	•	Show impersonation banner globally: “Impersonating ‘{tenantName}’ — Exit”
+	•	Replace auth context with returned { tenantUser, tenant }.
+	•	Navigate to /app/biz/overview.
+	3.	“Exit impersonation” button: call POST /api/admin/impersonate/exit, refetch /api/auth/me, navigate back to /app/admin/overview.
+	•	BE expectations:
+	•	Set a separate cookie for impersonation (HttpOnly, Secure, SameSite=Lax).
+	•	/api/auth/me must return the impersonated user while impersonation cookie is present, plus a header X-Impersonating: 1 (optional) and X-Tenant-Id.
+	•	Audit: log start/stop impersonation (who, when, IP).
+
+⸻
+
+5) UI/UX rules (consistent across all entry points)
+	•	Modals & Confirmations
+	•	Edit → side drawer form (save/cancel), validate fields, on success toast “Saved” and refetch.
+	•	Reset password → simple confirm; always show success toast (“If this user exists, a reset link was sent.”).
+	•	Impersonate → confirm modal; show banner on success.
+	•	Suspend/Resume → confirm + status pill updates immediately (optimistic with rollback).
+	•	Delete (soft) → type-to-confirm business name (2-step); on success return to list and refetch.
+	•	Loading/Disabled states
+	•	While a mutation runs: disable trigger, show small spinner.
+	•	Prevent double clicks via idempotency keys.
+	•	Toasts
+	•	Success: short, clear.
+	•	Error: friendly message; parse server error if structured.
+	•	Mobile
+	•	Row actions exposed as primary buttons + “More (⋯)”.
+	•	Drawer full-screen on small screens.
+
+⸻
+
+6) Data fetching, caching, and refetch
+
+Use TanStack Query (or your existing data layer).
+	•	Query keys:
+	•	['businesses', {page, pageSize, query, status}]
+	•	['business', id]
+	•	After Edit / Suspend / Resume:
+	•	invalidateQueries(['business', id])
+	•	invalidateQueries(['businesses'])
+	•	After Delete:
+	•	invalidateQueries(['businesses']) and navigate back to list.
+	•	After Impersonate/Exit:
+	•	invalidateQueries(['auth', 'me']) and any tenant-scoped caches.
+
+⸻
+
+7) Idempotency & safety
+	•	For every mutation, include an X-Idempotency-Key: uuid header (or body field) so retries don’t duplicate.
+	•	Server should respect idempotency; FE reuses the same key for the same click.
+	•	Handle 409 Conflict or 422 gracefully.
+
+⸻
+
+8) Status presentation & disabling rules
+	•	When suspended:
+	•	Show status pill (“Suspended”) in details and list.
+	•	Disable risky actions (sending messages/calls) in tenant-scope UIs (that’s BE enforced too).
+	•	When deleted (soft):
+	•	Hide from default list or show grayed with “Deleted” tag based on filter.
+
+⸻
+
+9) Error handling & logging
+	•	Wrap every handler with try/catch; surface meaningful toast.
+	•	Global error boundary for unexpected UI errors.
+	•	Log action + result to your analytics/audit channel if available.
+
+⸻
+
+10) Testing (quick but real)
+	•	Smoke tests:
+	•	Edit → PATCH returns 200 → list and details reflect new values.
+	•	Reset password → always returns ok toast.
+	•	Impersonate → banner appears; /api/auth/me reflects tenant user; navigating works; Exit restores admin.
+	•	Suspend → pill changes to Suspended; Resume → Active.
+	•	Delete → removed from list or tagged; navigation back works.
+	•	Entry points parity: trigger each action from:
+	•	Table row kebab
+	•	Details page header
+	•	Mobile card menu
+All must produce identical behavior.
+	•	401/403 simulation: verify guards and toasts.
+
+⸻
+
+11) “Under construction” discipline
+	•	Any button for a not-yet-implemented feature must be disabled with tooltip “Coming soon” and must not fire a failing request. No console errors.
+
+⸻
+
+12) Definition of Done
+	•	One central hook powers all Business actions.
+	•	Actions work identically from every entry point (table/details/mobile).
+	•	Impersonation fully functional with banner and exit; session/cookies handled.
+	•	Suspend/Resume/Delete reflected instantly in UI with safe rollback.
+	•	No duplicate requests (idempotency); no console errors.
+	•	Admin/Manager only; Business role cannot access these routes.
+	•	Audit entries created (server-side) for impersonation and destructive actions.
+
+⸻
+
+Developer one-liner
+
+“Replace all scattered handlers with a single useBusinessActions(); wire every trigger (table/details/mobile) to it. Keep backend paths as-is; adapt in FE. Implement full impersonation flow with banner and exit, safe suspend/resume/delete with idempotency and optimistic UI + refetch. Guard routes (admin|manager), add capability checks, and ensure consistent toasts/loading/disabled states.”
+
+ככה הוא יסדר את כל הכפתורים בצורה עקבית ובטוחה — בלי לשבור את הבקאנד.
