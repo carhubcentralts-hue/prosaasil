@@ -12,7 +12,7 @@ export const authApi = {
   
   // Login user
   login: (data: LoginRequest) => 
-    http.post<AuthResponse>('/api/auth/login', data),
+    http.post<AuthResponse>('/api/ui/login', data),
   
   // Logout user
   logout: () => http.post<{ ok: boolean }>('/api/auth/logout'),
