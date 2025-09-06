@@ -212,8 +212,8 @@ def create_app():
             # Update session activity
             SessionSecurity.update_activity()
             
-            # Check session validity for protected routes
-            if request.endpoint and request.endpoint.startswith(('ui.', 'auth_api.', 'data_api.')):
+            # Check session validity for protected routes - EXCLUDE auth endpoints from validation
+            if request.endpoint and request.endpoint.startswith(('ui.', 'data_api.')):
                 if not SessionSecurity.is_session_valid():
                     session.clear()
                     if request.headers.get('HX-Request'):
