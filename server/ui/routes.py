@@ -1115,7 +1115,7 @@ def admin_impersonate_business(business_id):
         return jsonify({'error': f'שגיאה בהשתלטות: {str(e)}'}), 500
 
 @ui_bp.route('/admin/stop-impersonate', methods=['POST'])
-#@require_roles("manager")
+@require_roles("manager", "admin")
 def admin_stop_impersonation():
     """סיום השתלטות"""
     try:

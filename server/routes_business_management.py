@@ -336,7 +336,7 @@ def toggle_user_status(user_id):
         return jsonify({"error": "שגיאה בשינוי סטטוס המשתמש"}), 500
 
 @biz_mgmt_bp.route('/api/admin/login-as-business/<int:business_id>', methods=['POST'])
-@require_api_auth(['admin'])
+@require_api_auth(['admin', 'manager'])
 def login_as_business(business_id):
     """Allow admin to login as business"""
     try:
