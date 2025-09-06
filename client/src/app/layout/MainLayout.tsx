@@ -81,7 +81,8 @@ const menuItems = [
   { 
     icon: Calendar, 
     label: 'לוח שנה',
-    comingSoon: true
+    to: '/app/calendar',
+    roles: ['admin', 'manager', 'business']
   },
 ];
 

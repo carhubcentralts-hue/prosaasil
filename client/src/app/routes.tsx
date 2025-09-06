@@ -14,6 +14,7 @@ import { AdminHomePage } from '../pages/Admin/AdminHomePage';
 import { BusinessHomePage } from '../pages/Business/BusinessHomePage';
 import { BusinessManagerPage } from '../pages/Admin/BusinessManagerPage';
 import { BusinessDetailsPage } from '../pages/Admin/BusinessDetailsPage';
+import { CalendarPage } from '../pages/Calendar/CalendarPage';
 
 export function AppRoutes() {
   return (
@@ -64,6 +65,16 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['business']}>
               <BusinessHomePage />
+            </RoleGuard>
+          }
+        />
+
+        {/* Calendar Routes */}
+        <Route
+          path="calendar"
+          element={
+            <RoleGuard roles={['admin', 'manager', 'business']}>
+              <CalendarPage />
             </RoleGuard>
           }
         />
