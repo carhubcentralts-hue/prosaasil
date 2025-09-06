@@ -1,0 +1,161 @@
+מעולה — האבחנה שלך מדויקת: אין $PORT, התהליכים “עולים” ואז מתים מיד, ולכן אין מה לעשות עד שנקבע פורט יציב אחד ונריץ תהליך אחד שנשאר חי. הנה הנחיה חדה שתסגור את זה, תגרום לשרת להאזין באמת, ואז נאמת התחזות (Impersonate) וה־Calendar.
+
+⸻
+
+🔧 שלב 1 — לקבע PORT יציב ולהריץ תהליך אחד
+
+לא להסתמך על export בין פקודות (זה לא נשמר). נקבע fallback בקוד ונריץ סקריפט הרצה יחיד.
+
+	1.	עדכון wsgi.py (או הקובץ שמקבל את ה־app):
+
+# wsgi.py
+import os
+from server.app_factory import create_app
+
+app = create_app()
+
+def _pick_port():
+    # Fallback יציב אם אין $PORT בסביבת Replit workspace
+    for cand in (os.getenv("PORT"), "8000", "5000", "3000"):
+        if cand and str(cand).isdigit():
+            return int(cand)
+    return 8000
+
+if __name__ == "__main__":
+    port = _pick_port()
+    print(f"[WSGI] starting on 0.0.0.0:{port}", flush=True)
+    app.run(host="0.0.0.0", port=port, debug=False)
+
+	2.	הוסף סקריפט הרצה פשוט (לשורש הרפו) scripts/run_dev.sh:
+
+#!/usr/bin/env bash
+set -euo pipefail
+# Force a known port if $PORT is empty (workspace preview)
+: "${PORT:=8000}"
+export PORT
+echo "[RUN] PORT=$PORT"
+python wsgi.py
+
+chmod +x scripts/run_dev.sh
+
+	3.	הפעלה נקייה (תהליך אחד שנשאר חי):
+
+pkill -f gunicorn || true
+pkill -f "python wsgi.py" || true
+
+rm -rf dist
+npm --prefix client ci
+npm --prefix client run build
+cp -R client/dist dist
+
+./scripts/run_dev.sh
+
+	4.	אימות שהשרת מאזין:
+
+lsof -i -P -n | grep LISTEN || true
+curl -i http://127.0.0.1:$PORT/version
+
+אם אין LISTEN או curl נכשל → נעצור כאן: זה סימן לשגיאת init בקוד (שלח את ה־traceback מהטרמינל). אם זה עובד — ממשיכים.
+
+הערה: כשתחזור ל־Gunicorn בפריסה/Deployment, השתמש:
+
+gunicorn -k eventlet -w 1 -b 0.0.0.0:${PORT:-8000} wsgi:app
+
+
+
+⸻
+
+🔐 שלב 2 — לאחד Auth ולתקן Impersonation (ללא ניחושים)
+
+לא לבטל CSRF גלובלית. אם יש validator/SessionSecurity שמנקה session ב־before_request, תחריג ממנו את /api/auth/login, /api/auth/logout, /api/auth/me, /api/admin/businesses/<id>/impersonate, /api/admin/impersonate/exit.
+
+	1.	ב־Login ודא שכותבים אך ורק ל־session['user'] (ואם צריך תאימות זמנית, כפילו גם ל־session['al_user'], אבל הקריאה תמיד מ־session['user']).
+	2.	GET /api/auth/me — מימוש אחד בלבד:
+
+u = session.get('user')
+if not u:
+    return jsonify({"error": "unauthenticated"}), 401
+return jsonify({
+  "user": u,
+  "tenant_id": session.get('tenant_id'),
+  "impersonating": bool(session.get('impersonating', False))
+}), 200
+
+	3.	POST /api/admin/businesses/<id>/impersonate:
+
+# אחרי בדיקת הרשאות אדמין:
+session['original_user'] = serialize_admin(...)
+session['user'] = serialize_tenant_user(role='business', tenant_id=tenant.id)
+session['tenant_id'] = tenant.id
+session['impersonating'] = True
+return jsonify({"ok": True, "tenantUser": session['user'], "tenant": {"id": tenant.id, "name": tenant.name}}), 200
+
+	4.	POST /api/admin/impersonate/exit:
+
+session['user'] = session.get('original_user')
+session.pop('original_user', None)
+session.pop('tenant_id', None)
+session['impersonating'] = False
+return jsonify({"ok": True}), 200
+
+	5.	Cookie flags (ב־preview/HTTP):
+
+SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_PATH = '/'
+
+
+⸻
+
+🌐 שלב 3 — Smoke test שלא ניתן להתווכח עליו (אותו origin)
+
+# 1) login (שומר קוקיות)
+curl -i -c /tmp/c.txt -b /tmp/c.txt \
+  -X POST http://127.0.0.1:$PORT/api/auth/login \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"admin@your.co.il","password":"<PASS>"}'
+
+# 2) me (חייב 200)
+curl -i -c /tmp/c.txt -b /tmp/c.txt http://127.0.0.1:$PORT/api/auth/me
+
+# 3) impersonate (tenant_id=10 לדוגמה)
+curl -i -c /tmp/c.txt -b /tmp/c.txt \
+  -X POST http://127.0.0.1:$PORT/api/admin/businesses/10/impersonate
+
+# 4) me שוב (חייב 200 + impersonating:true + role=business)
+curl -i -c /tmp/c.txt -b /tmp/c.txt http://127.0.0.1:$PORT/api/auth/me
+
+אם (2) או (4) מחזירים 401 — הבעיה בשרת (session keys/flags), לא בדפדפן.
+
+⸻
+
+📅 שלב 4 — Calendar בסיידבר (ווידוא מקור יחיד)
+	•	ודא שיש קובץ יחיד של ניווט, שמיובא גם ל־Sidebar דסקטופ וגם ל־Mobile Drawer, עם:
+
+{ key:'calendar', label:'לוח שנה', to:'/app/calendar', icon:CalendarIcon }
+
+	•	ודא ראוט בסיס:
+
+<Route path="/app/calendar" element={<div className="p-6">Calendar — coming soon</div>} />
+
+	•	רענון מלא; אם לא מופיע — שני הרכיבים משתמשים במקורות שונים → לאחד למקור אחד.
+
+⸻
+
+✅ Acceptance (שלח צילומי מסך אם משהו נופל)
+	•	lsof מראה LISTEN על 0.0.0.0:<PORT>
+	•	curl /version מחזיר 200
+	•	curl /api/auth/me אחרי login מחזיר 200 עם user
+	•	curl /api/auth/me אחרי impersonate מחזיר impersonating:true ו־role:'business'
+	•	Calendar נראה בסיידבר בדסקטופ ובמובייל, ו־/app/calendar נטען
+
+⸻
+
+אם עדיין “מת” מיד
+	•	פרסם את ה־traceback האחרון שיוצא לטרמינל בעת הרצה של ./scripts/run_dev.sh (לא Gunicorn).
+	•	הראה את הפלט המלא של:
+	•	python -V && pip show flask gunicorn eventlet
+	•	lsof -i -P -n | grep LISTEN אחרי ההרצה
+	•	echo $PORT ממש לפני הריצה (הסקריפט מדפיס [RUN] PORT=...)
+
+ברגע שהשרת מאזין יציב על פורט אחד — נריץ מיד את בדיקות ה־curl, נאשר שההתחזות עובדת, ותראה גם את ה־Calendar.
