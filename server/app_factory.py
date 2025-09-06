@@ -130,9 +130,12 @@ def create_app():
         # Skip for static files, health endpoints, React routes, and auth endpoints
         auth_paths = ['/api/auth/login', '/api/auth/logout', '/api/auth/me', 
                      '/api/admin/businesses', '/api/admin/impersonate/exit']
+        # Also exempt specific impersonate endpoints dynamically
+        is_impersonate_path = (request.path.startswith('/api/admin/businesses/') and 
+                              request.path.endswith('/impersonate'))
         if (request.endpoint in ['static', 'health', 'readyz', 'version'] or 
             request.path in ['/', '/login', '/forgot', '/reset', '/home'] or
-            any(request.path.startswith(p) for p in auth_paths)):
+            any(request.path.startswith(p) for p in auth_paths) or is_impersonate_path):
             return
             
         # Session timeout check
@@ -212,8 +215,11 @@ def create_app():
             # Skip React auth routes and auth API endpoints
             auth_paths = ['/api/auth/login', '/api/auth/logout', '/api/auth/me',
                          '/api/admin/businesses', '/api/admin/impersonate/exit']
+            # Also exempt specific impersonate endpoints dynamically  
+            is_impersonate_path = (request.path.startswith('/api/admin/businesses/') and 
+                                  request.path.endswith('/impersonate'))
             if (request.path in ['/', '/login', '/forgot', '/reset', '/home'] or
-                any(request.path.startswith(p) for p in auth_paths)):
+                any(request.path.startswith(p) for p in auth_paths) or is_impersonate_path):
                 return
                 
             g.audit_logger = audit_logger
@@ -437,8 +443,8 @@ def create_app():
     if surf_instance:
         try:
             # SeaSurf exemption - CRITICAL FIX: exempt both webhook and auth
-            surf_instance.exempt_urls(('/webhook/', '/api/auth/'))
-            print("✅ SeaSurf exemption applied to /webhook/ and /api/auth/ prefixes")
+            surf_instance.exempt_urls(('/webhook/', '/api/auth/', '/api/admin/businesses/', '/api/admin/impersonate/'))
+            print("✅ SeaSurf exemption applied to /webhook/, /api/auth/, and /api/admin/ prefixes")
             # Add UI login to CSRF exemption
             surf_instance.exempt_urls(('/api/ui/login', '/api/auth/login'))
             print("✅ CSRF exemption applied to /api/ui/login and /api/auth/login")
@@ -446,8 +452,8 @@ def create_app():
             print(f"⚠️ SeaSurf exemption warning: {e}")
             # Alternative: Set exempt_urls directly as attribute
             try:
-                surf_instance._exempt_urls = ('/webhook/', '/api/auth/')
-                print("✅ SeaSurf direct attribute exemption applied to auth and webhooks")
+                surf_instance._exempt_urls = ('/webhook/', '/api/auth/', '/api/admin/businesses/', '/api/admin/impersonate/')
+                print("✅ SeaSurf direct attribute exemption applied to auth, webhooks, and admin impersonate")
             except:
                 print("⚠️ SeaSurf could not be configured - login may be blocked")
     # WhatsApp unified registration only (no more routes_whatsapp.py)

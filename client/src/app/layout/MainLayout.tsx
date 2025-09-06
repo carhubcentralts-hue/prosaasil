@@ -368,7 +368,12 @@ export function MainLayout() {
                 label={item.label}
                 to={item.to}
                 active={isActive}
-                onClick={item.comingSoon ? handleComingSoon : undefined}
+                onClick={item.comingSoon ? handleComingSoon : () => {
+                  if (item.to) {
+                    navigate(item.to);
+                    setSidebarOpen(false); // Close sidebar on mobile after navigation
+                  }
+                }}
                 comingSoon={item.comingSoon}
                 navigate={navigate}
               />
@@ -546,6 +551,7 @@ export function MainLayout() {
                 onClick={() => {
                   if (item.to && !item.comingSoon) {
                     navigate(item.to);
+                    setSidebarOpen(false); // Close sidebar on mobile after navigation
                   } else if (item.comingSoon) {
                     handleComingSoon();
                   }
