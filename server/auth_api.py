@@ -78,11 +78,10 @@ def login():
             'email': user.email
         }
         
-        # Store in session - use al_user for compatibility with SessionSecurity
+        # Store in session - single source of truth
         session['user'] = user_data
-        session['al_user'] = user_data  # Required by SessionSecurity middleware
+        session['tenant_id'] = user.business_id
         session['token'] = f"session_{user.id}"  # Simple session token
-        print(f"🔍 LOGIN: Set session with keys: {list(session.keys())}")
         
         return jsonify({
             'success': True,
@@ -180,11 +179,7 @@ def get_current_user():
     Returns current user data from session - single source of truth
     """
     try:
-        print(f"🔍 AUTH_ME: Session keys: {list(session.keys())}")
-        print(f"🔍 AUTH_ME: session.get('user'): {session.get('user')}")
-        print(f"🔍 AUTH_ME: session.get('al_user'): {session.get('al_user')}")
-        
-        u = session.get('user') or session.get('al_user')  # Support both for compatibility
+        u = session.get('user')
         if not u:
             return jsonify({"error":"Not authenticated"}), 401
         
@@ -202,7 +197,7 @@ def get_current_user():
 def get_current_user_legacy():
     """Get current logged in user data"""
     try:
-        user = session.get('user') or session.get('al_user')
+        user = session.get('user')
         if not user:
             return jsonify({'error': 'Not authenticated'}), 401
         
