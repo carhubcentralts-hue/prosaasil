@@ -27,14 +27,12 @@ import {
   WifiOff
 } from 'lucide-react';
 import { cn } from '../../shared/utils/cn';
-import { BusinessEditModal } from '../../shared/components/ui/BusinessEditModal';
+import { BusinessEditModal } from '../../features/businesses/components/BusinessEditModal';
+import { useBusinessActions } from '../../features/businesses/useBusinessActions';
+import { Business } from '../../features/businesses/types';
 
-interface BusinessDetails {
-  id: number;
-  name: string;
-  domain: string;
-  defaultPhoneE164: string;
-  whatsappJid: string;
+// BusinessDetails extends Business with additional stats and business hours
+interface BusinessDetails extends Business {
   timezone: string;
   businessHours: {
     [key: string]: Array<{ from: string; to: string; }>;
@@ -47,8 +45,6 @@ interface BusinessDetails {
     callsToday: number;
     waToday: number;
   };
-  status: 'active' | 'suspended';
-  createdAt: string;
   updatedAt: string;
 }
 
@@ -153,6 +149,9 @@ export function BusinessDetailsPage() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false); // Start immediately, no loading screen
+  
+  // Use centralized business actions
+  const businessActions = useBusinessActions();
 
   // Load business details immediately
   useEffect(() => {
@@ -188,43 +187,37 @@ export function BusinessDetailsPage() {
     
     switch (action) {
       case 'edit':
-        console.log(`עריכת עסק: ${business.name}`);
-        // TODO: Open edit form modal or navigate to edit page
-        alert(`עריכת פרטי עסק "${business.name}" - טופס עריכה יפתח כאן`);
+        setEditModalOpen(true);
         break;
       case 'impersonate':
-        console.log(`התחזות לעסק: ${business.name}`);
-        if (confirm(`האם אתה בטוח שאתה רוצה להתחזות לעסק "${business.name}"?`)) {
-          alert(`מתחזה לעסק "${business.name}" - יש לבצע כאן אינטגרציה עם השרת`);
-        }
+        businessActions.impersonate(business);
+        break;
+      case 'reset':
+        businessActions.resetPassword(business);
         break;
       case 'suspend':
-        console.log(`השעיית עסק: ${business.name}`);
-        if (confirm(`האם אתה בטוח שאתה רוצה להשעות את העסק "${business.name}"?`)) {
-          setBusiness({...business, status: 'suspended'});
-          alert(`העסק "${business.name}" הושעה`);
-        }
+        businessActions.suspend(business);
         break;
       case 'resume':
-        console.log(`הפעלת עסק: ${business.name}`);
-        if (confirm(`האם אתה בטוח שאתה רוצה להפעיל מחדש את העסק "${business.name}"?`)) {
-          setBusiness({...business, status: 'active'});
-          alert(`העסק "${business.name}" הופעל מחדש`);
-        }
+        businessActions.resume(business);
         break;
       case 'delete':
-        console.log(`מחיקת עסק: ${business.name}`);
-        const confirmDelete = prompt(`לאישור מחיקה, הקלד את שם העסק: "${business.name}"`);
-        if (confirmDelete === business.name) {
-          alert(`העסק "${business.name}" נמחק (מחיקה רכה) - יש לבצע קריאה לשרת`);
-          navigate('/app/admin/businesses');
-        } else {
-          alert('מחיקה בוטלה - שם העסק לא תואם');
-        }
+        businessActions.softDelete(business);
         break;
       default:
         break;
     }
+  };
+
+  const handleSaveBusiness = async (data: any) => {
+    if (!business) return;
+    
+    await businessActions.editBusiness(business, data);
+    setEditModalOpen(false);
+    
+    // TODO: Refresh business data from API
+    // For now, update local state optimistically
+    setBusiness(prev => prev ? { ...prev, ...data } : null);
   };
 
   // Remove loading state - load immediately without delay
@@ -631,22 +624,11 @@ export function BusinessDetailsPage() {
 
       {/* Edit Business Modal */}
       <BusinessEditModal
+        business={business}
         isOpen={editModalOpen}
         onClose={() => setEditModalOpen(false)}
-        business={business ? {
-          id: business.id,
-          name: business.name,
-          domain: business.domain,
-          defaultPhoneE164: business.defaultPhoneE164,
-          whatsappJid: business.whatsappJid,
-          status: business.status,
-          prompt: '',
-          permissions: ['calls', 'whatsapp', 'crm']
-        } : null}
-        onSave={(updatedBusiness) => {
-          console.log('עסק עודכן:', updatedBusiness);
-          // TODO: Update business data
-        }}
+        onSave={handleSaveBusiness}
+        isLoading={businessActions.isLoading('edit', business?.id)}
       />
     </div>
   );
