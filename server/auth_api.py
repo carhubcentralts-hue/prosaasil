@@ -82,6 +82,7 @@ def login():
         session['user'] = user_data
         session['al_user'] = user_data  # Required by SessionSecurity middleware
         session['token'] = f"session_{user.id}"  # Simple session token
+        print(f"🔍 LOGIN: Set session with keys: {list(session.keys())}")
         
         return jsonify({
             'success': True,
@@ -179,10 +180,9 @@ def get_current_user():
     Returns current user data from session - single source of truth
     """
     try:
-        # Debug session content
-        print(f"🔍 DEBUG /api/auth/me session keys: {list(session.keys())}")
-        print(f"🔍 DEBUG session user: {session.get('user')}")
-        print(f"🔍 DEBUG session al_user: {session.get('al_user')}")
+        print(f"🔍 AUTH_ME: Session keys: {list(session.keys())}")
+        print(f"🔍 AUTH_ME: session.get('user'): {session.get('user')}")
+        print(f"🔍 AUTH_ME: session.get('al_user'): {session.get('al_user')}")
         
         u = session.get('user') or session.get('al_user')  # Support both for compatibility
         if not u:

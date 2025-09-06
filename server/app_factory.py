@@ -123,9 +123,9 @@ def create_app():
             
         return response
     
-    # Session Management and Rotation
-    @app.before_request
-    def manage_session_security():
+    # Session Management and Rotation - DISABLED FOR AUTH DEBUG
+    # @app.before_request
+    def manage_session_security_disabled():
         """Enhanced session security management"""
         # Skip for static files, health endpoints, and React routes
         if request.endpoint in ['static', 'health', 'readyz', 'version'] or request.path in ['/', '/login', '/forgot', '/reset', '/home']:
@@ -159,22 +159,10 @@ def create_app():
                         session['_session_start'] = datetime.now().isoformat()
                         session['_csrf_token'] = secrets.token_hex(16)
     
-    # Enterprise Security Initialization
+    # Enterprise Security Initialization - DISABLED FOR AUTH DEBUG
     csrf_instance = None
     surf_instance = None
-    if CSRF_AVAILABLE and CSRFProtect and SeaSurf:
-        try:
-            csrf_instance = CSRFProtect()
-            csrf_instance.init_app(app)
-            
-            # SeaSurf for additional CSRF protection
-            surf_instance = SeaSurf()
-            surf_instance.init_app(app)
-            print("🔒 Enterprise CSRF Protection enabled")
-        except Exception as e:
-            print(f"⚠️ CSRF setup warning: {e}")
-    else:
-        print("⚠️ Running with basic security (CSRF packages not available)")
+    print("🔧 CSRF Protection DISABLED for auth debugging")
     
     # CORS with security restrictions
     CORS(app, 
@@ -199,8 +187,8 @@ def create_app():
         from server.security_audit import AuditLogger, SessionSecurity
         audit_logger = AuditLogger(app)
         
-        @app.before_request 
-        def setup_security_context():
+        # @app.before_request  - DISABLED FOR AUTH DEBUG
+        def setup_security_context_disabled():
             """Setup security context for each request"""
             # Skip React auth routes completely
             if request.path in ['/', '/login', '/forgot', '/reset', '/home']:
