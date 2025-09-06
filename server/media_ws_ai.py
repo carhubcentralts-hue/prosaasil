@@ -1323,12 +1323,12 @@ class MediaStreamHandler:
             lead_info = self._analyze_lead_completeness()
             
             # 📅 יצירת פגישה אוטומטית אם יש מספיק מידע
-            if lead_info.get('meeting_ready', False) and hasattr(self, 'call_sid'):
+            if lead_info.get('meeting_ready', False) and hasattr(self, 'call_sid') and self.call_sid:
                 try:
                     from server.auto_meeting import check_and_create_appointment
                     phone_number = getattr(self, 'phone_number', '')
                     result = check_and_create_appointment(
-                        self.call_sid, 
+                        str(self.call_sid), 
                         lead_info, 
                         self.conversation_history or [], 
                         phone_number
