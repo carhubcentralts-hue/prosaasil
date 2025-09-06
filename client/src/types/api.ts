@@ -15,6 +15,7 @@ export interface Tenant {
 export interface AuthResponse {
   user: User;
   tenant: Tenant;
+  impersonating?: boolean;
 }
 
 export interface StatusResponse {

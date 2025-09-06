@@ -8,7 +8,7 @@ interface RoleGuardProps {
 }
 
 export function RoleGuard({ roles, children }: RoleGuardProps) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, impersonating } = useAuth();
 
   // Show minimal loading - redirect immediately
   if (isLoading) {
@@ -22,10 +22,13 @@ export function RoleGuard({ roles, children }: RoleGuardProps) {
     );
   }
 
-  // Check if user has required role
-  if (!user || !roles.includes(user.role)) {
-    // Redirect to appropriate home page based on user role
-    const homeRoute = user?.role === 'admin' || user?.role === 'manager' 
+  // When impersonating, treat the user as having 'business' role
+  const effectiveRole = impersonating ? 'business' : user?.role;
+
+  // Check if user has required role (considering impersonation)
+  if (!user || !effectiveRole || !roles.includes(effectiveRole)) {
+    // Redirect to appropriate home page based on effective role
+    const homeRoute = (effectiveRole === 'admin' || effectiveRole === 'manager') && !impersonating
       ? '/app/admin/overview'
       : '/app/business/overview';
     

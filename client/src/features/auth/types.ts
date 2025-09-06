@@ -5,6 +5,7 @@ export interface AuthState {
   tenant: Tenant | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  impersonating?: boolean;
 }
 
 export interface AuthContextType extends AuthState {

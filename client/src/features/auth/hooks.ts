@@ -34,6 +34,7 @@ export function useAuthState(): AuthState & {
         tenant: response.tenant,
         isLoading: false,
         isAuthenticated: true,
+        impersonating: response.impersonating || false,
       });
     } catch (error) {
       if (!isMountedRef.current) return;
@@ -59,6 +60,7 @@ export function useAuthState(): AuthState & {
         tenant: response.tenant,
         isLoading: false,
         isAuthenticated: true,
+        impersonating: response.impersonating || false,
       };
       
       setState(newState);
@@ -101,7 +103,8 @@ export function useAuthState(): AuthState & {
             user: authData.user,
             tenant: authData.tenant,
             isLoading: false,
-            isAuthenticated: true
+            isAuthenticated: true,
+            impersonating: authData.impersonating || false
           });
           console.log('✅ Session restored:', { user: authData.user.email, role: authData.user.role });
         } catch (error) {
@@ -126,7 +129,7 @@ export function useAuthState(): AuthState & {
     login,
     logout,
     refetch
-  }), [state.user, state.tenant, state.isLoading, state.isAuthenticated, login, logout, refetch]);
+  }), [state.user, state.tenant, state.isLoading, state.isAuthenticated, state.impersonating, login, logout, refetch]);
 }
 
 export function useAuth() {
