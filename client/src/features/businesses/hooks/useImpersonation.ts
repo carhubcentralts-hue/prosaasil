@@ -59,10 +59,30 @@ export function useImpersonation() {
 
   const startImpersonation = useCallback(async (businessId: number) => {
     try {
-      // Call the impersonation API
+      // Step 1: Call the impersonation API and wait
+      console.log('🔄 Starting impersonation for business:', businessId);
       const result = await businessAPI.impersonate(businessId);
+      console.log('✅ Impersonation API call successful:', result);
       
-      // Store impersonation state
+      // Step 2: Immediately check /api/auth/me to confirm impersonation 
+      const authResponse = await fetch('/api/auth/me', {
+        method: 'GET',
+        credentials: 'include'
+      });
+      
+      if (!authResponse.ok) {
+        throw new Error('Failed to verify impersonation');
+      }
+      
+      const authData = await authResponse.json();
+      console.log('🔍 Auth check after impersonation:', authData);
+      
+      // Step 3: Verify we're impersonating or have business role
+      if (!authData.impersonating && authData.user?.role !== 'business') {
+        throw new Error('Impersonation was not successful');
+      }
+      
+      // Store impersonation state in localStorage for UI state
       if (user) {
         localStorage.setItem('impersonation_original_user', JSON.stringify({
           name: user.email.split('@')[0] || user.email,
@@ -73,23 +93,27 @@ export function useImpersonation() {
         localStorage.setItem('impersonating_business_id', businessId.toString());
       }
       
-      // Refresh auth to get new permissions
+      // Refresh auth to get new permissions in the React context
       await refetch();
       
       // Update local state
       checkImpersonationState();
       
+      console.log('🎉 Impersonation completed successfully');
       return result;
     } catch (error) {
-      console.error('שגיאה בהתחלת התחזות:', error);
+      console.error('❌ שגיאה בהתחלת התחזות:', error);
       throw error;
     }
   }, [user, refetch, checkImpersonationState]);
 
   const exitImpersonation = useCallback(async () => {
     try {
+      console.log('🔄 Exiting impersonation...');
+      
       // Call the exit impersonation API
       await businessAPI.exitImpersonation();
+      console.log('✅ Exit impersonation API call successful');
       
       // Clear impersonation state
       clearImpersonationState();
@@ -97,12 +121,13 @@ export function useImpersonation() {
       // Refresh auth to restore original permissions
       await refetch();
       
+      console.log('🎉 Successfully exited impersonation');
       return { ok: true };
     } catch (error) {
-      console.error('שגיאה ביציאה מהתחזות:', error);
+      console.error('❌ שגיאה ביציאה מהתחזות:', error);
       throw error;
     }
-  }, [refetch]);
+  }, [refetch, clearImpersonationState]);
 
   const clearImpersonationState = useCallback(() => {
     localStorage.removeItem('impersonation_original_user');

@@ -362,7 +362,7 @@ def login_as_business(business_id):
             return jsonify({"error": "לא נמצא מנהל לעסק זה"}), 404
         
         # Store original user for restoration later
-        current_user = session.get('al_user') or session.get('user')
+        current_user = session.get('user')
         if current_user:
             session['original_user'] = current_user.copy()
             
@@ -374,7 +374,6 @@ def login_as_business(business_id):
             "role": "business",  # Always business role when impersonating
             "business_id": admin_user.business_id,
         }
-        session['al_user'] = session['user']  # Keep both for compatibility
         session['tenant_id'] = business_id
         session['impersonating'] = True
         

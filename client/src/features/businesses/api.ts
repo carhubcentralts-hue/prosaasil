@@ -83,7 +83,22 @@ export class BusinessAPI {
 
   // Exit impersonation
   async exitImpersonation(): Promise<BusinessActionResponse> {
-    return http.post('/admin/stop-impersonate');
+    const response = await fetch('/admin/stop-impersonate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'include' // Important for cookies
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Exit impersonation failed:', response.status, errorText);
+      throw new Error(`שגיאה ביציאה מהתחזות: ${response.status}`);
+    }
+
+    return response.json();
   }
 
   // Suspend business

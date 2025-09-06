@@ -1123,12 +1123,11 @@ def admin_stop_impersonation():
         if 'original_user' in session and session.get('impersonating'):
             original_user = session['original_user']
             session['user'] = original_user
-            session['al_user'] = original_user  # Keep compatibility
             
             # Clear impersonation state
             session.pop('original_user', None)
-            session.pop('tenant_id', None)
-            session['impersonating'] = False
+            session.pop('tenant_id', None) 
+            session.pop('impersonating', None)
             
             # Log impersonation end
             if hasattr(g, 'audit_logger') and g.audit_logger:
