@@ -72,11 +72,7 @@ export function AppRoutes() {
         {/* Calendar Routes */}
         <Route
           path="calendar"
-          element={
-            <RoleGuard roles={['admin', 'manager', 'business']}>
-              <CalendarPage />
-            </RoleGuard>
-          }
+          element={<CalendarPage />}
         />
 
         {/* Default redirect based on role handled by AuthGuard */}
