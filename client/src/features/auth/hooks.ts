@@ -86,18 +86,18 @@ export function useAuthState(): AuthState & {
     }
   }, []);
 
-  // 🚀 NO auto refetch - prevent loading screens
+  // 🚀 Initialize with session check - but only once
   useEffect(() => {
     if (!isInitializedRef.current) {
       isInitializedRef.current = true;
-      console.log('🚫 Skipping auto refetch to prevent loading screens');
-      // No automatic refetch - only manual login
+      console.log('🔍 Checking for existing session on startup');
+      refetch(); // Check if user is already logged in
     }
     
     return () => {
       isMountedRef.current = false; // Cleanup
     };
-  }, []);
+  }, [refetch]);
 
   // 🎯 Stable return object to prevent unnecessary re-renders
   return useMemo(() => ({
