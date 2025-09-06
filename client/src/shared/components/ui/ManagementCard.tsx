@@ -2,7 +2,7 @@ import React from 'react';
 import { LucideIcon, ChevronRight, Building2, UserCog } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../utils/cn';
-import { useAuthState } from '../../../features/auth/hooks';
+import { useAuth } from '../../../features/auth/hooks';
 
 interface ManagementCardProps {
   title: string;
@@ -26,7 +26,7 @@ export function ManagementCard({
   stats,
   className 
 }: ManagementCardProps) {
-  const { user } = useAuthState();
+  const { user } = useAuth();
 
   // Security check - only show if user has required role
   if (!user || !requiredRoles.includes(user.role)) {
@@ -83,7 +83,7 @@ interface QuickManagementActionsProps {
 }
 
 export function QuickManagementActions({ className }: QuickManagementActionsProps) {
-  const { user } = useAuthState();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const handleBusinessManagement = () => {

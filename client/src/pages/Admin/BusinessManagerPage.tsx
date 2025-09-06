@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { BusinessEditModal } from '../../shared/components/ui/BusinessEditModal';
 import { cn } from '../../shared/utils/cn';
-import { useAuthState } from '../../features/auth/hooks';
+import { useAuth } from '../../features/auth/hooks';
 
 interface Business {
   id: number;
@@ -344,7 +344,7 @@ export function BusinessManagerPage() {
   const [filteredBusinesses, setFilteredBusinesses] = useState<Business[]>(mockBusinesses);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
-  const { user } = useAuthState();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   // Filter businesses based on search and status

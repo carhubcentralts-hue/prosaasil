@@ -17,7 +17,7 @@ import {
   Bell,
   User
 } from 'lucide-react';
-import { useAuthState } from '../../features/auth/hooks';
+import { useAuth } from '../../features/auth/hooks';
 import { NotificationPanel } from '../../shared/components/ui/NotificationPanel';
 import { ImpersonationBar } from '../../shared/components/ui/ImpersonationBar';
 import { SearchModal } from '../../shared/components/ui/SearchModal';
@@ -145,7 +145,7 @@ export function MainLayout() {
   };
   const [isImpersonating, setIsImpersonating] = useState(false);
   const [impersonatingBusinessName, setImpersonatingBusinessName] = useState('');
-  const { user, tenant, logout } = useAuthState();
+  const { user, tenant, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const sidebarRef = useRef<HTMLDivElement>(null);

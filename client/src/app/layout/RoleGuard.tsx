@@ -1,5 +1,5 @@
 import { Navigate } from 'react-router-dom';
-import { useAuthState } from '../../features/auth/hooks';
+import { useAuth } from '../../features/auth/hooks';
 import { UserRole } from '../../features/auth/types';
 
 interface RoleGuardProps {
@@ -8,7 +8,7 @@ interface RoleGuardProps {
 }
 
 export function RoleGuard({ roles, children }: RoleGuardProps) {
-  const { user, isLoading } = useAuthState();
+  const { user, isLoading } = useAuth();
 
   // Show minimal loading - redirect immediately
   if (isLoading) {

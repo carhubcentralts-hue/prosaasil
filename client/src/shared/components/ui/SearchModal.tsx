@@ -14,7 +14,7 @@ import {
   Clock
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
-import { useAuthState } from '../../../features/auth/hooks';
+import { useAuth } from '../../../features/auth/hooks';
 
 export interface SearchResult {
   id: string;
@@ -362,7 +362,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const { user } = useAuthState();
+  const { user } = useAuth();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus input when modal opens

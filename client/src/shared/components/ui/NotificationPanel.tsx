@@ -14,7 +14,7 @@ import {
   Building2
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
-import { useAuthState } from '../../../features/auth/hooks';
+import { useAuth } from '../../../features/auth/hooks';
 
 export interface Notification {
   id: string;
@@ -416,7 +416,7 @@ interface NotificationPanelProps {
 }
 
 export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: NotificationPanelProps) {
-  const { user } = useAuthState();
+  const { user } = useAuth();
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
