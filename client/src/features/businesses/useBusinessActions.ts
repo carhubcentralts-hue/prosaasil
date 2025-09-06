@@ -152,11 +152,26 @@ export function useBusinessActions() {
       const result = await impersonateAction(business.id);
       console.log('התחזות הושלמה:', result);
       
-      await refetchAuth(); // Refresh auth state
-      showToast.success(`התחזות לעסק "${business.name}" הופעלה`);
+      // CRITICAL: Wait for /me to confirm impersonation before navigating
+      const authResponse = await fetch('/api/auth/me', {
+        method: 'GET',
+        credentials: 'include'
+      });
       
-      // Force page reload to ensure all state is updated correctly
-      window.location.href = '/app/business/overview';
+      if (authResponse.ok) {
+        const me = await authResponse.json();
+        console.log('מצב אימות אחרי התחזות:', me);
+        
+        if (me.impersonating && me.user?.role === 'business') {
+          showToast.success(`התחזות לעסק "${business.name}" הופעלה`);
+          // Navigate only after confirming impersonation worked
+          window.location.href = '/app/business/overview';
+        } else {
+          throw new Error('התחזות לא הושלמה כהלכה');
+        }
+      } else {
+        throw new Error('שגיאה באימות מצב ההתחזות');
+      }
     } catch (error) {
       // Clear impersonation data on error
       localStorage.removeItem('impersonation_original_user');

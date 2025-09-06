@@ -1119,18 +1119,22 @@ def admin_impersonate_business(business_id):
 def admin_stop_impersonation():
     """סיום השתלטות"""
     try:
-        if 'impersonating_business_id' in session:
+        # Restore original user from session
+        if 'original_user' in session and session.get('impersonating'):
+            original_user = session['original_user']
+            session['user'] = original_user
+            session['al_user'] = original_user  # Keep compatibility
+            
+            # Clear impersonation state
+            session.pop('original_user', None)
+            session.pop('tenant_id', None)
+            session['impersonating'] = False
+            
             # Log impersonation end
             if hasattr(g, 'audit_logger') and g.audit_logger:
-                g.audit_logger.log_action('IMPERSONATE_END', 'business', 
-                                        session.get('impersonating_business_id'))
-            
-            # Clear impersonation
-            session.pop('impersonating_business_id', None)
-            session.pop('impersonating_business_name', None)
-            session.pop('impersonation_start', None)
+                g.audit_logger.log_action('IMPERSONATE_END', 'business')
         
-        return redirect('/app/admin')
+        return jsonify({'success': True})
         
     except Exception as e:
         return jsonify({'error': f'שגיאה בסיום השתלטות: {str(e)}'}), 500

@@ -361,24 +361,33 @@ def login_as_business(business_id):
         if not admin_user:
             return jsonify({"error": "לא נמצא מנהל לעסק זה"}), 404
         
-        # Update session to login as business
-        session["al_user"] = {
+        # Store original user for restoration later
+        current_user = session.get('al_user') or session.get('user')
+        if current_user:
+            session['original_user'] = current_user.copy()
+            
+        # Switch session to business user
+        session['user'] = {
             "id": admin_user.id,
             "name": admin_user.name,
-            "role": admin_user.role,
+            "email": admin_user.email,
+            "role": "business",  # Always business role when impersonating
             "business_id": admin_user.business_id,
-            "is_admin_login": True  # Mark this as admin login
         }
+        session['al_user'] = session['user']  # Keep both for compatibility
+        session['tenant_id'] = business_id
+        session['impersonating'] = True
         
         logger.info(f"✅ Admin successfully logged in as business {business_id}")
-        logger.info(f"📋 New session: {session.get('al_user')}")
+        logger.info(f"📋 New session: {session.get('user')}")
         
         return jsonify({
             "success": True,
             "business": {
                 "id": business.id,
                 "name": business.name
-            }
+            },
+            "user": session['user']
         })
         
     except Exception as e:
