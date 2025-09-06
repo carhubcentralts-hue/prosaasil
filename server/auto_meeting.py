@@ -1,0 +1,223 @@
+"""
+Auto Meeting Scheduler - יצירת פגישות אוטומטית מתוך שיחות AI
+"""
+from datetime import datetime, timedelta
+from server.models_sql import Appointment, Customer, Business, CallLog
+from server.db import db
+from sqlalchemy import and_
+import re
+import time
+
+def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversation_history: list, phone_number: str = ""):
+    """
+    יצירת פגישה אוטומטית מתוך שיחה כאשר יש מספיק מידע על הליד
+    
+    Args:
+        call_sid: מזהה השיחה
+        lead_info: המידע שנאסף על הליד (מפונקציית _analyze_lead_completeness) 
+        conversation_history: היסטוריית השיחה
+        phone_number: מספר טלפון של הלקוח
+        
+    Returns:
+        dict: תוצאת יצירת הפגישה
+    """
+    try:
+        if not lead_info.get('meeting_ready', False):
+            return {'success': False, 'reason': 'לא מספיק מידע לקביעת פגישה'}
+        
+        # נסיון למצוא call_log קיים
+        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+        if not call_log:
+            print(f"⚠️ Call log not found for {call_sid} - creating appointment without call connection")
+        
+        # איתור או יצירת לקוח
+        customer = None
+        customer_name = None
+        
+        # חיפוש שם בהיסטוריית השיחה
+        full_conversation = ' '.join([turn.get('user', '') + ' ' + turn.get('bot', '') for turn in conversation_history if isinstance(turn, dict)])
+        
+        # זיהוי שם (דפוסים עבריים נפוצים)
+        name_patterns = [
+            r'אני ([א-ת]+)',
+            r'קוראים לי ([א-ת]+)',
+            r'השם שלי ([א-ת]+)', 
+            r'השם ([א-ת]+)'
+        ]
+        
+        for pattern in name_patterns:
+            match = re.search(pattern, full_conversation)
+            if match:
+                customer_name = match.group(1).strip()
+                break
+        
+        # חיפוש לקוח קיים או יצירת חדש
+        if phone_number:
+            customer = Customer.query.filter_by(phone=phone_number).first()
+            if not customer:
+                # יצירת לקוח חדש
+                customer = Customer()
+                customer.name = customer_name or f"לקוח מטלפון {phone_number[-4:]}"
+                customer.phone = phone_number
+                customer.status = "lead"
+                
+                # קישור לעסק (ברירת מחדל עסק ראשון)
+                business = Business.query.first()
+                if business:
+                    customer.business_id = business.id
+                
+                db.session.add(customer)
+                db.session.flush()  # כדי לקבל ID
+                
+        # איסוף מידע מהשיחה
+        collected = lead_info.get('collected', {})
+        
+        # זיהוי אזור מהשיחה
+        area = ""
+        area_keywords = {
+            'תל אביב': ['תל אביב', 'דיזנגוף', 'פלורנטין', 'נווה צדק'],
+            'רמת גן': ['רמת גן', 'גבעתיים', 'הבורסה'],
+            'הרצליה': ['הרצליה', 'פיתוח'],
+            'רמלה': ['רמלה'],
+            'לוד': ['לוד'],
+            'פתח תקווה': ['פתח תקווה', 'פתח תקוה'],
+            'מודיעין': ['מודיעין'],
+            'רחובות': ['רחובות'],
+            'בית שמש': ['בית שמש'],
+            'מעלה אדומים': ['מעלה אדומים'],
+            'ירושלים': ['ירושלים']
+        }
+        
+        for area_name, keywords in area_keywords.items():
+            if any(keyword in full_conversation for keyword in keywords):
+                area = area_name
+                break
+        
+        # זיהוי סוג נכס
+        property_type = ""
+        if any(word in full_conversation for word in ['דירה', 'חדרים']):
+            # זיהוי מספר חדרים
+            room_match = re.search(r'(\d+)\s*חדרים?', full_conversation)
+            if room_match:
+                property_type = f"דירת {room_match.group(1)} חדרים"
+            else:
+                property_type = "דירה"
+        elif 'משרד' in full_conversation:
+            property_type = "משרד"
+        elif 'דופלקס' in full_conversation:
+            property_type = "דופלקס"
+        
+        # זיהוי תקציב (מעמד)
+        budget_info = ""
+        if any(word in full_conversation for word in ['מיליון', 'אלפים', '₪']):
+            budget_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:מיליון|אלף)', full_conversation)
+            if budget_match:
+                amount = budget_match.group(1)
+                unit = 'מיליון' if 'מיליון' in budget_match.group(0) else 'אלף'
+                budget_info = f"{amount} {unit} ש״ח"
+        
+        # יצירת כותרת מפורטת לפגישה
+        title_parts = []
+        if customer_name:
+            title_parts.append(customer_name)
+        if property_type:
+            title_parts.append(property_type)
+        if area:
+            title_parts.append(f"ב{area}")
+        
+        appointment_title = " - ".join(title_parts) if title_parts else "פגישה ליעוץ נדל\"ן"
+        
+        # יצירת תיאור מפורט
+        description_parts = []
+        if collected.get('area'):
+            description_parts.append(f"אזור מועדף: {area}")
+        if collected.get('property_type'):
+            description_parts.append(f"סוג נכס: {property_type}")
+        if collected.get('budget'):
+            description_parts.append(f"תקציב: {budget_info}")
+        if collected.get('timing'):
+            description_parts.append("התזמון: דחיפות נמוכה-בינונית")
+        
+        description = "פגישה שנוצרה אוטומטית מתוך שיחת טלפון.\n\n" + "\n".join(description_parts)
+        
+        # זמני פגישה מוצעים (יום עסקים הבא + 1-3 ימים)
+        now = datetime.now()
+        
+        # מחפשים יום עסקים הבא (לא שבת)
+        days_ahead = 1
+        while True:
+            potential_date = now + timedelta(days=days_ahead)
+            # בדוק שזה לא שבת (weekday() == 5)
+            if potential_date.weekday() != 5:
+                break
+            days_ahead += 1
+        
+        # קביעת זמן - 10:00 בבוקר או 16:00 אחר הצהריים
+        meeting_time = potential_date.replace(hour=10, minute=0, second=0, microsecond=0)
+        if now.hour > 14:  # אם כבר אחרי 14:00, קבע ל-16:00
+            meeting_time = meeting_time.replace(hour=16)
+        
+        end_time = meeting_time + timedelta(hours=1)  # פגישה של שעה
+        
+        # יצירת הפגישה
+        appointment = Appointment()
+        default_business = Business.query.first()
+        appointment.business_id = customer.business_id if customer else (default_business.id if default_business else None)
+        appointment.customer_id = customer.id if customer else None
+        appointment.call_log_id = call_log.id if call_log else None
+        appointment.title = appointment_title
+        appointment.description = description
+        appointment.start_time = meeting_time
+        appointment.end_time = end_time
+        appointment.status = 'scheduled'  # נקבעה אבל צריך אישור
+        appointment.appointment_type = 'viewing'
+        appointment.priority = 'high'  # פגישה מטלפון בעדיפות גבוהה
+        appointment.contact_name = customer_name or f"לקוח {phone_number[-4:] if phone_number else 'לא ידוע'}"
+        appointment.contact_phone = phone_number
+        appointment.notes = f"נוצרה אוטומטית מתוך שיחה {call_sid}\nרמת השלמת מידע: {lead_info.get('completed_count', 0)}/5"
+        appointment.auto_generated = True
+        appointment.source = 'phone_call'
+        appointment.created_by = None  # נוצר על ידי המערכת
+        
+        db.session.add(appointment)
+        db.session.commit()
+        
+        return {
+            'success': True,
+            'appointment_id': appointment.id,
+            'meeting_time': meeting_time.isoformat(),
+            'customer_name': customer_name,
+            'title': appointment_title,
+            'message': f'נוצרה פגישה ל{meeting_time.strftime("%d/%m/%Y בשעה %H:%M")}'
+        }
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ Error creating auto appointment: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'message': 'שגיאה ביצירת פגישה אוטומטית'
+        }
+
+def check_and_create_appointment(call_sid: str, lead_info: dict, conversation_history: list, phone_number: str = ""):
+    """
+    בדיקה ויצירת פגישה אם נדרש - נקרא מתוך עיבוד השיחה
+    """
+    # בדוק שלא נוצרה כבר פגישה לשיחה הזו
+    call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+    if call_log:
+        existing_appointment = Appointment.query.filter_by(call_log_id=call_log.id).first()
+    else:
+        existing_appointment = None
+    
+    if existing_appointment:
+        return {'success': False, 'reason': 'כבר קיימת פגישה לשיחה זו'}
+    
+    if lead_info.get('meeting_ready', False) and lead_info.get('completed_count', 0) >= 4:
+        result = create_auto_appointment_from_call(call_sid, lead_info, conversation_history, phone_number)
+        if result['success']:
+            print(f"✅ Auto appointment created: {result['appointment_id']} for call {call_sid}")
+        return result
+    
+    return {'success': False, 'reason': 'לא מספיק מידע לקביעת פגישה'}

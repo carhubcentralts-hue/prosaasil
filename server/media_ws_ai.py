@@ -1322,6 +1322,22 @@ class MediaStreamHandler:
             # ✅ בדיקת מידע שנאסף לתיאום פגישה
             lead_info = self._analyze_lead_completeness()
             
+            # 📅 יצירת פגישה אוטומטית אם יש מספיק מידע
+            if lead_info.get('meeting_ready', False) and hasattr(self, 'call_sid'):
+                try:
+                    from server.auto_meeting import check_and_create_appointment
+                    phone_number = getattr(self, 'phone_number', '')
+                    result = check_and_create_appointment(
+                        self.call_sid, 
+                        lead_info, 
+                        self.conversation_history or [], 
+                        phone_number
+                    )
+                    if result.get('success'):
+                        print(f"✅ Auto appointment created: {result.get('appointment_id')} for {phone_number}")
+                except Exception as e:
+                    print(f"⚠️ Failed to create auto appointment: {e}")
+            
             # ✅ אם זו השיחה הראשונה - ברכה מלאה
             is_first_call = len(self.conversation_history) == 0
             
