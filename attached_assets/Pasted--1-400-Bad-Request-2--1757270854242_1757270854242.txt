@@ -1,0 +1,130 @@
+סבבה—יש לנו שני דברים לסגור:
+	1.	שגיאת 400 (Bad Request) אחרי ההתחזות
+	2.	כפתור חתוך באריח “פגישות” בעמוד לוח שנה
+
+להלן הנחיות ביצוע חדות, בלי לשבור כלום.
+
+⸻
+
+A) 400 אחרי ההתחזות — לא לקפוץ ל־/login, אבל ה־API נופל
+
+מה קורה בפועל: ה־Auth עבר (לא 401), אבל בקשה מסוימת מחזירה 400. זה כמעט תמיד אחד מאלה:
+	•	JSON לא תקין / Content-Type לא “application/json” → Flask זורק 400 לפני שהקוד שלך רץ.
+	•	ה־endpoint דורש שדה שחסר (למשל tenantId, businessId, idempotencyKey).
+	•	CSRF מופעל על endpoint שלא החרגת (לא Auth).
+	•	אין credentials:'include' ב־fetch → אין קוקי → הקוד שלך מחזיר 400 יזומה.
+
+מה לעשות עכשיו (בדיוק):
+	1.	מצא את הקריאה שנופלת
+DevTools → Network → סמן XHR/Fetch → חפש את הבקשה עם Status 400. רשום:
+	•	ה־URL המדויק (למשל /api/admin/businesses/:id/impersonate או /api/calendar/events)
+	•	ה־Method (POST/PATCH/GET)
+	•	ה־Request Headers (במיוחד Content-Type ו־Cookie)
+	•	ה־Request Payload (מה נשלח בפועל)
+	2.	תקן את הלקוח (שגרה לכל POST/PUT/PATCH/DELETE):
+	•	כל קריאה ל־/api/** חייבת להישלח עם:
+
+fetch(url, {
+  method:'POST',
+  headers:{ 'Content-Type':'application/json' },
+  credentials:'include',
+  body: JSON.stringify(payload)
+})
+
+
+	•	אם זה GET עם פרמטרים—אל תשלח body (חלק מהדפדפנים יפוצצו ל־400).
+
+	3.	בדיקת עשן בצד שרת (למסלול הבעייתי)
+הרץ מהטרמינל (התאם את ה-URL לפונקציה שנופלת):
+
+# דוגמה: יצירת אירוע ביומן (אם זה המסלול שנופל)
+curl -i -c /tmp/c.txt -b /tmp/c.txt \
+  -X POST http://127.0.0.1:$PORT/api/calendar/events \
+  -H 'Content-Type: application/json' \
+  --data '{"title":"פגישה","startsAt":"2025-09-10T09:00:00Z","endsAt":"2025-09-10T09:30:00Z","timezone":"Asia/Jerusalem","idempotencyKey":"123e4567-e89b-12d3-a456-426614174000"}'
+
+אם זה מחזיר 200/201 → הבעיה ב־FE (כותרות/JSON). אם עדיין 400 → הבעיה בסכימה/CSRF בשרת.
+
+	4.	שרת – אל תיפול על 400 “עיוור”
+כדי לקצר דיבוג, הוסף handler ידידותי ל־400 שמדפיס למה:
+
+@app.errorhandler(400)
+def bad_request(e):
+    return jsonify({
+      "error": "bad_request",
+      "hint": "check Content-Type and JSON schema",
+      "content_type": request.headers.get("Content-Type"),
+      "is_json": request.is_json
+    }), 400
+
+וב־endpoint עצמו:
+
+data = request.get_json(silent=True) or {}
+# אם חסר שדה - החזר 422 עם הסבר (לא 400)
+if 'title' not in data: return jsonify({"error":"missing_title"}), 422
+
+כך תדע מיד מה חסר.
+
+	5.	CSRF
+	•	אל תבטל גלובלית. הוסף @csrf.exempt רק למסלולים שבהם אין טפסי דפדפן רגילים (למשל API פנימי שנקרא רק מ־fetch).
+	•	אם נשאר CSRF פעיל, ודא שה־FE שולח את הכותרת שהספרייה שלך דורשת (X-CSRFToken וכו’).
+
+⸻
+
+B) כפתור חתוך באריח “פגישות” (Calendar → Meetings tile)
+
+סיבה שכיחה: קומפוזיציה של Flex/Grid + overflow-hidden/max-w-0/space-x ב־RTL גורמת לרוחב 0 או לטקסט שקוף/נחתך.
+
+תקן את ה־Header/Actions של האריח
+
+בקומפוננטה של האריח (למשל CalendarPage.tsx או CalendarMeetingsCard.tsx) העבר את ה־header ל-layout הבא:
+
+<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+  <h2 className="text-base md:text-lg font-semibold">פגישות</h2>
+
+  <div className="flex gap-2 flex-wrap md:flex-nowrap">
+    <Button
+      variant="primary"
+      className="inline-flex items-center gap-2 h-10 px-3 md:px-4 rounded-lg text-sm font-medium whitespace-nowrap w-full md:w-auto"
+      aria-label="אירוע חדש" title="אירוע חדש"
+    >
+      <IconPlus className="size-4" />
+      אירוע חדש
+    </Button>
+
+    <Button
+      variant="secondary"
+      className="inline-flex items-center gap-2 h-10 px-3 md:px-4 rounded-lg text-sm font-medium whitespace-nowrap w-full md:w-auto"
+      aria-label="סנכרון" title="סנכרון"
+    >
+      <IconRefresh className="size-4" />
+      סנכרון
+    </Button>
+  </div>
+</div>
+
+כללים חשובים:
+	•	אין overflow-hidden על הקונטיינר של הכפתורים.
+	•	השתמש ב־gap-2 (לא space-x-2) כדי להימנע מבעיות RTL.
+	•	הוסף whitespace-nowrap + px-3/4 כדי שהטקסט לא ייחתך.
+	•	במובייל: w-full; בדסקטופ: md:w-auto.
+	•	אם זה icon-only (בלי טקסט), תן w-10 h-10 inline-flex items-center justify-center + aria-label/title—אחרת נראה “כפתור ריק”.
+
+אם עדיין “ריק” — בדוק i18n
+	•	אם משתמשים ב־t('calendar.newEvent')/t('calendar.sync')—וודא שקיימים keys בקובץ התרגום. חסר → מחרוזת ריקה.
+	•	בדוק DevTools Console לאזהרות “missing translation”.
+
+בדיקות קבלה מהירות
+	•	מובייל (≤390px): שני הכפתורים שורה מתחת שורה, מלאים, לא חתוכים.
+	•	דסקטופ (≥768px): בשורה אחת, לא נחתכים.
+	•	DevTools → Elements: ל־button יש width/height > 0, אין opacity:0.
+
+⸻
+
+Acceptance Checklist (שלח צילום/פלט אם משהו לא)
+	•	DevTools Network: הבקשה שנפלה ל־400 עכשיו מחזירה 200/201 או 422 עם הסבר ברור.
+	•	אם עדיין 400: שלח Screenshot של ה־Request Headers + Payload של אותה בקשה, ואחזיר תיקון נקודתי למסלול הזה.
+	•	ב־Calendar → Meetings: שני הכפתורים נראים מלא, עם טקסט/אייקון, במובייל ובדסקטופ.
+	•	אין שגיאות אדומות בקונסול.
+
+זה יעלה את הכפתור שלך “לחיים” ויפסיק את 400—או ייתן הודעת שגיאה שימושית במקום 400 עיוור, ואז נתקן בדיוק את השדה החסר.
