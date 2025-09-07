@@ -421,53 +421,63 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // Initialize notifications when component mounts or user changes
+  // Memoized callback to prevent unnecessary rerenders
+  const memoizedOnUnreadCountChange = useCallback(onUnreadCountChange, [onUnreadCountChange]);
+
+  // Initialize notifications when component mounts or user changes - optimized
   React.useEffect(() => {
     const newNotifications = generateNotifications(user?.role || 'business', user?.business_id);
     setNotifications(newNotifications);
     const initialUnreadCount = newNotifications.filter(n => !n.read).length;
     console.log('🔔 NotificationPanel מאתחל עם', initialUnreadCount, 'התראות לא נקראות');
-    onUnreadCountChange?.(initialUnreadCount);
-  }, [user?.role, user?.business_id]);
+    memoizedOnUnreadCountChange?.(initialUnreadCount);
+  }, [user?.role, user?.business_id, memoizedOnUnreadCountChange]);
 
-  // Update parent count whenever notifications array changes 
+  // Memoized unread count to prevent recalculation on every render
+  const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
+
+  // Update parent count whenever unread count changes - debounced
   React.useEffect(() => {
-    const currentUnreadCount = notifications.filter(n => !n.read).length;
-    console.log('🔄 NotificationPanel שולח עדכון:', currentUnreadCount);
-    onUnreadCountChange?.(currentUnreadCount);
-  }, [notifications, onUnreadCountChange]);
+    const timeoutId = setTimeout(() => {
+      console.log('🔄 NotificationPanel שולח עדכון:', unreadCount);
+      memoizedOnUnreadCountChange?.(unreadCount);
+    }, 50); // 50ms debounce to prevent rapid fire updates
+
+    return () => clearTimeout(timeoutId);
+  }, [unreadCount, memoizedOnUnreadCountChange]);
 
   if (!isOpen) return null;
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  // Remove duplicate calculation - we already have memoized unread count above
 
-  const handleNotificationClick = (notification: Notification) => {
+  // Memoized handlers to prevent unnecessary rerenders of child components
+  const handleNotificationClick = useCallback((notification: Notification) => {
     setSelectedNotification(notification);
     setIsDetailModalOpen(true);
     // Auto mark as read when opening detail
     markAsRead(notification.id);
-  };
+  }, []);
 
-  const markAsRead = (notificationId: string) => {
+  const markAsRead = useCallback((notificationId: string) => {
     setNotifications(prev => {
       const updated = prev.map(n => 
         n.id === notificationId ? { ...n, read: true } : n
       );
       return updated;
     });
-  };
+  }, []);
 
-  const markAllAsRead = () => {
+  const markAllAsRead = useCallback(() => {
     setNotifications(prev => {
       const updated = prev.map(n => ({ ...n, read: true }));
       return updated;
     });
-  };
+  }, []);
 
-  const handleDetailModalClose = () => {
+  const handleDetailModalClose = useCallback(() => {
     setIsDetailModalOpen(false);
     setSelectedNotification(null);
-  };
+  }, []);
 
   return (
     <>
