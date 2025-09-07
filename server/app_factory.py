@@ -401,12 +401,12 @@ def create_app():
     
     # CSRF Exemptions - Only for webhooks (not auth or business endpoints)
     try:
-        from server.routes_twilio import twilio_bp
         from server.extensions import csrf
-        csrf.exempt(twilio_bp)
-        print("✅ CSRF exemption applied to Twilio webhooks only")
-    except ImportError:
-        print("⚠️ Twilio blueprint not found for CSRF exemption")
+        # SeaSurf needs URL patterns, not blueprints
+        csrf.exempt_urls(['/webhook/'])
+        print("✅ CSRF exemption applied to webhooks only")
+    except Exception as e:
+        print(f"⚠️ CSRF exemption warning: {e}")
     # WhatsApp unified registration only (no more routes_whatsapp.py)
     print("✅ WhatsApp routes removed - using unified only")
     
