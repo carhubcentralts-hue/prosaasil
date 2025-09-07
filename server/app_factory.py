@@ -129,7 +129,7 @@ def create_app():
         """Enhanced session security management"""
         # Skip for static files, health endpoints, React routes, and auth endpoints
         auth_paths = ['/api/auth/login', '/api/auth/logout', '/api/auth/me', 
-                     '/api/admin/businesses', '/api/admin/impersonate/exit']
+                     '/api/admin/businesses', '/api/admin/impersonate/exit', '/api/ui/login']
         # Also exempt specific impersonate endpoints dynamically
         is_impersonate_path = (request.path.startswith('/api/admin/businesses/') and 
                               request.path.endswith('/impersonate'))
@@ -443,17 +443,15 @@ def create_app():
     if surf_instance:
         try:
             # SeaSurf exemption - CRITICAL FIX: exempt both webhook and auth
-            surf_instance.exempt_urls(('/webhook/', '/api/auth/', '/api/admin/businesses/', '/api/admin/impersonate/'))
+            surf_instance.exempt_urls(('/webhook/', '/api/auth/', '/api/ui/', '/api/admin/businesses/', '/api/admin/impersonate/'))
             print("✅ SeaSurf exemption applied to /webhook/, /api/auth/, and /api/admin/ prefixes")
-            # Add UI login to CSRF exemption
-            surf_instance.exempt_urls(('/api/ui/login', '/api/auth/login'))
-            print("✅ CSRF exemption applied to /api/ui/login and /api/auth/login")
+            print("✅ CSRF exemption applied to /api/ui/ and /api/auth/ and impersonate endpoints")
         except Exception as e:
             print(f"⚠️ SeaSurf exemption warning: {e}")
             # Alternative: Set exempt_urls directly as attribute
             try:
-                surf_instance._exempt_urls = ('/webhook/', '/api/auth/', '/api/admin/businesses/', '/api/admin/impersonate/')
-                print("✅ SeaSurf direct attribute exemption applied to auth, webhooks, and admin impersonate")
+                surf_instance._exempt_urls = ('/webhook/', '/api/auth/', '/api/ui/', '/api/admin/businesses/', '/api/admin/impersonate/')
+                print("✅ SeaSurf direct attribute exemption applied to auth, UI, webhooks, and admin impersonate")
             except:
                 print("⚠️ SeaSurf could not be configured - login may be blocked")
     # WhatsApp unified registration only (no more routes_whatsapp.py)

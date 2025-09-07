@@ -305,7 +305,7 @@ export function CalendarPage() {
       {showFilters && (
         <div className="md:hidden bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 space-y-4">
           <div className="grid grid-cols-1 gap-4">
-            <div className="relative">
+            <div className="relative overflow-hidden">
               <input
                 type="text"
                 placeholder="חיפוש פגישות..."
@@ -344,11 +344,11 @@ export function CalendarPage() {
               <option value="call_followup">מעקב שיחה</option>
             </select>
 
-            <div className="flex bg-slate-100 rounded-lg p-1">
+            <div className="flex bg-slate-100 rounded-lg p-1 w-full">
               {(['month', 'week', 'day'] as const).map((view) => (
                 <button
                   key={view}
-                  className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  className={`flex-1 px-2 py-2 text-xs font-medium rounded-md transition-colors ${
                     currentView === view 
                       ? 'bg-white text-slate-900 shadow-sm' 
                       : 'text-slate-600 hover:text-slate-900'
@@ -366,7 +366,7 @@ export function CalendarPage() {
 
       {/* Desktop Filters */}
       <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4 overflow-x-auto">
           {/* Search */}
           <div className="relative flex-1 min-w-[300px]">
             <input
@@ -380,7 +380,7 @@ export function CalendarPage() {
             <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-shrink-0">
             {/* Status Filter */}
             <select
               className="border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -411,7 +411,7 @@ export function CalendarPage() {
             </select>
 
             {/* View Toggle */}
-            <div className="flex bg-slate-100 rounded-lg p-1">
+            <div className="flex bg-slate-100 rounded-lg p-1 flex-shrink-0">
               {(['month', 'week', 'day'] as const).map((view) => (
                 <button
                   key={view}
@@ -435,14 +435,14 @@ export function CalendarPage() {
       {currentView === 'month' && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           {/* Calendar Header */}
-          <div className="flex items-center justify-between p-4 md:p-6 border-b border-slate-200">
-            <h2 className="text-lg md:text-xl font-semibold text-slate-900">
+          <div className="flex items-center justify-between p-3 md:p-6 border-b border-slate-200 overflow-hidden">
+            <h2 className="text-base md:text-xl font-semibold text-slate-900 truncate flex-1">
               {currentDate.toLocaleDateString('he-IL', { 
                 month: 'long', 
                 year: 'numeric' 
               })}
             </h2>
-            <div className="flex items-center gap-1 md:gap-2">
+            <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
               <button
                 className="btn-ghost p-2"
                 onClick={() => navigateMonth('prev')}
@@ -451,7 +451,7 @@ export function CalendarPage() {
                 <ChevronRight className="h-5 w-5" />
               </button>
               <button
-                className="btn-ghost px-2 md:px-4 py-2 text-sm md:text-base"
+                className="btn-ghost px-2 md:px-4 py-1 md:py-2 text-xs md:text-base"
                 onClick={() => setCurrentDate(new Date())}
                 data-testid="button-today"
               >
