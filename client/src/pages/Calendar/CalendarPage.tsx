@@ -557,17 +557,9 @@ export function CalendarPage() {
               <h3 className="text-lg font-medium text-slate-900 mb-2">
                 אין פגישות
               </h3>
-              <p className="text-slate-600 mb-6">
-                טרם נוספו פגישות למערכת. צור פגישה חדשה כדי להתחיל
+              <p className="text-slate-600">
+                טרם נוספו פגישות למערכת. השתמש בכפתור למעלה כדי ליצור פגישה חדשה
               </p>
-              <button
-                className="btn-primary inline-flex items-center justify-center px-4 py-2 w-auto min-w-[120px]"
-                onClick={openNewAppointmentModal}
-                data-testid="button-new-appointment-empty"
-              >
-                <Plus className="h-5 w-5 mr-2 flex-shrink-0" />
-                <span className="font-medium whitespace-nowrap">פגישה חדשה</span>
-              </button>
             </div>
           ) : (
             filteredAppointments.map((appointment) => (

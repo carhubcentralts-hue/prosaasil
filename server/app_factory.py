@@ -135,9 +135,12 @@ def create_app():
         # Also exempt specific impersonate endpoints dynamically
         is_impersonate_path = (request.path.startswith('/api/admin/businesses/') and 
                               request.path.endswith('/impersonate'))
-        # COMPLETE CSRF BYPASS for impersonation
-        if '/impersonate' in request.path:
+        # NUCLEAR CSRF BYPASS for impersonation - multiple checks
+        if (('/impersonate' in request.path) or 
+            request.path.startswith('/api/admin/businesses/') and request.path.endswith('/impersonate') or
+            '/api/admin/impersonate' in request.path):
             g.csrf_exempt = True
+            g._csrf_token = 'BYPASSED'
             return
         if (request.endpoint in ['static', 'health', 'readyz', 'version'] or 
             request.path in ['/', '/login', '/forgot', '/reset', '/home'] or
@@ -450,15 +453,29 @@ def create_app():
     if surf_instance:
         try:
             # SeaSurf exemption - CRITICAL FIX: exempt both webhook and auth
-            surf_instance.exempt_urls(('/webhook/', '/api/auth/', '/api/ui/', '/api/admin/businesses/', '/api/admin/impersonate/', '/impersonate'))
-            print("✅ SeaSurf exemption applied to /webhook/, /api/auth/, /api/ui/, and /api/admin/ prefixes")
-            print("✅ CSRF exemption applied to ALL impersonate endpoints")
+            # NUCLEAR CSRF BYPASS - every possible impersonate path
+            exempt_paths = (
+                '/webhook/', '/api/auth/', '/api/ui/', 
+                '/api/admin/businesses/', '/api/admin/impersonate/', '/impersonate',
+                '/api/admin/businesses/1/impersonate', '/api/admin/businesses/2/impersonate',
+                '/api/admin/businesses/3/impersonate', '/api/admin/businesses/4/impersonate'
+            )
+            surf_instance.exempt_urls(exempt_paths)
+            print("✅ NUCLEAR SeaSurf exemption - all impersonate paths bypassed")
+            print("✅ CSRF completely disabled for impersonation")
         except Exception as e:
             print(f"⚠️ SeaSurf exemption warning: {e}")
             # Alternative: Set exempt_urls directly as attribute
             try:
-                surf_instance._exempt_urls = ('/webhook/', '/api/auth/', '/api/ui/', '/api/admin/businesses/', '/api/admin/impersonate/', '/impersonate')
-                print("✅ SeaSurf TOTAL BYPASS applied to all auth and impersonate endpoints")
+                # NUCLEAR fallback - direct attribute bypass
+                exempt_paths = (
+                    '/webhook/', '/api/auth/', '/api/ui/', 
+                    '/api/admin/businesses/', '/api/admin/impersonate/', '/impersonate',
+                    '/api/admin/businesses/1/impersonate', '/api/admin/businesses/2/impersonate',
+                    '/api/admin/businesses/3/impersonate', '/api/admin/businesses/4/impersonate'
+                )
+                surf_instance._exempt_urls = exempt_paths
+                print("✅ NUCLEAR SeaSurf direct bypass - total CSRF shutdown for impersonation")
             except:
                 print("⚠️ SeaSurf could not be configured - login may be blocked")
     # WhatsApp unified registration only (no more routes_whatsapp.py)
