@@ -118,14 +118,7 @@ function SidebarItem({ icon, label, to, active, onClick, comingSoon, navigate }:
     comingSoon && 'cursor-pointer'
   );
 
-  if (to && !comingSoon && navigate) {
-    return (
-      <button onClick={() => navigate(to)} className={baseStyles}>
-        {content}
-      </button>
-    );
-  }
-
+  // Always use onClick to ensure sidebar closes
   return (
     <button className={baseStyles} onClick={onClick}>
       {content}
@@ -299,10 +292,11 @@ export function MainLayout() {
       <aside 
         ref={sidebarRef}
         className={cn(
-          'fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl transform transition-transform duration-300 ease-in-out',
+          'fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-xl transform transition-transform duration-300 ease-in-out flex flex-col',
           'md:relative md:translate-x-0 md:w-72 md:shadow-sm md:border-l md:border-slate-200',
           sidebarOpen ? 'translate-x-0' : 'translate-x-full'
         )}
+        style={{ height: '100vh' }}
         role="navigation"
         aria-label="תפריט ראשי"
         aria-expanded={sidebarOpen ? 'true' : 'false'}
@@ -331,7 +325,7 @@ export function MainLayout() {
         </div>
 
         {/* User info */}
-        <div className="p-6 border-b border-slate-200">
+        <div className="p-6 border-b border-slate-200 flex-shrink-0">
           <div className="flex items-center">
             <div className="w-12 h-12 gradient-brand rounded-xl flex items-center justify-center">
               <span className="text-white font-bold text-lg">
@@ -358,7 +352,7 @@ export function MainLayout() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 py-6 overflow-y-auto">
+        <nav className="flex-1 py-6 overflow-y-auto min-h-0">
           {filteredMenuItems.map((item, index) => {
             const isActive = !!(item.to && location.pathname === item.to);
             return (
@@ -371,7 +365,8 @@ export function MainLayout() {
                 onClick={item.comingSoon ? handleComingSoon : () => {
                   if (item.to) {
                     navigate(item.to);
-                    setSidebarOpen(false); // Close sidebar on mobile after navigation
+                    // Always close sidebar after navigation (mobile AND desktop)
+                    setTimeout(() => setSidebarOpen(false), 100);
                   }
                 }}
                 comingSoon={item.comingSoon}
@@ -382,7 +377,7 @@ export function MainLayout() {
         </nav>
 
         {/* Logout button */}
-        <div className="p-6 border-t border-slate-200">
+        <div className="p-6 border-t border-slate-200 flex-shrink-0">
           <button
             className="w-full flex items-center px-4 py-3 text-slate-700 rounded-xl hover:bg-slate-100 transition-colors btn-ghost"
             onClick={handleLogout}
@@ -551,7 +546,8 @@ export function MainLayout() {
                 onClick={() => {
                   if (item.to && !item.comingSoon) {
                     navigate(item.to);
-                    setSidebarOpen(false); // Close sidebar on mobile after navigation
+                    // Always close sidebar after navigation (mobile AND desktop)
+                    setTimeout(() => setSidebarOpen(false), 100);
                   } else if (item.comingSoon) {
                     handleComingSoon();
                   }
