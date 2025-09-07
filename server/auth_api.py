@@ -67,7 +67,7 @@ def login():
         }
         
         # Store in session - single source of truth
-        session['user'] = user_data
+        session['al_user'] = user_data  # Use al_user key for consistency
         session['tenant_id'] = user.business_id
         session['token'] = f"session_{user.id}"  # Simple session token
         
@@ -170,7 +170,7 @@ def get_current_user():
     Returns current user data from session - single source of truth
     """
     try:
-        u = session.get('user')
+        u = session.get('al_user')  # Use al_user key for consistency
         if not u:
             return jsonify({"error":"Not authenticated"}), 401
         
@@ -189,7 +189,7 @@ def get_current_user():
 def get_current_user_legacy():
     """Get current logged in user data"""
     try:
-        user = session.get('user')
+        user = session.get('al_user')  # Use al_user key for consistency
         if not user:
             return jsonify({'error': 'Not authenticated'}), 401
         
