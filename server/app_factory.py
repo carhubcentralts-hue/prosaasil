@@ -135,13 +135,6 @@ def create_app():
         # Also exempt specific impersonate endpoints dynamically
         is_impersonate_path = (request.path.startswith('/api/admin/businesses/') and 
                               request.path.endswith('/impersonate'))
-        # NUCLEAR CSRF BYPASS for impersonation - multiple checks
-        if (('/impersonate' in request.path) or 
-            request.path.startswith('/api/admin/businesses/') and request.path.endswith('/impersonate') or
-            '/api/admin/impersonate' in request.path):
-            g.csrf_exempt = True
-            g._csrf_token = 'BYPASSED'
-            return
         if (request.endpoint in ['static', 'health', 'readyz', 'version'] or 
             request.path in ['/', '/login', '/forgot', '/reset', '/home'] or
             any(request.path.startswith(p) for p in auth_paths) or is_impersonate_path or
@@ -176,33 +169,16 @@ def create_app():
                         session['_session_start'] = datetime.now().isoformat()
                         session['_csrf_token'] = secrets.token_hex(16)
     
-    # Enterprise Security Initialization - SeaSurf ONLY for better control
-    csrf_instance = None
-    surf_instance = None
-    if CSRF_AVAILABLE and SeaSurf:
-        try:
-            # ONLY SeaSurf - remove CSRFProtect conflict
-            surf_instance = SeaSurf()
-            surf_instance.init_app(app)
-            
-            # SUPER WIDE exemption for impersonation - all business IDs
-            exempt_paths = [
-                '/api/auth/',
-                '/api/admin/businesses/',
-                '/api/admin/impersonate/', 
-                '/impersonate',
-                '/webhook/'
-            ]
-            for i in range(1, 20):  # business IDs 1-20
-                exempt_paths.append(f'/api/admin/businesses/{i}/impersonate')
-            
-            surf_instance.exempt_urls(tuple(exempt_paths))
-            print(f"🔒 SeaSurf-only CSRF enabled with {len(exempt_paths)} exemptions")
-            
-        except Exception as e:
-            print(f"⚠️ CSRF setup warning: {e}")
-    else:
-        print("⚠️ Running with basic security (CSRF packages not available)")
+    # CSRF Protection - Single SeaSurf instance
+    from server.extensions import csrf
+    
+    app.config.update({
+        'SEASURF_COOKIE_NAME': 'XSRF-TOKEN',
+        'SEASURF_HEADER': 'X-CSRFToken',
+    })
+    
+    csrf.init_app(app)  # אתחול יחיד
+    print("🔒 SeaSurf CSRF Protection enabled")
     
     # CORS with security restrictions
     CORS(app, 
@@ -423,69 +399,14 @@ def create_app():
     # רישום בלו־פרינטים - AgentLocator 71
     # Twilio blueprint already registered above with other API blueprints
     
-    # CSRF Exemption for all Twilio webhooks and auth endpoints (critical for phone system)
+    # CSRF Exemptions - Only for webhooks (not auth or business endpoints)
     try:
-        if csrf_instance:
-            # Exempt all webhook endpoints from Flask-WTF CSRF protection
-            from server.routes_twilio import twilio_bp
-            csrf_instance.exempt(twilio_bp)
-            print("✅ Flask-WTF CSRF exemption applied to Twilio webhooks")
-        
-        # CRITICAL FIX: Exempt auth API AFTER it's registered - COMPLETE BYPASS
-        from server.auth_api import auth_api
-        from server.ui.routes import ui_bp
-        if csrf_instance:
-            csrf_instance.exempt(auth_api)
-            csrf_instance.exempt(ui_bp)  # Exempt entire UI blueprint including login
-            print("✅ Flask-WTF CSRF exemption applied to auth API")
-            print("✅ Flask-WTF CSRF exemption applied to UI blueprint")
-            
-        # DISABLE CSRF VALIDATION for auth endpoints via g.csrf_exempt
-        @app.before_request
-        def check_csrf_exempt():
-            if request.endpoint and 'auth_api' in str(request.endpoint):
-                g.csrf_exempt = True
-                
-        print("✅ CSRF bypass flag set for auth endpoints")
-        
-        # Also exempt SeaSurf for auth API - COMPLETE BYPASS
-        if surf_instance:
-            surf_instance.exempt_urls(('/api/auth/',))
-            print("✅ SeaSurf exemption applied to /api/auth/ prefix")
-            
-    except Exception as e:
-        print(f"⚠️ CSRF exemption warning: {e}")
-        import traceback
-        traceback.print_exc()
-            
-    if surf_instance:
-        try:
-            # SeaSurf exemption - CRITICAL FIX: exempt both webhook and auth
-            # NUCLEAR CSRF BYPASS - every possible impersonate path
-            exempt_paths = (
-                '/webhook/', '/api/auth/', '/api/ui/', 
-                '/api/admin/businesses/', '/api/admin/impersonate/', '/impersonate',
-                '/api/admin/businesses/1/impersonate', '/api/admin/businesses/2/impersonate',
-                '/api/admin/businesses/3/impersonate', '/api/admin/businesses/4/impersonate'
-            )
-            surf_instance.exempt_urls(exempt_paths)
-            print("✅ NUCLEAR SeaSurf exemption - all impersonate paths bypassed")
-            print("✅ CSRF completely disabled for impersonation")
-        except Exception as e:
-            print(f"⚠️ SeaSurf exemption warning: {e}")
-            # Alternative: Set exempt_urls directly as attribute
-            try:
-                # NUCLEAR fallback - direct attribute bypass
-                exempt_paths = (
-                    '/webhook/', '/api/auth/', '/api/ui/', 
-                    '/api/admin/businesses/', '/api/admin/impersonate/', '/impersonate',
-                    '/api/admin/businesses/1/impersonate', '/api/admin/businesses/2/impersonate',
-                    '/api/admin/businesses/3/impersonate', '/api/admin/businesses/4/impersonate'
-                )
-                surf_instance._exempt_urls = exempt_paths
-                print("✅ NUCLEAR SeaSurf direct bypass - total CSRF shutdown for impersonation")
-            except:
-                print("⚠️ SeaSurf could not be configured - login may be blocked")
+        from server.routes_twilio import twilio_bp
+        from server.extensions import csrf
+        csrf.exempt(twilio_bp)
+        print("✅ CSRF exemption applied to Twilio webhooks only")
+    except ImportError:
+        print("⚠️ Twilio blueprint not found for CSRF exemption")
     # WhatsApp unified registration only (no more routes_whatsapp.py)
     print("✅ WhatsApp routes removed - using unified only")
     
