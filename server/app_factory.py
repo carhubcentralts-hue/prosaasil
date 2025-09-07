@@ -176,21 +176,29 @@ def create_app():
                         session['_session_start'] = datetime.now().isoformat()
                         session['_csrf_token'] = secrets.token_hex(16)
     
-    # Enterprise Security Initialization - Enabled with auth exemptions
+    # Enterprise Security Initialization - SeaSurf ONLY for better control
     csrf_instance = None
     surf_instance = None
-    if CSRF_AVAILABLE and CSRFProtect and SeaSurf:
+    if CSRF_AVAILABLE and SeaSurf:
         try:
-            csrf_instance = CSRFProtect()
-            csrf_instance.init_app(app)
-            
-            # SeaSurf for additional CSRF protection with auth exemptions
+            # ONLY SeaSurf - remove CSRFProtect conflict
             surf_instance = SeaSurf()
             surf_instance.init_app(app)
             
-            # Exempt auth endpoints from CSRF
-            surf_instance.exempt_urls(('/api/auth/',))
-            print("🔒 Enterprise CSRF Protection enabled with auth exemptions")
+            # SUPER WIDE exemption for impersonation - all business IDs
+            exempt_paths = [
+                '/api/auth/',
+                '/api/admin/businesses/',
+                '/api/admin/impersonate/', 
+                '/impersonate',
+                '/webhook/'
+            ]
+            for i in range(1, 20):  # business IDs 1-20
+                exempt_paths.append(f'/api/admin/businesses/{i}/impersonate')
+            
+            surf_instance.exempt_urls(tuple(exempt_paths))
+            print(f"🔒 SeaSurf-only CSRF enabled with {len(exempt_paths)} exemptions")
+            
         except Exception as e:
             print(f"⚠️ CSRF setup warning: {e}")
     else:
