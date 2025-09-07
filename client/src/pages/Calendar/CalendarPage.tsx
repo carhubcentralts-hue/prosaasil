@@ -535,9 +535,19 @@ export function CalendarPage() {
       {/* Appointments List */}
       <div className="mt-6 md:mt-8 bg-white rounded-xl shadow-sm border border-slate-200">
         <div className="p-4 md:p-6 border-b border-slate-200">
-          <h3 className="text-lg font-semibold text-slate-900">
-            פגישות ({filteredAppointments.length})
-          </h3>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <h3 className="text-lg font-semibold text-slate-900">
+              פגישות ({filteredAppointments.length})
+            </h3>
+            <button
+              className="btn-primary inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
+              onClick={openNewAppointmentModal}
+              data-testid="button-new-appointment-header"
+            >
+              <Plus className="h-5 w-5 flex-shrink-0" />
+              <span className="font-medium">פגישה חדשה</span>
+            </button>
+          </div>
         </div>
         
         <div className="divide-y divide-slate-200">

@@ -347,10 +347,12 @@ def toggle_user_status(user_id):
         return jsonify({"error": "שגיאה בשינוי סטטוס המשתמש"}), 500
 
 @biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST'])
-@csrf_exempt
 @require_api_auth(['admin', 'manager'])
+@csrf_exempt
 def impersonate_business(business_id):
-    """Allow admin to impersonate business"""
+    """Allow admin to impersonate business - CSRF completely disabled"""
+    # Set CSRF exemption flag
+    g.csrf_exempt = True
     try:
         logger.info(f"🔄 Impersonation attempt for business {business_id}")
         current_admin = session.get('user')

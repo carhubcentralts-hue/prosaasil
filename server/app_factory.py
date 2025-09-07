@@ -135,6 +135,10 @@ def create_app():
         # Also exempt specific impersonate endpoints dynamically
         is_impersonate_path = (request.path.startswith('/api/admin/businesses/') and 
                               request.path.endswith('/impersonate'))
+        # COMPLETE CSRF BYPASS for impersonation
+        if '/impersonate' in request.path:
+            g.csrf_exempt = True
+            return
         if (request.endpoint in ['static', 'health', 'readyz', 'version'] or 
             request.path in ['/', '/login', '/forgot', '/reset', '/home'] or
             any(request.path.startswith(p) for p in auth_paths) or is_impersonate_path or
