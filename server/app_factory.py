@@ -403,7 +403,7 @@ def create_app():
     try:
         from server.extensions import csrf
         # SeaSurf needs URL patterns, not blueprints
-        csrf.exempt_urls(['/webhook/'])
+        csrf.exempt_urls(('/webhook/', '/api/auth/', '/api/admin/businesses/', '/api/admin/impersonate/'))
         print("✅ CSRF exemption applied to webhooks only")
     except Exception as e:
         print(f"⚠️ CSRF exemption warning: {e}")
