@@ -459,6 +459,22 @@ def create_app():
                 print("⚠️ SeaSurf could not be configured - login may be blocked")
     # WhatsApp unified registration only (no more routes_whatsapp.py)
     print("✅ WhatsApp routes removed - using unified only")
+    
+    # Enhanced 400 error handler for debugging CSRF issues
+    @app.errorhandler(400)
+    def bad_request_handler(e):
+        """Enhanced 400 error handler for better debugging"""
+        return jsonify({
+            "error": "bad_request", 
+            "debug_info": {
+                "hint": "Check Content-Type and JSON schema",
+                "content_type": request.headers.get("Content-Type"),
+                "is_json": request.is_json,
+                "method": request.method,
+                "path": request.path,
+                "csrf_token_missing": "CSRF token is missing" in str(e) or "Bad Request" in str(e)
+            }
+        }), 400
     # CRM unified moved to routes_crm.py - no separate API blueprint needed
     
     # WhatsApp Unified API (send/status/list)
