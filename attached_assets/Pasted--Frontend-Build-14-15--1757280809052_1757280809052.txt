@@ -1,0 +1,146 @@
+ברור—יש פה שתי בעיות נפרדות שצריך לסגור עכשיו:
+(א) ה-Frontend מציג Build ישן (“14” במקום “15”) → זו בעיית Cache/Serving.
+(ב) ההתחברות מחזירה “התחברות שגויה” → או שהבקשה לא פוגעת ב-API הנכון, או שהמשתמש/סיסמה לא תואמים בבסיס הנתונים, או ש־login לא כותב Session נכון.
+
+להלן הנחיה אחת, קצרה ומדויקת, שתסגור את שתיהן. בצע לפי הסדר—ואל תדלג.
+
+⸻
+
+A) מתקנים את ה-Build שמציג גרסה ישנה
+
+A1) בונים ומגישים רק את ה-dist העדכני
+
+# מהשורש
+pkill -f gunicorn || true
+pkill -f "python wsgi.py" || true
+
+rm -rf client/node_modules dist
+npm --prefix client ci
+npm --prefix client run build    # מייצר client/dist עם קבצים מגובבים (hash)
+
+cp -R client/dist dist          # שים לב: רק dist אחד בשורש
+python wsgi.py                  # הרצה ידנית (פורט קבוע, למשל 5000)
+
+A2) הוכחת גרסה שלא ניתן לטעות בה
+
+ב־client/index.html עדכן:
+	•	<title>AI CRM — BUILD-15</title>
+	•	<meta name="x-build" content="15">
+	•	מיד אחרי <body>:
+
+<div id="__build" style="position:fixed;inset:auto 0 0 0;background:#111;color:#0ff;padding:6px 10px;font:600 13px/1 Heebo,Inter,sans-serif;z-index:99999">
+  BUILD: 15
+</div>
+
+
+
+בצע שוב npm run build + cp -R client/dist dist + python wsgi.py, ואז:
+	•	View Source חייב להציג <meta name="x-build" content="15"> ואת ה-DIV “BUILD: 15”.
+	•	פתח /assets/*.css ו-/assets/*.js → תוכן אמיתי (MIME נכון), לא HTML.
+
+A3) מניעת Cache על index.html (כן Cache לקבצים מגובבים)
+
+ב־Flask (מגיש SPA), ודא:
+	•	על index.html נשלח Cache-Control: no-store.
+	•	על /assets/*.css/js נשלח Cache-Control: public, max-age=31536000, immutable.
+
+זה מונע מצב שבו הדפדפן/פרוקסי מחזיקים index.html ישן ומציגים “14”.
+
+A4) נטרול Service Worker/Cache בדפדפן (חד-פעמי)
+
+ב-DevTools → Application:
+	•	Unregister לכל Service Worker.
+	•	Clear storage (Cache Storage, Local/Session storage).
+	•	Disable cache בטאב Network + Hard Reload.
+
+⸻
+
+B) מתקנים התחברות (“התחברות שגויה”)
+
+ננתק את התקלה לשניים: (1) האם ה-FE בכלל פוגע ב-API הנכון; (2) האם המשתמש/סיסמה תקינים, וה-login אכן כותב session.
+
+B1) בדיקת עשן בצד שרת (עוקף דפדפן לגמרי)
+
+בטרמינל (אחרי שהשרת מאזין, למשל על 5000):
+
+# 1) בדיקת חיים
+curl -i http://127.0.0.1:5000/version
+
+# 2) Login — (Option B) פטור CSRF בלוגין → חייב 200
+curl -i -X POST http://127.0.0.1:5000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"manager@shai-realestate.co.il","password":"<PASS>"}' \
+  -c /tmp/c.txt -b /tmp/c.txt
+
+# 3) /me — חייב להחזיר user (200)
+curl -i http://127.0.0.1:5000/api/auth/me -c /tmp/c.txt -b /tmp/c.txt
+
+פענוח:
+	•	אם (2) מחזיר 200 ו-(3) מחזיר 200 עם user → השרת תקין; הבעיה בצד FE (כתובת API/baseURL/credentials).
+	•	אם (2) מחזיר 401/“Invalid credentials” → המשתמש/סיסמה לא תואמים בבסיס הנתונים. ראה B3.
+	•	אם (2) Timeout/403 → השרת לא מאזין/@csrf.exempt לא יושב על ה-login הנכון. ראה B2.
+
+B2) מוודאים פורט ו־exempt של SeaSurf
+	•	פורט אחיד: wsgi.py מאזין על 0.0.0.0:5000 (או PORT קבוע שאתה עובד עליו).
+	•	SeaSurf יחיד: אין CSRFProtect. קיים SeaSurf() יחיד ב-extensions.py, ואתחול אחד ב-app_factory.py.
+	•	login/logout פטורים:
+ב־server/auth_api.py:
+
+from server.extensions import csrf
+
+@auth_api.route("/api/auth/login", methods=["POST"])
+@csrf.exempt
+def login(): ...
+
+הדגש: שה-@csrf.exempt הוא של SeaSurf (מ-server.extensions import csrf), לא דקורטור “בית”.
+
+B3) אם ה-DB לא מזהה את הסיסמה (או לא קיים משתמש)
+
+מניסיון—זה קורה הרבה. תקן כך:
+	•	ודא שב-DB קיים manager@shai-realestate.co.il.
+	•	אם יש Hash לא תואם/שינית אלגוריתם:
+	•	צור REST “admin reset” זמני/CLI לשינוי סיסמה למשתמש הזה (למשל ל-manager123), או
+	•	הזרק שאילתא עדכון Hash (בזהירות) — רק בסביבת dev.
+	•	ודא שה-login משווה סיסמה עם אותה ספריית hash שבה השתמשת כשיצרת המשתמשים.
+
+אחרי שינוי/אישור, הרץ שוב את שלושת ה-cURL מלמעלה. חייב לקבל 200 ו-user ב-/me.
+
+B4) אם שרת תקין אבל FE עדיין “התחברות שגויה”
+
+זה אומר שה-FE יורה לא ל-/api/auth/login של השרת הנכון, או בלי cookies:
+	•	ודא שה-FE משתמש ב-relative: fetch('/api/auth/login', { credentials:'include', ... })
+(לא http://localhost:3001 או דומיין פרוייקט אחר/Preview אחר).
+	•	בדוק ב-DevTools → Network:
+	•	שהבקשה יוצאת לאותו דומיין שמגיש את ה-SPA (אותו origin).
+	•	Headers כוללים Content-Type: application/json.
+	•	ב-Response לא מופיע 404/CORS/Redirect לנתיב אחר.
+	•	אם יש proxy ב-Vite/Dev בכל זאת—בטל אותו במצב פרוד/Preview של Flask (אנחנו מגישים את ה-FE דרך Flask כדי למנוע בעיות cookies).
+
+⸻
+
+C) Acceptance Checklist (אין ויכוח)
+
+Frontend / Build
+	•	View Source מציג <meta name="x-build" content="15"> וה-DIV “BUILD: 15”.
+	•	/assets/*.css/js חוזרים כתוכן נכון (לא HTML).
+	•	index.html נשלח עם Cache-Control: no-store.
+
+Login / Session
+	•	curl ללוגין מחזיר 200; curl ל-/me מחזיר 200 עם user.
+	•	ב-DevTools → Network → בקשת login → סטטוס 200, לא 401/403/404.
+	•	ב-FE, אחרי login, לא מתקבל “התחברות שגויה”.
+
+Impersonate (נשאר מוגן)
+	•	POST /api/admin/businesses/:id/impersonate בלי X-CSRFToken → 400 csrf_token_missing.
+	•	אותו דבר עם X-CSRFToken → 200, ו-/api/auth/me מחזיר impersonating:true.
+
+⸻
+
+אם משהו עדיין תקוע
+
+שלח 3 דברים בלבד (בדיוק כך):
+	1.	צילום מסך של Network → login (Headers + Payload + Cookies + Response) מה-FE.
+	2.	פלט של שלושת ה-cURL בסעיף B1 (כולל ה-headers וה-status).
+	3.	צילום View Source (רואים שם BUILD: 15?).
+
+עם זה אוכל לומר בשורה אם הבעיה היא Cache/Serving, פורט/Origin, או DB/Hash סיסמה—ולתת תיקון נקודתי.

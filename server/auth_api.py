@@ -66,15 +66,22 @@ def login():
             'email': user.email
         }
         
+        # Prepare tenant response (required by frontend)
+        tenant_data = {
+            'id': business.id if business else user.business_id or 1,
+            'name': business.name if business else 'Default Tenant'
+        }
+        
         # Store in session - single source of truth
         session['al_user'] = user_data  # Use al_user key for consistency
         session['tenant_id'] = user.business_id
         session['token'] = f"session_{user.id}"  # Simple session token
         
+        # Return format that matches frontend AuthResponse type
         return jsonify({
-            'success': True,
             'user': user_data,
-            'token': session['token']
+            'tenant': tenant_data,
+            'impersonating': False
         })
         
     except Exception as e:
@@ -174,11 +181,22 @@ def get_current_user():
         if not u:
             return jsonify({"error":"Not authenticated"}), 401
         
+        # Get tenant info from business
+        business = None
+        tenant_id = session.get('tenant_id') or u.get('business_id')
+        if tenant_id:
+            business = Business.query.get(tenant_id)
+        
+        # Prepare tenant response (required by frontend)
+        tenant_data = {
+            'id': business.id if business else tenant_id or 1,
+            'name': business.name if business else 'Default Tenant'
+        }
+        
         return jsonify({
-            "user": u, 
-            "tenant_id": session.get('tenant_id'),
-            "impersonating": bool(session.get('impersonating', False)),
-            "original_user": session.get('original_user') if session.get('impersonating') else None
+            "user": u,
+            "tenant": tenant_data,
+            "impersonating": bool(session.get('impersonating', False))
         }), 200
     
     except Exception as e:
