@@ -5,20 +5,11 @@ Based on attached instructions - creates missing auth endpoints
 from flask import Blueprint, request, jsonify, session, g
 from werkzeug.security import check_password_hash, generate_password_hash
 from server.models_sql import User, Business, db
+from server.extensions import csrf
 from datetime import datetime, timedelta
 from functools import wraps
 import secrets
 import os
-
-# CSRF bypass decorator
-def csrf_exempt(f):
-    """Bypass all CSRF protection for this endpoint"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        # Set flag to bypass CSRF
-        g.csrf_exempt = True
-        return f(*args, **kwargs)
-    return decorated_function
 
 auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
 
@@ -32,13 +23,10 @@ def get_csrf_token():
     except:
         return jsonify({'csrf_token': 'dev-token'})
 
+@csrf.exempt  # Proper SeaSurf exemption
 @auth_api.route('/login', methods=['POST', 'OPTIONS'])
-@csrf_exempt
 def login():
     """Login endpoint with CSRF bypass"""
-    from flask import g
-    # Extra CSRF bypass to be sure
-    g.csrf_exempt = True
     """
     POST /api/auth/login
     Expected response: {user:{id,name,role,business_id}, token?}
@@ -166,6 +154,7 @@ def reset_password():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@csrf.exempt  # Logout also exempt from CSRF
 @auth_api.route('/logout', methods=['POST'])
 def logout():
     """Logout user"""

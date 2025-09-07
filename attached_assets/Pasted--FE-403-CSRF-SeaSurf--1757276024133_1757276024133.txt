@@ -1,0 +1,156 @@
+מעולה—העלית בדיוק את השורש: ה-FE מקבל 403 CSRF בלוגין כי SeaSurf דורש טוקן, ולפני לוגין עדיין אין לך CSRF-cookie שנשלח ע״י הקליינט.
+לא מכבים CSRF גלובלית, ולא פוטרים את ההתחזות. מתקנים נכון ומאובטח:
+
+⸻
+
+מה עושים עכשיו (סגור ולעניין)
+
+1) קובעים שכבת CSRF אחת בלבד (SeaSurf)
+
+(אם כבר עשית—ודא שוב)
+	•	אין CSRFProtect בפרויקט.
+	•	קיים מופע יחיד:
+	•	server/extensions.py:
+
+from flask_seasurf import SeaSurf
+csrf = SeaSurf()
+
+
+	•	server/app_factory.py:
+
+from server.extensions import csrf
+
+def create_app():
+    app = Flask(__name__)
+    app.config.update(
+        SESSION_COOKIE_SECURE=False,      # Preview
+        SESSION_COOKIE_SAMESITE='Lax',
+        SESSION_COOKIE_PATH='/',
+        SEASURF_COOKIE_NAME='XSRF-TOKEN',
+        SEASURF_HEADER='X-CSRFToken',
+    )
+    csrf.init_app(app)   # אתחול יחיד
+    return app
+
+
+
+2) לוגין: שתי אפשרויות בטוחות (בחר אחת והיצמד אליה)
+
+אפשרות A (מועדפת): CSRF לפני לוגין (Pre-login token)
+	1.	מסלול לקבלת טוקן (וגם להצבת ה-cookie):
+
+# server/auth_api.py
+@auth_api.route("/api/auth/csrf", methods=["GET"])
+def get_csrf():
+    token = request.cookies.get('XSRF-TOKEN') or csrf._get_token()
+    resp = jsonify({"csrfToken": token})
+    resp.set_cookie('XSRF-TOKEN', token, samesite='Lax', secure=False, httponly=False, path='/')
+    return resp, 200
+
+
+	2.	בצד ה-FE:
+	•	לפני כל POST (כולל login): בקש GET /api/auth/csrf פעם אחת כדי שיהיה cookie.
+	•	בכל POST/PUT/PATCH/DELETE שלח:
+	•	credentials: 'include'
+	•	Content-Type: 'application/json'
+	•	X-CSRFToken: <ערך מה-cookie XSRF-TOKEN>
+	•	X-Requested-With: 'XMLHttpRequest'
+
+כך גם לוגין מוגן מ-CSRF, וזה הסטנדרט ל-SPA מאובטח.
+
+אפשרות B (מהירה, עדיין בטוחה): פוטר CSRF רק בלוגין/לוגאאוט
+
+אם אתה מעדיף שהלוגין יעבוד בלי טוקן:
+
+# server/auth_api.py
+from server.extensions import csrf
+
+@csrf.exempt
+@auth_api.route("/api/auth/login", methods=["POST"])
+def login():
+    ...
+
+@csrf.exempt
+@auth_api.route("/api/auth/logout", methods=["POST"])
+def logout():
+    ...
+
+וב FE אל תשלח header בלוגין.
+אבל: השאר את כל שאר ה-POST מוגנים, ובמיוחד impersonate.
+
+הגנות משלימות ללוגין אם בחרת B: rate-limit, ניסיון/נעילה, reCAPTCHA/הוניפוט, audit.
+
+3) אל תיגעו ב־impersonate — נשאר מוגן CSRF
+
+אין exempt על:
+
+POST /api/admin/businesses/<id>/impersonate
+POST /api/admin/impersonate/exit
+
+4) לוודא שאין כפילויות/ייבוא מעגלי (אם השרת “לא עולה”)
+
+הרץ “אתחול יבש” כדי לקבל Traceback קריא:
+
+pkill -f gunicorn || true
+pkill -f "python wsgi.py" || true
+
+python - <<'PY'
+import traceback
+try:
+    from server.app_factory import create_app
+    app = create_app()
+    print("APP_CREATED_OK")
+except Exception:
+    traceback.print_exc()
+PY
+
+אם מופיעה שגיאת import/אתחול:
+	•	ודא שיש רק SeaSurf() אחד (ב-extensions) ו-csrf.init_app(app) פעם אחת (ב-app_factory).
+	•	כל @csrf.exempt יופיע אחרי הגדרת ה-Blueprint/route, ולא בקבצים שמייבאים create_app.
+
+5) בדיקות עשן (אי אפשר להתווכח)
+
+זרימה לפי אפשרות A (מועדפת)
+
+# Login with CSRF
+curl -i -c /tmp/c.txt -b /tmp/c.txt http://127.0.0.1:$PORT/api/auth/csrf
+TOKEN=$(curl -s -c /tmp/c.txt -b /tmp/c.txt http://127.0.0.1:$PORT/api/auth/csrf | python -c "import sys,json;print(json.load(sys.stdin)['csrfToken'])")
+
+curl -i -c /tmp/c.txt -b /tmp/c.txt -X POST http://127.0.0.1:$PORT/api/auth/login \
+  -H 'Content-Type: application/json' -H "X-CSRFToken: $TOKEN" \
+  --data '{"email":"manager@shai-realestate.co.il","password":"<PASS>"}'
+
+curl -i -c /tmp/c.txt -b /tmp/c.txt http://127.0.0.1:$PORT/api/auth/me
+
+# Impersonate MUST require CSRF and return 200 with header:
+curl -i -c /tmp/c.txt -b /tmp/c.txt -X POST \
+  http://127.0.0.1:$PORT/api/admin/businesses/1/impersonate \
+  -H 'Content-Type: application/json' -H "X-CSRFToken: $TOKEN" --data '{}'
+
+זרימה לפי אפשרות B (פוטר לוגין)
+
+# Login (בלי header) → 200
+curl -i -c /tmp/c.txt -b /tmp/c.txt -X POST http://127.0.0.1:$PORT/api/auth/login \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"manager@shai-realestate.co.il","password":"<PASS>"}'
+
+# עדיין, Impersonate דורש CSRF header:
+TOKEN=$(curl -s -c /tmp/c.txt -b /tmp/c.txt http://127.0.0.1:$PORT/api/auth/csrf | python -c "import sys,json;print(json.load(sys.stdin)['csrfToken'])")
+curl -i -c /tmp/c.txt -b /tmp/c.txt -X POST \
+  http://127.0.0.1:$PORT/api/admin/businesses/1/impersonate \
+  -H 'Content-Type: application/json' -H "X-CSRFToken: $TOKEN" --data '{}'
+
+6) FE — שני טאצ׳ים שלא לשכוח
+	•	כל fetch ל־/api/ → credentials:'include'.
+	•	אחרי login (או reload ראשון) → בקש GET /api/auth/csrf כדי לעדכן את ה-cookie לטוקן תקף לסשן.
+
+⸻
+
+✅ Definition of Done
+	•	אין CSRFProtect בפרויקט; SeaSurf מאותחל פעם אחת בלבד.
+	•	לוגין עובד (אופציה A עם header, או B ללא header).
+	•	impersonate עובד עם CSRF header בלבד; בלי header מחזיר 400 csrf_token_missing.
+	•	/api/auth/me אחרי התחזות מחזיר impersonating:true.
+	•	אין 403 ב-FE; ה-Network מציג X-CSRFToken בבקשות שינוי (חוץ מלוגין אם בחרת B).
+
+אם אחרי זה עדיין מופיע 403 בלוגין—שלח צילום Network של בקשת הלוגין (Headers+Payload+Cookies) ואכוון לשורת התיקון המדויקת.
