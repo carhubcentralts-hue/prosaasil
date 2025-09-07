@@ -186,7 +186,8 @@ def get_current_user():
         return jsonify({
             "user": u, 
             "tenant_id": session.get('tenant_id'),
-            "impersonating": bool(session.get('impersonating', False))
+            "impersonating": bool(session.get('impersonating', False)),
+            "original_user": session.get('original_user') if session.get('impersonating') else None
         }), 200
     
     except Exception as e:

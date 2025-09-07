@@ -150,7 +150,10 @@ export function useBusinessActions() {
       }
 
       const result = await impersonateAction(business.id);
-      console.log('התחזות הושלמה:', result);
+      console.log('🎭 התחזות הושלמה:', result);
+      
+      // Give server time to update session
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       // CRITICAL: Wait for /me to confirm impersonation before navigating
       const authResponse = await fetch('/api/auth/me', {
@@ -160,17 +163,21 @@ export function useBusinessActions() {
       
       if (authResponse.ok) {
         const me = await authResponse.json();
-        console.log('מצב אימות אחרי התחזות:', me);
+        console.log('🔍 מצב אימות אחרי התחזות:', me);
+        console.log('🔍 מצב התחזות:', me.impersonating);
+        console.log('🔍 תפקיד משתמש:', me.user?.role);
+        console.log('🔍 משתמש מקורי:', me.original_user);
         
-        if (me.impersonating && me.user?.role === 'business') {
+        if (me.impersonating === true) {
           showToast.success(`התחזות לעסק "${business.name}" הופעלה`);
-          // Navigate only after confirming impersonation worked
+          // Force reload to ensure all auth state is updated
           window.location.href = '/app/business/overview';
         } else {
-          throw new Error('התחזות לא הושלמה כהלכה');
+          throw new Error(`התחזות נכשלה - מצב התחזות: ${me.impersonating}, תפקיד: ${me.user?.role}`);
         }
       } else {
-        throw new Error('שגיאה באימות מצב ההתחזות');
+        const errorText = await authResponse.text();
+        throw new Error(`שגיאה באימות מצב ההתחזות: ${errorText}`);
       }
     } catch (error) {
       // Clear impersonation data on error
