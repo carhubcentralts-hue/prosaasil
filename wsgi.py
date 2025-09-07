@@ -139,15 +139,8 @@ def composite_app(environ, start_response):
 
 app = composite_app
 
-def _pick_port():
-    # Fallback יציב אם אין $PORT בסביבת Replit workspace
-    for cand in (os.getenv("PORT"), "8000", "5000", "3000"):
-        if cand and str(cand).isdigit():
-            return int(cand)
-    return 8000
-
 if __name__ == "__main__":
-    port = _pick_port()
+    port = int(os.getenv("PORT", "5000"))  # ← נועלים 5000 כדי לשמור על עקביות בבדיקות
     print(f"[WSGI] starting on 0.0.0.0:{port}", flush=True)
     flask_app.run(host="0.0.0.0", port=port, debug=False)
 

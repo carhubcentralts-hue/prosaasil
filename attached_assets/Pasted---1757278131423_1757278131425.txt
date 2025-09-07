@@ -1,0 +1,194 @@
+מעולה—הבעיה עכשיו **לא** “אבטחה”, אלא **חוסר עקביות בין הפורט שעליו השרת מאזין לבין הפורט שעליו אתה בודק**, ובנוסף שימוש חלקי/תואם־חלקית ב־SeaSurf `@csrf.exempt`. להלן הנחיה קצרה, חד-ערוצית, שתגרום ללוגין לעבוד **עכשיו**, תשאיר את המערכת מאובטחת, ותוודא שהתחזות תמשיך להיות מוגנת.
+
+---
+
+# FIX NOW — Login 403/timeout, SeaSurf יחיד, ופורט אחיד
+
+## 0) למה זה קרה (בשורה)
+
+* בהרצת הבדיקה, ה־DEV server עמד ברירת־מחדל על **8000**, אבל ה־`curl` נשלח ל־**5000** ⇒ מתקבל **timeout**.
+* הוחלפו דקורטורים/נתיבי exempt חלקית, בחלקם לא של SeaSurf עצמו ⇒ ייתכן ש־exempt **לא הופעל בפועל**.
+
+נמנע מזה ע"י נעילה על פורט אחד והפעלת `@csrf.exempt` מה־instance הנכון.
+
+---
+
+## 1) נועלים פורט אחד ומריצים תהליך אחד (בלי ניחושים)
+
+ב־`wsgi.py` (ודא שזה כך בדיוק):
+
+```python
+# wsgi.py
+import os
+from server.app_factory import create_app
+
+app = create_app()
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", "5000"))  # ← נועלים 5000 כדי לשמור על עקביות בבדיקות
+    print(f"[WSGI] starting on 0.0.0.0:{port}", flush=True)
+    app.run(host="0.0.0.0", port=port, debug=False)
+```
+
+הרצה נקייה:
+
+```bash
+pkill -f gunicorn || true
+pkill -f "python wsgi.py" || true
+
+export PORT=5000
+python wsgi.py &
+WSGI_PID=$!
+sleep 3
+echo "PORT=$PORT"
+lsof -i -P -n | grep LISTEN | grep ":5000" || echo "❌ no listener on 5000"
+```
+
+אם אין listener על 5000—עצור כאן ושלח את פלט ה־terminal (אבל בד"כ תראה מאזין תקין).
+
+---
+
+## 2) SeaSurf שכבה יחידה + פטור **רק** ללוגין/לוגאאוט (Option B)
+
+### 2.1 הרחבה יחידה
+
+`server/extensions.py`:
+
+```python
+from flask_seasurf import SeaSurf
+csrf = SeaSurf()   # מופע יחיד
+```
+
+`server/app_factory.py`:
+
+```python
+from server.extensions import csrf
+
+def create_app():
+    app = Flask(__name__)
+    app.config.update(
+        SESSION_COOKIE_SECURE=False,   # preview
+        SESSION_COOKIE_SAMESITE='Lax',
+        SESSION_COOKIE_PATH='/',
+        SEASURF_COOKIE_NAME='XSRF-TOKEN',
+        SEASURF_HEADER='X-CSRFToken',
+    )
+    csrf.init_app(app)  # ← פעם אחת בלבד
+    return app
+```
+
+> חשוב: אין `CSRFProtect` בכלל, ואין `SeaSurf()` שני בפרויקט. חפש ומחק כפילויות.
+
+### 2.2 פוטר לוגין/לוגאאוט — **עם הדקורטור הנכון**
+
+ב־`server/auth_api.py`:
+
+```python
+from server.extensions import csrf
+from flask import Blueprint, request, jsonify
+
+auth_api = Blueprint("auth_api", __name__)
+
+@auth_api.route("/api/auth/login", methods=["POST"])
+@csrf.exempt   # ← של SeaSurf מה-extensions, לא דקורטור “בית” אחר
+def login():
+    # parse JSON, בדיקות, כתיבה ל-session['user']
+    return jsonify({"success": True, "user": {...}}), 200
+
+@auth_api.route("/api/auth/logout", methods=["POST"])
+@csrf.exempt
+def logout():
+    # ניקוי session וכו'
+    return ("", 204)
+```
+
+> אין צורך ב־`exempt_urls()` בנוסף לדקורטור. בחרו **שיטה אחת** (הדקורטור מספיק וברור).
+
+### 2.3 **לא** מוחרג: התחזות
+
+`/api/admin/businesses/<id>/impersonate` נשאר מוגן CSRF. (זה רגיש מדי כדי לפטור).
+
+---
+
+## 3) בדיקת עשן שלא משאירה מקום לבלבול (לוגין עובד)
+
+```bash
+# בדיקה של גרסת שרת כדי לוודא שהוא מאזין
+curl -i http://127.0.0.1:5000/version
+
+# לוגין - בלי CSRF (כי פטור), חייב 200
+curl -i -X POST http://127.0.0.1:5000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"manager@shai-realestate.co.il","password":"manager123"}' \
+  -c /tmp/c.txt -b /tmp/c.txt
+
+# מי אני - חייב 200 ולהחזיר user
+curl -i http://127.0.0.1:5000/api/auth/me -c /tmp/c.txt -b /tmp/c.txt
+```
+
+אם השורה השנייה עדיין נתקעת—השרת **לא** מאזין על 5000 (חזור לשלב 1).
+אם היא מחזירה 403—ה־`@csrf.exempt` לא של SeaSurf או לא נטען (בדוק import).
+
+---
+
+## 4) מוכיחים שגם התחזות נשארה מוגנת (ולא “נשברה”)
+
+```bash
+# קבל CSRF token (cookie + token לגוף)
+TOKEN=$(curl -s -c /tmp/c.txt -b /tmp/c.txt \
+  http://127.0.0.1:5000/api/auth/csrf \
+  | python - <<'PY'
+import sys,json;print(json.load(sys.stdin)['csrfToken'])
+PY
+)
+
+# ניסיון התחזות בלי header → חייב 400 csrf_token_missing
+curl -i -X POST http://127.0.0.1:5000/api/admin/businesses/1/impersonate \
+  -H 'Content-Type: application/json' \
+  --data '{}' -c /tmp/c.txt -b /tmp/c.txt
+
+# ניסיון התחזות עם header → חייב 200
+curl -i -X POST http://127.0.0.1:5000/api/admin/businesses/1/impersonate \
+  -H 'Content-Type: application/json' -H "X-CSRFToken: $TOKEN" \
+  --data '{}' -c /tmp/c.txt -b /tmp/c.txt
+
+# me → חייב להחזיר impersonating:true
+curl -i http://127.0.0.1:5000/api/auth/me -c /tmp/c.txt -b /tmp/c.txt
+```
+
+---
+
+## 5) צד-לקוח — אל תשכח שני כללים
+
+* **כל** קריאה ל־`/api/**` עם `credentials:'include'`.
+* אחרי login (או ב־app init) לבצע `GET /api/auth/csrf` כדי לייצר/לרענן Cookie `XSRF-TOKEN`; ומשם, בכל POST/PUT/PATCH/DELETE לשלוח `X-CSRFToken` מה־cookie.
+  (לוגין עצמו פטור, אז אפשר בלי ההדר בו).
+
+---
+
+## 6) אם עדיין תקוע/403 — מה לשלוח לי כדי לסגור
+
+* פלט שתי הפקודות:
+
+  ```bash
+  echo "PORT=$PORT"
+  lsof -i -P -n | grep LISTEN | grep ":5000" || true
+  ```
+* תשובת:
+
+  ```bash
+  curl -i http://127.0.0.1:5000/version
+  curl -i -X POST http://127.0.0.1:5000/api/auth/login -H 'Content-Type: application/json' --data '{"email":"manager@shai-realestate.co.il","password":"manager123"}' -c /tmp/c.txt -b /tmp/c.txt
+  ```
+* צילום מסך של Network לבקשת ה־login (Headers + Payload) אם ב־FE.
+
+---
+
+## ✅ Definition of Done
+
+* לוגין עובר 200 **בלי** CSRF header (כי פטור) → `/api/auth/me` מחזיר user.
+* התחזות נכשלת 400 בלי header, ועוברת 200 עם `X-CSRFToken`.
+* אין `CSRFProtect` בפרויקט; יש `SeaSurf()` **אחד** בלבד, מאותחל פעם אחת.
+* השרת מאזין על 0.0.0.0:**5000**, וכל בדיקות ה־curl מראות תשובה **מהפורט הזה**.
+
+כך יש לך גם **מהירות** (Option B), גם **אבטחה נכונה** (התחזות מוגנת), וגם סביבת דיבוג שלא משקרת עם פורטים.

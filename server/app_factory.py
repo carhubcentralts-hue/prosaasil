@@ -8,12 +8,10 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 # NO Flask-Sock - using EventLet WebSocketWSGI in wsgi.py composite
 try:
     from flask_seasurf import SeaSurf
-    from flask_wtf.csrf import CSRFProtect
     CSRF_AVAILABLE = True
 except ImportError:
     print("⚠️ CSRF packages not available - using basic security")
     SeaSurf = None
-    CSRFProtect = None 
     CSRF_AVAILABLE = False
 from datetime import datetime, timedelta
 import secrets
@@ -173,11 +171,14 @@ def create_app():
     from server.extensions import csrf
     
     app.config.update({
+        'SESSION_COOKIE_SECURE': False,   # preview
+        'SESSION_COOKIE_SAMESITE': 'Lax',
+        'SESSION_COOKIE_PATH': '/',
         'SEASURF_COOKIE_NAME': 'XSRF-TOKEN',
         'SEASURF_HEADER': 'X-CSRFToken',
     })
     
-    csrf.init_app(app)  # אתחול יחיד
+    csrf.init_app(app)  # ← פעם אחת בלבד
     print("🔒 SeaSurf CSRF Protection enabled")
     
     # CORS with security restrictions
@@ -399,20 +400,7 @@ def create_app():
     # רישום בלו־פרינטים - AgentLocator 71
     # Twilio blueprint already registered above with other API blueprints
     
-    # CSRF Exemptions - Only for webhooks (not auth or business endpoints)
-    try:
-        from server.extensions import csrf
-        # SeaSurf exempt URLs - include complete auth paths
-        csrf.exempt_urls((
-            '/webhook/',
-            '/api/auth/login',      # Explicit login exemption
-            '/api/auth/logout',     # Explicit logout exemption
-            '/api/auth/forgot',
-            '/api/auth/reset'
-        ))
-        print("✅ CSRF exemption applied to webhooks only")
-    except Exception as e:
-        print(f"⚠️ CSRF exemption warning: {e}")
+    # Note: Using @csrf.exempt decorators instead of exempt_urls for cleaner approach
     # WhatsApp unified registration only (no more routes_whatsapp.py)
     print("✅ WhatsApp routes removed - using unified only")
     
