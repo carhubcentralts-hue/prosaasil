@@ -269,7 +269,7 @@ export function CalendarPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-7xl mx-auto">
+    <div className="mx-auto max-w-7xl w-full p-4 md:p-6 flex flex-col gap-6 min-h-[calc(100svh-64px)] pb-24">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div>
@@ -550,20 +550,22 @@ export function CalendarPage() {
           </div>
         </div>
         
-        <div className="divide-y divide-slate-200">
-          {filteredAppointments.length === 0 ? (
-            <div className="p-6 md:p-12 text-center">
-              <CalendarIcon className="h-12 md:h-16 w-12 md:w-16 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-slate-900 mb-2">
-                אין פגישות
-              </h3>
-              <p className="text-slate-600">
-                טרם נוספו פגישות למערכת. השתמש בכפתור למעלה כדי ליצור פגישה חדשה
-              </p>
-            </div>
-          ) : (
-            filteredAppointments.map((appointment) => (
-              <div key={appointment.id} className="p-4 md:p-6 hover:bg-slate-50">
+        {/* Meetings list content with internal scroll */}
+        <div className="max-h-[60vh] overflow-y-auto overscroll-contain pr-1">
+          <div className="divide-y divide-slate-200">
+            {filteredAppointments.length === 0 ? (
+              <div className="p-6 md:p-12 text-center">
+                <CalendarIcon className="h-12 md:h-16 w-12 md:w-16 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-slate-900 mb-2">
+                  אין פגישות
+                </h3>
+                <p className="text-slate-600">
+                  טרם נוספו פגישות למערכת. השתמש בכפתור למעלה כדי ליצור פגישה חדשה
+                </p>
+              </div>
+            ) : (
+              filteredAppointments.map((appointment) => (
+                <div key={appointment.id} className="p-4 md:p-6 hover:bg-slate-50">
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-2">
