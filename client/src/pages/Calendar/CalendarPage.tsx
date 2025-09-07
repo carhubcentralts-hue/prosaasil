@@ -290,13 +290,13 @@ export function CalendarPage() {
             סינון
           </button>
           <button
-            className="btn-primary flex-1 sm:flex-none"
+            className="btn-primary flex-1 sm:flex-none inline-flex items-center justify-center px-3 py-2"
             onClick={openNewAppointmentModal}
             data-testid="button-new-appointment"
           >
-            <Plus className="h-5 w-5 mr-2" />
-            <span className="hidden sm:inline">פגישה חדשה</span>
-            <span className="sm:hidden">פגישה</span>
+            <Plus className="h-5 w-5 mr-2 flex-shrink-0" />
+            <span className="hidden sm:inline font-medium whitespace-nowrap">פגישה חדשה</span>
+            <span className="sm:hidden font-medium">פגישה</span>
           </button>
         </div>
       </div>
@@ -551,11 +551,12 @@ export function CalendarPage() {
                 טרם נוספו פגישות למערכת. צור פגישה חדשה כדי להתחיל
               </p>
               <button
-                className="btn-primary"
+                className="btn-primary inline-flex items-center justify-center px-4 py-2 w-auto min-w-[120px]"
                 onClick={openNewAppointmentModal}
+                data-testid="button-new-appointment-empty"
               >
-                <Plus className="h-5 w-5 mr-2" />
-                פגישה חדשה
+                <Plus className="h-5 w-5 mr-2 flex-shrink-0" />
+                <span className="font-medium whitespace-nowrap">פגישה חדשה</span>
               </button>
             </div>
           ) : (
