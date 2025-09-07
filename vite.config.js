@@ -13,10 +13,16 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3000,  // Frontend on port 3000
     proxy: {
-      '/api': 'http://localhost:5000',  // Backend on port 5000
-      '/webhook': 'http://localhost:5000',
+      '/api': process.env.NODE_ENV === 'production' 
+        ? '' // Same domain in production
+        : 'http://localhost:5000',  // Backend on port 5000 in dev
+      '/webhook': process.env.NODE_ENV === 'production' 
+        ? '' 
+        : 'http://localhost:5000',
       '/ws': {
-        target: 'http://localhost:5000',
+        target: process.env.NODE_ENV === 'production' 
+          ? `wss://${process.env.REPLIT_DEV_DOMAIN || 'localhost:5000'}` 
+          : 'http://localhost:5000',
         ws: true
       }
     }
