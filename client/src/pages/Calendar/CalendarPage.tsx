@@ -656,9 +656,10 @@ export function CalendarPage() {
                     </button>
                   </div>
                 </div>
-              </div>
-            ))
-          )}
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
 
