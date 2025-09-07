@@ -13,7 +13,10 @@ import {
   ChevronRight,
   Eye,
   Edit,
-  Trash2
+  Trash2,
+  X,
+  Save,
+  Calendar
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 
@@ -33,6 +36,19 @@ interface Appointment {
   customer_id?: number;
   source: 'manual' | 'phone_call' | 'whatsapp' | 'ai_suggested';
   auto_generated: boolean;
+}
+
+interface AppointmentForm {
+  title: string;
+  description: string;
+  start_time: string;
+  end_time: string;
+  location: string;
+  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+  appointment_type: 'viewing' | 'meeting' | 'signing' | 'call_followup';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  contact_name: string;
+  contact_phone: string;
 }
 
 const APPOINTMENT_TYPES = {
@@ -67,7 +83,23 @@ export function CalendarPage() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  
+  // Modal states
+  const [showAppointmentModal, setShowAppointmentModal] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
+  const [formData, setFormData] = useState<AppointmentForm>({
+    title: '',
+    description: '',
+    start_time: '',
+    end_time: '',
+    location: '',
+    status: 'scheduled',
+    appointment_type: 'meeting',
+    priority: 'medium',
+    contact_name: '',
+    contact_phone: ''
+  });
 
   // Fetch appointments
   const fetchAppointments = async () => {
@@ -93,6 +125,26 @@ export function CalendarPage() {
   useEffect(() => {
     fetchAppointments();
   }, []);
+
+  // Filter appointments based on search and filters
+  const filteredAppointments = appointments.filter(appointment => {
+    const matchesSearch = !searchTerm || 
+      appointment.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      appointment.contact_name?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
+    const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
+    
+    return matchesSearch && matchesStatus && matchesType;
+  });
+
+  // Get appointments for a specific date
+  const getAppointmentsForDate = (date: Date) => {
+    return filteredAppointments.filter(appointment => {
+      const appointmentDate = new Date(appointment.start_time);
+      return appointmentDate.toDateString() === date.toDateString();
+    });
+  };
 
   // Calendar navigation
   const navigateMonth = (direction: 'prev' | 'next') => {
@@ -123,138 +175,150 @@ export function CalendarPage() {
       days.push({ date: new Date(year, month, day), isCurrentMonth: true });
     }
     
-    // Add next month's leading days to complete the grid
-    const remainingCells = 42 - days.length; // 6 rows × 7 days
-    for (let day = 1; day <= remainingCells; day++) {
-      days.push({ date: new Date(year, month + 1, day), isCurrentMonth: false });
-    }
-    
     return days;
   };
 
-  // Get appointments for a specific date
-  const getAppointmentsForDate = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
-    return appointments.filter(apt => 
-      apt.start_time.split('T')[0] === dateStr
-    );
+  // Handle form submit
+  const handleSubmitAppointment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const url = editingAppointment 
+        ? `/api/calendar/appointments/${editingAppointment.id}` 
+        : '/api/calendar/appointments';
+      
+      const method = editingAppointment ? 'PUT' : 'POST';
+      
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(formData)
+      });
+
+      if (response.ok) {
+        await fetchAppointments(); // Refresh appointments
+        closeModal();
+      } else {
+        console.error('שגיאה בשמירת הפגישה');
+      }
+    } catch (error) {
+      console.error('שגיאה בשמירת הפגישה:', error);
+    }
   };
 
-  // Filter appointments
-  const filteredAppointments = appointments.filter(apt => {
-    const matchesStatus = filterStatus === 'all' || apt.status === filterStatus;
-    const matchesType = filterType === 'all' || apt.appointment_type === filterType;
-    const matchesSearch = searchTerm === '' || 
-      apt.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      apt.contact_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      apt.description?.toLowerCase().includes(searchTerm.toLowerCase());
+  // Handle delete appointment
+  const handleDeleteAppointment = async (id: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק פגישה זו?')) return;
     
-    return matchesStatus && matchesType && matchesSearch;
-  });
+    try {
+      const response = await fetch(`/api/calendar/appointments/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex items-center gap-3 text-slate-600">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span>טוען פגישות...</span>
-        </div>
-      </div>
-    );
-  }
+      if (response.ok) {
+        await fetchAppointments();
+      } else {
+        console.error('שגיאה במחיקת הפגישה');
+      }
+    } catch (error) {
+      console.error('שגיאה במחיקת הפגישה:', error);
+    }
+  };
+
+  // Open modal for new appointment
+  const openNewAppointmentModal = () => {
+    setEditingAppointment(null);
+    setFormData({
+      title: '',
+      description: '',
+      start_time: '',
+      end_time: '',
+      location: '',
+      status: 'scheduled',
+      appointment_type: 'meeting',
+      priority: 'medium',
+      contact_name: '',
+      contact_phone: ''
+    });
+    setShowAppointmentModal(true);
+  };
+
+  // Open modal for editing appointment
+  const openEditAppointmentModal = (appointment: Appointment) => {
+    setEditingAppointment(appointment);
+    setFormData({
+      title: appointment.title,
+      description: appointment.description || '',
+      start_time: appointment.start_time,
+      end_time: appointment.end_time,
+      location: appointment.location || '',
+      status: appointment.status,
+      appointment_type: appointment.appointment_type,
+      priority: appointment.priority,
+      contact_name: appointment.contact_name || '',
+      contact_phone: appointment.contact_phone || ''
+    });
+    setShowAppointmentModal(true);
+  };
+
+  // Close modal
+  const closeModal = () => {
+    setShowAppointmentModal(false);
+    setEditingAppointment(null);
+  };
 
   return (
-    <div className="max-w-7xl mx-auto p-6" dir="rtl">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">לוח שנה</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">
+            לוח שנה
+          </h1>
           <p className="text-slate-600">
-            ניהול פגישות ומעקב אחר כל הפעילות העסקית
+            ניהול פגישות ומעקב פעילות יומית
           </p>
         </div>
-        
-        <button
-          className="btn-primary flex items-center gap-2"
-          onClick={() => setShowNewAppointmentModal(true)}
-          data-testid="button-new-appointment"
-        >
-          <Plus className="h-5 w-5" />
-          פגישה חדשה
-        </button>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-600">פגישות היום</p>
-              <p className="text-2xl font-bold text-slate-900">
-                {getAppointmentsForDate(new Date()).length}
-              </p>
-            </div>
-            <CalendarIcon className="h-8 w-8 text-blue-600" />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-600">מתוכננות</p>
-              <p className="text-2xl font-bold text-slate-900">
-                {appointments.filter(a => a.status === 'scheduled').length}
-              </p>
-            </div>
-            <Clock className="h-8 w-8 text-amber-600" />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-600">מאושרות</p>
-              <p className="text-2xl font-bold text-slate-900">
-                {appointments.filter(a => a.status === 'confirmed').length}
-              </p>
-            </div>
-            <Phone className="h-8 w-8 text-green-600" />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-600">מקור AI</p>
-              <p className="text-2xl font-bold text-slate-900">
-                {appointments.filter(a => a.auto_generated).length}
-              </p>
-            </div>
-            <MessageCircle className="h-8 w-8 text-purple-600" />
-          </div>
+        <div className="flex gap-3 w-full sm:w-auto">
+          <button
+            className="btn-ghost flex-1 sm:flex-none md:hidden"
+            onClick={() => setShowFilters(!showFilters)}
+            data-testid="button-toggle-filters"
+          >
+            <Filter className="h-5 w-5 mr-2" />
+            סינון
+          </button>
+          <button
+            className="btn-primary flex-1 sm:flex-none"
+            onClick={openNewAppointmentModal}
+            data-testid="button-new-appointment"
+          >
+            <Plus className="h-5 w-5 mr-2" />
+            <span className="hidden sm:inline">פגישה חדשה</span>
+            <span className="sm:hidden">פגישה</span>
+          </button>
         </div>
       </div>
 
-      {/* Filters and Search */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
-        <div className="flex flex-col lg:flex-row gap-4">
-          {/* Search */}
-          <div className="flex-1 relative">
-            <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="חיפוש פגישות, לקוחות או מיקומים..."
-              className="input-field pr-10"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              data-testid="input-search-appointments"
-            />
-          </div>
-
-          {/* Filters */}
-          <div className="flex gap-4">
-            <select 
-              className="input-field min-w-[150px]"
+      {/* Mobile Filters */}
+      {showFilters && (
+        <div className="md:hidden bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 space-y-4">
+          <div className="grid grid-cols-1 gap-4">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="חיפוש פגישות..."
+                className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                data-testid="input-search"
+              />
+              <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
+            </div>
+            
+            <select
+              className="border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
               data-testid="select-filter-status"
@@ -267,8 +331,74 @@ export function CalendarPage() {
               <option value="no_show">לא הגיע</option>
             </select>
 
-            <select 
-              className="input-field min-w-[150px]"
+            <select
+              className="border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              data-testid="select-filter-type"
+            >
+              <option value="all">כל הסוגים</option>
+              <option value="viewing">צפייה</option>
+              <option value="meeting">פגישה</option>
+              <option value="signing">חתימה</option>
+              <option value="call_followup">מעקב שיחה</option>
+            </select>
+
+            <div className="flex bg-slate-100 rounded-lg p-1">
+              {(['month', 'week', 'day'] as const).map((view) => (
+                <button
+                  key={view}
+                  className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                    currentView === view 
+                      ? 'bg-white text-slate-900 shadow-sm' 
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  onClick={() => setCurrentView(view)}
+                  data-testid={`button-view-${view}`}
+                >
+                  {view === 'month' ? 'חודש' : view === 'week' ? 'שבוע' : 'יום'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop Filters */}
+      <div className="hidden md:block bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+        <div className="flex flex-wrap items-center gap-4">
+          {/* Search */}
+          <div className="relative flex-1 min-w-[300px]">
+            <input
+              type="text"
+              placeholder="חיפוש פגישות..."
+              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              data-testid="input-search"
+            />
+            <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
+          </div>
+
+          <div className="flex items-center gap-4">
+            {/* Status Filter */}
+            <select
+              className="border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              data-testid="select-filter-status"
+            >
+              <option value="all">כל הסטטוסים</option>
+              <option value="scheduled">מתוכנן</option>
+              <option value="confirmed">מאושר</option>
+              <option value="completed">הושלם</option>
+              <option value="cancelled">בוטל</option>
+              <option value="no_show">לא הגיע</option>
+            </select>
+
+            {/* Type Filter */}
+            <select
+              className="border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
               data-testid="select-filter-type"
@@ -305,14 +435,14 @@ export function CalendarPage() {
       {currentView === 'month' && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           {/* Calendar Header */}
-          <div className="flex items-center justify-between p-6 border-b border-slate-200">
-            <h2 className="text-xl font-semibold text-slate-900">
+          <div className="flex items-center justify-between p-4 md:p-6 border-b border-slate-200">
+            <h2 className="text-lg md:text-xl font-semibold text-slate-900">
               {currentDate.toLocaleDateString('he-IL', { 
                 month: 'long', 
                 year: 'numeric' 
               })}
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 md:gap-2">
               <button
                 className="btn-ghost p-2"
                 onClick={() => navigateMonth('prev')}
@@ -321,7 +451,7 @@ export function CalendarPage() {
                 <ChevronRight className="h-5 w-5" />
               </button>
               <button
-                className="btn-ghost px-4 py-2"
+                className="btn-ghost px-2 md:px-4 py-2 text-sm md:text-base"
                 onClick={() => setCurrentDate(new Date())}
                 data-testid="button-today"
               >
@@ -338,11 +468,11 @@ export function CalendarPage() {
           </div>
 
           {/* Calendar Grid */}
-          <div className="p-6">
+          <div className="p-2 md:p-6">
             {/* Days of week header */}
-            <div className="grid grid-cols-7 gap-1 mb-4">
+            <div className="grid grid-cols-7 gap-1 mb-2 md:mb-4">
               {['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'].map((day) => (
-                <div key={day} className="text-center font-medium text-slate-500 py-2">
+                <div key={day} className="text-center font-medium text-slate-500 py-2 text-xs md:text-sm">
                   {day}
                 </div>
               ))}
@@ -358,7 +488,7 @@ export function CalendarPage() {
                   <div
                     key={index}
                     className={`
-                      min-h-[120px] p-2 border rounded-lg cursor-pointer hover:bg-slate-50
+                      min-h-[60px] md:min-h-[120px] p-1 md:p-2 border rounded-lg cursor-pointer hover:bg-slate-50
                       ${day.isCurrentMonth ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100'}
                       ${isToday ? 'border-blue-500 bg-blue-50' : ''}
                     `}
@@ -366,7 +496,7 @@ export function CalendarPage() {
                     data-testid={`calendar-day-${day.date.getDate()}`}
                   >
                     <div className={`
-                      text-sm font-medium mb-1
+                      text-xs md:text-sm font-medium mb-1
                       ${day.isCurrentMonth ? 'text-slate-900' : 'text-slate-400'}
                       ${isToday ? 'text-blue-600 font-bold' : ''}
                     `}>
@@ -375,21 +505,22 @@ export function CalendarPage() {
                     
                     {/* Appointments for this day */}
                     <div className="space-y-1">
-                      {dayAppointments.slice(0, 3).map((apt) => (
+                      {dayAppointments.slice(0, currentView === 'month' ? 2 : 3).map((apt) => (
                         <div
                           key={apt.id}
                           className={`
-                            text-xs px-2 py-1 rounded text-right truncate
+                            text-[10px] md:text-xs px-1 md:px-2 py-0.5 md:py-1 rounded text-right truncate
                             ${APPOINTMENT_TYPES[apt.appointment_type]?.color || 'bg-gray-100 text-gray-800'}
                           `}
-                          title={`${apt.title} - ${apt.start_time.split('T')[1].substring(0, 5)}`}
+                          title={`${apt.title} - ${apt.start_time.split('T')[1]?.substring(0, 5) || ''}`}
                         >
-                          {apt.title}
+                          <span className="hidden md:inline">{apt.title}</span>
+                          <span className="md:hidden">•</span>
                         </div>
                       ))}
-                      {dayAppointments.length > 3 && (
-                        <div className="text-xs text-slate-500 px-2">
-                          +{dayAppointments.length - 3} נוספות
+                      {dayAppointments.length > 2 && (
+                        <div className="text-[10px] md:text-xs text-slate-500 px-1 md:px-2">
+                          +{dayAppointments.length - 2}
                         </div>
                       )}
                     </div>
@@ -402,8 +533,8 @@ export function CalendarPage() {
       )}
 
       {/* Appointments List */}
-      <div className="mt-8 bg-white rounded-xl shadow-sm border border-slate-200">
-        <div className="p-6 border-b border-slate-200">
+      <div className="mt-6 md:mt-8 bg-white rounded-xl shadow-sm border border-slate-200">
+        <div className="p-4 md:p-6 border-b border-slate-200">
           <h3 className="text-lg font-semibold text-slate-900">
             פגישות ({filteredAppointments.length})
           </h3>
@@ -411,8 +542,8 @@ export function CalendarPage() {
         
         <div className="divide-y divide-slate-200">
           {filteredAppointments.length === 0 ? (
-            <div className="p-12 text-center">
-              <CalendarIcon className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+            <div className="p-6 md:p-12 text-center">
+              <CalendarIcon className="h-12 md:h-16 w-12 md:w-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-slate-900 mb-2">
                 אין פגישות
               </h3>
@@ -421,7 +552,7 @@ export function CalendarPage() {
               </p>
               <button
                 className="btn-primary"
-                onClick={() => setShowNewAppointmentModal(true)}
+                onClick={openNewAppointmentModal}
               >
                 <Plus className="h-5 w-5 mr-2" />
                 פגישה חדשה
@@ -429,89 +560,94 @@ export function CalendarPage() {
             </div>
           ) : (
             filteredAppointments.map((appointment) => (
-              <div key={appointment.id} className="p-6 hover:bg-slate-50">
+              <div key={appointment.id} className="p-4 md:p-6 hover:bg-slate-50">
                 <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h4 className="text-lg font-medium text-slate-900">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-2">
+                      <h4 className="text-base md:text-lg font-medium text-slate-900 truncate">
                         {appointment.title}
                       </h4>
                       <span className={`
-                        inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                        inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
                         ${STATUS_TYPES[appointment.status]?.color}
                       `}>
                         {STATUS_TYPES[appointment.status]?.label}
                       </span>
                       <span className={`
-                        inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                        inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
                         ${APPOINTMENT_TYPES[appointment.appointment_type]?.color}
                       `}>
                         {APPOINTMENT_TYPES[appointment.appointment_type]?.label}
                       </span>
                       {appointment.auto_generated && (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                           AI
                         </span>
                       )}
                     </div>
                     
-                    <div className="flex items-center gap-6 text-sm text-slate-600 mb-3">
+                    <div className="flex flex-wrap items-center gap-3 md:gap-6 text-xs md:text-sm text-slate-600 mb-3">
                       <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4" />
-                        {new Date(appointment.start_time).toLocaleDateString('he-IL')} • 
-                        {new Date(appointment.start_time).toLocaleTimeString('he-IL', { 
-                          hour: '2-digit', 
-                          minute: '2-digit' 
-                        })}
+                        <Clock className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">
+                          {new Date(appointment.start_time).toLocaleDateString('he-IL')} • 
+                          {new Date(appointment.start_time).toLocaleTimeString('he-IL', { 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          })}
+                        </span>
                       </div>
                       {appointment.location && (
                         <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4" />
-                          {appointment.location}
+                          <MapPin className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{appointment.location}</span>
                         </div>
                       )}
                       {appointment.contact_name && (
                         <div className="flex items-center gap-2">
-                          <User className="h-4 w-4" />
-                          {appointment.contact_name}
+                          <User className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{appointment.contact_name}</span>
                         </div>
                       )}
                       {appointment.contact_phone && (
                         <div className="flex items-center gap-2">
-                          <Phone className="h-4 w-4" />
-                          {appointment.contact_phone}
+                          <Phone className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{appointment.contact_phone}</span>
                         </div>
                       )}
                     </div>
                     
                     {appointment.description && (
-                      <p className="text-slate-600 text-sm">
+                      <p className="text-slate-600 text-sm line-clamp-2">
                         {appointment.description}
                       </p>
                     )}
                   </div>
                   
-                  <div className="flex items-center gap-2 mr-4">
+                  <div className="flex items-center gap-1 md:gap-2 mr-2 md:mr-4 flex-shrink-0">
                     <button
                       className="btn-ghost p-2"
                       title="צפה בפרטים"
+                      onClick={() => openEditAppointmentModal(appointment)}
                       data-testid={`button-view-appointment-${appointment.id}`}
                     >
-                      <Eye className="h-5 w-5" />
+                      <Eye className="h-4 w-4 md:h-5 md:w-5" />
                     </button>
                     <button
                       className="btn-ghost p-2"
                       title="ערוך פגישה"
+                      onClick={() => openEditAppointmentModal(appointment)}
                       data-testid={`button-edit-appointment-${appointment.id}`}
                     >
-                      <Edit className="h-5 w-5" />
+                      <Edit className="h-4 w-4 md:h-5 md:w-5" />
                     </button>
                     <button
                       className="btn-ghost p-2 text-red-600 hover:text-red-700"
                       title="מחק פגישה"
+                      onClick={() => handleDeleteAppointment(appointment.id)}
                       data-testid={`button-delete-appointment-${appointment.id}`}
                     >
-                      <Trash2 className="h-5 w-5" />
+                      <Trash2 className="h-4 w-4 md:h-5 md:w-5" />
                     </button>
                   </div>
                 </div>
@@ -521,30 +657,191 @@ export function CalendarPage() {
         </div>
       </div>
 
-      {/* New Appointment Modal - Placeholder */}
-      {showNewAppointmentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">
-              פגישה חדשה
-            </h3>
-            <p className="text-slate-600 mb-6">
-              טופס יצירת פגישה חדשה יפותח בשלב הבא
-            </p>
-            <div className="flex gap-3">
+      {/* Appointment Modal */}
+      {showAppointmentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-4 md:p-6 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-lg md:text-xl font-semibold text-slate-900">
+                {editingAppointment ? 'עריכת פגישה' : 'פגישה חדשה'}
+              </h3>
               <button
-                className="btn-primary flex-1"
-                onClick={() => setShowNewAppointmentModal(false)}
+                className="btn-ghost p-2"
+                onClick={closeModal}
+                data-testid="button-close-modal"
               >
-                בקרוב
-              </button>
-              <button
-                className="btn-ghost flex-1"
-                onClick={() => setShowNewAppointmentModal(false)}
-              >
-                ביטול
+                <X className="h-5 w-5" />
               </button>
             </div>
+
+            <form onSubmit={handleSubmitAppointment} className="p-4 md:p-6 space-y-4 md:space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    כותרת הפגישה *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.title}
+                    onChange={(e) => setFormData({...formData, title: e.target.value})}
+                    data-testid="input-appointment-title"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    תאריך ושעת התחלה *
+                  </label>
+                  <input
+                    type="datetime-local"
+                    required
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.start_time}
+                    onChange={(e) => setFormData({...formData, start_time: e.target.value})}
+                    data-testid="input-start-time"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    תאריך ושעת סיום *
+                  </label>
+                  <input
+                    type="datetime-local"
+                    required
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.end_time}
+                    onChange={(e) => setFormData({...formData, end_time: e.target.value})}
+                    data-testid="input-end-time"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    סוג פגישה
+                  </label>
+                  <select
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.appointment_type}
+                    onChange={(e) => setFormData({...formData, appointment_type: e.target.value as any})}
+                    data-testid="select-appointment-type"
+                  >
+                    <option value="meeting">פגישה</option>
+                    <option value="viewing">צפייה</option>
+                    <option value="signing">חתימה</option>
+                    <option value="call_followup">מעקב שיחה</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    סטטוס
+                  </label>
+                  <select
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.status}
+                    onChange={(e) => setFormData({...formData, status: e.target.value as any})}
+                    data-testid="select-appointment-status"
+                  >
+                    <option value="scheduled">מתוכנן</option>
+                    <option value="confirmed">מאושר</option>
+                    <option value="completed">הושלם</option>
+                    <option value="cancelled">בוטל</option>
+                    <option value="no_show">לא הגיע</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    מיקום
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.location}
+                    onChange={(e) => setFormData({...formData, location: e.target.value})}
+                    data-testid="input-location"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    שם איש קשר
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.contact_name}
+                    onChange={(e) => setFormData({...formData, contact_name: e.target.value})}
+                    data-testid="input-contact-name"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    טלפון איש קשר
+                  </label>
+                  <input
+                    type="tel"
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.contact_phone}
+                    onChange={(e) => setFormData({...formData, contact_phone: e.target.value})}
+                    data-testid="input-contact-phone"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    עדיפות
+                  </label>
+                  <select
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.priority}
+                    onChange={(e) => setFormData({...formData, priority: e.target.value as any})}
+                    data-testid="select-priority"
+                  >
+                    <option value="low">נמוך</option>
+                    <option value="medium">בינוני</option>
+                    <option value="high">גבוה</option>
+                    <option value="urgent">דחוף</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-900 mb-2">
+                    תיאור
+                  </label>
+                  <textarea
+                    rows={3}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={formData.description}
+                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                    data-testid="textarea-description"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  className="btn-ghost flex-1 sm:flex-none"
+                  onClick={closeModal}
+                  data-testid="button-cancel-appointment"
+                >
+                  ביטול
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary flex-1 sm:flex-none"
+                  data-testid="button-save-appointment"
+                >
+                  <Save className="h-5 w-5 mr-2" />
+                  {editingAppointment ? 'עדכן פגישה' : 'צור פגישה'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
