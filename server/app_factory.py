@@ -456,120 +456,31 @@ def create_app():
 
     # Health endpoints moved below to prevent duplicates
         
-    # Serve React for root and add login route
+    # Simple SPA routes (temporary fix - replacing spa_bp)
     @app.route('/')
-    def serve_auth_app():
-        """Serve new professional auth React app - Health check compatible"""
-        try:
-            return send_file(os.path.join(os.path.dirname(__file__), "..", "dist", "index.html"))
-        except FileNotFoundError:
-            # ✅ CRITICAL: Return 200 for Replit health check - NOT 500!
-            return """
-<!DOCTYPE html>
-<html lang="he" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>שי דירות ומשרדים — מערכת CRM חיה</title>
-</head>
-<body>
-    <div style="text-align: center; padding: 2rem; font-family: system-ui;">
-        <h1>✅ מערכת AgentLocator פעילה</h1>
-        <p>לאה מוכנה לשיחות בטלפון +97233763805</p>
-        <small>Health Check: OK</small>
-    </div>
-</body>
-</html>""", 200
-    
-    # SPA routing fallback for React app routes
     @app.route('/app')
     @app.route('/app/')
     @app.route('/app/<path:subpath>')
-    def serve_react_spa(subpath=''):
-        """Serve React SPA for /app/* routes"""
-        try:
-            return send_file(os.path.join("dist", "index.html"))
-        except Exception as e:
-            print(f"⚠️ React SPA serve error: {e}")
-            return """<!doctype html>
-<html dir="rtl" lang="he">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>מערכת CRM - שי דירות ומשרדים</title>
-    <style>
-        body { font-family: Assistant, sans-serif; direction: rtl; 
-               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-               min-height: 100vh; display: flex; align-items: center; 
-               justify-content: center; color: white; }
-        .container { text-align: center; padding: 2rem; 
-                    background: rgba(255,255,255,0.1); border-radius: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>טוען אפליקציה...</h1>
-        <p>אנא המתן לטעינת המערכת</p>
-    </div>
-</body>
-</html>""", 200
-
-    # Auth routes - serve the new React auth app
-    @app.route('/auth')
-    @app.route('/auth/')
-    @app.route('/auth/<path:path>')
-    @app.route('/login')
-    def auth_routes(path=None):
-        """All auth routes serve the new React app"""
-        try:
-            return send_file(os.path.join(os.path.dirname(__file__), "..", "dist", "index.html"))
-        except FileNotFoundError:
-            return """
-<!DOCTYPE html>
-<html dir="rtl" lang="he">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>התחברות - מערכת CRM</title>
-    <style>
-        body { font-family: Assistant, sans-serif; direction: rtl; 
-               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-               min-height: 100vh; display: flex; align-items: center; 
-               justify-content: center; color: white; }
-        .container { text-align: center; padding: 2rem; 
-                    background: rgba(255,255,255,0.1); border-radius: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>דף התחברות</h1>
-        <p>אנא המתן לטעינת המערכת...</p>
-    </div>
-</body>
-</html>""", 200
-            return """
-<!DOCTYPE html>
-<html dir="rtl" lang="he">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>מערכת CRM - שי דירות ומשרדים</title>
-    <style>
-        body { font-family: Assistant, sans-serif; direction: rtl; 
-               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-               min-height: 100vh; display: flex; align-items: center; 
-               justify-content: center; color: white; }
-        .container { text-align: center; padding: 2rem; 
-                    background: rgba(255,255,255,0.1); border-radius: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>מערכת CRM לשיחות בעברית</h1>
-        <p>השרת פועל - מערכת מוכנה לשיחות</p>
-    </div>
-</body>
-</html>""", 200
+    def serve_spa(subpath=''):
+        """Simple SPA serving - serves our BUILD 18"""
+        from pathlib import Path
+        from flask import send_file
+        DIST = Path(__file__).resolve().parents[1] / "dist"
+        return send_file(DIST / "index.html")
+    
+    # Assets route
+    @app.route('/assets/<path:filename>')
+    def serve_assets(filename):
+        """Serve assets with correct MIME types"""
+        from pathlib import Path
+        from flask import send_from_directory, make_response
+        DIST = Path(__file__).resolve().parents[1] / "dist"
+        resp = make_response(send_from_directory(DIST / "assets", filename))
+        if filename.endswith('.js'):
+            resp.headers['Content-Type'] = 'application/javascript'
+        elif filename.endswith('.css'):
+            resp.headers['Content-Type'] = 'text/css'
+        return resp
     
     # Database initialization (לפי ההנחיות)
     from server.db import db
@@ -595,9 +506,9 @@ def create_app():
     # warmup_services_async()
     print("🔧 Warmup disabled for debugging")
     
-    # Register SPA routing blueprint (replaces old routing)
-    from server.spa_static import spa_bp
-    app.register_blueprint(spa_bp)
-    print("✅ SPA routing blueprint registered")
+    # SPA blueprint disabled temporarily - using direct routes
+    # from server.spa_static import spa_bp
+    # app.register_blueprint(spa_bp)
+    print("✅ Simple SPA routes registered (no blueprint)")
     
     return app
