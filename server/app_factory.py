@@ -151,19 +151,29 @@ def create_app():
             # Update last activity
             session['_last_activity'] = datetime.now().isoformat()
             
-            # Session rotation (rotate session ID periodically)
+            # Session rotation (rotate session ID periodically) - FIXED: More conservative
             session_start = session.get('_session_start')
             if not session_start:
                 session['_session_start'] = datetime.now().isoformat()
                 session['_csrf_token'] = secrets.token_hex(16)
             else:
                 start_time = datetime.fromisoformat(session_start)
-                if datetime.now() - start_time > timedelta(hours=2):
-                    # Rotate session but preserve user data
+                # FIXED: Increase rotation period from 2 to 24 hours and preserve session data better
+                if datetime.now() - start_time > timedelta(hours=24):
+                    # Rotate session but preserve ALL user data
                     user_data = session.get('al_user')
+                    tenant_id = session.get('tenant_id')
+                    token = session.get('token')
+                    impersonating = session.get('impersonating', False)
+                    
                     session.clear()
+                    
+                    # Restore all user session data
                     if user_data:
                         session['al_user'] = user_data
+                        session['tenant_id'] = tenant_id
+                        session['token'] = token
+                        session['impersonating'] = impersonating
                         session['_session_start'] = datetime.now().isoformat()
                         session['_csrf_token'] = secrets.token_hex(16)
     
@@ -234,14 +244,15 @@ def create_app():
         # Register auth system FIRST (after security middleware)
         # Using simplified auth from auth_api.py only
         
-        # Session configuration for Preview (HTTP) mode - FIXED for Replit
+        # Session configuration for Preview (HTTP) mode - FIXED for better persistence
         app.config.update({
             'SESSION_COOKIE_NAME': 'al_sess',
             'SESSION_COOKIE_HTTPONLY': False,  # Allow JS access for debugging
-            'SESSION_COOKIE_SECURE': False,   # HTTP mode
-            'SESSION_COOKIE_SAMESITE': None,  # Less restrictive for cross-domain
+            'SESSION_COOKIE_SECURE': False,   # HTTP mode (Replit doesn't use HTTPS in preview)
+            'SESSION_COOKIE_SAMESITE': 'Lax',  # FIXED: Lax instead of None for better refresh support
             'SESSION_COOKIE_PATH': '/',
             'SESSION_COOKIE_DOMAIN': None,    # Let browser decide
+            'SESSION_COOKIE_MAX_AGE': 28800,  # 8 hours in seconds (same as PERMANENT_SESSION_LIFETIME)
         })
         
         # Register auth blueprint - single clean system
