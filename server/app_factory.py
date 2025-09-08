@@ -597,8 +597,16 @@ def create_app():
     # IMPORTANT: This must be defined BEFORE SPA fallback route!
     @app.route('/assets/<path:filename>')
     def serve_react_assets(filename):
-        """Serve React build assets (JS, CSS, etc.)"""
-        return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "dist", "assets"), filename)
+        """Serve React build assets (JS, CSS, etc.) with proper cache headers"""
+        response = send_from_directory(os.path.join(os.path.dirname(__file__), "..", "dist", "assets"), filename)
+        # Assets are immutable - aggressive caching
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        # Ensure correct MIME types
+        if filename.endswith('.js'):
+            response.headers['Content-Type'] = 'application/javascript'
+        elif filename.endswith('.css'):
+            response.headers['Content-Type'] = 'text/css'
+        return response
     
     print("✅ Assets route registered: /assets/<path:filename>")
     
@@ -626,7 +634,12 @@ def create_app():
         import os
         dist_path = os.path.join(os.path.dirname(__file__), '..', 'dist', 'index.html')
         try:
-            return send_file(dist_path)
+            response = send_file(dist_path)
+            # Never cache the main HTML - always fetch fresh
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
         except FileNotFoundError:
             return "SPA not built - run npm run build", 503
     
