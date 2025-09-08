@@ -10,9 +10,12 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
-  // Give auth system time to check existing session on refresh
-  // Only redirect after initial check is complete
-  if (!isAuthenticated && !isLoading) {
+  // Don't show loading screen - proceed with auth check
+  // The auth system is designed to never show loading screens
+  // If user is not authenticated, redirect to login immediately
+
+  // Redirect to login if not authenticated
+  if (!isAuthenticated) {
     return (
       <Navigate 
         to="/login" 
