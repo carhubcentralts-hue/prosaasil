@@ -13,7 +13,7 @@ export function useAuthState(): AuthState & {
   const [state, setState] = useState<AuthState>({
     user: null,
     tenant: null,
-    isLoading: false, // Never show loading screen by default
+    isLoading: true, // FIXED: Show loading during initial auth check
     isAuthenticated: false,
   });
 
