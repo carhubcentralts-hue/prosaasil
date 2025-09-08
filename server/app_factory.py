@@ -181,12 +181,13 @@ def create_app():
     csrf.init_app(app)  # ← פעם אחת בלבד
     print("🔒 SeaSurf CSRF Protection enabled")
     
-    # CORS with security restrictions
+    # CORS with security restrictions - FIXED for session cookies
     CORS(app, 
          origins=[
              "http://localhost:5000",
-             "https://*.replit.app",
-             "https://*.replit.dev"
+             "https://*.replit.app", 
+             "https://*.replit.dev",
+             "*"  # Allow all origins for development
          ],
          supports_credentials=True,
          allow_headers=["Content-Type", "Authorization", "X-CSRFToken", "HX-Request"],
@@ -233,13 +234,14 @@ def create_app():
         # Register auth system FIRST (after security middleware)
         # Using simplified auth from auth_api.py only
         
-        # Session configuration for Preview (HTTP) mode
+        # Session configuration for Preview (HTTP) mode - FIXED for Replit
         app.config.update({
             'SESSION_COOKIE_NAME': 'al_sess',
-            'SESSION_COOKIE_HTTPONLY': True,
-            'SESSION_COOKIE_SECURE': False,  # Preview/HTTP mode
-            'SESSION_COOKIE_SAMESITE': 'Lax',
+            'SESSION_COOKIE_HTTPONLY': False,  # Allow JS access for debugging
+            'SESSION_COOKIE_SECURE': False,   # HTTP mode
+            'SESSION_COOKIE_SAMESITE': None,  # Less restrictive for cross-domain
             'SESSION_COOKIE_PATH': '/',
+            'SESSION_COOKIE_DOMAIN': None,    # Let browser decide
         })
         
         # Register auth blueprint - single clean system
