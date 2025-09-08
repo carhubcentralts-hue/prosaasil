@@ -1,0 +1,136 @@
+ברור – זו בעיית SPA-routing/Assets קלאסית: ברענון על נתיב עמוק (/app/...) השרת מחזיר את index.html, אבל ה־JS/CSS נטענים בנתיב שגוי (למשל /app/admin/overview/assets/...), ולכן ה-Bundle לא נטען ואתה רואה את “טוען אפליקציה…”.
+
+תן לו לבצע את זה אחד-לאחד, בלי לדלג:
+
+⸻
+
+1) שרת Flask – סטטי + Catch-all נכון
+	•	הגשה תקינה של קבצי build מהתיקייה dist/ (ו־dist/assets).
+	•	“תופס-הכל” שמחזיר index.html לכל נתיב שאינו API/סטטי.
+
+# server/spa_static.py
+from flask import Blueprint, send_from_directory, request, make_response, abort
+from pathlib import Path
+
+spa_bp = Blueprint("spa", __name__)
+DIST = Path(__file__).resolve().parents[1] / "dist"
+
+@spa_bp.get("/assets/<path:filename>")
+def assets(filename):
+    resp = make_response(send_from_directory(DIST / "assets", filename))
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+@spa_bp.get("/")
+@spa_bp.get("/<path:path>")
+def spa(path=""):
+    # אל תתפוס API/סטטי/ווב־הוקים
+    blocked = ("api/", "assets/", "static/", "webhook/", "favicon", "robots")
+    if path.startswith(blocked):
+        abort(404)
+    resp = make_response(send_from_directory(DIST, "index.html"))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+ברישום האפליקציה:
+
+# server/app_factory.py
+from server.spa_static import spa_bp
+app.register_blueprint(spa_bp)
+
+בדיקות עשן (חובה שיעברו):
+
+curl -i /app/admin/overview      # 200 text/html (index)
+curl -i /assets/index-*.js       # 200 application/javascript (לא HTML)
+curl -i /api/auth/me             # 200/401 application/json
+
+
+⸻
+
+2) Vite – מסלול נכסים אבסולוטי
+
+וודא ש-Vite בונה עם בסיס / כדי שכל ההפניות לקבצים יהיו /assets/... (לא יחסיות).
+
+// client/vite.config.ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+export default defineConfig({
+  plugins: [react()],
+  base: '/',                  // ← חשוב! לא './' ולא '/app/'
+  build: { outDir: '../dist', assetsDir: 'assets' }
+})
+
+ב-client/index.html ודא שיש <base href="/"> ושכל <script>/<link> ל-assets מתחילים ב-/assets/....
+
+<!-- client/index.html -->
+<head>
+  <base href="/" />
+  <meta name="x-build" content="16" />
+</head>
+<body>
+  <div id="__build" style="position:fixed;left:0;right:0;bottom:0;background:#111;color:#0ff;padding:6px;font:600 12px Heebo,Inter,sans-serif;z-index:99999">
+    BUILD: 16
+  </div>
+  <div id="root"></div>
+</body>
+
+
+⸻
+
+3) Router – BrowserRouter עם basename יציב
+	•	השתמשו ב-BrowserRouter (כתובות יפות).
+	•	אם אתם עובדים תחת / – שימו basename="/". אם בכוונה תחת /app – השאירו basename="/app", אבל זה לא משפיע על assets (הם תמיד ב־/assets/...).
+
+// client/src/main.tsx
+import { createRoot } from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
+createRoot(document.getElementById('root')!).render(
+  <BrowserRouter basename="/"> {/* או "/app" אם כך החלטתם */}
+    <App />
+  </BrowserRouter>
+)
+
+גיבוי ל-Preview: תמכו ב-secret USE_HASH_ROUTER=1 שמחליף ל-HashRouter אם צריך. בפרוד השאירו BrowserRouter.
+
+⸻
+
+4) לבנות נכון ולהגיש נכון (למנוע build ישן)
+
+# מהשורש
+pkill -f gunicorn || true
+pkill -f "python wsgi.py" || true
+
+rm -rf dist client/node_modules
+npm --prefix client ci
+npm --prefix client run build     # יוצר dist/ ו dist/assets/
+
+python wsgi.py &                  # האפליקציה מאזינה (פורט קבוע, למשל 5000)
+
+בדפדפן:
+	•	Hard Reload (Cmd/Ctrl+Shift+R).
+	•	DevTools → Network: ודא שה-index חוזר עם Cache-Control: no-store.
+	•	בדוק שה-JS נטען מ־/assets/index-xxxxx.js (סטטוס 200, MIME נכון), ולא מ-/app/.../assets.
+
+אם יש Service Worker – בטל (Application → Unregister + Clear Storage).
+
+⸻
+
+5) למה עדיין תראה “טוען אפליקציה…”?
+
+זה קורה רק כש־bundle לא נטען (404 על /assets/... או MIME לא נכון).
+פתח DevTools → Network אחרי Refresh על /app/admin/overview וחפש:
+	•	404 ל־/app/admin/overview/assets/... → סימן ש־Vite base לא /. תקן סעיף 2.
+	•	200 אבל Content-Type: text/html על /assets/*.js → ה־catch-all תופס גם את ה-assets. תקן סעיף 1 (אל תיתן ל-catch-all לתפוס /assets/).
+
+⸻
+
+6) צ’ק-ליסט “Definition of Done”
+	•	curl -i /app/admin/overview → 200 HTML (index).
+	•	curl -i /assets/index-*.js → 200 application/javascript.
+	•	DevTools: אין 404/HTML על קבצי /assets/*.
+	•	“BUILD: 16” מוצג בתחתית, ו-meta x-build=16 ב-View Source.
+	•	Refresh על כל נתיב /app/... מעלה את האפליקציה תקין, לא נתקע ב“טוען אפליקציה…”.
+
+⸻
+
+תן לו להחיל את 1–4 בדיוק, ואז לעשות את בדיקות 5–6. אם עדיין נתקע – שלח צילום Network של הרענון (הרשימה של /assets/*.js), ואכוון לשורת התיקון המדויקת.

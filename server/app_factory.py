@@ -595,56 +595,9 @@ def create_app():
     # warmup_services_async()
     print("🔧 Warmup disabled for debugging")
     
-    # React app assets serving - Updated for new auth app
-    # IMPORTANT: This must be defined BEFORE SPA fallback route!
-    @app.route('/assets/<path:filename>')
-    def serve_react_assets(filename):
-        """Serve React build assets (JS, CSS, etc.) with proper cache headers"""
-        response = send_from_directory(os.path.join(os.path.dirname(__file__), "..", "dist", "assets"), filename)
-        # Assets are immutable - aggressive caching
-        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-        # Ensure correct MIME types
-        if filename.endswith('.js'):
-            response.headers['Content-Type'] = 'application/javascript'
-        elif filename.endswith('.css'):
-            response.headers['Content-Type'] = 'text/css'
-        return response
-    
-    print("✅ Assets route registered: /assets/<path:filename>")
-    
-    # IMPORTANT: Define specific routes BEFORE the catch-all SPA fallback!
-    
-    # SPA Fallback Route - Must be LAST to catch unmatched routes
-    @app.route('/', defaults={'path': ''})
-    @app.route('/<path:path>')
-    def spa_fallback(path):
-        """Serve React SPA for all unmatched routes except API/webhook/health"""
-        # Don't serve SPA for backend routes (per deployment guidelines)
-        if (path.startswith('api/') or 
-            path.startswith('webhook/') or 
-            path.startswith('ws/') or
-            path.startswith('static/') or
-            path.startswith('assets/') or
-            path in ['version', 'readyz', 'livez', 'healthz'] or
-            path == 'favicon.ico' or
-            '/.' in path):  # Hidden files/dirs
-            # Let Flask handle these normally (will likely 404)
-            from flask import abort
-            abort(404)
-        
-        # Serve React SPA for ALL frontend routes (not just login)
-        import os
-        dist_path = os.path.join(os.path.dirname(__file__), '..', 'dist', 'index.html')
-        try:
-            response = send_file(dist_path)
-            # Never cache the main HTML - always fetch fresh
-            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
-            return response
-        except FileNotFoundError:
-            return "SPA not built - run npm run build", 503
-    
-    print("✅ SPA fallback route added for React Router")
+    # Register SPA routing blueprint (replaces old routing)
+    from server.spa_static import spa_bp
+    app.register_blueprint(spa_bp)
+    print("✅ SPA routing blueprint registered")
     
     return app
