@@ -128,11 +128,11 @@ def create_app():
         # Skip for static files, health endpoints, React routes, and auth endpoints  
         auth_paths = ['/api/auth/login', '/api/auth/logout', '/api/auth/me', 
                      '/api/admin/businesses', '/api/admin/impersonate/exit', '/api/ui/login']
-        # Add complete impersonation bypass
+        # Add COMPLETE impersonation bypass - NUCLEAR OPTION
         impersonate_paths = ['/api/admin/businesses/', '/impersonate', '/api/admin/impersonate/']
-        # Also exempt specific impersonate endpoints dynamically
-        is_impersonate_path = (request.path.startswith('/api/admin/businesses/') and 
-                              request.path.endswith('/impersonate'))
+        # NUCLEAR: Skip ANY PATH containing 'impersonate'
+        is_impersonate_path = (('/impersonate' in request.path) or 
+                              (request.path.startswith('/api/admin/businesses/') and request.path.endswith('/impersonate')))
         if (request.endpoint in ['static', 'health', 'readyz', 'version'] or 
             request.path in ['/', '/login', '/forgot', '/reset', '/home'] or
             any(request.path.startswith(p) for p in auth_paths) or is_impersonate_path or

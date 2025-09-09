@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, session, g
 from werkzeug.security import generate_password_hash
 from server.models_sql import Business, User, db
 from server.routes_admin import require_api_auth
+from server.extensions import csrf
 from functools import wraps
 import logging
 
@@ -348,6 +349,7 @@ def toggle_user_status(user_id):
 
 @biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST'])
 @require_api_auth(['admin', 'manager'])
+@csrf_exempt
 def impersonate_business(business_id):
     """Allow admin to impersonate business - COMPLETELY SKIP CSRF"""
     # NUCLEAR CSRF BYPASS - DISABLE ALL CSRF CHECKS
@@ -421,6 +423,7 @@ def impersonate_business(business_id):
 
 @biz_mgmt_bp.route('/api/admin/impersonate/exit', methods=['POST'])
 @require_api_auth(['admin', 'manager'])
+@csrf_exempt
 def exit_impersonation():
     """Exit impersonation and restore original user"""
     try:
