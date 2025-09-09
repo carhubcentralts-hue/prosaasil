@@ -183,6 +183,15 @@ def create_app():
     from server.extensions import csrf
     csrf.init_app(app)  # ← פעם אחת
     
+    # דיבוג זמני לCSRF - לפי ההנחיות המדויקות
+    @app.before_request
+    def _dbg_csrf_headers():
+        if request.path.startswith('/api/admin/businesses/') and request.method == 'POST':
+            print('[CSRF-DBG] Cookie XSRF-TOKEN =', request.cookies.get('XSRF-TOKEN'))
+            print('[CSRF-DBG] Header X-CSRFToken =', request.headers.get('X-CSRFToken'))
+            print('[CSRF-DBG] Path:', request.path)
+            print('[CSRF-DBG] Method:', request.method)
+    
     # CORS with security restrictions - FIXED for session cookies
     CORS(app, 
          origins=[
