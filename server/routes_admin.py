@@ -9,7 +9,9 @@ from server.models_sql import Business, User, CallLog, WhatsAppMessage, Customer
 from server.db import db
 from datetime import datetime, timedelta
 from sqlalchemy import func
+import logging
 
+logger = logging.getLogger(__name__)
 admin_bp = Blueprint("admin_bp", __name__)
 
 @admin_bp.get("/api/admin/overview")
@@ -214,7 +216,7 @@ def api_kpis_revenue():
 # NEW UNIFIED API ENDPOINTS - REAL DATA ONLY
 # ================================
 
-@admin_bp.get("/api/admin/businesses")
+@admin_bp.route("/api/admin/businesses", methods=['GET'])
 @require_api_auth(["admin", "manager"])
 def api_admin_businesses():
     """List all businesses with pagination - UNIFIED ENDPOINT"""
@@ -222,7 +224,7 @@ def api_admin_businesses():
         page = int(request.args.get('page', 1))
         pageSize = int(request.args.get('pageSize', 20))
         
-        # Real data query - NO DEMO/MOCK DATA
+        # Real data query - NO DEMO/MOCK DATA  
         query = Business.query.filter_by(is_active=True)
         total = query.count()
         
@@ -249,7 +251,7 @@ def api_admin_businesses():
         logger.error(f"Error in api_admin_businesses: {e}")
         return jsonify({"error": str(e)}), 500
 
-@admin_bp.get("/api/admin/kpis/overview")
+@admin_bp.route("/api/admin/kpis/overview", methods=['GET'])
 @require_api_auth(["admin", "manager"])
 def api_admin_kpis_overview():
     """Get overview KPIs - SINGLE SOURCE OF TRUTH"""
