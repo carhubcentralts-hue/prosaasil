@@ -172,7 +172,7 @@ def admin_businesses():
             })
         
         return jsonify({
-            "items": items,
+            "businesses": items,
             "total": len(items)
         })
         
