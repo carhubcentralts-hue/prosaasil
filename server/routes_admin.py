@@ -78,8 +78,7 @@ def api_overview():
                 "time": call.created_at.strftime("%H:%M"),
                 "type": "call",
                 "tenant": business.name if business else "לא ידוע",
-                "preview": f"שיחה מ-{call.phone_number or 'מספר לא ידוע'}" + 
-                          (f" - {call.duration_seconds//60}:{call.duration_seconds%60:02d}" if call.duration_seconds else " - נתונים לא זמינים"),
+                "preview": f"שיחה מ-{call.from_number or 'מספר לא ידוע'} - נתונים זמינים",
                 "status": call.status or "הושלמה"
             })
         
