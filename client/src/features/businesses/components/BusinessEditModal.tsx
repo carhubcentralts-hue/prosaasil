@@ -28,13 +28,13 @@ export function BusinessEditModal({
   });
   const [errors, setErrors] = useState<string[]>([]);
 
-  // Initialize form data when business changes
+  // Initialize form data - לפי ההנחיות עם שמות השדות הנכונים
   useEffect(() => {
     if (business) {
       setFormData({
         name: business.name || '',
-        domain: business.domain || '',
-        defaultPhoneE164: business.defaultPhoneE164 || '',
+        domain: business.domain || `${business.name?.toLowerCase().replace(/\s+/g, '-')}.co.il`,
+        defaultPhoneE164: business.phone || business.defaultPhoneE164 || '',
         whatsappJid: business.whatsappJid || '',
         timezone: business.timezone || 'Asia/Jerusalem',
         address: business.address || ''

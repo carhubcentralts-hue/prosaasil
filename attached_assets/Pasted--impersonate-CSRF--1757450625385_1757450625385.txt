@@ -1,0 +1,155 @@
+ברור. שני דברים לא באמת נפתרו:
+(א) ההתחזות (impersonate) – עדיין נופלת על CSRF/סשן.
+(ב) עריכת עסק – המודל נטען ריק כי ה-FE לא מושך/לא ממפה את ה-JSON האמיתי.
+
+להלן הנחיה ממוקדת שתגרום לשניהם לעבוד. תבצע לפי הסדר, בלי “עקיפות” שמסבכות:
+
+⸻
+
+1) ההתחזות — פותרים נכון (CSRF+Session), בלי לעקוף
+
+1.1 לא מבטלים CSRF על ההתחזות
+	•	להסיר כל @csrf.exempt מ־/api/admin/businesses/<id>/impersonate ו־/api/admin/impersonate/exit.
+	•	נשארת שכבת CSRF יחידה (SeaSurf) מאותחלת פעם אחת דרך extensions.py.
+
+1.2 API קבוע וברור (שרת)
+	•	POST /api/admin/businesses/<id>/impersonate:
+	•	קורא את <id>.
+	•	מאמת הרשאה (admin/manager כנדרש).
+	•	כותב לסשן:
+session['impersonating']=True,
+session['tenant_id']=<id>,
+session['role']='business' (או משמר תפקיד עם scope tenant).
+	•	מחזיר JSON: {"ok": true, "tenant_id": <id>}
+	•	POST /api/admin/impersonate/exit:
+	•	מנקה impersonating/tenant_id.
+	•	מחזיר {"ok": true}.
+
+אין redirect מהשרת—רק JSON.
+
+1.3 CSRF בראש נקי (קליינט)
+	•	ודא שיש GET /api/auth/csrf שמציב cookie XSRF-TOKEN.
+	•	בצד לקוח: כל POST/PUT/PATCH/DELETE שולח:
+	•	credentials: 'include'
+	•	Content-Type: 'application/json'
+	•	X-CSRFToken: <ערך מה-cookie XSRF-TOKEN>
+	•	X-Requested-With: XMLHttpRequest
+	•	ספציפית לפעולת ההתחזות:
+
+await apiFetch(`/api/admin/businesses/${id}/impersonate`, {
+  method: 'POST',
+  body: JSON.stringify({})
+});
+// ואז:
+const me = await apiFetch('/api/auth/me'); // מאמת שהסשן עודכן
+// invalidate/refetch של כל ה־queries הרלוונטיים (overview, businesses, leads וכו')
+
+
+	•	אם אתה עדיין מקבל 400 csrf_token_missing → ה-FE לא שלח header או שה־cookie לא נוצר. תוודא שקראת פעם אחת את /api/auth/csrf לאחר login.
+
+1.4 בדיקת עשן (ללא דפדפן)
+
+# Login (פטור CSRF, כמו שסיכמנו)
+curl -i -c /tmp/c -b /tmp/c -X POST http://127.0.0.1:5000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"admin@...","password":"..."}'
+
+# קח CSRF
+TOKEN=$(curl -s -c /tmp/c -b /tmp/c http://127.0.0.1:5000/api/auth/csrf | python -c "import sys,json;print(json.load(sys.stdin)['csrfToken'])")
+
+# נסה התחזות בלי טוקן → חייב 400
+curl -i -c /tmp/c -b /tmp/c -X POST http://127.0.0.1:5000/api/admin/businesses/1/impersonate \
+  -H 'Content-Type: application/json' --data '{}'
+
+# נסה עם טוקן → חייב 200
+curl -i -c /tmp/c -b /tmp/c -X POST http://127.0.0.1:5000/api/admin/businesses/1/impersonate \
+  -H 'Content-Type: application/json' -H "X-CSRFToken: $TOKEN" --data '{}'
+
+# /me צריך להחזיר impersonating:true ו/או tenant_id
+curl -i -c /tmp/c -b /tmp/c http://127.0.0.1:5000/api/auth/me
+
+
+⸻
+
+2) עריכת עסק — למה ריק ואיך גורמים להציג נתונים אמיתיים
+
+הבעיה הטיפוסית: ה-FE פונה לנתיב/שם שגוי, או שה-JSON shape שונה (שדות אחרים), או שאין credentials:'include' ולכן 401 שקט.
+
+2.1 נקודת API אחת לשאיבת עסק (שרת)
+
+בחר אחת, ועמוד בה:
+	•	לצפייה/עריכה במנהל עסקים:
+GET /api/admin/businesses/:id → מחזיר JSON מלא לעריכה.
+PATCH /api/admin/businesses/:id → מעדכן (דורש CSRF).
+	•	לצד עסק כשהוא מחופש/אימפרסונציה (דף עסק):
+GET /api/business/current → העסק של session['tenant_id'].
+
+דוגמת JSON שחייב לחזור (רשימה מינימלית):
+
+{
+  "id": 1,
+  "name": "שי דירות ומשרדים בע״מ",
+  "phone_e164": "+97233763805",
+  "email": "office@shai-realestate.co.il",
+  "address": "…",
+  "status": "active",
+  "whatsapp_status": "connected",
+  "call_status": "ready",
+  "created_at": "2025-09-01T11:00:00+03:00",
+  "updated_at": "2025-09-02T09:10:00+03:00"
+}
+
+שים לב לשמות השדות – אל תשנה אותם ב-FE אם ה-BE לא תואם, או להפך. תקבעו שם אחיד.
+
+2.2 ה-FE צריך למשוך את הנתיב הנכון
+
+ב-Modal של העריכה ודא:
+	•	הקריאה היא ל־/api/admin/businesses/${id} (אם אתה בדף מנהל),
+	•	עם credentials:'include',
+	•	ואתה עושה const data = await res.json(); ואז ממלא default values בשדות.
+
+טיפוסי bug: עושים setState(business) אבל הקומפוננטה משתמשת בשם אחר (currentBusiness או form), או שה-inputs “controlled” מקבלים value={form.name ?? ''} אבל form לא אותחל אף פעם.
+
+Checklist קצר:
+	•	useEffect בעת פתיחת המודל → קורא ל-API → setForm(data).
+	•	ה-inputs מקושרים לשדות נכון (name, phone_e164, …).
+	•	אם 401/403 ב-Network → אתה לא מחובר/אין הרשאה → המודל יראה ריק.
+	•	אם 200 אבל ה-JSON שונה (למשל phone ולא phone_e164) → ערכים ריקים. תיישר שמות שדות, או עשה map לפני setForm.
+
+2.3 שמירה (PATCH) עם CSRF
+	•	ב-FE: בעת שמירה → PATCH /api/admin/businesses/:id עם X-CSRFToken ו-credentials:'include'.
+	•	ב-שרת: מעדכן שדות מותרים בלבד (whitelist), מחזיר את הרשומה המעודכנת.
+
+2.4 בדיקת עשן (קליינט)
+
+DevTools → Network כשאתה פותח את BusinessEditModal:
+	•	GET /api/admin/businesses/:id → סטטוס 200, JSON עם השדות הנ״ל.
+	•	אם אתה רואה 404/500/HTML במקום JSON → תתקן את הנתיב/ה-catch-all של ה-SPA.
+	•	אם יש 200 אבל המודל ריק → ממפים לשמות שדות שגויים או לא מאתחלים state.
+
+⸻
+
+3) למנוע בלבול “נראה חדש אבל זה ישן”
+	•	תציב בבירור BUILD n בתחתית index.html (כבר עשית). ודא שאתה רואה את המספר האחרון.
+	•	על index.html שלח Cache-Control: no-store (assets מגובבים עם cache ארוך מותר).
+	•	Hard Refresh + נקה Service Worker אם היה.
+
+⸻
+
+4) Acceptance (לא סוגרים לפני שזה עובר)
+
+Impersonate
+	•	בלי X-CSRFToken → 400 csrf_token_missing.
+	•	עם X-CSRFToken → 200 JSON, ו־/api/auth/me מחזיר impersonating:true/tenant_id.
+
+BusinessEditModal
+	•	פתיחת המודל → Network מראה GET /api/admin/businesses/:id 200 JSON.
+	•	הטופס מתמלא בשם “שי דירות ומשרדים בע״מ” והטלפון +97233763805.
+	•	שמירה → PATCH 200, וה-UI מתעדכן (toast/רענון רשימה).
+
+אם אחד מהסעיפים נופל—שלח שלושה פרטים נקודתיים:
+	1.	צילום Network של הבקשה שנכשלת (Headers + Response).
+	2.	שם ה־endpoint שה-FE קורא בפועל.
+	3.	דוגמת JSON שה-BE מחזיר (כדי ליישר שמות שדות).
+
+זה יסגור סופית את ההתחזות ואת BusinessEditModal על נתונים אמיתיים, לא הצהרות.

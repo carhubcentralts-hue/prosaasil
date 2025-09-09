@@ -3,18 +3,55 @@ import { ApiError } from '../types/api';
 class HttpClient {
   private baseURL = '/';
 
+  private getCSRFToken(): string | null {
+    // מחפש CSRF token מ-cookie XSRF-TOKEN
+    const cookies = document.cookie.split(';');
+    for (let cookie of cookies) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'XSRF-TOKEN') {
+        return decodeURIComponent(value);
+      }
+    }
+    return null;
+  }
+
+  private async ensureCSRFToken(): Promise<void> {
+    // אם אין CSRF token, נקבל אחד מהשרת
+    if (!this.getCSRFToken()) {
+      try {
+        await fetch('/api/auth/csrf-token', { credentials: 'include' });
+      } catch (error) {
+        console.warn('Failed to get CSRF token:', error);
+      }
+    }
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint.startsWith('/') ? endpoint.slice(1) : endpoint}`;
     
+    // וודא שיש CSRF token לפני קריאות POST/PUT/PATCH/DELETE
+    if (options.method && !['GET', 'HEAD', 'OPTIONS'].includes(options.method)) {
+      await this.ensureCSRFToken();
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      ...options.headers as Record<string, string>,
+    };
+
+    // הוסף CSRF token לכל הקריאות הלא-GET
+    const csrfToken = this.getCSRFToken();
+    if (csrfToken && options.method && !['GET', 'HEAD', 'OPTIONS'].includes(options.method)) {
+      headers['X-CSRFToken'] = csrfToken;
+    }
+    
     const config: RequestInit = {
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
+      headers,
       ...options,
     };
 

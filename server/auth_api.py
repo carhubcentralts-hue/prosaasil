@@ -15,13 +15,18 @@ auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
 
 @auth_api.route('/csrf-token', methods=['GET'])
 def get_csrf_token():
-    """Get CSRF token for client"""
-    from flask_wtf.csrf import generate_csrf
+    """Get CSRF token for client - כפי שהוגדר בהנחיות"""
     try:
-        token = generate_csrf()
-        return jsonify({'csrf_token': token})
-    except:
-        return jsonify({'csrf_token': 'dev-token'})
+        # יצירת CSRF token חדש
+        token = secrets.token_hex(16)
+        session['_csrf_token'] = token
+        
+        # שליחה כ-cookie וגם כ-JSON
+        response = jsonify({'csrfToken': token})
+        response.set_cookie('XSRF-TOKEN', token, httponly=False, secure=False, samesite='Lax')
+        return response
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @csrf.exempt  # Proper SeaSurf exemption
 @auth_api.route('/login', methods=['POST', 'OPTIONS'])

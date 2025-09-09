@@ -32,12 +32,18 @@ def get_business(business_id):
         if not business:
             return jsonify({"error": "עסק לא נמצא"}), 404
         
+        # JSON לפי ההנחיות המדויקות
         return jsonify({
             "id": business.id,
             "name": business.name,
-            "business_type": business.business_type,
-            "is_active": business.is_active,
-            "created_at": business.created_at.isoformat() if business.created_at else None
+            "phone_e164": business.phone or "",
+            "email": f"office@{business.name.lower().replace(' ', '-')}.co.il",
+            "address": "",
+            "status": "active" if business.is_active else "inactive",
+            "whatsapp_status": "connected",
+            "call_status": "ready",
+            "created_at": business.created_at.isoformat() if business.created_at else None,
+            "updated_at": business.updated_at.isoformat() if business.updated_at else None
         })
     except Exception as e:
         logger.error(f"Error getting business {business_id}: {e}")
@@ -349,18 +355,8 @@ def toggle_user_status(user_id):
 
 @biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST'])
 @require_api_auth(['admin', 'manager'])
-@csrf_exempt
 def impersonate_business(business_id):
-    """Allow admin to impersonate business - COMPLETELY SKIP CSRF"""
-    # NUCLEAR CSRF BYPASS - DISABLE ALL CSRF CHECKS
-    from flask import g
-    g.csrf_exempt = True
-    g._csrf_token = 'NUCLEAR_BYPASSED'
-    g._csrf_valid = True
-    
-    # SKIP ALL CSRF VALIDATION 
-    # Force bypass of CSRF middleware by setting special flags
-    request.environ['HTTP_X_REQUESTED_WITH'] = 'XMLHttpRequest'
+    """Allow admin to impersonate business - WITH PROPER CSRF"""
     try:
         logger.info(f"🔄 Impersonation attempt for business {business_id}")
         current_admin = session.get('user')
@@ -396,25 +392,20 @@ def impersonate_business(business_id):
         }
         session['original_user'] = current_admin_serialized
         
-        # Switch session to business user
-        tenant_user_serialized = {
-            "id": tenant_user.id,
-            "name": tenant_user.name,
-            "email": tenant_user.email,
-            "role": "business",
-            "business_id": tenant_user.business_id,
-        }
-        session['user'] = tenant_user_serialized
-        session['tenant_id'] = business.id
+        # Switch session to business user - לפי ההנחיות המדויקות
         session['impersonating'] = True
+        session['tenant_id'] = business.id
+        session['role'] = 'business'
+        
+        # Store original user for restore
+        session['original_user'] = current_admin_serialized
         
         logger.info(f"✅ Admin successfully impersonating business {business_id}")
-        logger.info(f"📋 New session: {session.get('user')}")
+        logger.info(f"📋 Impersonating: tenant_id={business.id}, role=business")
         
         return jsonify({
             "ok": True, 
-            "tenantUser": session['user'], 
-            "tenant": {"id": business.id, "name": business.name}
+            "tenant_id": business.id
         }), 200
         
     except Exception as e:
@@ -423,22 +414,16 @@ def impersonate_business(business_id):
 
 @biz_mgmt_bp.route('/api/admin/impersonate/exit', methods=['POST'])
 @require_api_auth(['admin', 'manager'])
-@csrf_exempt
 def exit_impersonation():
     """Exit impersonation and restore original user"""
     try:
         logger.info("🔄 Exiting impersonation")
         
-        # Restore original user
-        original_user = session.get('original_user')
-        if not original_user:
-            logger.warning("❌ No original user found to restore")
-            return jsonify({"error": "No impersonation session found"}), 400
-        
-        session['user'] = original_user
-        session.pop('original_user', None)
+        # נקה את מצב ההתחזות - לפי ההנחיות
+        session.pop('impersonating', None)
         session.pop('tenant_id', None)
-        session['impersonating'] = False
+        session.pop('role', None)
+        session.pop('original_user', None)
         
         logger.info(f"✅ Successfully exited impersonation, restored: {session.get('user')}")
         

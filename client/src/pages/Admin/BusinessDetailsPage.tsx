@@ -95,21 +95,21 @@ export function BusinessDetailsPage() {
       // ✅ משתמש בBusinessAPI שמכיל את כל ההגדרות הנכונות
       const data = await businessAPI.getBusiness(parseInt(businessId));
       
-      // Convert API response to BusinessDetails format
+      // Convert API response לפורמט BusinessDetails - לפי ההנחיות
       const businessDetails: BusinessDetails = {
         id: data.id,
         name: data.name,
         business_type: data.business_type || 'real_estate',
-        phone: data.phone || '',
-        whatsapp: data.whatsapp,
-        status: data.status || 'active',
+        phone: data.phone_e164 || '',
+        whatsapp: null,
+        status: data.status as 'active' | 'inactive' | 'suspended',
         created_at: data.created_at || '',
         updated_at: data.updated_at,
-        users: data.users,
-        domain: data.domain || `${data.name?.toLowerCase().replace(/\s+/g, '-')}.co.il`,
-        defaultPhoneE164: data.phone || '',
-        whatsappJid: data.whatsapp || '',
-        timezone: 'Asia/Jerusalem', // Default timezone
+        users: 0,
+        domain: `${data.name?.toLowerCase().replace(/\s+/g, '-')}.co.il`,
+        defaultPhoneE164: data.phone_e164 || '',
+        whatsappJid: '',
+        timezone: 'Asia/Jerusalem',
         businessHours: {
           sun: [{ from: '09:00', to: '18:00' }],
           mon: [{ from: '09:00', to: '18:00' }],

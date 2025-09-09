@@ -58,56 +58,14 @@ export class BusinessAPI {
     });
   }
 
-  // Impersonate business - BYPASS CSRF completely  
+  // Impersonate business - עם CSRF תקין לפי ההנחיות
   async impersonate(id: number): Promise<ImpersonationData> {
-    const response = await fetch(`/api/admin/businesses/${id}/impersonate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-CSRFToken': 'BYPASS', // Fake CSRF token
-        'X-Bypass-CSRF': 'true'   // Special bypass header
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        _idempotencyKey: this.generateIdempotencyKey(),
-        _bypass_csrf: true
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Impersonation failed:', response.status, errorText);
-      throw new Error(`שגיאה בהתחזות: ${response.status}`);
-    }
-
-    return response.json();
+    return http.post(`/api/admin/businesses/${id}/impersonate`, {});
   }
 
-  // Exit impersonation - BYPASS CSRF completely
+  // Exit impersonation - עם CSRF תקין לפי ההנחיות
   async exitImpersonation(): Promise<BusinessActionResponse> {
-    const response = await fetch('/api/admin/impersonate/exit', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-CSRFToken': 'BYPASS', // Fake CSRF token
-        'X-Bypass-CSRF': 'true'   // Special bypass header
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        _idempotencyKey: this.generateIdempotencyKey(),
-        _bypass_csrf: true
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Exit impersonation failed:', response.status, errorText);
-      throw new Error(`שגיאה ביציאה מהתחזות: ${response.status}`);
-    }
-
-    return response.json();
+    return http.post('/api/admin/impersonate/exit', {});
   }
 
   // Suspend business
