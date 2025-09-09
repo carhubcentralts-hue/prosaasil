@@ -394,19 +394,13 @@ def impersonate_business(business_id):
         
         # Switch session to business user - לפי ההנחיות המדויקות
         session['impersonating'] = True
-        session['tenant_id'] = business.id
-        session['role'] = 'business'
-        
-        # Store original user for restore
-        session['original_user'] = current_admin_serialized
+        session['tenant_id'] = business.id  
+        session['role'] = 'business'  # או scope-Role
         
         logger.info(f"✅ Admin successfully impersonating business {business_id}")
-        logger.info(f"📋 Impersonating: tenant_id={business.id}, role=business")
+        logger.info(f"📋 Session: impersonating=True, tenant_id={business.id}, role=business")
         
-        return jsonify({
-            "ok": True, 
-            "tenant_id": business.id
-        }), 200
+        return jsonify({"ok": True, "tenant_id": business.id}), 200
         
     except Exception as e:
         logger.error(f"Error impersonating business {business_id}: {e}")
@@ -421,9 +415,8 @@ def exit_impersonation():
         
         # נקה את מצב ההתחזות - לפי ההנחיות
         session.pop('impersonating', None)
-        session.pop('tenant_id', None)
+        session.pop('tenant_id', None)  
         session.pop('role', None)
-        session.pop('original_user', None)
         
         logger.info(f"✅ Successfully exited impersonation, restored: {session.get('user')}")
         
