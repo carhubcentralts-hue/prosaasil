@@ -180,22 +180,19 @@ def create_app():
     # CSRF Protection - Single SeaSurf instance
     from server.extensions import csrf
     
+    # CSRF Configuration - לפי ההנחיות המדויקות
     app.config.update({
-        'SESSION_COOKIE_SECURE': False,   # preview
-        'SESSION_COOKIE_SAMESITE': 'Lax',
-        'SESSION_COOKIE_PATH': '/',
         'SEASURF_COOKIE_NAME': 'XSRF-TOKEN',
         'SEASURF_HEADER': 'X-CSRFToken',
+        'SESSION_COOKIE_SAMESITE': 'Lax',
+        'SESSION_COOKIE_SECURE': False,   # Preview בלבד
+        'SEASURF_EXEMPT_PATHS': (
+            '/api/auth/login', '/api/auth/logout',
+            '/webhook/', '/assets/', '/healthz', '/readyz', '/livez'
+        )
     })
     
-    # תיקון בעיית SeaSurf
-    try:
-        csrf.init_app(app)  # ← פעם אחת בלבד
-        print("🔒 SeaSurf CSRF Protection enabled")
-    except Exception as e:
-        print(f"⚠️ CSRF init warning: {e}")
-        # המשך בלי CSRF זמנית אם יש בעיה
-        pass
+    csrf.init_app(app)  # ← פעם אחת
     
     # CORS with security restrictions - FIXED for session cookies
     CORS(app, 

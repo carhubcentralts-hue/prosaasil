@@ -1,0 +1,227 @@
+סגור—מיישרים קו ומסדרים את זה קצה־אל־קצה. להלן הנחיה ממוקדת שתסגור (1) את קריסת SeaSurf/CSRF, (2) את ההתחזות שלא “נתפסת”, (3) את מודאל עריכת העסק שריק, ו־(4) הוספת “AI Prompt” חי בעמוד העסק (צפייה/עריכה/תיעוד גרסאות) כך שהכול יעבוד בפועל.
+
+⸻
+
+0) “איפוס” CSRF ו־WSGI (קריטי לפני הכול)
+
+מטרה: אינסטנס SeaSurf יחיד, קונפיג תקין, ושירות שעולה באמת כ־Flask app.
+
+עשה כך, לפי הסדר:
+	1.	אינסטנס יחיד
+server/extensions.py:
+	•	from flask_seasurf import SeaSurf
+	•	csrf = SeaSurf()
+אין מופעים נוספים בפרויקט. חפש ומחק:
+	•	CSRFProtect( מכל סוג.
+	•	SeaSurf( נוספים.
+	•	csrf.init_app( שמופיע מחוץ ל־app_factory.
+	2.	אתחול פעם אחת בלבד
+server/app_factory.py:
+
+from server.extensions import csrf
+app.config.update(
+    SEASURF_COOKIE_NAME='XSRF-TOKEN',
+    SEASURF_HEADER='X-CSRFToken',
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=False,   # Preview בלבד
+)
+csrf.init_app(app)  # ← פעם אחת
+
+הסר כל “קסם” כמו csrf.exempt_urls(...) שמקבל פונקציות/קאלבלים. זו הסיבה הטיפוסית ל־
+TypeError: startswith first arg must be str or a tuple of str, not function.
+
+	3.	רשימת Exempt בטוחה (מחרוזות בלבד!)
+אם אתה צריך פטורים ברמת נתיבים (נוח ל־Preview):
+
+app.config['SEASURF_EXEMPT_PATHS'] = (
+    '/api/auth/login', '/api/auth/logout',
+    '/webhook/', '/assets/', '/healthz', '/readyz', '/livez'
+)
+
+לא לפטור את ההתחזות! (ראה סעיף 2)
+
+	4.	WSGI שלא מטעה
+wsgi.py:
+
+from server.app_factory import create_app
+app = create_app()  # ← לוודא סוג ‘Flask’, לא פונקציה
+
+Procfile / הרצה:
+
+web: gunicorn -k eventlet -w 1 -b 0.0.0.0:$PORT wsgi:app
+
+אל תפעיל Gunicorn במצב “factory” אם אין לך צורך. ה-“returns function” קרה כי העלית callable במקום app.
+
+	5.	בדיקת אתחול יבש (Traceback אמיתי)
+
+pkill -f gunicorn || true; pkill -f "python wsgi.py" || true
+python - <<'PY'
+import traceback
+try:
+    from server.app_factory import create_app
+    app = create_app()
+    print("APP_CREATED_OK", type(app).__name__)
+except Exception:
+    traceback.print_exc()
+PY
+
+חייב לקבל APP_CREATED_OK Flask. אם לא—שלח את ה-Traceback.
+
+⸻
+
+1) ההתחזות — CSRF + Session נכון (בלי עקיפות)
+
+מטרה: POST מוגן CSRF, סשן מתעדכן, וה-FE מרענן קונטקסט.
+
+שרת (לא מוחרג מ-CSRF):
+	•	POST /api/admin/businesses/<id>/impersonate
+מאמת הרשאות, ואז:
+
+session['impersonating'] = True
+session['tenant_id']     = id
+session['role']          = 'business'  # או scope-Role
+return jsonify({"ok": True, "tenant_id": id}), 200
+
+
+	•	POST /api/admin/impersonate/exit → מנקה impersonating/tenant_id.
+
+קליינט:
+	•	דואג ש־cookie XSRF-TOKEN קיים ע”י קריאת GET /api/auth/csrf פעם אחת.
+	•	כל שינוי מצב שולח:
+	•	credentials:'include'
+	•	Content-Type:'application/json'
+	•	X-CSRFToken: <cookie XSRF-TOKEN>
+	•	אחרי 200 בהתחזות:
+	•	GET /api/auth/me → לעדכן קונטקסט
+	•	invalidate/refetch לכל שאילתות תלויות tenant (סקירה, עסקים, לידים, וואטסאפ, שיחות)
+
+בדיקות עשן:
+
+# ללא טוקן → 400 csrf_token_missing
+curl -i -X POST /api/admin/businesses/1/impersonate -H 'Content-Type: application/json' --data '{}' -c /tmp/c -b /tmp/c
+
+# קבל טוקן ואז עם טוקן → 200
+TOKEN=$(curl -s -c /tmp/c -b /tmp/c /api/auth/csrf | python -c "import sys,json;print(json.load(sys.stdin)['csrfToken'])")
+curl -i -X POST /api/admin/businesses/1/impersonate \
+  -H 'Content-Type: application/json' -H "X-CSRFToken: $TOKEN" \
+  --data '{}' -c /tmp/c -b /tmp/c
+curl -i /api/auth/me -c /tmp/c -b /tmp/c   # צריך להחזיר impersonating:true/tenant_id
+
+
+⸻
+
+2) מודאל “עריכת עסק” — למה ריק ואיך ממלאים בפועל
+
+מטרה: GET יחיד מחזיר JSON עקבי; ה-FE ממפה בדיוק את אותם שמות.
+
+שרת:
+	•	GET /api/admin/businesses/<id> → JSON:
+
+{
+  "id": 1,
+  "name": "שי דירות ומשרדים בע״מ",
+  "phone_e164": "+97233763805",
+  "email": "office@shai-realestate.co.il",
+  "address": "",
+  "status": "active",
+  "whatsapp_status": "connected",
+  "call_status": "ready",
+  "created_at": "...",
+  "updated_at": "..."
+}
+
+
+	•	PATCH /api/admin/businesses/<id> → מעדכן רק שדות מאושרים, מוחזר JSON מעודכן. דורש CSRF.
+
+FE (Modal):
+	•	בפתיחה (useEffect על open === true) → fetch('/api/admin/businesses/${id}', {credentials:'include'}) → setForm(data).
+	•	inputs מקבלים value בדיוק לפי השדה (אל תשנה phone_e164 ל־phone בלי map מפורש).
+	•	שמירה → PATCH עם X-CSRFToken. אחרי 200 → עדכן טבלה/קארד ורענן KPI אם צריך.
+	•	אם Network מראה 401/403/404 → זו הסיבה לריק (לא נתונים). תקן הרשאה/נתיב.
+
+⸻
+
+3) “AI Prompt” בעמוד העסק — צפייה, עריכה, היסטוריה, והחלת שינוי בזמן אמת
+
+מטרה: לעסק יש פרומפט נוכחי שניתן לצפייה/עריכה, עם רוויזיות והחלה מיידית על שיחות.
+
+3.1 DB
+	•	טבלה business_settings:
+	•	tenant_id (PK/FK), ai_prompt (TEXT), updated_by, updated_at
+	•	טבלה prompt_revisions:
+	•	id PK, tenant_id, version (int, auto-increment per tenant),
+	•	prompt (TEXT), changed_by, changed_at
+	•	אינדקס (tenant_id, version).
+
+3.2 API
+	•	Admin:
+	•	GET /api/admin/businesses/<id>/prompt → { "prompt": "...", "version": 7, "updated_at": "..." }
+	•	PUT /api/admin/businesses/<id>/prompt (CSRF) → body: { "prompt": "..." }
+	•	ולוגיקה: שמירת נוסח בטבלת settings + יצירת prompt_revisions (version++). מחזיר גרסה חדשה.
+	•	Business (Impersonated):
+	•	GET /api/business/current/prompt
+	•	PUT /api/business/current/prompt (CSRF)
+
+ולידציות שרת:
+	•	אורך מקס’ (למשל 6–10k תווים).
+	•	חסימת placeholders מסוכנים (למשל הזרקות {...} אם רלוונטי).
+	•	Sanitization בסיסי של קלט.
+
+3.3 Runtime Apply (חשוב!)
+	•	אחרי PUT מוצלח:
+	•	פרסם אירוע (למשל Redis PubSub) agent-config:<tenant_id> עם ה־version החדש.
+	•	צד ה־Call/WS מזהה את האירוע ומרענן את הקונפיג/זיכרון (לא דורש restart).
+	•	לוג: Agent prompt reloaded for tenant <id>, version <n>.
+
+3.4 UI בעמוד העסק
+	•	כרטיס “AI Prompt (Agent Persona)”:
+	•	תצוגת נוכחי (קריאה בלבד) + כפתור “Edit”.
+	•	בעריכה: Textarea 12–16 שורות, מונה תווים, “Preview”, “Save”, “Cancel”.
+	•	מטה־מידע: Version, Updated at/by, “View history” (modal של דיפ/רשימת גרסאות), “Revert”.
+	•	כפתור “Test call with this prompt” (פותח חלון בדיקות—אפשר stub כרגע).
+	•	RTL מלא, מובייל: כפתורי Save/Cancel צפים בתחתית.
+
+FE תזכורות:
+	•	קריאות GET/PUT תמיד עם credentials:'include'.
+	•	PUT עם X-CSRFToken.
+	•	אחרי Save → toast “נשמר”, Refetch prompt, וסיגנל ל־Call UI אם פתוח.
+
+⸻
+
+4) בדיקות עשן (Acceptance) – לא סוגרים לפני שזה עובר
+
+שרת:
+
+# התחזות
+TOKEN=$(curl -s -c /tmp/c -b /tmp/c /api/auth/csrf | python -c "import sys,json;print(json.load(sys.stdin)['csrfToken'])")
+curl -i -X POST /api/admin/businesses/1/impersonate -H 'Content-Type: application/json' -H "X-CSRFToken: $TOKEN" --data '{}' -c /tmp/c -b /tmp/c
+curl -i /api/auth/me -c /tmp/c -b /tmp/c  # impersonating:true, tenant_id=1
+
+# עסק – GET נתוני עריכה
+curl -i /api/admin/businesses/1 -c /tmp/c -b /tmp/c  # 200 JSON עם name/phone_e164 וכו'
+
+# פרומפט – GET/PUT
+curl -i /api/admin/businesses/1/prompt -c /tmp/c -b /tmp/c
+curl -i -X PUT /api/admin/businesses/1/prompt \
+  -H 'Content-Type: application/json' -H "X-CSRFToken: $TOKEN" \
+  --data '{"prompt":"You are Lea, a helpful Hebrew real-estate AI..."}' \
+  -c /tmp/c -b /tmp/c
+
+קליינט (Network):
+	•	POST /api/admin/businesses/:id/impersonate → 200, ואח”כ /api/auth/me מציג impersonating.
+	•	פתיחת BusinessEditModal → GET /api/admin/businesses/:id 200; השדות מלאים.
+	•	כרטיס “AI Prompt” → GET prompt 200 מציג טקסט; PUT prompt 200; אחריו רפרוש של התצוגה.
+
+⸻
+
+5) אם משהו עדיין “לא תופס” – מה לשלוח כדי לאבחן בשורה
+	1.	Traceback מלא של SeaSurf (שתי שורות סביב startswith) – כדי לסמן בדיוק מאיפה מגיע path הלא־מחרוזתי.
+	2.	צילום Network של:
+	•	POST /api/admin/businesses/:id/impersonate (Headers+Response)
+	•	GET /api/admin/businesses/:id (Headers+Response)
+	•	GET/PUT prompt (Headers+Response)
+	3.	פלט View Source (BUILD # עדכני) + כותרות של index.html (Cache-Control: no-store).
+
+⸻
+
+ביצוע של 0→4 יסגור את הקריסות, יחזיר את ההתחזות לעבוד עם CSRF תקין, ימלא את מודאל עריכת העסק בנתונים אמתיים, וייתן לך ניהול פרומפט חכם מתוך עמוד העסק – כולל גרסאות והחלה בזמן אמת.
