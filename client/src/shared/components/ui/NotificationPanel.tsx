@@ -421,8 +421,11 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // Memoized callback to prevent unnecessary rerenders
-  const memoizedOnUnreadCountChange = useCallback(onUnreadCountChange, [onUnreadCountChange]);
+  // Memoized callback to prevent unnecessary rerenders - FIXED: Handle undefined case
+  const memoizedOnUnreadCountChange = useCallback(
+    onUnreadCountChange || (() => {}), 
+    [onUnreadCountChange]
+  );
 
   // Initialize notifications when component mounts or user changes - optimized
   React.useEffect(() => {

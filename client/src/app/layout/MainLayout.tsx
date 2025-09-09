@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -133,10 +133,11 @@ export function MainLayout() {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0); // Will be set from notifications
   
-  const handleUnreadCountChange = (count: number) => {
+  // FIXED: Wrap in useCallback to prevent infinite loop
+  const handleUnreadCountChange = useCallback((count: number) => {
     console.log('📮 MainLayout מקבל עדכון מונה:', count);
     setUnreadNotifications(count);
-  };
+  }, []); // Empty dependency array - function doesn't depend on any values
   // Impersonation state
   const [impersonationState, setImpersonationState] = useState({
     isImpersonating: false,
