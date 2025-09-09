@@ -218,6 +218,10 @@ def create_app():
         from server.security_audit import AuditLogger, SessionSecurity
         audit_logger = AuditLogger(app)
         
+        # AI Prompt Management Blueprint - לפי ההנחיות
+        from server.routes_ai_prompt import ai_prompt_bp
+        app.register_blueprint(ai_prompt_bp)
+        
         @app.before_request  
         def setup_security_context():
             """Setup security context for each request"""

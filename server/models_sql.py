@@ -48,10 +48,32 @@ class CallLog(db.Model):
     status = db.Column(db.String(32), default="received")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+# AI Prompt Management - לפי ההנחיות המדויקות
+class BusinessSettings(db.Model):
+    __tablename__ = "business_settings"
+    tenant_id = db.Column(db.Integer, db.ForeignKey("businesses.id"), primary_key=True)
+    ai_prompt = db.Column(db.Text)
+    updated_by = db.Column(db.String(255))
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class PromptRevisions(db.Model):
+    __tablename__ = "prompt_revisions"
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey("businesses.id"), nullable=False)
+    version = db.Column(db.Integer, nullable=False)  # auto-increment per tenant
+    prompt = db.Column(db.Text)
+    changed_by = db.Column(db.String(255))
+    changed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # אינדקס (tenant_id, version)
+    __table_args__ = (
+        db.Index('idx_tenant_version', 'tenant_id', 'version'),
+    )
+
 class WhatsAppMessage(db.Model):
     __tablename__ = "whatsapp_message"
     id = db.Column(db.Integer, primary_key=True)
-    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("businesses.id"), nullable=False, index=True)
     to_number = db.Column(db.String(64), index=True)      # למי נשלח/ממי התקבל
     direction = db.Column(db.String(8))                   # 'out' / 'in'
     body = db.Column(db.Text)
