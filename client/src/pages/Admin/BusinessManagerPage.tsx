@@ -473,11 +473,23 @@ export function BusinessManagerPage() {
   };
 
   const handleNewBusiness = () => {
-    // Create new business functionality
-    const businessName = prompt('הכנס את שם העסק החדש:');
-    if (businessName && businessName.trim()) {
-      alert(`העסק "${businessName}" נוסף בהצלחה למערכת!`);
-      console.log(`עסק חדש נוצר: ${businessName}`);
+    // פותח מודל עריכה עם עסק חדש (null = יצירת עסק חדש)
+    setSelectedBusiness(null);
+    setEditModalOpen(true);
+  };
+
+  const handleCreateBusiness = async (data: any) => {
+    try {
+      // ✅ יוצר עסק חדש בשרת
+      await businessActions.createBusiness(data);
+      setEditModalOpen(false);
+      setSelectedBusiness(null);
+      
+      // ✅ מרענן את הרשימה מהשרת אחרי יצירה
+      await fetchBusinesses();
+    } catch (error) {
+      console.error('שגיאה ביצירת עסק:', error);
+      // אם יש שגיאה, לא סוגרים את המודל כדי שהמשתמש יכול לנסות שוב
     }
   };
 
@@ -636,7 +648,7 @@ export function BusinessManagerPage() {
           setEditModalOpen(false);
           setSelectedBusiness(null);
         }}
-        onSave={handleSaveBusiness}
+        onSave={selectedBusiness ? handleSaveBusiness : handleCreateBusiness}
         isLoading={businessActions.isLoading('edit', selectedBusiness?.id)}
       />
     </div>

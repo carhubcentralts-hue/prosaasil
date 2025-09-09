@@ -25,6 +25,24 @@ export async function editBusinessAction(
   }
 }
 
+export async function createBusinessAction(
+  data: BusinessEditData
+): Promise<BusinessActionResponse> {
+  try {
+    const result = await businessAPI.createBusiness(data);
+    return {
+      ok: true,
+      message: 'עסק נוצר בהצלחה',
+      data: result
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'שגיאה ביצירת העסק'
+    };
+  }
+}
+
 export async function resetPasswordAction(
   id: number, 
   password: string

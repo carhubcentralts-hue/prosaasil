@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   editBusinessAction,
+  createBusinessAction,
   resetPasswordAction,
   impersonateAction,
   exitImpersonationAction,
@@ -90,6 +91,36 @@ export function useBusinessActions() {
       showToast.error(error instanceof Error ? error.message : 'שגיאה בעדכון העסק');
     } finally {
       setActionLoading(`edit-${business.id}`, false);
+    }
+  }, [capabilities.canEdit, setActionLoading]);
+
+  // Create business
+  const createBusiness = useCallback(async (data: BusinessEditData) => {
+    if (!capabilities.canEdit) {
+      showToast.error('אין לך הרשאה ליצור עסקים');
+      return;
+    }
+
+    // Validate data
+    const validationErrors = validateBusinessData(data);
+    if (validationErrors.length > 0) {
+      showToast.error(validationErrors.join(', '));
+      return;
+    }
+
+    setActionLoading('create-business', true);
+
+    try {
+      const result = await createBusinessAction(data);
+      if (result.ok) {
+        showToast.success('עסק נוצר בהצלחה');
+      } else {
+        showToast.error(result.message || 'שגיאה ביצירת העסק');
+      }
+    } catch (error) {
+      showToast.error(error instanceof Error ? error.message : 'שגיאה ביצירת העסק');
+    } finally {
+      setActionLoading('create-business', false);
     }
   }, [capabilities.canEdit, setActionLoading]);
 
@@ -320,6 +351,7 @@ export function useBusinessActions() {
   return {
     // Action handlers
     editBusiness,
+    createBusiness,
     resetPassword,
     impersonate,
     exitImpersonation,
