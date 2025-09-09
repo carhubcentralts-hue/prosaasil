@@ -236,9 +236,9 @@ def api_admin_businesses():
                 "name": item.name,
                 "status": "active" if item.is_active else "inactive",
                 "created_at": item.created_at.isoformat() if item.created_at else None,
-                "email": item.email,
-                "phone": item.phone,
-                "address": item.address
+                "phone": item.phone_number,
+                "whatsapp": item.whatsapp_number,
+                "business_type": item.business_type
             } for item in items],
             "total": total,
             "page": page,

@@ -13,13 +13,14 @@ export class BusinessAPI {
     pageSize?: number;
     query?: string;
     status?: string;
-  }): Promise<{ businesses: Business[]; total: number }> {
+  }): Promise<{ items: Business[]; total: number; page: number; pageSize: number }> {
     const searchParams = new URLSearchParams();
     if (params?.page) searchParams.set('page', params.page.toString());
     if (params?.pageSize) searchParams.set('pageSize', params.pageSize.toString());
     if (params?.query) searchParams.set('query', params.query);
     if (params?.status) searchParams.set('status', params.status);
 
+    console.log("🔄 GET /api/admin/businesses - REAL DATA ENDPOINT");
     return http.get(`/api/admin/businesses?${searchParams}`);
   }
 

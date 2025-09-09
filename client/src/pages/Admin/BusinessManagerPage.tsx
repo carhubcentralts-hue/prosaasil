@@ -54,7 +54,7 @@ function BusinessTable({ businesses, onBusinessClick, onActionClick }: BusinessT
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
               <th className="text-right py-3 px-4 text-sm font-medium text-slate-700">שם העסק</th>
-              <th className="text-right py-3 px-4 text-sm font-medium text-slate-700">דומיין</th>
+              <th className="text-right py-3 px-4 text-sm font-medium text-slate-700">תחום עסקי</th>
               <th className="text-right py-3 px-4 text-sm font-medium text-slate-700">טלפון/WhatsApp</th>
               <th className="text-right py-3 px-4 text-sm font-medium text-slate-700">משתמשים</th>
               <th className="text-right py-3 px-4 text-sm font-medium text-slate-700">סטטוס</th>
@@ -82,20 +82,21 @@ function BusinessTable({ businesses, onBusinessClick, onActionClick }: BusinessT
                 </td>
                 <td className="py-4 px-4">
                   <div className="flex items-center gap-2">
-                    <Globe className="h-4 w-4 text-slate-400" />
-                    <span className="text-sm text-slate-600 direction-ltr">{business.domain}</span>
+                    <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
+                      {business.business_type}
+                    </span>
                   </div>
                 </td>
                 <td className="py-4 px-4">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <Phone className="h-3 w-3 text-slate-400" />
-                      <span className="text-xs text-slate-600 direction-ltr">{business.defaultPhoneE164}</span>
+                      <span className="text-xs text-slate-600 direction-ltr">{business.phone || 'לא הוגדר'}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-green-600">WA</span>
                       <span className="text-xs text-slate-500 direction-ltr truncate max-w-[120px]">
-                        {business.whatsappJid.split('@')[0]}
+                        {business.whatsapp || 'לא הוגדר'}
                       </span>
                     </div>
                   </div>
@@ -129,7 +130,7 @@ function BusinessTable({ businesses, onBusinessClick, onActionClick }: BusinessT
                 <td className="py-4 px-4">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-slate-400" />
-                    <span className="text-sm text-slate-600">{formatDate(business.createdAt)}</span>
+                    <span className="text-sm text-slate-600">{formatDate(business.created_at)}</span>
                   </div>
                 </td>
                 <td className="py-4 px-4">
@@ -283,7 +284,7 @@ function BusinessCardList({ businesses, onBusinessClick, onActionClick }: Busine
               </div>
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-slate-400" />
-                <span className="text-sm text-slate-600">{formatDate(business.createdAt)}</span>
+                <span className="text-sm text-slate-600">{formatDate(business.created_at)}</span>
               </div>
             </div>
           </div>
@@ -370,16 +371,16 @@ export function BusinessManagerPage() {
       
       console.log('📊 תגובת API:', data);
       
-      // Convert API response to Business format  
-      const businesses = data.businesses?.map((item: any) => ({
+      // Convert API response to Business format - עדכן ל-items ולשדות האמיתיים
+      const businesses = data.items?.map((item: any) => ({
         id: item.id,
         name: item.name,
-        domain: item.domain,
-        defaultPhoneE164: item.phone || '',
-        whatsappJid: item.whatsappId || '',
-        users: item.activeUsers || 0,
-        status: item.status as 'active' | 'suspended',
-        createdAt: item.createdAt
+        business_type: item.business_type,
+        phone: item.phone || '',
+        whatsapp: item.whatsapp || '',
+        users: 0, // TODO: עדיין לא מחושב בשרת
+        status: item.status as 'active' | 'inactive' | 'suspended',
+        created_at: item.created_at
       })) || [];
       
       console.log('🏢 עסקים אחרי עיבוד:', businesses);

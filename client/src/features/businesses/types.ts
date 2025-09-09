@@ -1,17 +1,12 @@
 export interface Business {
   id: number;
   name: string;
-  domain: string;
-  defaultPhoneE164: string;
-  whatsappJid: string;
-  timezone?: string;
-  businessHours?: {
-    [key: string]: Array<{ from: string; to: string; }>;
-  };
-  address?: string;
-  status: 'active' | 'suspended';
-  createdAt: string;
-  updatedAt?: string;
+  business_type: string;
+  phone: string;
+  whatsapp: string;
+  status: 'active' | 'inactive' | 'suspended';
+  created_at: string;
+  updated_at?: string;
   users?: number;
   stats?: {
     users: number;
