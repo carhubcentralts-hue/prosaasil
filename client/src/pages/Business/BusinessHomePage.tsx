@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Users, 
   MessageCircle, 
@@ -10,12 +10,18 @@ import {
   XCircle,
   Clock,
   Activity,
-  Loader2
+  Loader2,
+  Bot,
+  Edit3,
+  Save,
+  RotateCcw,
+  History
 } from 'lucide-react';
 import { Card, StatCard, Badge } from '../../shared/components/ui/Card';
 import { QuickManagementActions } from '../../shared/components/ui/ManagementCard';
 import { cn } from '../../shared/utils/cn';
 import { useBusinessDashboard } from '../../features/business/hooks';
+import { useAIPrompt, type PromptHistoryItem } from '../../features/business/useAIPrompt';
 
 // Removed mock data - now using real API calls
 
@@ -143,6 +149,186 @@ function RecentActivityCard({ activity, isLoading }: { activity?: any[], isLoadi
   );
 }
 
+function AIPromptCard() {
+  const { 
+    promptData, 
+    history, 
+    isLoading, 
+    historyLoading,
+    error,
+    isEditing, 
+    editablePrompt, 
+    setEditablePrompt,
+    startEditing, 
+    cancelEditing, 
+    savePrompt,
+    isSaving,
+    saveError 
+  } = useAIPrompt();
+  
+  const [showHistory, setShowHistory] = useState(false);
+
+  if (isLoading) {
+    return (
+      <Card className="p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-50 rounded-lg">
+              <Bot className="h-6 w-6 text-purple-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">AI Agent (לאה)</h3>
+              <p className="text-sm text-slate-600">הגדרות שיחה חכמה</p>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+          <span className="text-gray-600 mr-2">טוען הגדרות...</span>
+        </div>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="p-6 mb-6 bg-red-50 border-red-200">
+        <div className="flex items-center gap-3 text-red-700">
+          <XCircle className="h-5 w-5" />
+          <div>
+            <p className="font-medium">שגיאה בטעינת הגדרות AI</p>
+            <p className="text-sm text-red-600">{error.message}</p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-purple-50 rounded-lg">
+            <Bot className="h-6 w-6 text-purple-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">AI Agent (לאה)</h3>
+            <p className="text-sm text-slate-600">
+              {promptData ? `גרסה ${promptData.version} • עודכן ${new Date(promptData.lastUpdated).toLocaleDateString('he-IL')}` : 'הגדרות שיחה חכמה'}
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            title="היסטוריית גרסאות"
+          >
+            <History className="h-4 w-4 text-gray-600" />
+          </button>
+          {!isEditing && (
+            <button
+              onClick={startEditing}
+              className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+            >
+              <Edit3 className="h-4 w-4" />
+              ערוך
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Error Display */}
+      {saveError && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center gap-2 text-red-700">
+            <XCircle className="h-4 w-4" />
+            <span className="text-sm">שגיאה בשמירה: {saveError.message}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content */}
+      {isEditing ? (
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              הנחיות לסוכן הדיגיטלי
+            </label>
+            <textarea
+              value={editablePrompt}
+              onChange={(e) => setEditablePrompt(e.target.value)}
+              className="w-full h-40 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
+              placeholder="הכנס את ההנחיות לסוכן הדיגיטלי (לאה) שיטפל בשיחות נכנסות..."
+              dir="rtl"
+            />
+          </div>
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={cancelEditing}
+              disabled={isSaving}
+              className="px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <RotateCcw className="h-4 w-4 inline mr-1" />
+              ביטול
+            </button>
+            <button
+              onClick={savePrompt}
+              disabled={isSaving || !editablePrompt.trim()}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              שמור
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-gray-50 rounded-lg p-4">
+          <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+            {promptData?.prompt || 'לא הוגדר פרומפט עדיין'}
+          </p>
+        </div>
+      )}
+
+      {/* History Section */}
+      {showHistory && (
+        <div className="mt-6 pt-4 border-t border-gray-200">
+          <h4 className="text-md font-semibold text-gray-900 mb-3">היסטוריית גרסאות</h4>
+          {historyLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+              <span className="text-gray-600 text-sm mr-2">טוען היסטוריה...</span>
+            </div>
+          ) : history && history.length > 0 ? (
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {history.map((item: PromptHistoryItem, index: number) => (
+                <div key={index} className="bg-white p-3 rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <Badge variant="neutral">גרסה {item.version}</Badge>
+                    <span className="text-xs text-gray-500">
+                      {new Date(item.createdAt).toLocaleString('he-IL')} • {item.updatedBy}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-700 line-clamp-2">
+                    {item.prompt.substring(0, 120)}
+                    {item.prompt.length > 120 ? '...' : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 text-center py-4">אין היסטוריה זמינה</p>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function BusinessHomePage() {
   // Fetch real dashboard data
   const { stats, isLoadingStats, statsError, activity, isLoadingActivity, activityError, refetch } = useBusinessDashboard();
@@ -265,6 +451,9 @@ export function BusinessHomePage() {
             icon={<TrendingUp className="h-6 w-6" />}
           />
         </div>
+
+        {/* AI Agent Prompt Management */}
+        <AIPromptCard />
 
         {/* Management Actions - User management only */}
         <div className="mb-6">
