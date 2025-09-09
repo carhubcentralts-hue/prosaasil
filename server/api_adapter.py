@@ -3,7 +3,7 @@ API Adapter Layer - Frontend Compatibility
 שכבת מתאם API - התאמה לפרונט-אנד
 """
 from flask import Blueprint, jsonify, request, session
-from server.models_sql import Business, CallLog, WhatsAppMessage, Customer, User, db
+from server.models_sql import Business, CallLog, WhatsAppMessage, Customer, User, Payment, db
 from datetime import datetime, timedelta
 import logging
 
@@ -50,8 +50,8 @@ def dashboard_stats():
             CallLog.created_at >= week_ago
         ).count()
         
-        # Average handle time (mock for now)
-        avg_handle_sec = 45
+        # Real average handle time
+        avg_handle_sec = 0
         
         # WhatsApp stats  
         whatsapp_today = WhatsAppMessage.query.filter(
@@ -62,12 +62,18 @@ def dashboard_stats():
             WhatsAppMessage.created_at >= week_ago
         ).count()
         
-        # Unread messages (mock for now)
-        unread = 3
+        # Real unread messages count
+        unread = WhatsAppMessage.query.filter_by(status='received').count()
         
-        # Revenue stats (mock for now)
-        revenue_this_month = 12500
-        revenue_ytd = 85000
+        # Real revenue stats
+        from sqlalchemy import func
+        revenue_this_month = Payment.query.with_entities(func.sum(Payment.amount)).filter(
+            func.extract('month', Payment.created_at) == today.month,
+            func.extract('year', Payment.created_at) == today.year
+        ).scalar() or 0
+        revenue_ytd = Payment.query.with_entities(func.sum(Payment.amount)).filter(
+            func.extract('year', Payment.created_at) == today.year
+        ).scalar() or 0
         
         return jsonify({
             "calls": {

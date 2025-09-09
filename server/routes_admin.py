@@ -53,8 +53,8 @@ def api_overview():
         active_businesses = Business.query.filter_by(is_active=True).count()
         total_businesses = Business.query.count()
         
-        # Calculate average call duration for the period (mock - no duration field available)
-        avg_call_duration = 120  # Mock average call duration in seconds
+        # Calculate average call duration for the period (no mock data)
+        avg_call_duration = 0  # Real data only
         
         # Recent activity for the period
         recent_calls = CallLog.query.filter(
@@ -203,8 +203,10 @@ def api_kpis_businesses():
 def api_kpis_revenue():
     """Get revenue KPI"""
     try:
-        # Mock revenue - integrate with Payment model later
-        return "₪15,000"
+        # Real revenue from Payment model
+        from server.models_sql import Payment
+        total_revenue = Payment.query.with_entities(db.func.sum(Payment.amount)).scalar() or 0
+        return f"₪{total_revenue:,}"
     except Exception as e:
         return "₪0"
 
