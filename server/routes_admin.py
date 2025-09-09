@@ -255,7 +255,9 @@ def api_admin_businesses():
             items.append({
                 "id": business.id,
                 "name": business.name,
+                "business_type": business.business_type or "נדל\"ן",  # ✅ הוספה: חסר בתגובה המקורית
                 "phone_e164": phone_e164,
+                "whatsapp_number": business.whatsapp_number or "",  # ✅ הוספה: נדרש לפרונטאנד
                 "status": "active" if business.is_active else "suspended",
                 "whatsapp_status": "connected" if business.whatsapp_enabled else "disconnected",
                 "call_status": "ready" if business.calls_enabled else "disabled",

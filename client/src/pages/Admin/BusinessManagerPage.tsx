@@ -371,16 +371,19 @@ export function BusinessManagerPage() {
       
       console.log('📊 תגובת API:', data);
       
-      // Convert API response to Business format - עדכן ל-items ולשדות האמיתיים
+      // Convert API response to Business format - תיקון שדות לפי הנתונים האמיתיים מהשרת
       const businesses = data.items?.map((item: any) => ({
         id: item.id,
         name: item.name,
-        business_type: item.business_type,
-        phone: item.phone || '',
-        whatsapp: item.whatsapp || '',
+        business_type: item.business_type || 'נדל"ן',
+        phone: item.phone_e164 || '',  // ✅ תיקון: השרת מחזיר phone_e164
+        whatsapp: item.whatsapp_number || '', // ✅ תיקון: השרת מחזיר whatsapp_number
         users: 0, // TODO: עדיין לא מחושב בשרת
         status: item.status as 'active' | 'inactive' | 'suspended',
-        created_at: item.created_at
+        created_at: item.created_at,
+        // נתונים נוספים לצורך debug
+        call_status: item.call_status,
+        whatsapp_status: item.whatsapp_status
       })) || [];
       
       console.log('🏢 עסקים אחרי עיבוד:', businesses);
