@@ -19,7 +19,8 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  UserX
+  UserX,
+  Bot
 } from 'lucide-react';
 import { BusinessEditModal } from '../../features/businesses/components/BusinessEditModal';
 import { useBusinessActions } from '../../features/businesses/useBusinessActions';
@@ -145,6 +146,17 @@ function BusinessTable({ businesses, onBusinessClick, onActionClick }: BusinessT
                       data-testid={`button-view-${business.id}`}
                     >
                       <Eye className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onActionClick('agent', business);
+                      }}
+                      className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                      title="AI Agent"
+                      data-testid={`button-agent-${business.id}`}
+                    >
+                      <Bot className="h-4 w-4" />
                     </button>
                     <button
                       onClick={(e) => {
@@ -434,6 +446,9 @@ export function BusinessManagerPage() {
     switch (action) {
       case 'view':
         businessActions.viewBusiness(business);
+        break;
+      case 'agent':
+        navigate(`/app/admin/businesses/${business.id}/agent`);
         break;
       case 'edit':
         setSelectedBusiness(business);
