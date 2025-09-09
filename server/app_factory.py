@@ -72,18 +72,20 @@ def create_app():
                 'application_name': 'AgentLocator-71'
             }
         },
-        # CSRF Protection
-        'CSRF_ENABLED': True,
-        'CSRF_SESSION_KEY': '_csrf_token',
-        'WTF_CSRF_TIME_LIMIT': 3600,  # 1 hour
-        'WTF_CSRF_SSL_STRICT': False,  # Allow HTTP in development
-        
-        # Session Security
+        # Session Security - לפי ההנחיות המדויקות
         'SESSION_COOKIE_SECURE': False,  # Set to True in production with HTTPS
         'SESSION_COOKIE_HTTPONLY': True,
         'SESSION_COOKIE_SAMESITE': 'Lax',
         'PERMANENT_SESSION_LIFETIME': timedelta(hours=8),  # 8 hour timeout
-        'SESSION_REFRESH_EACH_REQUEST': True
+        'SESSION_REFRESH_EACH_REQUEST': True,
+        
+        # CSRF Protection - שמות אחידים לפי ההנחיות המדויקות
+        'SEASURF_COOKIE_NAME': 'XSRF-TOKEN',   # שם הקוקי
+        'SEASURF_HEADER': 'X-CSRFToken',       # שם ההדר ש-SeaSurf יבדוק
+        'SEASURF_EXEMPT_PATHS': [              # פטורים - רק מחרוזות!
+            '/api/auth/login', '/api/auth/logout', '/api/auth/forgot', '/api/auth/reset',
+            '/webhook/', '/assets/', '/healthz', '/readyz', '/livez', '/version'
+        ]
     })
     
     # ProxyFix for proper URL handling behind proxy
@@ -177,21 +179,8 @@ def create_app():
                         session['_session_start'] = datetime.now().isoformat()
                         session['_csrf_token'] = secrets.token_hex(16)
     
-    # CSRF Protection - Single SeaSurf instance
+    # CSRF Protection - Single SeaSurf instance (לפי ההנחיות המדויקות)
     from server.extensions import csrf
-    
-    # CSRF Configuration - לפי ההנחיות המדויקות
-    app.config.update({
-        'SEASURF_COOKIE_NAME': 'XSRF-TOKEN',
-        'SEASURF_HEADER': 'X-CSRFToken',
-        'SESSION_COOKIE_SAMESITE': 'Lax',
-        'SESSION_COOKIE_SECURE': False,   # Preview בלבד
-        'SEASURF_EXEMPT_PATHS': (
-            '/api/auth/login', '/api/auth/logout',
-            '/webhook/', '/assets/', '/healthz', '/readyz', '/livez'
-        )
-    })
-    
     csrf.init_app(app)  # ← פעם אחת
     
     # CORS with security restrictions - FIXED for session cookies
