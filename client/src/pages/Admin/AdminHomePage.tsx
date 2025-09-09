@@ -42,7 +42,7 @@ function ProviderStatusCard({ providerStatus }: { providerStatus?: any }) {
       
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="flex items-center gap-2">
-          <Badge variant={providerStatus.twilio?.up ? "success" : "error"}>
+          <Badge variant={providerStatus.twilio?.up ? "success" : "danger"}>
             {providerStatus.twilio?.up ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
             Twilio
           </Badge>
@@ -52,14 +52,14 @@ function ProviderStatusCard({ providerStatus }: { providerStatus?: any }) {
         </div>
 
         <div className="flex items-center gap-2">
-          <Badge variant={providerStatus.baileys?.up ? "success" : "error"}>
+          <Badge variant={providerStatus.baileys?.up ? "success" : "danger"}>
             {providerStatus.baileys?.up ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
             Baileys
           </Badge>
         </div>
 
         <div className="flex items-center gap-2">
-          <Badge variant={providerStatus.db?.up ? "success" : "error"}>
+          <Badge variant={providerStatus.db?.up ? "success" : "danger"}>
             {providerStatus.db?.up ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
             Database
           </Badge>

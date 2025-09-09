@@ -13,7 +13,7 @@ from sqlalchemy import func
 admin_bp = Blueprint("admin_bp", __name__)
 
 @admin_bp.get("/api/admin/overview")
-@require_api_auth(["admin", "superadmin"])
+@require_api_auth(["admin", "superadmin", "manager"])
 def api_overview():
     """System overview KPIs for admin dashboard with date filtering"""
     try:
