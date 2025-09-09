@@ -362,7 +362,8 @@ export function BusinessManagerPage() {
       setLoading(true);
       setError(null);
       
-      console.log('🔄 מתחיל טעינת עסקים...');
+      console.log('🔄 DEBUG: מתחיל טעינת עסקים...');
+      alert('DEBUG: מתחיל טעינת עסקים');
       
       // ✅ משתמש בBusinessAPI שמכיל את כל ההגדרות הנכונות
       const data = await businessAPI.getBusinesses();
