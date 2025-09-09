@@ -9,33 +9,15 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Activity
+  Activity,
+  Loader2
 } from 'lucide-react';
 import { Card, StatCard, Badge } from '../../shared/components/ui/Card';
 import { QuickManagementActions } from '../../shared/components/ui/ManagementCard';
 import { cn } from '../../shared/utils/cn';
+import { useBusinessDashboard } from '../../features/business/hooks';
 
-// Mock data - will be replaced with API calls  
-const mockProviderStatus = {
-  twilio: { up: true, latency: 45 },
-  baileys: { up: true, latency: null },
-  db: { up: true, latency: 12 }
-};
-
-const mockBusinessStats = {
-  newLeads: { today: 8, trend: '+15%' },
-  activeLeads: { count: 23 },
-  unread: { whatsapp: 3 },
-  calls: { today: 12, trend: '+5%' },
-  meetings: { today: 2 }
-};
-
-const mockTenantActivity = [
-  { time: '14:32', type: 'call', preview: 'שיחה חדשה מ-054-123-4567', id: '1' },
-  { time: '14:18', type: 'whatsapp', preview: 'הודעה מלאה בן דוד - מעוניין בדירה', id: '2' },
-  { time: '13:45', type: 'call', preview: 'ליד חדש נוסף למערכת', id: '3' },
-  { time: '13:22', type: 'whatsapp', preview: 'פגישה נקבעה - יום ראשון 16:00', id: '4' }
-];
+// Removed mock data - now using real API calls
 
 function ProviderStatusCard() {
   return (
@@ -93,7 +75,22 @@ function QuickActionsCard() {
   );
 }
 
-function RecentActivityCard() {
+function RecentActivityCard({ activity, isLoading }: { activity?: any[], isLoading?: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">פעילות אחרונה</h3>
+          <Clock className="h-5 w-5 text-gray-400" />
+        </div>
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+          <span className="text-gray-600 mr-2">טוען פעילות...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
       <div className="flex items-center justify-between mb-4">
@@ -102,34 +99,54 @@ function RecentActivityCard() {
       </div>
       
       <div className="space-y-3">
-        {mockTenantActivity.map((activity) => (
-          <div key={activity.id} className="flex items-start p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-            <div className={`w-3 h-3 rounded-full mt-2 ml-3 ${
-              activity.type === 'call' ? 'bg-blue-500' : 'bg-green-500'
-            }`} />
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-900">{activity.time}</span>
+        {activity && activity.length > 0 ? activity.slice(0, 6).map((item, index) => {
+          const time = new Date(item.ts).toLocaleTimeString('he-IL', { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          });
+          
+          return (
+            <div key={index} className="flex items-start p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+              <div className={`w-3 h-3 rounded-full mt-2 ml-3 ${
+                item.type === 'call' ? 'bg-blue-500' : 'bg-green-500'
+              }`} />
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">{time}</span>
+                  <Badge variant={item.type === 'call' ? 'neutral' : 'success'}>
+                    {item.provider}
+                  </Badge>
+                </div>
+                <p className="text-sm text-gray-600 mt-1">{item.preview}</p>
               </div>
-              <p className="text-sm text-gray-600 mt-1">{activity.preview}</p>
+              <button className="text-blue-600 hover:text-blue-800 text-sm font-medium mr-2">
+                פתח
+              </button>
             </div>
-            <button className="text-blue-600 hover:text-blue-800 text-sm font-medium mr-2">
-              פתח
-            </button>
+          );
+        }) : (
+          <div className="text-center py-8 text-gray-500">
+            <Clock className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+            <p>אין פעילות אחרונה</p>
           </div>
-        ))}
+        )}
       </div>
       
-      <div className="mt-4 text-center">
-        <button className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-          ראה עוד פעילות
-        </button>
-      </div>
+      {activity && activity.length > 0 && (
+        <div className="mt-4 text-center">
+          <button className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+            ראה עוד פעילות
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 export function BusinessHomePage() {
+  // Fetch real dashboard data
+  const { stats, isLoadingStats, statsError, activity, isLoadingActivity, activityError, refetch } = useBusinessDashboard();
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-6" dir="rtl">
       <div className="max-w-7xl mx-auto">
@@ -157,38 +174,95 @@ export function BusinessHomePage() {
         {/* Provider Status */}
         <ProviderStatusCard />
 
-        {/* Provider Status */}
-        <ProviderStatusCard />
+        {/* Error State */}
+        {(statsError || activityError) && (
+          <Card className="p-6 mb-6 bg-red-50 border-red-200">
+            <div className="flex items-center gap-3 text-red-700">
+              <XCircle className="h-5 w-5" />
+              <div>
+                <p className="font-medium">שגיאה בטעינת נתונים</p>
+                <p className="text-sm text-red-600">{statsError?.message || activityError?.message}</p>
+                <button 
+                  onClick={() => refetch()}
+                  className="text-sm underline hover:no-underline mt-1"
+                >
+                  נסה שוב
+                </button>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <StatCard
-            title="לידים חדשים היום"
-            value={mockBusinessStats.newLeads.today}
-            trend={mockBusinessStats.newLeads.trend}
-            icon={<Users className="h-6 w-6" />}
+            title="שיחות היום"
+            value={isLoadingStats ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">טוען...</span>
+              </div>
+            ) : (
+              stats?.calls?.today || 0
+            )}
+            subtitle={stats?.calls?.last7d ? `${stats.calls.last7d} ב-7 ימים` : undefined}
+            icon={<Phone className="h-6 w-6" />}
           />
           <StatCard
-            title="לידים פעילים"
-            value={mockBusinessStats.activeLeads.count}
-            icon={<Users className="h-6 w-6" />}
+            title="WhatsApp היום"
+            value={isLoadingStats ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">טוען...</span>
+              </div>
+            ) : (
+              stats?.whatsapp?.today || 0
+            )}
+            subtitle={stats?.whatsapp?.last7d ? `${stats.whatsapp.last7d} ב-7 ימים` : undefined}
+            icon={<MessageCircle className="h-6 w-6" />}
           />
           <StatCard
             title="הודעות שלא נקראו"
-            value={mockBusinessStats.unread.whatsapp}
+            value={isLoadingStats ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">טוען...</span>
+              </div>
+            ) : (
+              stats?.whatsapp?.unread || 0
+            )}
             subtitle="WhatsApp"
             icon={<Bell className="h-6 w-6" />}
           />
           <StatCard
-            title="שיחות היום"
-            value={mockBusinessStats.calls.today}
-            trend={mockBusinessStats.calls.trend}
-            icon={<Phone className="h-6 w-6" />}
+            title="ממוצע שיחה"
+            value={isLoadingStats ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">טוען...</span>
+              </div>
+            ) : stats?.calls?.avgHandleSec ? (
+              `${Math.round(stats.calls.avgHandleSec)}s`
+            ) : (
+              'אין נתונים'
+            )}
+            subtitle="זמן טיפול ממוצע"
+            icon={<Clock className="h-6 w-6" />}
           />
           <StatCard
-            title="פגישות היום"
-            value={mockBusinessStats.meetings.today}
-            icon={<Calendar className="h-6 w-6" />}
+            title="הכנסות החודש"
+            value={isLoadingStats ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">טוען...</span>
+              </div>
+            ) : stats?.revenue?.thisMonth ? (
+              `₪${stats.revenue.thisMonth.toLocaleString('he-IL')}`
+            ) : (
+              'אין נתונים'
+            )}
+            subtitle={stats?.revenue?.ytd ? `₪${stats.revenue.ytd.toLocaleString('he-IL')} השנה` : undefined}
+            icon={<TrendingUp className="h-6 w-6" />}
           />
         </div>
 
@@ -202,7 +276,7 @@ export function BusinessHomePage() {
         <QuickActionsCard />
 
         {/* Recent Activity */}
-        <RecentActivityCard />
+        <RecentActivityCard activity={activity} isLoading={isLoadingActivity} />
       </div>
     </div>
   );
