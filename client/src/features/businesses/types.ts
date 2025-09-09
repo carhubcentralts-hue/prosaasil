@@ -3,11 +3,19 @@ export interface Business {
   name: string;
   business_type: string;
   phone: string;
-  whatsapp: string;
+  whatsapp: string | null;
   status: 'active' | 'inactive' | 'suspended';
   created_at: string;
   updated_at?: string;
   users?: number;
+  // Additional fields for edit functionality
+  domain?: string;
+  defaultPhoneE164?: string;
+  whatsappJid?: string;
+  timezone?: string;
+  address?: string;
+  is_active?: boolean;
+  whatsapp_id?: string;
   stats?: {
     users: number;
     leads: number;

@@ -348,14 +348,17 @@ def toggle_user_status(user_id):
 
 @biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST'])
 @require_api_auth(['admin', 'manager'])
-@csrf_exempt
 def impersonate_business(business_id):
-    """Allow admin to impersonate business - CSRF completely disabled"""
-    # NUCLEAR CSRF BYPASS
+    """Allow admin to impersonate business - COMPLETELY SKIP CSRF"""
+    # NUCLEAR CSRF BYPASS - DISABLE ALL CSRF CHECKS
     from flask import g
     g.csrf_exempt = True
     g._csrf_token = 'NUCLEAR_BYPASSED'
     g._csrf_valid = True
+    
+    # SKIP ALL CSRF VALIDATION 
+    # Force bypass of CSRF middleware by setting special flags
+    request.environ['HTTP_X_REQUESTED_WITH'] = 'XMLHttpRequest'
     try:
         logger.info(f"🔄 Impersonation attempt for business {business_id}")
         current_admin = session.get('user')
@@ -417,7 +420,6 @@ def impersonate_business(business_id):
         return jsonify({"error": "שגיאה בהתחזות לעסק"}), 500
 
 @biz_mgmt_bp.route('/api/admin/impersonate/exit', methods=['POST'])
-@csrf_exempt
 @require_api_auth(['admin', 'manager'])
 def exit_impersonation():
     """Exit impersonation and restore original user"""

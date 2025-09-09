@@ -99,9 +99,16 @@ export function BusinessDetailsPage() {
       const businessDetails: BusinessDetails = {
         id: data.id,
         name: data.name,
-        domain: data.domain || '',
+        business_type: data.business_type || 'real_estate',
+        phone: data.phone || '',
+        whatsapp: data.whatsapp,
+        status: data.status || 'active',
+        created_at: data.created_at || '',
+        updated_at: data.updated_at,
+        users: data.users,
+        domain: data.domain || `${data.name?.toLowerCase().replace(/\s+/g, '-')}.co.il`,
         defaultPhoneE164: data.phone || '',
-        whatsappJid: data.whatsapp_id || '',
+        whatsappJid: data.whatsapp || '',
         timezone: 'Asia/Jerusalem', // Default timezone
         businessHours: {
           sun: [{ from: '09:00', to: '18:00' }],
@@ -115,13 +122,11 @@ export function BusinessDetailsPage() {
         address: data.address || 'לא צוין',
         stats: {
           users: data.users || 0,
-          leads: data.leads || 0,
-          unread: data.unread || 0,
-          callsToday: data.callsToday || 0,
-          waToday: data.waToday || 0
+          leads: 0, // No leads data from API yet
+          unread: 0, // No unread data from API yet
+          callsToday: 0, // No calls data from API yet
+          waToday: 0 // No WhatsApp data from API yet
         },
-        status: data.is_active ? 'active' : 'suspended',
-        createdAt: data.created_at,
         updatedAt: data.updated_at || data.created_at
       };
       
