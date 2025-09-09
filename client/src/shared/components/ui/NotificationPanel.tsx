@@ -423,57 +423,65 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
 
   // REMOVED: Memoized callback was causing infinite loop
 
-  // Initialize notifications when component mounts or user changes - NO callback dependency
+  // SIMPLIFIED: Initialize notifications once and notify parent
   React.useEffect(() => {
     const newNotifications = generateNotifications(user?.role || 'business', user?.business_id);
     setNotifications(newNotifications);
-    const initialUnreadCount = newNotifications.filter(n => !n.read).length;
-    console.log('🔔 NotificationPanel מאתחל עם', initialUnreadCount, 'התראות לא נקראות');
-  }, [user?.role, user?.business_id]);
-
-  // Memoized unread count to prevent recalculation on every render
-  const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
-
-  // Update parent count whenever unread count changes - NO callback dependency  
-  React.useEffect(() => {
-    console.log('🔄 NotificationPanel שולח עדכון:', unreadCount);
+    
+    // Calculate and send count immediately
+    const unreadCount = newNotifications.filter(n => !n.read).length;
+    console.log('🔔 NotificationPanel מאתחל עם', unreadCount, 'התראות לא נקראות');
+    
+    // Notify parent once during initialization
     if (onUnreadCountChange) {
       onUnreadCountChange(unreadCount);
     }
-  }, [unreadCount]); // REMOVED onUnreadCountChange dependency to break loop
+  }, [user?.role, user?.business_id]);
+
+  // SIMPLIFIED: Calculate unread count on every render - no fancy optimization
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   if (!isOpen) return null;
 
   // Remove duplicate calculation - we already have memoized unread count above
 
-  const markAsRead = useCallback((notificationId: string) => {
+  // SIMPLIFIED: Remove all useCallback to avoid loops
+  const markAsRead = (notificationId: string) => {
     setNotifications(prev => {
       const updated = prev.map(n => 
         n.id === notificationId ? { ...n, read: true } : n
       );
+      // Notify parent of new count immediately
+      const newUnreadCount = updated.filter(n => !n.read).length;
+      if (onUnreadCountChange) {
+        onUnreadCountChange(newUnreadCount);
+      }
       return updated;
     });
-  }, []);
+  };
 
-  // Memoized handlers to prevent unnecessary rerenders of child components
-  const handleNotificationClick = useCallback((notification: Notification) => {
+  const handleNotificationClick = (notification: Notification) => {
     setSelectedNotification(notification);
     setIsDetailModalOpen(true);
     // Auto mark as read when opening detail
     markAsRead(notification.id);
-  }, [markAsRead]);
+  };
 
-  const markAllAsRead = useCallback(() => {
+  const markAllAsRead = () => {
     setNotifications(prev => {
       const updated = prev.map(n => ({ ...n, read: true }));
+      // Notify parent that count is now 0
+      if (onUnreadCountChange) {
+        onUnreadCountChange(0);
+      }
       return updated;
     });
-  }, []);
+  };
 
-  const handleDetailModalClose = useCallback(() => {
+  const handleDetailModalClose = () => {
     setIsDetailModalOpen(false);
     setSelectedNotification(null);
-  }, []);
+  };
 
   return (
     <>
