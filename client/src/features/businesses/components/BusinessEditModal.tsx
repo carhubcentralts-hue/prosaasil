@@ -28,14 +28,16 @@ export function BusinessEditModal({
   });
   const [errors, setErrors] = useState<string[]>([]);
 
-  // Initialize form data - לפי ההנחיות עם שמות השדות הנכונים
+  // Initialize form data - ✅ תיקון: לקחת נתונים אמיתיים מהעסק
   useEffect(() => {
     if (business) {
+      console.log('🔍 BusinessEditModal - מאתחל טופס עם נתונים:', business);
+      
       setFormData({
         name: business.name || '',
         domain: business.domain || `${business.name?.toLowerCase().replace(/\s+/g, '-')}.co.il`,
-        defaultPhoneE164: business.phone || business.defaultPhoneE164 || '',
-        whatsappJid: business.whatsappJid || '',
+        defaultPhoneE164: business.phone || business.phone_e164 || business.defaultPhoneE164 || '', // ✅ שימוש בנתונים האמיתיים
+        whatsappJid: business.whatsapp || business.whatsapp_number || business.whatsappJid || '', // ✅ שימוש בנתונים האמיתיים  
         timezone: business.timezone || 'Asia/Jerusalem',
         address: business.address || ''
       });

@@ -382,20 +382,29 @@ export function BusinessManagerPage() {
       
       console.log('📊 תגובת API:', data);
       
-      // Convert API response to Business format - תיקון שדות לפי הנתונים האמיתיים מהשרת
+      // Convert API response to Business format - תיקון חובה למיפוי שדות
       const businesses = data.items?.map((item: any) => ({
         id: item.id,
         name: item.name,
-        business_type: item.business_type || 'נדל"ן',
-        phone: item.phone_e164 || '',  // ✅ תיקון: השרת מחזיר phone_e164
-        whatsapp: item.whatsapp_number || '', // ✅ תיקון: השרת מחזיר whatsapp_number
+        business_type: item.business_type || 'real_estate',
+        phone: item.phone_e164 || '',  // ✅ CRITICAL: השרת שולח phone_e164
+        whatsapp: item.whatsapp_number || item.phone_e164 || '', // fallback לטלפון אם אין WhatsApp נפרד
         users: 0, // TODO: עדיין לא מחושב בשרת
         status: item.status as 'active' | 'inactive' | 'suspended',
         created_at: item.created_at,
+        
+        // שדות נוספים שנדרשים לעריכה
+        phone_number: item.phone_e164 || '',
+        whatsapp_number: item.whatsapp_number || '',
+        phone_e164: item.phone_e164 || '',
+        
         // נתונים נוספים לצורך debug
         call_status: item.call_status,
         whatsapp_status: item.whatsapp_status
       })) || [];
+      
+      console.log('🔍 DEBUG MAPPING - Input from server:', data.items?.[0]);
+      console.log('🔍 DEBUG MAPPING - Output after mapping:', businesses?.[0]);
       
       console.log('🏢 עסקים אחרי עיבוד:', businesses);
       

@@ -16,6 +16,11 @@ export interface Business {
   address?: string;
   is_active?: boolean;
   whatsapp_id?: string;
+  
+  // Fields that come from server for proper mapping
+  phone_number?: string;
+  whatsapp_number?: string;
+  phone_e164?: string;
   stats?: {
     users: number;
     leads: number;
