@@ -17,6 +17,9 @@ This is AgentLocator, a Hebrew CRM system with AI-powered real-time call process
 - **Focused AI Agent**: Maximum 15-word responses, single questions, clarification requests over assumptions
 - **Intelligent Meeting Scheduling**: Automatic detection when lead data is complete, offers specific time windows
 - **Clean Logging**: Reduced noise, focus on key conversation events and system status
+- **CSRF Security Implementation**: SeaSurf-based CSRF protection with proper session handling for all state-changing operations
+- **AI Prompt Management**: Real-time prompt editing with version control, history tracking, and runtime application
+- **Impersonation System**: Secure business impersonation with proper CSRF+Session handling for admin access
 
 # User Preferences
 
@@ -30,6 +33,8 @@ Preferred communication style: Simple, everyday language.
 - **WSGI Server**: Gunicorn with eventlet worker for production deployment
 - **Database**: PostgreSQL (with SQLite fallback for development) using SQLAlchemy models
 - **Authentication**: JWT-based authentication with role-based access control (admin, business_owner, business_agent, read_only)
+- **Security**: SeaSurf CSRF protection with session-based token management and proper validation for all state-changing operations
+- **AI Prompt System**: Real-time prompt management with business_settings and prompt_revisions tables, versioning, and runtime application
 
 ## Frontend Architecture
 - **Framework**: React 19 with modern hooks and concurrent features
