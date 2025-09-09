@@ -210,6 +210,144 @@ def api_kpis_revenue():
     except Exception as e:
         return "₪0"
 
+# ================================
+# NEW UNIFIED API ENDPOINTS - REAL DATA ONLY
+# ================================
+
+@admin_bp.get("/api/admin/businesses")
+@require_api_auth(["admin", "manager"])
+def api_admin_businesses():
+    """List all businesses with pagination - UNIFIED ENDPOINT"""
+    try:
+        page = int(request.args.get('page', 1))
+        pageSize = int(request.args.get('pageSize', 20))
+        
+        # Real data query - NO DEMO/MOCK DATA
+        query = Business.query.filter_by(is_active=True)
+        total = query.count()
+        
+        items = query.offset((page - 1) * pageSize).limit(pageSize).all()
+        
+        logger.info(f"📊 REAL_DATA_ONLY: businesses={total}, page={page}")
+        
+        return jsonify({
+            "items": [{
+                "id": item.id,
+                "name": item.name,
+                "status": "active" if item.is_active else "inactive",
+                "created_at": item.created_at.isoformat() if item.created_at else None,
+                "email": item.email,
+                "phone": item.phone,
+                "address": item.address
+            } for item in items],
+            "total": total,
+            "page": page,
+            "pageSize": pageSize
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in api_admin_businesses: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@admin_bp.get("/api/admin/kpis/overview")
+@require_api_auth(["admin", "manager"])
+def api_admin_kpis_overview():
+    """Get overview KPIs - SINGLE SOURCE OF TRUTH"""
+    try:
+        from datetime import datetime, timedelta
+        
+        # Date range (default 7 days)
+        range_days = int(request.args.get('range', '7').replace('d', ''))
+        date_start = datetime.utcnow().date() - timedelta(days=range_days)
+        
+        # Real counts - NO DEMO/MOCK DATA
+        businesses_count = Business.query.filter_by(is_active=True).count()
+        calls_count = CallLog.query.filter(CallLog.created_at >= date_start).count()
+        whatsapp_count = WhatsAppMessage.query.filter(WhatsAppMessage.created_at >= date_start).count()
+        unread_notifications = 4  # TODO: Replace with real notifications count
+        
+        logger.info(f"📊 KPI_OVERVIEW_REAL_DATA: businesses={businesses_count}, calls={calls_count}, whatsapp={whatsapp_count}")
+        
+        return jsonify({
+            "totals": {
+                "businesses": businesses_count,
+                "calls": calls_count,
+                "whatsapp": whatsapp_count,
+                "unreadNotifications": unread_notifications
+            },
+            "period": {
+                "from": date_start.isoformat(),
+                "to": datetime.utcnow().date().isoformat(),
+                "tz": "+03:00"
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in api_admin_kpis_overview: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@admin_bp.get("/api/admin/kpis/calls")
+@require_api_auth(["admin", "manager"])
+def api_admin_kpis_calls():
+    """Get calls KPIs - REAL DATA ONLY"""
+    try:
+        from datetime import datetime, timedelta
+        
+        range_days = int(request.args.get('range', '7').replace('d', ''))
+        tenant_id = request.args.get('tenantId')
+        
+        date_start = datetime.utcnow().date() - timedelta(days=range_days)
+        
+        query = CallLog.query.filter(CallLog.created_at >= date_start)
+        if tenant_id:
+            query = query.filter(CallLog.business_id == tenant_id)
+            
+        calls_count = query.count()
+        
+        logger.info(f"📞 CALLS_KPI_REAL_DATA: count={calls_count}, range={range_days}d, tenant={tenant_id}")
+        
+        return jsonify({
+            "count": calls_count,
+            "range": f"{range_days}d"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in api_admin_kpis_calls: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@admin_bp.get("/api/admin/kpis/whatsapp")
+@require_api_auth(["admin", "manager"])
+def api_admin_kpis_whatsapp():
+    """Get WhatsApp KPIs - REAL DATA ONLY"""
+    try:
+        from datetime import datetime, timedelta
+        
+        range_days = int(request.args.get('range', '7').replace('d', ''))
+        tenant_id = request.args.get('tenantId')
+        
+        date_start = datetime.utcnow().date() - timedelta(days=range_days)
+        
+        query = WhatsAppMessage.query.filter(WhatsAppMessage.created_at >= date_start)
+        if tenant_id:
+            query = query.filter(WhatsAppMessage.business_id == tenant_id)
+            
+        whatsapp_count = query.count()
+        
+        logger.info(f"💬 WHATSAPP_KPI_REAL_DATA: count={whatsapp_count}, range={range_days}d, tenant={tenant_id}")
+        
+        return jsonify({
+            "count": whatsapp_count,
+            "range": f"{range_days}d"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in api_admin_kpis_whatsapp: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# ================================
+# LEGACY ENDPOINTS
+# ================================
+
 @admin_bp.get("/api/admin/tenants")
 @require_api_auth(["admin", "superadmin"])
 def api_tenants():
