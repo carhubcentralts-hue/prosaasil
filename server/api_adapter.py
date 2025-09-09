@@ -15,12 +15,16 @@ def check_permissions(required_roles):
     """Check user permissions for adapter endpoints"""
     user = session.get('user') or session.get('al_user')
     if not user:
+        logger.warning(f"Permission denied - no user in session. Session keys: {list(session.keys())}")
         return jsonify({"error": "forbidden", "requiredRole": "authenticated"}), 403
     
     user_role = user.get('role', '')
+    logger.debug(f"User role: {user_role}, required: {required_roles}")
     if user_role not in required_roles:
+        logger.warning(f"Permission denied - user role '{user_role}' not in required roles: {required_roles}")
         return jsonify({"error": "forbidden", "requiredRole": "/".join(required_roles)}), 403
     
+    logger.debug(f"Permission granted for user {user.get('email')} with role {user_role}")
     return None  # Permission granted
 
 # === DASHBOARD ENDPOINTS ===
