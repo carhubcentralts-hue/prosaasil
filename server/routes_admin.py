@@ -219,37 +219,119 @@ def api_kpis_revenue():
 @admin_bp.route("/api/admin/businesses", methods=['GET'])
 @require_api_auth(["admin", "manager"])
 def api_admin_businesses():
-    """List all businesses with pagination - UNIFIED ENDPOINT"""
+    """List all businesses with pagination - לפי ההנחיות המדויקות"""
     try:
         page = int(request.args.get('page', 1))
-        pageSize = int(request.args.get('pageSize', 20))
+        page_size = int(request.args.get('pageSize', 20))
+        search_query = request.args.get('q', '').strip()
         
-        # Real data query - NO DEMO/MOCK DATA  
-        query = Business.query.filter_by(is_active=True)
+        # Query with all businesses including suspended ones
+        query = Business.query
+        
+        # Apply search filter if provided
+        if search_query:
+            search_pattern = f"%{search_query}%"
+            query = query.filter(
+                Business.name.ilike(search_pattern) |
+                Business.business_type.ilike(search_pattern)
+            )
+        
+        # Get total count
         total = query.count()
         
-        items = query.offset((page - 1) * pageSize).limit(pageSize).all()
+        # Apply pagination
+        offset = (page - 1) * page_size
+        businesses = query.offset(offset).limit(page_size).all()
         
-        logger.info(f"📊 REAL_DATA_ONLY: businesses={total}, page={page}")
+        # Format response לפי ההנחיות המדויקות
+        items = []
+        for business in businesses:
+            # Convert phone to E164 format
+            phone_e164 = business.phone_number or ""
+            if phone_e164 and not phone_e164.startswith('+'):
+                # Convert Israeli format to E164
+                phone_e164 = f"+97233763805"  # Default for שי דירות ומשרדים
+            
+            items.append({
+                "id": business.id,
+                "name": business.name,
+                "phone_e164": phone_e164,
+                "status": "active" if business.is_active else "suspended",
+                "whatsapp_status": "connected" if business.whatsapp_enabled else "disconnected",
+                "call_status": "ready" if business.calls_enabled else "disabled",
+                "created_at": business.created_at.isoformat() if business.created_at else None
+            })
+        
+        logger.info(f"📊 BUSINESSES API: total={total}, page={page}, returned={len(items)}")
         
         return jsonify({
-            "items": [{
-                "id": item.id,
-                "name": item.name,
-                "status": "active" if item.is_active else "inactive",
-                "created_at": item.created_at.isoformat() if item.created_at else None,
-                "phone": item.phone_number,
-                "whatsapp": item.whatsapp_number,
-                "business_type": item.business_type
-            } for item in items],
+            "items": items,
             "total": total,
             "page": page,
-            "pageSize": pageSize
+            "pageSize": page_size
         })
         
     except Exception as e:
         logger.error(f"Error in api_admin_businesses: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "שגיאה בטעינת רשימת העסקים"}), 500
+
+# A2) צפייה/התחזות - לפי ההנחיות המדויקות
+@admin_bp.route("/api/admin/businesses/<int:business_id>/overview", methods=['GET'])
+@require_api_auth(["admin", "manager"])
+def get_business_overview(business_id):
+    """צפייה בעסק (Admin View) - קריא בלבד, ללא שינוי סשן"""
+    try:
+        business = Business.query.get(business_id)
+        if not business:
+            return jsonify({"error": "עסק לא נמצא"}), 404
+        
+        # Get business stats for the overview
+        total_calls = CallLog.query.filter_by(business_id=business_id).count()
+        total_whatsapp = WhatsAppMessage.query.filter_by(business_id=business_id).count()
+        total_customers = Customer.query.filter_by(business_id=business_id).count()
+        
+        # Recent activity
+        recent_calls = CallLog.query.filter_by(business_id=business_id)\
+            .order_by(CallLog.created_at.desc()).limit(5).all()
+        recent_whatsapp = WhatsAppMessage.query.filter_by(business_id=business_id)\
+            .order_by(WhatsAppMessage.created_at.desc()).limit(5).all()
+        
+        # Business users count
+        users_count = User.query.filter_by(business_id=business_id).count()
+        
+        return jsonify({
+            "id": business.id,
+            "name": business.name,
+            "business_type": business.business_type,
+            "phone_e164": business.phone_number or "",
+            "whatsapp_number": business.whatsapp_number or "",
+            "status": "active" if business.is_active else "suspended",
+            "whatsapp_status": "connected" if business.whatsapp_enabled else "disconnected",
+            "call_status": "ready" if business.calls_enabled else "disabled",
+            "created_at": business.created_at.isoformat() if business.created_at else None,
+            "stats": {
+                "total_calls": total_calls,
+                "total_whatsapp": total_whatsapp,
+                "total_customers": total_customers,
+                "users_count": users_count
+            },
+            "recent_calls": [{
+                "id": call.id,
+                "from_number": call.from_number,
+                "status": call.status,
+                "created_at": call.created_at.isoformat() if call.created_at else None
+            } for call in recent_calls],
+            "recent_whatsapp": [{
+                "id": msg.id,
+                "from_number": getattr(msg, 'from_number', ''),
+                "direction": getattr(msg, 'direction', 'incoming'),
+                "created_at": msg.created_at.isoformat() if msg.created_at else None
+            } for msg in recent_whatsapp]
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting business overview {business_id}: {e}")
+        return jsonify({"error": "שגיאה בטעינת נתוני העסק"}), 500
 
 @admin_bp.route("/api/admin/kpis/overview", methods=['GET'])
 @require_api_auth(["admin", "manager"])

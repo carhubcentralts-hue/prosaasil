@@ -12,7 +12,7 @@ ai_prompt_bp = Blueprint('ai_prompt', __name__)
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['GET'])
 @require_api_auth(['admin', 'manager'])
 def get_business_prompt(business_id):
-    """Get AI prompt for business - Admin"""
+    """Get AI prompts for business - Admin (שיחות ווואטסאפ נפרד)"""
     try:
         business = Business.query.filter_by(id=business_id).first()
         if not business:
@@ -28,16 +28,36 @@ def get_business_prompt(business_id):
             
             version = latest_revision.version if latest_revision else 1
             
+            # הפרד לשיחות ווואטסאפ - לפי ההנחיות המדויקות
+            prompt_data = settings.ai_prompt or "You are Leah, a helpful Hebrew real-estate AI assistant..."
+            try:
+                import json
+                if prompt_data.startswith('{'):
+                    parsed_prompt = json.loads(prompt_data)
+                    calls_prompt = parsed_prompt.get('calls', prompt_data)
+                    whatsapp_prompt = parsed_prompt.get('whatsapp', prompt_data)
+                else:
+                    # fallback - אותו פרומפט לשניהם
+                    calls_prompt = prompt_data
+                    whatsapp_prompt = prompt_data
+            except:
+                # fallback - אותו פרומפט לשניהם
+                calls_prompt = prompt_data
+                whatsapp_prompt = prompt_data
+            
             return jsonify({
-                "prompt": settings.ai_prompt or "You are Leah, a helpful Hebrew real-estate AI assistant...",
+                "calls_prompt": calls_prompt,
+                "whatsapp_prompt": whatsapp_prompt,
                 "version": version,
                 "updated_at": settings.updated_at.isoformat() if settings.updated_at else None,
                 "updated_by": settings.updated_by
             })
         else:
-            # Return default prompt
+            # Return default prompts
+            default_prompt = "You are Leah, a helpful Hebrew real-estate AI assistant..."
             return jsonify({
-                "prompt": "You are Leah, a helpful Hebrew real-estate AI assistant...",
+                "calls_prompt": default_prompt,
+                "whatsapp_prompt": default_prompt,
                 "version": 1,
                 "updated_at": None,
                 "updated_by": None
@@ -50,21 +70,29 @@ def get_business_prompt(business_id):
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['PUT'])
 @require_api_auth(['admin', 'manager'])
 def update_business_prompt(business_id):
-    """Update AI prompt for business - Admin (דורש CSRF)"""
+    """Update AI prompts for business - Admin (דורש CSRF) - שיחות ווואטסאפ נפרד"""
     try:
         data = request.get_json()
-        if not data or 'prompt' not in data:
-            return jsonify({"error": "חסר תוכן הפרומפט"}), 400
+        if not data:
+            return jsonify({"error": "חסרים נתונים"}), 400
         
-        prompt = data['prompt']
+        # שדות אופציונליים: calls_prompt, whatsapp_prompt
+        calls_prompt = data.get('calls_prompt')
+        whatsapp_prompt = data.get('whatsapp_prompt')
+        
+        if not calls_prompt and not whatsapp_prompt:
+            return jsonify({"error": "חסר תוכן פרומפט (לפחות שיחות או וואטסאפ)"}), 400
         
         # ולידציות שרת - לפי ההנחיות
-        if len(prompt) > 10000:  # 10k תווים מקסימום
-            return jsonify({"error": "הפרומפט ארוך מדי (מקסימום 10,000 תווים)"}), 400
+        if calls_prompt and len(calls_prompt) > 10000:
+            return jsonify({"error": "פרומפט שיחות ארוך מדי (מקסימום 10,000 תווים)"}), 400
+        if whatsapp_prompt and len(whatsapp_prompt) > 10000:
+            return jsonify({"error": "פרומפט וואטסאפ ארוך מדי (מקסימום 10,000 תווים)"}), 400
         
         # Sanitization בסיסי
-        if '{{' in prompt or '}}' in prompt:
-            return jsonify({"error": "הפרומפט מכיל תווים לא חוקיים"}), 400
+        for prompt_text in [calls_prompt, whatsapp_prompt]:
+            if prompt_text and ('{{' in prompt_text or '}}' in prompt_text):
+                return jsonify({"error": "הפרומפט מכיל תווים לא חוקיים"}), 400
         
         business = Business.query.filter_by(id=business_id).first()
         if not business:
@@ -73,17 +101,44 @@ def update_business_prompt(business_id):
         current_user = session.get('user', {})
         user_id = current_user.get('email', 'unknown')
         
-        # Get or create settings
+        # Get current settings to merge with new data
         settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        
+        # Build updated prompt object
+        import json
+        current_prompts = {}
+        if settings and settings.ai_prompt:
+            try:
+                if settings.ai_prompt.startswith('{'):
+                    current_prompts = json.loads(settings.ai_prompt)
+                else:
+                    # Legacy single prompt - convert to object
+                    current_prompts = {
+                        'calls': settings.ai_prompt,
+                        'whatsapp': settings.ai_prompt
+                    }
+            except:
+                current_prompts = {}
+        
+        # Update only provided fields
+        if calls_prompt is not None:
+            current_prompts['calls'] = calls_prompt
+        if whatsapp_prompt is not None:
+            current_prompts['whatsapp'] = whatsapp_prompt
+        
+        # Store as JSON
+        new_prompt_data = json.dumps(current_prompts, ensure_ascii=False)
+        
+        # Get or create settings
         if not settings:
             settings = BusinessSettings(
                 tenant_id=business_id,
-                ai_prompt=prompt,
+                ai_prompt=new_prompt_data,
                 updated_by=user_id
             )
             db.session.add(settings)
         else:
-            settings.ai_prompt = prompt
+            settings.ai_prompt = new_prompt_data
             settings.updated_by = user_id
             settings.updated_at = datetime.utcnow()
         
@@ -98,7 +153,7 @@ def update_business_prompt(business_id):
         revision = PromptRevisions(
             tenant_id=business_id,
             version=next_version,
-            prompt=prompt,
+            prompt=new_prompt_data,
             changed_by=user_id,
             changed_at=datetime.utcnow()
         )
@@ -107,10 +162,11 @@ def update_business_prompt(business_id):
         db.session.commit()
         
         # Runtime Apply - פרסום אירוע (TODO: Redis PubSub)
-        logger.info(f"Agent prompt reloaded for tenant {business_id}, version {next_version}")
+        logger.info(f"Agent prompt reloaded for tenant {business_id} v{next_version}")
         
         return jsonify({
-            "ok": True,
+            "calls_prompt": current_prompts.get('calls', ''),
+            "whatsapp_prompt": current_prompts.get('whatsapp', ''),
             "version": next_version,
             "updated_at": settings.updated_at.isoformat()
         })
