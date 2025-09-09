@@ -21,12 +21,15 @@ class HttpClient {
     try {
       const response = await fetch(url, config);
       
-      // Handle 401 globally - but only redirect if not already on auth pages
+      // Handle 401 - FIXED: Don't auto-redirect during auth check
       if (response.status === 401) {
         const currentPath = window.location.pathname;
-        if (!currentPath.startsWith('/login') && !currentPath.startsWith('/forgot') && !currentPath.startsWith('/reset')) {
-          // Clear auth context and redirect to login
-          // Use React Router navigation if possible, fallback to window location
+        
+        // Don't auto-redirect for auth endpoints - let the auth system handle it
+        const isAuthEndpoint = endpoint.includes('/api/auth/');
+        
+        if (!isAuthEndpoint && !currentPath.startsWith('/login') && !currentPath.startsWith('/forgot') && !currentPath.startsWith('/reset')) {
+          // Only redirect for non-auth API calls
           const navigateToLogin = () => {
             if (typeof window !== 'undefined' && window.location) {
               window.location.href = '/login';
@@ -35,7 +38,7 @@ class HttpClient {
           navigateToLogin();
           throw new Error('Unauthorized');
         }
-        // For login pages, let the normal error handling continue to get the real error message
+        // For auth endpoints and login pages, let the normal error handling continue
       }
 
       if (!response.ok) {
