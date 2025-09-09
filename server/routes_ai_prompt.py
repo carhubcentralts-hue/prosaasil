@@ -149,3 +149,44 @@ def update_current_business_prompt():
     except Exception as e:
         logger.error(f"Error updating current business prompt: {e}")
         return jsonify({"error": "שגיאה בעדכון הפרומפט"}), 500
+
+@ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt/history', methods=['GET'])
+@require_api_auth(['admin', 'manager'])
+def get_prompt_history(business_id):
+    """Get prompt history for business - Admin"""
+    try:
+        business = Business.query.filter_by(id=business_id).first()
+        if not business:
+            return jsonify({"error": "עסק לא נמצא"}), 404
+        
+        revisions = PromptRevisions.query.filter_by(
+            tenant_id=business_id
+        ).order_by(PromptRevisions.version.desc()).all()
+        
+        history = [{
+            "version": rev.version,
+            "prompt": rev.prompt,
+            "changed_by": rev.changed_by,
+            "changed_at": rev.changed_at.isoformat()
+        } for rev in revisions]
+        
+        return jsonify({"history": history})
+        
+    except Exception as e:
+        logger.error(f"Error getting prompt history for business {business_id}: {e}")
+        return jsonify({"error": "שגיאה בטעינת ההיסטוריה"}), 500
+
+@ai_prompt_bp.route('/api/business/current/prompt/history', methods=['GET'])
+@require_api_auth(['business'])
+def get_current_prompt_history():
+    """Get prompt history for current business - Business (Impersonated)"""
+    try:
+        tenant_id = session.get('tenant_id')
+        if not tenant_id:
+            return jsonify({"error": "לא נמצא מזהה עסק"}), 400
+            
+        return get_prompt_history(tenant_id)
+        
+    except Exception as e:
+        logger.error(f"Error getting current prompt history: {e}")
+        return jsonify({"error": "שגיאה בטעינת ההיסטוריה"}), 500
