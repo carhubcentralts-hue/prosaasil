@@ -27,7 +27,11 @@ export function LoginPage() {
       console.log('🚀 Attempting login with:', { email, passwordLength: password.length });
       await login(email, password);
       
-      console.log('✅ Login successful, navigating to dashboard...');
+      console.log('✅ Login successful, waiting for session to stabilize...');
+      // 🔧 FIX: Wait a moment for session cookie to be fully set
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      console.log('✅ Session stable, navigating to dashboard...');
       navigate('/app/admin/overview', { replace: true });
     } catch (err) {
       setError('אימייל או סיסמה שגויים');
