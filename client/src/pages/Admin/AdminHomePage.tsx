@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Building2, 
   MessageCircle, 
@@ -11,39 +11,28 @@ import {
   Clock,
   Activity,
   CalendarDays,
-  Filter
+  Filter,
+  Loader2
 } from 'lucide-react';
 import { Card, StatCard, Badge } from '../../shared/components/ui/Card';
 import { QuickManagementActions } from '../../shared/components/ui/ManagementCard';
 import { cn } from '../../shared/utils/cn';
+import { useAdminOverview, getDateRangeForFilter } from '../../features/admin/hooks';
 
-// Mock data - will be replaced with API calls
-const mockProviderStatus = {
-  twilio: { up: true, latency: 45 },
-  baileys: { up: true, latency: null },
-  db: { up: true, latency: 12 },
-  stt: 120,
-  ai: 850,
-  tts: 200
-};
+// Removed mock data - now using real API calls
 
-const mockAdminStats = {
-  businesses: { total: 12, active: 8 },
-  whatsapp: { today: 24 },
-  calls: { today: 18 },
-  unread: { total: 7 },
-  meetings: { today: 5 }
-};
+function ProviderStatusCard({ providerStatus }: { providerStatus?: any }) {
+  if (!providerStatus) {
+    return (
+      <Card className="p-6 mb-6">
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+          <span className="text-slate-600 mr-2">טוען נתוני מערכת...</span>
+        </div>
+      </Card>
+    );
+  }
 
-const mockRecentActivity = [
-  { time: '14:32', type: 'call', tenant: 'שי דירות', preview: 'שיחה חדשה מ-054-123-4567', id: '1' },
-  { time: '14:18', type: 'whatsapp', tenant: 'נדלן טופ', preview: 'הודעה מלאה בן דוד - מעוניין בדירה', id: '2' },
-  { time: '13:45', type: 'call', tenant: 'משרדי פרימיום', preview: 'ליד חדש נוסף למערכת', id: '3' },
-  { time: '13:22', type: 'whatsapp', tenant: 'שי דירות', preview: 'פגישה נקבעה - יום ראשון 16:00', id: '4' },
-  { time: '12:58', type: 'call', tenant: 'נדלן טופ', preview: 'שיחה הושלמה - 3 דקות', id: '5' }
-];
-
-function ProviderStatusCard() {
   return (
     <Card className="p-6 mb-6">
       <div className="flex items-center justify-between mb-4">
@@ -53,32 +42,36 @@ function ProviderStatusCard() {
       
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="flex items-center gap-2">
-          <Badge variant="success">
-            <CheckCircle className="h-4 w-4" />
+          <Badge variant={providerStatus.twilio?.up ? "success" : "error"}>
+            {providerStatus.twilio?.up ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
             Twilio
           </Badge>
-          <span className="text-xs text-slate-500 tabular-nums">{mockProviderStatus.twilio.latency}ms</span>
+          {providerStatus.twilio?.latency && (
+            <span className="text-xs text-slate-500 tabular-nums">{providerStatus.twilio.latency}ms</span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
-          <Badge variant="success">
-            <CheckCircle className="h-4 w-4" />
+          <Badge variant={providerStatus.baileys?.up ? "success" : "error"}>
+            {providerStatus.baileys?.up ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
             Baileys
           </Badge>
         </div>
 
         <div className="flex items-center gap-2">
-          <Badge variant="success">
-            <CheckCircle className="h-4 w-4" />
+          <Badge variant={providerStatus.db?.up ? "success" : "error"}>
+            {providerStatus.db?.up ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
             Database
           </Badge>
-          <span className="text-xs text-slate-500 tabular-nums">{mockProviderStatus.db.latency}ms</span>
+          {providerStatus.db?.latency && (
+            <span className="text-xs text-slate-500 tabular-nums">{providerStatus.db.latency}ms</span>
+          )}
         </div>
 
         <div className="text-xs text-slate-600 space-y-1">
-          <div className="tabular-nums">STT: {mockProviderStatus.stt}ms</div>
-          <div className="tabular-nums">AI: {mockProviderStatus.ai}ms</div>
-          <div className="tabular-nums">TTS: {mockProviderStatus.tts}ms</div>
+          <div className="tabular-nums">STT: {providerStatus.stt || 0}ms</div>
+          <div className="tabular-nums">AI: {providerStatus.ai || 0}ms</div>
+          <div className="tabular-nums">TTS: {providerStatus.tts || 0}ms</div>
         </div>
       </div>
     </Card>
@@ -86,7 +79,22 @@ function ProviderStatusCard() {
 }
 
 
-function RecentActivityCard() {
+function RecentActivityCard({ recentActivity }: { recentActivity?: any[] }) {
+  if (!recentActivity) {
+    return (
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-slate-900">פעילות אחרונה</h3>
+          <Clock className="h-5 w-5 text-slate-400" />
+        </div>
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+          <span className="text-slate-600 mr-2">טוען פעילות אחרונה...</span>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between mb-4">
@@ -95,7 +103,7 @@ function RecentActivityCard() {
       </div>
       
       <div className="space-y-3">
-        {mockRecentActivity.map((activity) => (
+        {recentActivity.length > 0 ? recentActivity.map((activity) => (
           <div key={activity.id} className="flex items-start p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors">
             <div className={cn(
               'w-3 h-3 rounded-full mt-2 ml-3',
@@ -112,14 +120,21 @@ function RecentActivityCard() {
               פתח
             </button>
           </div>
-        ))}
+        )) : (
+          <div className="text-center py-8 text-slate-500">
+            <Clock className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+            <p>אין פעילות אחרונה לטווח הזמן שנבחר</p>
+          </div>
+        )}
       </div>
       
-      <div className="mt-4 text-center">
-        <button className="btn-ghost text-sm">
-          ראה עוד פעילות
-        </button>
-      </div>
+      {recentActivity.length > 0 && (
+        <div className="mt-4 text-center">
+          <button className="btn-ghost text-sm">
+            ראה עוד פעילות
+          </button>
+        </div>
+      )}
     </Card>
   );
 }
@@ -132,13 +147,28 @@ export function AdminHomePage() {
     to: new Date()
   });
 
+  // Generate API parameters based on current filter
+  const apiParams = useMemo(() => {
+    try {
+      if (timeFilter === 'custom') {
+        return getDateRangeForFilter('custom', dateRange.from, dateRange.to);
+      }
+      return getDateRangeForFilter(timeFilter);
+    } catch (error) {
+      console.error('Error generating date range:', error);
+      return getDateRangeForFilter('today');
+    }
+  }, [timeFilter, dateRange.from, dateRange.to]);
+
+  // Fetch overview data from API
+  const { data: overviewData, isLoading, error, refetch } = useAdminOverview(apiParams);
+
   const handleTimeFilterChange = (filter: 'today' | 'week' | 'month' | 'custom') => {
     setTimeFilter(filter);
     if (filter === 'custom') {
       setShowDatePicker(true);
     } else {
       setShowDatePicker(false);
-      // Update data based on filter
       console.log(`מעדכן נתונים עבור: ${filter}`);
     }
   };
@@ -261,20 +291,53 @@ export function AdminHomePage() {
         </div>
 
         {/* Provider Status */}
-        <ProviderStatusCard />
+        <ProviderStatusCard providerStatus={overviewData?.provider_status} />
+
+        {/* Error State */}
+        {error && (
+          <Card className="p-6 mb-6 bg-red-50 border-red-200">
+            <div className="flex items-center gap-3 text-red-700">
+              <XCircle className="h-5 w-5" />
+              <div>
+                <p className="font-medium">שגיאה בטעינת נתונים</p>
+                <p className="text-sm text-red-600">{error.message}</p>
+                <button 
+                  onClick={() => refetch()}
+                  className="text-sm underline hover:no-underline mt-1"
+                >
+                  נסה שוב
+                </button>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* KPI Row 1 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <StatCard
             title="עסקים (פעילים/סה״כ)"
-            value={`${mockAdminStats.businesses.active}/${mockAdminStats.businesses.total}`}
+            value={isLoading ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">טוען...</span>
+              </div>
+            ) : (
+              `${overviewData?.active_businesses || 0}/${overviewData?.total_businesses || 0}`
+            )}
             icon={<Building2 className="h-6 w-6" />}
           />
           <StatCard
-            title="הודעות שלא נקראו"
-            value={mockAdminStats.unread.total}
-            subtitle="כל המערכת"
-            icon={<Bell className="h-6 w-6" />}
+            title="הודעות WhatsApp"
+            value={isLoading ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">טוען...</span>
+              </div>
+            ) : (
+              overviewData?.whatsapp_count || 0
+            )}
+            subtitle={`טווח: ${timeFilter === 'today' ? 'היום' : timeFilter === 'week' ? '7 ימים' : timeFilter === 'month' ? '30 ימים' : 'מותאם'}`}
+            icon={<MessageCircle className="h-6 w-6" />}
           />
         </div>
 
@@ -287,22 +350,37 @@ export function AdminHomePage() {
         {/* KPI Row 2 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <StatCard
-            title="WhatsApp היום + 7 ימים"
-            value={mockAdminStats.whatsapp.today}
-            trend="+12%"
-            icon={<MessageCircle className="h-6 w-6" />}
+            title="שיחות"
+            value={isLoading ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">טוען...</span>
+              </div>
+            ) : (
+              overviewData?.calls_count || 0
+            )}
+            subtitle={`טווח: ${timeFilter === 'today' ? 'היום' : timeFilter === 'week' ? '7 ימים' : timeFilter === 'month' ? '30 ימים' : 'מותאם'}`}
+            icon={<Phone className="h-6 w-6" />}
           />
           <StatCard
-            title="שיחות היום + ממוצע טיפול"
-            value={mockAdminStats.calls.today}
-            trend="+8%"
-            subtitle="ממוצע: 3.2 דקות"
-            icon={<Phone className="h-6 w-6" />}
+            title="ממוצע משך שיחה"
+            value={isLoading ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">טוען...</span>
+              </div>
+            ) : overviewData?.avg_call_duration ? (
+              `${overviewData.avg_call_duration} דקות`
+            ) : (
+              'אין נתונים'
+            )}
+            subtitle={overviewData?.calls_count ? `מתוך ${overviewData.calls_count} שיחות` : ''}
+            icon={<Clock className="h-6 w-6" />}
           />
         </div>
 
         {/* Recent Activity */}
-        <RecentActivityCard />
+        <RecentActivityCard recentActivity={overviewData?.recent_activity} />
       </div>
     </div>
   );
