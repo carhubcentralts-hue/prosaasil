@@ -177,7 +177,7 @@ export function useBusinessActions() {
         localStorage.setItem('is_impersonating', 'true');
         localStorage.setItem('impersonating_business_id', business.id.toString());
         localStorage.setItem('impersonating_business_name', business.name);
-        localStorage.setItem('impersonating_business_domain', business.domain);
+        localStorage.setItem('impersonating_business_domain', business.domain || '');
       }
 
       const result = await impersonateAction(business.id);
