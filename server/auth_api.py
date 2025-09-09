@@ -78,8 +78,9 @@ def login():
             'name': business.name if business else 'Default Tenant'
         }
         
-        # Store in session - single source of truth
+        # Store in session - both keys for compatibility
         session['al_user'] = user_data  # Use al_user key for consistency
+        session['user'] = user_data     # Also store as 'user' for decorators
         session['tenant_id'] = user.business_id
         session['token'] = f"session_{user.id}"  # Simple session token
         
