@@ -30,6 +30,7 @@ import { cn } from '../../shared/utils/cn';
 import { BusinessEditModal } from '../../features/businesses/components/BusinessEditModal';
 import { useBusinessActions } from '../../features/businesses/useBusinessActions';
 import { Business } from '../../features/businesses/types';
+import { businessAPI } from '../../features/businesses/api';
 
 // BusinessDetails extends Business with additional stats and business hours
 interface BusinessDetails extends Business {
@@ -85,21 +86,14 @@ export function BusinessDetailsPage() {
   // Use centralized business actions
   const businessActions = useBusinessActions();
 
-  // Fetch business details from API
+  // Fetch business details from API using the proper business API
   const fetchBusinessDetails = async (businessId: string) => {
     try {
       setIsLoading(true);
       setError(null);
       
-      const response = await fetch(`/api/admin/business/${businessId}`, {
-        credentials: 'include'
-      });
-      
-      if (!response.ok) {
-        throw new Error('שגיאה בטעינת פרטי העסק');
-      }
-      
-      const data = await response.json();
+      // ✅ משתמש בBusinessAPI שמכיל את כל ההגדרות הנכונות
+      const data = await businessAPI.getBusiness(parseInt(businessId));
       
       // Convert API response to BusinessDetails format
       const businessDetails: BusinessDetails = {

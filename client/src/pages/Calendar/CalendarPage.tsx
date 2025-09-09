@@ -19,6 +19,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
+import { http } from '../../services/http';
 
 // Calendar components and types
 interface Appointment {
@@ -101,20 +102,13 @@ export function CalendarPage() {
     contact_phone: ''
   });
 
-  // Fetch appointments
+  // Fetch appointments using the proper HTTP client
   const fetchAppointments = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/calendar/appointments', {
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setAppointments(data.appointments || []);
-      } else {
-        console.error('שגיאה בטעינת פגישות');
-      }
+      // ✅ משתמש בhttp service שמכיל את כל ההגדרות הנכונות
+      const data = await http.get<{appointments: Appointment[]}>('/api/calendar/appointments');
+      setAppointments(data.appointments || []);
     } catch (error) {
       console.error('שגיאה בטעינת פגישות:', error);
     } finally {
