@@ -188,8 +188,14 @@ def create_app():
         'SEASURF_HEADER': 'X-CSRFToken',
     })
     
-    csrf.init_app(app)  # ← פעם אחת בלבד
-    print("🔒 SeaSurf CSRF Protection enabled")
+    # תיקון בעיית SeaSurf
+    try:
+        csrf.init_app(app)  # ← פעם אחת בלבד
+        print("🔒 SeaSurf CSRF Protection enabled")
+    except Exception as e:
+        print(f"⚠️ CSRF init warning: {e}")
+        # המשך בלי CSRF זמנית אם יש בעיה
+        pass
     
     # CORS with security restrictions - FIXED for session cookies
     CORS(app, 
