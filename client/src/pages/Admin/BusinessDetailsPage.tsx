@@ -63,80 +63,11 @@ interface AuditEntry {
   ip: string;
 }
 
-// Mock data - In real app this would come from API
-const mockBusinessDetails: BusinessDetails = {
-  id: 1,
-  name: 'שי דירות ומשרדים בע״מ',
-  domain: 'shai-realestate.co.il',
-  defaultPhoneE164: '+972-3-376-3805',
-  whatsappJid: '972501234567@s.whatsapp.net',
-  timezone: 'Asia/Jerusalem',
-  businessHours: {
-    sun: [{ from: '09:00', to: '18:00' }],
-    mon: [{ from: '09:00', to: '18:00' }],
-    tue: [{ from: '09:00', to: '18:00' }],
-    wed: [{ from: '09:00', to: '18:00' }],
-    thu: [{ from: '09:00', to: '17:00' }],
-    fri: [{ from: '09:00', to: '14:00' }],
-    sat: []
-  },
-  address: 'רחוב הרצל 45, תל אביב-יפו 6511503',
-  stats: {
-    users: 8,
-    leads: 248,
-    unread: 7,
-    callsToday: 12,
-    waToday: 19
-  },
-  status: 'active',
-  createdAt: '2024-08-01T10:22:00Z',
-  updatedAt: '2024-12-25T08:11:00Z'
-};
+// Real API data fetching
 
-const mockUsers: BusinessUser[] = [
-  {
-    id: 2,
-    name: 'מנהל העסק',
-    email: 'business@shai-offices.co.il',
-    role: 'business',
-    lastLogin: '2024-12-25T09:30:00Z'
-  },
-  {
-    id: 3,
-    name: 'מנהל שי דירות', 
-    email: 'manager@shai-realestate.co.il',
-    role: 'manager',
-    lastLogin: '2024-12-25T08:15:00Z'
-  },
-  {
-    id: 4,
-    name: 'סוכן 1',
-    email: 'agent1@shai-offices.co.il',
-    role: 'agent',
-    lastLogin: '2024-12-24T16:45:00Z'
-  }
-];
+// Removed mock users data
 
-const mockAuditEntries: AuditEntry[] = [
-  {
-    ts: '2024-12-25T09:12:10Z',
-    actor: 'admin@system.co.il',
-    action: 'business.view',
-    ip: '192.168.1.100'
-  },
-  {
-    ts: '2024-12-24T14:55:22Z',
-    actor: 'manager@shai-realestate.co.il',
-    action: 'settings.update',
-    ip: '10.0.0.15'
-  },
-  {
-    ts: '2024-12-24T11:30:15Z',
-    actor: 'admin@system.co.il',
-    action: 'user.reset_password',
-    ip: '192.168.1.100'
-  }
-];
+// Removed mock audit entries
 
 type TabType = 'overview' | 'users' | 'integrations' | 'audit';
 
@@ -148,20 +79,72 @@ export function BusinessDetailsPage() {
   const [users, setUsers] = useState<BusinessUser[]>([]);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(false); // Start immediately, no loading screen
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   // Use centralized business actions
   const businessActions = useBusinessActions();
 
-  // Load business details immediately
+  // Fetch business details from API
+  const fetchBusinessDetails = async (businessId: string) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await fetch(`/api/admin/business/${businessId}`, {
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('שגיאה בטעינת פרטי העסק');
+      }
+      
+      const data = await response.json();
+      
+      // Convert API response to BusinessDetails format
+      const businessDetails: BusinessDetails = {
+        id: data.id,
+        name: data.name,
+        domain: data.domain || '',
+        defaultPhoneE164: data.phone || '',
+        whatsappJid: data.whatsapp_id || '',
+        timezone: 'Asia/Jerusalem', // Default timezone
+        businessHours: {
+          sun: [{ from: '09:00', to: '18:00' }],
+          mon: [{ from: '09:00', to: '18:00' }],
+          tue: [{ from: '09:00', to: '18:00' }],
+          wed: [{ from: '09:00', to: '18:00' }],
+          thu: [{ from: '09:00', to: '17:00' }],
+          fri: [{ from: '09:00', to: '14:00' }],
+          sat: []
+        }, // Default business hours
+        address: data.address || 'לא צוין',
+        stats: {
+          users: data.users || 0,
+          leads: data.leads || 0,
+          unread: data.unread || 0,
+          callsToday: data.callsToday || 0,
+          waToday: data.waToday || 0
+        },
+        status: data.is_active ? 'active' : 'suspended',
+        createdAt: data.created_at,
+        updatedAt: data.updated_at || data.created_at
+      };
+      
+      setBusiness(businessDetails);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'שגיאה לא ידועה');
+      console.error('שגיאה בטעינת פרטי עסק:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Load business details
   useEffect(() => {
     if (!id) return;
     
-    // Load data immediately without delay
-    setBusiness(mockBusinessDetails);
-    setUsers(mockUsers);
-    setAuditEntries(mockAuditEntries);
-    setIsLoading(false);
+    fetchBusinessDetails(id);
   }, [id]);
 
   const formatDateTime = (dateStr: string) => {
@@ -220,8 +203,39 @@ export function BusinessDetailsPage() {
     setBusiness(prev => prev ? { ...prev, ...data } : null);
   };
 
-  // Remove loading state - load immediately without delay
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-4 md:p-6" dir="rtl">
+        <div className="max-w-7xl mx-auto text-center py-20">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold text-slate-900 mb-2">טוען פרטי עסק...</h2>
+          <p className="text-slate-600">אנא המתן בזמן טעינת הנתונים</p>
+        </div>
+      </div>
+    );
+  }
 
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-4 md:p-6" dir="rtl">
+        <div className="max-w-7xl mx-auto text-center py-20">
+          <XCircle className="h-16 w-16 mx-auto mb-4 text-red-300" />
+          <h2 className="text-xl font-semibold text-slate-900 mb-2">שגיאה בטעינת הנתונים</h2>
+          <p className="text-slate-600 mb-6">{error}</p>
+          <button
+            onClick={() => id && fetchBusinessDetails(id)}
+            className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
+          >
+            נסה שוב
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Business not found state
   if (!business) {
     return (
       <div className="min-h-screen bg-slate-50 p-4 md:p-6" dir="rtl">
