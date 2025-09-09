@@ -484,15 +484,17 @@ export function BusinessManagerPage() {
   const handleSaveBusiness = async (data: any) => {
     if (!selectedBusiness) return;
     
-    await businessActions.editBusiness(selectedBusiness, data);
-    setEditModalOpen(false);
-    setSelectedBusiness(null);
-    
-    // TODO: Refresh business list from API
-    // For now, update local state optimistically
-    setFilteredBusinesses(prev => prev.map(b => 
-      b.id === selectedBusiness.id ? { ...b, ...data } : b
-    ));
+    try {
+      await businessActions.editBusiness(selectedBusiness, data);
+      setEditModalOpen(false);
+      setSelectedBusiness(null);
+      
+      // ✅ עכשיו מרענן מהשרת אוטומטית אחרי עריכה
+      await fetchBusinesses();
+    } catch (error) {
+      console.error('שגיאה בעדכון עסק:', error);
+      // אם יש שגיאה, לא סוגרים את המודל כדי שהמשתמש יכול לנסות שוב
+    }
   };
 
   return (
