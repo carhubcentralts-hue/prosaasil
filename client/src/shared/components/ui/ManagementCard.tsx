@@ -1,8 +1,9 @@
-import React from 'react';
-import { LucideIcon, ChevronRight, Building2, UserCog } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { LucideIcon, ChevronRight, Building2, UserCog, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../../features/auth/hooks';
+import { http } from '../../../services/http';
 
 interface ManagementCardProps {
   title: string;
@@ -85,6 +86,37 @@ interface QuickManagementActionsProps {
 export function QuickManagementActions({ className }: QuickManagementActionsProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [businessCount, setBusinessCount] = useState<number | null>(null);
+  const [userCount, setUserCount] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRealData = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch real business count from our new API
+        const businessData = await http.get('/api/admin/businesses?pageSize=1');
+        setBusinessCount(businessData.total || 0);
+        
+        // For users - we'll use a simple estimate for now until we create users API
+        // TODO: Create a proper users API endpoint
+        setUserCount(user?.role === 'business' ? 5 : businessData.total * 3);
+        
+      } catch (error) {
+        console.error('Error fetching management stats:', error);
+        // Fallback to 0 if API fails
+        setBusinessCount(0);
+        setUserCount(0);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (user) {
+      fetchRealData();
+    }
+  }, [user]);
 
   const handleBusinessManagement = () => {
     navigate('/app/admin/businesses');
@@ -107,8 +139,8 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
           onClick={handleBusinessManagement}
           requiredRoles={['admin', 'manager']}
           stats={{
-            count: 12,
-            label: 'עסקים פעילים'
+            count: loading ? 0 : (businessCount || 0),
+            label: loading ? 'טוען...' : 'עסקים פעילים'
           }}
         />
       )}
@@ -125,8 +157,8 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
         onClick={handleUserManagement}
         requiredRoles={['admin', 'manager', 'business']}
         stats={{
-          count: user.role === 'business' ? 8 : 45,
-          label: user.role === 'business' ? 'משתמשים בעסק' : 'משתמשים במערכת'
+          count: loading ? 0 : (userCount || 0),
+          label: loading ? 'טוען...' : (user.role === 'business' ? 'משתמשים בעסק' : 'משתמשים במערכת')
         }}
       />
     </div>
