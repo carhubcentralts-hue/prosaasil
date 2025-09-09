@@ -29,6 +29,12 @@ export class BusinessAPI {
     return http.get(`/api/admin/business/${id}`);
   }
 
+  // Get business overview (Admin View) - לפי ההנחיות המדויקות
+  async getBusinessOverview(id: number): Promise<any> {
+    console.log(`🔄 GET /api/admin/businesses/${id}/overview - Admin View (קריא בלבד)`);
+    return http.get(`/api/admin/businesses/${id}/overview`);
+  }
+
   // Get business users
   async getBusinessUsers(id: number): Promise<BusinessUser[]> {
     return http.get(`/api/admin/businesses/${id}/users`);

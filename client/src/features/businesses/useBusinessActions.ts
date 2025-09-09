@@ -337,9 +337,10 @@ export function useBusinessActions() {
     }
   }, [capabilities.canDelete, navigate, setActionLoading]);
 
-  // View business details
+  // View business details (Admin View - קריא בלבד)
   const viewBusiness = useCallback((business: Business) => {
-    navigate(`/app/admin/businesses/${business.id}`);
+    console.log(`🔍 Admin View: Navigating to business ${business.id} overview (read-only)`);
+    navigate(`/app/admin/businesses/${business.id}/view`);
   }, [navigate]);
 
   // Check if action is loading
