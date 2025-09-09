@@ -15,16 +15,17 @@ auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
 
 @auth_api.route('/csrf-token', methods=['GET'])
 def get_csrf_token():
-    """Get CSRF token for client - כפי שהוגדר בהנחיות"""
+    """Get CSRF token for client - לפי ההנחיות המדויקות"""
     try:
-        # יצירת CSRF token חדש
-        token = secrets.token_hex(16)
-        session['_csrf_token'] = token
+        # קבל טוקן מהקוקי הקיים או צור חדש עם SeaSurf
+        token = request.cookies.get('XSRF-TOKEN') or csrf._get_token()
         
         # שליחה כ-cookie וגם כ-JSON
-        response = jsonify({'csrfToken': token})
-        response.set_cookie('XSRF-TOKEN', token, httponly=False, secure=False, samesite='Lax')
-        return response
+        resp = jsonify({"csrfToken": token})
+        # הקוקי חייב להיות פתוח לקריאה ע״י JS (HttpOnly=False)
+        resp.set_cookie('XSRF-TOKEN', token, samesite='Lax', secure=False, httponly=False, path='/')
+        return resp
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
