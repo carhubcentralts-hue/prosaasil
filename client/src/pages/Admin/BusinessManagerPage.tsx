@@ -24,6 +24,7 @@ import {
 import { BusinessEditModal } from '../../features/businesses/components/BusinessEditModal';
 import { useBusinessActions } from '../../features/businesses/useBusinessActions';
 import { Business } from '../../features/businesses/types';
+import { businessAPI } from '../../features/businesses/api';
 import { cn } from '../../shared/utils/cn';
 import { useAuth } from '../../features/auth/hooks';
 
@@ -355,24 +356,17 @@ export function BusinessManagerPage() {
   // Use centralized business actions
   const businessActions = useBusinessActions();
 
-  // Fetch businesses from API
+  // Fetch businesses from API using the proper business API
   const fetchBusinesses = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      const response = await fetch('/api/admin/businesses', {
-        credentials: 'include'
-      });
+      // ✅ משתמש בBusinessAPI שמכיל את כל ההגדרות הנכונות
+      const data = await businessAPI.getBusinesses();
       
-      if (!response.ok) {
-        throw new Error('שגיאה בטעינת נתוני העסקים');
-      }
-      
-      const data = await response.json();
-      
-      // Convert API response to Business format
-      const businesses = data.items?.map((item: any) => ({
+      // Convert API response to Business format  
+      const businesses = data.businesses?.map((item: any) => ({
         id: item.id,
         name: item.name,
         domain: item.domain,
