@@ -29,49 +29,7 @@ import { useAuth } from '../../features/auth/hooks';
 
 // Business interface is imported from the centralized types
 
-// Mock data - TODO: Replace with real API call
-const mockBusinesses: Business[] = [
-  {
-    id: 1,
-    name: 'שי דירות ומשרדים בע״מ',
-    domain: 'shai-realestate.co.il',
-    defaultPhoneE164: '+972-3-376-3805',
-    whatsappJid: '972501234567@s.whatsapp.net',
-    users: 8,
-    status: 'active',
-    createdAt: '2024-08-01T10:22:00Z'
-  },
-  {
-    id: 2,
-    name: 'נדלן טופ - יזמות והשקעות',
-    domain: 'nadlan-top.co.il', 
-    defaultPhoneE164: '+972-9-888-7777',
-    whatsappJid: '972509876543@s.whatsapp.net',
-    users: 3,
-    status: 'active',
-    createdAt: '2024-09-15T14:30:00Z'
-  },
-  {
-    id: 3,
-    name: 'משרדי פרימיום',
-    domain: 'premium-offices.co.il',
-    defaultPhoneE164: '+972-2-567-8901',
-    whatsappJid: '972502468135@s.whatsapp.net',
-    users: 5,
-    status: 'suspended',
-    createdAt: '2024-07-20T09:15:00Z'
-  },
-  {
-    id: 4,
-    name: 'דירות יוקרה ברמת אביב',
-    domain: 'luxury-ramat-aviv.co.il',
-    defaultPhoneE164: '+972-3-123-4567',
-    whatsappJid: '972503691470@s.whatsapp.net',
-    users: 2,
-    status: 'active',
-    createdAt: '2024-10-01T16:45:00Z'
-  }
-];
+// Real data fetching - replaced mock data
 
 interface BusinessTableProps {
   businesses: Business[];
@@ -385,7 +343,10 @@ function BusinessCardList({ businesses, onBusinessClick, onActionClick }: Busine
 export function BusinessManagerPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('all');
-  const [filteredBusinesses, setFilteredBusinesses] = useState<Business[]>(mockBusinesses);
+  const [allBusinesses, setAllBusinesses] = useState<Business[]>([]);
+  const [filteredBusinesses, setFilteredBusinesses] = useState<Business[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const { user } = useAuth();
@@ -394,9 +355,51 @@ export function BusinessManagerPage() {
   // Use centralized business actions
   const businessActions = useBusinessActions();
 
+  // Fetch businesses from API
+  const fetchBusinesses = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch('/api/admin/businesses', {
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('שגיאה בטעינת נתוני העסקים');
+      }
+      
+      const data = await response.json();
+      
+      // Convert API response to Business format
+      const businesses = data.items?.map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        domain: item.domain,
+        defaultPhoneE164: item.phone || '',
+        whatsappJid: item.whatsappId || '',
+        users: item.activeUsers || 0,
+        status: item.status as 'active' | 'suspended',
+        createdAt: item.createdAt
+      })) || [];
+      
+      setAllBusinesses(businesses);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'שגיאה לא ידועה');
+      console.error('שגיאה בטעינת עסקים:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load businesses on component mount
+  useEffect(() => {
+    fetchBusinesses();
+  }, []);
+
   // Filter businesses based on search and status
   useEffect(() => {
-    let filtered = mockBusinesses;
+    let filtered = allBusinesses;
 
     // Apply search filter
     if (searchQuery.trim()) {
@@ -412,7 +415,7 @@ export function BusinessManagerPage() {
     }
 
     setFilteredBusinesses(filtered);
-  }, [searchQuery, statusFilter]);
+  }, [allBusinesses, searchQuery, statusFilter]);
 
   const handleBusinessClick = (business: Business) => {
     businessActions.viewBusiness(business);
@@ -553,7 +556,7 @@ export function BusinessManagerPage() {
         {/* Results Summary */}
         <div className="mb-4">
           <p className="text-sm text-slate-600">
-            מציג {filteredBusinesses.length} מתוך {mockBusinesses.length} עסקים
+            מציג {filteredBusinesses.length} מתוך {allBusinesses.length} עסקים
             {searchQuery && ` • חיפוש: "${searchQuery}"`}
             {statusFilter !== 'all' && ` • סטטוס: ${statusFilter === 'active' ? 'פעיל' : 'מושעה'}`}
           </p>
@@ -580,6 +583,29 @@ export function BusinessManagerPage() {
                 נקה פילטרים
               </button>
             )}
+          </div>
+        ) : loading ? (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
+            <div className="flex items-center justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 ml-3"></div>
+              <span className="text-slate-600">טוען עסקים...</span>
+            </div>
+          </div>
+        ) : error ? (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+            <div className="flex items-center gap-3 text-red-700">
+              <XCircle className="h-5 w-5" />
+              <div>
+                <p className="font-medium">שגיאה בטעינת נתונים</p>
+                <p className="text-sm text-red-600">{error}</p>
+                <button 
+                  onClick={fetchBusinesses}
+                  className="text-sm underline hover:no-underline mt-1"
+                >
+                  נסה שוב
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
           <>
