@@ -428,19 +428,6 @@ export function BusinessManagerPage() {
     loadBusinesses();
   }, []);
 
-  // ✅ AUTO SUSPEND - כפי שביקש המשתמש
-  useEffect(() => {
-    const autoSuspendBusiness = async () => {
-      if (allBusinesses.length > 0 && allBusinesses[0].status === 'active') {
-        const business = allBusinesses[0]; // העסק של שי
-        console.log('🛑 עוצר את העסק כפי שביקש המשתמש:', business.name);
-        await businessActions.suspend(business);
-        // רענון הנתונים אחרי ההשעיה
-        setTimeout(() => fetchBusinesses(), 1000);
-      }
-    };
-    autoSuspendBusiness();
-  }, [allBusinesses, businessActions]);
 
   // Filter businesses based on search and status
   useEffect(() => {
