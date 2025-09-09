@@ -271,11 +271,11 @@ function BusinessCardList({ businesses, onBusinessClick, onActionClick }: Busine
           <div className="space-y-2 mb-4">
             <div className="flex items-center gap-2">
               <Globe className="h-4 w-4 text-slate-400" />
-              <span className="text-sm text-slate-600 direction-ltr">{business.domain}</span>
+              <span className="text-sm text-slate-600">{business.business_type}</span>
             </div>
             <div className="flex items-center gap-2">
               <Phone className="h-4 w-4 text-slate-400" />
-              <span className="text-sm text-slate-600 direction-ltr">{business.defaultPhoneE164}</span>
+              <span className="text-sm text-slate-600 direction-ltr">{business.phone || 'לא הוגדר'}</span>
             </div>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -412,7 +412,7 @@ export function BusinessManagerPage() {
     if (searchQuery.trim()) {
       filtered = filtered.filter(business => 
         business.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        business.domain.toLowerCase().includes(searchQuery.toLowerCase())
+        business.business_type.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
 
