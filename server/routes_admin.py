@@ -243,14 +243,11 @@ def api_admin_businesses():
         offset = (page - 1) * page_size
         businesses = query.offset(offset).limit(page_size).all()
         
-        # Format response לפי ההנחיות המדויקות
+        # Format response לפי ההנחיות המדויקות - ✅ תיקון: נתונים אמיתיים בלבד
         items = []
         for business in businesses:
-            # Convert phone to E164 format
+            # Use actual phone data from database
             phone_e164 = business.phone_number or ""
-            if phone_e164 and not phone_e164.startswith('+'):
-                # Convert Israeli format to E164
-                phone_e164 = f"+97233763805"  # Default for שי דירות ומשרדים
             
             items.append({
                 "id": business.id,
