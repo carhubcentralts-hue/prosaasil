@@ -421,33 +421,26 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // Memoized callback to prevent unnecessary rerenders - FIXED: Handle undefined case
-  const memoizedOnUnreadCountChange = useCallback(
-    onUnreadCountChange || (() => {}), 
-    [onUnreadCountChange]
-  );
+  // REMOVED: Memoized callback was causing infinite loop
 
-  // Initialize notifications when component mounts or user changes - FIXED: Remove callback dependency
+  // Initialize notifications when component mounts or user changes - NO callback dependency
   React.useEffect(() => {
     const newNotifications = generateNotifications(user?.role || 'business', user?.business_id);
     setNotifications(newNotifications);
     const initialUnreadCount = newNotifications.filter(n => !n.read).length;
     console.log('🔔 NotificationPanel מאתחל עם', initialUnreadCount, 'התראות לא נקראות');
-    onUnreadCountChange?.(initialUnreadCount); // Use original callback directly
-  }, [user?.role, user?.business_id]); // Remove memoized callback dependency
+  }, [user?.role, user?.business_id]);
 
   // Memoized unread count to prevent recalculation on every render
   const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
 
-  // Update parent count whenever unread count changes - FIXED: Remove callback dependency
+  // Update parent count whenever unread count changes - NO callback dependency  
   React.useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      console.log('🔄 NotificationPanel שולח עדכון:', unreadCount);
-      onUnreadCountChange?.(unreadCount); // Use original callback directly
-    }, 50); // 50ms debounce to prevent rapid fire updates
-
-    return () => clearTimeout(timeoutId);
-  }, [unreadCount]); // Remove memoized callback dependency
+    console.log('🔄 NotificationPanel שולח עדכון:', unreadCount);
+    if (onUnreadCountChange) {
+      onUnreadCountChange(unreadCount);
+    }
+  }, [unreadCount]); // REMOVED onUnreadCountChange dependency to break loop
 
   if (!isOpen) return null;
 
