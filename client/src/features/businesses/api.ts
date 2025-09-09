@@ -60,43 +60,16 @@ export class BusinessAPI {
 
   // Impersonate business  
   async impersonate(id: number): Promise<ImpersonationData> {
-    const response = await fetch(`/api/admin/businesses/${id}/impersonate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      credentials: 'include', // Important for cookies
-      body: JSON.stringify({})
+    return http.post(`/api/admin/businesses/${id}/impersonate`, {
+      _idempotencyKey: this.generateIdempotencyKey()
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Impersonation failed:', response.status, errorText);
-      throw new Error(`שגיאה בהתחזות: ${response.status}`);
-    }
-
-    return response.json();
   }
 
   // Exit impersonation
   async exitImpersonation(): Promise<BusinessActionResponse> {
-    const response = await fetch('/api/admin/impersonate/exit', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      credentials: 'include' // Important for cookies
+    return http.post('/api/admin/impersonate/exit', {
+      _idempotencyKey: this.generateIdempotencyKey()
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Exit impersonation failed:', response.status, errorText);
-      throw new Error(`שגיאה ביציאה מהתחזות: ${response.status}`);
-    }
-
-    return response.json();
   }
 
   // Suspend business
