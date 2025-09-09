@@ -23,7 +23,7 @@ export function Card({ className, children, hover = false }: CardProps) {
 
 interface StatCardProps {
   title: string;
-  value: string | number;
+  value: string | number | React.ReactNode;
   subtitle?: string;
   icon?: React.ReactNode;
   trend?: string;
