@@ -362,8 +362,12 @@ export function BusinessManagerPage() {
       setLoading(true);
       setError(null);
       
+      console.log('🔄 מתחיל טעינת עסקים...');
+      
       // ✅ משתמש בBusinessAPI שמכיל את כל ההגדרות הנכונות
       const data = await businessAPI.getBusinesses();
+      
+      console.log('📊 תגובת API:', data);
       
       // Convert API response to Business format  
       const businesses = data.businesses?.map((item: any) => ({
@@ -377,18 +381,25 @@ export function BusinessManagerPage() {
         createdAt: item.createdAt
       })) || [];
       
+      console.log('🏢 עסקים אחרי עיבוד:', businesses);
+      
       setAllBusinesses(businesses);
     } catch (err) {
+      console.error('❌ שגיאה בטעינת עסקים:', err);
       setError(err instanceof Error ? err.message : 'שגיאה לא ידועה');
-      console.error('שגיאה בטעינת עסקים:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  // Load businesses on component mount
+  // Load businesses on component mount - with small delay to ensure session is ready
   useEffect(() => {
-    fetchBusinesses();
+    const loadBusinesses = async () => {
+      // Small delay to ensure session is fully established
+      await new Promise(resolve => setTimeout(resolve, 100));
+      fetchBusinesses();
+    };
+    loadBusinesses();
   }, []);
 
   // Filter businesses based on search and status
