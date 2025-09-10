@@ -76,8 +76,7 @@ def create_business():
         business.name = data['name']
         business.phone_e164 = data['phone_e164']  # ✅ חובה לפי ההנחיות
         business.business_type = data.get('business_type', 'real_estate')  # ברירת מחדל
-        business.timezone = data.get('timezone', 'Asia/Jerusalem')  # ✅ ברירת מחדל לפי ההנחיות
-        business.domain = data.get('domain', '')  # אופציונלי
+        # הסרתי timezone ו-domain כי הם לא קיימים בטבלה
         business.is_active = True
         db.session.add(business)
         db.session.commit()
@@ -90,8 +89,7 @@ def create_business():
             "name": business.name,
             "phone_e164": business.phone_e164,
             "business_type": business.business_type,
-            "timezone": business.timezone,
-            "domain": business.domain,
+            # הסרתי timezone ו-domain מהתגובה
             "status": "active",
             "created_at": business.created_at.isoformat() if business.created_at else None
         }), 201

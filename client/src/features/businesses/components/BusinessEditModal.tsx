@@ -169,19 +169,18 @@ export function BusinessEditModal({
               />
             </div>
 
-            {/* WhatsApp JID */}
+            {/* WhatsApp Number */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                WhatsApp JID *
+                מספר WhatsApp
               </label>
               <input
-                type="text"
+                type="tel"
                 value={formData.whatsappJid}
                 onChange={handleInputChange('whatsappJid')}
                 disabled={isLoading}
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none disabled:bg-slate-50 disabled:opacity-50"
-                placeholder="972501234567@s.whatsapp.net"
-                required
+                placeholder="+972-50-123-4567"
                 dir="ltr"
               />
             </div>
