@@ -42,18 +42,30 @@ export class BusinessAPI {
 
   // Edit business
   async editBusiness(id: number, data: BusinessEditData): Promise<BusinessActionResponse> {
-    return http.put(`/api/admin/business/${id}`, {
-      ...data,
+    // Convert frontend field names to backend expected names
+    const serverData = {
+      name: data.name,
+      domain: data.domain,
+      phone_e164: data.defaultPhoneE164,  // ✅ התאמה לשרת
+      whatsapp_number: data.whatsappJid?.replace('@s.whatsapp.net', ''), // ✅ המרה למספר רגיל
+      timezone: data.timezone || 'Asia/Jerusalem',
       _idempotencyKey: this.generateIdempotencyKey()
-    });
+    };
+    return http.put(`/api/admin/business/${id}`, serverData);
   }
 
   // Create new business
   async createBusiness(data: BusinessEditData): Promise<BusinessActionResponse> {
-    return http.post('/api/admin/business', {
-      ...data,
+    // Convert frontend field names to backend expected names
+    const serverData = {
+      name: data.name,
+      domain: data.domain,
+      phone_e164: data.defaultPhoneE164,  // ✅ התאמה לשרת
+      whatsapp_number: data.whatsappJid?.replace('@s.whatsapp.net', ''), // ✅ המרה למספר רגיל
+      timezone: data.timezone || 'Asia/Jerusalem',
       _idempotencyKey: this.generateIdempotencyKey()
-    });
+    };
+    return http.post('/api/admin/business', serverData);
   }
 
   // Reset business password (owner or specific user)

@@ -171,9 +171,9 @@ export function validateBusinessData(data: BusinessEditData): string[] {
   }
 
   if (!data.whatsappJid?.trim()) {
-    errors.push('מזהה WhatsApp נדרש');
-  } else if (!data.whatsappJid.includes('@s.whatsapp.net')) {
-    errors.push('פורמט WhatsApp JID לא תקין');
+    errors.push('מספר WhatsApp נדרש');
+  } else if (!/^\+[1-9]\d{1,14}$/.test(data.whatsappJid.replace('@s.whatsapp.net', ''))) {
+    errors.push('פורמט מספר WhatsApp לא תקין (חייב להתחיל ב-+)');
   }
 
   return errors;
