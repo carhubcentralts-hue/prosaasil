@@ -230,7 +230,7 @@ def get_current_user_legacy():
                 business = {
                     'id': business_obj.id,
                     'name': business_obj.name,
-                    'phone': business_obj.phone_number
+                    'phone_e164': business_obj.phone_e164
                 }
         
         # Basic permissions based on role

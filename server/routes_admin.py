@@ -247,7 +247,7 @@ def api_admin_businesses():
         items = []
         for business in businesses:
             # Use actual phone data from database
-            phone_e164 = business.phone_number or ""
+            phone_e164 = business.phone_e164 or ""
             
             items.append({
                 "id": business.id,
@@ -302,7 +302,7 @@ def get_business_overview(business_id):
             "id": business.id,
             "name": business.name,
             "business_type": business.business_type,
-            "phone_e164": business.phone_number or "",
+            "phone_e164": business.phone_e164 or "",
             "whatsapp_number": business.whatsapp_number or "",
             "status": "active" if business.is_active else "suspended",
             "whatsapp_status": "connected" if business.whatsapp_enabled else "disconnected",

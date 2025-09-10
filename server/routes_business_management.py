@@ -36,7 +36,7 @@ def get_business(business_id):
         return jsonify({
             "id": business.id,
             "name": business.name,
-            "phone_e164": business.phone or "",
+            "phone_e164": business.phone_e164 or "",
             "email": f"office@{business.name.lower().replace(' ', '-')}.co.il",
             "address": "",
             "status": "active" if business.is_active else "inactive",

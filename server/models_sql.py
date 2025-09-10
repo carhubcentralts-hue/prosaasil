@@ -10,7 +10,7 @@ class Business(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
     business_type = db.Column(db.String(255), nullable=False, default="real_estate")
-    phone_number = db.Column(db.String(255))
+    phone_e164 = db.Column(db.String(255))  # ✅ Unified field name
     whatsapp_number = db.Column(db.String(255))
     greeting_message = db.Column(db.Text)
     whatsapp_greeting = db.Column(db.Text)
@@ -29,26 +29,26 @@ class Business(db.Model):
     # Property aliases for compatibility - לפי ההנחיות המדויקות
     @property
     def phone(self):
-        return self.phone_number
+        return self.phone_e164
     
     @phone.setter
     def phone(self, value):
-        self.phone_number = value
+        self.phone_e164 = value
     
     @property
-    def phone_e164(self):
-        return self.phone_number
+    def phone_number(self):
+        return self.phone_e164
     
-    @phone_e164.setter
-    def phone_e164(self, value):
-        self.phone_number = value
+    @phone_number.setter
+    def phone_number(self, value):
+        self.phone_e164 = value
 
 class Customer(db.Model):
     __tablename__ = "customer"
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     name = db.Column(db.String(255), nullable=False)
-    phone = db.Column(db.String(64), index=True)
+    phone_e164 = db.Column(db.String(64), index=True)  # ✅ Unified field name
     email = db.Column(db.String(255))
     status = db.Column(db.String(64), default="new")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
