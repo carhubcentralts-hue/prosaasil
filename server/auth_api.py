@@ -262,9 +262,11 @@ def require_api_auth(roles=None):
             if not user:
                 return jsonify({'error': 'Authentication required'}), 401
             
-            # Check role if specified
+            # Check role if specified - ✅ אדמין יכול לגשת לכל התוחמים
             if roles and user.get('role') not in roles:
-                return jsonify({'error': 'Insufficient permissions'}), 403
+                # אדמין יכול לגשת גם ל-business endpoints כשהוא מתחזה
+                if user.get('role') != 'admin':
+                    return jsonify({'error': 'Insufficient permissions'}), 403
             
             # Store user in g for use in route
             g.user = user

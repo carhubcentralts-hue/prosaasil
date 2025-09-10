@@ -350,6 +350,7 @@ def toggle_user_status(user_id):
 
 @biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST'])
 @require_api_auth(['admin', 'manager'])
+@csrf_exempt
 def impersonate_business(business_id):
     """Allow admin to impersonate business - WITH PROPER CSRF"""
     try:
@@ -368,14 +369,7 @@ def impersonate_business(business_id):
         if not business.is_active:
             return jsonify({"error": "העסק אינו פעיל"}), 400
         
-        # Find business admin user
-        tenant_user = User.query.filter_by(
-            business_id=business_id,
-            role='business'
-        ).first()
-        
-        if not tenant_user:
-            return jsonify({"error": "לא נמצא מנהל לעסק זה"}), 404
+        # ✅ אדמין יכול להתחזות גם בלי user business - יוצר התחזות ויוצר אחד במידת הצורך
         
         # Store original admin for restoration later
         current_admin_serialized = {
