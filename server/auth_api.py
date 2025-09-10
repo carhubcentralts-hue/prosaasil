@@ -13,12 +13,12 @@ import os
 
 auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
 
-@auth_api.route('/csrf-token', methods=['GET'])
+@auth_api.route('/csrf', methods=['GET'])  # ✅ נתיב חדש לפי המדריך
 def get_csrf_token():
     """Get CSRF token for client - לפי ההנחיות המדויקות"""
     try:
-        # קבל טוקן מהקוקי הקיים או צור חדש עם SeaSurf
-        token = request.cookies.get('XSRF-TOKEN') or csrf._get_token()
+        # צור טוקן חדש
+        token = secrets.token_hex(16)
         
         # שליחה כ-cookie וגם כ-JSON
         resp = jsonify({"csrfToken": token})

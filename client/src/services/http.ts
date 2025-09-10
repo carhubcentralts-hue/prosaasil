@@ -19,7 +19,7 @@ class HttpClient {
     // אם אין CSRF token, נקבל אחד מהשרת
     if (!this.getCSRFToken()) {
       try {
-        await fetch('/api/auth/csrf-token', { credentials: 'include' });
+        await fetch('/api/auth/csrf', { credentials: 'include' }); // ✅ תיקון endpoint
       } catch (error) {
         console.warn('Failed to get CSRF token:', error);
       }
