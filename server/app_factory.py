@@ -187,6 +187,13 @@ def create_app():
     from server.extensions import csrf
     csrf.init_app(app)  # ← פעם אחת
     
+    # CSRF Debug - לפי ההנחיות המדויקות (למחוק אחרי שמסתדר)
+    @app.before_request
+    def _dbg_csrf():
+        if request.path.endswith('/impersonate') and request.method=='POST':
+            print('CSRF-DBG cookie=', request.cookies.get('XSRF-TOKEN'),
+                  ' header=', request.headers.get('X-CSRFToken'))
+    
     # CORS with security restrictions - FIXED for session cookies
     CORS(app, 
          origins=[
@@ -473,11 +480,23 @@ def create_app():
     @app.route('/app/')
     @app.route('/app/<path:subpath>')
     def serve_spa(subpath=''):
-        """Simple SPA serving - serves our BUILD 18"""
+        """Simple SPA serving - serves our BUILD 27 with no-cache"""
         from pathlib import Path
-        from flask import send_file
+        from flask import send_file, make_response
+        import os
         DIST = Path(__file__).resolve().parents[1] / "dist"
-        return send_file(DIST / "index.html")
+        
+        # לוג DIST path + mtime לפי ההנחיות המדויקות
+        try:
+            mtime = os.path.getmtime(DIST / "index.html")
+            print(f"🔧 FE_DIST={DIST} mtime={mtime}")
+        except Exception as e:
+            print(f"⚠️ FE_DIST warning: {e}")
+        
+        # הוספת Cache-Control: no-store לפי ההנחיות המדויקות
+        resp = make_response(send_file(DIST / "index.html"))
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
     
     # Assets route
     @app.route('/assets/<path:filename>')

@@ -1,0 +1,148 @@
+קלטתי: בפועל אתה רואה 403 בהתחזות ו־Prompt ריק, והוא “אומר שתיקן” אבל ב־UI אין שום שינוי. לפי ה-Stacktrace שלך זה נטען מה־Preview (…picard.replit.dev) – שם לא יישמרו קוקיות/CSRF כמו שצריך ולכן שום “תיקון” לא מגיע אליך. הנה הנחיה קצרה וסוגרת שמכריחה את המערכת להראות שינוי, פותרת את ה-403 ומוודאת שה-Agent Prompt מוצג עם נתונים אמיתיים.
+
+⸻
+
+0) מפסיקים לעבוד מול Preview
+	•	לא פותחים ב־…picard.replit.dev.
+	•	עובדים רק מול הדומיין של ה-Production: https://ai-crmd.replit.app (ה-SPA מוגש מפלסק מאותו Origin של ה-API).
+
+בדיקת ראיה: פתח https://ai-crmd.replit.app/?v=27 ותראה בתחתית BUILD: 27. אם לא — אתה עדיין על build ישן.
+
+⸻
+
+1) הוכחת Build שחובה לראות
+
+ב־client/index.html (או Layout הראשי) הוסף תגית קבועה:
+
+<div id="__BUILD" style="position:fixed;right:.5rem;bottom:.5rem;background:#0ea5e9;color:#fff;padding:.25rem .5rem;border-radius:.5rem;z-index:99999">
+  BUILD: 27
+</div>
+
+ואז:
+	1.	rm -rf client/dist && npm --prefix client ci && npm --prefix client run build
+	2.	ודא ש-Flask מגיש את client/dist (הדפס ב־startup: FE_DIST=<path> עם mtime).
+	3.	בהגשת index.html הוסף Header: Cache-Control: no-store.
+	4.	בדפדפן: DevTools → Clear storage → Clear site data → רענון קשיח.
+אם עדיין כתוב BUILD: 23 – זה לא אותו dist.
+
+⸻
+
+2) CSRF יציב (זה מה שמפיל ההתחזות ל־403)
+
+צד שרת (אחד, לא כפול)
+
+# server/extensions.py
+from flask_seasurf import SeaSurf
+csrf = SeaSurf()
+
+# server/app_factory.py
+app.config.update(
+  SEASURF_COOKIE_NAME='XSRF-TOKEN',
+  SEASURF_HEADER='X-CSRFToken',
+  SESSION_COOKIE_SAMESITE='Lax',
+  SESSION_COOKIE_SECURE=False,  # בפריוויו בלבד; בפרודקשן True
+)
+csrf.init_app(app)
+
+	•	פטורים בלבד: /api/auth/login, /api/auth/logout, ו־webhooks.
+	•	התחזות לא פטורה.
+
+מחזיר טוקן קריא ל-JS:
+
+@auth_api.get("/api/auth/csrf")
+def get_csrf():
+    token = request.cookies.get('XSRF-TOKEN') or csrf._get_token()
+    resp = jsonify({"csrfToken": token})
+    resp.set_cookie('XSRF-TOKEN', token, samesite='Lax', secure=False, httponly=False, path='/')
+    return resp
+
+דיבוג רגעי חובה (למחוק אחרי שמסתדר):
+
+@app.before_request
+def _dbg_csrf():
+    if request.path.endswith('/impersonate') and request.method=='POST':
+        print('CSRF-DBG cookie=', request.cookies.get('XSRF-TOKEN'),
+              ' header=', request.headers.get('X-CSRFToken'))
+
+צד קליינט (בקשה יחסית, ללא Base חיצוני)
+
+ב־http.ts:
+	•	credentials: 'include' בכל בקשה.
+	•	על POST/PUT/PATCH/DELETE:
+	•	Content-Type: application/json
+	•	X-Requested-With: XMLHttpRequest
+	•	X-CSRFToken: <ערך מ-cookie XSRF-TOKEN> (אותו שם בדיוק!)
+	•	לפני הפעולות המוגנות (כולל התחזות) קרא פעם אחת: GET /api/auth/csrf כדי לייצר את הקוקי.
+
+בדיקת Network על ההתחזות:
+ב־Request Headers חייב להיות גם Cookie: … XSRF-TOKEN=abc וגם X-CSRFToken: abc (אותו ערך).
+אם אין Cookie → אתה ב־Preview/Origin אחר. אם אין Header → ה־http.ts לא מוסיף.
+
+⸻
+
+3) “Business object has no attribute ‘phone’”
+
+איחוד סכימה — בצד שרת החזר phone_e164 בלבד והוסף Alias שלא יפיל קוד ישן:
+
+class Business(db.Model):
+    @property
+    def phone(self): return self.phone_e164
+    @phone.setter
+    def phone(self, v): self.phone_e164 = v
+
+ב־serializer/JSON החזר phone_e164. בצד קליינט הטפסים/כרטיסים משתמשים ב־phone_e164.
+
+⸻
+
+4) Agent Prompt – לגרום לזה להופיע ולטעון אמיתי
+
+API
+	•	Admin:
+	•	GET /api/admin/businesses/:id/prompt → { "calls_prompt":"...", "whatsapp_prompt":"...", "version":7, ... }
+	•	PUT /api/admin/businesses/:id/prompt (CSRF) → עדכון ושמירת revision.
+	•	Business (לאחר התחזות):
+	•	GET /api/business/current/prompt
+	•	PUT /api/business/current/prompt (CSRF)
+
+אם אין שורה בטבלה — ה־GET צריך “לממש ברירת מחדל” (לייצר רשומת settings/ prompt) ולהחזיר טקסט, לא null.
+
+UI
+	•	ב־Sidebar תחת Business הוסף פריט “Agent” (שמוּר ל־admin או למתחזה).
+	•	עמוד /app/business/agent:
+	•	שתי Textareas: Calls Prompt, WhatsApp Prompt.
+	•	כפתור Save לכל אחד (PUT).
+	•	כפתור “History” (Modal) להציג גרסאות ו־Revert.
+	•	Toast + refetch אחרי שמירה.
+	•	לוג שרת: Agent prompt reloaded for tenant <id> v<n> (כדי שתדעו שזה יישם בזמן אמת).
+
+אם הכפתור “Agent” לא נראה — אתה עדיין על build ישן (חזור לסעיף 1).
+
+⸻
+
+5) “צפייה בעסק” ≠ “התחזות”
+	•	צפייה (ללא שינוי session):
+FE → /app/admin/businesses/:id/view
+API → GET /api/admin/businesses/:id/overview (JSON בלבד).
+	•	התחזות (משנה session, דורש CSRF):
+POST /api/admin/businesses/:id/impersonate → 200
+ואז GET /api/auth/me צריך להחזיר impersonating:true, tenant_id:id → נווט ל־/app/business/overview.
+
+אם “צפייה” לא עובד — ה־API כנראה מחזיר HTML במקום JSON או route חסר.
+
+⸻
+
+6) צ’ק־ליסט אימות קצר
+	1.	פותחים רק: https://ai-crmd.replit.app/?v=27 ורואים BUILD: 27.
+	2.	“התחזות” → ב-Network יש גם Cookie XSRF וגם Header X-CSRFToken זהים → response 200.
+	3.	“/api/auth/me” אחרי זה → impersonating:true.
+	4.	עמוד Agent נטען (GET prompt) ומציג טקסט אמיתי; Save עובד (PUT) ומגדיל version.
+	5.	“עריכת עסק” נטענת מ־GET /api/admin/businesses/1 עם phone_e164 ומתרעננת אחרי שמירה.
+
+⸻
+
+אם עדיין נתקע:
+	•	שלח צילום Network של בקשת התחזות (Headers+Cookies+Response) מדומיין ai-crmd.replit.app.
+	•	פלט השורה מ־log: CSRF-DBG cookie=… header=… (שניהם חייבים להיות אותו ערך).
+	•	צילום מסך של הפוטר עם BUILD: 27.
+
+שלושת אלו יאפשרו לנעול את הבעיה מייד: או Origin שגוי (Preview), או Header חסר, או API שמחזיר HTML/קאש ישן.

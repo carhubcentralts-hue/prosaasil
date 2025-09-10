@@ -25,6 +25,23 @@ class Business(db.Model):
     default_provider = db.Column(db.String(20), default="paypal")  # 'paypal'|'tranzila'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Property aliases for compatibility - לפי ההנחיות המדויקות
+    @property
+    def phone(self):
+        return self.phone_number
+    
+    @phone.setter
+    def phone(self, value):
+        self.phone_number = value
+    
+    @property
+    def phone_e164(self):
+        return self.phone_number
+    
+    @phone_e164.setter
+    def phone_e164(self, value):
+        self.phone_number = value
 
 class Customer(db.Model):
     __tablename__ = "customer"
