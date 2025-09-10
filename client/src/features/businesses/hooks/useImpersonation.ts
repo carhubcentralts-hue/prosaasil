@@ -61,45 +61,33 @@ export function useImpersonation() {
     try {
       console.log('🔄 Starting impersonation for business:', businessId);
       
-      // Step 1: Call impersonation API
+      // Step 1: ✅ לפני ההתחזות לקרוא CSRF (לפי ההנחיות)
+      await fetch('/api/auth/csrf', { credentials: 'include' });
+      
+      // Step 2: Call impersonation API
       await businessAPI.impersonate(businessId);
       console.log('✅ Impersonation API call successful');
       
-      // Step 2: Verify with /api/auth/me
-      const authResponse = await fetch('/api/auth/me', { credentials: 'include' });
+      // Step 3: ✅ אחרי 200: await authStore.refresh() ונווט (לפי ההנחיות)
+      await refetch(); // קריאת /api/auth/me
       
-      if (!authResponse.ok) {
-        throw new Error('Failed to verify impersonation');
+      // Step 4: Navigate
+      navigate('/app/business/overview');
+      
+      // Store UI state for banners
+      if (user) {
+        localStorage.setItem('impersonation_original_user', JSON.stringify({
+          name: user.email.split('@')[0] || user.email,
+          email: user.email,
+          role: user.role
+        }));
+        localStorage.setItem('is_impersonating', 'true');
+        localStorage.setItem('impersonating_business_id', businessId.toString());
       }
       
-      const authData = await authResponse.json();
-      console.log('🔍 Auth check after impersonation:', authData);
+      checkImpersonationState();
       
-      // Step 3: Navigate only after confirmation
-      if (authData.impersonating || authData.user?.role === 'business') {
-        console.log('🎉 Impersonation verified, navigating to business overview...');
-        navigate('/app/business/overview');
-        
-        // Store UI state for banners
-        if (user) {
-          localStorage.setItem('impersonation_original_user', JSON.stringify({
-            name: user.email.split('@')[0] || user.email,
-            email: user.email,
-            role: user.role
-          }));
-          localStorage.setItem('is_impersonating', 'true');
-          localStorage.setItem('impersonating_business_id', businessId.toString());
-        }
-        
-        // Refresh auth context
-        await refetch();
-        checkImpersonationState();
-        
-        return { ok: true };
-      } else {
-        console.error('❌ Impersonation failed - not confirmed:', authData);
-        throw new Error('Impersonation failed');
-      }
+      return { ok: true };
     } catch (error) {
       console.error('❌ שגיאה בהתחלת התחזות:', error);
       throw error;

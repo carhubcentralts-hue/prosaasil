@@ -123,6 +123,13 @@ def create_app():
             
         return response
     
+    # דיבוג זמני CSRF - למחוק אחרי שעובד
+    @app.before_request
+    def _dbg_csrf():
+        if request.path.endswith('/impersonate') and request.method=='POST':
+            print('CSRF-DBG cookie=', request.cookies.get('XSRF-TOKEN'),
+                  ' header=', request.headers.get('X-CSRFToken'))
+
     # Session Management and Rotation - with auth exemptions
     @app.before_request
     def manage_session_security():
@@ -187,12 +194,7 @@ def create_app():
     from server.extensions import csrf
     csrf.init_app(app)  # ← פעם אחת
     
-    # CSRF Debug - לפי ההנחיות המדויקות (למחוק אחרי שמסתדר)
-    @app.before_request
-    def _dbg_csrf():
-        if request.path.endswith('/impersonate') and request.method=='POST':
-            print('CSRF-DBG cookie=', request.cookies.get('XSRF-TOKEN'),
-                  ' header=', request.headers.get('X-CSRFToken'))
+    # הסרתי כפילות _dbg_csrf (קיים למעלה)
     
     # CORS with security restrictions - FIXED for session cookies
     CORS(app, 

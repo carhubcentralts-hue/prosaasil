@@ -355,7 +355,6 @@ def toggle_user_status(user_id):
 
 @biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST'])
 @require_api_auth(['admin', 'manager'])
-@csrf_exempt
 def impersonate_business(business_id):
     """Allow admin to impersonate business - WITH PROPER CSRF"""
     try:

@@ -200,10 +200,13 @@ def get_current_user():
             'name': business.name if business else 'Default Tenant'
         }
         
+        # ✅ חישוב נכון של impersonating לפי ההנחיות
+        impersonating = bool(session.get('impersonating') and session.get('tenant_id'))
+        
         return jsonify({
             "user": u,
             "tenant": tenant_data,
-            "impersonating": bool(session.get('impersonating', False))
+            "impersonating": impersonating
         }), 200
     
     except Exception as e:
