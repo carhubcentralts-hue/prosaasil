@@ -59,7 +59,7 @@ def create_business():
         data = request.get_json()
         
         # ✅ לפי ההנחיות: name (חובה), phone_e164 (חובה), timezone (ברירת מחדל)
-        required_fields = ['name', 'phone_e164']
+        required_fields = ['name', 'defaultPhoneE164']  # השם שהפרונטאנד שולח
         for field in required_fields:
             if not data.get(field):
                 return jsonify({"error": "missing_field", "field": field}), 400
@@ -74,9 +74,8 @@ def create_business():
         # Create business - לפי ההנחיות המדויקות
         business = Business()
         business.name = data['name']
-        business.phone_e164 = data['phone_e164']  # ✅ חובה לפי ההנחיות
+        business.phone_e164 = data['defaultPhoneE164']  # השם שהפרונטאנד שולח
         business.business_type = data.get('business_type', 'real_estate')  # ברירת מחדל
-        # הסרתי timezone ו-domain כי הם לא קיימים בטבלה
         business.is_active = True
         db.session.add(business)
         db.session.commit()
@@ -89,7 +88,9 @@ def create_business():
             "name": business.name,
             "phone_e164": business.phone_e164,
             "business_type": business.business_type,
-            # הסרתי timezone ו-domain מהתגובה
+            "whatsapp_number": "",  # ברירת מחדל
+            "call_status": "ready",
+            "whatsapp_status": "connected",
             "status": "active",
             "created_at": business.created_at.isoformat() if business.created_at else None
         }), 201
@@ -121,6 +122,10 @@ def update_business(business_id):
                 return jsonify({"error": "שם העסק כבר קיים"}), 409
             business.name = data['name']
         
+        # Update phone if provided
+        if 'defaultPhoneE164' in data and data['defaultPhoneE164']:
+            business.phone_e164 = data['defaultPhoneE164']
+        
         # Update business type if provided
         if 'business_type' in data and data['business_type']:
             business.business_type = data['business_type']
@@ -136,8 +141,14 @@ def update_business(business_id):
         return jsonify({
             "id": business.id,
             "name": business.name,
+            "phone_e164": business.phone_e164,
             "business_type": business.business_type,
-            "is_active": business.is_active
+            "whatsapp_number": "",
+            "call_status": "ready",
+            "whatsapp_status": "connected",
+            "status": "active",
+            "is_active": business.is_active,
+            "created_at": business.created_at.isoformat() if business.created_at else None
         })
         
     except Exception as e:
