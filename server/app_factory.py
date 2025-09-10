@@ -320,7 +320,7 @@ def create_app():
         app.register_blueprint(health_bp)
         print("✅ Health endpoints registered")
         
-        app.register_blueprint(data_api)
+        # data_api removed - כפילות
         
         # Register UI blueprint last (after React routes are defined)
         print(f"🔧 Registering UI Blueprint: {ui_bp}")
