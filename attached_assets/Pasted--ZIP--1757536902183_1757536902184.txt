@@ -1,0 +1,277 @@
+מבין אותך. חשוב להיות שקוף: אני לא יכול לפתוח את ה־ZIP מפה, אז אני לא “רואה” את הקוד בפועל. אבל לפי הסימפטומים (403, Error {} ריק, התחזות לא עובדת, דפים לא נטענים/דמו), זה כמעט תמיד שילוב של: כפילויות בקוד/הפעלה, CSRF/קוקיות שלא מוגדרים נכון ל-Preview/Prod, SPA שלא מוגש נכון, וממשק שנופל על HTML/דמו במקום JSON אמיתי.
+
+להלן תוכנית תיקון אחת סגורה, שמכריחה את המערכת לעבוד גם ב־Preview וגם ב-Production, בלי כפילויות ועם הוכחות חד־משמעיות. תיישם לפי הסדר—אל תקפוץ שלבים.
+
+⸻
+
+0) מצב “תהליך אחד” ו“מקור אחד”
+
+מטרה: למנוע התנגשויות וקאש ישן שמסתירים שינויים.
+	1.	ודא שיש תהליך יחיד שמגיש FE+API:
+
+# Procfile
+web: gunicorn -k eventlet -w 1 server.wsgi:app --bind 0.0.0.0:${PORT}
+
+מחק/נטרל כל הרצה אחרת (.replit scripts, שרת Vite dev, gunicorn נוסף, node serve).
+	2.	ה-FE תמיד מוגש ע״י Flask מתוך client/dist (לא public/, לא /assets שהועלו ידנית).
+	3.	Badge Build שמכריח אותך לראות שינוי: ב־client/index.html שים בפינה:
+
+<div id="__BUILD" style="position:fixed;right:.5rem;bottom:.5rem;background:#0ea5e9;color:#fff;padding:.25rem .5rem;border-radius:.5rem;z-index:2147483647">
+  BUILD: 31
+</div>
+
+אחרי כל build מספר מתעדכן—זו הוכחת שינוי.
+
+⸻
+
+1) Bootstrap אחיד ל-Preview + Production (קוקיות, פרוקסי, CSRF)
+
+בתוך server/app_factory.py (מיד אחרי יצירת app):
+
+import os
+from werkzeug.middleware.proxy_fix import ProxyFix
+from server.extensions import csrf  # SeaSurf יחיד
+
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+app.config.update(PREFERRED_URL_SCHEME='https')
+
+IS_PREVIEW = (
+    'picard.replit.dev' in os.getenv('REPLIT_URL','') or
+    os.getenv('PREVIEW_MODE') == '1'
+)
+
+# Cookie policy (אל תגדיר SESSION_COOKIE_DOMAIN!)
+if IS_PREVIEW:
+    app.config.update(
+        SESSION_COOKIE_SAMESITE='None',
+        SESSION_COOKIE_SECURE=True,
+        REMEMBER_COOKIE_SAMESITE='None',
+        REMEMBER_COOKIE_SECURE=True,
+    )
+else:
+    app.config.update(
+        SESSION_COOKIE_SAMESITE='Lax',
+        SESSION_COOKIE_SECURE=True,
+        REMEMBER_COOKIE_SAMESITE='Lax',
+        REMEMBER_COOKIE_SECURE=True,
+    )
+
+# SeaSurf – מקור יחיד
+app.config.update(
+    SEASURF_COOKIE_NAME='XSRF-TOKEN',
+    SEASURF_HEADER='X-CSRFToken',
+)
+csrf.init_app(app)
+
+⚠️ הסר/נטרל כל שימוש ב־CSRFProtect (Flask-WTF) או init כפול. תשאיר רק SeaSurf אחד.
+
+מחזיר טוקן CSRF “קריא ל-JS” עם דגלים נכונים (ב־server/auth_api.py):
+
+@auth_api.get("/api/auth/csrf")
+def get_csrf():
+    token = request.cookies.get('XSRF-TOKEN') or csrf._get_token()
+    resp = jsonify({"csrfToken": token})
+    if IS_PREVIEW:
+        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='None', secure=True, path='/')
+    else:
+        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='Lax',  secure=True, path='/')
+    return resp
+
+פטורים מ-CSRF: רק /api/auth/login, /api/auth/logout, וכל ה-webhooks.
+התחזות לא פטורה.
+
+שגיאות JSON (שלא תראה עוד Error {} ריק):
+
+@app.errorhandler(401)
+def _e401(e): return jsonify(error="unauthorized"), 401
+@app.errorhandler(403)
+def _e403(e): return jsonify(error="forbidden"), 403
+@app.errorhandler(500)
+def _e500(e): return jsonify(error="server_error"), 500
+
+
+⸻
+
+2) SPA Routing ו-Cache Bust
+
+ב־app_factory.py ודא:
+
+from pathlib import Path
+from flask import send_from_directory, abort, jsonify, request
+
+FE_DIST = Path(__file__).resolve().parents[1] / "client" / "dist"
+
+@app.route('/assets/<path:filename>')
+def assets(filename):
+    return send_from_directory(FE_DIST / 'assets', filename)
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def spa(path):
+    if path.startswith(('api','webhook','assets','static')):
+        abort(404)
+    resp = send_from_directory(FE_DIST, 'index.html')
+    resp.cache_control.no_store = True
+    return resp
+
+print("FE_DIST =", FE_DIST, "mtime =", (FE_DIST/'index.html').stat().st_mtime)
+
+בנה מחדש FE:
+
+rm -rf client/dist
+npm --prefix client ci
+npm --prefix client run build
+
+בדפדפן (גם ב-Preview וגם ב-Prod): Application → Clear storage → Clear site data → רענון → רואים BUILD: 31.
+
+⸻
+
+3) ניקוי כפילויות שמפילות את השרת
+	•	CSRF: רק SeaSurf אחד. מחק כל CSRFProtect/init כפול/csrf.exempt_urls() שמקבל פונקציות.
+	•	Routes/Blueprints: תשאיר רק סט אחד (auth_api, admin_api, business_api, whatsapp_api, calls_api, ui). מחק גרסאות כפולות/ישנות.
+	•	Assets: תשאיר רק client/dist/*. מחק /assets ידניים ישנים.
+	•	DEMO: חפש ומחק ב-FE: demo|mock|sample|fallback|FIXME. אין “דמו”, אין פולבקים.
+
+⸻
+
+4) Auth & Impersonation — הדרך התקנית
+
+שרת:
+
+@admin_api.post('/api/admin/businesses/<int:id>/impersonate')
+def impersonate(id):
+    # CSRF נדרש! (לא פטור)
+    session['impersonating'] = True
+    session['tenant_id']     = id
+    session['role']          = 'business'
+    return jsonify(ok=True, tenant_id=id)
+
+@auth_api.get('/api/auth/me')
+def me():
+    imp = bool(session.get('impersonating') and session.get('tenant_id'))
+    tenant = None
+    if imp:
+        b = Business.query.get(session['tenant_id'])
+        tenant = {"id": b.id, "name": b.name}
+    return jsonify(isAuthenticated=True, impersonating=imp, tenant=tenant, user=serialize_user(current_user))
+
+דיבוג זמני (להסרה אחרי שזה עובד):
+
+@app.before_request
+def _dbg_csrf():
+    if request.path.endswith('/impersonate') and request.method=='POST':
+        print('CSRF-DBG cookie=', request.cookies.get('XSRF-TOKEN'),
+              ' header=', request.headers.get('X-CSRFToken'))
+
+קליינט (client/src/lib/http.ts) – בקשות כתיבה שולחות CSRF, וכולן עם cookies:
+
+function getCookie(name:string){
+  const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/([.$?*|{}()[\]\\/+^])/g,'\\$1')+'=([^;]*)'))
+  return m ? decodeURIComponent(m[1]) : null
+}
+
+export async function apiFetch(url:string, options:RequestInit = {}){
+  const headers = new Headers(options.headers || {})
+  headers.set('Accept','application/json')
+  const method = (options.method || 'GET').toUpperCase()
+  if(!['GET','HEAD','OPTIONS'].includes(method)){
+    headers.set('Content-Type','application/json')
+    headers.set('X-Requested-With','XMLHttpRequest')
+    const t = getCookie('XSRF-TOKEN')
+    if (t) headers.set('X-CSRFToken', t)    // אותו שם כמו SEASURF_HEADER
+  }
+  const res = await fetch(url, { ...options, headers, credentials:'include' })
+  if (!res.ok) {
+    const body = await res.text().catch(()=> '')
+    throw new Error(`HTTP ${res.status}: ${body || res.statusText}`)
+  }
+  return res
+}
+
+זרימת התחזות ב-FE:
+
+await apiFetch('/api/auth/csrf')  // מייצר קוקי
+await apiFetch(`/api/admin/businesses/${id}/impersonate`, { method:'POST', body: JSON.stringify({}) })
+await authStore.refresh()         // קורא /api/auth/me
+navigate('/app/business/overview', { replace:true })
+
+impersonating:false אחרי לוגין זה תקין. זה הופך true רק אחרי POST /impersonate.
+
+⸻
+
+5) סכימת JSON אחידה (מונע קריסות “Business.phone”)
+	•	בצד שרת ו-FE משתמשים רק ב־phone_e164.
+	•	אם יש קוד ישן עם business.phone, הוסף property:
+
+@property
+def phone(self): return self.phone_e164
+@phone.setter
+def phone(self, v): self.phone_e164 = v
+
+	•	API תמיד מחזיר JSON (לא HTML).
+
+⸻
+
+6) נתונים אמיתיים—לא דמו
+
+Admin – Businesses
+	•	GET /api/admin/businesses?page=&pageSize=&q= → {"items":[...], "total":1} (העסק האמיתי).
+	•	GET /api/admin/businesses/:id → לעריכה.
+	•	PATCH /api/admin/businesses/:id (CSRF) → עדכון ו־JSON.
+	•	POST /api/admin/businesses (CSRF) → יצירה; על 200 רענון הרשימה.
+
+Agent Prompt
+	•	Admin: GET/PUT /api/admin/businesses/:id/prompt
+	•	Business (אחרי התחזות): GET/PUT /api/business/current/prompt
+	•	אם אין שורה—לייצר ברירת מחדל ולהחזיר טקסט, לא null.
+	•	WS/שיחה: בתחילת כל שיחה Load prompt לפי tenant_id + לוג:
+AI_PROMPT loaded tenant=<id> v=<n>.
+
+⸻
+
+7) Smoke Tests זהים ל-Preview & Prod (בלי ניחושים)
+
+קבע BASE בהתאם (Preview או Prod):
+
+# 1) לוגין (פטור CSRF)
+curl -i -c /tmp/c -b /tmp/c -X POST $BASE/api/auth/login \
+ -H 'Content-Type: application/json' \
+ --data '{"email":"admin@shai-realestate.co.il","password":"*****"}'
+
+# 2) CSRF Cookie
+TOKEN=$(curl -s -c /tmp/c -b /tmp/c $BASE/api/auth/csrf \
+ | python -c "import sys,json;print(json.load(sys.stdin)['csrfToken'])")
+
+# 3) רשימת עסקים – חייב total=1
+curl -i -c /tmp/c -b /tmp/c $BASE/api/admin/businesses
+
+# 4) התחזות – בלי טוקן → 400 JSON ברור
+curl -i -c /tmp/c -b /tmp/c -X POST $BASE/api/admin/businesses/1/impersonate \
+ -H 'Content-Type: application/json' --data '{}'
+
+# 5) התחזות – עם טוקן → 200
+curl -i -c /tmp/c -b /tmp/c -X POST $BASE/api/admin/businesses/1/impersonate \
+ -H 'Content-Type: application/json' -H "X-CSRFToken: $TOKEN" --data '{}'
+
+# 6) אימות session
+curl -i -c /tmp/c -b /tmp/c $BASE/api/auth/me
+
+בדפדפן (Network על ההתחזות):
+	•	חייב להופיע גם Cookie XSRF-TOKEN=… וגם Header X-CSRFToken: … עם אותו ערך → Response 200.
+	•	אם חסר Cookie בפריוויו—פתח ב-New Tab (לא iFrame של Replit).
+
+⸻
+
+8) אם “הוא אומר שתיקן” ואתה לא רואה:
+
+בקש ממנו 3 הוכחות שלא משאירות ספק:
+	1.	צילום מסך של הדף עם BUILD: 31 (גם ב-Preview וגם ב-Prod).
+	2.	צילום Network של POST /impersonate (Headers—Cookie+X-CSRFToken + Response JSON).
+	3.	שורת log: CSRF-DBG cookie=… header=… (הערכים חייבים להיות זהים).
+
+אם שלושתם קיימים—הדפדפן יראה נתונים אמיתיים, ההתחזות תעבוד, וה־Error {} ייעלם.
+אם אחד חסר—זו הנקודה המדויקת לתקן (Cookie flags, Header חסר, build לא נטען).
+
+⸻
+
+זה “פאקטוריזציה” של כל הבעיות שתיארת לי—בצע לפי הסדר, וזה יעבוד גם בפריוויו וגם בפרודקשן, בלי לפרוס “סתם”, ובלי הפתעות של 403/דמו/דף ריק.
