@@ -1,0 +1,135 @@
+מעולה, הולכים “לנעול” את הדברים שמציקים עכשיו:
+	1.	למה impersonating: false, 2) לוודא שה-Prompt באמת משפיע, 3) “עסק חדש” לא מגיב, 4) לוודא שהמערכת באמת מדברת עם ה-DB.
+אני נותן הוראות לבוט/מפתח שיבצע—עם בדיקות קבלה קצרות כדי שלא יישאר ספק.
+
+⸻
+
+0) קודם כול – לעבוד רק מה-Production, לא מ-Preview
+	•	אל תשתמש עוד ב-…picard.replit.dev (Preview). זה שוברים CSRF, קוקיז ו-Caching.
+	•	עובדים רק מול: https://ai-crmd.replit.app.
+	•	ב־client/index.html שים תגית “BUILD: 27” קבועה בפינה. אם אתה לא רואה את המספר העדכני אחרי רענון קשיח (Clear storage), אתה על Build ישן.
+
+⸻
+
+1) ההתחזות מחזירה 403 ו-impersonating: false – מתקנים צינור מלא
+
+1.1 צד שרת
+	•	Session אחרי התחזות: ב־POST /api/admin/businesses/<id>/impersonate להגדיר:
+	•	session['impersonating']=True
+	•	session['tenant_id']=<id>
+	•	session['role']='business'
+	•	להחזיר JSON: {"ok": true, "tenant_id": <id>}
+	•	מי טוען את ה־me: ב־/api/auth/me לחשב מתוך ה־session:
+	•	impersonating = bool(session.get('impersonating') and session.get('tenant_id'))
+	•	אם impersonating: לצרף ל־JSON את tenant: {id, name} אמיתי מה-DB.
+	•	CSRF: רק /api/auth/login ו־/api/auth/logout פטורים. ההתחזות לא פטורה.
+הטוקן הוא בקוקי XSRF-TOKEN וה־Header הוא X-CSRFToken—אותו ערך.
+
+דיבוג זמני (למחוק אחרי שעובד):
+
+@app.before_request
+def _dbg_csrf():
+    if request.path.endswith('/impersonate') and request.method=='POST':
+        print('CSRF-DBG cookie=', request.cookies.get('XSRF-TOKEN'),
+              ' header=', request.headers.get('X-CSRFToken'))
+
+1.2 צד קליינט
+	•	בכל בקשה: credentials:'include'.
+	•	לפני ההתחזות לקרוא פעם אחת GET /api/auth/csrf (מייצר את הקוקי).
+	•	בבקשת ההתחזות (POST) להוסיף Header X-CSRFToken עם ערך זהה לקוקי XSRF-TOKEN.
+	•	אחרי 200:
+	1.	await authStore.refresh() (קריאת /api/auth/me)
+	2.	לנווט ל־/app/business/overview.
+	•	ב־AuthContext הימנע מלדרוס את ה־impersonating ל־false—קבל אותו ישירות מ־/api/auth/me.
+
+1.3 בדיקת קבלה (חובה)
+	•	DevTools → Network על POST /impersonate: רואים גם Cookie XSRF-TOKEN=… וגם Header X-CSRFToken: …—אותו ערך.
+	•	תגובת /api/auth/me מיד אחרי:
+
+{ isAuthenticated:true, impersonating:true, tenant:{id:1,name:"שי דירות…"}, … }
+
+
+
+⸻
+
+2) ה-Prompt: לוודא שזה לא “חרטה” אלא באמת משפיע
+
+2.1 שרת
+	•	נקודות קצה:
+	•	Admin: GET/PUT /api/admin/businesses/:id/prompt
+	•	Business (אחרי התחזות): GET/PUT /api/business/current/prompt
+	•	WS/שיחה: בתחילת כל שיחה לעשות Load של ה-prompt מה-DB לפי tenant_id.
+	•	לוג הוכחה: AI_PROMPT version=<n> tenant=<id> loaded at call start.
+
+2.2 קליינט
+	•	עמוד Agent בעסק (או Tab): שתי תיבות—Calls Prompt ו-WhatsApp Prompt + Save + History.
+	•	אחרי Save: Toast + refetch + כתוב בלוג: “Saved prompt v”.
+
+2.3 בדיקת קבלה
+	•	ערוך את הפרומפט והוסף משפט קל לזיהוי (“תמיד פתחי ב’שלום רב’”).
+	•	שיחה חדשה → בפתיחה הבוט אומר “שלום רב”.
+	•	בשרת תראה לוג טעינה של גרסה עדכנית.
+
+⸻
+
+3) “עסק חדש” לא עושה כלום – מחברים אותו עד הסוף
+
+3.1 UI
+	•	הכפתור חייב להיות type="button" (לא submit בלי טופס), עם onClick שפותח Modal.
+	•	במודאל, כפתור Save עושה POST ל־/api/admin/businesses ושולח לפחות:
+	•	name (חובה)
+	•	phone_e164 (חובה)
+	•	timezone (ברירת מחדל Asia/Jerusalem)
+	•	domain (אופציונלי)
+	•	על 200: סגור מודאל, Toast, await listStore.refetch()—שיראו מיד את העסק החדש.
+
+3.2 API
+	•	החזר 400 ברור אם חסרים שדות, עם {"error":"missing_field","field":"phone_e164"}.
+	•	ודא שמחזיר JSON של העסק החדש עם id—לא HTML.
+	•	CSRF: POST מוגן; UI חייב לשלוח Header X-CSRFToken.
+
+3.3 בדיקת קבלה
+	•	לחיצה פותחת מודאל.
+	•	שמירה מחזירה 200, הכרטיס החדש מופיע ברשימה תוך ≤1 שנ’.
+	•	אין הודעות אדומות ב-Console.
+
+⸻
+
+4) השדה phone מפיל מסכים → מאחדים סכימה
+	•	להשתמש רק ב-phone_e164 בצד שרת וקליינט.
+	•	אם יש קוד ישן שקורא business.phone, הוסף property ב-Model שמחזיר phone_e164.
+	•	ב-JSON שמוחזר תמיד לכלול phone_e164.
+	•	בטפסים—שדה “טלפון” יקרא/יכתוב phone_e164.
+
+⸻
+
+5) לוודא שה-DB באמת בשימוש (ולא דמו/פולבקס)
+
+5.1 Health
+	•	/livez → 200.
+	•	/readyz → מריץ SELECT 1, מחזיר {db_ok:true, pool_size:…, schema_version:…}.
+	•	לוג את URL של ה-DB (בלי סיסמה) בהפעלה.
+
+5.2 איפוס דמו
+	•	חפש והסר בכל ה-FE: mock|demo|sample|fallback.
+	•	בעמוד “סקירה כללית” המדדים נשלפים רק מה-API; אין LocalStorage לנתונים ישנים.
+
+⸻
+
+6) Acceptance Pack (5 דקות, בלי פרשנות)
+	1.	GET https://ai-crmd.replit.app/?v=27 → בפינה כתוב BUILD: 27.
+	2.	POST /api/auth/login → 200, Cookie נשמר.
+	3.	GET /api/auth/csrf → קיבלתי XSRF-TOKEN בקוקי.
+	4.	POST /impersonate → Header X-CSRFToken תואם לקוקי, Response 200.
+	5.	GET /api/auth/me → impersonating:true, tenant.id=1.
+	6.	עמוד Agent מציג טקסט אמיתי; Save→200; History מציג גרסאות.
+	7.	“עסק חדש” → 200; העסק מופיע ברשימה מיד.
+	8.	אין קונסול-אדום בדפדפן.
+
+⸻
+
+למה ראית impersonating:false בלוג?
+
+או שה־BE לא שם את הדגלים ב־session, או שה־FE לא מרענן את me אחרי ההתחזות, או שהבקשה נעשית מ-Preview (קוקי לא נשלח). הצעדים למעלה סוגרים שלושתם.
+
+שלח לי (אם משהו עדיין נתקע) צילום Network של POST /impersonate (Headers+Cookies+Response) מהדומיין ai-crmd.replit.app, וצילום BUILD: 27—ואכוון אותך על השורה המדויקת שחסרה.
