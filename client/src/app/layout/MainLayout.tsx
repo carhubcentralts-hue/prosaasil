@@ -15,7 +15,8 @@ import {
   LogOut,
   Search,
   Bell,
-  User
+  User,
+  Bot
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { NotificationPanel } from '../../shared/components/ui/NotificationPanel';
@@ -65,6 +66,12 @@ const menuItems = [
     icon: UserCog, 
     label: 'ניהול עסקים', 
     to: '/app/admin/businesses',
+    roles: ['admin', 'manager']
+  },
+  { 
+    icon: Bot, 
+    label: 'Agent Prompts', 
+    to: '/app/admin/agent-prompts',
     roles: ['admin', 'manager']
   },
   { 
