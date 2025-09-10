@@ -29,7 +29,8 @@ def get_business_prompt(business_id):
             version = latest_revision.version if latest_revision else 1
             
             # הפרד לשיחות ווואטסאפ - לפי ההנחיות המדויקות
-            prompt_data = settings.ai_prompt or "You are Leah, a helpful Hebrew real-estate AI assistant..."
+            # ✅ תיקון: העדפה לפרומפט מטבלת businesses אם קיים
+            prompt_data = settings.ai_prompt or business.system_prompt or "You are Leah, a helpful Hebrew real-estate AI assistant..."
             try:
                 import json
                 if prompt_data.startswith('{'):
@@ -53,8 +54,8 @@ def get_business_prompt(business_id):
                 "updated_by": settings.updated_by
             })
         else:
-            # Return default prompts
-            default_prompt = "You are Leah, a helpful Hebrew real-estate AI assistant..."
+            # Return default prompts - ✅ תיקון: השתמש בפרומפט מטבלת businesses אם זמין
+            default_prompt = business.system_prompt or "את ליאה, עוזרת נדל\"ן ישראלית. תפקידך לסייע ללקוחות במציאת דירות ומשרדים."
             return jsonify({
                 "calls_prompt": default_prompt,
                 "whatsapp_prompt": default_prompt,
