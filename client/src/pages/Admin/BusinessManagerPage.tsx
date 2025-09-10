@@ -384,8 +384,7 @@ export function BusinessManagerPage() {
       
       // Convert API response to Business format - ✅ FIXED: נתונים אמיתיים מהשרת
       const businesses = data.items?.map((item: any) => {
-        // Debug נתונים נכנסים
-        console.log('🔍 RAW ITEM FROM SERVER:', JSON.stringify(item, null, 2));
+        // ✅ הסרתי raw debug logs
         
         const business = {
           id: item.id,
@@ -407,12 +406,11 @@ export function BusinessManagerPage() {
           whatsapp_status: item.whatsapp_status
         };
         
-        console.log('🔍 MAPPED BUSINESS:', JSON.stringify(business, null, 2));
+        // ✅ הסרתי mapped debug logs
         return business;
       }) || [];
       
-      console.log('🔍 DEBUG MAPPING - Input from server:', data.items?.[0]);
-      console.log('🔍 DEBUG MAPPING - Output after mapping:', businesses?.[0]);
+      // ✅ הסרתי debug logs שהיו מיותרים בproduction
       
       console.log('🏢 עסקים אחרי עיבוד:', businesses);
       

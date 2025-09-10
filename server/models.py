@@ -58,12 +58,7 @@ class CallLog:
             "created_at": self.created_at.isoformat()
         }
         
-# Sample data for development
-SAMPLE_CUSTOMERS = [
-    Customer(1, "דוד כהן", "+972-50-123-4567", "david@email.com", "כהן נדל״ן", "active", "phone"),
-    Customer(2, "שרה לוי", "+972-52-987-6543", "sara@email.com", "לוי השקעות", "lead", "whatsapp"),
-    Customer(3, "מיכל אברהם", "+972-54-456-7890", "michal@email.com", "", "new", "website"),
-]
+# ✅ הסרתי sample data - משתמשים רק בנתונים אמיתיים מDB
 
 # Import SQLAlchemy models for authentication
 from server.models_sql import User, Business as SQLBusiness, CallLog as SQLCallLog, db
