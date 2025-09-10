@@ -4,7 +4,8 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  root: './client',
+  root: './client', 
+  base: '/',  // ✅ לפי ההנחיות - same origin
   build: {
     outDir: '../dist',
     assetsDir: 'assets',

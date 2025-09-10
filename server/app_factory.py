@@ -123,12 +123,7 @@ def create_app():
             
         return response
     
-    # דיבוג זמני CSRF - למחוק אחרי שעובד
-    @app.before_request
-    def _dbg_csrf():
-        if request.path.endswith('/impersonate') and request.method=='POST':
-            print('CSRF-DBG cookie=', request.cookies.get('XSRF-TOKEN'),
-                  ' header=', request.headers.get('X-CSRFToken'))
+# הוסרה כפילות של _dbg_csrf
 
     # Session Management and Rotation - with auth exemptions
     @app.before_request
@@ -536,6 +531,13 @@ def create_app():
     # warmup_services_async()
     print("🔧 Warmup disabled for debugging")
     
+    # דיבוג זמני CSRF (מוחקים אחרי שזה עובד)
+    @app.before_request
+    def _dbg_csrf():
+        if request.path.endswith('/impersonate') and request.method=='POST':
+            print('CSRF-DBG cookie=', request.cookies.get('XSRF-TOKEN'),
+                  ' header=', request.headers.get('X-CSRFToken'))
+
     # Error handlers for clear response format
     @app.errorhandler(401)
     def _e401(e): 
