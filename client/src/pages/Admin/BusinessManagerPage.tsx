@@ -568,9 +568,10 @@ export function BusinessManagerPage() {
               </p>
             </div>
             <button
+              type="button"
               onClick={handleNewBusiness}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
-              disabled
+              data-testid="button-create-business"
             >
               <Plus className="h-5 w-5" />
               עסק חדש

@@ -58,47 +58,42 @@ def create_business():
     try:
         data = request.get_json()
         
-        # Validate required fields
-        required_fields = ['name', 'business_type', 'admin_email', 'admin_password']
+        # ✅ לפי ההנחיות: name (חובה), phone_e164 (חובה), timezone (ברירת מחדל)
+        required_fields = ['name', 'phone_e164']
         for field in required_fields:
             if not data.get(field):
-                return jsonify({"error": f"חסר שדה: {field}"}), 400
+                return jsonify({"error": "missing_field", "field": field}), 400
         
         # Check if business name exists
         existing_business = Business.query.filter_by(name=data['name']).first()
         if existing_business:
             return jsonify({"error": "שם העסק כבר קיים"}), 409
         
-        # Check if admin email exists
-        existing_user = User.query.filter_by(email=data['admin_email']).first()
-        if existing_user:
-            return jsonify({"error": "כתובת האימייל כבר רשומה במערכת"}), 409
+        # הסרתי בדיקת admin email כי לא יוצרים משתמש אוטומטית
         
-        # Create business
+        # Create business - לפי ההנחיות המדויקות
         business = Business()
         business.name = data['name']
-        business.business_type = data['business_type'] 
+        business.phone_e164 = data['phone_e164']  # ✅ חובה לפי ההנחיות
+        business.business_type = data.get('business_type', 'real_estate')  # ברירת מחדל
+        business.timezone = data.get('timezone', 'Asia/Jerusalem')  # ✅ ברירת מחדל לפי ההנחיות
+        business.domain = data.get('domain', '')  # אופציונלי
         business.is_active = True
         db.session.add(business)
-        db.session.flush()  # Get business ID
-        
-        # Create admin user for the business
-        admin_user = User()
-        admin_user.email = data['admin_email']
-        admin_user.name = data['name'] + ' - מנהל'
-        admin_user.password_hash = generate_password_hash(data['admin_password'])
-        admin_user.role = 'business'
-        admin_user.business_id = business.id
-        db.session.add(admin_user)
         db.session.commit()
         
-        logger.info(f"Created business {business.id} with admin user {admin_user.id}")
+        logger.info(f"Created business {business.id}: {business.name}")
         
+        # ✅ החזר JSON של העסק החדש עם id - לא HTML
         return jsonify({
             "id": business.id,
             "name": business.name,
+            "phone_e164": business.phone_e164,
             "business_type": business.business_type,
-            "is_active": business.is_active
+            "timezone": business.timezone,
+            "domain": business.domain,
+            "status": "active",
+            "created_at": business.created_at.isoformat() if business.created_at else None
         }), 201
         
     except Exception as e:
