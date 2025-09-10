@@ -13,19 +13,27 @@ import os
 
 auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
 
-@auth_api.route('/csrf', methods=['GET'])  
-def get_csrf_token():
-    """GET /api/auth/csrf קובע קוקי קריא ל-JS ומחזיר {csrfToken} - לפי ההנחיות"""
-    try:
-        # בדוק אם יש טוקן קיים, אחרת צור חדש
-        token = request.cookies.get('XSRF-TOKEN') or csrf._get_token()
-        
-        resp = jsonify({"csrfToken": token})
-        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='Lax', secure=False, path='/')
-        return resp
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+@auth_api.get("/api/auth/csrf")
+def get_csrf():
+    """מחזיר טוקן CSRF "קריא ל־JS" עם דגלים מתאימים לפי ההנחיות המדויקות"""
+    import os
+    
+    IS_PREVIEW = (
+        'picard.replit.dev' in os.getenv('REPLIT_URL', '') or
+        os.getenv('PREVIEW_MODE') == '1'
+    )
+    
+    token = request.cookies.get('XSRF-TOKEN') or csrf._get_token()
+    if not token:
+        token = secrets.token_urlsafe(32)
+    
+    resp = jsonify({"csrfToken": token})
+    
+    if IS_PREVIEW:
+        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='None', secure=True, path='/')
+    else:
+        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='Lax',  secure=True, path='/')
+    return resp
 
 @csrf.exempt  # Proper SeaSurf exemption
 @auth_api.route('/login', methods=['POST', 'OPTIONS'])

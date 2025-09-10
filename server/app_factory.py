@@ -72,21 +72,59 @@ def create_app():
                 'application_name': 'AgentLocator-71'
             }
         },
-        # Session + CSRF - לפי ההנחיות המדויקות
-        'SESSION_COOKIE_SECURE': False,  # בפריוויו/דב בלבד
+        # Session configuration
         'SESSION_COOKIE_HTTPONLY': True,
-        'SESSION_COOKIE_SAMESITE': 'Lax',
         'PERMANENT_SESSION_LIFETIME': timedelta(hours=8),
-        'SESSION_REFRESH_EACH_REQUEST': True,
-        'SEASURF_COOKIE_NAME': 'XSRF-TOKEN',
-        'SEASURF_HEADER': 'X-CSRFToken',
-        'SEASURF_EXEMPT_PATHS': [        # פטורים בלבד: login, logout, webhooks
-            '/api/auth/login', '/api/auth/logout', '/webhook/'
-        ]
+        'SESSION_REFRESH_EACH_REQUEST': True
     })
     
-    # ProxyFix for proper URL handling behind proxy
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    # 1) Flask bootstrap אחיד לשתי הסביבות (Preview/Prod) - לפי ההנחיות המדויקות
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+    app.config.update(PREFERRED_URL_SCHEME='https')
+
+    IS_PREVIEW = (
+        'picard.replit.dev' in os.getenv('REPLIT_URL', '') or
+        os.getenv('PREVIEW_MODE') == '1'
+    )
+
+    # Cookie policy (אחיד, בלי DOMAIN, host-only):
+    if IS_PREVIEW:
+        app.config.update(
+            SESSION_COOKIE_SAMESITE='None',
+            SESSION_COOKIE_SECURE=True,
+            REMEMBER_COOKIE_SAMESITE='None',
+            REMEMBER_COOKIE_SECURE=True,
+        )
+    else:
+        app.config.update(
+            SESSION_COOKIE_SAMESITE='Lax',
+            SESSION_COOKIE_SECURE=True,
+            REMEMBER_COOKIE_SAMESITE='Lax',
+            REMEMBER_COOKIE_SECURE=True,
+        )
+
+    # SeaSurf – מקור יחיד
+    app.config.update(
+        SEASURF_COOKIE_NAME='XSRF-TOKEN',
+        SEASURF_HEADER='X-CSRFToken',
+    )
+    
+    # Initialize SeaSurf
+    from server.extensions import csrf
+    csrf.init_app(app)
+    
+    # שגיאות JSON ברורות (שלא תראה Error {} ריק):
+    @app.errorhandler(401)
+    def _e401(e): 
+        return jsonify(error="unauthorized"), 401
+
+    @app.errorhandler(403)
+    def _e403(e): 
+        return jsonify(error="forbidden"), 403
+
+    @app.errorhandler(500)
+    def _e500(e): 
+        return jsonify(error="server_error"), 500
     
     # Enterprise Security Headers
     @app.after_request
@@ -523,18 +561,7 @@ def create_app():
             print('CSRF-DBG cookie=', request.cookies.get('XSRF-TOKEN'),
                   ' header=', request.headers.get('X-CSRFToken'))
 
-    # Error handlers for clear response format
-    @app.errorhandler(401)
-    def _e401(e): 
-        return jsonify(error="unauthorized"), 401
-        
-    @app.errorhandler(403)
-    def _e403(e): 
-        return jsonify(error="forbidden"), 403
-        
-    @app.errorhandler(500)
-    def _e500(e): 
-        return jsonify(error="server_error"), 500
+    # Error handlers מוסרו מכאן - הם כבר מוגדרים למעלה
     
     # SPA blueprint disabled temporarily - using direct routes
     # from server.spa_static import spa_bp
