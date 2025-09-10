@@ -216,13 +216,7 @@ def create_app():
                         session['_session_start'] = datetime.now().isoformat()
                         session['_csrf_token'] = secrets.token_hex(16)
     
-    # CSRF Protection - Single SeaSurf instance (לפי ההנחיות המדויקות)
-    app.config['SEASURF_COOKIE_NAME'] = 'XSRF-TOKEN'
-    app.config['SEASURF_HEADER'] = 'X-CSRFToken' 
-    app.config['SEASURF_INCLUDE_OR_EXEMPT_VIEWS'] = 'exempt'
-    
-    from server.extensions import csrf
-    csrf.init_app(app)  # ← פעם אחת
+    # CSRF כבר מוגדר למעלה - הסרת כפילות
     
     # CORS with security restrictions - FIXED for session cookies
     CORS(app, 
