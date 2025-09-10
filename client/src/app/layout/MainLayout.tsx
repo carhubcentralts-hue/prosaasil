@@ -75,6 +75,12 @@ const menuItems = [
     roles: ['admin', 'manager']
   },
   { 
+    icon: Bot, 
+    label: 'הגדרות AI Agent', 
+    to: '/app/business/agent-prompts',
+    roles: ['business']
+  },
+  { 
     icon: Users, 
     label: 'ניהול משתמשים', 
     roles: ['admin', 'manager'],

@@ -69,6 +69,24 @@ export function AppRoutes() {
           }
         />
         <Route
+          path="admin/agent-prompts"
+          element={
+            <RoleGuard roles={['admin', 'manager']}>
+              <BusinessManagerPage />
+            </RoleGuard>
+          }
+        />
+
+        {/* Business Routes */}
+        <Route
+          path="business/agent-prompts"
+          element={
+            <RoleGuard roles={['business']}>
+              <AgentPromptsPage />
+            </RoleGuard>
+          }
+        />
+        <Route
           path="admin/businesses/:id"
           element={
             <RoleGuard roles={['admin', 'manager']}>

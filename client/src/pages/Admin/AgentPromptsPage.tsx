@@ -11,6 +11,7 @@ import {
   History
 } from 'lucide-react';
 import { http } from '../../services/http';
+import { useAuth } from '../../features/auth/hooks';
 
 interface PromptData {
   calls_prompt: string;
@@ -29,9 +30,13 @@ interface PromptRevision {
 }
 
 export function AgentPromptsPage() {
-  const { businessId } = useParams<{ businessId: string }>();
+  const { businessId: urlBusinessId } = useParams<{ businessId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  
+  // Determine which business ID to use
+  const businessId = user?.role === 'business' ? user.business_id?.toString() : urlBusinessId;
   const [saving, setSaving] = useState<{ calls: boolean; whatsapp: boolean }>({
     calls: false,
     whatsapp: false
@@ -49,6 +54,11 @@ export function AgentPromptsPage() {
   // Load prompts and business info
   useEffect(() => {
     if (!businessId) {
+      // Redirect based on user role
+      if (user?.role === 'business') {
+        console.error('Business user has no business_id');
+        return;
+      }
       navigate('/app/admin/businesses');
       return;
     }
@@ -58,9 +68,10 @@ export function AgentPromptsPage() {
         setLoading(true);
         
         // Load business info and prompts in parallel
+        const isBusinessRole = user?.role === 'business';
         const [businessData, promptsData] = await Promise.all([
-          http.get<{ name: string }>(`/api/admin/business/${businessId}`),
-          http.get<PromptData>(`/api/admin/businesses/${businessId}/ai-prompts`)
+          http.get<{ name: string }>(isBusinessRole ? `/api/business/current` : `/api/admin/business/${businessId}`),
+          http.get<PromptData>(isBusinessRole ? `/api/business/current/prompt` : `/api/admin/businesses/${businessId}/prompt`)
         ]);
         
         setBusinessName(businessData.name);
@@ -80,7 +91,12 @@ export function AgentPromptsPage() {
   // Load history
   const loadHistory = async () => {
     try {
-      const data = await http.get<PromptRevision[]>(`/api/admin/businesses/${businessId}/ai-prompts/history`);
+      const isBusinessRole = user?.role === 'business';
+      const data = await http.get<PromptRevision[]>(
+        isBusinessRole 
+          ? `/api/business/current/prompt/history` 
+          : `/api/admin/businesses/${businessId}/prompt/history`
+      );
       setRevisions(data);
     } catch (err) {
       console.error('❌ Failed to load history:', err);
@@ -93,11 +109,17 @@ export function AgentPromptsPage() {
     
     try {
       const promptContent = channel === 'calls' ? prompts.calls_prompt : prompts.whatsapp_prompt;
+      const isBusinessRole = user?.role === 'business';
       
-      const result = await http.post<{ success: boolean; version: number; message?: string }>(`/api/admin/businesses/${businessId}/ai-prompts`, {
-        channel,
-        prompt_content: promptContent
-      });
+      const result = await http.put<{ success: boolean; version: number; message?: string }>(
+        isBusinessRole 
+          ? `/api/business/current/prompt` 
+          : `/api/admin/businesses/${businessId}/prompt`, 
+        {
+          channel,
+          prompt_content: promptContent
+        }
+      );
       
       if (result.success) {
         // Update version
@@ -140,12 +162,14 @@ export function AgentPromptsPage() {
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-4">
-          <button
-            onClick={() => navigate('/app/admin/businesses')}
-            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-          >
-            <ArrowRight className="h-5 w-5" />
-          </button>
+          {user?.role !== 'business' && (
+            <button
+              onClick={() => navigate('/app/admin/businesses')}
+              className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+            >
+              <ArrowRight className="h-5 w-5" />
+            </button>
+          )}
           <Bot className="h-6 w-6 text-purple-600" />
           <h1 className="text-2xl font-bold text-slate-900">הגדרות AI Agent</h1>
         </div>
