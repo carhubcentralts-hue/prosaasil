@@ -218,13 +218,24 @@ class MediaStreamHandler:
                             or (evt["start"].get("customParameters") or {}).get("CallSid")
                             or (evt["start"].get("customParameters") or {}).get("call_sid")
                         )
+                        
+                        # ✅ זיהוי מספר טלפון מ-customParameters
+                        custom_params = evt["start"].get("customParameters", {})
+                        self.phone_number = (
+                            custom_params.get("From") or
+                            custom_params.get("CallFrom") or  
+                            custom_params.get("from") or
+                            custom_params.get("phone_number")
+                        )
                     else:
                         # Direct format: {"event": "start", "streamSid": "...", "callSid": "..."}
                         self.stream_sid = evt.get("streamSid")
                         self.call_sid = evt.get("callSid")
+                        self.phone_number = evt.get("from") or evt.get("phone_number")
+                        
                     self.last_rx_ts = time.time()
                     self.last_keepalive_ts = time.time()  # ✅ התחל keepalive
-                    print(f"🎯 WS_START sid={self.stream_sid} call_sid={self.call_sid} mode={self.mode}")
+                    print(f"🎯 WS_START sid={self.stream_sid} call_sid={self.call_sid} phone={self.phone_number} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
