@@ -132,11 +132,10 @@ def update_business_prompt(business_id):
         
         # Get or create settings
         if not settings:
-            settings = BusinessSettings(
-                tenant_id=business_id,
-                ai_prompt=new_prompt_data,
-                updated_by=user_id
-            )
+            settings = BusinessSettings()
+            settings.tenant_id = business_id
+            settings.ai_prompt = new_prompt_data
+            settings.updated_by = user_id
             db.session.add(settings)
         else:
             settings.ai_prompt = new_prompt_data
@@ -151,13 +150,12 @@ def update_business_prompt(business_id):
         next_version = (latest_revision.version + 1) if latest_revision else 1
         
         # יצירת prompt_revisions (version++)
-        revision = PromptRevisions(
-            tenant_id=business_id,
-            version=next_version,
-            prompt=new_prompt_data,
-            changed_by=user_id,
-            changed_at=datetime.utcnow()
-        )
+        revision = PromptRevisions()
+        revision.tenant_id = business_id
+        revision.version = next_version
+        revision.prompt = new_prompt_data
+        revision.changed_by = user_id
+        revision.changed_at = datetime.utcnow()
         db.session.add(revision)
         
         db.session.commit()
