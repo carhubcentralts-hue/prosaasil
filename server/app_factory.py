@@ -194,8 +194,6 @@ def create_app():
     from server.extensions import csrf
     csrf.init_app(app)  # ← פעם אחת
     
-    # הסרתי כפילות _dbg_csrf (קיים למעלה)
-    
     # CORS with security restrictions - FIXED for session cookies
     CORS(app, 
          origins=[
