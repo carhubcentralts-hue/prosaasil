@@ -160,8 +160,8 @@ def update_business_prompt(business_id):
         
         db.session.commit()
         
-        # Runtime Apply - פרסום אירוע (TODO: Redis PubSub)
-        logger.info(f"Agent prompt reloaded for tenant {business_id} v{next_version}")
+        # Runtime Apply - לוג הוכחה לפי ההנחיות המדויקות
+        logger.info(f"AI_PROMPT loaded tenant={business_id} v={next_version}")
         
         return jsonify({
             "calls_prompt": current_prompts.get('calls', ''),

@@ -1328,7 +1328,7 @@ class MediaStreamHandler:
                         prompt_data = json.loads(settings.ai_prompt)
                         prompt_text = prompt_data.get(channel, prompt_data.get('calls', ''))
                         if prompt_text:
-                            print(f"✅ טען פרומפט {channel} מדאטאבייס לעסק {self.business_id}")
+                            print(f"AI_PROMPT loaded tenant={self.business_id} channel={channel}")
                             return prompt_text
                     else:
                         # פרומפט יחיד (legacy)
