@@ -72,19 +72,16 @@ def create_app():
                 'application_name': 'AgentLocator-71'
             }
         },
-        # Session Security - לפי ההנחיות המדויקות
-        'SESSION_COOKIE_SECURE': False,  # Set to True in production with HTTPS
+        # Session + CSRF - לפי ההנחיות המדויקות
+        'SESSION_COOKIE_SECURE': False,  # בפריוויו/דב בלבד
         'SESSION_COOKIE_HTTPONLY': True,
         'SESSION_COOKIE_SAMESITE': 'Lax',
-        'PERMANENT_SESSION_LIFETIME': timedelta(hours=8),  # 8 hour timeout
+        'PERMANENT_SESSION_LIFETIME': timedelta(hours=8),
         'SESSION_REFRESH_EACH_REQUEST': True,
-        
-        # CSRF Protection - שמות אחידים לפי ההנחיות המדויקות
-        'SEASURF_COOKIE_NAME': 'XSRF-TOKEN',   # שם הקוקי
-        'SEASURF_HEADER': 'X-CSRFToken',       # שם ההדר ש-SeaSurf יבדוק
-        'SEASURF_EXEMPT_PATHS': [              # פטורים - רק מחרוזות!
-            '/api/auth/login', '/api/auth/logout', '/api/auth/forgot', '/api/auth/reset',
-            '/webhook/', '/assets/', '/healthz', '/readyz', '/livez', '/version'
+        'SEASURF_COOKIE_NAME': 'XSRF-TOKEN',
+        'SEASURF_HEADER': 'X-CSRFToken',
+        'SEASURF_EXEMPT_PATHS': [        # פטורים בלבד: login, logout, webhooks
+            '/api/auth/login', '/api/auth/logout', '/webhook/'
         ]
     })
     
@@ -469,42 +466,30 @@ def create_app():
 
     # Health endpoints moved below to prevent duplicates
         
-    # Simple SPA routes (temporary fix - replacing spa_bp)
-    @app.route('/')
-    @app.route('/app')
-    @app.route('/app/')
-    @app.route('/app/<path:subpath>')
-    def serve_spa(subpath=''):
-        """Simple SPA serving - serves our BUILD 27 with no-cache"""
-        from pathlib import Path
-        from flask import send_file, make_response
-        import os
-        DIST = Path(__file__).resolve().parents[1] / "dist"
-        
-        # לוג DIST path + mtime לפי ההנחיות המדויקות
-        try:
-            mtime = os.path.getmtime(DIST / "index.html")
-            print(f"🔧 FE_DIST={DIST} mtime={mtime}")
-        except Exception as e:
-            print(f"⚠️ FE_DIST warning: {e}")
-        
-        # הוספת Cache-Control: no-store לפי ההנחיות המדויקות
-        resp = make_response(send_file(DIST / "index.html"))
-        resp.headers['Cache-Control'] = 'no-store'
-        return resp
+    # SPA serving - לפי ההנחיות המדויקות  
+    from pathlib import Path
+    from flask import send_from_directory, abort
+    FE_DIST = Path(__file__).resolve().parents[1] / "dist"
     
-    # Assets route
+    # הדפסה פעם אחת בהפעלה
+    try:
+        mtime = FE_DIST.stat().st_mtime
+        print(f"FE_DIST = {FE_DIST} mtime = {mtime}")
+    except Exception as e:
+        print(f"⚠️ FE_DIST error: {e}")
+    
     @app.route('/assets/<path:filename>')
-    def serve_assets(filename):
-        """Serve assets with correct MIME types"""
-        from pathlib import Path
-        from flask import send_from_directory, make_response
-        DIST = Path(__file__).resolve().parents[1] / "dist"
-        resp = make_response(send_from_directory(DIST / "assets", filename))
-        if filename.endswith('.js'):
-            resp.headers['Content-Type'] = 'application/javascript'
-        elif filename.endswith('.css'):
-            resp.headers['Content-Type'] = 'text/css'
+    def assets(filename): 
+        return send_from_directory(FE_DIST/'assets', filename)
+
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def spa(path):
+        # אל תיתן לנתיבי /api, /webhook, /static להגיע לכאן
+        if path.startswith(('api','webhook','static','assets')):
+            abort(404)
+        resp = send_from_directory(FE_DIST, 'index.html')
+        resp.cache_control.no_store = True
         return resp
     
     # Database initialization (לפי ההנחיות)

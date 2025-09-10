@@ -13,17 +13,15 @@ import os
 
 auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
 
-@auth_api.route('/csrf', methods=['GET'])  # ✅ נתיב חדש לפי המדריך
+@auth_api.route('/csrf', methods=['GET'])  
 def get_csrf_token():
-    """Get CSRF token for client - לפי ההנחיות המדויקות"""
+    """GET /api/auth/csrf קובע קוקי קריא ל-JS ומחזיר {csrfToken} - לפי ההנחיות"""
     try:
-        # צור טוקן חדש
-        token = secrets.token_hex(16)
+        # בדוק אם יש טוקן קיים, אחרת צור חדש
+        token = request.cookies.get('XSRF-TOKEN') or csrf._get_token()
         
-        # שליחה כ-cookie וגם כ-JSON
         resp = jsonify({"csrfToken": token})
-        # הקוקי חייב להיות פתוח לקריאה ע״י JS (HttpOnly=False)
-        resp.set_cookie('XSRF-TOKEN', token, samesite='Lax', secure=False, httponly=False, path='/')
+        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='Lax', secure=False, path='/')
         return resp
         
     except Exception as e:
