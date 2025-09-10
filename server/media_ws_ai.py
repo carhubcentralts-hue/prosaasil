@@ -114,6 +114,10 @@ class MediaStreamHandler:
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         
         print("🎯 AI CONVERSATION STARTED")
+        
+        # מאפיינים לזיהוי עסק
+        self.business_id = None
+        self.phone_number = None
 
     def run(self):
         # Media stream handler initialized")
@@ -1274,6 +1278,68 @@ class MediaStreamHandler:
             print(f"❌ WHISPER_FALLBACK_ERROR: {e}")
             return ""
     
+    def _load_business_prompts(self, channel: str = 'calls') -> str:
+        """טוען פרומפטים מהדאטאבייס לפי עסק - לפי ההנחיות המדויקות"""
+        try:
+            # ✅ זיהוי business_id לפי מספר טלפון או default לעסק הראשון
+            if not self.business_id and self.phone_number:
+                # חפש עסק לפי מספר הטלפון
+                from server.models_sql import Business
+                business = Business.query.filter(
+                    Business.phone_number == self.phone_number
+                ).first()
+                if business:
+                    self.business_id = business.id
+                    print(f"✅ זיהוי עסק לפי טלפון {self.phone_number}: {business.name}")
+            
+            # אם אין עדיין business_id, קח את העסק הראשון (default)
+            if not self.business_id:
+                from server.models_sql import Business
+                business = Business.query.first()
+                if business:
+                    self.business_id = business.id
+                    print(f"✅ שימוש בעסק ברירת מחדל: {business.name}")
+            
+            if not self.business_id:
+                print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל")
+                return "את ליאה, עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."
+            
+            # טען פרומפט מ-BusinessSettings
+            from server.models_sql import BusinessSettings, Business
+            settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
+            business = Business.query.get(self.business_id)
+            
+            if settings and settings.ai_prompt:
+                try:
+                    # נסה לפרסר JSON (פורמט חדש עם calls/whatsapp)
+                    import json
+                    if settings.ai_prompt.startswith('{'):
+                        prompt_data = json.loads(settings.ai_prompt)
+                        prompt_text = prompt_data.get(channel, prompt_data.get('calls', ''))
+                        if prompt_text:
+                            print(f"✅ טען פרומפט {channel} מדאטאבייס לעסק {self.business_id}")
+                            return prompt_text
+                    else:
+                        # פרומפט יחיד (legacy)
+                        print(f"✅ טען פרומפט legacy מדאטאבייס לעסק {self.business_id}")
+                        return settings.ai_prompt
+                except Exception as e:
+                    print(f"⚠️ שגיאה בפרסור פרומפט JSON: {e}")
+                    # fallback לפרומפט כטקסט רגיל
+                    return settings.ai_prompt
+            
+            # אם אין ב-BusinessSettings, בדוק את business.system_prompt
+            if business and business.system_prompt:
+                print(f"✅ טען פרומפט מטבלת businesses לעסק {self.business_id}")
+                return business.system_prompt
+                
+            print(f"⚠️ לא נמצא פרומפט לעסק {self.business_id} - שימוש בברירת מחדל")
+            return "את ליאה, עוזרת נדלן מקצועית מ'שי דירות ומשרדים'. עזרי ללקוח למצוא את הנכס המתאים."
+            
+        except Exception as e:
+            print(f"❌ שגיאה בטעינת פרומפט מדאטאבייס: {e}")
+            return "את ליאה, עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."
+
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response - exactly what the conversation needs!"""
         try:
