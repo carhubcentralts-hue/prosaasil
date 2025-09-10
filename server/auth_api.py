@@ -13,7 +13,7 @@ import os
 
 auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
 
-@auth_api.get("/api/auth/csrf")
+@auth_api.get("/csrf")
 def get_csrf():
     """מחזיר טוקן CSRF "קריא ל־JS" עם דגלים מתאימים לפי ההנחיות המדויקות"""
     import os

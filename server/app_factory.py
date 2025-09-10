@@ -87,18 +87,20 @@ def create_app():
         os.getenv('PREVIEW_MODE') == '1'
     )
 
-    # Cookie policy (אחיד, בלי DOMAIN, host-only):
+    # Consolidated Cookie policy - single source of truth
     if IS_PREVIEW:
         app.config.update(
-            SESSION_COOKIE_SAMESITE='None',
-            SESSION_COOKIE_SECURE=True,
-            REMEMBER_COOKIE_SAMESITE='None',
-            REMEMBER_COOKIE_SECURE=True,
+            SESSION_COOKIE_SAMESITE='Lax',
+            SESSION_COOKIE_SECURE=False,     # HTTP mode for preview
+            SESSION_COOKIE_HTTPONLY=False,   # Allow JS access for debugging
+            REMEMBER_COOKIE_SAMESITE='Lax',
+            REMEMBER_COOKIE_SECURE=False,
         )
     else:
         app.config.update(
             SESSION_COOKIE_SAMESITE='Lax',
-            SESSION_COOKIE_SECURE=True,
+            SESSION_COOKIE_SECURE=True,      # HTTPS only in production
+            SESSION_COOKIE_HTTPONLY=True,    # Secure in production
             REMEMBER_COOKIE_SAMESITE='Lax',
             REMEMBER_COOKIE_SECURE=True,
         )
@@ -218,14 +220,22 @@ def create_app():
     
     # CSRF כבר מוגדר למעלה - הסרת כפילות
     
-    # CORS with security restrictions - FIXED for session cookies
+    # CORS with security restrictions - SECURE: regex patterns work in Flask-CORS
+    cors_origins = [
+        "http://localhost:5000",
+        r"^https://[\w-]+\.replit\.app$",    # Regex pattern for *.replit.app
+        r"^https://[\w-]+\.replit\.dev$"     # Regex pattern for *.replit.dev
+    ]
+    # Only add specific preview origins in Preview mode
+    if IS_PREVIEW:
+        cors_origins.extend([
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:8080"          # Common dev server ports
+        ])  # Specific preview origins only
+    
     CORS(app, 
-         origins=[
-             "http://localhost:5000",
-             "https://*.replit.app", 
-             "https://*.replit.dev",
-             "*"  # Allow all origins for development
-         ],
+         origins=cors_origins,
          supports_credentials=True,
          allow_headers=["Content-Type", "Authorization", "X-CSRFToken", "HX-Request"],
          methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
@@ -275,12 +285,9 @@ def create_app():
         # Register auth system FIRST (after security middleware)
         # Using simplified auth from auth_api.py only
         
-        # Session configuration for Preview (HTTP) mode - FIXED for better persistence
+        # Session name and path (cookie security already configured above)
         app.config.update({
             'SESSION_COOKIE_NAME': 'al_sess',
-            'SESSION_COOKIE_HTTPONLY': False,  # Allow JS access for debugging
-            'SESSION_COOKIE_SECURE': False,   # HTTP mode (Replit doesn't use HTTPS in preview)
-            'SESSION_COOKIE_SAMESITE': 'Lax',  # FIXED: Lax instead of None for better refresh support
             'SESSION_COOKIE_PATH': '/',
             'SESSION_COOKIE_DOMAIN': None,    # Let browser decide
             'SESSION_COOKIE_MAX_AGE': 28800,  # 8 hours in seconds (same as PERMANENT_SESSION_LIFETIME)
