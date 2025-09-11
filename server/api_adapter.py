@@ -138,25 +138,27 @@ def dashboard_activity():
         
         activities = []
         
-        # Add WhatsApp activities
+        # Add WhatsApp activities (with None check for created_at)
         for msg in recent_whatsapp:
-            activities.append({
-                "ts": msg.created_at.isoformat() + "Z",
-                "type": "whatsapp",
-                "leadId": msg.customer_id,
-                "preview": msg.message_body[:50] + "..." if len(msg.message_body) > 50 else msg.message_body,
-                "provider": "baileys"  # Default provider
-            })
+            if msg.created_at:  # Only add if created_at is not None
+                activities.append({
+                    "ts": msg.created_at.isoformat() + "Z",
+                    "type": "whatsapp",
+                    "leadId": msg.customer_id,
+                    "preview": msg.message_body[:50] + "..." if len(msg.message_body) > 50 else msg.message_body,
+                    "provider": "baileys"  # Default provider
+                })
         
-        # Add call activities
+        # Add call activities (with None check for created_at)
         for call in recent_calls:
-            activities.append({
-                "ts": call.created_at.isoformat() + "Z",
-                "type": "call", 
-                "leadId": call.customer_id,
-                "preview": f"שיחה - {call.call_status}",
-                "provider": "twilio"
-            })
+            if call.created_at:  # Only add if created_at is not None
+                activities.append({
+                    "ts": call.created_at.isoformat() + "Z",
+                    "type": "call", 
+                    "leadId": call.customer_id,
+                    "preview": f"שיחה - {call.call_status}",
+                    "provider": "twilio"
+                })
         
         # Sort by timestamp and take top 20
         activities.sort(key=lambda x: x["ts"], reverse=True)
