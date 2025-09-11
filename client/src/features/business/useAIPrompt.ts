@@ -2,10 +2,11 @@ import { useState, useCallback, useEffect } from 'react';
 import { http } from '../../services/http';
 
 export interface AIPromptData {
-  prompt: string;
+  calls_prompt: string;
+  whatsapp_prompt: string;
   version: number;
-  lastUpdated: string;
-  updatedBy: string;
+  updated_at: string | null;
+  updated_by: string | null;
 }
 
 export interface PromptHistoryItem {
@@ -71,9 +72,10 @@ export function useAIPrompt() {
   }, [fetchPrompt, fetchHistory]);
 
   const startEditing = useCallback(() => {
-    setEditablePrompt(promptData?.prompt || '');
+    // Use calls_prompt as the main prompt for editing
+    setEditablePrompt(promptData?.calls_prompt || '');
     setIsEditing(true);
-  }, [promptData?.prompt]);
+  }, [promptData?.calls_prompt]);
 
   const cancelEditing = useCallback(() => {
     setIsEditing(false);

@@ -214,7 +214,7 @@ function AIPromptCard() {
           <div>
             <h3 className="text-lg font-semibold text-slate-900">AI Agent (לאה)</h3>
             <p className="text-sm text-slate-600">
-              {promptData ? `גרסה ${promptData.version} • עודכן ${new Date(promptData.lastUpdated).toLocaleDateString('he-IL')}` : 'הגדרות שיחה חכמה'}
+              {promptData && promptData.updated_at ? `גרסה ${promptData.version} • עודכן ${new Date(promptData.updated_at).toLocaleDateString('he-IL')}` : 'הגדרות שיחה חכמה'}
             </p>
           </div>
         </div>
@@ -289,7 +289,7 @@ function AIPromptCard() {
       ) : (
         <div className="bg-gray-50 rounded-lg p-4">
           <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
-            {promptData?.prompt || 'לא הוגדר פרומפט עדיין'}
+            {promptData?.calls_prompt || 'לא הוגדר פרומפט עדיין'}
           </p>
         </div>
       )}
