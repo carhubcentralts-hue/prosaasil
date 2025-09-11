@@ -564,7 +564,30 @@ def create_app():
             print('CSRF-DBG cookie=', request.cookies.get('XSRF-TOKEN'),
                   ' header=', request.headers.get('X-CSRFToken'))
 
-    # Error handlers מוסרו מכאן - הם כבר מוגדרים למעלה
+    # ✅ ERROR HANDLERS - JSON responses instead of Error {}
+    @app.errorhandler(400)
+    def handle_bad_request(e):
+        return jsonify({"error": "bad_request", "message": str(e)}), 400
+    
+    @app.errorhandler(401) 
+    def handle_unauthorized(e):
+        return jsonify({"error": "unauthorized", "message": "Authentication required"}), 401
+    
+    @app.errorhandler(403)
+    def handle_forbidden(e):
+        return jsonify({"error": "forbidden", "message": "Access denied"}), 403
+    
+    @app.errorhandler(404)
+    def handle_not_found(e):
+        return jsonify({"error": "not_found", "message": "Resource not found"}), 404
+    
+    @app.errorhandler(409)
+    def handle_conflict(e):
+        return jsonify({"error": "conflict", "message": str(e)}), 409
+    
+    @app.errorhandler(500)
+    def handle_server_error(e):
+        return jsonify({"error": "server_error", "message": "Internal server error"}), 500
     
     # SPA blueprint disabled temporarily - using direct routes
     # from server.spa_static import spa_bp
