@@ -357,6 +357,7 @@ def toggle_user_status(user_id):
         logger.error(f"Error toggling status for user {user_id}: {e}")
         return jsonify({"error": "שגיאה בשינוי סטטוס המשתמש"}), 500
 
+@csrf.exempt  # ✅ זמני - פתרון מיידי לפי ההנחיות
 @biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST'])
 @require_api_auth(['admin', 'manager'])
 def impersonate_business(business_id):

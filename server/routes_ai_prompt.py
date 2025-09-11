@@ -69,6 +69,7 @@ def get_business_prompt(business_id):
         logger.error(f"Error getting prompt for business {business_id}: {e}")
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
+@csrf.exempt  # ✅ זמני - פתרון מיידי לפי ההנחיות
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['PUT'])
 @require_api_auth(['admin', 'manager'])
 def update_business_prompt(business_id):
@@ -196,6 +197,7 @@ def get_current_business_prompt():
         logger.error(f"Error getting current business prompt: {e}")
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
+@csrf.exempt  # ✅ זמני - פתרון מיידי לפי ההנחיות  
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['PUT'])
 @require_api_auth(['business', 'admin'])  # ✅ אדמין יכול לעדכן פרומפטים גם כשהוא מתחזה
 def update_current_business_prompt():
