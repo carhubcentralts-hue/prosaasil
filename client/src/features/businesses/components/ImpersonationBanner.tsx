@@ -4,8 +4,8 @@ import { useBusinessActions } from '../useBusinessActions';
 import { useImpersonation } from '../hooks/useImpersonation';
 
 export function ImpersonationBanner() {
-  const { isImpersonating, originalUser, impersonatedBusiness, exitImpersonation: hookExitImpersonation } = useImpersonation();
-  const { isLoading } = useBusinessActions();
+  const { isImpersonating, originalUser, impersonatedBusiness } = useImpersonation();
+  const { isLoading, exitImpersonation } = useBusinessActions();  // Use the one that navigates!
 
   // Don't render if not impersonating or missing data
   if (!isImpersonating || !originalUser || !impersonatedBusiness) {
@@ -14,7 +14,7 @@ export function ImpersonationBanner() {
 
   const handleExitImpersonation = async () => {
     try {
-      await hookExitImpersonation();
+      await exitImpersonation();  // Use the one that navigates!
     } catch (error) {
       console.error('שגיאה ביציאה מהתחזות:', error);
     }
