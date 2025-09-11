@@ -201,6 +201,8 @@ export function useBusinessActions() {
         
         if (me.impersonating === true) {
           showToast.success(`התחזות לעסק "${business.name}" הופעלה`);
+          // Refresh auth context to update React state before navigation
+          await refetchAuth();
           // Navigate using React Router instead of full page reload
           navigate('/app/business/overview');
         } else {
