@@ -135,18 +135,7 @@ def create_app():
     from server.extensions import csrf
     csrf.init_app(app)
     
-    # שגיאות JSON ברורות (שלא תראה Error {} ריק):
-    @app.errorhandler(401)
-    def _e401(e): 
-        return jsonify(error="unauthorized"), 401
-
-    @app.errorhandler(403)
-    def _e403(e): 
-        return jsonify(error="forbidden"), 403
-
-    @app.errorhandler(500)
-    def _e500(e): 
-        return jsonify(error="server_error"), 500
+    # שגיאות JSON ברורות (שלא תראה Error {} ריק) - REMOVED DUPLICATES
     
     # Enterprise Security Headers
     @app.after_request

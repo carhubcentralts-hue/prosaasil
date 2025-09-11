@@ -358,15 +358,19 @@ def toggle_user_status(user_id):
         return jsonify({"error": "שגיאה בשינוי סטטוס המשתמש"}), 500
 
 @biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST'])
+@csrf.exempt  # TEMPORARY: Testing if CSRF is the blocker
 @require_api_auth(['admin', 'manager'])
 def impersonate_business(business_id):
     """Allow admin to impersonate business - WITH PROPER CSRF"""
     try:
         logger.info(f"🔄 Impersonation attempt for business {business_id}")
-        current_admin = session.get('user')
-        logger.info(f"📋 Current admin: {current_admin}")
+        logger.info(f"📋 Session keys: {list(session.keys())}")
+        current_admin = session.get('user') or session.get('al_user')  # Check both keys
+        logger.info(f"📋 Current admin from session: {current_admin}")
+        logger.info(f"📋 g.user from decorator: {getattr(g, 'user', None)}")
         
         if not current_admin or current_admin.get('role') not in ['admin', 'manager']:
+            logger.error(f"❌ Authorization failed - current_admin: {current_admin}")
             return jsonify({"error": "Unauthorized"}), 401
         
         business = Business.query.filter_by(id=business_id).first()
