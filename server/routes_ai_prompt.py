@@ -69,10 +69,15 @@ def get_business_prompt(business_id):
         logger.error(f"Error getting prompt for business {business_id}: {e}")
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
-@ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['PUT'])
+@ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['PUT', 'OPTIONS'])
 @require_api_auth(['admin', 'manager'])
 def update_business_prompt(business_id):
     """Update AI prompts for business - Admin (דורש CSRF) - שיחות ווואטסאפ נפרד"""
+    
+    # Handle OPTIONS request for CORS preflight
+    if request.method == 'OPTIONS':
+        return '', 204
+    
     try:
         data = request.get_json()
         if not data:

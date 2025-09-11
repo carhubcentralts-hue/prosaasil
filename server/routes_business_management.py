@@ -349,10 +349,15 @@ def toggle_user_status(user_id):
         logger.error(f"Error toggling status for user {user_id}: {e}")
         return jsonify({"error": "שגיאה בשינוי סטטוס המשתמש"}), 500
 
-@biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST'])
+@biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST', 'OPTIONS'])
 @require_api_auth(['admin', 'manager'])
 def impersonate_business(business_id):
     """Allow admin to impersonate business - WITH PROPER CSRF"""
+    
+    # Handle OPTIONS request for CORS preflight
+    if request.method == 'OPTIONS':
+        return '', 204
+    
     try:
         logger.info(f"🔄 Impersonation attempt for business {business_id}")
         logger.info(f"📋 Session keys: {list(session.keys())}")
@@ -398,10 +403,15 @@ def impersonate_business(business_id):
         logger.error(f"Error impersonating business {business_id}: {e}")
         return jsonify({"error": "שגיאה בהתחזות לעסק"}), 500
 
-@biz_mgmt_bp.route('/api/admin/impersonate/exit', methods=['POST'])
+@biz_mgmt_bp.route('/api/admin/impersonate/exit', methods=['POST', 'OPTIONS'])
 @require_api_auth(['admin', 'manager'])
 def exit_impersonation():
     """Exit impersonation and restore original user"""
+    
+    # Handle OPTIONS request for CORS preflight
+    if request.method == 'OPTIONS':
+        return '', 204
+    
     try:
         logger.info("🔄 Exiting impersonation")
         
