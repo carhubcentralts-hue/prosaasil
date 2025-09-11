@@ -47,10 +47,21 @@ export const useBusinessDashboard = () => {
   
   // Re-fetch when auth state changes (important for impersonation!)
   useEffect(() => {
+    console.log('🔍 useBusinessDashboard useEffect triggered:', { 
+      user: user?.email, 
+      tenant: tenant?.name, 
+      impersonating,
+      hasUser: !!user,
+      hasTenant: !!tenant,
+      willFetch: !!(user && tenant)
+    });
+    
     if (user && tenant) {  // Only fetch when we have auth state
       console.log('🔄 Auth state changed, re-fetching dashboard data...', { impersonating, tenant: tenant.name });
       fetchStats();
       fetchActivity();
+    } else {
+      console.log('⚠️ Not fetching dashboard data - missing auth state:', { user: !!user, tenant: !!tenant });
     }
   }, [user, tenant, impersonating, fetchStats, fetchActivity]);
   
