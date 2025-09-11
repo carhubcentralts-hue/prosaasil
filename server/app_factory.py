@@ -176,17 +176,10 @@ def create_app():
     def manage_session_security():
         """Enhanced session security management"""
         # Skip for static files, health endpoints, React routes, and auth endpoints  
-        auth_paths = ['/api/auth/login', '/api/auth/logout', '/api/auth/me', 
-                     '/api/admin/businesses', '/api/admin/impersonate/exit', '/api/ui/login']
-        # Add COMPLETE impersonation bypass - NUCLEAR OPTION
-        impersonate_paths = ['/api/admin/businesses/', '/impersonate', '/api/admin/impersonate/']
-        # NUCLEAR: Skip ANY PATH containing 'impersonate'
-        is_impersonate_path = (('/impersonate' in request.path) or 
-                              (request.path.startswith('/api/admin/businesses/') and request.path.endswith('/impersonate')))
+        auth_paths = ['/api/auth/login', '/api/auth/logout', '/api/auth/me', '/api/ui/login']
         if (request.endpoint in ['static', 'health', 'readyz', 'version'] or 
             request.path in ['/', '/login', '/forgot', '/reset', '/home'] or
-            any(request.path.startswith(p) for p in auth_paths) or is_impersonate_path or
-            any(p in request.path for p in impersonate_paths)):
+            any(request.path.startswith(p) for p in auth_paths)):
             return
             
         # Session timeout check

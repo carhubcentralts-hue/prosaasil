@@ -408,6 +408,7 @@ def impersonate_business(business_id):
         return jsonify({"error": "שגיאה בהתחזות לעסק"}), 500
 
 @biz_mgmt_bp.route('/api/admin/impersonate/exit', methods=['POST'])
+@csrf.exempt
 @require_api_auth(['admin', 'manager'])
 def exit_impersonation():
     """Exit impersonation and restore original user"""
