@@ -156,7 +156,7 @@ def dashboard_activity():
                     "ts": call.created_at.isoformat() + "Z",
                     "type": "call", 
                     "leadId": call.customer_id,
-                    "preview": f"שיחה - {call.call_status}",
+                    "preview": f"שיחה - {call.status}",
                     "provider": "twilio"
                 })
         
