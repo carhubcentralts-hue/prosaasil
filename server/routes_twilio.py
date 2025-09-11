@@ -8,6 +8,7 @@ from flask import Blueprint, request, current_app, make_response
 from twilio.rest import Client
 from server.stream_state import stream_registry
 from server.twilio_security import require_twilio_signature
+from server.extensions import csrf
 
 # ייבוא מראש למניעת עיכובים ב-webhooks
 from server.tasks_recording import save_call_status, enqueue_recording
@@ -47,6 +48,7 @@ def _do_redirect(call_sid, wss_host, reason):
         current_app.logger.exception("WATCHDOG_REDIRECT_FAIL")
 
 # TwiML Preview endpoint (ללא Play, מינימלי)
+@csrf.exempt
 @twilio_bp.route("/webhook/incoming_call_preview", methods=["GET"])
 def incoming_call_preview():
     """GET endpoint for TwiML preview - MEDIA STREAMS MODE"""
@@ -79,6 +81,7 @@ def incoming_call_preview():
     resp.headers["X-Debug-Version"] = "TwiML_v2_fixed"
     return resp
 
+@csrf.exempt
 @twilio_bp.route("/webhook/incoming_call", methods=["POST"])
 @require_twilio_signature
 def incoming_call():
@@ -112,6 +115,7 @@ def incoming_call():
     resp.headers["X-Debug-Version"] = "TwiML_v2_fixed"
     return resp
 
+@csrf.exempt
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
 def stream_ended():
     """שלב 5: Webhooks קשיחים - מחזיר 204 ללא TwiML - ULTRA FAST"""
@@ -130,6 +134,7 @@ def stream_ended():
         
     return resp
 
+@csrf.exempt
 @twilio_bp.route("/webhook/handle_recording", methods=["POST"])
 @require_twilio_signature
 def handle_recording():
@@ -146,6 +151,7 @@ def handle_recording():
     resp.headers["Pragma"] = "no-cache"
     return resp
 
+@csrf.exempt
 @twilio_bp.route("/webhook/stream_status", methods=["POST"])
 def stream_status():
     """שלב 5: Webhooks קשיחים - ULTRA FAST מחזיר 204"""
@@ -164,6 +170,7 @@ def stream_status():
         
     return resp
 
+@csrf.exempt
 @twilio_bp.route("/webhook/call_status", methods=["POST"])
 @require_twilio_signature
 def call_status():

@@ -10,6 +10,7 @@ from server.db import db
 from server.dao_crm import upsert_thread, insert_message, get_thread_by_peer
 from server.whatsapp_templates import validate_and_route_message, send_template_message, get_template_list
 from server.twilio_security import require_twilio_signature
+from server.extensions import csrf
 from twilio.twiml.messaging_response import MessagingResponse
 from datetime import datetime
 import logging
@@ -127,6 +128,7 @@ def send_message():
         return jsonify({"success": False, "error": str(e)}), 500
 
 # WEBHOOKS - מוטמעים מ-routes_whatsapp.py מנוקה
+@csrf.exempt
 @whatsapp_unified_bp.route("/webhook/whatsapp/twilio", methods=["POST"])
 @require_twilio_signature
 def wa_in_twilio():
@@ -170,6 +172,7 @@ def wa_in_twilio():
         current_app.logger.exception("WA_IN_TWILIO_ERROR")
         return "", 204  # Always return 204 to Twilio
 
+@csrf.exempt
 @whatsapp_unified_bp.route("/webhook/whatsapp/baileys", methods=["POST"])
 def wa_in_baileys():
     """Handle Baileys WhatsApp inbound messages with security validation"""
