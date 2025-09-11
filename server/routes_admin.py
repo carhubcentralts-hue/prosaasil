@@ -92,7 +92,7 @@ def api_overview():
                 "time": msg.created_at.strftime("%H:%M"),
                 "type": "whatsapp", 
                 "tenant": business.name if business else "לא ידוע",
-                "preview": (msg.message_body[:50] + "...") if msg.message_body and len(msg.message_body) > 50 else (msg.message_body or "הודעה ללא תוכן"),
+                "preview": (msg.body[:50] + "...") if msg.body and len(msg.body) > 50 else (msg.body or "הודעה ללא תוכן"),
                 "status": "התקבלה" if msg.direction == "incoming" else "נשלחה"
             })
         
@@ -246,8 +246,8 @@ def api_admin_businesses():
         # Format response לפי ההנחיות המדויקות - ✅ תיקון: נתונים אמיתיים בלבד
         items = []
         for business in businesses:
-            # Use actual phone data from database
-            phone_e164 = business.phone_e164 or ""
+            # Use actual phone data from database (field is phone_number not phone_e164)
+            phone_e164 = getattr(business, 'phone_number', '') or ""
             
             items.append({
                 "id": business.id,
@@ -271,8 +271,16 @@ def api_admin_businesses():
         })
         
     except Exception as e:
-        logger.error(f"Error in api_admin_businesses: {e}")
-        return jsonify({"error": "שגיאה בטעינת רשימת העסקים"}), 500
+        import traceback
+        error_trace = traceback.format_exc()
+        try:
+            logger.error(f"Error in api_admin_businesses: {e}")
+            logger.error(f"Full traceback: {error_trace}")
+        except:
+            pass  # logger might not be available
+        print(f"🔥 BUSINESSES API ERROR: {e}")
+        print(f"🔥 TRACEBACK: {error_trace}")
+        return jsonify({"error": f"DEBUG: {str(e)}"}), 500
 
 # A2) צפייה/התחזות - לפי ההנחיות המדויקות
 @admin_bp.route("/api/admin/businesses/<int:business_id>/overview", methods=['GET'])

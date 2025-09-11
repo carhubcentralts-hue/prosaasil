@@ -531,6 +531,20 @@ def create_app():
         resp.cache_control.no_store = True
         return resp
     
+    # DEBUG: Add route debugging endpoint
+    @app.route('/__debug/routes')
+    def debug_routes():
+        routes = []
+        for rule in app.url_map.iter_rules():
+            if '/api/admin/businesses' in rule.rule:
+                view_func = app.view_functions.get(rule.endpoint)
+                routes.append({
+                    'rule': rule.rule,
+                    'endpoint': rule.endpoint,
+                    'module': view_func.__module__ if view_func else 'None'
+                })
+        return jsonify(routes)
+    
     # Database initialization (לפי ההנחיות)
     from server.db import db
     import server.models_sql  # Import models module

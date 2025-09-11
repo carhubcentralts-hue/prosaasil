@@ -6,11 +6,11 @@ from server.db import db
 from datetime import datetime
 
 class Business(db.Model):
-    __tablename__ = "businesses"
+    __tablename__ = "business"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
     business_type = db.Column(db.String(255), nullable=False, default="real_estate")
-    phone_e164 = db.Column(db.String(255))  # ✅ Unified field name
+    phone_e164 = db.Column('phone_number', db.String(255))  # ✅ Map to DB column phone_number
     whatsapp_number = db.Column(db.String(255))
     greeting_message = db.Column(db.Text)
     whatsapp_greeting = db.Column(db.Text)
@@ -68,7 +68,7 @@ class CallLog(db.Model):
 # AI Prompt Management - לפי ההנחיות המדויקות
 class BusinessSettings(db.Model):
     __tablename__ = "business_settings"
-    tenant_id = db.Column(db.Integer, db.ForeignKey("businesses.id"), primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), primary_key=True)
     ai_prompt = db.Column(db.Text)
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -76,7 +76,7 @@ class BusinessSettings(db.Model):
 class PromptRevisions(db.Model):
     __tablename__ = "prompt_revisions"
     id = db.Column(db.Integer, primary_key=True)
-    tenant_id = db.Column(db.Integer, db.ForeignKey("businesses.id"), nullable=False)
+    tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False)
     version = db.Column(db.Integer, nullable=False)  # auto-increment per tenant
     prompt = db.Column(db.Text)
     changed_by = db.Column(db.String(255))
@@ -90,7 +90,7 @@ class PromptRevisions(db.Model):
 class WhatsAppMessage(db.Model):
     __tablename__ = "whatsapp_message"
     id = db.Column(db.Integer, primary_key=True)
-    business_id = db.Column(db.Integer, db.ForeignKey("businesses.id"), nullable=False, index=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     to_number = db.Column(db.String(64), index=True)      # למי נשלח/ממי התקבל
     direction = db.Column(db.String(8))                   # 'out' / 'in'
     body = db.Column(db.Text)
@@ -173,7 +173,7 @@ class Contract(db.Model):
 class Appointment(db.Model):
     __tablename__ = "appointments"
     id = db.Column(db.Integer, primary_key=True)
-    business_id = db.Column(db.Integer, db.ForeignKey("businesses.id"), nullable=False, index=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=True, index=True)
     deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=True, index=True)
     call_log_id = db.Column(db.Integer, db.ForeignKey("call_log.id"), nullable=True, index=True)  # Link to call that scheduled this
@@ -224,7 +224,7 @@ class User(db.Model):
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)  # Hashed - matches existing schema
     role = db.Column(db.String(64), default="business")  # admin/business
-    business_id = db.Column(db.Integer, db.ForeignKey("businesses.id"), nullable=True, index=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=True, index=True)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
