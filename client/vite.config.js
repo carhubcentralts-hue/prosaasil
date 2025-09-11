@@ -11,7 +11,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: '../dist',        // Build לשורש הפרוייקט
+    outDir: './dist',         // Build ל-client/dist (נכון!)
     assetsDir: 'assets',
   },
   resolve: {

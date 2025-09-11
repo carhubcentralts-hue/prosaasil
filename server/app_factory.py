@@ -38,7 +38,7 @@ def create_app():
         print("🔧 GCP credentials loaded from file path")
     
     app = Flask(__name__, 
-                static_folder=os.path.join(os.path.dirname(__file__), "..", "dist"),
+                static_folder=os.path.join(os.path.dirname(__file__), "..", "client", "dist"),
                 static_url_path="",
                 template_folder=os.path.join(os.path.dirname(__file__), "templates"))
     
@@ -508,7 +508,7 @@ def create_app():
     # SPA serving - לפי ההנחיות המדויקות  
     from pathlib import Path
     from flask import send_from_directory, abort
-    FE_DIST = Path(__file__).resolve().parents[1] / "dist"
+    FE_DIST = Path(__file__).resolve().parents[1] / "client" / "dist"
     
     # הדפסה פעם אחת בהפעלה
     try:
