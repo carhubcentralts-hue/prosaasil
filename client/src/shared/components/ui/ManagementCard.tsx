@@ -84,7 +84,7 @@ interface QuickManagementActionsProps {
 }
 
 export function QuickManagementActions({ className }: QuickManagementActionsProps) {
-  const { user } = useAuth();
+  const { user, impersonating } = useAuth();
   const navigate = useNavigate();
   const [businessCount, setBusinessCount] = useState<number | null>(null);
   const [userCount, setUserCount] = useState<number | null>(null);
@@ -130,8 +130,8 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
 
   return (
     <div className={cn('space-y-4', className)}>
-      {/* Business Management - Admin/Manager only */}
-      {(user.role === 'admin' || user.role === 'manager') && (
+      {/* Business Management - Admin/Manager only, hide during impersonation */}
+      {(user.role === 'admin' || user.role === 'manager') && !impersonating && (
         <ManagementCard
           title="ניהול עסקים"
           description="נהלו את כל העסקים במערכת, הוסיפו עסקים חדשים ועדכנו הגדרות"

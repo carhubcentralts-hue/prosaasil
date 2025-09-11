@@ -241,8 +241,8 @@ export function useBusinessActions() {
       await refetchAuth(); // Refresh auth state
       showToast.success('יצאת מהתחזות בהצלחה');
       
-      // Navigate back to admin
-      navigate('/app/admin/overview');
+      // Navigate back to business management page where they came from
+      navigate('/app/admin/businesses');
     } catch (error) {
       showToast.error(error instanceof Error ? error.message : 'שגיאה ביציאה מהתחזות');
     } finally {
