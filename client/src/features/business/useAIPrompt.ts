@@ -87,7 +87,10 @@ export function useAIPrompt() {
     setSaveError(null);
     
     try {
-      await http.put('/api/business/current/prompt', { prompt: editablePrompt.trim() });
+      await http.put('/api/business/current/prompt', { 
+        calls_prompt: editablePrompt.trim(),
+        whatsapp_prompt: editablePrompt.trim()
+      });
       
       // Refresh data after successful save
       await fetchPrompt();
