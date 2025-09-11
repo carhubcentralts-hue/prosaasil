@@ -201,8 +201,8 @@ export function useBusinessActions() {
         
         if (me.impersonating === true) {
           showToast.success(`התחזות לעסק "${business.name}" הופעלה`);
-          // Force reload to ensure all auth state is updated
-          window.location.href = '/app/business/overview';
+          // Navigate using React Router instead of full page reload
+          navigate('/app/business/overview');
         } else {
           throw new Error(`התחזות נכשלה - מצב התחזות: ${me.impersonating}, תפקיד: ${me.user?.role}`);
         }
