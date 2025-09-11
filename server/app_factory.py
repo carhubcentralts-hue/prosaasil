@@ -198,7 +198,7 @@ def create_app():
             session_start = session.get('_session_start')
             if not session_start:
                 session['_session_start'] = datetime.now().isoformat()
-                session['_csrf_token'] = secrets.token_hex(16)
+                # SeaSurf handles CSRF - no manual _csrf_token needed
             else:
                 start_time = datetime.fromisoformat(session_start)
                 # FIXED: Increase rotation period from 2 to 24 hours and preserve session data better
@@ -218,7 +218,7 @@ def create_app():
                         session['token'] = token
                         session['impersonating'] = impersonating
                         session['_session_start'] = datetime.now().isoformat()
-                        session['_csrf_token'] = secrets.token_hex(16)
+                        # SeaSurf handles CSRF - no manual _csrf_token needed
     
     # CSRF כבר מוגדר למעלה - הסרת כפילות
     

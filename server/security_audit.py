@@ -84,28 +84,7 @@ def audit_action(action_type, resource):
         return decorated_function
     return decorator
 
-def require_csrf_token():
-    """Enhanced CSRF validation for HTMX requests"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            # Skip CSRF for GET requests
-            if request.method == 'GET':
-                return f(*args, **kwargs)
-                
-            # For HTMX requests, check CSRF token
-            csrf_token = request.headers.get('HX-CSRF-Token') or request.form.get('_csrf_token')
-            expected_token = session.get('_csrf_token')
-            
-            if not csrf_token or not expected_token or csrf_token != expected_token:
-                if request.headers.get('HX-Request'):
-                    return '<div class="text-red-600 p-4 bg-red-50 rounded-lg">🔒 Token אבטחה לא תקין</div>', 403
-                else:
-                    return jsonify({'error': 'CSRF token invalid'}), 403
-                    
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+# REMOVED require_csrf_token - using SeaSurf only for CSRF protection per guidelines
 
 class SessionSecurity:
     """Advanced session security management"""
@@ -118,7 +97,7 @@ class SessionSecurity:
             session.clear()
             session['al_user'] = user_data
             session['_session_start'] = datetime.now().isoformat()
-            session['_csrf_token'] = hashlib.md5(f"{datetime.now().isoformat()}{user_data.get('id', '')}".encode()).hexdigest()[:16]
+            # SeaSurf handles CSRF tokens - no manual _csrf_token needed
     
     @staticmethod
     def is_session_valid():
