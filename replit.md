@@ -4,6 +4,14 @@ This is AgentLocator, a Hebrew CRM system with AI-powered real-time call process
 
 ## Recent Major Enhancements (September 2025)
 
+### BUILD 42 Critical Fixes (September 11, 2025)
+- **RESOLVED**: 403 errors on AI prompt saving - root cause was unregistered ai_prompt blueprint in app_factory.py  
+- **RESOLVED**: Empty "Error {}" responses - replaced with clear JSON error messages
+- **RESOLVED**: Demo data display - system now shows real statistics (11 calls, 2 users for שי דירות ומשרדים בע״מ)
+- **FIXED**: Eventlet server configuration - proper env variable ordering and removed unnecessary monkey_patch
+- **CONFIRMED**: WebSocket functionality preserved for Twilio Media Streams integration
+- **IDENTIFIED**: CSRF implementation requires both cookie and header tokens - documented for future enhancement
+
 - **Complete Frontend Rebuild**: Production-grade React 19 + Vite + Tailwind v4 with RTL/mobile-first design
 - **Secure Authentication System**: Login, forgot/reset password with JWT and role-based access control
 - **Professional Admin Dashboard**: System-wide KPIs, provider status, activity monitoring for admin/manager roles

@@ -573,12 +573,14 @@ def create_app():
     # warmup_services_async()
     print("🔧 Warmup disabled for debugging")
     
-    # דיבוג זמני CSRF (מוחקים אחרי שזה עובד)
+    # דיבוג זמני CSRF (מוחקים אחרי שזה עובד) 
     @app.before_request
     def _dbg_csrf():
-        if request.path.endswith('/impersonate') and request.method=='POST':
-            print('CSRF-DBG cookie=', request.cookies.get('XSRF-TOKEN'),
-                  ' header=', request.headers.get('X-CSRFToken'))
+        if request.path.endswith('/prompt') or request.path.endswith('/impersonate'):
+            print('CSRF-DBG',
+                  'cookie=', request.cookies.get('XSRF-TOKEN'),
+                  'header=', request.headers.get('X-CSRFToken'),
+                  'ct=', request.headers.get('Content-Type'))
 
     # ✅ ERROR HANDLERS - JSON responses instead of Error {}
     @app.errorhandler(400)

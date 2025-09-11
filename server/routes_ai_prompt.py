@@ -2,6 +2,7 @@
 from flask import Blueprint, request, jsonify, session
 from server.models_sql import Business, BusinessSettings, PromptRevisions, User, db
 from server.auth_api import require_api_auth
+from server.extensions import csrf
 from datetime import datetime
 import logging
 
