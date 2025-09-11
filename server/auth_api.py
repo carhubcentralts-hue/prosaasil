@@ -250,6 +250,40 @@ def logout():
     session.clear()
     return jsonify({'success': True})
 
+@auth_api.route('/csrf', methods=['GET'])
+def get_csrf_token():
+    """GET /api/auth/csrf - Returns CSRF token and sets XSRF-TOKEN cookie"""
+    try:
+        import secrets
+        from flask import current_app
+        
+        # Generate CSRF token (same as other places in the codebase)
+        token = secrets.token_urlsafe(32)
+        
+        # Store in session for SeaSurf validation
+        session['_csrf_token'] = token
+        
+        # Create response
+        resp = jsonify({'csrfToken': token})
+        
+        # Set XSRF-TOKEN cookie for double-submit pattern
+        # Cookie flags based on environment
+        is_secure = request.is_secure or current_app.config.get('SESSION_COOKIE_SECURE', False)
+        resp.set_cookie(
+            'XSRF-TOKEN', 
+            token,
+            secure=is_secure,
+            httponly=True,  # Security: prevent JS access
+            samesite='Lax' if is_secure else 'Strict',
+            path='/'
+        )
+        
+        return resp
+        
+    except Exception as e:
+        print(f"Error generating CSRF token: {e}")
+        return jsonify({'error': 'שגיאה ביצירת טוקן אבטחה'}), 500
+
 @auth_api.route('/me', methods=['GET'])
 def get_current_user():
     """
