@@ -8,15 +8,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# CSRF bypass decorator
-def csrf_exempt(f):
-    """Bypass all CSRF protection for this endpoint"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        # Set flag to bypass CSRF
-        g.csrf_exempt = True
-        return f(*args, **kwargs)
-    return decorated_function
+# REMOVED custom csrf_exempt decorator - using proper @csrf.exempt from SeaSurf only where needed
 
 # Business Management Blueprint
 biz_mgmt_bp = Blueprint('business_management', __name__)
