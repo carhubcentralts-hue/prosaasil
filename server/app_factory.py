@@ -83,6 +83,8 @@ def create_app():
         'SQLALCHEMY_ENGINE_OPTIONS': {
             'pool_pre_ping': True,
             'pool_recycle': 300,
+            # Fix for Eventlet + SQLAlchemy lock issue
+            'poolclass': __import__('sqlalchemy.pool', fromlist=['NullPool']).NullPool,
             'connect_args': {
                 'connect_timeout': 30,
                 'application_name': 'AgentLocator-71'
