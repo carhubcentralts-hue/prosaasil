@@ -161,10 +161,20 @@ export function MainLayout() {
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Filter menu items based on user role
-  const filteredMenuItems = menuItems.filter(item => 
-    !item.roles || (user && item.roles.includes(user.role))
-  );
+  // Filter menu items based on user role and impersonation state
+  const filteredMenuItems = menuItems.filter(item => {
+    // Check role permissions first
+    if (item.roles && (!user || !item.roles.includes(user.role))) {
+      return false;
+    }
+    
+    // Hide "Business Management" during impersonation - only show business-specific items
+    if (isImpersonating && item.label === 'ניהול עסקים') {
+      return false;
+    }
+    
+    return true;
+  });
 
   // Handle coming soon click
   const handleComingSoon = () => {
