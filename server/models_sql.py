@@ -48,7 +48,7 @@ class Customer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     name = db.Column(db.String(255), nullable=False)
-    phone_e164 = db.Column(db.String(64), index=True)  # ✅ Unified field name
+    phone_e164 = db.Column('phone_number', db.String(64), index=True)  # ✅ Map to DB column phone_number
     email = db.Column(db.String(255))
     status = db.Column(db.String(64), default="new")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

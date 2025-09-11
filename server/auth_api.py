@@ -32,7 +32,9 @@ def get_csrf():
     if IS_PREVIEW:
         resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='None', secure=True, path='/')
     else:
-        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='Lax',  secure=True, path='/')
+        # For localhost testing, allow secure=False over HTTP
+        is_secure = request.is_secure or os.getenv('FORCE_HTTPS') == '1'
+        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='Lax', secure=is_secure, path='/')
     return resp
 
 @csrf.exempt  # Proper SeaSurf exemption
