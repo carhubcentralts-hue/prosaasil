@@ -14,6 +14,14 @@ api_adapter_bp = Blueprint('api_adapter', __name__)
 def check_permissions(required_roles):
     """Check user permissions for adapter endpoints"""
     user = session.get('user') or session.get('al_user')
+    
+    # Special handling for impersonation mode
+    if session.get('impersonating', False) and user:
+        # In impersonation mode, allow access if user has admin role and business is in required roles
+        if user.get('role') == 'admin' and 'business' in required_roles:
+            logger.debug(f"Impersonation: Admin {user.get('email')} accessing as business")
+            return None  # Permission granted
+    
     if not user:
         logger.warning(f"Permission denied - no user in session. Session keys: {list(session.keys())}")
         return jsonify({"error": "forbidden", "requiredRole": "authenticated"}), 403
