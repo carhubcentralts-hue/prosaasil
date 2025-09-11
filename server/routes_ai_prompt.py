@@ -1,7 +1,7 @@
 # AI Prompt Management API - לפי ההנחיות המדויקות
 from flask import Blueprint, request, jsonify, session
 from server.models_sql import Business, BusinessSettings, PromptRevisions, User, db
-from server.routes_admin import require_api_auth
+from server.auth_api import require_api_auth
 from datetime import datetime
 import logging
 
@@ -77,9 +77,14 @@ def update_business_prompt(business_id):
         if not data:
             return jsonify({"error": "חסרים נתונים"}), 400
         
-        # שדות אופציונליים: calls_prompt, whatsapp_prompt
+        # שדות אופציונליים: calls_prompt, whatsapp_prompt + backward compatibility
         calls_prompt = data.get('calls_prompt')
-        whatsapp_prompt = data.get('whatsapp_prompt')
+        whatsapp_prompt = data.get('whatsapp_prompt') 
+        
+        # תמיכה לאחור - אם נשלח רק 'prompt', השתמש בו לשניהם
+        if not calls_prompt and not whatsapp_prompt and data.get('prompt'):
+            calls_prompt = data.get('prompt')
+            whatsapp_prompt = data.get('prompt')
         
         if not calls_prompt and not whatsapp_prompt:
             return jsonify({"error": "חסר תוכן פרומפט (לפחות שיחות או וואטסאפ)"}), 400
