@@ -333,23 +333,68 @@ def get_current_user_legacy():
 
 # Auth decorator for API routes
 def require_api_auth(roles=None):
-    """Decorator for API routes that require authentication"""
+    """Decorator for API routes that require authentication with detailed logging"""
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            # Check if user is logged in (session-based)
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            # Allow OPTIONS unconditionally 
+            if request.method == "OPTIONS":
+                logger.info(f"✅ OPTIONS request allowed for {request.path}")
+                return '', 204
+            
+            # Check if user is logged in (session-based) - read from session['user'] only
             user = session.get('user') or session.get('al_user')
             if not user:
-                return jsonify({'error': 'Authentication required'}), 401
+                reason = "no_session"
+                logger.error(f"❌ AUTH BLOCK: {request.method} {request.path} - {reason}")
+                return jsonify({
+                    'error': 'forbidden',
+                    'reason': reason,
+                    'message': 'Authentication required',
+                    'session_keys': list(session.keys())
+                }), 401
             
-            # Check role if specified - ✅ אדמין יכול לגשת לכל התוחמים
-            if roles and user.get('role') not in roles:
-                # אדמין יכול לגשת גם ל-business endpoints כשהוא מתחזה
-                if user.get('role') != 'admin':
-                    return jsonify({'error': 'Insufficient permissions'}), 403
+            # Compute scope once (separate concerns)
+            effective_role = user.get('role')
+            effective_tenant = session.get('impersonated_tenant_id') or user.get('business_id') or user.get('tenant_id')
+            impersonating = bool(session.get('impersonating'))
+            
+            logger.info(f"🔍 AUTH CHECK: {request.method} {request.path}")
+            logger.info(f"📋 User: {user.get('email')} role={effective_role}")
+            logger.info(f"📋 Tenant: {effective_tenant}, impersonating={impersonating}")
+            logger.info(f"📋 Required roles: {roles}")
+            
+            # Check role if specified 
+            if roles and effective_role not in roles:
+                # Special case: admin can access business endpoints when impersonating
+                admin_bypass = (effective_role == 'admin' and 'business' in (roles or []))
+                if not admin_bypass:
+                    reason = "role_mismatch"
+                    logger.error(f"❌ AUTH BLOCK: {request.method} {request.path} - {reason}")
+                    return jsonify({
+                        'error': 'forbidden',
+                        'reason': reason,
+                        'message': 'Insufficient permissions',
+                        'expected': roles,
+                        'actual': {
+                            'role': effective_role,
+                            'impersonating': impersonating,
+                            'tenant': effective_tenant
+                        }
+                    }), 403
+                else:
+                    logger.info(f"✅ Admin bypass: {effective_role} accessing business endpoint while impersonating")
             
             # Store user in g for use in route
             g.user = user
+            g.effective_role = effective_role
+            g.effective_tenant = effective_tenant
+            g.impersonating = impersonating
+            
+            logger.info(f"✅ AUTH SUCCESS: {request.method} {request.path}")
             return f(*args, **kwargs)
         return decorated_function
     return decorator

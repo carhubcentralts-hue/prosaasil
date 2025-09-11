@@ -1,0 +1,66 @@
+DO THIS NOW — unlock the 403 (auth, not CSRF)
+	1.	Turn on precise auth logging (temporary)
+	•	In your auth guard (require_api_auth / any before_request):
+	•	Log why you block: reason=role_mismatch|no_session|no_tenant|scope_fail|method_blocked.
+	•	Always return JSON: {"error":"forbidden","reason":"<reason>","expected":["admin"],"actual": {"role": session.user.role, "impersonating":..., "tenant": ...}} (no empty Error {}).
+	2.	Fix the guard (separate concerns)
+	•	Guard must not do CSRF (SeaSurf already does).
+	•	Allow OPTIONS unconditionally: if request.method == "OPTIONS": return 204.
+	•	Read session only from session['user']; do not use session['role'] shadow keys.
+	•	Compute scope once:
+
+effective_role  = session['user']['role']            # 'admin' | 'manager' | 'business'
+effective_tenant = session.get('impersonated_tenant_id') or session['user'].get('tenant_id')
+impersonating = bool(session.get('impersonating'))
+
+
+	•	For admin routes (/api/admin/**): require effective_role in {'admin','manager'}.
+	•	For business routes: allow if (effective_role == 'business') or (admin/manager impersonating that tenant).
+	•	Never change session['user']['role'] during impersonation. Only set/clear:
+	•	session['impersonating']=True/False
+	•	session['impersonated_tenant_id']=<id>/None
+
+	3.	Impersonation endpoints
+	•	POST /api/admin/businesses/:id/impersonate (CSRF-protected):
+	•	Check caller is admin/manager.
+	•	Set the two flags above and return {ok:true, impersonating:true, tenant_id:id}.
+	•	POST /api/admin/impersonate/exit:
+	•	Clear flags; do not touch session['user'].
+	4.	Route protection map (make it explicit)
+	•	Admin-only: /api/admin/** (stats, businesses list, impersonate, merges).
+	•	Business-scoped (admin if impersonating): prompts, leads, reminders, whatsapp/calls.
+	•	Public-exempt (SeaSurf exempt): POST /api/auth/login|logout, GET /healthz|readyz|livez|version, all /webhook/**.
+	5.	Fix prompts + leads writes (contract)
+	•	FE must send exact payload:
+	•	Prompts: { "calls_prompt":"...", "whatsapp_prompt":"..." }
+	•	Verify server returns 200 and echoes the updated object; if not, return {"error","message","hint"} with reason.
+	6.	Run the decisive smoke tests (same-origin)
+
+BASE=https://<your-domain>
+# Login (keeps cookies)
+curl -i -c /tmp/c -b /tmp/c -H 'Content-Type: application/json' \
+  -X POST $BASE/api/auth/login --data '{"email":"admin@...","password":"..."}'
+
+# CSRF token
+TOKEN=$(curl -s -c /tmp/c -b /tmp/c $BASE/api/auth/csrf | python - <<'PY'
+import sys,json; print(json.load(sys.stdin)['csrfToken'])
+PY
+)
+
+# Impersonate (auth-only; expect 200)
+curl -i -c /tmp/c -b /tmp/c -H "X-CSRFToken: $TOKEN" -X POST \
+  $BASE/api/admin/businesses/1/impersonate
+
+# Save prompts (expect 200)
+curl -i -c /tmp/c -b /tmp/c -H "X-CSRFToken: $TOKEN" -H 'Content-Type: application/json' \
+  -X PUT $BASE/api/business/current/prompt \
+  --data '{"calls_prompt":"ok","whatsapp_prompt":"ok"}'
+
+	•	If 403: your guard blocked it. Read your new JSON reason and fix accordingly (role/scope/method).
+
+	7.	Frontend guarantees
+	•	All fetches: credentials:'include'; after login call /api/auth/csrf once; every write sends X-CSRFToken from XSRF-TOKEN cookie.
+	•	On 403, surface server reason in a toast (stop hiding as Error {}).
+	8.	Only when all pass: remove temporary debug logs and commit.
+
+This narrows the problem to authorization middleware (not CSRF). With explicit reasons + the scope logic above, you’ll see exactly why 403 fires and fix it in minutes.

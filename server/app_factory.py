@@ -586,9 +586,9 @@ def create_app():
     def handle_unauthorized(e):
         return jsonify({"error": "unauthorized", "message": "Authentication required"}), 401
     
-    @app.errorhandler(403)
-    def handle_forbidden(e):
-        return jsonify({"error": "forbidden", "message": "Access denied"}), 403
+    # REMOVED generic 403 handler - let auth decorators return detailed responses
+    # Note: flask_seasurf doesn't export CSRFError, CSRF validation errors 
+    # are handled by the framework's built-in error handling
     
     @app.errorhandler(404)
     def handle_not_found(e):
