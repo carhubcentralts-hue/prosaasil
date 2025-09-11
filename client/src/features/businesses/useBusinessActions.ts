@@ -203,6 +203,10 @@ export function useBusinessActions() {
           showToast.success(`התחזות לעסק "${business.name}" הופעלה`);
           // Refresh auth context to update React state before navigation
           await refetchAuth();
+          
+          // CRITICAL: Give more time for session to propagate before navigation
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
           // Navigate using React Router instead of full page reload
           navigate('/app/business/overview');
         } else {
