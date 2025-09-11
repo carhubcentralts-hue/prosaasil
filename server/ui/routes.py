@@ -1000,8 +1000,7 @@ def api_logout():
     g.csrf_exempt = True
     try:
         session.clear()
-        if request.method == 'GET':
-            return redirect("/")
+        # Always return JSON for API consistency
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1023,8 +1022,8 @@ def api_admin_tenants_create():
             return jsonify({'success': False, 'error': 'שם ועסק סוג נדרשים'}), 400
             
         # Create new business (mock for now)
-        # Return success and updated table
-        return ui_admin_tenants()
+        # Return JSON success for API consistency
+        return jsonify({'success': True, 'message': 'עסק נוצר בהצלחה'})
         
     except Exception as e:
         return jsonify({'success': False, 'error': f'שגיאת יצירת עסק: {str(e)}'}), 500
@@ -1046,8 +1045,8 @@ def api_admin_users_create():
         if not name or not email or not role:
             return jsonify({'success': False, 'error': 'שם, אימייל ותפקיד נדרשים'}), 400
             
-        # Return success and updated table (mock for now)
-        return ui_admin_users()
+        # Return JSON success for API consistency
+        return jsonify({'success': True, 'message': 'משתמש נוצר בהצלחה'})
         
     except Exception as e:
         return jsonify({'success': False, 'error': f'שגיאת יצירת משתמש: {str(e)}'}), 500
@@ -1068,8 +1067,8 @@ def api_biz_users_create():
         if not name or not email or not role or not business_id:
             return jsonify({'success': False, 'error': 'כל השדות נדרשים'}), 400
             
-        # Return success and updated table (mock for now)
-        return ui_biz_users()
+        # Return JSON success for API consistency
+        return jsonify({'success': True, 'message': 'משתמש נוצר בהצלחה'})
         
     except Exception as e:
         return jsonify({'success': False, 'error': f'שגיאת יצירת משתמש: {str(e)}'}), 500
@@ -1083,8 +1082,8 @@ def api_crm_contacts_create():
         import time
         time.sleep(0.5)  # Simulate processing
         
-        # Return updated table
-        return ui_biz_contacts()
+        # Return JSON success for API consistency
+        return jsonify({'success': True, 'message': 'לקוח נוצר בהצלחה'})
         
     except Exception as e:
         return jsonify({'success': False, 'error': f'שגיאת יצירת לקוח: {str(e)}'}), 500
@@ -1109,7 +1108,8 @@ def admin_impersonate_business(business_id):
         session['impersonating'] = True
         session['impersonated_tenant_id'] = business_id
         
-        return redirect('/app/biz')
+        # Return JSON success for API consistency
+        return jsonify({'success': True, 'redirect': '/app/biz'})
         
     except Exception as e:
         return jsonify({'error': f'שגיאה בהשתלטות: {str(e)}'}), 500
