@@ -12,22 +12,36 @@ logger = logging.getLogger(__name__)
 api_adapter_bp = Blueprint('api_adapter', __name__)
 
 def check_permissions(required_roles):
-    """Check user permissions for adapter endpoints"""
+    """Check user permissions for adapter endpoints with proper impersonation support"""
+    # Enhanced debugging for session state
+    logger.debug(f"Session keys available: {list(session.keys())}")
+    
+    # Get user from session (both possible keys for robustness)
     user = session.get('user') or session.get('al_user')
     
-    # Special handling for impersonation mode
-    if session.get('impersonating', False) and user:
-        # In impersonation mode, allow access if user has admin role and business is in required roles
-        if user.get('role') == 'admin' and 'business' in required_roles:
-            logger.debug(f"Impersonation: Admin {user.get('email')} accessing as business")
+    # Proper impersonation detection (both flags must be present)
+    is_impersonating = bool(session.get('impersonating') and session.get('impersonated_tenant_id'))
+    
+    # Enhanced logging for debugging
+    if is_impersonating:
+        logger.debug(f"Impersonation mode detected: tenant_id={session.get('impersonated_tenant_id')}, user={user.get('email') if user else None}")
+    
+    # Handle impersonation mode properly
+    if is_impersonating and user:
+        # In impersonation mode, allow admin/manager to access business-level endpoints
+        if user.get('role') in ['admin', 'manager'] and 'business' in required_roles:
+            logger.debug(f"Impersonation access granted: {user.get('role')} {user.get('email')} accessing as business {session.get('impersonated_tenant_id')}")
             return None  # Permission granted
     
+    # Check if user exists in session
     if not user:
-        logger.warning(f"Permission denied - no user in session. Session keys: {list(session.keys())}")
+        logger.warning(f"Permission denied - no user found. Session keys: {list(session.keys())}, cookies present: {bool(request.cookies)}")
         return jsonify({"error": "forbidden", "requiredRole": "authenticated"}), 403
     
+    # Normal role checking
     user_role = user.get('role', '')
-    logger.debug(f"User role: {user_role}, required: {required_roles}")
+    logger.debug(f"User role: {user_role}, required: {required_roles}, impersonating: {is_impersonating}")
+    
     if user_role not in required_roles:
         logger.warning(f"Permission denied - user role '{user_role}' not in required roles: {required_roles}")
         return jsonify({"error": "forbidden", "requiredRole": "/".join(required_roles)}), 403
