@@ -1,0 +1,143 @@
+מוכן. נעשה “סגירה” מסודרת כדי שהכול יעבוד בפועל — שמירת פרומפט, התחזות, ונתונים אמיתיים — גם ב-Preview וגם בפרוד.
+
+מה עושים עכשיו (בדיוק לפי הסדר)
+
+1) ריסט “נקי” ואימות גרסה
+	1.	עצור תהליכים ישנים:
+
+pkill -f gunicorn || true; pkill -f "python wsgi.py" || true
+
+
+	2.	בנה את ה-FE מחדש והגיש רק מ-client/dist:
+
+cd client && npm ci && npm run build && cd ..
+
+
+	3.	העלה את השרת מה־workflow/פקודה הקבועה (תהליך יחיד):
+
+gunicorn -k eventlet -w 1 server.wsgi:app --bind 0.0.0.0:${PORT}
+
+
+	4.	בדוק /version ומוודא:
+	•	{"fe":"client/dist","build":44,...} (או המספר שהגדרת)
+	•	שאין יותר תיקיית /dist ישנה בשורש.
+
+אם ה-BUILD בדף לא התעדכן → אתה צופה בקוד ישן. תקן לפני שממשיכים.
+
+⸻
+
+2) ודא CSRF תקין (SeaSurf יחיד) והקוקיות נכונות
+	•	רק SeaSurf פעיל (אין CSRFProtect).
+	•	פטורים מ-CSRF: רק /api/auth/login, /api/auth/logout, וכל ה-webhooks.
+	•	GET /api/auth/csrf מחזיר cookie XSRF-TOKEN (לא HttpOnly) גם ב-Preview.
+	•	Cookies:
+	•	Preview (picard/replit): SESSION_COOKIE_SAMESITE='None', SESSION_COOKIE_SECURE=True.
+	•	Prod: SAMESITE='Lax', SECURE=True.
+	•	אל תגדיר SESSION_COOKIE_DOMAIN.
+
+⸻
+
+3) Smoke-tests עם curl (חייב לעבור לפני UI)
+
+החלף $BASE ל-Preview/Prod:
+
+# Login (פטור CSRF) – צריך 200 + Set-Cookie + JSON
+curl -i -c /tmp/c -b /tmp/c -X POST $BASE/api/auth/login \
+ -H 'Content-Type: application/json' \
+ --data '{"email":"admin@shai-realestate.co.il","password":"*****"}'
+
+# /me – צריך isAuthenticated:true
+curl -i -c /tmp/c -b /tmp/c $BASE/api/auth/me
+
+# קבל CSRF token (cookie + JSON)
+TOKEN=$(curl -s -c /tmp/c -b /tmp/c $BASE/api/auth/csrf \
+ | python - <<'PY'
+import sys,json;print(json.load(sys.stdin)['csrfToken'])
+PY
+)
+
+# שמירת פרומפט – 200 JSON
+curl -i -c /tmp/c -b /tmp/c -X PUT $BASE/api/admin/businesses/1/prompt \
+ -H 'Content-Type: application/json' -H "X-CSRFToken: $TOKEN" \
+ --data '{"calls_prompt":"שלום רב...","whatsapp_prompt":"..."}'
+
+# התחזות – 200 JSON
+curl -i -c /tmp/c -b /tmp/c -X POST $BASE/api/admin/businesses/1/impersonate \
+ -H 'Content-Type: application/json' -H "X-CSRFToken: $TOKEN" --data '{}'
+
+# /me – עכשיו impersonating:true
+curl -i -c /tmp/c -b /tmp/c $BASE/api/auth/me
+
+פענוח מהיר:
+	•	403 → חסר/לא תואם X-CSRFToken מול cookie XSRF-TOKEN או הרשאה.
+	•	400 → JSON לא כפי שה-API מצפה.
+	•	500 → לוג שרת (DB/commit/ולידציה).
+
+⸻
+
+4) התאמות קוד קריטיות (כבר זוהו אצלך)
+	•	אל תשנה session['role'] ל-'business' בהתחזות.
+תשאיר al_user.role כפי שהוא (admin), והשתמש ב-session['impersonating']=True ו-session['tenant_id']=<id>.
+ב-/api/auth/me החזר:
+
+{"isAuthenticated":true,"impersonating":true,"tenant":{"id":1,...},"user":{"role":"admin",...}}
+
+
+	•	FE שמירת פרומפט חייב לשלוח:
+
+{"calls_prompt":"...","whatsapp_prompt":"..."}
+
+(לא { "prompt": "..." }).
+
+	•	שרת מחזיר תמיד JSON ב-/api/* (לא HTML/Redirect). הוסף error-handlers ל-400/401/403/409/500 שמחזירים JSON.
+
+⸻
+
+5) בדיקת UI (אחרי smoke ירוקים)
+	•	פתח את ה-Preview ב-Open in new tab (לא בתוך iFrame).
+	•	Login → /api/auth/me צריך להגות isAuthenticated:true.
+	•	עריכת פרומפט:
+	•	שמור → Toast “נשמר” + GET /prompt חוזר עם version/updated_at.
+	•	התחזות:
+	•	כפתור “התחזות” → /impersonate (עם X-CSRFToken) → /api/auth/me עם impersonating:true → נווט ל-Business Overview.
+	•	“עסק חדש”:
+	•	שלח POST /api/admin/businesses (עם X-CSRFToken) → 201 JSON.
+אם כפילות → 409 JSON עם field.
+
+⸻
+
+6) אם משהו עדיין נופל — לוג דיבוג ממוקד (להסיר בסוף)
+
+בשרת:
+
+@app.before_request
+def _dbg_csrf():
+    if request.path.endswith(('/prompt','/impersonate','/businesses')):
+        print('CSRF-DBG',
+              'cookie=', request.cookies.get('XSRF-TOKEN'),
+              'header=', request.headers.get('X-CSRFToken'),
+              'ct=', request.headers.get('Content-Type'))
+
+בדפדפן → Network של הבקשה שנפלה: הצג Headers (Cookie + X-CSRFToken) וה-Response text.
+שלח גם פלט /version עם ה-BUILD/fe.
+
+⸻
+
+7) קריטריוני “סגורנו את זה”
+	•	/version מציג fe:"client/dist" ו-BUILD העדכני.
+	•	curl: login / me / csrf / save prompt / impersonate — כולם ירוקים.
+	•	ב-UI:
+	•	שמירת פרומפט משנה באמת את הבוט בשיחה חדשה.
+	•	התחזות משנה me.impersonating ומנווטת לעסק.
+	•	“עסק חדש” יוצר רשומה אמיתית או מחזיר 409 ברור.
+	•	אין עוד Error {} ריק — שגיאות מוצגות כ-JSON עם error/message/field.
+
+⸻
+
+למה זה יפתור לך את הכול עכשיו
+	•	ננעלת בעיית ה-CSRF (מקור יחיד + double-submit token).
+	•	נמנעת החזרה של HTML לאפליקציית SPA (שגרם ל-Error {}).
+	•	מנעת את באג ה-role בהתחזות (admin נשאר admin).
+	•	ביטלת “קוד ישן רץ” (BUILD + הגשה מ-client/dist בלבד).
+
+אם תרצה, אנסח לך patches קצרצרים לפי קבצים (שורות מדויקות להדבקה) כדי לבצע את 4–5 השינויים הקריטיים בלי לחפש.
