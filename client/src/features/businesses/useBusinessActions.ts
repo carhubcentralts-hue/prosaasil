@@ -233,14 +233,22 @@ export function useBusinessActions() {
     try {
       const result = await exitImpersonationAction();
       
-      // Clear all impersonation data from localStorage
+      // Clear all impersonation data from localStorage FIRST
       localStorage.removeItem('impersonation_original_user');
       localStorage.removeItem('is_impersonating');
       localStorage.removeItem('impersonating_business_id');
       localStorage.removeItem('impersonating_business_name');
       localStorage.removeItem('impersonating_business_domain');
       
-      await refetchAuth(); // Refresh auth state
+      // CRITICAL: Refresh auth state multiple times to ensure it updates
+      await refetchAuth();
+      
+      // Give the server and React time to update state
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Refresh again to be 100% sure
+      await refetchAuth();
+      
       showToast.success('יצאת מהתחזות בהצלחה');
       
       // Navigate back to business management page where they came from
