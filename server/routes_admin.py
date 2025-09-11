@@ -310,7 +310,7 @@ def get_business_overview(business_id):
             "id": business.id,
             "name": business.name,
             "business_type": business.business_type,
-            "phone_e164": business.phone_e164 or "",
+            "phone_e164": business.phone_number or "",
             "whatsapp_number": business.whatsapp_number or "",
             "status": "active" if business.is_active else "suspended",
             "whatsapp_status": "connected" if business.whatsapp_enabled else "disconnected",
@@ -337,7 +337,7 @@ def get_business_overview(business_id):
         })
         
     except Exception as e:
-        logger.error(f"Error getting business overview {business_id}: {e}")
+        logger.exception(f"Error getting business overview {business_id}: {e}")
         return jsonify({"error": "שגיאה בטעינת נתוני העסק"}), 500
 
 @admin_bp.route("/api/admin/kpis/overview", methods=['GET'])
