@@ -601,7 +601,15 @@ def create_app():
     
     @app.errorhandler(404)
     def handle_not_found(e):
-        return jsonify({"error": "not_found", "message": "Resource not found"}), 404
+        # ✅ Only return JSON for API routes, let SPA handle everything else
+        if request.path.startswith('/api/') or request.path.startswith('/webhook/'):
+            return jsonify({"error": "not_found", "message": "Resource not found"}), 404
+        # For non-API routes, serve the React app
+        try:
+            static_folder = app.static_folder or os.path.join(os.path.dirname(__file__), "..", "client", "dist")
+            return send_from_directory(static_folder, 'index.html')
+        except:
+            return jsonify({"error": "not_found", "message": "Resource not found"}), 404
     
     @app.errorhandler(409)
     def handle_conflict(e):
