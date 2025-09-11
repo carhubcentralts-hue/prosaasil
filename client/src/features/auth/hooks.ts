@@ -55,6 +55,14 @@ export function useAuthState(): AuthState & {
       const response = await authApi.login({ email, password });
       console.log('🔍 Login response:', response);
       
+      // Refresh CSRF token after login (per guidelines)
+      try {
+        await authApi.csrf();
+        console.log('✅ CSRF token refreshed after login');
+      } catch (csrfError) {
+        console.warn('⚠️ CSRF refresh failed (non-critical):', csrfError);
+      }
+      
       const newState = {
         user: response.user,
         tenant: response.tenant,
@@ -94,6 +102,14 @@ export function useAuthState(): AuthState & {
       isInitializedRef.current = true;
       
       const checkExistingSession = async () => {
+        // Always refresh CSRF token first (critical for first-time login)
+        try {
+          await authApi.csrf();
+          console.log('✅ CSRF token refreshed on bootstrap');
+        } catch (csrfError) {
+          console.warn('⚠️ CSRF refresh failed (non-critical):', csrfError);
+        }
+        
         try {
           console.log('🔍 Checking for existing session...');
           const authData = await authApi.me();

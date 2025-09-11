@@ -10,6 +10,9 @@ export const authApi = {
   // Get current user info
   me: () => http.get<AuthResponse>('/api/auth/me'),
   
+  // Get CSRF token (for refreshing token after login/bootstrap)
+  csrf: () => http.get<{ csrfToken: string }>('/api/auth/csrf'),
+  
   // Login user
   login: (data: LoginRequest) => 
     http.post<AuthResponse>('/api/auth/login', data),
