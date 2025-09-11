@@ -43,12 +43,28 @@ def create_app():
                 template_folder=os.path.join(os.path.dirname(__file__), "templates"))
     
     # הדגל השחור - לוג זיהוי לקוד ישן/חדש (שלב 7)
-    import time
+    import time, subprocess
+    
+    # נתיב FE_DIST שהשרת משרת
+    FE_DIST_PATH = os.path.join(os.path.dirname(__file__), "..", "client", "dist")
+    print(f"🔧 FE_DIST={FE_DIST_PATH}")
+    
+    # Git SHA קצר
+    try:
+        git_sha = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], 
+                                        cwd=os.path.dirname(__file__), 
+                                        stderr=subprocess.DEVNULL).decode().strip()
+    except:
+        git_sha = "dev"
+    print(f"🔧 APP_SHA={git_sha}")
+    
     version_info = {
+        "build": 42,
+        "sha": git_sha,
+        "fe": "client/dist",
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
         "app": "AgentLocator-71",
-        "commit": os.getenv("GIT_COMMIT", "dev"),
-        "build_time": os.getenv("BUILD_TIME", "dev"),
-        "deploy_id": os.getenv("DEPLOY_ID", "dev"),
+        "commit": os.getenv("GIT_COMMIT", git_sha),
         "startup_ts": int(time.time())
     }
     print(f"🚩 APP_START {version_info}")
@@ -588,6 +604,18 @@ def create_app():
     @app.errorhandler(500)
     def handle_server_error(e):
         return jsonify({"error": "server_error", "message": "Internal server error"}), 500
+    
+    # VERSION ENDPOINT - לוודא שהקוד החדש רץ
+    @app.route('/version', methods=['GET'])
+    def version_endpoint():
+        return jsonify(version_info)
+    
+    # הדפסת רשימת נתיבים לדיבוג
+    print("\n=== URL MAP ===")
+    for r in sorted(app.url_map.iter_rules(), key=lambda r: r.rule):
+        if any(keyword in r.rule for keyword in ['/api/', '/prompt', '/impersonate', '/csrf', '/auth']):
+            print(f"  {r.methods} {r.rule} -> {r.endpoint}")
+    print("================")
     
     # SPA blueprint disabled temporarily - using direct routes
     # from server.spa_static import spa_bp

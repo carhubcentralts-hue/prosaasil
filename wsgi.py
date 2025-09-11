@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-import eventlet; eventlet.monkey_patch()
 
+# Environment setup BEFORE Eventlet import - prevents deadlocks with Gunicorn  
 import os, sys
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-
 os.environ['EVENTLET_NO_GREENDNS'] = '1'
 os.environ['EVENTLET_HUB'] = 'poll'
+
+import eventlet
+# No eventlet.monkey_patch() - Gunicorn eventlet worker handles patching
 
 from eventlet.websocket import WebSocketWSGI
 from server.app_factory import create_app
