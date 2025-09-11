@@ -115,10 +115,9 @@ export function AgentPromptsPage() {
         isBusinessRole 
           ? `/api/business/current/prompt` 
           : `/api/admin/businesses/${businessId}/prompt`, 
-        {
-          channel,
-          prompt_content: promptContent
-        }
+        channel === 'calls' 
+          ? { calls_prompt: promptContent, whatsapp_prompt: prompts.whatsapp_prompt }
+          : { calls_prompt: prompts.calls_prompt, whatsapp_prompt: promptContent }
       );
       
       if (result.success) {

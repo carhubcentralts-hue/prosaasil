@@ -82,7 +82,7 @@ export function AppRoutes() {
         <Route
           path="business/agent-prompts"
           element={
-            <RoleGuard roles={['business']}>
+            <RoleGuard roles={['business', 'admin']}>
               <AgentPromptsPage />
             </RoleGuard>
           }
@@ -100,7 +100,7 @@ export function AppRoutes() {
         <Route
           path="business/overview"
           element={
-            <RoleGuard roles={['business']}>
+            <RoleGuard roles={['business', 'admin']}>
               <BusinessHomePage />
             </RoleGuard>
           }
