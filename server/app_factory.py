@@ -223,7 +223,7 @@ def create_app():
                 if datetime.now() - start_time > timedelta(hours=24):
                     # Rotate session but preserve ALL user data
                     user_data = session.get('al_user')
-                    tenant_id = session.get('tenant_id')
+                    impersonated_tenant_id = session.get('impersonated_tenant_id')  # Fixed key per guidelines
                     token = session.get('token')
                     impersonating = session.get('impersonating', False)
                     
@@ -232,7 +232,7 @@ def create_app():
                     # Restore all user session data
                     if user_data:
                         session['al_user'] = user_data
-                        session['tenant_id'] = tenant_id
+                        session['impersonated_tenant_id'] = impersonated_tenant_id  # Fixed key per guidelines
                         session['token'] = token
                         session['impersonating'] = impersonating
                         session['_session_start'] = datetime.now().isoformat()

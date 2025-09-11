@@ -5,7 +5,8 @@ Handles all appointment CRUD operations with full security and role-based permis
 from flask import Blueprint, request, jsonify, session, g
 from datetime import datetime, timedelta
 from server.models_sql import Appointment, Business, Customer, Deal, CallLog, WhatsAppMessage, User, db
-from server.routes_crm import require_api_auth, get_business_id
+from server.routes_admin import require_api_auth  # Standardized import per guidelines
+from server.routes_crm import get_business_id
 import json
 from sqlalchemy import and_, or_, desc, asc
 

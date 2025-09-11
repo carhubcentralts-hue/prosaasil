@@ -379,7 +379,7 @@ def impersonate_business(business_id):
         
         # ✅ אדמין יכול להתחזות גם בלי user business - יוצר התחזות ויוצר אחד במידת הצורך
         
-        # Store original admin for restoration later
+        # Store original admin for restoration later (per guidelines: use 'impersonator' key)
         current_admin_serialized = {
             "id": current_admin.get('id'),
             "name": current_admin.get('name'),
@@ -387,17 +387,17 @@ def impersonate_business(business_id):
             "role": current_admin.get('role'),
             "business_id": current_admin.get('business_id')
         }
-        session['original_user'] = current_admin_serialized
+        session['impersonator'] = current_admin_serialized  # Fixed key name per guidelines
         
         # Switch session to business user - לפי ההנחיות המדויקות
         session['impersonating'] = True
-        session['tenant_id'] = business.id  
+        session['impersonated_tenant_id'] = business.id  # Fixed key name per guidelines  
         # ✅ DON'T override session['role'] - keep original admin role for capabilities
         
         logger.info(f"✅ Admin successfully impersonating business {business_id}")
-        logger.info(f"📋 Session: impersonating=True, tenant_id={business.id}, admin_role_preserved")
+        logger.info(f"📋 Session: impersonating=True, impersonated_tenant_id={business.id}, admin_role_preserved")
         
-        return jsonify({"ok": True, "tenant_id": business.id}), 200
+        return jsonify({"ok": True, "impersonated_tenant_id": business.id}), 200
         
     except Exception as e:
         logger.error(f"Error impersonating business {business_id}: {e}")
@@ -410,14 +410,12 @@ def exit_impersonation():
     try:
         logger.info("🔄 Exiting impersonation")
         
-        # נקה את מצב ההתחזות ושחזר מצב מקורי - לפי ההנחיות
+        # נקה את מצב ההתחזות ושחזר מצב מקורי - לפי ההנחיות המדויקות
         session.pop('impersonating', None)
-        session.pop('tenant_id', None)  
+        session.pop('impersonated_tenant_id', None)  # Fixed key name
+        session.pop('impersonator', None)  # Clear impersonator key (DON'T restore to session['user'])
         
-        # ✅ Restore original user identity if saved
-        if 'original_user' in session:
-            session['user'] = session.pop('original_user')
-        # ✅ DON'T pop 'role' - preserve admin role throughout impersonation
+        # ✅ Per guidelines: DON'T modify session['user'] - it stays original throughout
         
         logger.info(f"✅ Successfully exited impersonation, restored: {session.get('user')}")
         

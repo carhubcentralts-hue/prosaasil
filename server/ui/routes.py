@@ -38,7 +38,7 @@ def effective_business_id():
     user = session.get('al_user') or session.get('user')
     
     # Check if admin is impersonating a business
-    impersonating = session.get('impersonating_business_id')
+    impersonating = session.get('impersonated_tenant_id')  # Fixed key per guidelines
     if impersonating and user and user.get("role") in ("manager"):
         bid = impersonating
     
@@ -1104,10 +1104,10 @@ def admin_impersonate_business(business_id):
             g.audit_logger.log_action('IMPERSONATE_START', 'business', business_id, 
                                     {'business_name': business.name})
         
-        # Set impersonation session
-        session['impersonating_business_id'] = business_id
-        session['impersonating_business_name'] = business.name
-        session['impersonation_start'] = datetime.now().isoformat()
+        # Set impersonation session (per guidelines)
+        session['impersonator'] = session.get('user')  # Store original user
+        session['impersonating'] = True
+        session['impersonated_tenant_id'] = business_id
         
         return redirect('/app/biz')
         
@@ -1119,15 +1119,12 @@ def admin_impersonate_business(business_id):
 def admin_stop_impersonation():
     """סיום השתלטות"""
     try:
-        # Restore original user from session
-        if 'original_user' in session and session.get('impersonating'):
-            original_user = session['original_user']
-            session['user'] = original_user
-            
-            # Clear impersonation state
-            session.pop('original_user', None)
-            session.pop('tenant_id', None) 
+        # Clear impersonation state (per guidelines - DON'T modify session['user'])
+        if session.get('impersonating'):
+            # Clear the 3 impersonation keys only
             session.pop('impersonating', None)
+            session.pop('impersonated_tenant_id', None) 
+            session.pop('impersonator', None)
             
             # Log impersonation end
             if hasattr(g, 'audit_logger') and g.audit_logger:

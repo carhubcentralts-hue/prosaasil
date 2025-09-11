@@ -1,7 +1,7 @@
 # AI Prompt Management API - לפי ההנחיות המדויקות
 from flask import Blueprint, request, jsonify, session
 from server.models_sql import Business, BusinessSettings, PromptRevisions, User, db
-from server.auth_api import require_api_auth
+from server.routes_admin import require_api_auth  # Standardized import per guidelines
 from server.extensions import csrf
 from datetime import datetime
 import logging
@@ -186,7 +186,7 @@ def update_business_prompt(business_id):
 def get_current_business_prompt():
     """Get AI prompt for current business - Business (Impersonated)"""
     try:
-        tenant_id = session.get('tenant_id')
+        tenant_id = session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')  # Fixed key per guidelines
         if not tenant_id:
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
             
@@ -201,7 +201,7 @@ def get_current_business_prompt():
 def update_current_business_prompt():
     """Update AI prompt for current business - Business (Impersonated, דורש CSRF)"""
     try:
-        tenant_id = session.get('tenant_id')
+        tenant_id = session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')  # Fixed key per guidelines
         if not tenant_id:
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
             
@@ -242,7 +242,7 @@ def get_prompt_history(business_id):
 def get_current_prompt_history():
     """Get prompt history for current business - Business (Impersonated)"""
     try:
-        tenant_id = session.get('tenant_id')
+        tenant_id = session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')  # Fixed key per guidelines
         if not tenant_id:
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
             

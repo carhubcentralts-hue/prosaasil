@@ -94,7 +94,7 @@ def login():
         # Store in session - both keys for compatibility
         session['al_user'] = user_data  # Use al_user key for consistency
         session['user'] = user_data     # Also store as 'user' for decorators
-        session['tenant_id'] = user.business_id
+        # Note: Don't set tenant_id here - use impersonated_tenant_id only for impersonation per guidelines
         session['token'] = f"session_{user.id}"  # Simple session token
         
         # Return format that matches frontend AuthResponse type
@@ -203,7 +203,7 @@ def get_current_user():
         
         # Get tenant info from business
         business = None
-        tenant_id = session.get('tenant_id') or u.get('business_id')
+        tenant_id = session.get('impersonated_tenant_id') or u.get('business_id')  # Fixed key per guidelines
         if tenant_id:
             business = Business.query.get(tenant_id)
         
@@ -214,7 +214,7 @@ def get_current_user():
         }
         
         # ✅ חישוב נכון של impersonating לפי ההנחיות
-        impersonating = bool(session.get('impersonating') and session.get('tenant_id'))
+        impersonating = bool(session.get('impersonating') and session.get('impersonated_tenant_id'))  # Fixed key per guidelines
         
         return jsonify({
             "user": u,
