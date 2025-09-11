@@ -10,7 +10,7 @@ class ProductionConfig:
     
     # Basic Flask settings
     SECRET_KEY = os.getenv("JWT_SECRET", "production-secret-key-change-this")
-    WTF_CSRF_ENABLED = True
+    # ❌ WTF_CSRF_ENABLED הוסר - משתמשים רק בSeaSurf לפי ההנחיות
     
     # Database configuration
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///./agentlocator.db")

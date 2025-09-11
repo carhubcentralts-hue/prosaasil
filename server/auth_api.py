@@ -23,7 +23,8 @@ def get_csrf():
         os.getenv('PREVIEW_MODE') == '1'
     )
     
-    token = request.cookies.get('XSRF-TOKEN') or csrf._get_token()
+    # ✅ גישה מעורבת - SeaSurf cookies + token עצמאי לJS (לפי הreality)
+    token = request.cookies.get('XSRF-TOKEN')
     if not token:
         token = secrets.token_urlsafe(32)
     

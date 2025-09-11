@@ -1,13 +1,29 @@
 #!/usr/bin/env python3
 
-# Environment setup BEFORE Eventlet import - prevents deadlocks with Gunicorn  
+# CRITICAL: EventLet monkey patch MUST be first, before any other imports
+import eventlet
+eventlet.monkey_patch()
+
+# Environment setup AFTER monkey patching
 import os, sys
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-os.environ['EVENTLET_NO_GREENDNS'] = '1'
-os.environ['EVENTLET_HUB'] = 'poll'
 
-import eventlet
-# No eventlet.monkey_patch() - Gunicorn eventlet worker handles patching
+# Enhanced stability configuration for Replit
+os.environ.update({
+    'EVENTLET_NO_GREENDNS': '1',
+    'EVENTLET_HUB': 'poll',
+    'PYTHONUNBUFFERED': '1',
+    'GEVENT_SUPPORT': '1'
+})
+
+# Add signal handling for graceful shutdown
+import signal
+def signal_handler(sig, frame):
+    print(f"🛑 Received signal {sig}, shutting down gracefully...")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 from eventlet.websocket import WebSocketWSGI
 from server.app_factory import create_app
@@ -63,22 +79,48 @@ class WebSocketAppWithProtocol:
 # Create the WebSocket app
 websocket_app_with_protocol = WebSocketAppWithProtocol(ws_handler)
 
-# Create Flask app once
+# Create Flask app once with proper application context
 flask_app = create_app()
 
+# Ensure app context is available for eventlet compatibility
+def _init_app_context():
+    """Initialize Flask app context for eventlet compatibility"""
+    with flask_app.app_context():
+        # Pre-warm any application context dependent operations
+        pass
+
+try:
+    _init_app_context()
+    print("✅ Flask app context initialized successfully")
+except Exception as e:
+    print(f"⚠️ App context init warning: {e}")
+    # Continue anyway, context will be created on first request
+
 def composite_app(environ, start_response):
-    """Composite WSGI: WebSocket BEFORE Flask"""
+    """Composite WSGI: WebSocket BEFORE Flask - Enhanced with error handling"""
     path = environ.get('PATH_INFO', '')
     method = environ.get('REQUEST_METHOD', 'GET')
     
     # Debug logging for all requests
     print(f"🔍 WSGI Route: {method} {path}", flush=True)
     
-    # Direct healthz handling (bypass Flask routing issues)
+    # Enhanced healthz handling with more info
     if path == '/healthz':
         print("❤️ Direct healthz response", flush=True)
-        start_response('200 OK', [('Content-Type', 'text/plain')])
-        return [b'ok']
+        import time
+        health_data = {
+            'status': 'ok',
+            'timestamp': int(time.time()),
+            'pid': os.getpid(),
+            'memory_info': 'available'
+        }
+        response_text = f"ok - {health_data}"
+        start_response('200 OK', [
+            ('Content-Type', 'text/plain'),
+            ('Cache-Control', 'no-cache'),
+            ('X-Health-Check', 'wsgi-direct')
+        ])
+        return [response_text.encode('utf-8')]
     
     # ⚡ Webhooks שצריכים תשובה מיידית, בלי להיכנס ל-Flask
     if path in (
@@ -131,13 +173,32 @@ def composite_app(environ, start_response):
         print("📞 Routing to EventLet WebSocketWSGI", flush=True)
         return websocket_app_with_protocol(environ, start_response)
     
-    # All other routes go to Flask
+    # All other routes go to Flask with enhanced error handling
     print(f"🌐 Routing to Flask app: {path}", flush=True)
     try:
         return flask_app.wsgi_app(environ, start_response)
     except Exception as e:
         print(f"❌ Flask app error for {path}: {e}", flush=True)
-        raise
+        import traceback
+        traceback.print_exc()
+        
+        # Return a proper error response instead of crashing
+        try:
+            start_response('500 Internal Server Error', [
+                ('Content-Type', 'application/json'),
+                ('Cache-Control', 'no-cache')
+            ])
+            import json
+            error_response = json.dumps({
+                'error': 'Internal server error',
+                'path': path,
+                'message': str(e)
+            })
+            return [error_response.encode('utf-8')]
+        except:
+            # Fallback if even error response fails
+            start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
+            return [b'Internal Server Error']
 
 app = composite_app
 

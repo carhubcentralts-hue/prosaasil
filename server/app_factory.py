@@ -105,22 +105,24 @@ def create_app():
         os.getenv('PREVIEW_MODE') == '1'
     )
 
-    # Consolidated Cookie policy - single source of truth
+    # Consolidated Cookie policy - מתוקן לפי הarchitect (תמיד HttpOnly=True!)
     if IS_PREVIEW:
         app.config.update(
-            SESSION_COOKIE_SAMESITE='Lax',
-            SESSION_COOKIE_SECURE=False,     # HTTP mode for preview
-            SESSION_COOKIE_HTTPONLY=False,   # Allow JS access for debugging
-            REMEMBER_COOKIE_SAMESITE='Lax',
-            REMEMBER_COOKIE_SECURE=False,
+            SESSION_COOKIE_SAMESITE='None',  # None לPreview לפי ההנחיות
+            SESSION_COOKIE_SECURE=True,      # True לPreview לפי ההנחיות  
+            SESSION_COOKIE_HTTPONLY=True,    # ✅ אבטחה - תמיד HttpOnly=True (לפי architect)
+            REMEMBER_COOKIE_SAMESITE='None',
+            REMEMBER_COOKIE_SECURE=True,
+            REMEMBER_COOKIE_HTTPONLY=True,   # ✅ גם remember cookie מאובטח
         )
     else:
         app.config.update(
-            SESSION_COOKIE_SAMESITE='Lax',
-            SESSION_COOKIE_SECURE=True,      # HTTPS only in production
-            SESSION_COOKIE_HTTPONLY=True,    # Secure in production
+            SESSION_COOKIE_SAMESITE='Lax',   # Lax לProduction לפי ההנחיות
+            SESSION_COOKIE_SECURE=True,      # True לProduction לפי ההנחיות
+            SESSION_COOKIE_HTTPONLY=True,    # ✅ Secure in production (לפי architect)
             REMEMBER_COOKIE_SAMESITE='Lax',
             REMEMBER_COOKIE_SECURE=True,
+            REMEMBER_COOKIE_HTTPONLY=True,   # ✅ גם remember cookie מאובטח
         )
 
     # SeaSurf – מקור יחיד

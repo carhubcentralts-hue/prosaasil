@@ -2,15 +2,13 @@
 from flask_seasurf import SeaSurf
 import os
 
-# ✅ SeaSurf config - מקל על בדיקות ופיתוח
+# ✅ SeaSurf config - מקור יחיד לCSRF (לפי ההנחיות המדויקות)
 def create_csrf():
-    """יוצר SeaSurf עם הגדרות מתאימות לפיתוח ופרודוקשן"""
+    """יוצר SeaSurf עם הגדרות מתאימות לפיתוח ופרודוקשן - CSRF פעיל תמיד!"""
     csrf_instance = SeaSurf()
     
-    # Configure for development vs production  
-    if os.getenv('FLASK_ENV') == 'development' or os.getenv('DISABLE_CSRF_REFERER'):
-        # Disable referer check for development/testing
-        csrf_instance._csrf_disable = True
+    # ❌ כבר לא מבטלים CSRF - פעיל תמיד לפי ההנחיות החדשות
+    # הפטורים מנוהלים על ידי @csrf.exempt על endpoints ספציפיים
     
     return csrf_instance
 
