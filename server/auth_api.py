@@ -167,8 +167,7 @@ def login():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@csrf.exempt  # Forgot password also exempt from CSRF
-@auth_api.route('/forgot', methods=['POST'])
+@auth_api.route('/forgot', methods=['POST'])  # CSRF protected - not in exempt list
 def forgot_password():
     """
     POST /api/auth/forgot
@@ -203,8 +202,7 @@ def forgot_password():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@csrf.exempt  # Reset password also exempt from CSRF  
-@auth_api.route('/reset', methods=['POST'])
+@auth_api.route('/reset', methods=['POST'])  # CSRF protected - not in exempt list
 def reset_password():
     """
     POST /api/auth/reset
