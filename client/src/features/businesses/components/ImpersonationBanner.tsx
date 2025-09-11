@@ -1,33 +1,20 @@
 import React from 'react';
 import { AlertTriangle, X, LogOut, Shield } from 'lucide-react';
 import { useBusinessActions } from '../useBusinessActions';
+import { useImpersonation } from '../hooks/useImpersonation';
 
-interface ImpersonationBannerProps {
-  originalUser: {
-    name: string;
-    email: string;
-    role: string;
-  };
-  impersonatedBusiness: {
-    name: string;
-    domain: string;
-  };
-  onExit?: () => void;
-}
+export function ImpersonationBanner() {
+  const { isImpersonating, originalUser, impersonatedBusiness, exitImpersonation: hookExitImpersonation } = useImpersonation();
+  const { isLoading } = useBusinessActions();
 
-export function ImpersonationBanner({ 
-  originalUser, 
-  impersonatedBusiness, 
-  onExit 
-}: ImpersonationBannerProps) {
-  const { exitImpersonation, isLoading } = useBusinessActions();
+  // Don't render if not impersonating or missing data
+  if (!isImpersonating || !originalUser || !impersonatedBusiness) {
+    return null;
+  }
 
   const handleExitImpersonation = async () => {
     try {
-      await exitImpersonation();
-      if (onExit) {
-        onExit();
-      }
+      await hookExitImpersonation();
     } catch (error) {
       console.error('שגיאה ביציאה מהתחזות:', error);
     }

@@ -5,7 +5,7 @@ import eventlet
 eventlet.monkey_patch()
 
 # Environment setup AFTER monkey patching
-import os, sys
+import os, sys, traceback, signal, json, time
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 # Enhanced stability configuration for Replit
@@ -17,7 +17,6 @@ os.environ.update({
 })
 
 # Add signal handling for graceful shutdown
-import signal
 def signal_handler(sig, frame):
     print(f"🛑 Received signal {sig}, shutting down gracefully...")
     sys.exit(0)
@@ -38,7 +37,6 @@ def ws_handler(ws):
         handler.run()
     except Exception as e:
         print(f"❌ WebSocket error: {e}", flush=True)
-        import traceback
         traceback.print_exc()
 
 class WebSocketAppWithProtocol:
@@ -50,7 +48,6 @@ class WebSocketAppWithProtocol:
     def __call__(self, environ, start_response):
         # Check for Twilio subprotocol
         raw = environ.get('HTTP_SEC_WEBSOCKET_PROTOCOL', '') or ''
-        # נרמל רשימת פרוטוקולים (מופרדים בפסיקים/רווחים)
         protocols = [p.strip() for p in raw.split(',') if p.strip()]
         wants_twilio = any(p.lower() == 'audio.twilio.com' for p in protocols)
 
@@ -61,7 +58,6 @@ class WebSocketAppWithProtocol:
             def twilio_start_response(status, headers, exc_info=None):
                 if status == '101 Switching Protocols':
                     headers = list(headers)
-                    # כותרות ש-GFE אוהב לראות בהנדשייק
                     headers.append(('Sec-WebSocket-Protocol', 'audio.twilio.com'))
                     headers.append(('Upgrade', 'websocket'))
                     headers.append(('Connection', 'Upgrade'))
@@ -76,28 +72,33 @@ class WebSocketAppWithProtocol:
         ws_app = WebSocketWSGI(self.handler_func)
         return ws_app(environ, start_response)
 
-# Create the WebSocket app
+# Create WebSocket app and Flask app
 websocket_app_with_protocol = WebSocketAppWithProtocol(ws_handler)
 
 # Create Flask app once with proper application context
 flask_app = create_app()
 
-# Ensure app context is available for eventlet compatibility
 def _init_app_context():
     """Initialize Flask app context for eventlet compatibility"""
-    with flask_app.app_context():
-        # Pre-warm any application context dependent operations
-        pass
+    try:
+        with flask_app.app_context():
+            # Pre-warm any application context dependent operations
+            pass
+        print("✅ Flask app context initialized successfully")
+    except Exception as e:
+        print(f"⚠️ App context init warning: {e}")
+        # Continue anyway, context will be created on first request
 
-try:
-    _init_app_context()
-    print("✅ Flask app context initialized successfully")
-except Exception as e:
-    print(f"⚠️ App context init warning: {e}")
-    # Continue anyway, context will be created on first request
+_init_app_context()
 
-def composite_app(environ, start_response):
-    """Composite WSGI: WebSocket BEFORE Flask - Enhanced with error handling"""
+def _is_websocket_request(environ):
+    """Check if this is a WebSocket upgrade request"""
+    connection = environ.get('HTTP_CONNECTION', '').lower()
+    upgrade = environ.get('HTTP_UPGRADE', '').lower()
+    return 'upgrade' in connection and upgrade == 'websocket'
+
+def app(environ, start_response):
+    """Main WSGI application - routes WebSocket to EventLet, HTTP to Flask"""
     path = environ.get('PATH_INFO', '')
     method = environ.get('REQUEST_METHOD', 'GET')
     
@@ -107,7 +108,6 @@ def composite_app(environ, start_response):
     # Enhanced healthz handling with more info
     if path == '/healthz':
         print("❤️ Direct healthz response", flush=True)
-        import time
         health_data = {
             'status': 'ok',
             'timestamp': int(time.time()),
@@ -122,7 +122,7 @@ def composite_app(environ, start_response):
         ])
         return [response_text.encode('utf-8')]
     
-    # ⚡ Webhooks שצריכים תשובה מיידית, בלי להיכנס ל-Flask
+    # Fast webhook responses (avoid Flask overhead)
     if path in (
         '/webhook/stream_status', '/webhook/stream_status/',
         '/webhook/stream_ended', '/webhook/stream_ended/'
@@ -135,18 +135,16 @@ def composite_app(environ, start_response):
         ])
         return [b'']
 
-    # TwiML חייב לחזור מייד — נחזיר כאן אם Flask עסוק
+    # Fast TwiML response for incoming calls
     if path in ('/webhook/incoming_call', '/webhook/incoming_call/'):
         print(f"⚡ Fast TwiML for {path}", flush=True)
-        # בנה TwiML נקי עם https:// ו-wss://
         scheme = (environ.get('HTTP_X_FORWARDED_PROTO') or 'https').split(',')[0].strip()
-        host   = (environ.get('HTTP_X_FORWARDED_HOST')  or environ.get('HTTP_HOST')).split(',')[0].strip()
-        base   = f"{scheme}://{host}"
-        only_host = host
+        host = (environ.get('HTTP_X_FORWARDED_HOST') or environ.get('HTTP_HOST')).split(',')[0].strip()
+        base = f"{scheme}://{host}"
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect action="{base}/webhook/stream_ended">
-    <Stream url="wss://{only_host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">
+    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">
       <Parameter name="CallSid" value="{{CALL_SID}}"/>
     </Stream>
   </Connect>
@@ -158,7 +156,7 @@ def composite_app(environ, start_response):
         ])
         return [twiml.encode('utf-8')]
 
-    # call_status גם יכול לקבל 204 מיידי (לא קריטי, אבל מייצב)
+    # Fast call status response
     if path in ('/webhook/call_status', '/webhook/call_status/'):
         print(f"⚡ Fast 204 for {path}", flush=True)
         start_response('204 No Content', [
@@ -168,42 +166,41 @@ def composite_app(environ, start_response):
         ])
         return [b'']
     
-    # קבל גם סלש סופי כדי לא להתקפל על שינויים בפרוקסי
-    if path in ('/ws/twilio-media', '/ws/twilio-media/'):
-        print("📞 Routing to EventLet WebSocketWSGI", flush=True)
+    # Route WebSocket requests to EventLet
+    if path in ('/ws/twilio-media', '/ws/twilio-media/') and _is_websocket_request(environ):
+        print("📞 Routing WebSocket to EventLet", flush=True)
         return websocket_app_with_protocol(environ, start_response)
     
-    # All other routes go to Flask with enhanced error handling
+    # All other requests (including HTTP to WebSocket paths) go to Flask
     print(f"🌐 Routing to Flask app: {path}", flush=True)
     try:
-        return flask_app.wsgi_app(environ, start_response)
+        return flask_app(environ, start_response)
     except Exception as e:
         print(f"❌ Flask app error for {path}: {e}", flush=True)
-        import traceback
         traceback.print_exc()
         
-        # Return a proper error response instead of crashing
+        # Return proper error response
         try:
-            start_response('500 Internal Server Error', [
-                ('Content-Type', 'application/json'),
-                ('Cache-Control', 'no-cache')
-            ])
-            import json
             error_response = json.dumps({
                 'error': 'Internal server error',
                 'path': path,
                 'message': str(e)
             })
+            start_response('500 Internal Server Error', [
+                ('Content-Type', 'application/json'),
+                ('Cache-Control', 'no-cache')
+            ])
             return [error_response.encode('utf-8')]
         except:
-            # Fallback if even error response fails
+            # Fallback error response
             start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
             return [b'Internal Server Error']
 
-app = composite_app
+# WSGI application is exported as 'app' for gunicorn
+# No need for additional assignment - the function is already named 'app'
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))  # ← נועלים 5000 כדי לשמור על עקביות בבדיקות
+    port = int(os.getenv("PORT", "5000"))
     print(f"[WSGI] starting on 0.0.0.0:{port}", flush=True)
     flask_app.run(host="0.0.0.0", port=port, debug=False)
 

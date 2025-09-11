@@ -560,15 +560,24 @@ def create_app():
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
     
-    # Apply database migrations on boot (prevents 500 errors)
-    try:
-        with app.app_context():
-            from server.db_migrate import apply_migrations
-            apply_migrations()
-            print("✅ Database migrations applied successfully")
-    except Exception as e:
-        print(f"⚠️ Database migration error: {e}")
-        # Continue startup - don't crash on migration failures
+    # STARTUP FIX: Guard DB operations to prevent import blocking 
+    # Only run DB migrations if explicitly enabled to prevent wsgi.py import from hanging
+    if os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1':
+        try:
+            with app.app_context():
+                from server.db_migrate import apply_migrations
+                apply_migrations()
+                print("✅ Database migrations applied successfully")
+                
+                # Create default admin user if none exists
+                from server.auth_api import create_default_admin
+                create_default_admin()
+        except Exception as e:
+            print(f"⚠️ Database migration error: {e}")
+            # Continue startup - don't crash on migration failures
+    else:
+        print("🔧 Database migrations skipped (set RUN_MIGRATIONS_ON_START=1 to enable)")
+        print("🔧 Server will start immediately without blocking on DB operations")
     
     # Health endpoints removed - using health_endpoints.py blueprint only
     
@@ -623,6 +632,28 @@ def create_app():
     @app.route('/version', methods=['GET'])
     def version_endpoint():
         return jsonify(version_info)
+    
+    # POST-STARTUP DATABASE OPERATIONS ENDPOINT
+    @app.route('/api/admin/run-migrations', methods=['POST'])
+    def run_migrations_endpoint():
+        """Run database migrations after startup (non-blocking alternative)"""
+        try:
+            from server.db_migrate import apply_migrations
+            from server.auth_api import create_default_admin
+            
+            with app.app_context():
+                apply_migrations()
+                create_default_admin()
+                
+            return jsonify({
+                'success': True,
+                'message': 'Database migrations and admin creation completed successfully'
+            }), 200
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
     
     # הדפסת רשימת נתיבים לדיבוג
     print("\n=== URL MAP ===")

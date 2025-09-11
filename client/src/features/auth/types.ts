@@ -6,6 +6,7 @@ export interface AuthState {
   isLoading: boolean;
   isAuthenticated: boolean;
   impersonating?: boolean;
+  original_user?: User | null;
 }
 
 export interface AuthContextType extends AuthState {

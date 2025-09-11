@@ -10,8 +10,68 @@ from datetime import datetime, timedelta
 from functools import wraps
 import secrets
 import os
+import hashlib
+import binascii
 
 auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
+
+def verify_password(stored_hash, password):
+    """
+    Verify password against stored hash - supports both scrypt and pbkdf2 formats
+    
+    Args:
+        stored_hash: The stored password hash from database
+        password: The plaintext password to verify
+        
+    Returns:
+        bool: True if password matches, False otherwise
+    """
+    try:
+        if stored_hash.startswith('scrypt:'):
+            # Parse scrypt format: "scrypt:N:r:p$salt$hash"
+            # Example: "scrypt:32768:8:1$salt_hex$hash_hex"
+            parts = stored_hash.split('$')
+            if len(parts) != 3:
+                print(f"⚠️ Invalid scrypt format: {stored_hash[:50]}...")
+                return False
+                
+            params_str, salt_hex, expected_hash_hex = parts
+            
+            # Parse scrypt parameters
+            try:
+                _, n_str, r_str, p_str = params_str.split(':')
+                n, r, p = int(n_str), int(r_str), int(p_str)
+            except ValueError:
+                print(f"⚠️ Invalid scrypt parameters: {params_str}")
+                return False
+            
+            # Decode salt and expected hash
+            try:
+                salt = binascii.unhexlify(salt_hex)
+                expected_hash = binascii.unhexlify(expected_hash_hex)
+            except binascii.Error:
+                print(f"⚠️ Invalid hex encoding in scrypt hash")
+                return False
+            
+            # Compute scrypt hash of provided password
+            try:
+                computed_hash = hashlib.scrypt(
+                    password.encode('utf-8'), 
+                    salt=salt, 
+                    n=n, r=r, p=p, 
+                    dklen=len(expected_hash)
+                )
+                return computed_hash == expected_hash
+            except Exception as e:
+                print(f"⚠️ Scrypt computation error: {e}")
+                return False
+        else:
+            # Fallback to werkzeug for pbkdf2 and other formats
+            return check_password_hash(stored_hash, password)
+            
+    except Exception as e:
+        print(f"⚠️ Password verification error: {e}")
+        return False
 
 @auth_api.get("/csrf")
 def get_csrf():
@@ -60,7 +120,7 @@ def login():
         # Find user by email (fix field names to match DB schema)
         user = User.query.filter_by(email=email, is_active=True).first()
         
-        if not user or not check_password_hash(user.password_hash, password):
+        if not user or not verify_password(user.password_hash, password):
             return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
         
         # Update last login
@@ -216,11 +276,18 @@ def get_current_user():
         # ✅ חישוב נכון של impersonating לפי ההנחיות
         impersonating = bool(session.get('impersonating') and session.get('impersonated_tenant_id'))  # Fixed key per guidelines
         
-        return jsonify({
+        # Include original user data during impersonation for frontend banner
+        response_data = {
             "user": u,
             "tenant": tenant_data,
             "impersonating": impersonating
-        }), 200
+        }
+        
+        # Add original_user during impersonation so frontend can display proper banner
+        if impersonating and session.get('impersonator'):
+            response_data["original_user"] = session.get('impersonator')
+        
+        return jsonify(response_data), 200
     
     except Exception as e:
         print(f"Error in /api/auth/me: {e}")

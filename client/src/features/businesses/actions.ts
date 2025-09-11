@@ -61,7 +61,7 @@ export async function resetPasswordAction(
   }
 }
 
-export async function impersonateAction(id: number): Promise<{ ok: boolean; tenant_id: number } | null> {
+export async function impersonateAction(id: number): Promise<{ ok: boolean; impersonated_tenant_id: number } | null> {
   try {
     const result = await businessAPI.impersonate(id);
     return result;

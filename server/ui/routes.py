@@ -945,10 +945,10 @@ def api_login():
 
         # Check database users first
         from server.models_sql import User
-        from werkzeug.security import check_password_hash
+        from server.auth_api import verify_password
         
         user = User.query.filter_by(email=email, is_active=True).first()
-        if user and check_password_hash(user.password_hash, password):
+        if user and verify_password(user.password_hash, password):
             session["al_user"] = {
                 "id": str(user.id),
                 "name": user.name,

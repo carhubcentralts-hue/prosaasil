@@ -77,7 +77,7 @@ export class BusinessAPI {
   }
 
   // Impersonate business - עם CSRF תקין לפי ההנחיות
-  async impersonate(id: number): Promise<{ ok: boolean; tenant_id: number }> {
+  async impersonate(id: number): Promise<{ ok: boolean; impersonated_tenant_id: number }> {
     console.log(`🔄 Calling impersonate API for business ${id}`);
     return http.post(`/api/admin/businesses/${id}/impersonate`, {});
   }

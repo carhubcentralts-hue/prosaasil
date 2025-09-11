@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useAuth } from '../../auth/hooks';
 import { businessAPI } from '../api';
 
@@ -9,53 +9,22 @@ interface ImpersonationState {
 }
 
 export function useImpersonation() {
-  const [impersonationState, setImpersonationState] = useState<ImpersonationState>({
-    isImpersonating: false,
-    originalUser: null,
-    impersonatedBusiness: null
-  });
-  
-  const { user, refetch } = useAuth();
+  const { user, tenant, impersonating, original_user, refetch } = useAuth();
 
-  // Check for impersonation state on mount and auth changes
-  useEffect(() => {
-    checkImpersonationState();
-  }, [user]);
-
-  const checkImpersonationState = useCallback(() => {
-    // Check if we're in impersonation mode
-    const isImpersonating = localStorage.getItem('is_impersonating') === 'true';
-    const originalUserData = localStorage.getItem('impersonation_original_user');
-    const businessId = localStorage.getItem('impersonating_business_id');
-
-    if (isImpersonating && originalUserData && businessId) {
-      try {
-        const originalUser = JSON.parse(originalUserData);
-        
-        // Mock business data - in real app, fetch from API
-        const impersonatedBusiness = {
-          id: parseInt(businessId),
-          name: businessId === '1' ? 'שי דירות ומשרדים בע״מ' : 'עסק לא ידוע',
-          domain: businessId === '1' ? 'shai-realestate.co.il' : 'unknown.co.il'
-        };
-
-        setImpersonationState({
-          isImpersonating: true,
-          originalUser,
-          impersonatedBusiness
-        });
-      } catch (error) {
-        console.error('שגיאה בטעינת מצב התחזות:', error);
-        clearImpersonationState();
-      }
-    } else {
-      setImpersonationState({
-        isImpersonating: false,
-        originalUser: null,
-        impersonatedBusiness: null
-      });
-    }
-  }, []);
+  // Use actual original_user from server response instead of deriving from current user
+  const impersonationState: ImpersonationState = {
+    isImpersonating: impersonating || false,
+    originalUser: original_user ? {
+      name: original_user.name || original_user.email.split('@')[0],
+      email: original_user.email,
+      role: original_user.role
+    } : null,
+    impersonatedBusiness: impersonating && tenant ? {
+      id: tenant.id,
+      name: tenant.name,
+      domain: `${tenant.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}.co.il`
+    } : null
+  };
 
   const startImpersonation = useCallback(async (businessId: number, navigate: (path: string) => void) => {
     try {
@@ -69,42 +38,18 @@ export function useImpersonation() {
       console.log('✅ Impersonation API call successful');
       
       // Step 3: ✅ אחרי 200: await authStore.refresh() ונווט (לפי ההנחיות)
-      await refetch(); // קריאת /api/auth/me
+      await refetch(); // קריאת /api/auth/me - this will update server session state
       
       // Step 4: Navigate
       navigate('/app/business/overview');
       
-      // Store UI state for banners
-      if (user) {
-        localStorage.setItem('impersonation_original_user', JSON.stringify({
-          name: user.email.split('@')[0] || user.email,
-          email: user.email,
-          role: user.role
-        }));
-        localStorage.setItem('is_impersonating', 'true');
-        localStorage.setItem('impersonating_business_id', businessId.toString());
-      }
-      
-      checkImpersonationState();
-      
+      console.log('🎉 Successfully started impersonation');
       return { ok: true };
     } catch (error) {
       console.error('❌ שגיאה בהתחלת התחזות:', error);
       throw error;
     }
-  }, [user, refetch, checkImpersonationState]);
-
-  const clearImpersonationState = useCallback(() => {
-    localStorage.removeItem('impersonation_original_user');
-    localStorage.removeItem('is_impersonating');
-    localStorage.removeItem('impersonating_business_id');
-    
-    setImpersonationState({
-      isImpersonating: false,
-      originalUser: null,
-      impersonatedBusiness: null
-    });
-  }, []);
+  }, [refetch]);
 
   const exitImpersonation = useCallback(async () => {
     try {
@@ -114,10 +59,7 @@ export function useImpersonation() {
       await businessAPI.exitImpersonation();
       console.log('✅ Exit impersonation API call successful');
       
-      // Clear impersonation state
-      clearImpersonationState();
-      
-      // Refresh auth to restore original permissions
+      // Refresh auth to restore original permissions and clear server session
       await refetch();
       
       console.log('🎉 Successfully exited impersonation');
@@ -126,13 +68,11 @@ export function useImpersonation() {
       console.error('❌ שגיאה ביציאה מהתחזות:', error);
       throw error;
     }
-  }, [refetch, clearImpersonationState]);
+  }, [refetch]);
 
   return {
     ...impersonationState,
     startImpersonation,
-    exitImpersonation,
-    clearImpersonationState,
-    checkImpersonationState
+    exitImpersonation
   };
 }

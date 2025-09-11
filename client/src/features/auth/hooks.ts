@@ -15,6 +15,7 @@ export function useAuthState(): AuthState & {
     tenant: null,
     isLoading: true, // FIXED: Show loading during initial auth check
     isAuthenticated: false,
+    original_user: null,
   });
 
   // 🔥 Advanced optimization: Stable ref for lifecycle management
@@ -35,6 +36,7 @@ export function useAuthState(): AuthState & {
         isLoading: false,
         isAuthenticated: true,
         impersonating: response.impersonating || false,
+        original_user: response.original_user || null,
       });
     } catch (error) {
       if (!isMountedRef.current) return;
@@ -44,6 +46,7 @@ export function useAuthState(): AuthState & {
         tenant: null,
         isLoading: false,
         isAuthenticated: false,
+        original_user: null,
       });
     }
   }, []); // 🎯 Empty deps - stable function
@@ -69,6 +72,7 @@ export function useAuthState(): AuthState & {
         isLoading: false,
         isAuthenticated: true,
         impersonating: response.impersonating || false,
+        original_user: response.original_user || null,
       };
       
       setState(newState);
@@ -92,6 +96,7 @@ export function useAuthState(): AuthState & {
         tenant: null,
         isLoading: false,
         isAuthenticated: false,
+        original_user: null,
       });
     }
   }, []);
@@ -120,7 +125,8 @@ export function useAuthState(): AuthState & {
             tenant: authData.tenant,
             isLoading: false,
             isAuthenticated: true,
-            impersonating: authData.impersonating || false
+            impersonating: authData.impersonating || false,
+            original_user: authData.original_user || null
           });
           console.log('✅ Session restored:', { user: authData.user.email, role: authData.user.role });
         } catch (error) {
@@ -145,7 +151,7 @@ export function useAuthState(): AuthState & {
     login,
     logout,
     refetch
-  }), [state.user, state.tenant, state.isLoading, state.isAuthenticated, state.impersonating, login, logout, refetch]);
+  }), [state.user, state.tenant, state.isLoading, state.isAuthenticated, state.impersonating, state.original_user, login, logout, refetch]);
 }
 
 export function useAuth() {

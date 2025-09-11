@@ -19,6 +19,7 @@ import {
   Bot
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
+import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
 import { NotificationPanel } from '../../shared/components/ui/NotificationPanel';
 import { ImpersonationBanner } from '../../features/businesses/components/ImpersonationBanner';
 import { SearchModal } from '../../shared/components/ui/SearchModal';
@@ -151,13 +152,9 @@ export function MainLayout() {
     console.log('📮 MainLayout מקבל עדכון מונה:', count);
     setUnreadNotifications(count);
   }, []); // Empty dependency array - function doesn't depend on any values
-  // Impersonation state
-  const [impersonationState, setImpersonationState] = useState({
-    isImpersonating: false,
-    originalUser: null as any,
-    impersonatedBusiness: null as any
-  });
+  
   const { user, tenant, logout } = useAuth();
+  const { isImpersonating } = useImpersonation(); // Use server-side impersonation state
   const location = useLocation();
   const navigate = useNavigate();
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -207,39 +204,8 @@ export function MainLayout() {
     };
   }, [sidebarOpen]);
 
-  // Check for impersonation state on mount and auth changes
-  useEffect(() => {
-    const checkImpersonationState = () => {
-      const isImpersonating = localStorage.getItem('is_impersonating') === 'true';
-      const originalUserData = localStorage.getItem('impersonation_original_user');
-      const businessName = localStorage.getItem('impersonating_business_name');
-      const businessDomain = localStorage.getItem('impersonating_business_domain');
-
-      if (isImpersonating && originalUserData && businessName) {
-        try {
-          const originalUser = JSON.parse(originalUserData);
-          setImpersonationState({
-            isImpersonating: true,
-            originalUser,
-            impersonatedBusiness: {
-              name: businessName,
-              domain: businessDomain || ''
-            }
-          });
-        } catch (error) {
-          console.error('שגיאה בטעינת מצב התחזות:', error);
-        }
-      } else {
-        setImpersonationState({
-          isImpersonating: false,
-          originalUser: null,
-          impersonatedBusiness: null
-        });
-      }
-    };
-
-    checkImpersonationState();
-  }, [user]);
+  // Removed localStorage-based impersonation state management
+  // Now using server-side session state from useImpersonation hook
 
   // User menu click outside handler
   useEffect(() => {
@@ -266,31 +232,12 @@ export function MainLayout() {
     };
   }, [userMenuOpen]);
 
-  const handleExitImpersonation = () => {
-    // Clear impersonation state
-    localStorage.removeItem('impersonation_original_user');
-    localStorage.removeItem('is_impersonating');
-    localStorage.removeItem('impersonating_business_id');
-    localStorage.removeItem('impersonating_business_name');
-    localStorage.removeItem('impersonating_business_domain');
-    
-    setImpersonationState({
-      isImpersonating: false,
-      originalUser: null,
-      impersonatedBusiness: null
-    });
-  };
+  // Removed handleExitImpersonation - now handled by ImpersonationBanner component
 
   return (
     <div className="h-screen flex flex-col bg-slate-50" dir="rtl">
-      {/* Impersonation Banner */}
-      {impersonationState.isImpersonating && impersonationState.originalUser && impersonationState.impersonatedBusiness && (
-        <ImpersonationBanner
-          originalUser={impersonationState.originalUser}
-          impersonatedBusiness={impersonationState.impersonatedBusiness}
-          onExit={handleExitImpersonation}
-        />
-      )}
+      {/* Impersonation Banner - now self-contained */}
+      {isImpersonating && <ImpersonationBanner />}
       
       <div className="flex-1 flex flex-row-reverse overflow-hidden">
       {/* Mobile sidebar overlay */}
