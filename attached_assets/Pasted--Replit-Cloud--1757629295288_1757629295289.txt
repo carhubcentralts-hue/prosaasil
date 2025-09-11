@@ -1,0 +1,56 @@
+להלן הוראת עבודה קצרה ומחייבת לבוט/מפתח ב-Replit Cloud, כדי ליישם במדויק את שתי ההנחיות הארוכות שצרפת — כך שהכול יעבוד, בלי כפילויות ובלי 403:
+
+Work Order (Short & Strict)
+	1.	Single-Origin (חובה)
+	•	אותו Run Command ב-Preview וב-Deploy:
+Build Vite → Flask מגיש את client/dist/ + ה-API (אין vite dev).
+	•	כל בקשות FE עם credentials: 'include'.
+	2.	CSRF (SeaSurf בלבד)
+	•	הטען SeaSurf פעם אחת בלבד.
+	•	Exempt רק: POST /api/auth/login, POST /api/auth/logout, כל /webhook/**, ו־GET של /healthz|/readyz|/livez|/version. שום דבר מעבר.
+	•	הוסף GET /api/auth/csrf שמחזיר {csrfToken} ומציב cookie XSRF-TOKEN.
+	•	FE: אחרי Login (וגם ב-bootstrap) קרא /api/auth/csrf ושלח בכל POST/PUT/PATCH/DELETE כותרת X-CSRFToken (ערך מה־cookie).
+	3.	Impersonation (בלי לדרוס role)
+	•	POST /api/admin/businesses/:id/impersonate (לא exempt):
+שמור session.impersonating=true, session.impersonated_tenant_id=:id.
+אל תשנה session.user.role.
+	•	POST /api/admin/impersonate/exit: אפס את שני הדגלים.
+	•	Guards: הרשאות מתוך session.user.role; סקוֹפּ נתונים לפי impersonated_tenant_id כשimpersonating=true.
+	4.	AI Prompts
+	•	FE שומר דווקא:
+
+{ "calls_prompt": "...", "whatsapp_prompt": "..." }
+
+
+	•	WS/שיחה טוען פרומפט מה-DB לפי tenant_id (לא ממחרוזת קשיחה).
+
+	5.	Leads (Board + Lead Page)
+	•	API:
+	•	GET /api/leads?..., POST /api/leads, PATCH /api/leads/:id,
+POST /api/leads/:id/status, POST /api/leads/:id/reminders,
+POST /api/leads/:id/message/whatsapp (כל הכתיבות עם CSRF).
+	•	Admin endpoints מקבילים עם סקוֹפּ לכל הטננטים.
+	•	FE: קאנבן (גרירה ⇒ POST /status), “חזור אליי” (תאריך+שעה ⇒ /reminders), טאבים בדף לקוח (Overview/Conversation/Calls/Tasks/Docs/Billing/Activity), RTL ומובייל.
+	6.	ניקוי כפילויות
+	•	הסר כל @csrf.exempt שלא ברשימת ה-exempt בסעיף 2.
+	•	ודא שאין CSRFProtect נוסף / אתחול כפול.
+	•	מקור ניווט/Sidebar אחד; אין תבניות/ראוטים כפולים.
+	7.	Preview/Deploy
+	•	אותם דגלי Cookie:
+	•	Deploy: HttpOnly=True, Secure=True, SameSite='Lax'.
+	•	Preview (אם חוצה דומיין): SameSite='None', Secure=True.
+	•	Cache busting ל-index.html (מספר BUILD/no-store).
+	8.	בדיקות עשן (חובה, לעצור אם נכשל)
+	•	Login → קבל XSRF-TOKEN (/api/auth/csrf).
+	•	Create Lead (POST /api/leads + X-CSRFToken).
+	•	Save Prompts (PUT /api/business/current/prompt עם שני השדות).
+	•	Impersonate (POST /api/admin/businesses/1/impersonate) → GET /api/auth/me מראה impersonating:true.
+	•	ב-UI: קאנבן משנה סטטוס, Reminder קופץ בזמן, פרומפט חדש משפיע על שיחות חדשות.
+	9.	שגיאות ודיבוג
+	•	כל שגיאה JSON: {error, message, hint} (לא Error {} ריק).
+	•	אם יש 403: בדוק ב-Network שיש cookie XSRF-TOKEN + header X-CSRFToken + אותו דומיין.
+	10.	כלל זהב
+
+	•	עצור מיד אם בדיקת עשן נכשלת; דווח: איזה endpoint, איזה סטטוס, ומה חזר ב-body. תקן ואז המשך לשלב הבא.
+
+זהו. עבוד לפי 10 הסעיפים, אחד-לאחד. זה מחבר במדויק בין שתי ההנחיות המלאות שלך — ומבטיח שהמערכת תשמור/תציג נתונים אמיתיים, אימפרסונציה תעבוד, וה-CSRF יהיה גם מאובטח וגם יציב.

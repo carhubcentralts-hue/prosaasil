@@ -1,0 +1,48 @@
+הוראת עבודה קצרה ומחייבת (לביצוע אחד־לאחד)
+	1.	Single-Origin
+	•	אותה פקודת Run ב־Preview וב־Deploy:
+Build ל־Vite → Flask מגיש את client/dist/ + ה־API (אין vite dev).
+	•	כל בקשות FE עם credentials: 'include'.
+	2.	CSRF — SeaSurf בלבד
+	•	אתחול SeaSurf פעם אחת (ללא CSRFProtect נוסף).
+	•	Exempt רק: POST /api/auth/login, POST /api/auth/logout, כל /webhook/**, ו־GET: /healthz|/readyz|/livez|/version.
+	•	הוסף GET /api/auth/csrf שמחזיר {csrfToken} ומציב cookie XSRF-TOKEN.
+	•	FE: אחרי login (וגם ב־bootstrap) לקרוא /api/auth/csrf ולשלוח בכל POST/PUT/PATCH/DELETE כותרת X-CSRFToken (ערך מה־cookie).
+	3.	Impersonation (ללא דריסת role)
+	•	POST /api/admin/businesses/:id/impersonate (לא exempt):
+session.impersonating=true, session.impersonated_tenant_id=:id; לא משנים session.user.role.
+	•	POST /api/admin/impersonate/exit: מאפס את שני הדגלים.
+	•	הרשאות תמיד מ־session.user.role; סקוֹפּ נתונים לפי impersonated_tenant_id כש־impersonating=true.
+	4.	AI Prompts
+	•	FE שומר דווקא:
+
+{ "calls_prompt": "...", "whatsapp_prompt": "..." }
+
+
+	•	טעינת פרומפטים לשיחות (WS) תמיד מה־DB לפי tenant_id (לא ממחרוזת קשיחה).
+
+	5.	Leads
+	•	API:
+	•	GET /api/leads?...
+	•	POST /api/leads, PATCH /api/leads/:id, POST /api/leads/:id/status, POST /api/leads/:id/reminders, POST /api/leads/:id/message/whatsapp (כתיבות עם CSRF).
+	•	אדמין: GET /api/admin/leads, ועוד לפי צורך.
+	•	FE: קאנבן (גרירה ⇒ POST /status), “חזור אליי” (Date+Time ⇒ /reminders), דף לקוח עם טאבים (Overview/Conversation/Calls/Tasks/Docs/Billing/Activity), RTL ומובייל.
+	6.	ניקוי כפילויות
+	•	להסיר כל @csrf.exempt שלא ברשימת סעיף 2.
+	•	לוודא שאין אתחול CSRF כפול/ספרייה נוספת.
+	•	מקור ניווט/Sidebar אחד; אין ראוטים כפולים.
+	7.	Preview/Deploy
+	•	Cookie flags: Deploy → HttpOnly=True, Secure=True, SameSite='Lax'.
+Preview (אם חוצה דומיין) → SameSite='None', Secure=True.
+	•	Cache busting ל־index.html (מס’ BUILD/no-store).
+	8.	בדיקות עשן (לעצור אם נכשל)
+	•	Login → /api/auth/csrf → Cookie XSRF-TOKEN + {csrfToken}.
+	•	Create Lead (POST /api/leads עם X-CSRFToken).
+	•	Save Prompts (PUT /api/business/current/prompt עם שני השדות).
+	•	Impersonate (POST /api/admin/businesses/1/impersonate) → GET /api/auth/me מחזיר impersonating:true.
+	9.	שגיאות מדויקות
+	•	כל שגיאת API מחזירה JSON: {error, message, hint} (לא Error {} ריק).
+	•	ב־403 לבדוק ב־Network: קיים cookie XSRF-TOKEN, נשלחת כותרת X-CSRFToken, ומקור הבקשה הוא אותו דומיין.
+	10.	כלל זהב
+
+	•	לעצור מיד אם בדיקת עשן נכשלת; לדווח איזה endpoint, סטטוס, ותוכן ה־body; לתקן ורק אז להמשיך.
