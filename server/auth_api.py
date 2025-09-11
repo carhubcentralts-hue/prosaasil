@@ -64,7 +64,11 @@ def login():
         
         # Update last login
         user.last_login = datetime.utcnow()
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception as commit_error:
+            print(f"⚠️ DB commit warning: {commit_error}")
+            db.session.rollback()  # Rollback if commit fails
         
         # Get business info if exists
         business = None
