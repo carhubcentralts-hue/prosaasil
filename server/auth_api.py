@@ -93,9 +93,8 @@ def get_csrf():
     if IS_PREVIEW:
         resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='None', secure=True, path='/')
     else:
-        # For localhost testing, allow secure=False over HTTP
-        is_secure = request.is_secure or os.getenv('FORCE_HTTPS') == '1'
-        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='Lax', secure=is_secure, path='/')
+        # For localhost testing - Force Secure=True per instructions step 4
+        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='Lax', secure=True, path='/')
     return resp
 
 @csrf.exempt  # Proper SeaSurf exemption
@@ -367,18 +366,18 @@ def require_api_auth(roles=None):
                         'message': f'Admin route requires admin/manager role, got {role}'
                     }), 403
             else:
-                # ראוטים של עסק ⇒ role=='business' או Admin/Manager כש־impersonating=true לאותו tenant
+                # ראוטים של עסק ⇒ role=='business' או Admin/Manager (עם או בלי התחזות)
                 if role == 'business':
                     # Business user - allow if same tenant
                     pass
-                elif role in {'admin', 'manager'} and impersonating:
-                    # Admin/Manager impersonating - allow
+                elif role in {'admin', 'manager'}:
+                    # Admin/Manager - always allow business routes (with or without impersonation)
                     pass
                 else:
                     return jsonify({
                         'error': 'forbidden', 
                         'reason': 'business_access_denied',
-                        'message': f'Business route access denied for role {role}, impersonating={impersonating}'
+                        'message': f'Business route access denied for role {role}'
                     }), 403
             
             # Store context in g for route use
