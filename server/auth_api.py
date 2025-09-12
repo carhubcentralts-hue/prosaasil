@@ -83,13 +83,15 @@ def get_csrf():
         os.getenv('PREVIEW_MODE') == '1'
     )
     
-    # ✅ תיקון: החזר את ה-token של SeaSurf, לא token נפרד
-    token = request.cookies.get('_csrf_token')
+    # ✅ תיקון: קרא מapp config כמו שהארכיטקט המליץ
+    from flask import current_app
+    cookie_name = current_app.config.get('SEASURF_COOKIE_NAME', 'XSRF-TOKEN')
+    token = request.cookies.get(cookie_name)
     if not token:
-        # If no SeaSurf token yet, make a dummy request to generate one
-        from flask import g
-        # This will trigger SeaSurf to create the token
-        token = request.cookies.get('_csrf_token', secrets.token_urlsafe(32))
+        # Trigger SeaSurf to create token by accessing session
+        from flask import session
+        session.modified = True
+        token = request.cookies.get(cookie_name, secrets.token_urlsafe(32))
     
     resp = jsonify({"csrfToken": token})
     

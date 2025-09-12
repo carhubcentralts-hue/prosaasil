@@ -86,27 +86,36 @@ else
 fi
 
 echo ""
-echo "=== TEST 4: SAVE PROMPTS (צפוי 200) ==="
+echo "=== TEST 4: SAVE PROMPTS AFTER IMPERSONATION (צפוי 200) ==="
 echo "PUT $BASE/api/business/current/prompt"
 
+# Get fresh CSRF token from cookies (since SeaSurf updates it)
+TOKEN_FRESH=$(grep '_csrf_token' $COOKIE_FILE | cut -f7)
+if [ -z "$TOKEN_FRESH" ]; then
+    TOKEN_FRESH=$TOKEN  # fallback to original token
+fi
+
 PROMPTS_RESPONSE=$(curl -s -i -c $COOKIE_FILE -b $COOKIE_FILE \
-  -H "X-CSRFToken: $TOKEN" \
+  -H "X-CSRFToken: $TOKEN_FRESH" \
   -H 'Content-Type: application/json' \
   -X PUT $BASE/api/business/current/prompt \
-  --data '{"calls_prompt":"smoke test ok","whatsapp_prompt":"smoke test ok"}' \
+  --data '{"calls_prompt":"smoke test ok after impersonation","whatsapp_prompt":"smoke test ok after impersonation"}' \
   2>/dev/null)
 
 echo "$PROMPTS_RESPONSE"
 
 if echo "$PROMPTS_RESPONSE" | grep -q "HTTP.*200"; then
-    echo "✅ Prompts saved successfully"
+    echo "✅ Prompts saved successfully after impersonation"
 else
     echo "❌ Prompts save failed"
     if echo "$PROMPTS_RESPONSE" | grep -q "403"; then
-        echo "❌ 403 Forbidden - Check Guard logic for business routes"
+        echo "❌ 403 Forbidden - CSRF token issue"
         echo "Error details:"
         echo "$PROMPTS_RESPONSE" | grep -E '{"error"|{"reason"' || echo "No JSON error found"
+    elif echo "$PROMPTS_RESPONSE" | grep -q "לא נמצא מזהה עסק"; then
+        echo "❌ Business ID not found - admin needs to impersonate first"
     fi
+    echo "Full response: $PROMPTS_RESPONSE"
     exit 1
 fi
 
