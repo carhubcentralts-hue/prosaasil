@@ -397,13 +397,13 @@ def create_default_admin():
     try:
         if not User.query.filter_by(role='admin').first():
             admin = User()
-            admin.email = 'admin@maximus.co.il'
+            admin.email = 'admin@shai-realestate.co.il'
             admin.password_hash = generate_password_hash('admin123')
             admin.name = 'מנהל מערכת'
             admin.role = 'admin'
             admin.business_id = None
             db.session.add(admin)
             db.session.commit()
-            print("✅ Created default admin user: admin@maximus.co.il / admin123")
+            print("✅ Created default admin user: admin@shai-realestate.co.il / admin123")
     except Exception as e:
         print(f"⚠️ Error creating admin user: {e}")

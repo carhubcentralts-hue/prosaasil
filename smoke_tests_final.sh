@@ -6,7 +6,7 @@ set -e  # Stop on any error
 
 # Configuration
 BASE="http://localhost:5000"  # או PORT שהשרת רץ עליו
-ADMIN_EMAIL="admin@maximus.co.il"
+ADMIN_EMAIL="admin@shai-realestate.co.il"
 ADMIN_PASSWORD="admin123"
 COOKIE_FILE="/tmp/smoke_test_cookies"
 
