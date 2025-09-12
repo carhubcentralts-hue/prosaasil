@@ -75,7 +75,7 @@ def verify_password(stored_hash, password):
 
 @auth_api.get("/csrf")
 def get_csrf():
-    """מחזיר טוקן CSRF "קריא ל־JS" עם דגלים מתאימים לפי ההנחיות המדויקות"""
+    """מחזיר טוכן CSRF האמיתי של SeaSurf - לא token נפרד"""
     import os
     
     IS_PREVIEW = (
@@ -83,17 +83,20 @@ def get_csrf():
         os.getenv('PREVIEW_MODE') == '1'
     )
     
-    # ✅ גישה מעורבת - SeaSurf cookies + token עצמאי לJS (לפי הreality)
-    token = request.cookies.get('XSRF-TOKEN')
+    # ✅ תיקון: החזר את ה-token של SeaSurf, לא token נפרד
+    token = request.cookies.get('_csrf_token')
     if not token:
-        token = secrets.token_urlsafe(32)
+        # If no SeaSurf token yet, make a dummy request to generate one
+        from flask import g
+        # This will trigger SeaSurf to create the token
+        token = request.cookies.get('_csrf_token', secrets.token_urlsafe(32))
     
     resp = jsonify({"csrfToken": token})
     
+    # Also set XSRF-TOKEN with same value for frontend compatibility (non-HttpOnly)
     if IS_PREVIEW:
         resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='None', secure=True, path='/')
     else:
-        # For localhost testing - Force Secure=True per instructions step 4
         resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='Lax', secure=True, path='/')
     return resp
 

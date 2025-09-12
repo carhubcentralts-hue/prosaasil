@@ -8,7 +8,8 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
   if (!['GET','HEAD','OPTIONS'].includes(method)) {
     headers.set('Content-Type','application/json')
     headers.set('X-Requested-With','XMLHttpRequest')
-    const token = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)?.[1]
+    // Fixed: Use SeaSurf's actual _csrf_token, not XSRF-TOKEN
+    const token = document.cookie.match(/(?:^|;\s*)_csrf_token=([^;]+)/)?.[1]
     if (token) headers.set('X-CSRFToken', decodeURIComponent(token))
   }
   return fetch(url, { ...options, headers, credentials:'include' })
