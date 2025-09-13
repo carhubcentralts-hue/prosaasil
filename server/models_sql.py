@@ -112,6 +112,9 @@ class Lead(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     
+    # Relationships
+    tenant = db.relationship("Business", backref="leads")
+    
     # Core lead info
     first_name = db.Column(db.String(255))
     last_name = db.Column(db.String(255))
@@ -122,6 +125,7 @@ class Lead(db.Model):
     source = db.Column(db.String(32), default="form", index=True)  # call|whatsapp|form|manual
     external_id = db.Column(db.String(128), index=True)  # call_sid|wa_msg_id
     status = db.Column(db.String(32), default="New", index=True)  # New|Attempting|Contacted|Qualified|Won|Lost|Unqualified
+    order_index = db.Column(db.Integer, default=0, index=True)  # For Kanban board ordering within status
     
     # Assignment
     owner_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)

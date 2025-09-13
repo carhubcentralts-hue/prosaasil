@@ -255,6 +255,16 @@ def apply_migrations():
         migrations_applied.append("create_lead_merge_candidates_table")
         log.info("Applied migration: create_lead_merge_candidates_table")
     
+    # Migration 11: Add order_index column to leads table for Kanban support
+    if check_table_exists('leads') and not check_column_exists('leads', 'order_index'):
+        from sqlalchemy import text
+        db.session.execute(text("ALTER TABLE leads ADD COLUMN order_index INTEGER DEFAULT 0"))
+        db.session.execute(text("CREATE INDEX idx_leads_order_index ON leads(order_index)"))
+        # Set default order for existing leads based on their ID
+        db.session.execute(text("UPDATE leads SET order_index = id WHERE order_index = 0"))
+        migrations_applied.append("add_leads_order_index")
+        log.info("Applied migration: add_leads_order_index")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
