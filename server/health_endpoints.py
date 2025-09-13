@@ -25,14 +25,14 @@ def readyz():
 
 @health_bp.route('/version', methods=['GET'])
 def version():
-    """Version and build information - Updated for BUILD: 50"""
+    """Version and build information - Updated for BUILD: 51"""
     import time
     return jsonify({
-        "fe": "client/dist",
-        "build": 50,
-        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "app": "Hebrew AI Call Center CRM",
-        "status": "production-ready"
+        "status": "ok",
+        "deploy_id": "dev",
+        "build": 51,
+        "sha": "unknown",
+        "timestamp": int(time.time())
     }), 200
 
 @health_bp.route('/livez', methods=['GET'])

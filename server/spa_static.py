@@ -24,5 +24,7 @@ def spa(path=""):
     if path.startswith(blocked):
         abort(404)
     resp = make_response(send_from_directory(DIST, "index.html"))
-    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
     return resp

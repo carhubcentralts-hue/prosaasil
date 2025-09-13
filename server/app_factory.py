@@ -59,11 +59,11 @@ def create_app():
     print(f"🔧 APP_SHA={git_sha}")
     
     version_info = {
-        "build": 50,
+        "build": 51,
         "sha": git_sha,
         "fe": "client/dist",
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "app": "AgentLocator-71",
+        "app": "AgentLocator-72",
         "commit": os.getenv("GIT_COMMIT", git_sha),
         "startup_ts": int(time.time())
     }
