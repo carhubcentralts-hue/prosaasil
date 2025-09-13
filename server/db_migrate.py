@@ -149,6 +149,112 @@ def apply_migrations():
         except Exception as e:
             log.warning(f"Could not create unique index (may already exist): {e}")
     
+    # Migration 7: Create leads table for CRM system
+    if not check_table_exists('leads'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE leads (
+                id SERIAL PRIMARY KEY,
+                tenant_id INTEGER NOT NULL REFERENCES business(id),
+                first_name VARCHAR(255),
+                last_name VARCHAR(255),
+                phone_e164 VARCHAR(64),
+                email VARCHAR(255),
+                source VARCHAR(32) DEFAULT 'form',
+                external_id VARCHAR(128),
+                status VARCHAR(32) DEFAULT 'New',
+                owner_user_id INTEGER REFERENCES users(id),
+                tags JSONB,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_contact_at TIMESTAMP
+            )
+        """))
+        
+        # Create indexes for leads table
+        indexes = [
+            "CREATE INDEX idx_leads_tenant ON leads(tenant_id)",
+            "CREATE INDEX idx_leads_status ON leads(status)",
+            "CREATE INDEX idx_leads_source ON leads(source)",
+            "CREATE INDEX idx_leads_phone ON leads(phone_e164)",
+            "CREATE INDEX idx_leads_email ON leads(email)",
+            "CREATE INDEX idx_leads_external_id ON leads(external_id)",
+            "CREATE INDEX idx_leads_owner ON leads(owner_user_id)",
+            "CREATE INDEX idx_leads_created ON leads(created_at)",
+            "CREATE INDEX idx_leads_contact ON leads(last_contact_at)"
+        ]
+        
+        for index_sql in indexes:
+            db.session.execute(text(index_sql))
+            
+        migrations_applied.append("create_leads_table")
+        log.info("Applied migration: create_leads_table")
+    
+    # Migration 8: Create lead_reminders table
+    if not check_table_exists('lead_reminders'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE lead_reminders (
+                id SERIAL PRIMARY KEY,
+                lead_id INTEGER NOT NULL REFERENCES leads(id),
+                due_at TIMESTAMP NOT NULL,
+                note TEXT,
+                channel VARCHAR(16) DEFAULT 'ui',
+                delivered_at TIMESTAMP,
+                completed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_by INTEGER REFERENCES users(id)
+            )
+        """))
+        
+        db.session.execute(text("CREATE INDEX idx_lead_reminders_lead ON lead_reminders(lead_id)"))
+        db.session.execute(text("CREATE INDEX idx_lead_reminders_due ON lead_reminders(due_at)"))
+        migrations_applied.append("create_lead_reminders_table")
+        log.info("Applied migration: create_lead_reminders_table")
+    
+    # Migration 9: Create lead_activities table
+    if not check_table_exists('lead_activities'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE lead_activities (
+                id SERIAL PRIMARY KEY,
+                lead_id INTEGER NOT NULL REFERENCES leads(id),
+                type VARCHAR(32) NOT NULL,
+                payload JSONB,
+                at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_by INTEGER REFERENCES users(id)
+            )
+        """))
+        
+        db.session.execute(text("CREATE INDEX idx_lead_activities_lead ON lead_activities(lead_id)"))
+        db.session.execute(text("CREATE INDEX idx_lead_activities_type ON lead_activities(type)"))
+        db.session.execute(text("CREATE INDEX idx_lead_activities_time ON lead_activities(at)"))
+        migrations_applied.append("create_lead_activities_table")
+        log.info("Applied migration: create_lead_activities_table")
+    
+    # Migration 10: Create lead_merge_candidates table
+    if not check_table_exists('lead_merge_candidates'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE lead_merge_candidates (
+                id SERIAL PRIMARY KEY,
+                lead_id INTEGER NOT NULL REFERENCES leads(id),
+                duplicate_lead_id INTEGER NOT NULL REFERENCES leads(id),
+                confidence_score FLOAT DEFAULT 0.0,
+                reason VARCHAR(64),
+                reviewed_at TIMESTAMP,
+                reviewed_by INTEGER REFERENCES users(id),
+                merged_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        
+        db.session.execute(text("CREATE INDEX idx_merge_candidates_lead ON lead_merge_candidates(lead_id)"))
+        db.session.execute(text("CREATE INDEX idx_merge_candidates_dup ON lead_merge_candidates(duplicate_lead_id)"))
+        migrations_applied.append("create_lead_merge_candidates_table")
+        log.info("Applied migration: create_lead_merge_candidates_table")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
