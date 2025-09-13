@@ -8,9 +8,17 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
   if (!['GET','HEAD','OPTIONS'].includes(method)) {
     headers.set('Content-Type','application/json')
     headers.set('X-Requested-With','XMLHttpRequest')
-    // Fixed: Use SeaSurf's actual _csrf_token, not XSRF-TOKEN
-    const token = document.cookie.match(/(?:^|;\s*)_csrf_token=([^;]+)/)?.[1]
-    if (token) headers.set('X-CSRFToken', decodeURIComponent(token))
+    // Try both tokens - debug what's actually available
+    let token = document.cookie.match(/(?:^|;\s*)_csrf_token=([^;]+)/)?.[1]
+    if (!token) {
+      token = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)?.[1]
+    }
+    if (token) {
+      console.log('🔧 Using CSRF token:', token.substring(0, 16) + '...')
+      headers.set('X-CSRFToken', decodeURIComponent(token))
+    } else {
+      console.warn('⚠️ No CSRF token found in cookies!')
+    }
   }
   return fetch(url, { ...options, headers, credentials:'include' })
 }
@@ -25,17 +33,17 @@ class HttpClient {
       const response = await apiFetch(url, options);
       
       if (!response.ok) {
-        let errorData: ApiError;
+        // ✅ תיקון: קרא את הbody פעם אחת בלבד למנוע "Body is disturbed or locked"
+        const raw = await response.text();
+        let msg = `Request failed with status ${response.status}`;
         try {
-          errorData = await response.json();
+          const j = raw ? JSON.parse(raw) : null;
+          msg = j?.message || j?.error || raw || msg;
         } catch {
-          console.error('FE Error:', response.status, await response.text()); // לוגים ברורים לפי ההנחיות
-          errorData = {
-            error: 'HTTP_ERROR',
-            message: `Request failed with status ${response.status}`,
-          };
+          // If parsing fails, use raw text or status message
         }
-        throw new Error(errorData.message || errorData.error);
+        console.error('FE Error:', response.status, msg); // לוגים ברורים לפי ההנחיות
+        throw new Error(msg);
       }
 
       const contentType = response.headers.get('content-type');

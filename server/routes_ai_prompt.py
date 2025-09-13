@@ -175,10 +175,12 @@ def update_business_prompt(business_id):
         logger.info(f"AI_PROMPT loaded tenant={business_id} v={next_version}")
         
         return jsonify({
+            "success": True,  # ✅ תיקון: הוספת success field שהfrontend מצפה לו
             "calls_prompt": current_prompts.get('calls', ''),
             "whatsapp_prompt": current_prompts.get('whatsapp', ''),
             "version": next_version,
-            "updated_at": settings.updated_at.isoformat()
+            "updated_at": settings.updated_at.isoformat(),
+            "message": "הפרומפט נשמר בהצלחה"
         })
         
     except Exception as e:

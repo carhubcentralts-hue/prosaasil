@@ -92,12 +92,12 @@ export function AgentPromptsPage() {
   const loadHistory = async () => {
     try {
       const isBusinessRole = user?.role === 'business';
-      const data = await http.get<PromptRevision[]>(
+      const { history } = await http.get<{ history: PromptRevision[] }>(
         isBusinessRole 
           ? `/api/business/current/prompt/history` 
           : `/api/admin/businesses/${businessId}/prompt/history`
       );
-      setRevisions(data);
+      setRevisions(history);
     } catch (err) {
       console.error('❌ Failed to load history:', err);
     }
