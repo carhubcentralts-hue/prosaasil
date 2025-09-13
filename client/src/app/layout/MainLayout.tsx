@@ -41,7 +41,8 @@ const menuItems = [
   { 
     icon: Users, 
     label: 'לידים',
-    comingSoon: true
+    to: '/app/leads',
+    roles: ['business', 'admin', 'manager']
   },
   { 
     icon: MessageCircle, 
@@ -96,6 +97,12 @@ const menuItems = [
     icon: Calendar, 
     label: 'לוח שנה',
     to: '/app/calendar'
+  },
+  { 
+    icon: Bell, 
+    label: 'תזכורות',
+    to: '/app/notifications',
+    roles: ['business', 'admin', 'manager']
   },
 ];
 

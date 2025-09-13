@@ -653,6 +653,53 @@ def update_reminder(lead_id, reminder_id):
     
     return jsonify({"message": "Reminder updated successfully"})
 
+
+@leads_bp.route("/api/reminders/due", methods=["GET"])
+def get_due_reminders():
+    """Get all due and overdue reminders for notifications"""
+    
+    # Use existing auth pattern
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+
+    # Get current time and filter due reminders
+    now = datetime.utcnow()
+    
+    # Query for due reminders (not completed, due time has passed)
+    due_reminders = db.session.query(LeadReminder, Lead).join(
+        Lead, LeadReminder.lead_id == Lead.id
+    ).filter(
+        Lead.tenant_id == tenant_id,  # Business scope
+        LeadReminder.completed_at.is_(None),  # Not completed
+        LeadReminder.due_at <= now  # Due or overdue
+    ).order_by(LeadReminder.due_at.asc()).all()
+
+    # Build response with lead context
+    reminders_data = []
+    for reminder, lead in due_reminders:
+        reminders_data.append({
+            "id": reminder.id,
+            "lead_id": reminder.lead_id,
+            "lead_name": lead.full_name,
+            "lead_phone": lead.display_phone,
+            "due_at": reminder.due_at.isoformat(),
+            "note": reminder.note,
+            "channel": reminder.channel,
+            "overdue_minutes": int((now - reminder.due_at).total_seconds() / 60) if reminder.due_at < now else 0,
+            "created_at": reminder.created_at.isoformat()
+        })
+
+    return jsonify({
+        "reminders": reminders_data,
+        "total_count": len(reminders_data),
+        "overdue_count": len([r for r in reminders_data if r["overdue_minutes"] > 0])
+    })
+
 @leads_bp.route("/api/leads/bulk", methods=["PATCH"])
 def bulk_update_leads():
     """Bulk update multiple leads"""

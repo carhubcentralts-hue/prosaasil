@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
+import { ReminderModal } from './components/ReminderModal';
 import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
@@ -31,6 +32,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [whatsappChatOpen, setWhatsappChatOpen] = useState(false);
+  const [reminderModalOpen, setReminderModalOpen] = useState(false);
   
   // Data for each tab
   const [activities, setActivities] = useState<LeadActivity[]>([]);
@@ -221,7 +223,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'overview' && <OverviewTab lead={lead} reminders={reminders} />}
+        {activeTab === 'overview' && <OverviewTab lead={lead} reminders={reminders} onOpenReminder={() => setReminderModalOpen(true)} />}
         {activeTab === 'conversation' && <ConversationTab conversations={conversations} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} />}
         {activeTab === 'tasks' && <TasksTab tasks={tasks} />}
@@ -236,12 +238,22 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           onClose={() => setWhatsappChatOpen(false)} 
         />
       )}
+
+      {/* Reminder Modal */}
+      {lead && (
+        <ReminderModal
+          lead={lead}
+          isOpen={reminderModalOpen}
+          onClose={() => setReminderModalOpen(false)}
+          onSuccess={fetchLead}
+        />
+      )}
     </div>
   );
 }
 
 // Tab Components
-function OverviewTab({ lead, reminders }: { lead: Lead; reminders: LeadReminder[] }) {
+function OverviewTab({ lead, reminders, onOpenReminder }: { lead: Lead; reminders: LeadReminder[]; onOpenReminder: () => void }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Lead Info */}
@@ -301,9 +313,31 @@ function OverviewTab({ lead, reminders }: { lead: Lead; reminders: LeadReminder[
       {/* Reminders */}
       <div>
         <Card className="p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">תזכורות קרובות</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium text-gray-900">תזכורות קרובות</h3>
+            <Button
+              onClick={onOpenReminder}
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              data-testid="button-create-reminder"
+            >
+              <Clock className="w-4 h-4 mr-2" />
+              צור תזכורת
+            </Button>
+          </div>
           {reminders.length === 0 ? (
-            <p className="text-sm text-gray-500">אין תזכורות</p>
+            <div className="text-center py-8">
+              <Clock className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-sm text-gray-500 mb-4">אין תזכורות</p>
+              <Button
+                onClick={onOpenReminder}
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Clock className="w-4 h-4 mr-2" />
+                צור תזכורת ראשונה
+              </Button>
+            </div>
           ) : (
             <div className="space-y-3">
               {reminders.slice(0, 5).map((reminder) => (

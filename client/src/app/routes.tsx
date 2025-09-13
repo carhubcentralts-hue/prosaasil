@@ -20,6 +20,7 @@ import { BusinessPromptsSelector } from '../pages/Admin/BusinessPromptsSelector'
 import { CalendarPage } from '../pages/Calendar/CalendarPage';
 import LeadsPage from '../pages/Leads/LeadsPage';
 import LeadDetailPage from '../pages/Leads/LeadDetailPage';
+import { NotificationsPage } from '../pages/Notifications/NotificationsPage';
 
 export function AppRoutes() {
   return (
@@ -128,6 +129,16 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['business', 'admin', 'manager']}>
               <LeadDetailPage />
+            </RoleGuard>
+          }
+        />
+
+        {/* Notifications Routes */}
+        <Route
+          path="notifications"
+          element={
+            <RoleGuard roles={['business', 'admin', 'manager']}>
+              <NotificationsPage />
             </RoleGuard>
           }
         />
