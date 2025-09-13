@@ -83,7 +83,7 @@ const menuItems = [
     roles: ['business']
   },
   { 
-    icon: Users, 
+    icon: UserCog, 
     label: 'ניהול משתמשים', 
     roles: ['admin', 'manager'],
     comingSoon: true
@@ -340,11 +340,24 @@ export function MainLayout() {
                 label={item.label}
                 to={item.to}
                 active={isActive}
-                onClick={item.comingSoon ? handleComingSoon : () => {
-                  if (item.to) {
+                onClick={() => {
+                  console.log('🔍 Menu item clicked:', {
+                    label: item.label,
+                    to: item.to,
+                    comingSoon: item.comingSoon,
+                    roles: item.roles
+                  });
+                  
+                  if (item.comingSoon) {
+                    console.log('⚠️ Coming soon triggered for:', item.label);
+                    handleComingSoon();
+                  } else if (item.to) {
+                    console.log('✅ Navigating to:', item.to);
                     navigate(item.to);
                     // Always close sidebar after navigation (mobile AND desktop)
                     setTimeout(() => setSidebarOpen(false), 100);
+                  } else {
+                    console.log('❌ No action defined for:', item.label);
                   }
                 }}
                 comingSoon={item.comingSoon}
@@ -522,12 +535,20 @@ export function MainLayout() {
                     : 'text-slate-500 hover:text-[var(--brand)] active:scale-95'
                 )}
                 onClick={() => {
-                  if (item.to && !item.comingSoon) {
+                  console.log('📱 Mobile menu item clicked:', {
+                    label: item.label,
+                    to: item.to,
+                    comingSoon: item.comingSoon
+                  });
+                  
+                  if (item.comingSoon) {
+                    console.log('⚠️ Mobile coming soon triggered for:', item.label);
+                    handleComingSoon();
+                  } else if (item.to) {
+                    console.log('✅ Mobile navigating to:', item.to);
                     navigate(item.to);
                     // Always close sidebar after navigation (mobile AND desktop)
                     setTimeout(() => setSidebarOpen(false), 100);
-                  } else if (item.comingSoon) {
-                    handleComingSoon();
                   }
                 }}
               >
