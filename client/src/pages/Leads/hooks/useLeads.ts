@@ -1,0 +1,154 @@
+import { useState, useEffect, useCallback } from 'react';
+import { http } from '../../../services/http';
+import { Lead, LeadFilters, CreateLeadRequest, UpdateLeadRequest, MoveLeadRequest } from '../types';
+
+interface UseLeadsResult {
+  leads: Lead[];
+  loading: boolean;
+  error: string | null;
+  total: number;
+  createLead: (leadData: Partial<CreateLeadRequest>) => Promise<Lead>;
+  updateLead: (leadId: number, leadData: UpdateLeadRequest) => Promise<Lead>;
+  deleteLead: (leadId: number) => Promise<void>;
+  moveLead: (leadId: number, moveData: MoveLeadRequest) => Promise<void>;
+  refreshLeads: () => Promise<void>;
+}
+
+export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+
+  const fetchLeads = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Build query parameters
+      const params = new URLSearchParams();
+      
+      if (filters.search) {
+        params.append('search', filters.search);
+      }
+      if (filters.status) {
+        params.append('status', filters.status);
+      }
+      if (filters.source) {
+        params.append('source', filters.source);
+      }
+      if (filters.owner_user_id) {
+        params.append('owner_user_id', filters.owner_user_id.toString());
+      }
+      if (filters.page) {
+        params.append('page', filters.page.toString());
+      }
+      if (filters.pageSize) {
+        params.append('pageSize', filters.pageSize.toString());
+      }
+
+      const queryString = params.toString();
+      const url = `/api/leads${queryString ? `?${queryString}` : ''}`;
+      
+      const response = await http.get<{leads: Lead[], total: number}>(url);
+      
+      if (response.leads) {
+        setLeads(response.leads);
+        setTotal(response.total || response.leads.length);
+      } else {
+        throw new Error('Invalid response format');
+      }
+    } catch (err) {
+      console.error('Failed to fetch leads:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch leads');
+      setLeads([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters]);
+
+  const createLead = useCallback(async (leadData: Partial<CreateLeadRequest>): Promise<Lead> => {
+    try {
+      const response = await http.post<{lead: Lead}>('/api/leads', leadData);
+      
+      if (response.lead) {
+        // Add the new lead to the current list
+        setLeads(prevLeads => [response.lead, ...prevLeads]);
+        setTotal(prevTotal => prevTotal + 1);
+        return response.lead;
+      } else {
+        throw new Error('Invalid response format');
+      }
+    } catch (err) {
+      console.error('Failed to create lead:', err);
+      throw err;
+    }
+  }, []);
+
+  const updateLead = useCallback(async (leadId: number, leadData: UpdateLeadRequest): Promise<Lead> => {
+    try {
+      const response = await http.patch<{lead: Lead}>(`/api/leads/${leadId}`, leadData);
+      
+      if (response.lead) {
+        // Update the lead in the current list
+        setLeads(prevLeads => 
+          prevLeads.map(lead => 
+            lead.id === leadId ? { ...lead, ...response.lead } : lead
+          )
+        );
+        return response.lead;
+      } else {
+        throw new Error('Invalid response format');
+      }
+    } catch (err) {
+      console.error('Failed to update lead:', err);
+      throw err;
+    }
+  }, []);
+
+  const deleteLead = useCallback(async (leadId: number): Promise<void> => {
+    try {
+      await http.delete(`/api/leads/${leadId}`);
+      
+      // Remove the lead from the current list
+      setLeads(prevLeads => prevLeads.filter(lead => lead.id !== leadId));
+      setTotal(prevTotal => prevTotal - 1);
+    } catch (err) {
+      console.error('Failed to delete lead:', err);
+      throw err;
+    }
+  }, []);
+
+  const moveLead = useCallback(async (leadId: number, moveData: MoveLeadRequest): Promise<void> => {
+    try {
+      await http.patch(`/api/leads/${leadId}/move`, moveData);
+      
+      // The parent component will call refreshLeads() after this
+    } catch (err) {
+      console.error('Failed to move lead:', err);
+      throw err;
+    }
+  }, []);
+
+  const refreshLeads = useCallback(async () => {
+    await fetchLeads();
+  }, [fetchLeads]);
+
+  // Initial fetch and when filters change
+  useEffect(() => {
+    fetchLeads();
+  }, [fetchLeads]);
+
+  return {
+    leads,
+    loading,
+    error,
+    total,
+    createLead,
+    updateLead,
+    deleteLead,
+    moveLead,
+    refreshLeads,
+  };
+}

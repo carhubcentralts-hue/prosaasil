@@ -18,6 +18,7 @@ import { BusinessViewPage } from '../pages/Admin/BusinessViewPage';
 import { AgentPromptsPage } from '../pages/Admin/AgentPromptsPage';
 import { BusinessPromptsSelector } from '../pages/Admin/BusinessPromptsSelector';
 import { CalendarPage } from '../pages/Calendar/CalendarPage';
+import LeadsPage from '../pages/Leads/LeadsPage';
 
 export function AppRoutes() {
   return (
@@ -110,6 +111,16 @@ export function AppRoutes() {
         <Route
           path="calendar"
           element={<CalendarPage />}
+        />
+
+        {/* Leads Routes */}
+        <Route
+          path="leads"
+          element={
+            <RoleGuard roles={['business', 'admin', 'manager']}>
+              <LeadsPage />
+            </RoleGuard>
+          }
         />
 
         {/* Default redirect based on role handled by AuthGuard */}
