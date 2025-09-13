@@ -330,6 +330,12 @@ def create_app():
         # Register UI blueprint last (after React routes are defined)
         print(f"🔧 Registering UI Blueprint: {ui_bp}")
         app.register_blueprint(ui_bp, url_prefix='')  # No prefix for admin/business routes
+        
+        # CSRF exemption for login after blueprint registration
+        from server.ui.routes import api_login
+        csrf.exempt(api_login)
+        print("✅ CSRF exemption added for login")
+        
         print("✅ All blueprints registered")
     except Exception as e:
         print(f"❌ Blueprint registration error: {e}")
