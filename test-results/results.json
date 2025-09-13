@@ -1,0 +1,3918 @@
+{
+  "config": {
+    "configFile": "/home/runner/workspace/playwright.config.ts",
+    "rootDir": "/home/runner/workspace/tests/ui",
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": "/home/runner/workspace/tests/setup/global-setup.ts",
+    "globalTeardown": "/home/runner/workspace/tests/setup/global-teardown.ts",
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {},
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        {
+          "outputFolder": "test-results/html"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/results.json"
+        }
+      ],
+      [
+        "list",
+        null
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/home/runner/workspace/test-results/videos",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/home/runner/workspace/tests/ui",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/runner/workspace/test-results/videos",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "firefox",
+        "name": "firefox",
+        "testDir": "/home/runner/workspace/tests/ui",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/runner/workspace/test-results/videos",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "/home/runner/workspace/tests/ui",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/runner/workspace/test-results/videos",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "Mobile Chrome",
+        "name": "Mobile Chrome",
+        "testDir": "/home/runner/workspace/tests/ui",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/runner/workspace/test-results/videos",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "Mobile Safari",
+        "name": "Mobile Safari",
+        "testDir": "/home/runner/workspace/tests/ui",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.55.0",
+    "workers": 4,
+    "webServer": {
+      "command": "npm run start",
+      "url": "http://localhost:5000",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "auth.spec.ts",
+      "file": "auth.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Authentication Flow",
+          "file": "auth.spec.ts",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should redirect to login page when not authenticated",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-725199e3a0779f8a4639",
+              "file": "auth.spec.ts",
+              "line": 10,
+              "column": 7
+            },
+            {
+              "title": "should login successfully with valid admin credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-59f2127bbfef883541ce",
+              "file": "auth.spec.ts",
+              "line": 15,
+              "column": 7
+            },
+            {
+              "title": "should show error for invalid credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-05954164880eaca3a0f9",
+              "file": "auth.spec.ts",
+              "line": 26,
+              "column": 7
+            },
+            {
+              "title": "should toggle password visibility",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-8b29cfa056e63fb2f02e",
+              "file": "auth.spec.ts",
+              "line": 37,
+              "column": 7
+            },
+            {
+              "title": "should logout successfully",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-c0ce6ccc7b7e02794edb",
+              "file": "auth.spec.ts",
+              "line": 55,
+              "column": 7
+            },
+            {
+              "title": "should remember form data before submit",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-3cb005c32e1068651e33",
+              "file": "auth.spec.ts",
+              "line": 66,
+              "column": 7
+            },
+            {
+              "title": "should redirect to login page when not authenticated",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-d788cfd35523b00bea0c",
+              "file": "auth.spec.ts",
+              "line": 10,
+              "column": 7
+            },
+            {
+              "title": "should login successfully with valid admin credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-7109773da2fa091f2edb",
+              "file": "auth.spec.ts",
+              "line": 15,
+              "column": 7
+            },
+            {
+              "title": "should show error for invalid credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-5579b1115e5e26c1ba43",
+              "file": "auth.spec.ts",
+              "line": 26,
+              "column": 7
+            },
+            {
+              "title": "should toggle password visibility",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-7f9c9a8fac0964f241a7",
+              "file": "auth.spec.ts",
+              "line": 37,
+              "column": 7
+            },
+            {
+              "title": "should logout successfully",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-4410c42745b7a4d89d03",
+              "file": "auth.spec.ts",
+              "line": 55,
+              "column": 7
+            },
+            {
+              "title": "should remember form data before submit",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-7b801ded8bbcf79651aa",
+              "file": "auth.spec.ts",
+              "line": 66,
+              "column": 7
+            },
+            {
+              "title": "should redirect to login page when not authenticated",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-27791275deffea27bb65",
+              "file": "auth.spec.ts",
+              "line": 10,
+              "column": 7
+            },
+            {
+              "title": "should login successfully with valid admin credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-fa66245b6b4a0825c334",
+              "file": "auth.spec.ts",
+              "line": 15,
+              "column": 7
+            },
+            {
+              "title": "should show error for invalid credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-4e575a42f2e3a5f20db2",
+              "file": "auth.spec.ts",
+              "line": 26,
+              "column": 7
+            },
+            {
+              "title": "should toggle password visibility",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-9fcd374f977fc516c913",
+              "file": "auth.spec.ts",
+              "line": 37,
+              "column": 7
+            },
+            {
+              "title": "should logout successfully",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-1f08bff9df919d288ae6",
+              "file": "auth.spec.ts",
+              "line": 55,
+              "column": 7
+            },
+            {
+              "title": "should remember form data before submit",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-1f768e3805c9319226f7",
+              "file": "auth.spec.ts",
+              "line": 66,
+              "column": 7
+            },
+            {
+              "title": "should redirect to login page when not authenticated",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-6147761f727763c18e27",
+              "file": "auth.spec.ts",
+              "line": 10,
+              "column": 7
+            },
+            {
+              "title": "should login successfully with valid admin credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-5813b8c7bd7bf9b4709b",
+              "file": "auth.spec.ts",
+              "line": 15,
+              "column": 7
+            },
+            {
+              "title": "should show error for invalid credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-12287ecea93857666643",
+              "file": "auth.spec.ts",
+              "line": 26,
+              "column": 7
+            },
+            {
+              "title": "should toggle password visibility",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-09d70c8087276d5732f5",
+              "file": "auth.spec.ts",
+              "line": 37,
+              "column": 7
+            },
+            {
+              "title": "should logout successfully",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-8a3b860ad917d672a1c0",
+              "file": "auth.spec.ts",
+              "line": 55,
+              "column": 7
+            },
+            {
+              "title": "should remember form data before submit",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-93886125f8ac2ea9e8df",
+              "file": "auth.spec.ts",
+              "line": 66,
+              "column": 7
+            },
+            {
+              "title": "should redirect to login page when not authenticated",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-1268d743940e215af29a",
+              "file": "auth.spec.ts",
+              "line": 10,
+              "column": 7
+            },
+            {
+              "title": "should login successfully with valid admin credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-5cfa1acdd00d56aa1bdb",
+              "file": "auth.spec.ts",
+              "line": 15,
+              "column": 7
+            },
+            {
+              "title": "should show error for invalid credentials",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-0c3a71e4f2facbc6e673",
+              "file": "auth.spec.ts",
+              "line": 26,
+              "column": 7
+            },
+            {
+              "title": "should toggle password visibility",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-66425a30c7de2ddd1276",
+              "file": "auth.spec.ts",
+              "line": 37,
+              "column": 7
+            },
+            {
+              "title": "should logout successfully",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-5e89033e25aea64867f4",
+              "file": "auth.spec.ts",
+              "line": 55,
+              "column": 7
+            },
+            {
+              "title": "should remember form data before submit",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d748ac400d08b85935ef-dc8444c6b560a67411ea",
+              "file": "auth.spec.ts",
+              "line": 66,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "kanban.spec.ts",
+      "file": "kanban.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Kanban Drag and Drop",
+          "file": "kanban.spec.ts",
+          "line": 5,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should move lead between columns via drag and drop",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-ff3128fbdf46df7394ef",
+              "file": "kanban.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "should show visual feedback during drag operation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-20d131704ba4f8229d6c",
+              "file": "kanban.spec.ts",
+              "line": 43,
+              "column": 7
+            },
+            {
+              "title": "should highlight drop zones during drag",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-27a9788436c411f9d7b9",
+              "file": "kanban.spec.ts",
+              "line": 66,
+              "column": 7
+            },
+            {
+              "title": "should reorder leads within the same column",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-782dd09eee19d7e8f90d",
+              "file": "kanban.spec.ts",
+              "line": 91,
+              "column": 7
+            },
+            {
+              "title": "should handle drag cancel (drop outside valid zone)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-1fb98224db53ec64d817",
+              "file": "kanban.spec.ts",
+              "line": 122,
+              "column": 7
+            },
+            {
+              "title": "should update backend when lead status changes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-2d0e4677cee8d7c0ed56",
+              "file": "kanban.spec.ts",
+              "line": 146,
+              "column": 7
+            },
+            {
+              "title": "should move lead between columns via drag and drop",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-ab45b12d1c8a037cb20b",
+              "file": "kanban.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "should show visual feedback during drag operation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-2876b39f5d59cc9cd673",
+              "file": "kanban.spec.ts",
+              "line": 43,
+              "column": 7
+            },
+            {
+              "title": "should highlight drop zones during drag",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-4e6903baa624f875c339",
+              "file": "kanban.spec.ts",
+              "line": 66,
+              "column": 7
+            },
+            {
+              "title": "should reorder leads within the same column",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-a864ac47758619e148e7",
+              "file": "kanban.spec.ts",
+              "line": 91,
+              "column": 7
+            },
+            {
+              "title": "should handle drag cancel (drop outside valid zone)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-7342beb82f1f4b62b59d",
+              "file": "kanban.spec.ts",
+              "line": 122,
+              "column": 7
+            },
+            {
+              "title": "should update backend when lead status changes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-6be97760a829891161a1",
+              "file": "kanban.spec.ts",
+              "line": 146,
+              "column": 7
+            },
+            {
+              "title": "should move lead between columns via drag and drop",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-d959dbb7737a9e92ccac",
+              "file": "kanban.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "should show visual feedback during drag operation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-12c46f6d4ae65fe4c6b1",
+              "file": "kanban.spec.ts",
+              "line": 43,
+              "column": 7
+            },
+            {
+              "title": "should highlight drop zones during drag",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-9d2f5c661d5263143acd",
+              "file": "kanban.spec.ts",
+              "line": 66,
+              "column": 7
+            },
+            {
+              "title": "should reorder leads within the same column",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-4fd7193ac705e1a9b26d",
+              "file": "kanban.spec.ts",
+              "line": 91,
+              "column": 7
+            },
+            {
+              "title": "should handle drag cancel (drop outside valid zone)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-3447c2e6886a225fa0e0",
+              "file": "kanban.spec.ts",
+              "line": 122,
+              "column": 7
+            },
+            {
+              "title": "should update backend when lead status changes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-1066c04030a9d0f25012",
+              "file": "kanban.spec.ts",
+              "line": 146,
+              "column": 7
+            },
+            {
+              "title": "should move lead between columns via drag and drop",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-256234b91a38c9d5452c",
+              "file": "kanban.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "should show visual feedback during drag operation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-152cc23fc47addb33ac2",
+              "file": "kanban.spec.ts",
+              "line": 43,
+              "column": 7
+            },
+            {
+              "title": "should highlight drop zones during drag",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-7bd40120d16e3a159d82",
+              "file": "kanban.spec.ts",
+              "line": 66,
+              "column": 7
+            },
+            {
+              "title": "should reorder leads within the same column",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-8846d0bbde6679157c62",
+              "file": "kanban.spec.ts",
+              "line": 91,
+              "column": 7
+            },
+            {
+              "title": "should handle drag cancel (drop outside valid zone)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-22d98d077a982c711cbd",
+              "file": "kanban.spec.ts",
+              "line": 122,
+              "column": 7
+            },
+            {
+              "title": "should update backend when lead status changes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-d1d2624b62c66d98ef65",
+              "file": "kanban.spec.ts",
+              "line": 146,
+              "column": 7
+            },
+            {
+              "title": "should move lead between columns via drag and drop",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-ed913dafc109b9cf9e2f",
+              "file": "kanban.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "should show visual feedback during drag operation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-341bad6e32f7f47d8e8f",
+              "file": "kanban.spec.ts",
+              "line": 43,
+              "column": 7
+            },
+            {
+              "title": "should highlight drop zones during drag",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-1ee9790061976f58ee29",
+              "file": "kanban.spec.ts",
+              "line": 66,
+              "column": 7
+            },
+            {
+              "title": "should reorder leads within the same column",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-b2c252c76bb4d71e7dae",
+              "file": "kanban.spec.ts",
+              "line": 91,
+              "column": 7
+            },
+            {
+              "title": "should handle drag cancel (drop outside valid zone)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-19d8e0a6fdccdd6463a7",
+              "file": "kanban.spec.ts",
+              "line": 122,
+              "column": 7
+            },
+            {
+              "title": "should update backend when lead status changes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7a6a8de26a6a6c44d713-821181d2d85cfebcdf69",
+              "file": "kanban.spec.ts",
+              "line": 146,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "leads.spec.ts",
+      "file": "leads.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Leads Management",
+          "file": "leads.spec.ts",
+          "line": 5,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should display leads page with kanban columns",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-fa9ca976f03c9e9c1eb7",
+              "file": "leads.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "should create new lead successfully",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-6d54048f6b3f8ada8207",
+              "file": "leads.spec.ts",
+              "line": 28,
+              "column": 7
+            },
+            {
+              "title": "should filter leads by search query",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-ed7d28a997d8c37a2fb8",
+              "file": "leads.spec.ts",
+              "line": 43,
+              "column": 7
+            },
+            {
+              "title": "should filter leads by status",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-024bbf6e772c8f5d065b",
+              "file": "leads.spec.ts",
+              "line": 59,
+              "column": 7
+            },
+            {
+              "title": "should open lead detail modal on card click",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-23d6305fb7a0909b0532",
+              "file": "leads.spec.ts",
+              "line": 71,
+              "column": 7
+            },
+            {
+              "title": "should navigate to lead detail page via details button",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-e609127753af76d25f6e",
+              "file": "leads.spec.ts",
+              "line": 89,
+              "column": 7
+            },
+            {
+              "title": "should validate required fields in lead creation form",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-c43496d2d4905ef4603e",
+              "file": "leads.spec.ts",
+              "line": 106,
+              "column": 7
+            },
+            {
+              "title": "should close create modal on cancel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-c55cb821df6c628875fd",
+              "file": "leads.spec.ts",
+              "line": 123,
+              "column": 7
+            },
+            {
+              "title": "should add and remove tags in lead creation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-7fcaff54c64e450a0c29",
+              "file": "leads.spec.ts",
+              "line": 135,
+              "column": 7
+            },
+            {
+              "title": "should display leads page with kanban columns",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-62a89e51d8374bd955d3",
+              "file": "leads.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "should create new lead successfully",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-1071b8ec1b96a3566958",
+              "file": "leads.spec.ts",
+              "line": 28,
+              "column": 7
+            },
+            {
+              "title": "should filter leads by search query",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-71e24312c84bd4d705a6",
+              "file": "leads.spec.ts",
+              "line": 43,
+              "column": 7
+            },
+            {
+              "title": "should filter leads by status",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-17d024abc4494356b291",
+              "file": "leads.spec.ts",
+              "line": 59,
+              "column": 7
+            },
+            {
+              "title": "should open lead detail modal on card click",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-b42742aec44fe33156bf",
+              "file": "leads.spec.ts",
+              "line": 71,
+              "column": 7
+            },
+            {
+              "title": "should navigate to lead detail page via details button",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-2c68fabead61996e9c75",
+              "file": "leads.spec.ts",
+              "line": 89,
+              "column": 7
+            },
+            {
+              "title": "should validate required fields in lead creation form",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-685b8448f76746641f64",
+              "file": "leads.spec.ts",
+              "line": 106,
+              "column": 7
+            },
+            {
+              "title": "should close create modal on cancel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-caff7ae26d3e23bc11bf",
+              "file": "leads.spec.ts",
+              "line": 123,
+              "column": 7
+            },
+            {
+              "title": "should add and remove tags in lead creation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-a2dbc80f072ba2874d3a",
+              "file": "leads.spec.ts",
+              "line": 135,
+              "column": 7
+            },
+            {
+              "title": "should display leads page with kanban columns",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-61f0bf3fe19a2c109d2a",
+              "file": "leads.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "should create new lead successfully",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-40a5dea3f9a344af1566",
+              "file": "leads.spec.ts",
+              "line": 28,
+              "column": 7
+            },
+            {
+              "title": "should filter leads by search query",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-14e0cbd8c7f56f58ccd6",
+              "file": "leads.spec.ts",
+              "line": 43,
+              "column": 7
+            },
+            {
+              "title": "should filter leads by status",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-565b5a571609ae8cbb34",
+              "file": "leads.spec.ts",
+              "line": 59,
+              "column": 7
+            },
+            {
+              "title": "should open lead detail modal on card click",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-7dbffb80b7756b963d08",
+              "file": "leads.spec.ts",
+              "line": 71,
+              "column": 7
+            },
+            {
+              "title": "should navigate to lead detail page via details button",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-f6e3b03d740d2c828227",
+              "file": "leads.spec.ts",
+              "line": 89,
+              "column": 7
+            },
+            {
+              "title": "should validate required fields in lead creation form",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-fbd33f2a45c1a1c5adb6",
+              "file": "leads.spec.ts",
+              "line": 106,
+              "column": 7
+            },
+            {
+              "title": "should close create modal on cancel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-8d30090b38257457a54b",
+              "file": "leads.spec.ts",
+              "line": 123,
+              "column": 7
+            },
+            {
+              "title": "should add and remove tags in lead creation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-11d5df0c0c0ce0e0d23c",
+              "file": "leads.spec.ts",
+              "line": 135,
+              "column": 7
+            },
+            {
+              "title": "should display leads page with kanban columns",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-18cb25fba33b57c756e9",
+              "file": "leads.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "should create new lead successfully",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-524678814ed3a6f7c118",
+              "file": "leads.spec.ts",
+              "line": 28,
+              "column": 7
+            },
+            {
+              "title": "should filter leads by search query",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-1f66d02fe86bec90a06c",
+              "file": "leads.spec.ts",
+              "line": 43,
+              "column": 7
+            },
+            {
+              "title": "should filter leads by status",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-69c3a4bafa1e45f89ac0",
+              "file": "leads.spec.ts",
+              "line": 59,
+              "column": 7
+            },
+            {
+              "title": "should open lead detail modal on card click",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-fb3f4671449e65c13c4d",
+              "file": "leads.spec.ts",
+              "line": 71,
+              "column": 7
+            },
+            {
+              "title": "should navigate to lead detail page via details button",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-5bd38f5fef10919057d8",
+              "file": "leads.spec.ts",
+              "line": 89,
+              "column": 7
+            },
+            {
+              "title": "should validate required fields in lead creation form",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-94d35f64d81835c255d2",
+              "file": "leads.spec.ts",
+              "line": 106,
+              "column": 7
+            },
+            {
+              "title": "should close create modal on cancel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-0023df0b0e5829d4b5db",
+              "file": "leads.spec.ts",
+              "line": 123,
+              "column": 7
+            },
+            {
+              "title": "should add and remove tags in lead creation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-8c82b4862050b1f842e4",
+              "file": "leads.spec.ts",
+              "line": 135,
+              "column": 7
+            },
+            {
+              "title": "should display leads page with kanban columns",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-534ed8db09a5b2d05810",
+              "file": "leads.spec.ts",
+              "line": 12,
+              "column": 7
+            },
+            {
+              "title": "should create new lead successfully",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-78a57c7a995a75a0625c",
+              "file": "leads.spec.ts",
+              "line": 28,
+              "column": 7
+            },
+            {
+              "title": "should filter leads by search query",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-36b754462f281c55a075",
+              "file": "leads.spec.ts",
+              "line": 43,
+              "column": 7
+            },
+            {
+              "title": "should filter leads by status",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-10f69aaf5a15a883c8e7",
+              "file": "leads.spec.ts",
+              "line": 59,
+              "column": 7
+            },
+            {
+              "title": "should open lead detail modal on card click",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-de8f47bb16f3d3d0c6c9",
+              "file": "leads.spec.ts",
+              "line": 71,
+              "column": 7
+            },
+            {
+              "title": "should navigate to lead detail page via details button",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-71091ee14888d72e204d",
+              "file": "leads.spec.ts",
+              "line": 89,
+              "column": 7
+            },
+            {
+              "title": "should validate required fields in lead creation form",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-30e484aacd4e2b33b6a2",
+              "file": "leads.spec.ts",
+              "line": 106,
+              "column": 7
+            },
+            {
+              "title": "should close create modal on cancel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-4f922d77aa0e635b38f0",
+              "file": "leads.spec.ts",
+              "line": 123,
+              "column": 7
+            },
+            {
+              "title": "should add and remove tags in lead creation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fcfff6a3ac56cb081a53-c9fc3554958309e84ce3",
+              "file": "leads.spec.ts",
+              "line": 135,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "navigation.spec.ts",
+      "file": "navigation.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Navigation and Layout",
+          "file": "navigation.spec.ts",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should display main navigation elements",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-a829cab9c6ac964a1d39",
+              "file": "navigation.spec.ts",
+              "line": 9,
+              "column": 7
+            },
+            {
+              "title": "should navigate to leads page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-fbbc13679b5a5fdaa768",
+              "file": "navigation.spec.ts",
+              "line": 22,
+              "column": 7
+            },
+            {
+              "title": "should navigate to notifications page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-c6f5172e0c0ffdee16e0",
+              "file": "navigation.spec.ts",
+              "line": 38,
+              "column": 7
+            },
+            {
+              "title": "should navigate to calendar page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-2157d366f0ebdfb19061",
+              "file": "navigation.spec.ts",
+              "line": 49,
+              "column": 7
+            },
+            {
+              "title": "should show unread notifications count",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-1e200345fd8fd22516d8",
+              "file": "navigation.spec.ts",
+              "line": 64,
+              "column": 7
+            },
+            {
+              "title": "should open and close mobile menu",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-3dd913ae9a2723402309",
+              "file": "navigation.spec.ts",
+              "line": 79,
+              "column": 7
+            },
+            {
+              "title": "should open user menu and show profile options",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-a2cdfddc646a9242b4e7",
+              "file": "navigation.spec.ts",
+              "line": 104,
+              "column": 7
+            },
+            {
+              "title": "should open search modal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-6cf13011a63b3b6eee89",
+              "file": "navigation.spec.ts",
+              "line": 118,
+              "column": 7
+            },
+            {
+              "title": "should show admin-specific menu items",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-34214d440463dfa0c326",
+              "file": "navigation.spec.ts",
+              "line": 129,
+              "column": 7
+            },
+            {
+              "title": "should handle page refresh and maintain session",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-85f41d400f6cf43eaaad",
+              "file": "navigation.spec.ts",
+              "line": 142,
+              "column": 7
+            },
+            {
+              "title": "should display main navigation elements",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-b189bd60d27d7c6ec6a2",
+              "file": "navigation.spec.ts",
+              "line": 9,
+              "column": 7
+            },
+            {
+              "title": "should navigate to leads page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-4d467f9c1a6facd3ee38",
+              "file": "navigation.spec.ts",
+              "line": 22,
+              "column": 7
+            },
+            {
+              "title": "should navigate to notifications page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-a92968d815f08aeafea5",
+              "file": "navigation.spec.ts",
+              "line": 38,
+              "column": 7
+            },
+            {
+              "title": "should navigate to calendar page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-83e9726960cbbae79068",
+              "file": "navigation.spec.ts",
+              "line": 49,
+              "column": 7
+            },
+            {
+              "title": "should show unread notifications count",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-1d4e6c47eb49dfedc9c1",
+              "file": "navigation.spec.ts",
+              "line": 64,
+              "column": 7
+            },
+            {
+              "title": "should open and close mobile menu",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-f5cab317294abf85a615",
+              "file": "navigation.spec.ts",
+              "line": 79,
+              "column": 7
+            },
+            {
+              "title": "should open user menu and show profile options",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-1ae3db9e25e8213c44a1",
+              "file": "navigation.spec.ts",
+              "line": 104,
+              "column": 7
+            },
+            {
+              "title": "should open search modal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-3db769aaaa8dda9abf0b",
+              "file": "navigation.spec.ts",
+              "line": 118,
+              "column": 7
+            },
+            {
+              "title": "should show admin-specific menu items",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-78ea4d68caf82dabb9f1",
+              "file": "navigation.spec.ts",
+              "line": 129,
+              "column": 7
+            },
+            {
+              "title": "should handle page refresh and maintain session",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-d8a5a61460a58b0377c3",
+              "file": "navigation.spec.ts",
+              "line": 142,
+              "column": 7
+            },
+            {
+              "title": "should display main navigation elements",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-919b0a55012c9f27ef66",
+              "file": "navigation.spec.ts",
+              "line": 9,
+              "column": 7
+            },
+            {
+              "title": "should navigate to leads page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-4813f350b59b465be6f5",
+              "file": "navigation.spec.ts",
+              "line": 22,
+              "column": 7
+            },
+            {
+              "title": "should navigate to notifications page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-6b6d8d2abd0b5d02bf08",
+              "file": "navigation.spec.ts",
+              "line": 38,
+              "column": 7
+            },
+            {
+              "title": "should navigate to calendar page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-5f2785ebdd79358a0c7d",
+              "file": "navigation.spec.ts",
+              "line": 49,
+              "column": 7
+            },
+            {
+              "title": "should show unread notifications count",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-a600c965ebde7effc921",
+              "file": "navigation.spec.ts",
+              "line": 64,
+              "column": 7
+            },
+            {
+              "title": "should open and close mobile menu",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-9176e5f787980a497d73",
+              "file": "navigation.spec.ts",
+              "line": 79,
+              "column": 7
+            },
+            {
+              "title": "should open user menu and show profile options",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-d7c292345eb7f1b330e8",
+              "file": "navigation.spec.ts",
+              "line": 104,
+              "column": 7
+            },
+            {
+              "title": "should open search modal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-c084b8ee0299e6350fbd",
+              "file": "navigation.spec.ts",
+              "line": 118,
+              "column": 7
+            },
+            {
+              "title": "should show admin-specific menu items",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-007b4f55f4c5ed8f7d36",
+              "file": "navigation.spec.ts",
+              "line": 129,
+              "column": 7
+            },
+            {
+              "title": "should handle page refresh and maintain session",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-d961abcf110b357487ef",
+              "file": "navigation.spec.ts",
+              "line": 142,
+              "column": 7
+            },
+            {
+              "title": "should display main navigation elements",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-9b7d20df842db8edf27b",
+              "file": "navigation.spec.ts",
+              "line": 9,
+              "column": 7
+            },
+            {
+              "title": "should navigate to leads page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-40e32ab689326e360687",
+              "file": "navigation.spec.ts",
+              "line": 22,
+              "column": 7
+            },
+            {
+              "title": "should navigate to notifications page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-e4054401e7f2d264f6ad",
+              "file": "navigation.spec.ts",
+              "line": 38,
+              "column": 7
+            },
+            {
+              "title": "should navigate to calendar page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-5f20e1a7c721a7f49800",
+              "file": "navigation.spec.ts",
+              "line": 49,
+              "column": 7
+            },
+            {
+              "title": "should show unread notifications count",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-8126136cec855e6aa4bb",
+              "file": "navigation.spec.ts",
+              "line": 64,
+              "column": 7
+            },
+            {
+              "title": "should open and close mobile menu",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-d7058ee30ce5fb4bd2ed",
+              "file": "navigation.spec.ts",
+              "line": 79,
+              "column": 7
+            },
+            {
+              "title": "should open user menu and show profile options",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-ef3631ae3e309f073b86",
+              "file": "navigation.spec.ts",
+              "line": 104,
+              "column": 7
+            },
+            {
+              "title": "should open search modal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-0fc334117c170ddb30fd",
+              "file": "navigation.spec.ts",
+              "line": 118,
+              "column": 7
+            },
+            {
+              "title": "should show admin-specific menu items",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-36274978da617f626681",
+              "file": "navigation.spec.ts",
+              "line": 129,
+              "column": 7
+            },
+            {
+              "title": "should handle page refresh and maintain session",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-fadb52eefa760d23bb90",
+              "file": "navigation.spec.ts",
+              "line": 142,
+              "column": 7
+            },
+            {
+              "title": "should display main navigation elements",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-dd6d55a189427690eddf",
+              "file": "navigation.spec.ts",
+              "line": 9,
+              "column": 7
+            },
+            {
+              "title": "should navigate to leads page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-70491c86519b5981a63f",
+              "file": "navigation.spec.ts",
+              "line": 22,
+              "column": 7
+            },
+            {
+              "title": "should navigate to notifications page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-e8fd0abd3e0072903e72",
+              "file": "navigation.spec.ts",
+              "line": 38,
+              "column": 7
+            },
+            {
+              "title": "should navigate to calendar page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-1b9cf9e714e53b2b7e33",
+              "file": "navigation.spec.ts",
+              "line": 49,
+              "column": 7
+            },
+            {
+              "title": "should show unread notifications count",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-e46211990868aa5ad02a",
+              "file": "navigation.spec.ts",
+              "line": 64,
+              "column": 7
+            },
+            {
+              "title": "should open and close mobile menu",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-dc9d1ee13f97a2940bc8",
+              "file": "navigation.spec.ts",
+              "line": 79,
+              "column": 7
+            },
+            {
+              "title": "should open user menu and show profile options",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-c87015d9889113b89e5b",
+              "file": "navigation.spec.ts",
+              "line": 104,
+              "column": 7
+            },
+            {
+              "title": "should open search modal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-43161eaccfc111196f78",
+              "file": "navigation.spec.ts",
+              "line": 118,
+              "column": 7
+            },
+            {
+              "title": "should show admin-specific menu items",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-c76f65d8f3394c3c51d8",
+              "file": "navigation.spec.ts",
+              "line": 129,
+              "column": 7
+            },
+            {
+              "title": "should handle page refresh and maintain session",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5d2868f7d23420c27cca-3619a04b70f71fdc1cd8",
+              "file": "navigation.spec.ts",
+              "line": 142,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "reminders.spec.ts",
+      "file": "reminders.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Reminders Management",
+          "file": "reminders.spec.ts",
+          "line": 5,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should create reminder from lead detail page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-ada0624001be2e26e1f1",
+              "file": "reminders.spec.ts",
+              "line": 10,
+              "column": 7
+            },
+            {
+              "title": "should view reminders in notifications page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-658b33fc321ad2db2fea",
+              "file": "reminders.spec.ts",
+              "line": 47,
+              "column": 7
+            },
+            {
+              "title": "should validate reminder form fields",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-eb15a4e6c0020780a3ed",
+              "file": "reminders.spec.ts",
+              "line": 58,
+              "column": 7
+            },
+            {
+              "title": "should cancel reminder creation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-2409dd3370fa33daf818",
+              "file": "reminders.spec.ts",
+              "line": 85,
+              "column": 7
+            },
+            {
+              "title": "should set default date to tomorrow",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-2279e2ebe0c04da35fe4",
+              "file": "reminders.spec.ts",
+              "line": 113,
+              "column": 7
+            },
+            {
+              "title": "should display different reminder channels",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-5999e9a757e44e0e168c",
+              "file": "reminders.spec.ts",
+              "line": 143,
+              "column": 7
+            },
+            {
+              "title": "should create reminder from lead detail page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-5b4f9728ee112006a637",
+              "file": "reminders.spec.ts",
+              "line": 10,
+              "column": 7
+            },
+            {
+              "title": "should view reminders in notifications page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-65db0703e6d73388310d",
+              "file": "reminders.spec.ts",
+              "line": 47,
+              "column": 7
+            },
+            {
+              "title": "should validate reminder form fields",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-7eaafbb46f4cdc2a14b8",
+              "file": "reminders.spec.ts",
+              "line": 58,
+              "column": 7
+            },
+            {
+              "title": "should cancel reminder creation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-02508e1441d8a33ced90",
+              "file": "reminders.spec.ts",
+              "line": 85,
+              "column": 7
+            },
+            {
+              "title": "should set default date to tomorrow",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-28d58e88ba161ac95721",
+              "file": "reminders.spec.ts",
+              "line": 113,
+              "column": 7
+            },
+            {
+              "title": "should display different reminder channels",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox",
+                  "projectName": "firefox",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-243d3c54fd08a50b2c44",
+              "file": "reminders.spec.ts",
+              "line": 143,
+              "column": 7
+            },
+            {
+              "title": "should create reminder from lead detail page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-67c87f6a885f45d44099",
+              "file": "reminders.spec.ts",
+              "line": 10,
+              "column": 7
+            },
+            {
+              "title": "should view reminders in notifications page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-31ace2c3c5aaf028ae3d",
+              "file": "reminders.spec.ts",
+              "line": 47,
+              "column": 7
+            },
+            {
+              "title": "should validate reminder form fields",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-202e39e7a148b673a96a",
+              "file": "reminders.spec.ts",
+              "line": 58,
+              "column": 7
+            },
+            {
+              "title": "should cancel reminder creation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-5e0071c4606f1c582514",
+              "file": "reminders.spec.ts",
+              "line": 85,
+              "column": 7
+            },
+            {
+              "title": "should set default date to tomorrow",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-ea2b83669b3ffc8e2667",
+              "file": "reminders.spec.ts",
+              "line": 113,
+              "column": 7
+            },
+            {
+              "title": "should display different reminder channels",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "webkit",
+                  "projectName": "webkit",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-e585f4ea0b878fca11eb",
+              "file": "reminders.spec.ts",
+              "line": 143,
+              "column": 7
+            },
+            {
+              "title": "should create reminder from lead detail page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-bc5037bd96873b0ad846",
+              "file": "reminders.spec.ts",
+              "line": 10,
+              "column": 7
+            },
+            {
+              "title": "should view reminders in notifications page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-88ecfbcbc1437417cca0",
+              "file": "reminders.spec.ts",
+              "line": 47,
+              "column": 7
+            },
+            {
+              "title": "should validate reminder form fields",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-fe4b3b1e8606cf0bef00",
+              "file": "reminders.spec.ts",
+              "line": 58,
+              "column": 7
+            },
+            {
+              "title": "should cancel reminder creation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-d13a98ff6b7ab217aa00",
+              "file": "reminders.spec.ts",
+              "line": 85,
+              "column": 7
+            },
+            {
+              "title": "should set default date to tomorrow",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-0d02638e0f6de024d98e",
+              "file": "reminders.spec.ts",
+              "line": 113,
+              "column": 7
+            },
+            {
+              "title": "should display different reminder channels",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Chrome",
+                  "projectName": "Mobile Chrome",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-3ca055bb501204982d74",
+              "file": "reminders.spec.ts",
+              "line": 143,
+              "column": 7
+            },
+            {
+              "title": "should create reminder from lead detail page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-59a4d76caad5e6ae56d2",
+              "file": "reminders.spec.ts",
+              "line": 10,
+              "column": 7
+            },
+            {
+              "title": "should view reminders in notifications page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-2fdab38c4da7499d2006",
+              "file": "reminders.spec.ts",
+              "line": 47,
+              "column": 7
+            },
+            {
+              "title": "should validate reminder form fields",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-0f771ed7c30a033cf3f7",
+              "file": "reminders.spec.ts",
+              "line": 58,
+              "column": 7
+            },
+            {
+              "title": "should cancel reminder creation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-01b1f4cc290524e87c9c",
+              "file": "reminders.spec.ts",
+              "line": 85,
+              "column": 7
+            },
+            {
+              "title": "should set default date to tomorrow",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-068b9716bec3ce77c4ab",
+              "file": "reminders.spec.ts",
+              "line": 113,
+              "column": 7
+            },
+            {
+              "title": "should display different reminder channels",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "Mobile Safari",
+                  "projectName": "Mobile Safari",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aa75b1db4695422e71e4-b25cd5786aa43e71f6a9",
+              "file": "reminders.spec.ts",
+              "line": 143,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2025-09-13T21:03:02.871Z",
+    "duration": 365.2739999999999,
+    "expected": 0,
+    "skipped": 185,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
