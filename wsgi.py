@@ -122,6 +122,23 @@ def app(environ, start_response):
         ])
         return [response_text.encode('utf-8')]
     
+    # Version endpoint for deployment tracking
+    if path == '/version':
+        print("📋 Direct version response", flush=True)
+        version_data = {
+            'status': 'ok',
+            'deploy_id': os.getenv('DEPLOY_ID', 'dev'),
+            'build': 50,
+            'sha': os.getenv('APP_SHA', 'unknown'),
+            'timestamp': int(time.time())
+        }
+        response_text = json.dumps(version_data)
+        start_response('200 OK', [
+            ('Content-Type', 'application/json'),
+            ('Cache-Control', 'no-cache'),
+        ])
+        return [response_text.encode('utf-8')]
+    
     # Fast webhook responses (avoid Flask overhead)
     if path in (
         '/webhook/stream_status', '/webhook/stream_status/',
