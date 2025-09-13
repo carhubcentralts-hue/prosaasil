@@ -237,6 +237,8 @@ def get_lead_detail(lead_id):
     
     # Get lead with related data
     lead = Lead.query.filter_by(id=lead_id).first()
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
     
     # Get reminders
     reminders = LeadReminder.query.filter_by(lead_id=lead_id).order_by(LeadReminder.due_at).all()

@@ -58,7 +58,7 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
                 # יצירת לקוח חדש
                 customer = Customer()
                 customer.name = customer_name or f"לקוח מטלפון {phone_number[-4:]}"
-                customer.phone = phone_number
+                customer.phone_e164 = phone_number
                 customer.status = "lead"
                 
                 # קישור לעסק (ברירת מחדל עסק ראשון)
