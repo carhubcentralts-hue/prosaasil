@@ -304,6 +304,9 @@ def update_lead(lead_id):
         return jsonify({"error": "JSON data required"}), 400
     
     lead = Lead.query.filter_by(id=lead_id).first()
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+        
     user = get_current_user()
     
     # Track changes for activity log
@@ -360,6 +363,9 @@ def update_lead_status(lead_id):
         return jsonify({"error": f"Invalid status. Valid options: {', '.join(valid_statuses)}"}), 400
     
     lead = Lead.query.filter_by(id=lead_id).first()
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+        
     old_status = lead.status
     
     if old_status != new_status:
@@ -448,14 +454,14 @@ def admin_list_leads():
         return auth_error
     
     user = get_current_user()
-    if user.get('role') != 'admin':
+    if not user or user.get('role') != 'admin':
         return jsonify({"error": "Admin access required"}), 403
     
     # Same filtering as regular endpoint but without tenant restriction
     page = int(request.args.get('page', 1))
     page_size = min(int(request.args.get('pageSize', 50)), 100)
     
-    query = Lead.query.options(joinedload(Lead.tenant))  # Join with business info
+    query = Lead.query  # Business info loaded separately to avoid joinedload issues
     
     # Apply filters (similar to list_leads but without tenant restriction)
     if request.args.get('status'):
@@ -526,6 +532,8 @@ def move_lead_in_kanban(lead_id):
     
     tenant_id = get_current_tenant()
     lead = Lead.query.filter_by(id=lead_id, tenant_id=tenant_id).first()
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
     
     # Update status if provided
     if new_status and new_status != lead.status:
