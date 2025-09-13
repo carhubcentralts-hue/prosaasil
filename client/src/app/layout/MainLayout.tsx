@@ -170,27 +170,16 @@ export function MainLayout() {
 
   // Filter menu items based on user role and impersonation state
   const filteredMenuItems = menuItems.filter(item => {
-    console.log('🔍 Filtering item:', {
-      label: item.label,
-      roles: item.roles,
-      userRole: user?.role,
-      hasRole: item.roles ? item.roles.includes(user?.role || '') : true,
-      isImpersonating
-    });
-    
     // Check role permissions first
     if (item.roles && (!user || !item.roles.includes(user.role))) {
-      console.log('❌ Filtered out:', item.label, 'due to role mismatch');
       return false;
     }
     
     // Hide "Business Management" during impersonation - only show business-specific items
     if (isImpersonating && item.label === 'ניהול עסקים') {
-      console.log('❌ Filtered out:', item.label, 'due to impersonation');
       return false;
     }
     
-    console.log('✅ Included:', item.label);
     return true;
   });
 
@@ -351,24 +340,11 @@ export function MainLayout() {
                 label={item.label}
                 to={item.to}
                 active={isActive}
-                onClick={() => {
-                  console.log('🔍 Menu item clicked:', {
-                    label: item.label,
-                    to: item.to,
-                    comingSoon: item.comingSoon,
-                    roles: item.roles
-                  });
-                  
-                  if (item.comingSoon) {
-                    console.log('⚠️ Coming soon triggered for:', item.label);
-                    handleComingSoon();
-                  } else if (item.to) {
-                    console.log('✅ Navigating to:', item.to);
+                onClick={item.comingSoon ? handleComingSoon : () => {
+                  if (item.to) {
                     navigate(item.to);
                     // Always close sidebar after navigation (mobile AND desktop)
                     setTimeout(() => setSidebarOpen(false), 100);
-                  } else {
-                    console.log('❌ No action defined for:', item.label);
                   }
                 }}
                 comingSoon={item.comingSoon}
@@ -546,20 +522,12 @@ export function MainLayout() {
                     : 'text-slate-500 hover:text-[var(--brand)] active:scale-95'
                 )}
                 onClick={() => {
-                  console.log('📱 Mobile menu item clicked:', {
-                    label: item.label,
-                    to: item.to,
-                    comingSoon: item.comingSoon
-                  });
-                  
-                  if (item.comingSoon) {
-                    console.log('⚠️ Mobile coming soon triggered for:', item.label);
-                    handleComingSoon();
-                  } else if (item.to) {
-                    console.log('✅ Mobile navigating to:', item.to);
+                  if (item.to && !item.comingSoon) {
                     navigate(item.to);
                     // Always close sidebar after navigation (mobile AND desktop)
                     setTimeout(() => setSidebarOpen(false), 100);
+                  } else if (item.comingSoon) {
+                    handleComingSoon();
                   }
                 }}
               >
