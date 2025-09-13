@@ -176,7 +176,7 @@ def create_app():
     def manage_session_security():
         """Enhanced session security management"""
         # Skip for static files, health endpoints, React routes, and auth endpoints  
-        auth_paths = ['/api/auth/login', '/api/auth/logout', '/api/auth/me', '/api/ui/login']
+        auth_paths = ['/api/auth/login', '/api/auth/logout', '/api/auth/me', '/api/auth/csrf', '/api/ui/login']
         if (request.endpoint in ['static', 'health', 'readyz', 'version'] or 
             request.path in ['/', '/login', '/forgot', '/reset', '/home'] or
             any(request.path.startswith(p) for p in auth_paths)):

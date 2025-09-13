@@ -75,31 +75,44 @@ def verify_password(stored_hash, password):
 
 @auth_api.get("/csrf")
 def get_csrf():
-    """מחזיר טוכן CSRF האמיתי של SeaSurf - לא token נפרד"""
+    """✅ תיקון: מחזיר טוכן CSRF חדש תמיד - לפי הארכיטקט"""
     import os
+    from flask import current_app, make_response
     
     IS_PREVIEW = (
         'picard.replit.dev' in os.getenv('REPLIT_URL', '') or
         os.getenv('PREVIEW_MODE') == '1'
     )
     
-    # ✅ תיקון: קרא מapp config כמו שהארכיטקט המליץ
-    from flask import current_app
-    cookie_name = current_app.config.get('SEASURF_COOKIE_NAME', 'XSRF-TOKEN')
-    token = request.cookies.get(cookie_name)
-    if not token:
-        # Trigger SeaSurf to create token by accessing session
-        from flask import session
-        session.modified = True
-        token = request.cookies.get(cookie_name, secrets.token_urlsafe(32))
+    # ✅ ייצר token חדש תמיד במקום לקרוא מcookies
+    token = secrets.token_urlsafe(32)
+    cookie_name = current_app.config.get('SEASURF_COOKIE_NAME', '_csrf_token')
     
     resp = jsonify({"csrfToken": token})
     
-    # Also set XSRF-TOKEN with same value for frontend compatibility (non-HttpOnly)
-    if IS_PREVIEW:
-        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='None', secure=True, path='/')
-    else:
-        resp.set_cookie('XSRF-TOKEN', token, httponly=False, samesite='Lax', secure=True, path='/')
+    # ✅ הגדר cookie לSeaSurf (double-submit pattern)
+    allow_insecure = os.getenv('ALLOW_INSECURE_COOKIES') == '1'
+    secure = not allow_insecure  # False רק לcurl HTTP testing
+    
+    resp.set_cookie(
+        cookie_name, 
+        token, 
+        httponly=False, 
+        samesite=('None' if IS_PREVIEW else 'Lax'), 
+        secure=secure, 
+        path='/'
+    )
+    
+    # גם XSRF-TOKEN לcompatiblity
+    resp.set_cookie(
+        'XSRF-TOKEN', 
+        token, 
+        httponly=False, 
+        samesite=('None' if IS_PREVIEW else 'Lax'), 
+        secure=secure, 
+        path='/'
+    )
+    
     return resp
 
 @csrf.exempt  # Proper SeaSurf exemption
