@@ -170,16 +170,27 @@ export function MainLayout() {
 
   // Filter menu items based on user role and impersonation state
   const filteredMenuItems = menuItems.filter(item => {
+    console.log('🔍 Filtering item:', {
+      label: item.label,
+      roles: item.roles,
+      userRole: user?.role,
+      hasRole: item.roles ? item.roles.includes(user?.role || '') : true,
+      isImpersonating
+    });
+    
     // Check role permissions first
     if (item.roles && (!user || !item.roles.includes(user.role))) {
+      console.log('❌ Filtered out:', item.label, 'due to role mismatch');
       return false;
     }
     
     // Hide "Business Management" during impersonation - only show business-specific items
     if (isImpersonating && item.label === 'ניהול עסקים') {
+      console.log('❌ Filtered out:', item.label, 'due to impersonation');
       return false;
     }
     
+    console.log('✅ Included:', item.label);
     return true;
   });
 
