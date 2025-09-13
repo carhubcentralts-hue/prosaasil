@@ -233,7 +233,7 @@ def wa_in_baileys():
         current_app.logger.exception("WA_IN_BAILEYS_ERROR")
         return jsonify({"success": True}), 200
 
-@whatsapp_unified_bp.route("/messages", methods=["GET"])
+@whatsapp_unified_bp.route("/api/whatsapp/messages", methods=["GET"])
 def get_messages():
     """Get WhatsApp messages with pagination - UNIFIED DAO VERSION"""
     try:
@@ -264,7 +264,7 @@ def get_messages():
         logger.error(f"Error fetching WhatsApp messages: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@whatsapp_unified_bp.route("/conversations", methods=["GET"])
+@whatsapp_unified_bp.route("/api/whatsapp/conversations", methods=["GET"])
 def get_conversations():
     """Get WhatsApp conversations grouped by phone number"""
     try:
@@ -314,7 +314,7 @@ def get_conversations():
         logger.error(f"Error fetching conversations: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@whatsapp_unified_bp.route("/conversation/<phone_number>", methods=["GET"])
+@whatsapp_unified_bp.route("/api/whatsapp/conversation/<phone_number>", methods=["GET"])
 def get_conversation_history(phone_number):
     """Get conversation history with specific phone number"""
     try:
@@ -339,27 +339,20 @@ def get_conversation_history(phone_number):
         total = query.count()
         
         return jsonify({
-            "success": True,
-            "conversation": [
+            "id": len(messages),  # Mock conversation ID
+            "phone_number": phone_number,
+            "messages": [
                 {
-                    "id": msg.id,
+                    "id": str(msg.id),
                     "direction": msg.direction,
-                    "body": msg.body,
-                    "message_type": msg.message_type,
-                    "media_url": msg.media_url,
+                    "content_text": msg.body,  # Map body to content_text
+                    "sent_at": msg.created_at.isoformat(),  # Map created_at to sent_at
                     "status": msg.status,
-                    "created_at": msg.created_at.isoformat(),
-                    "delivered_at": msg.delivered_at.isoformat() if msg.delivered_at else None,
-                    "read_at": msg.read_at.isoformat() if msg.read_at else None
+                    "provider": msg.provider
                 } for msg in messages
             ],
-            "phone_number": phone_number,
-            "pagination": {
-                "page": page,
-                "per_page": per_page, 
-                "total": total,
-                "pages": (total + per_page - 1) // per_page
-            }
+            "total_messages": total,
+            "last_message_at": messages[-1].created_at.isoformat() if messages else None
         })
         
     except Exception as e:

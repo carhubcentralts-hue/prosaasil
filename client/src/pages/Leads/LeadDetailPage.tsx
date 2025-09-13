@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar } from 'lucide-react';
+import WhatsAppChat from './components/WhatsAppChat';
 import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
@@ -29,6 +30,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [whatsappChatOpen, setWhatsappChatOpen] = useState(false);
   
   // Data for each tab
   const [activities, setActivities] = useState<LeadActivity[]>([]);
@@ -176,7 +178,12 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 <Phone className="w-4 h-4 mr-2" />
                 התקשר
               </Button>
-              <Button size="sm" variant="secondary" data-testid="button-whatsapp">
+              <Button 
+                size="sm" 
+                variant="secondary" 
+                onClick={() => setWhatsappChatOpen(true)}
+                data-testid="button-whatsapp"
+              >
                 <MessageSquare className="w-4 h-4 mr-2" />
                 וואטסאפ
               </Button>
@@ -215,11 +222,20 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'overview' && <OverviewTab lead={lead} reminders={reminders} />}
-        {activeTab === 'conversation' && <ConversationTab conversations={conversations} />}
+        {activeTab === 'conversation' && <ConversationTab conversations={conversations} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} />}
         {activeTab === 'tasks' && <TasksTab tasks={tasks} />}
         {activeTab === 'activity' && <ActivityTab activities={activities} />}
       </div>
+
+      {/* WhatsApp Chat Modal */}
+      {lead && (
+        <WhatsAppChat 
+          lead={lead} 
+          isOpen={whatsappChatOpen} 
+          onClose={() => setWhatsappChatOpen(false)} 
+        />
+      )}
     </div>
   );
 }
@@ -307,12 +323,33 @@ function OverviewTab({ lead, reminders }: { lead: Lead; reminders: LeadReminder[
   );
 }
 
-function ConversationTab({ conversations }: { conversations: LeadConversation[] }) {
+function ConversationTab({ conversations, onOpenWhatsApp }: { conversations: LeadConversation[]; onOpenWhatsApp: () => void }) {
   return (
     <Card className="p-6">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">היסטוריית שיחות</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-medium text-gray-900">היסטוריית שיחות</h3>
+        <Button 
+          onClick={onOpenWhatsApp} 
+          size="sm"
+          className="bg-green-500 hover:bg-green-600 text-white"
+          data-testid="button-open-whatsapp-chat"
+        >
+          <MessageSquare className="w-4 h-4 mr-2" />
+          פתח וואטסאפ
+        </Button>
+      </div>
       {conversations.length === 0 ? (
-        <p className="text-sm text-gray-500">אין שיחות</p>
+        <div className="text-center py-8">
+          <MessageSquare className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-sm text-gray-500 mb-4">אין שיחות</p>
+          <Button 
+            onClick={onOpenWhatsApp}
+            size="sm"
+            className="bg-green-500 hover:bg-green-600 text-white"
+          >
+            התחל שיחה
+          </Button>
+        </div>
       ) : (
         <div className="space-y-4">
           {conversations.map((conversation) => (
