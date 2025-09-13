@@ -1,0 +1,155 @@
+יאללה — בונים “דף לידים” ו“דף לקוח” ברמת Monday/HubSpot/Salesforce, עם הרשאות, אימפרסונציה, תזכורות “חזור אליי”, וואטסאפ/טלפוניה, ושמירות שעובדות באמת. שמתי גם מקורות למה שמקובל במערכות CRM מודרניות (סטטוסים, לייפסייקל, קאנבן, CSRF) כדי שלא נזרוק באוויר.  ￼
+
+⸻
+
+מה בונים (בשני מסכים)
+
+1) דף “לידים” (Board)
+	•	תצוגת קאנבן לפי סטטוס (עמודות נגררות): New, Attempting, Contacted, Qualified, Won, Lost, Unqualified (ניתן להתאים). גרירה בין עמודות = עדכון סטטוס.  ￼
+	•	מסננים מהירים: טווח תאריכים, מקור (שיחה/וואטסאפ/טופס), בעלים, תיוגים.
+	•	פעולות מהירות בכל “כרטיס”: התקשר, שלח וואטסאפ, קבע “חזור אליי”, ערוך, מיזוג כפילויות, סמן “לא רלוונטי”.
+	•	CTA “חזור אליי”: פותח Date+Time; נשמר Reminder; מקבלים התראה בלוח/פעמון כשמגיע הזמן.
+	•	סרגל עליון: חיפוש גלובלי + “צור ליד” ידני.
+	•	מובייל/RTL: עמודות נגללות לרוחב, כרטיס מינימליסטי, פעולה בלחיצה ארוכה.
+	•	הרשאות:
+	•	מנהל רואה/מסנן הכל.
+	•	עסק רואה רק leads של ה־tenant שלו.
+	•	אימפרסונציה: אם impersonating:true → scope לפי impersonated_tenant_id.
+
+2) דף “ליד (לקוח)”
+
+טאבים:
+	•	Overview (סיכום, סטטוס, מקור, בעלים, עדכונים אחרונים)
+	•	Conversation (צ׳אט וואטסאפ דו־כיווני + שליחה; תומך Baileys/Twilio)
+	•	Calls (רשימת שיחות, הקלטות/תקצירים)
+	•	Tasks/Reminders (כולל “חזור אליי”)
+	•	Docs & Billing (שליחת חוזה/חשבונית/קישור תשלום; מצביע לאינטגרציות קיימות)
+	•	Activity (ציר זמן אחוד: שיחה/ווצ׳אפ/שינוי סטטוס/מסמכים)
+
+רפרנס למבנה סטטוסים/לייפסייקל מקובל: HubSpot/Salesforce/Monday.  ￼
+
+⸻
+
+סכימת נתונים (DB) — מינימלית, בלי לשבור
+	•	leads: id, tenant_id, source (call|whatsapp|form), external_id (call_sid|wa_msg_id), first_name, last_name, phone_e164, email,
+status (enum), owner_user_id, tags (jsonb), created_at, updated_at.
+	•	lead_reminders: id, lead_id, due_at (tz), note, channel (ui|email|push), delivered_at.
+	•	lead_activities: id, lead_id, type (call|wa|note|status|doc), payload (jsonb), at.
+	•	lead_merge_candidates (לא חובה עכשיו): lead_id, dup_lead_id, score.
+
+סטטוסים ברוח Salesforce/HubSpot; אוטומציות à la monday להנעת תהליך.  ￼
+
+⸻
+
+API — חוזה ברור (JSON בלבד)
+
+אימות/סשן/CSRF (SeaSurf)
+	•	חובה: כתיבות לא פטורות מ־CSRF. משתמשים ב־SeaSurf (double submit cookie+header). פטורים רק ל־login/webhooks.  ￼
+	•	GET /api/auth/csrf → {csrfToken} ומציב cookie XSRF-TOKEN.
+	•	FE שולח תמיד credentials:'include' ו־X-CSRFToken.
+
+לידים
+	•	GET /api/leads?status=&q=&owner=&from=&to=&page=&pageSize= → {items:[...], total, page, pageSize}
+	•	POST /api/leads (עם CSRF): יוצר ליד ידני. 201 {lead} / 409 {error:'duplicate'}
+	•	GET /api/leads/:id → {lead, reminders:[...], latest:{calls:[], messages:[]}, activity:[...]}
+	•	PATCH /api/leads/:id (CSRF): עדכון שדות (שם, בעלים, תגים, …)
+	•	POST /api/leads/:id/status (CSRF): {status:'Qualified'}
+	•	POST /api/leads/:id/reminders (CSRF): {due_at, note}
+	•	POST /api/leads/:id/message/whatsapp (CSRF): {text|mediaUrl} → שולח דרך Baileys/Twilio לפי provider חי
+	•	POST /api/leads/:id/contract / .../invoice / .../payment-link (CSRF): יוצר משימה/טרנזקציה (stub) ושולח בקישור/מסמך
+
+אדמין (סקופ וניהול)
+	•	GET /api/admin/leads — כמו GET /api/leads אך לכל הטננטים.
+	•	POST /api/admin/leads/merge (CSRF): מאחד כפילויות.
+	•	אימפרסונציה:
+	•	POST /api/admin/businesses/:id/impersonate (CSRF) → {"ok":true,"tenant_id":id}
+	•	לא משנים session.user.role; מוסיפים session.impersonating=true, session.impersonated_tenant_id=id.
+	•	POST /api/admin/impersonate/exit (CSRF) → שחזור.
+
+שמרו על “single-origin”: אותו דומיין מגיש FE+API — פותר Cookies/CSRF וקאנבן עובד חלק.
+
+⸻
+
+אינטגרציות אוטומטיות (מקורות ליד)
+	•	שיחות (Twilio): webhook נכנס יוצר lead אם אין קיים (מפתח: from_e164+tenant_id), מוסיף Activity, וקופץ סטטוס ל־“Attempting/Contacted” לפי נגיעה.
+	•	וואטסאפ (Baileys/Twilio): הודעה נכנסת → upsert lead, מוסיף Activity + threadId, תיוג “WhatsApp”.
+	•	דופליקציות: לפני insert: normalize טלפון (E.164) וחיפוש קיים; מציע Merge.
+
+monday מצביעים על אוטומציות לניהול תהליך; אנחנו מיישמים לזרימה שלנו.  ￼
+
+⸻
+
+FE (React + Tailwind) — UX נקי ומהיר
+
+Leads Board
+	•	react-beautiful-dnd לקאנבן (נגישות/מובייל). גרירה ⇢ POST /status.  ￼
+	•	“חזור אליי” = קומפוננטה עם Date+Time+note → POST /reminders.
+	•	RTL + מובייל: כותרת קבועה, עמודות עם overflow-x, כרטיס קומפקטי (שם, טלפון, פיצ׳רים).
+	•	פילטרים נצרים ב־URL (להעמסה מחדש חלקה).
+	•	Toast על כל פעולה; שגיאה מציגה JSON server (לא Error {} ריק).
+
+Lead Page
+	•	Header: שם/סטטוס/טלפון/בעלים + Actions (Call/WA/Reminder/Contract/Invoice/Paylink).
+	•	Tabs: Overview, Conversation (וואטסאפ דו־כיווני), Calls, Tasks, Docs & Billing, Activity.
+	•	וואטסאפ חי: טקסט־בוקס שולח ל־POST /message/whatsapp; נכנסות דרך webhook מתווספות ל־Activity ולשיחה.
+	•	מובייל: כפתור Actions צף, טאבים swipeable.
+
+⸻
+
+אבטחה והרשאות
+	•	RBAC תמיד מ־session.user.role בלבד.
+	•	Scope לפי tenant: אם impersonating → שאלת נתונים רק ל־impersonated_tenant_id.
+	•	CSRF: כל כתיבה מחייבת token (חוץ login/webhooks).
+	•	Errors תמיד JSON עם error, message, hint.
+
+⸻
+
+בדיקות קבלה (חובה להריץ לפני שתאמר “מוכן”)
+
+Server (curl) — החלף $BASE
+
+# Login (שומר קוקי)
+curl -i -c /tmp/c -b /tmp/c -H 'Content-Type: application/json' \
+  -X POST $BASE/api/auth/login --data '{"email":"admin@...","password":"..."}'
+
+# CSRF
+TOKEN=$(curl -s -c /tmp/c -b /tmp/c $BASE/api/auth/csrf | python - <<'PY'
+import sys,json; print(json.load(sys.stdin)['csrfToken'])
+PY
+)
+
+# Create lead
+curl -i -c /tmp/c -b /tmp/c -H "X-CSRFToken: $TOKEN" -H 'Content-Type: application/json' \
+  -X POST $BASE/api/leads --data '{"first_name":"דן","phone_e164":"+9725...","source":"form"}'
+
+# Move status
+curl -i -c /tmp/c -b /tmp/c -H "X-CSRFToken: $TOKEN" -H 'Content-Type: application/json' \
+  -X POST $BASE/api/leads/123/status --data '{"status":"Qualified"}'
+
+# Reminder
+curl -i -c /tmp/c -b /tmp/c -H "X-CSRFToken: $TOKEN" -H 'Content-Type: application/json' \
+  -X POST $BASE/api/leads/123/reminders --data '{"due_at":"2025-09-13T10:30:00+03:00","note":"חזור"}'
+
+# Impersonate -> Me
+curl -i -c /tmp/c -b /tmp/c -H "X-CSRFToken: $TOKEN" -X POST $BASE/api/admin/businesses/1/impersonate
+curl -i -c /tmp/c -b /tmp/c $BASE/api/auth/me
+
+UI (ידני)
+	•	גרירה קאנבן משנה סטטוס ומופיעה ב-Activity.
+	•	“חזור אליי” מציג התראה בזמן הנכון.
+	•	וואטסאפ יוצא/נכנס מופיע בזמן אמת בכרטיסייה.
+	•	“צור ליד” יוצר ונטען ברשימה ללא רענון עמוד.
+	•	באימפרסונציה: הדף מציג רק לידים של העסק; יציאה משחזרת.
+	•	עריכת Prompt של העסק משפיעה באמת על שיחות חדשות (כבר חיברתם ל־BusinessSettings).
+
+⸻
+
+נקודות שיבוש נפוצות (ולתקן במקום)
+	•	403 על POST/PUT: אין X-CSRFToken/אין cookie XSRF-TOKEN/לא נשלח credentials:'include'.
+	•	לא רואים Build: index.html בקאש — תן Cache-Control: no-store וקדם מספר BUILD.
+	•	Impersonate “Access denied”: אל תדרוס session.user.role; שמור flags נפרדים.
+	•	Preview vs Deploy: אותו Run Command (Vite build → Flask serve). לא vite dev בפריוויו.
+
+⸻
+
+אם תתקדם לפי זה אחד־לאחד, תקבל דף לידים/לקוח “חי”, מאובטח, ומהיר — בדיוק ברמת המערכות הגדולות (קאנבן/סטטוסים/לייפסייקל/אוטומציות). המקורות למבנה סטטוסים/קאנבן/CSRF מצורפים למעלה כדי שהכל מגובה בסטנדרטים.

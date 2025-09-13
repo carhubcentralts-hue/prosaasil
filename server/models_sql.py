@@ -103,6 +103,102 @@ class WhatsAppMessage(db.Model):
     read_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+# === LEADS CRM SYSTEM - Monday/HubSpot/Salesforce style ===
+
+class Lead(db.Model):
+    """Lead model for advanced CRM system with Kanban board support"""
+    __tablename__ = "leads"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Core lead info
+    first_name = db.Column(db.String(255))
+    last_name = db.Column(db.String(255))
+    phone_e164 = db.Column(db.String(64), index=True)
+    email = db.Column(db.String(255), index=True)
+    
+    # Lead tracking
+    source = db.Column(db.String(32), default="form", index=True)  # call|whatsapp|form|manual
+    external_id = db.Column(db.String(128), index=True)  # call_sid|wa_msg_id
+    status = db.Column(db.String(32), default="New", index=True)  # New|Attempting|Contacted|Qualified|Won|Lost|Unqualified
+    
+    # Assignment
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    
+    # Metadata
+    tags = db.Column(db.JSON)  # JSON array for flexible tagging
+    notes = db.Column(db.Text)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_contact_at = db.Column(db.DateTime, index=True)
+    
+    # Computed properties
+    @property
+    def full_name(self):
+        if self.first_name and self.last_name:
+            return f"{self.first_name} {self.last_name}"
+        return self.first_name or self.last_name or "ללא שם"
+    
+    @property
+    def display_phone(self):
+        if self.phone_e164:
+            # Convert +972501234567 to 050-123-4567
+            phone = self.phone_e164.replace('+972', '0')
+            if len(phone) == 10:
+                return f"{phone[:3]}-{phone[3:6]}-{phone[6:]}"
+        return self.phone_e164
+
+class LeadReminder(db.Model):
+    """Reminders for leads - 'חזור אליי' functionality"""
+    __tablename__ = "lead_reminders"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
+    
+    due_at = db.Column(db.DateTime, nullable=False, index=True)
+    note = db.Column(db.Text)
+    channel = db.Column(db.String(16), default="ui")  # ui|email|push|whatsapp
+    
+    # Status tracking
+    delivered_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
+
+class LeadActivity(db.Model):
+    """Activity timeline for leads"""
+    __tablename__ = "lead_activities"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
+    
+    type = db.Column(db.String(32), nullable=False, index=True)  # call|whatsapp|note|status_change|document|reminder
+    payload = db.Column(db.JSON)  # Flexible data storage for different activity types
+    
+    at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
+
+class LeadMergeCandidate(db.Model):
+    """Potential duplicate leads for merging"""
+    __tablename__ = "lead_merge_candidates"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
+    duplicate_lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
+    
+    confidence_score = db.Column(db.Float, default=0.0)  # 0.0-1.0
+    reason = db.Column(db.String(64))  # phone|email|name|combined
+    
+    reviewed_at = db.Column(db.DateTime)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey("users.id"))
+    merged_at = db.Column(db.DateTime)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 # === CRM MODELS לפי הנחיות 100% GO ===
 
 class Deal(db.Model):
