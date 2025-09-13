@@ -38,7 +38,6 @@ export interface LeadReminder {
   channel: 'ui' | 'email' | 'push' | 'whatsapp';
   delivered_at?: string;
   completed_at?: string;
-  created_at: string;
   created_by?: number;
 }
 
@@ -46,9 +45,41 @@ export interface LeadActivity {
   id: number;
   lead_id: number;
   type: string;
-  payload?: Record<string, any>;
+  payload?: any;
   at: string;
   created_by?: number;
+}
+
+export interface LeadCall {
+  id: number;
+  lead_id: number;
+  call_type: 'incoming' | 'outgoing';
+  duration: number;
+  recording_url?: string;
+  notes?: string;
+  created_at: string;
+  status: 'completed' | 'missed' | 'busy';
+}
+
+export interface LeadConversation {
+  id: number;
+  lead_id: number;
+  platform: 'whatsapp' | 'sms' | 'email';
+  direction: 'incoming' | 'outgoing';
+  message: string;
+  created_at: string;
+  read: boolean;
+}
+
+export interface LeadTask {
+  id: number;
+  lead_id: number;
+  title: string;
+  description?: string;
+  due_date?: string;
+  completed: boolean;
+  created_at: string;
+  priority: 'low' | 'medium' | 'high';
 }
 
 export interface LeadFilters {

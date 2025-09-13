@@ -1,7 +1,8 @@
 import { forwardRef } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Phone, Mail, User, Calendar, Tag, MoreVertical } from 'lucide-react';
+import { Phone, Mail, User, Calendar, Tag, MoreVertical, Eye } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '../../../shared/components/ui/Card';
 import { Badge } from '../../../shared/components/Badge';
 import { Lead } from '../types';
@@ -16,6 +17,7 @@ interface LeadCardProps {
 
 const LeadCard = forwardRef<HTMLDivElement, LeadCardProps>(
   ({ lead, onClick, isDragging }, ref) => {
+    const navigate = useNavigate();
     const {
       attributes,
       listeners,
@@ -145,11 +147,17 @@ const LeadCard = forwardRef<HTMLDivElement, LeadCardProps>(
               </span>
             </div>
             
-            {lead.last_contact_at && (
-              <div className="text-xs text-green-600">
-                קשר אחרון: {formatDate(lead.last_contact_at)}
-              </div>
-            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/app/leads/${lead.id}`);
+              }}
+              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
+              data-testid={`button-view-details-${lead.id}`}
+            >
+              <Eye className="w-3 h-3" />
+              פרטים
+            </button>
           </div>
 
           {/* Notes Preview */}
