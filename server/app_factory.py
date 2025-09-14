@@ -261,11 +261,6 @@ def create_app():
         @app.before_request  
         def setup_security_context():
             """Setup security context for each request"""
-            # TEMPORARY FIX: Skip ALL API endpoints to prevent infinite loop
-            if request.path.startswith('/api/'):
-                print(f"🔧 SECURITY_CONTEXT_SKIP - Skipping for API path: {request.path}")
-                return
-                
             # Skip React auth routes and auth API endpoints
             auth_paths = ['/api/auth/login', '/api/auth/logout', '/api/auth/me',
                          '/api/admin/businesses', '/api/admin/impersonate/exit']
@@ -279,9 +274,8 @@ def create_app():
             g.audit_logger = audit_logger
             g.session_security = SessionSecurity
             
-            # DISABLED: Update session activity (was causing infinite loops and hangs)
-            # TODO: Move to after_request or background task if needed
-            # SessionSecurity.update_activity()
+            # Update session activity
+            SessionSecurity.update_activity()
             
             # Check session validity for protected routes - EXCLUDE auth endpoints from validation
             if request.endpoint and request.endpoint.startswith(('ui.', 'data_api.')):

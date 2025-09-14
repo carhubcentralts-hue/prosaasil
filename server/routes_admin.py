@@ -515,18 +515,8 @@ def api_admin_calls():
 @admin_bp.route("/api/admin/leads", methods=["GET"])
 @require_api_auth(["admin", "superadmin", "manager"])
 def admin_leads():
-    """Get all leads across all tenants for admin - SINGLE ROUTE"""
+    """Get all leads across all tenants for admin"""
     try:
-        print(f"🚀 ADMIN_LEADS_REACHED - Request reached the handler!")
-        
-        # Temporary short-circuit test
-        return jsonify({
-            "message": "TEMP: Admin leads endpoint reached successfully", 
-            "items": [], 
-            "total": 0, 
-            "page": 1, 
-            "pageSize": 50
-        })
         from server.models_sql import Lead, Business
         from sqlalchemy import or_
         
@@ -613,13 +603,15 @@ def admin_leads():
             'pageSize': page_size
         }
         
-        print(f"🔧 ADMIN_LEADS_END - Returning {len(leads_data)} leads, total: {total}")
-        return jsonify(response_data)
+        return jsonify({
+            'items': leads_data,
+            'total': total,
+            'page': page,
+            'pageSize': page_size
+        })
         
     except Exception as e:
-        print(f"❌ ADMIN_LEADS_ERROR - Error fetching admin leads: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Error fetching admin leads: {e}")
         return jsonify({'error': str(e)}), 500
 
 @admin_bp.route("/api/admin/leads/stats", methods=["GET"])
