@@ -517,6 +517,10 @@ def api_admin_calls():
 def admin_leads():
     """Get all leads across all tenants for admin"""
     try:
+        print(f"🔧 DEBUG session keys: {list(session.keys())}")
+        print(f"🔧 DEBUG session user: {session.get('user')}")
+        print(f"🔧 DEBUG session al_user: {session.get('al_user')}")
+        print(f"🔧 DEBUG session business_id: {session.get('business_id')}")
         from server.models_sql import Lead, Business
         from sqlalchemy import or_
         
