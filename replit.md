@@ -4,7 +4,7 @@ This is AgentLocator, a Hebrew CRM system with AI-powered real-time call process
 
 ## Recent Major Enhancements (September 2025)
 
-### BUILD 44 - Complete Admin Support Management System (September 14, 2025)
+### BUILD 51 - Complete Admin Support Management System (September 14, 2025)
 - **ENHANCED**: AdminSupportPage with complete frontend-backend integration and database persistence
 - **FIXED**: Critical field mapping bugs between frontend and backend API endpoints
 - **EXPANDED**: Phone settings management with WhatsApp integration toggle and emergency voice message support
