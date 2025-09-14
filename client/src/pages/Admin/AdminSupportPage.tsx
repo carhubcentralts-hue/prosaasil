@@ -35,10 +35,11 @@ export function AdminSupportPage() {
   });
 
   const [phoneSettings, setPhoneSettings] = useState({
-    supportPhone: '',
-    emergencyPhone: '',
-    workingHours: '08:00-18:00',
-    voiceMessage: ''
+    phone_e164: '',
+    whatsapp_number: '',
+    whatsapp_enabled: false,
+    working_hours: '08:00-18:00',
+    voice_message: ''
   });
 
   // Update local state when API data loads
@@ -56,10 +57,11 @@ export function AdminSupportPage() {
   useEffect(() => {
     if (phonesApiData) {
       setPhoneSettings({
-        supportPhone: phonesApiData.support_phone || '+972-54-123-4567',
-        emergencyPhone: phonesApiData.emergency_phone || '+972-50-987-6543',
-        workingHours: phonesApiData.working_hours || '08:00-18:00',
-        voiceMessage: phonesApiData.voice_message || 'שלום, הגעתם לתמיכה הטכנית של מערכת ניהול הנדל"ן. אם זה דחוף, לחצו 1. אחרת, השאירו הודעה ונחזור אליכם.'
+        phone_e164: phonesApiData.phone_e164 || '',
+        whatsapp_number: phonesApiData.whatsapp_number || '',
+        whatsapp_enabled: phonesApiData.whatsapp_enabled || false,
+        working_hours: phonesApiData.working_hours || '08:00-18:00',
+        voice_message: phonesApiData.voice_message || 'שלום, הגעתם לתמיכה הטכנית של מערכת ניהול הנדל"ן. אנחנו כאן לעזור לכם.'
       });
     }
   }, [phonesApiData]);
@@ -93,10 +95,11 @@ export function AdminSupportPage() {
     
     try {
       await adminApi.updateSupportPhones({
-        support_phone: phoneSettings.supportPhone,
-        emergency_phone: phoneSettings.emergencyPhone,
-        working_hours: phoneSettings.workingHours,
-        voice_message: phoneSettings.voiceMessage
+        phone_e164: phoneSettings.phone_e164,
+        whatsapp_number: phoneSettings.whatsapp_number,
+        whatsapp_enabled: phoneSettings.whatsapp_enabled,
+        working_hours: phoneSettings.working_hours,
+        voice_message: phoneSettings.voice_message
       });
       setSaveStatus('success');
       refetchPhones(); // Refresh data from server
@@ -305,33 +308,54 @@ export function AdminSupportPage() {
 
             <div className="space-y-6">
               {/* Phone Numbers Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    טלפון תמיכה ראשי
+                    מספר טלפון ראשי
                   </label>
                   <input
                     type="tel"
-                    value={phoneSettings.supportPhone}
-                    onChange={(e) => setPhoneSettings(prev => ({ ...prev, supportPhone: e.target.value }))}
+                    value={phoneSettings.phone_e164}
+                    onChange={(e) => setPhoneSettings(prev => ({ ...prev, phone_e164: e.target.value }))}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                     placeholder="+972-XX-XXX-XXXX"
-                    data-testid="input-support-phone"
+                    data-testid="input-phone-e164"
                   />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    טלפון חירום
+                    מספר ווצאפ
                   </label>
                   <input
                     type="tel"
-                    value={phoneSettings.emergencyPhone}
-                    onChange={(e) => setPhoneSettings(prev => ({ ...prev, emergencyPhone: e.target.value }))}
+                    value={phoneSettings.whatsapp_number}
+                    onChange={(e) => setPhoneSettings(prev => ({ ...prev, whatsapp_number: e.target.value }))}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                     placeholder="+972-XX-XXX-XXXX"
-                    data-testid="input-emergency-phone"
+                    data-testid="input-whatsapp-number"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    ווצאפ מופעל
+                  </label>
+                  <div className="flex items-center h-10">
+                    <label className="flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={phoneSettings.whatsapp_enabled}
+                        onChange={(e) => setPhoneSettings(prev => ({ ...prev, whatsapp_enabled: e.target.checked }))}
+                        className="sr-only"
+                        data-testid="checkbox-whatsapp-enabled"
+                      />
+                      <div className={`relative inline-block h-6 w-11 rounded-full transition-colors duration-300 ${phoneSettings.whatsapp_enabled ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                        <span className={`absolute inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-300 ${phoneSettings.whatsapp_enabled ? 'translate-x-6' : 'translate-x-1'} top-1`}></span>
+                      </div>
+                      <span className="mr-3 text-sm text-slate-700">{phoneSettings.whatsapp_enabled ? 'מופעל' : 'כבוי'}</span>
+                    </label>
+                  </div>
                 </div>
               </div>
 
@@ -342,8 +366,8 @@ export function AdminSupportPage() {
                 </label>
                 <input
                   type="text"
-                  value={phoneSettings.workingHours}
-                  onChange={(e) => setPhoneSettings(prev => ({ ...prev, workingHours: e.target.value }))}
+                  value={phoneSettings.working_hours}
+                  onChange={(e) => setPhoneSettings(prev => ({ ...prev, working_hours: e.target.value }))}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                   placeholder="08:00-18:00"
                   data-testid="input-working-hours"
@@ -356,8 +380,8 @@ export function AdminSupportPage() {
                   הודעה קולית
                 </label>
                 <textarea
-                  value={phoneSettings.voiceMessage}
-                  onChange={(e) => setPhoneSettings(prev => ({ ...prev, voiceMessage: e.target.value }))}
+                  value={phoneSettings.voice_message}
+                  onChange={(e) => setPhoneSettings(prev => ({ ...prev, voice_message: e.target.value }))}
                   className="w-full h-24 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm"
                   placeholder="הכנסו הודעה קולית לתמיכה..."
                   data-testid="textarea-voice-message"

@@ -51,7 +51,7 @@ def create_business():
         data = request.get_json()
         
         # ✅ לפי ההנחיות: name (חובה), phone_e164 (חובה), timezone (ברירת מחדל)
-        required_fields = ['name', 'defaultPhoneE164']  # השם שהפרונטאנד שולח
+        required_fields = ['name', 'phone_e164']  # השם שהפרונטאנד שולח
         for field in required_fields:
             if not data.get(field):
                 return jsonify({"error": "missing_field", "field": field}), 400
@@ -66,9 +66,12 @@ def create_business():
         # Create business - לפי ההנחיות המדויקות
         business = Business()
         business.name = data['name']
-        business.phone_e164 = data['defaultPhoneE164']  # השם שהפרונטאנד שולח
+        business.phone_e164 = data['phone_e164']  # השם שהפרונטאנד שולח
         business.business_type = data.get('business_type', 'real_estate')  # ברירת מחדל
         business.is_active = True
+        # Set default values for new fields
+        business.working_hours = "08:00-18:00"
+        business.voice_message = None  # יהיה default כשמציגים
         db.session.add(business)
         db.session.commit()
         

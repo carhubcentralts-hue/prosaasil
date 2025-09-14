@@ -265,6 +265,55 @@ def apply_migrations():
         migrations_applied.append("add_leads_order_index")
         log.info("Applied migration: add_leads_order_index")
     
+    # Migration 12: Add working_hours and voice_message columns to business table
+    business_columns = [
+        ('working_hours', 'VARCHAR(50)', "'08:00-18:00'"),
+        ('voice_message', 'TEXT', 'NULL')
+    ]
+    
+    for col_name, col_type, default_val in business_columns:
+        if check_table_exists('business') and not check_column_exists('business', col_name):
+            from sqlalchemy import text
+            db.session.execute(text(f"ALTER TABLE business ADD COLUMN {col_name} {col_type} DEFAULT {default_val}"))
+            migrations_applied.append(f"add_business_{col_name}")
+            log.info(f"Applied migration: add_business_{col_name}")
+    
+    # Migration 13: Create business_settings table for AI prompt management
+    if not check_table_exists('business_settings'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE business_settings (
+                tenant_id INTEGER NOT NULL REFERENCES business(id) PRIMARY KEY,
+                ai_prompt TEXT,
+                model VARCHAR(50) DEFAULT 'gpt-4o-mini',
+                max_tokens INTEGER DEFAULT 150,
+                temperature FLOAT DEFAULT 0.7,
+                updated_by VARCHAR(255),
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        migrations_applied.append("create_business_settings_table")
+        log.info("Applied migration: create_business_settings_table")
+    
+    # Migration 14: Create prompt_revisions table for AI prompt versioning
+    if not check_table_exists('prompt_revisions'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE prompt_revisions (
+                id SERIAL PRIMARY KEY,
+                tenant_id INTEGER NOT NULL REFERENCES business(id),
+                version INTEGER NOT NULL,
+                prompt TEXT,
+                changed_by VARCHAR(255),
+                changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        
+        # Create index for (tenant_id, version)
+        db.session.execute(text("CREATE INDEX idx_tenant_version ON prompt_revisions(tenant_id, version)"))
+        migrations_applied.append("create_prompt_revisions_table")
+        log.info("Applied migration: create_prompt_revisions_table")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")

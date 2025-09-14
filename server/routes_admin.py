@@ -810,26 +810,64 @@ def admin_support_prompt():
     from server.models_sql import BusinessSettings
     if request.method == "GET":
         settings = BusinessSettings.query.filter_by(tenant_id=tenant_id).first()
-        return jsonify({"ai_prompt": (settings.ai_prompt if settings and settings.ai_prompt else "")})
+        if settings:
+            return jsonify({
+                "ai_prompt": settings.ai_prompt or "",
+                "model": settings.model or "gpt-4o-mini",
+                "max_tokens": settings.max_tokens or 150,
+                "temperature": settings.temperature or 0.7,
+                "updated_at": settings.updated_at.isoformat() if settings.updated_at else None
+            })
+        else:
+            return jsonify({
+                "ai_prompt": "",
+                "model": "gpt-4o-mini", 
+                "max_tokens": 150,
+                "temperature": 0.7,
+                "updated_at": None
+            })
+    
     data = request.get_json(silent=True) or {}
     prompt = (data.get("ai_prompt") or "").strip()
     if not prompt:
         return jsonify({"error": "ai_prompt is required"}), 400
+    
+    # Get and validate other parameters
+    model = data.get("model", "gpt-4o-mini") or "gpt-4o-mini"
+    max_tokens = int(data.get("max_tokens", 150)) if data.get("max_tokens") else 150
+    temperature = float(data.get("temperature", 0.7)) if data.get("temperature") is not None else 0.7
+    
+    # Validate ranges
+    if max_tokens < 1 or max_tokens > 4000:
+        max_tokens = 150
+    if temperature < 0 or temperature > 2:
+        temperature = 0.7
+        
     settings = BusinessSettings.query.filter_by(tenant_id=tenant_id).first()
     if not settings:
         from datetime import datetime
         settings = BusinessSettings()
         settings.tenant_id = tenant_id
         settings.ai_prompt = prompt
+        settings.model = model
+        settings.max_tokens = max_tokens
+        settings.temperature = temperature
         settings.updated_by = str(getattr(getattr(g, 'user', None), 'id', None))
         settings.updated_at = datetime.utcnow()
         db.session.add(settings)
     else:
         settings.ai_prompt = prompt
+        settings.model = model
+        settings.max_tokens = max_tokens
+        settings.temperature = temperature
         settings.updated_by = str(getattr(getattr(g, 'user', None), 'id', None))
+    
     db.session.commit()
     return jsonify({
         "ai_prompt": settings.ai_prompt,
+        "model": settings.model,
+        "max_tokens": settings.max_tokens,
+        "temperature": settings.temperature,
         "updated_at": settings.updated_at.isoformat() if settings.updated_at else None,
     })
 
@@ -849,6 +887,8 @@ def admin_support_phones():
             "whatsapp_number": biz.whatsapp_number or "",
             "whatsapp_enabled": bool(biz.whatsapp_enabled),
             "calls_enabled": bool(biz.phone_number),
+            "working_hours": biz.working_hours or "08:00-18:00",
+            "voice_message": biz.voice_message or "שלום, הגעתם לתמיכה הטכנית של מערכת ניהול הנדל\"ן. אנחנו כאן לעזור לכם."
         })
     data = request.get_json(silent=True) or {}
     if "phone_e164" in data:
@@ -858,12 +898,18 @@ def admin_support_phones():
         biz.whatsapp_number = (data.get("whatsapp_number") or "").strip() or None
     if "whatsapp_enabled" in data:
         biz.whatsapp_enabled = bool(data.get("whatsapp_enabled"))
+    if "working_hours" in data:
+        biz.working_hours = (data.get("working_hours") or "").strip() or "08:00-18:00"
+    if "voice_message" in data:
+        biz.voice_message = (data.get("voice_message") or "").strip() or None
     db.session.commit()
     return jsonify({
         "phone_e164": biz.phone_number or "",
         "whatsapp_number": biz.whatsapp_number or "",
         "whatsapp_enabled": bool(biz.whatsapp_enabled),
         "calls_enabled": bool(biz.phone_number),
+        "working_hours": biz.working_hours or "08:00-18:00",
+        "voice_message": biz.voice_message or "שלום, הגעתם לתמיכה הטכנית של מערכת ניהול הנדל\"ן. אנחנו כאן לעזור לכם."
     })
 
 

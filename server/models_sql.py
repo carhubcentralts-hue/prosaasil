@@ -23,6 +23,9 @@ class Business(db.Model):
     crm_enabled = db.Column(db.Boolean, default=True)
     payments_enabled = db.Column(db.Boolean, default=False)      # Payment enablement per business
     default_provider = db.Column(db.String(20), default="paypal")  # 'paypal'|'tranzila'
+    # Support settings for admin tenant management
+    working_hours = db.Column(db.String(50), default="08:00-18:00")  # Support working hours
+    voice_message = db.Column(db.Text)  # Custom voice message for support calls
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -70,6 +73,9 @@ class BusinessSettings(db.Model):
     __tablename__ = "business_settings"
     tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), primary_key=True)
     ai_prompt = db.Column(db.Text)
+    model = db.Column(db.String(50), default="gpt-4o-mini")  # AI model for prompts
+    max_tokens = db.Column(db.Integer, default=150)  # Maximum tokens for AI responses
+    temperature = db.Column(db.Float, default=0.7)   # AI temperature setting (0-2)
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
