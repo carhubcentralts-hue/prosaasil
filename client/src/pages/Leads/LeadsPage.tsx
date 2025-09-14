@@ -15,6 +15,12 @@ import { useStatuses } from '../../features/statuses/hooks';
 
 // Dynamic statuses loaded from API
 
+// Safe value helper function as per guidelines
+const safe = (val: any, dash: string = '—'): string => {
+  if (val === null || val === undefined || val === '') return dash;
+  return String(val);
+};
+
 export default function LeadsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<LeadStatus | 'all'>('all');
@@ -223,14 +229,15 @@ export default function LeadsPage() {
   };
 
   return (
-    <div className="p-6 space-y-6" dir="rtl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">לידים</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">ניהול ומעקב אחרי לידים בטבלה מקצועית</p>
-        </div>
-        <div className="flex items-center gap-3">
+    <main className="container mx-auto max-w-screen-md px-4 pb-24 pt-2" dir="rtl">
+      {/* Header - sticky top */}
+      <div className="sticky top-[env(safe-area-inset-top)] z-30 bg-white/80 backdrop-blur -mx-4 px-4 py-3 mb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">לידים</h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">ניהול ומעקב אחרי לידים בטבלה מקצועית</p>
+          </div>
+          <div className="flex items-center gap-3">
           <Button
             onClick={() => setIsStatusModalOpen(true)}
             variant="secondary"
@@ -357,17 +364,19 @@ export default function LeadsPage() {
                 >
                   <TableCell data-testid={`text-name-${lead.id}`}>
                     <div className="font-medium text-gray-900 dark:text-white">
-                      {lead.full_name || `${lead.first_name} ${lead.last_name}`}
+                      {safe(lead.full_name) || safe(`${lead.first_name || ''} ${lead.last_name || ''}`.trim()) || safe(lead.phone_e164)}
                     </div>
                     {lead.email && (
                       <div className="text-xs text-gray-500 dark:text-gray-400">
-                        {lead.email}
+                        {safe(lead.email)}
                       </div>
                     )}
                   </TableCell>
                   
                   <TableCell data-testid={`text-phone-${lead.id}`}>
-                    {lead.display_phone || lead.phone_e164 || 'ללא טלפון'}
+                    <div dir="ltr" className="text-right">
+                      {safe(lead.phone_e164) || safe(lead.display_phone, 'ללא טלפון')}
+                    </div>
                   </TableCell>
                   
                   <TableCell data-testid={`text-status-${lead.id}`}>
@@ -399,10 +408,10 @@ export default function LeadsPage() {
                   
                   <TableCell data-testid={`text-source-${lead.id}`}>
                     <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200">
-                      {lead.source === 'call' ? 'טלפון' : 
-                       lead.source === 'whatsapp' ? 'ווצאפ' :
-                       lead.source === 'form' ? 'טופס' :
-                       lead.source === 'manual' ? 'ידני' : lead.source}
+                      {safe(lead.source) === 'call' || safe(lead.source) === 'phone' ? 'טלפון' : 
+                       safe(lead.source) === 'whatsapp' ? 'ווצאפ' :
+                       safe(lead.source) === 'form' || safe(lead.source) === 'website' ? 'טופס' :
+                       safe(lead.source) === 'manual' ? 'ידני' : safe(lead.source, 'לא ידוע')}
                     </Badge>
                   </TableCell>
                   
@@ -503,6 +512,6 @@ export default function LeadsPage() {
           refreshStatuses(); // Refresh statuses when modal closes
         }}
       />
-    </div>
+    </main>
   );
 }
