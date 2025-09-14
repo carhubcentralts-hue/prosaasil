@@ -31,12 +31,17 @@ interface UseLeadStatsResult {
   refreshStats: () => Promise<void>;
 }
 
-export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
+export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const { user } = useAuth();
+
+  // Stabilize filters dependency to prevent infinite loop
+  const depKey = JSON.stringify(passedFilters || {});
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const filters = passedFilters || {};
 
   const fetchLeads = useCallback(async () => {
     try {
@@ -44,6 +49,13 @@ export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
       console.log('🔄 fetchLeads user:', user);
       setLoading(true);
       setError(null);
+      
+      // Add timeout to prevent infinite hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        console.log('⏱️ fetchLeads timeout - aborting request');
+        controller.abort();
+      }, 10000); // 10 second timeout
 
       // Build query parameters
       const params = new URLSearchParams();
@@ -69,27 +81,40 @@ export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
 
       const queryString = params.toString();
       // Use admin endpoint for admin/manager roles to see all tenants' leads
-      const isAdmin = user?.role === 'admin' || user?.role === 'manager';
       const url = isAdmin 
         ? `/api/admin/leads${queryString ? `?${queryString}` : ''}`
         : `/api/leads${queryString ? `?${queryString}` : ''}`;
       
       console.log('🔄 fetchLeads calling URL:', url, 'isAdmin:', isAdmin);
-      const response = await http.get<{leads?: Lead[], items?: Lead[], total: number}>(url);
+      const response = await http.get<{leads?: Lead[], items?: Lead[], total: number}>(url, {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      console.log('✅ fetchLeads got response:', response);
       
       // Handle both regular endpoint (leads) and admin endpoint (items) response formats
       const leadsList = response.leads || response.items || [];
       setLeads(leadsList);
       setTotal(response.total || leadsList.length);
     } catch (err) {
-      console.error('Failed to fetch leads:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch leads');
+      console.error('❌ Failed to fetch leads:', err);
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          console.log('⏹️ Request was aborted due to timeout');
+          setError('Request timeout - please try again');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('Failed to fetch leads');
+      }
       setLeads([]);
       setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [depKey, isAdmin]);
 
   const createLead = useCallback(async (leadData: Partial<CreateLeadRequest>): Promise<Lead> => {
     try {

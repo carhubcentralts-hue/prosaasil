@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Plus, Search, Filter, MoreHorizontal } from 'lucide-react';
 import {
   DndContext,
@@ -45,6 +45,12 @@ export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
 
+  // Memoize filters to prevent infinite loop
+  const filters = useMemo(() => ({
+    search: searchQuery,
+    status: selectedStatus === 'all' ? undefined : selectedStatus,
+  }), [searchQuery, selectedStatus]);
+
   const {
     leads,
     loading,
@@ -53,10 +59,7 @@ export default function LeadsPage() {
     updateLead,
     moveLead,
     refreshLeads,
-  } = useLeads({
-    search: searchQuery,
-    status: selectedStatus === 'all' ? undefined : selectedStatus,
-  });
+  } = useLeads(filters);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {

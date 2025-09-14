@@ -446,68 +446,8 @@ def create_reminder(lead_id):
     }), 201
 
 # === ADMIN ENDPOINTS ===
-
-
-@leads_bp.route("/api/admin/leads", methods=["GET"])
-@require_api_auth(["admin", "manager"])
-def admin_list_leads():
-    """Admin endpoint - list leads from all tenants"""
-    # Access user from g instead of session
-    user = g.user
-    
-    # Same filtering as regular endpoint but without tenant restriction
-    page = int(request.args.get('page', 1))
-    page_size = min(int(request.args.get('pageSize', 50)), 100)
-    
-    query = Lead.query  # Business info loaded separately to avoid joinedload issues
-    
-    # Apply filters (similar to list_leads but without tenant restriction)
-    if request.args.get('status'):
-        query = query.filter(Lead.status == request.args.get('status'))
-    
-    if request.args.get('q'):
-        search_term = f"%{request.args.get('q')}%"
-        query = query.filter(
-            or_(
-                Lead.first_name.ilike(search_term),
-                Lead.last_name.ilike(search_term),
-                Lead.phone_e164.ilike(search_term),
-                Lead.email.ilike(search_term)
-            )
-        )
-    
-    # Order and paginate
-    query = query.order_by(desc(Lead.updated_at))
-    offset = (page - 1) * page_size
-    total = query.count()
-    leads = query.offset(offset).limit(page_size).all()
-    
-    # Format response with tenant info
-    items = []
-    for lead in leads:
-        tenant_info = Business.query.get(lead.tenant_id)
-        
-        items.append({
-            "id": lead.id,
-            "first_name": lead.first_name,
-            "last_name": lead.last_name,
-            "full_name": lead.full_name,
-            "phone_e164": lead.phone_e164,
-            "email": lead.email,
-            "status": lead.status,
-            "source": lead.source,
-            "created_at": lead.created_at.isoformat() if lead.created_at else None,
-            "tenant_id": lead.tenant_id,
-            "tenant_name": tenant_info.name if tenant_info else "Unknown"
-        })
-    
-    return jsonify({
-        "items": items,
-        "total": total,
-        "page": page,
-        "pageSize": page_size,
-        "totalPages": (total + page_size - 1) // page_size
-    })
+# Note: Admin leads endpoint moved to routes_admin.py to avoid duplicate route conflict
+# REMOVED: Duplicate /api/admin/leads route was here - now only in routes_admin.py
 
 @leads_bp.route("/api/leads/<int:lead_id>/move", methods=["PATCH"])
 def move_lead_in_kanban(lead_id):

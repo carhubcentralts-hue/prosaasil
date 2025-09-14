@@ -1,0 +1,604 @@
+
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/overview
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/calls
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/whatsapp
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/businesses
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/revenue
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/overview
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/overview
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/calls
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/whatsapp
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/tenants
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/calls
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads/stats
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/phone-numbers
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/prompts
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/support/profile
+  {'OPTIONS', 'HEAD', 'GET', 'PUT'} /api/admin/support/prompt
+  {'OPTIONS', 'HEAD', 'GET', 'PUT'} /api/admin/support/phones
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads/<thread_id>/messages
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/customers
+  {'OPTIONS', 'HEAD', 'GET'} /api/calls/active
+  {'OPTIONS', 'HEAD', 'GET'} /api/calls/history
+  {'OPTIONS', 'POST'} /api/crm/payments/create
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/success
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/cancel
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/tranzila/return/success
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/tranzila/return/fail
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/invoices/<invoice_number>
+  {'OPTIONS', 'POST'} /api/crm/contracts/sign
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/deals
+  {'OPTIONS', 'POST'} /api/crm/deals
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/business/<int:business_id>
+  {'OPTIONS', 'POST'} /api/admin/business
+  {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id>
+  {'OPTIONS', 'POST'} /api/admin/business/<int:business_id>/change-password
+  {'OPTIONS', 'POST'} /api/admin/user
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/user/<int:user_id>
+  {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id>
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/change-password
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/toggle-status
+  {'OPTIONS', 'POST'} /api/admin/businesses/<int:business_id>/impersonate
+  {'OPTIONS', 'POST'} /api/admin/impersonate/exit
+  {'OPTIONS', 'HEAD', 'GET'} /webhook/incoming_call_preview
+  {'OPTIONS', 'POST'} /webhook/incoming_call
+  {'OPTIONS', 'POST'} /webhook/stream_ended
+  {'OPTIONS', 'POST'} /webhook/handle_recording
+  {'OPTIONS', 'POST'} /webhook/stream_status
+  {'OPTIONS', 'POST'} /webhook/call_status
+  {'OPTIONS', 'HEAD', 'POST', 'GET'} /webhook/test
+  {'OPTIONS', 'HEAD', 'GET'} /webhook/test_media_streams_1756667590
+  {'OPTIONS', 'HEAD', 'GET'} /api/calendar/appointments
+  {'OPTIONS', 'POST'} /api/calendar/appointments
+  {'OPTIONS', 'HEAD', 'GET'} /api/calendar/appointments/<int:appointment_id>
+  {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id>
+  {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id>
+  {'OPTIONS', 'HEAD', 'GET'} /api/calendar/stats
+  {'OPTIONS', 'HEAD', 'GET'} /api/leads
+  {'OPTIONS', 'POST'} /api/leads
+  {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/move
+  {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+  {'OPTIONS', 'HEAD', 'GET'} /api/reminders/due
+  {'PATCH', 'OPTIONS'} /api/leads/bulk
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp
+  {'OPTIONS', 'HEAD', 'GET'} /api/dashboard/stats
+  {'OPTIONS', 'HEAD', 'GET'} /api/dashboard/activity
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/stats
+  {'OPTIONS', 'HEAD', 'GET'} /healthz
+  {'OPTIONS', 'HEAD', 'GET'} /readyz
+  {'OPTIONS', 'HEAD', 'GET'} /version
+  {'OPTIONS', 'HEAD', 'GET'} /livez
+  {'OPTIONS', 'HEAD', 'GET'} /app/admin
+  {'OPTIONS', 'HEAD', 'GET'} /app/biz
+  {'OPTIONS', 'HEAD', 'GET'} /ui/admin/overview
+  {'OPTIONS', 'HEAD', 'GET'} /ui/admin/switch_business
+  {'OPTIONS', 'HEAD', 'GET'} /ui/admin/tenants/new
+  {'OPTIONS', 'HEAD', 'GET'} /ui/admin/users/new
+  {'OPTIONS', 'HEAD', 'GET'} /ui/admin/tenants
+  {'OPTIONS', 'HEAD', 'GET'} /ui/admin/users
+  {'OPTIONS', 'HEAD', 'GET'} /ui/whatsapp/threads
+  {'OPTIONS', 'HEAD', 'GET'} /ui/whatsapp/messages
+  {'OPTIONS', 'POST'} /ui/whatsapp/send
+  {'OPTIONS', 'HEAD', 'GET'} /ui/calls/active
+  {'OPTIONS', 'HEAD', 'GET'} /ui/calls/history
+  {'OPTIONS', 'HEAD', 'GET'} /ui/biz/contacts
+  {'OPTIONS', 'HEAD', 'GET'} /ui/biz/contacts/new
+  {'OPTIONS', 'HEAD', 'GET'} /ui/biz/users/new
+  {'OPTIONS', 'HEAD', 'GET'} /ui/biz/users
+  {'OPTIONS', 'POST'} /api/ui/login
+  {'OPTIONS', 'HEAD', 'POST', 'GET'} /api/ui/logout
+  {'OPTIONS', 'POST'} /api/admin/tenants
+  {'OPTIONS', 'POST'} /api/admin/users
+  {'OPTIONS', 'POST'} /api/biz/users
+  {'OPTIONS', 'POST'} /api/crm/contacts
+  {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id>
+  {'OPTIONS', 'POST'} /admin/stop-impersonate
+  {'OPTIONS', 'HEAD', 'GET'} /biz/invoices
+  {'OPTIONS', 'HEAD', 'GET'} /biz/contracts
+  {'OPTIONS', 'HEAD', 'GET'} /logout
+  {'OPTIONS', 'HEAD', 'GET'} /unauthorized
+  {'OPTIONS', 'HEAD', 'GET'} /test-websocket-version
+🔍 Route registration complete
+🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+✅ Health routes handled by health_endpoints.py blueprint
+✅ Factory debug route registered: /debug-factory-http
+✅ /healthz route added directly to app_factory
+🆘 Emergency healthz-direct route added
+✅ WhatsApp routes removed - using unified only
+FE_DIST = /home/runner/workspace/client/dist mtime = 1757876529.1393778
+🔧 Database migrations skipped (set RUN_MIGRATIONS_ON_START=1 to enable)
+🔧 Server will start immediately without blocking on DB operations
+🔧 Warmup disabled for debugging
+
+=== URL MAP ===
+  {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id> -> ui.admin_impersonate_business
+  {'OPTIONS', 'POST'} /api/admin/business -> business_management.create_business
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/business/<int:business_id> -> business_management.get_business
+  {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id> -> business_management.update_business
+  {'OPTIONS', 'POST'} /api/admin/business/<int:business_id>/change-password -> business_management.change_business_password
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses -> admin_bp.api_admin_businesses
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses -> api_adapter.admin_businesses
+  {'OPTIONS', 'POST'} /api/admin/businesses/<int:business_id>/impersonate -> business_management.impersonate_business
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/overview -> admin_bp.get_business_overview
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.get_business_prompt
+  {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.update_business_prompt
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/prompt/history -> ai_prompt.get_prompt_history
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/prompts -> admin_bp.admin_businesses_prompts
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/calls -> admin_bp.api_admin_calls
+  {'OPTIONS', 'POST'} /api/admin/impersonate/exit -> business_management.exit_impersonation
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/businesses -> admin_bp.api_kpis_businesses
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/calls -> admin_bp.api_kpis_calls
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/calls -> admin_bp.api_admin_kpis_calls
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/overview -> admin_bp.api_admin_kpis_overview
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/revenue -> admin_bp.api_kpis_revenue
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/whatsapp -> admin_bp.api_kpis_whatsapp
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/whatsapp -> admin_bp.api_admin_kpis_whatsapp
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads -> admin_bp.admin_leads
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads -> leads_bp.admin_list_leads
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads/stats -> admin_bp.admin_leads_stats
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/overview -> admin_bp.api_overview
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/phone-numbers -> admin_bp.admin_phone_numbers
+  {'OPTIONS', 'POST'} /api/admin/run-migrations -> run_migrations_endpoint
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/stats -> api_adapter.admin_stats
+  {'OPTIONS', 'HEAD', 'GET', 'PUT'} /api/admin/support/phones -> admin_bp.admin_support_phones
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/support/profile -> admin_bp.admin_support_profile
+  {'OPTIONS', 'HEAD', 'GET', 'PUT'} /api/admin/support/prompt -> admin_bp.admin_support_prompt
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/tenants -> admin_bp.api_tenants
+  {'OPTIONS', 'POST'} /api/admin/tenants -> ui.api_admin_tenants_create
+  {'OPTIONS', 'POST'} /api/admin/user -> business_management.create_user
+  {'OPTIONS', 'HEAD', 'GET'} /api/admin/user/<int:user_id> -> business_management.get_user
+  {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id> -> business_management.update_user
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/change-password -> business_management.change_user_password
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/toggle-status -> business_management.toggle_user_status
+  {'OPTIONS', 'POST'} /api/admin/users -> ui.api_admin_users_create
+  {'OPTIONS', 'HEAD', 'GET'} /api/auth/csrf -> auth_api.get_csrf
+  {'OPTIONS', 'HEAD', 'GET'} /api/auth/current -> auth_api.get_current_user_legacy
+  {'OPTIONS', 'POST'} /api/auth/forgot -> auth_api.forgot_password
+  {'OPTIONS', 'POST'} /api/auth/login -> auth_api.login
+  {'OPTIONS', 'POST'} /api/auth/logout -> auth_api.logout
+  {'OPTIONS', 'HEAD', 'GET'} /api/auth/me -> auth_api.get_current_user
+  {'OPTIONS', 'POST'} /api/auth/reset -> auth_api.reset_password
+  {'OPTIONS', 'POST'} /api/biz/users -> ui.api_biz_users_create
+  {'OPTIONS', 'HEAD', 'GET'} /api/business/current/prompt -> ai_prompt.get_current_business_prompt
+  {'OPTIONS', 'PUT'} /api/business/current/prompt -> ai_prompt.update_current_business_prompt
+  {'OPTIONS', 'HEAD', 'GET'} /api/business/current/prompt/history -> ai_prompt.get_current_prompt_history
+  {'OPTIONS', 'HEAD', 'GET'} /api/calendar/appointments -> calendar.get_appointments
+  {'OPTIONS', 'POST'} /api/calendar/appointments -> calendar.create_appointment
+  {'OPTIONS', 'HEAD', 'GET'} /api/calendar/appointments/<int:appointment_id> -> calendar.get_appointment
+  {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id> -> calendar.update_appointment
+  {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id> -> calendar.delete_appointment
+  {'OPTIONS', 'HEAD', 'GET'} /api/calendar/stats -> calendar.get_calendar_stats
+  {'OPTIONS', 'HEAD', 'GET'} /api/calls/active -> crm_bp.api_active_calls
+  {'OPTIONS', 'HEAD', 'GET'} /api/calls/history -> crm_bp.api_call_history
+  {'OPTIONS', 'POST'} /api/crm/contacts -> ui.api_crm_contacts_create
+  {'OPTIONS', 'POST'} /api/crm/contracts/sign -> crm_bp.contract_sign
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/customers -> crm_bp.api_customers
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/deals -> crm_bp.list_deals
+  {'OPTIONS', 'POST'} /api/crm/deals -> crm_bp.create_deal
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/invoices/<invoice_number> -> crm_bp.get_invoice
+  {'OPTIONS', 'POST'} /api/crm/payments/create -> crm_bp.payments_create
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/cancel -> crm_bp.paypal_cancel
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/success -> crm_bp.paypal_success
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/tranzila/return/fail -> crm_bp.tranzila_fail
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/tranzila/return/success -> crm_bp.tranzila_success
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads -> crm_bp.api_threads
+  {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads/<thread_id>/messages -> crm_bp.api_thread_messages
+  {'OPTIONS', 'HEAD', 'GET'} /api/dashboard/activity -> api_adapter.dashboard_activity
+  {'OPTIONS', 'HEAD', 'GET'} /api/dashboard/stats -> api_adapter.dashboard_stats
+  {'OPTIONS', 'HEAD', 'GET'} /api/leads -> leads_bp.list_leads
+  {'OPTIONS', 'POST'} /api/leads -> leads_bp.create_lead
+  {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id> -> leads_bp.get_lead_detail
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id> -> leads_bp.update_lead
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp -> leads_bp.send_whatsapp_message
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/move -> leads_bp.move_lead_in_kanban
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders -> leads_bp.create_reminder
+  {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.get_reminder
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.update_reminder
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status -> leads_bp.update_lead_status
+  {'PATCH', 'OPTIONS'} /api/leads/bulk -> leads_bp.bulk_update_leads
+  {'OPTIONS', 'HEAD', 'GET'} /api/reminders/due -> leads_bp.get_due_reminders
+  {'OPTIONS', 'POST'} /api/ui/login -> ui.api_login
+  {'OPTIONS', 'HEAD', 'POST', 'GET'} /api/ui/logout -> ui.api_logout
+  {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/conversation/<phone_number> -> whatsapp_unified.get_conversation_history
+  {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/conversations -> whatsapp_unified.get_conversations
+  {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/messages -> whatsapp_unified.get_messages
+  {'OPTIONS', 'POST'} /api/whatsapp/send -> whatsapp_unified.send_message
+  {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/templates -> whatsapp_unified.get_templates
+  {'OPTIONS', 'POST'} /api/whatsapp/window-check -> whatsapp_unified.check_messaging_window
+================
+✅ Simple SPA routes registered (no blueprint)
+✅ Flask app context initialized successfully
+✅ EventLet Composite WSGI ready
+📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com
+🌐 All other routes → Flask app
+[2025-09-14 19:09:29 +0000] [6230] [INFO] Starting gunicorn 21.2.0
+[2025-09-14 19:09:29 +0000] [6230] [INFO] Listening at: http://0.0.0.0:5000 (6230)
+[2025-09-14 19:09:29 +0000] [6230] [INFO] Using worker: eventlet
+[2025-09-14 19:09:29 +0000] [6243] [INFO] Booting worker with pid: 6243
+[2025-09-14 19:09:29 +0000] [6230] [INFO] Handling signal: winch
+🔍 WSGI Route: GET /
+🌐 Routing to Flask app: /
+10.81.5.26 - - [14/Sep/2025:19:09:30 +0000] "GET / HTTP/1.1" 200 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/__replco/workspace_iframe.html?initialPath=%2F&id=%3Arr6%3A" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /assets/index-Dc3Nb2Nn.css
+🌐 Routing to Flask app: /assets/index-Dc3Nb2Nn.css
+10.81.7.28 - - [14/Sep/2025:19:09:31 +0000] "GET /assets/index-Dc3Nb2Nn.css HTTP/1.1" 200 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /assets/index-0vmwCRt2.js
+🌐 Routing to Flask app: /assets/index-0vmwCRt2.js
+10.81.2.60 - - [14/Sep/2025:19:09:31 +0000] "GET /assets/index-0vmwCRt2.js HTTP/1.1" 200 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/auth/csrf
+🌐 Routing to Flask app: /api/auth/csrf
+10.81.2.60 - - [14/Sep/2025:19:09:32 +0000] "GET /api/auth/csrf HTTP/1.1" 200 60 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/auth/me
+🌐 Routing to Flask app: /api/auth/me
+10.81.2.60 - - [14/Sep/2025:19:09:32 +0000] "GET /api/auth/me HTTP/1.1" 401 30 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: POST /api/auth/login
+🌐 Routing to Flask app: /api/auth/login
+10.81.2.60 - - [14/Sep/2025:19:10:18 +0000] "POST /api/auth/login HTTP/1.1" 200 313 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/auth/csrf
+🌐 Routing to Flask app: /api/auth/csrf
+10.81.2.60 - - [14/Sep/2025:19:10:18 +0000] "GET /api/auth/csrf HTTP/1.1" 200 60 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/businesses
+🌐 Routing to Flask app: /api/admin/businesses
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', 'al_user', 'token', 'user', '_session_start']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+🔍 WSGI Route: GET /api/admin/phone-numbers
+🌐 Routing to Flask app: /api/admin/phone-numbers
+🔍 WSGI Route: GET /api/admin/leads/stats
+🌐 Routing to Flask app: /api/admin/leads/stats
+10.81.11.64 - - [14/Sep/2025:19:10:19 +0000] "GET /api/admin/phone-numbers HTTP/1.1" 200 721 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.5.26 - - [14/Sep/2025:19:10:19 +0000] "GET /api/admin/leads/stats HTTP/1.1" 200 67 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.2.60 - - [14/Sep/2025:19:10:19 +0000] "GET /api/admin/businesses?pageSize=1 HTTP/1.1" 200 433 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.7.28 - - [14/Sep/2025:19:10:19 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/overview
+🌐 Routing to Flask app: /api/admin/overview
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:20 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.11.64 - - [14/Sep/2025:19:10:20 +0000] "GET /api/admin/overview?time_filter=today&start_date=2025-09-14&end_date=2025-09-14 HTTP/1.1" 200 345 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.7.28 - - [14/Sep/2025:19:10:20 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:21 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.7.28 - - [14/Sep/2025:19:10:21 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:22 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.7.28 - - [14/Sep/2025:19:10:22 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.2.60 - - [14/Sep/2025:19:10:22 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.7.28 - - [14/Sep/2025:19:10:23 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.11.64 - - [14/Sep/2025:19:10:23 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.7.28 - - [14/Sep/2025:19:10:23 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.2.60 - - [14/Sep/2025:19:10:23 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:24 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.7.28 - - [14/Sep/2025:19:10:24 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:24 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:25 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.7.28 - - [14/Sep/2025:19:10:25 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1226 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.2.60 - - [14/Sep/2025:19:10:25 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:26 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:26 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:27 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:27 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:28 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:28 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:29 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:29 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:29 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:30 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:30 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:31 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:31 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+^[[B^[[B10.81.2.60 - - [14/Sep/2025:19:10:32 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B^[[B^[[B🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+^[[B^[[B10.81.11.64 - - [14/Sep/2025:19:10:32 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:33 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:33 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:34 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+^[[B10.81.11.64 - - [14/Sep/2025:19:10:34 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+^[[B10.81.2.60 - - [14/Sep/2025:19:10:35 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B^[[B^[[B🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+^[[B^[[B10.81.11.64 - - [14/Sep/2025:19:10:35 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:36 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:36 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+^[[B10.81.2.60 - - [14/Sep/2025:19:10:37 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+^[[B^[[B10.81.11.64 - - [14/Sep/2025:19:10:37 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B^[[B🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+^[[B🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+^[[B^[[B10.81.2.60 - - [14/Sep/2025:19:10:38 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B^[[B^[[B🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+^[[B^[[B^[[B10.81.11.64 - - [14/Sep/2025:19:10:38 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B^[[B🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+^[[B^[[B^[[B10.81.2.60 - - [14/Sep/2025:19:10:39 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:39 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.2.60 - - [14/Sep/2025:19:10:40 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔧 DEBUG session keys: ['_csrf_token', '_last_activity', '_session_start', 'al_user', 'token', 'user']
+🔧 DEBUG session user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session al_user: {'business_id': 1, 'email': 'admin@shai-realestate.co.il', 'id': 7, 'name': 'מנהל מערכת', 'role': 'admin'}
+🔧 DEBUG session business_id: None
+10.81.11.64 - - [14/Sep/2025:19:10:40 +0000] "GET /api/admin/leads HTTP/1.1" 200 1227 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/leads" "Mozilla/5.0 (Maci
