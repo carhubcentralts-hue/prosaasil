@@ -257,6 +257,7 @@ export default function LeadsPage() {
             ליד חדש
           </Button>
         </div>
+        </div>
       </div>
 
       {/* Filters */}
