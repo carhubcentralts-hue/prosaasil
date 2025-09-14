@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { http } from '../../../services/http';
+import { useAuth } from '../../../features/auth/hooks';
 import { Lead, LeadFilters, CreateLeadRequest, UpdateLeadRequest, MoveLeadRequest } from '../types';
 
 interface UseLeadsResult {
@@ -19,6 +20,7 @@ export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
+  const { user } = useAuth();
 
   const fetchLeads = useCallback(async () => {
     try {
@@ -48,16 +50,18 @@ export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
       }
 
       const queryString = params.toString();
-      const url = `/api/leads${queryString ? `?${queryString}` : ''}`;
+      // Use admin endpoint for admin/manager roles to see all tenants' leads
+      const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+      const url = isAdmin 
+        ? `/api/admin/leads${queryString ? `?${queryString}` : ''}`
+        : `/api/leads${queryString ? `?${queryString}` : ''}`;
       
-      const response = await http.get<{leads: Lead[], total: number}>(url);
+      const response = await http.get<{leads?: Lead[], items?: Lead[], total: number}>(url);
       
-      if (response.leads) {
-        setLeads(response.leads);
-        setTotal(response.total || response.leads.length);
-      } else {
-        throw new Error('Invalid response format');
-      }
+      // Handle both regular endpoint (leads) and admin endpoint (items) response formats
+      const leadsList = response.leads || response.items || [];
+      setLeads(leadsList);
+      setTotal(response.total || leadsList.length);
     } catch (err) {
       console.error('Failed to fetch leads:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch leads');

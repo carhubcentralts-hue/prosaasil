@@ -12,12 +12,17 @@ import {
   Activity,
   CalendarDays,
   Filter,
-  Loader2
+  Loader2,
+  Users,
+  User,
+  ArrowRight
 } from 'lucide-react';
 import { Card, StatCard, Badge } from '../../shared/components/ui/Card';
 import { QuickManagementActions } from '../../shared/components/ui/ManagementCard';
 import { cn } from '../../shared/utils/cn';
 import { useAdminOverview, getDateRangeForFilter } from '../../features/admin/hooks';
+import { useLeads } from '../Leads/hooks/useLeads';
+import { useNavigate } from 'react-router-dom';
 
 // Removed mock data - now using real API calls
 
@@ -379,9 +384,134 @@ export function AdminHomePage() {
           />
         </div>
 
+        {/* Leads Dashboard */}
+        <div className="mb-6">
+          <LeadsDashboardCard />
+        </div>
+
         {/* Recent Activity */}
         <RecentActivityCard recentActivity={overviewData?.recent_activity} />
       </div>
     </div>
+  );
+}
+
+// New Leads Dashboard Card
+function LeadsDashboardCard() {
+  const navigate = useNavigate();
+  const { leads, loading, total } = useLeads({ pageSize: 5 }); // Get latest 5 leads
+  
+  // Calculate stats from leads
+  const stats = useMemo(() => {
+    const newLeads = leads.filter(lead => lead.status === 'New').length;
+    const inProgress = leads.filter(lead => ['Attempting', 'Contacted'].includes(lead.status)).length;
+    const qualified = leads.filter(lead => lead.status === 'Qualified').length;
+    const won = leads.filter(lead => lead.status === 'Won').length;
+    
+    return { newLeads, inProgress, qualified, won, total };
+  }, [leads, total]);
+
+  if (loading) {
+    return (
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-slate-900">לידים</h3>
+          <Users className="h-5 w-5 text-slate-400" />
+        </div>
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+          <span className="text-slate-600 mr-2">טוען לידים...</span>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-slate-900">לידים</h3>
+        <button 
+          onClick={() => navigate('/app/leads')}
+          className="flex items-center gap-1 text-blue-600 hover:text-blue-700 text-sm font-medium"
+        >
+          ראה הכל <ArrowRight className="h-4 w-4" />
+        </button>
+      </div>
+      
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="text-center">
+          <div className="text-2xl font-bold text-blue-600">{stats.newLeads}</div>
+          <div className="text-xs text-slate-600">חדשים</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-yellow-600">{stats.inProgress}</div>
+          <div className="text-xs text-slate-600">בתהליך</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-green-600">{stats.qualified}</div>
+          <div className="text-xs text-slate-600">מוכשרים</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-emerald-600">{stats.won}</div>
+          <div className="text-xs text-slate-600">זכיות</div>
+        </div>
+      </div>
+
+      {/* Recent Leads List */}
+      <div className="space-y-3">
+        <h4 className="text-sm font-medium text-slate-700 mb-3">לידים אחרונים</h4>
+        {leads.length > 0 ? leads.slice(0, 3).map((lead) => (
+          <div key={lead.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
+            <div className="flex items-center gap-3">
+              <User className="h-4 w-4 text-slate-400" />
+              <div>
+                <div className="text-sm font-medium text-slate-900">{lead.full_name || 'ללא שם'}</div>
+                <div className="text-xs text-slate-600">{lead.phone_e164}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge 
+                variant={lead.status === 'New' ? 'neutral' : 
+                        lead.status === 'Won' ? 'success' : 'warning'}
+                className="text-xs"
+              >
+                {lead.status === 'New' ? 'חדש' :
+                 lead.status === 'Attempting' ? 'בניסיון קשר' :
+                 lead.status === 'Contacted' ? 'נוצר קשר' :
+                 lead.status === 'Qualified' ? 'מוכשר' :
+                 lead.status === 'Won' ? 'זכיה' :
+                 lead.status === 'Lost' ? 'אובדן' : lead.status}
+              </Badge>
+              {(lead as any).tenant_name && (
+                <div className="text-xs text-slate-500">{(lead as any).tenant_name}</div>
+              )}
+            </div>
+          </div>
+        )) : (
+          <div className="text-center py-8 text-slate-500">
+            <Users className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+            <p>אין לידים עדיין</p>
+            <button 
+              onClick={() => navigate('/app/leads')}
+              className="text-blue-600 hover:text-blue-700 text-sm mt-2"
+            >
+              ראה את דף הלידים
+            </button>
+          </div>
+        )}
+      </div>
+      
+      {leads.length > 0 && (
+        <div className="mt-4 text-center">
+          <button 
+            onClick={() => navigate('/app/leads')}
+            className="btn-ghost text-sm"
+          >
+            ראה את כל הלידים ({stats.total})
+          </button>
+        </div>
+      )}
+    </Card>
   );
 }
