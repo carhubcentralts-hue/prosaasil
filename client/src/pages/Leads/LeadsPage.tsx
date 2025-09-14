@@ -1,30 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Filter, MoreHorizontal } from 'lucide-react';
-import {
-  DndContext,
-  DragEndEvent,
-  DragOverEvent,
-  DragStartEvent,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  closestCorners,
-  pointerWithin,
-  useDroppable,
-} from '@dnd-kit/core';
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  arrayMove,
-} from '@dnd-kit/sortable';
+import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2 } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
-import LeadCard from './components/LeadCard';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../shared/components/ui/Table';
+import { Select, SelectOption } from '../../shared/components/ui/Select';
 import LeadCreateModal from './components/LeadCreateModal';
 import LeadDetailModal from './components/LeadDetailModal';
-import KanbanColumn from './components/KanbanColumn';
 import { useLeads } from './hooks/useLeads';
 import { Lead, LeadStatus } from './types';
 
@@ -43,7 +26,9 @@ export default function LeadsPage() {
   const [selectedStatus, setSelectedStatus] = useState<LeadStatus | 'all'>('all');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'status'>('created_at');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [editingStatus, setEditingStatus] = useState<number | null>(null);
 
   // Memoize filters to prevent infinite loop
   const filters = useMemo(() => ({
@@ -57,125 +42,102 @@ export default function LeadsPage() {
     error,
     createLead,
     updateLead,
-    moveLead,
+    deleteLead,
     refreshLeads,
   } = useLeads(filters);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    })
-  );
+  // Sort and filter leads
+  const sortedLeads = useMemo(() => {
+    const statusOrder = STATUSES.reduce((acc, status, index) => {
+      acc[status.key] = index;
+      return acc;
+    }, {} as Record<LeadStatus, number>);
 
-  // Group leads by status
-  const leadsByStatus = STATUSES.reduce((acc, status) => {
-    acc[status.key] = leads.filter(lead => lead.status === status.key);
-    return acc;
-  }, {} as Record<LeadStatus, Lead[]>);
-
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(event.active.id as string);
-  };
-
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
-    
-    if (!over) {
-      setActiveId(null);
-      return;
-    }
-
-    const activeId = active.id as string;
-    const overId = over.id as string;
-
-    // Find the lead being dragged
-    const draggedLead = leads.find(lead => lead.id.toString() === activeId);
-    if (!draggedLead) {
-      setActiveId(null);
-      return;
-    }
-
-    // Check if we're dropping on a status column (droppable container)
-    const isDroppableContainer = overId.startsWith('droppable-status-');
-    const isLeadCard = !isDroppableContainer;
-
-    if (isDroppableContainer) {
-      // Moving to a different status column
-      const newStatus = overId.replace('droppable-status-', '') as LeadStatus;
+    const sorted = [...leads].sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
       
-      if (newStatus !== draggedLead.status) {
-        const targetLeads = leadsByStatus[newStatus];
-        const afterId = targetLeads.length > 0 ? targetLeads[targetLeads.length - 1].id : undefined;
-        
-        try {
-          await moveLead(draggedLead.id, {
-            status: newStatus,
-            afterId,
-          });
-          await refreshLeads();
-        } catch (error) {
-          console.error('Failed to move lead:', error);
-        }
+      if (sortBy === 'name') {
+        aValue = a.full_name || `${a.first_name} ${a.last_name}`;
+        bValue = b.full_name || `${b.first_name} ${b.last_name}`;
+      } else if (sortBy === 'status') {
+        aValue = statusOrder[a.status];
+        bValue = statusOrder[b.status];
+      } else if (sortBy === 'created_at') {
+        aValue = new Date(a.created_at).getTime();
+        bValue = new Date(b.created_at).getTime();
       }
-    } else if (isLeadCard) {
-      // Handle drops on lead cards - both same column reordering and cross-column moves
-      const targetLead = leads.find(lead => lead.id.toString() === overId);
-      if (targetLead) {
-        if (targetLead.status === draggedLead.status) {
-          // Reordering within the same column
-          const status = draggedLead.status;
-          const statusLeads = leadsByStatus[status];
-          const oldIndex = statusLeads.findIndex(lead => lead.id.toString() === activeId);
-          const newIndex = statusLeads.findIndex(lead => lead.id.toString() === overId);
+      
+      if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    
+    return sorted;
+  }, [leads, sortBy, sortOrder]);
 
-          if (oldIndex !== newIndex && oldIndex !== -1 && newIndex !== -1) {
-            const reorderedLeads = arrayMove(statusLeads, oldIndex, newIndex);
-            const beforeId = newIndex > 0 ? reorderedLeads[newIndex - 1].id : undefined;
-            const afterId = newIndex < reorderedLeads.length - 1 ? reorderedLeads[newIndex + 1].id : undefined;
-
-            try {
-              await moveLead(draggedLead.id, {
-                status,
-                beforeId,
-                afterId,
-              });
-              await refreshLeads();
-            } catch (error) {
-              console.error('Failed to reorder lead:', error);
-            }
-          }
-        } else {
-          // Cross-column move: move to target status and position relative to target lead
-          const newStatus = targetLead.status;
-          const targetStatusLeads = leadsByStatus[newStatus];
-          const targetIndex = targetStatusLeads.findIndex(lead => lead.id === targetLead.id);
-          
-          // Place after the target lead
-          const afterId = targetLead.id;
-          const beforeId = targetIndex < targetStatusLeads.length - 1 ? 
-            targetStatusLeads[targetIndex + 1].id : undefined;
-
-          try {
-            await moveLead(draggedLead.id, {
-              status: newStatus,
-              beforeId,
-              afterId,
-            });
-            await refreshLeads();
-          } catch (error) {
-            console.error('Failed to move lead to new status:', error);
-          }
-        }
-      }
+  const handleSort = (column: 'name' | 'created_at' | 'status') => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(column);
+      setSortOrder('asc');
     }
-
-    setActiveId(null);
   };
 
-  const handleLeadClick = (lead: Lead) => {
-    setSelectedLead(lead);
+  const handleStatusChange = async (leadId: number, newStatus: LeadStatus) => {
+    try {
+      await updateLead(leadId, { status: newStatus });
+      await refreshLeads();
+      setEditingStatus(null);
+    } catch (error) {
+      console.error('Failed to update lead status:', error);
+    }
+  };
+
+  const handleWhatsAppOpen = (phone: string) => {
+    if (!phone) {
+      alert('אין מספר טלפון זמין ללקוח זה');
+      return;
+    }
+    
+    // פתיחת WhatsApp Web/Desktop עם המספר הספציפי
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const whatsappUrl = `https://wa.me/${cleanPhone}`;
+    window.open(whatsappUrl, '_blank');
+  };
+
+  const handleCall = (phone: string) => {
+    if (!phone) {
+      alert('אין מספר טלפון זמין ללקוח זה');
+      return;
+    }
+    
+    // פתיחת אפליקציית הטלפון
+    window.location.href = `tel:${phone}`;
+  };
+
+  const getStatusColor = (status: LeadStatus): string => {
+    const statusConfig = STATUSES.find(s => s.key === status);
+    return statusConfig?.color || 'bg-gray-100 text-gray-800';
+  };
+
+  const getStatusLabel = (status: LeadStatus): string => {
+    const statusConfig = STATUSES.find(s => s.key === status);
+    return statusConfig?.label || status;
+  };
+
+  const handleDeleteLead = async (leadId: number, leadName: string) => {
+    const confirmed = window.confirm(`האם אתה בטוח שברצונך למחוק את הליד ${leadName}?`);
+    if (!confirmed) return;
+    
+    try {
+      await deleteLead(leadId);
+      await refreshLeads();
+    } catch (error) {
+      console.error('Failed to delete lead:', error);
+      alert('שגיאה במחיקת הליד');
+    }
   };
 
   const handleLeadUpdate = async (updatedLead: Lead) => {
@@ -198,89 +160,251 @@ export default function LeadsPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-lg">טוען לידים...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-red-600">שגיאה בטעינת לידים: {error}</div>
-      </div>
-    );
-  }
-
   return (
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">ניהול לידים</h1>
-        <Button onClick={() => setIsCreateModalOpen(true)} data-testid="button-add-lead">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">לידים</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">ניהול ומעקב אחרי לידים בטבלה מקצועית</p>
+        </div>
+        <Button 
+          onClick={() => setIsCreateModalOpen(true)}
+          className="bg-blue-600 hover:bg-blue-700 text-white"
+          data-testid="button-add-lead"
+        >
           <Plus className="w-4 h-4 ml-2" />
-          הוסף ליד חדש
+          ליד חדש
         </Button>
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <Input
-            placeholder="חפש לפי שם, טלפון או מייל..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pr-10"
-            data-testid="input-search-leads"
-          />
+      <Card className="p-4">
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <Input
+              placeholder="חפש לפי שם, טלפון או מייל..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pr-10 text-right"
+              data-testid="input-search-leads"
+            />
+          </div>
+          
+          <Select
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value as LeadStatus | 'all')}
+            data-testid="select-status-filter"
+          >
+            <SelectOption value="all">כל הסטטוסים</SelectOption>
+            {STATUSES.map(status => (
+              <SelectOption key={status.key} value={status.key}>
+                {status.label}
+              </SelectOption>
+            ))}
+          </Select>
+          
+          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+            <Filter className="w-4 h-4" />
+            {sortedLeads.length} לידים
+          </div>
         </div>
-        
-        <select
-          value={selectedStatus}
-          onChange={(e) => setSelectedStatus(e.target.value as LeadStatus | 'all')}
-          className="px-3 py-2 border rounded-md bg-white"
-          data-testid="select-status-filter"
-        >
-          <option value="all">כל הסטטוסים</option>
-          {STATUSES.map(status => (
-            <option key={status.key} value={status.key}>
-              {status.label}
-            </option>
-          ))}
-        </select>
+      </Card>
 
-        <Button variant="secondary" size="sm">
-          <Filter className="w-4 h-4 ml-2" />
-          פילטרים נוספים
-        </Button>
-      </div>
+      {/* Error State */}
+      {error && (
+        <Card className="p-6 border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20">
+          <p className="text-red-600 dark:text-red-400 text-center">שגיאה בטעינת לידים: {error}</p>
+        </Card>
+      )}
 
-      {/* Kanban Board */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={pointerWithin}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-6 min-h-[600px]">
-          {STATUSES.map((status) => {
-            const statusLeads = leadsByStatus[status.key];
-            
-            return (
-              <KanbanColumn
-                key={status.key}
-                status={status}
-                leads={statusLeads}
-                onLeadClick={handleLeadClick}
-                activeId={activeId}
-              />
-            );
-          })}
-        </div>
-      </DndContext>
+      {/* Loading State */}
+      {loading && (
+        <Card className="p-12 text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="text-gray-600 dark:text-gray-400 mt-4" data-testid="loading-leads">טוען לידים...</p>
+        </Card>
+      )}
+
+      {/* Leads Table */}
+      {!loading && (
+        <Card>
+          <Table data-testid="table-leads">
+            <TableHeader>
+              <TableRow>
+                <TableHead 
+                  sortable 
+                  onClick={() => handleSort('name')}
+                  className="cursor-pointer"
+                >
+                  שם הליד
+                  {sortBy === 'name' && (
+                    <span className={sortOrder === 'asc' ? 'text-blue-600' : 'text-blue-600'}>
+                      ↑↓
+                    </span>
+                  )}
+                </TableHead>
+                <TableHead>טלפון</TableHead>
+                <TableHead 
+                  sortable 
+                  onClick={() => handleSort('status')}
+                  className="cursor-pointer"
+                >
+                  סטטוס (לפי pipeline)
+                  {sortBy === 'status' && (
+                    <span className={sortOrder === 'asc' ? 'text-blue-600' : 'text-blue-600'}>
+                      ↑↓
+                    </span>
+                  )}
+                </TableHead>
+                <TableHead>מקור</TableHead>
+                <TableHead 
+                  sortable 
+                  onClick={() => handleSort('created_at')}
+                  className="cursor-pointer"
+                >
+                  תאריך יצירה
+                  {sortBy === 'created_at' && (
+                    <span className={sortOrder === 'asc' ? 'text-blue-600' : 'text-blue-600'}>
+                      ↑↓
+                    </span>
+                  )}
+                </TableHead>
+                <TableHead>פעולות</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedLeads.map((lead) => (
+                <TableRow
+                  key={lead.id}
+                  data-testid={`row-lead-${lead.id}`}
+                  className="hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                >
+                  <TableCell data-testid={`text-name-${lead.id}`}>
+                    <div className="font-medium text-gray-900 dark:text-white">
+                      {lead.full_name || `${lead.first_name} ${lead.last_name}`}
+                    </div>
+                    {lead.email && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {lead.email}
+                      </div>
+                    )}
+                  </TableCell>
+                  
+                  <TableCell data-testid={`text-phone-${lead.id}`}>
+                    {lead.display_phone || lead.phone_e164 || 'ללא טלפון'}
+                  </TableCell>
+                  
+                  <TableCell data-testid={`text-status-${lead.id}`}>
+                    {editingStatus === lead.id ? (
+                      <Select
+                        value={lead.status}
+                        onChange={(e) => handleStatusChange(lead.id, e.target.value as LeadStatus)}
+                        onBlur={() => setEditingStatus(null)}
+                        className="w-32"
+                        data-testid={`select-status-${lead.id}`}
+                        autoFocus
+                      >
+                        {STATUSES.map(status => (
+                          <SelectOption key={status.key} value={status.key}>
+                            {status.label}
+                          </SelectOption>
+                        ))}
+                      </Select>
+                    ) : (
+                      <Badge 
+                        className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80`}
+                        onClick={() => setEditingStatus(lead.id)}
+                        data-testid={`badge-status-${lead.id}`}
+                      >
+                        {getStatusLabel(lead.status)}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  
+                  <TableCell data-testid={`text-source-${lead.id}`}>
+                    <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+                      {lead.source === 'call' ? 'טלפון' : 
+                       lead.source === 'whatsapp' ? 'ווצאפ' :
+                       lead.source === 'form' ? 'טופס' :
+                       lead.source === 'manual' ? 'ידני' : lead.source}
+                    </Badge>
+                  </TableCell>
+                  
+                  <TableCell data-testid={`text-created-${lead.id}`}>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">
+                      {new Date(lead.created_at).toLocaleDateString('he-IL')}
+                    </div>
+                  </TableCell>
+                  
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      {(lead.phone_e164 || lead.display_phone) && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleWhatsAppOpen(lead.phone_e164 || lead.display_phone || '')}
+                            className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                            data-testid={`button-whatsapp-${lead.id}`}
+                            title="פתח שיחה בווצאפ"
+                          >
+                            <MessageSquare className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleCall(lead.phone_e164 || lead.display_phone || '')}
+                            className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            data-testid={`button-call-${lead.id}`}
+                            title="התקשר ללקוח"
+                          >
+                            <Phone className="w-3 h-3" />
+                          </Button>
+                        </>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setSelectedLead(lead)}
+                        className="h-7 w-7 p-0 text-gray-600 hover:text-gray-700 hover:bg-gray-50"
+                        data-testid={`button-edit-${lead.id}`}
+                        title="ערוך ליד"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDeleteLead(lead.id, lead.full_name || `${lead.first_name} ${lead.last_name}`)}
+                        className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        data-testid={`button-delete-${lead.id}`}
+                        title="מחק ליד"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          
+          {sortedLeads.length === 0 && !loading && (
+            <div className="text-center py-12">
+              <p className="text-gray-500 dark:text-gray-400">אין לידים להציג</p>
+              <Button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Plus className="w-4 h-4 ml-2" />
+                צור ליד ראשון
+              </Button>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Modals */}
       <LeadCreateModal
