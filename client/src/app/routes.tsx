@@ -16,6 +16,7 @@ import { BusinessManagerPage } from '../pages/Admin/BusinessManagerPage';
 import { BusinessDetailsPage } from '../pages/Admin/BusinessDetailsPage';
 import { BusinessViewPage } from '../pages/Admin/BusinessViewPage';
 import { AgentPromptsPage } from '../pages/Admin/AgentPromptsPage';
+import { AdminPromptsOverviewPage } from '../pages/Admin/AdminPromptsOverviewPage';
 import { BusinessPromptsSelector } from '../pages/Admin/BusinessPromptsSelector';
 import { CalendarPage } from '../pages/Calendar/CalendarPage';
 import LeadsPage from '../pages/Leads/LeadsPage';
@@ -69,6 +70,14 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['admin', 'manager']}>
               <AgentPromptsPage />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="admin/prompts"
+          element={
+            <RoleGuard roles={['admin', 'manager']}>
+              <AdminPromptsOverviewPage />
             </RoleGuard>
           }
         />

@@ -593,3 +593,60 @@ def admin_phone_numbers():
     except Exception as e:
         logger.error(f"Error fetching admin phone numbers: {e}")
         return jsonify({"error": "Failed to fetch phone numbers"}), 500
+
+
+@admin_bp.route("/api/admin/businesses/prompts", methods=["GET"])
+@require_api_auth(["admin", "superadmin", "manager"])
+def admin_businesses_prompts():
+    """Get all businesses with their AI prompts status for admin"""
+    try:
+        from server.models_sql import Business, BusinessSettings
+        from sqlalchemy import func, case
+        
+        # Get all businesses with their prompts
+        businesses_query = db.session.query(
+            Business.id.label('business_id'),
+            Business.name.label('business_name'),
+            func.coalesce(BusinessSettings.ai_prompt, '').label('calls_prompt'),
+            func.coalesce(BusinessSettings.ai_prompt, '').label('whatsapp_prompt'),  # TODO: separate fields
+            BusinessSettings.updated_at.label('last_updated'),
+            func.coalesce(
+                func.row_number().over(partition_by=Business.id, order_by=BusinessSettings.updated_at.desc()), 
+                1
+            ).label('version')
+        ).outerjoin(
+            BusinessSettings, Business.id == BusinessSettings.tenant_id
+        ).all()
+        
+        # Format response
+        businesses_data = []
+        for business in businesses_query:
+            calls_prompt = business.calls_prompt or ''
+            whatsapp_prompt = business.whatsapp_prompt or ''  # Same for now
+            
+            businesses_data.append({
+                'business_id': business.business_id,
+                'business_name': business.business_name,
+                'calls_prompt': calls_prompt[:200] + '...' if len(calls_prompt) > 200 else calls_prompt,
+                'whatsapp_prompt': whatsapp_prompt[:200] + '...' if len(whatsapp_prompt) > 200 else whatsapp_prompt,
+                'last_updated': business.last_updated.isoformat() if business.last_updated else None,
+                'version': int(business.version) if business.version else 1,
+                'calls_prompt_length': len(calls_prompt),
+                'whatsapp_prompt_length': len(whatsapp_prompt),
+                'has_calls_prompt': len(calls_prompt.strip()) > 0,
+                'has_whatsapp_prompt': len(whatsapp_prompt.strip()) > 0
+            })
+        
+        return jsonify({
+            'businesses': businesses_data,
+            'total_businesses': len(businesses_data),
+            'stats': {
+                'with_calls_prompt': sum(1 for b in businesses_data if b['has_calls_prompt']),
+                'with_whatsapp_prompt': sum(1 for b in businesses_data if b['has_whatsapp_prompt']),
+                'without_prompts': sum(1 for b in businesses_data if not b['has_calls_prompt'] and not b['has_whatsapp_prompt'])
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching businesses prompts: {e}")
+        return jsonify({"error": "Failed to fetch businesses prompts"}), 500
