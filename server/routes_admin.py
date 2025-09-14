@@ -834,8 +834,14 @@ def admin_support_prompt():
     
     # Get and validate other parameters
     model = data.get("model", "gpt-4o-mini") or "gpt-4o-mini"
-    max_tokens = int(data.get("max_tokens", 150)) if data.get("max_tokens") else 150
-    temperature = float(data.get("temperature", 0.7)) if data.get("temperature") is not None else 0.7
+    try:
+        max_tokens = int(data.get("max_tokens", 150)) if data.get("max_tokens") else 150
+    except (ValueError, TypeError):
+        max_tokens = 150
+    try:
+        temperature = float(data.get("temperature", 0.7)) if data.get("temperature") is not None else 0.7
+    except (ValueError, TypeError):
+        temperature = 0.7
     
     # Validate ranges
     if max_tokens < 1 or max_tokens > 4000:

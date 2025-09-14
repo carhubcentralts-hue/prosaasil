@@ -238,10 +238,10 @@ export function AdminSupportPage() {
                   <input
                     type="number"
                     value={promptData.maxTokens}
-                    onChange={(e) => setPromptData(prev => ({ ...prev, maxTokens: parseInt(e.target.value) }))}
+                    onChange={(e) => setPromptData(prev => ({ ...prev, maxTokens: parseInt(e.target.value) || 150 }))}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                     min="50"
-                    max="500"
+                    max="4000"
                     data-testid="input-admin-max-tokens"
                   />
                 </div>
@@ -253,7 +253,7 @@ export function AdminSupportPage() {
                   <input
                     type="number"
                     value={promptData.temperature}
-                    onChange={(e) => setPromptData(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
+                    onChange={(e) => setPromptData(prev => ({ ...prev, temperature: parseFloat(e.target.value) || 0.7 }))}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                     min="0"
                     max="2"
