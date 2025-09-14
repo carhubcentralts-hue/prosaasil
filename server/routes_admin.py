@@ -512,6 +512,90 @@ def api_admin_calls():
     except Exception as e:
         return f'<div class="text-center text-red-500 py-8">שגיאה: {str(e)}</div>'
 
+@admin_bp.route("/api/admin/leads", methods=["GET"])
+@require_api_auth(["admin", "superadmin", "manager"])
+def admin_leads():
+    """Get all leads across all tenants for admin"""
+    try:
+        from server.models_sql import Lead, Business
+        from sqlalchemy import or_
+        
+        # Get pagination parameters
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('pageSize', 50, type=int)
+        status = request.args.get('status')
+        search = request.args.get('search', '').strip()
+        source = request.args.get('source')
+        owner_user_id = request.args.get('owner_user_id', type=int)
+        
+        # Build query for all tenants
+        query = db.session.query(Lead).join(Business, Lead.business_id == Business.id)
+        
+        # Apply filters
+        if status and status != 'all':
+            query = query.filter(Lead.status == status)
+            
+        if source and source != 'all':
+            query = query.filter(Lead.source == source)
+            
+        if owner_user_id is not None:
+            query = query.filter(Lead.owner_user_id == owner_user_id)
+        
+        if search:
+            query = query.filter(
+                or_(
+                    Lead.name.ilike(f'%{search}%'),
+                    Lead.phone.ilike(f'%{search}%'),
+                    Lead.email.ilike(f'%{search}%'),
+                    Business.name.ilike(f'%{search}%')
+                )
+            )
+        
+        # Count total
+        total = query.count()
+        
+        # Apply pagination
+        leads_query = query.order_by(Lead.created_at.desc())
+        if page_size > 0:
+            leads_query = leads_query.offset((page - 1) * page_size).limit(page_size)
+        
+        leads = leads_query.all()
+        
+        # Format leads data
+        leads_data = []
+        for lead in leads:
+            business = lead.business
+            leads_data.append({
+                'id': lead.id,
+                'name': lead.name,
+                'phone': lead.phone,
+                'email': lead.email,
+                'status': lead.status,
+                'source': lead.source,
+                'area': lead.area,
+                'property_type': lead.property_type,
+                'budget_min': lead.budget_min,
+                'budget_max': lead.budget_max,
+                'timing': lead.timing,
+                'created_at': lead.created_at.isoformat() if lead.created_at else None,
+                'updated_at': lead.updated_at.isoformat() if lead.updated_at else None,
+                'notes': lead.notes,
+                'business_id': lead.business_id,
+                'tenant_id': lead.business_id,  # Backwards compatibility
+                'business_name': business.name if business else None
+            })
+        
+        return jsonify({
+            'items': leads_data,
+            'total': total,
+            'page': page,
+            'pageSize': page_size
+        })
+        
+    except Exception as e:
+        print(f"❌ Error fetching admin leads: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @admin_bp.route("/api/admin/leads/stats", methods=["GET"])
 @require_api_auth(["admin", "superadmin", "manager"])
 def admin_leads_stats():
