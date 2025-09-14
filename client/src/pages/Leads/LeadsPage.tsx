@@ -502,7 +502,6 @@ export default function LeadsPage() {
           setIsStatusModalOpen(false);
           refreshStatuses(); // Refresh statuses when modal closes
         }}
-        onStatusChange={refreshStatuses} // ✅ Pass refresh function to sync parent cache
       />
     </div>
   );
