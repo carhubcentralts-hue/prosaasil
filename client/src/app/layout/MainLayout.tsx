@@ -347,7 +347,6 @@ export function MainLayout() {
                 to={item.to}
                 active={isActive}
                 onClick={() => {
-                  console.log('🖥️ Desktop clicked:', item.label, 'to:', item.to, 'comingSoon:', item.comingSoon);
                   if (item.to) {
                     navigate(item.to);
                     // Always close sidebar after navigation (mobile AND desktop)
@@ -531,7 +530,6 @@ export function MainLayout() {
                     : 'text-slate-500 hover:text-[var(--brand)] active:scale-95'
                 )}
                 onClick={() => {
-                  console.log('📱 Mobile clicked:', item.label, 'to:', item.to, 'comingSoon:', item.comingSoon);
                   if (item.to) {
                     navigate(item.to);
                     // Always close sidebar after navigation (mobile AND desktop)
