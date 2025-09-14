@@ -511,3 +511,47 @@ def api_admin_calls():
         return calls_html
     except Exception as e:
         return f'<div class="text-center text-red-500 py-8">שגיאה: {str(e)}</div>'
+
+@admin_bp.route("/api/admin/leads/stats", methods=["GET"])
+@require_api_auth(["admin", "superadmin", "manager"])
+def admin_leads_stats():
+    """Get leads statistics by status for admin dashboard"""
+    try:
+        from server.models_sql import Lead
+        from sqlalchemy import func
+        
+        # Count leads by status across all tenants
+        stats = db.session.query(
+            Lead.status, 
+            func.count(Lead.id).label('count')
+        ).group_by(Lead.status).all()
+        
+        # Initialize counts
+        stats_dict = {
+            'new': 0,
+            'in_progress': 0,  # Attempting + Contacted
+            'qualified': 0,
+            'won': 0,
+            'lost': 0,
+            'total': 0
+        }
+        
+        # Process stats
+        for status, count in stats:
+            stats_dict['total'] += count
+            if status == 'New':
+                stats_dict['new'] = count
+            elif status in ['Attempting', 'Contacted']:
+                stats_dict['in_progress'] += count
+            elif status == 'Qualified':
+                stats_dict['qualified'] = count
+            elif status == 'Won':
+                stats_dict['won'] = count
+            elif status == 'Lost':
+                stats_dict['lost'] = count
+        
+        return jsonify(stats_dict)
+        
+    except Exception as e:
+        logger.error(f"Error fetching admin leads stats: {e}")
+        return jsonify({"error": "Failed to fetch leads statistics"}), 500

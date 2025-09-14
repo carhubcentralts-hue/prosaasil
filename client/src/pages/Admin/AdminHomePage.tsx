@@ -21,7 +21,7 @@ import { Card, StatCard, Badge } from '../../shared/components/ui/Card';
 import { QuickManagementActions } from '../../shared/components/ui/ManagementCard';
 import { cn } from '../../shared/utils/cn';
 import { useAdminOverview, getDateRangeForFilter } from '../../features/admin/hooks';
-import { useLeads } from '../Leads/hooks/useLeads';
+import { useLeads, useLeadStats } from '../Leads/hooks/useLeads';
 import { useNavigate } from 'react-router-dom';
 
 // Removed mock data - now using real API calls
@@ -399,17 +399,10 @@ export function AdminHomePage() {
 // New Leads Dashboard Card
 function LeadsDashboardCard() {
   const navigate = useNavigate();
-  const { leads, loading, total } = useLeads({ pageSize: 5 }); // Get latest 5 leads
+  const { leads, loading: leadsLoading } = useLeads({ pageSize: 5 }); // Get latest 5 leads for display
+  const { stats, loading: statsLoading, error: statsError } = useLeadStats(); // Get accurate stats
   
-  // Calculate stats from leads
-  const stats = useMemo(() => {
-    const newLeads = leads.filter(lead => lead.status === 'New').length;
-    const inProgress = leads.filter(lead => ['Attempting', 'Contacted'].includes(lead.status)).length;
-    const qualified = leads.filter(lead => lead.status === 'Qualified').length;
-    const won = leads.filter(lead => lead.status === 'Won').length;
-    
-    return { newLeads, inProgress, qualified, won, total };
-  }, [leads, total]);
+  const loading = leadsLoading || statsLoading;
 
   if (loading) {
     return (
@@ -441,19 +434,19 @@ function LeadsDashboardCard() {
       {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="text-center">
-          <div className="text-2xl font-bold text-blue-600">{stats.newLeads}</div>
+          <div className="text-2xl font-bold text-blue-600">{stats?.new || 0}</div>
           <div className="text-xs text-slate-600">חדשים</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-yellow-600">{stats.inProgress}</div>
+          <div className="text-2xl font-bold text-yellow-600">{stats?.in_progress || 0}</div>
           <div className="text-xs text-slate-600">בתהליך</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-green-600">{stats.qualified}</div>
+          <div className="text-2xl font-bold text-green-600">{stats?.qualified || 0}</div>
           <div className="text-xs text-slate-600">מוכשרים</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-emerald-600">{stats.won}</div>
+          <div className="text-2xl font-bold text-emerald-600">{stats?.won || 0}</div>
           <div className="text-xs text-slate-600">זכיות</div>
         </div>
       </div>
@@ -508,7 +501,7 @@ function LeadsDashboardCard() {
             onClick={() => navigate('/app/leads')}
             className="btn-ghost text-sm"
           >
-            ראה את כל הלידים ({stats.total})
+            ראה את כל הלידים ({stats?.total || 0})
           </button>
         </div>
       )}

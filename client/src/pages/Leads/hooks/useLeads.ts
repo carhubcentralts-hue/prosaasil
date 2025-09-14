@@ -15,6 +15,22 @@ interface UseLeadsResult {
   refreshLeads: () => Promise<void>;
 }
 
+interface LeadStats {
+  new: number;
+  in_progress: number;
+  qualified: number;
+  won: number;
+  lost: number;
+  total: number;
+}
+
+interface UseLeadStatsResult {
+  stats: LeadStats | null;
+  loading: boolean;
+  error: string | null;
+  refreshStats: () => Promise<void>;
+}
+
 export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,7 +67,7 @@ export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
 
       const queryString = params.toString();
       // Use admin endpoint for admin/manager roles to see all tenants' leads
-      const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+      const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'superadmin';
       const url = isAdmin 
         ? `/api/admin/leads${queryString ? `?${queryString}` : ''}`
         : `/api/leads${queryString ? `?${queryString}` : ''}`;
@@ -154,5 +170,45 @@ export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
     deleteLead,
     moveLead,
     refreshLeads,
+  };
+}
+
+export function useLeadStats(): UseLeadStatsResult {
+  const [stats, setStats] = useState<LeadStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+
+  const fetchStats = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Use admin endpoint for admin/manager/superadmin roles
+      const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'superadmin';
+      if (!isAdmin) {
+        throw new Error('Admin access required');
+      }
+      
+      const response = await http.get<LeadStats>('/api/admin/leads/stats');
+      setStats(response);
+    } catch (err) {
+      console.error('Failed to fetch leads stats:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch leads stats');
+      setStats(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.role]);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  return {
+    stats,
+    loading,
+    error,
+    refreshStats: fetchStats,
   };
 }
