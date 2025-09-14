@@ -7,6 +7,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@playwright/test": "^1.55.0",
+    "@tailwindcss/postcss": "^4.1.13",
     "@vitejs/plugin-react": "^5.0.2",
     "accepts": "^2.0.0",
     "agent-base": "^7.1.4",
