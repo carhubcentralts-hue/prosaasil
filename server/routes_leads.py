@@ -2,7 +2,8 @@
 Leads CRM API routes - Monday/HubSpot/Salesforce style
 Modern lead management with Kanban board support, reminders, and activity tracking
 """
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request, session, g
+from server.auth_api import require_api_auth
 from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, User, Business
 from server.db import db
 from datetime import datetime, timezone
@@ -448,15 +449,11 @@ def create_reminder(lead_id):
 
 
 @leads_bp.route("/api/admin/leads", methods=["GET"])
+@require_api_auth(["admin", "manager"])
 def admin_list_leads():
     """Admin endpoint - list leads from all tenants"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
-    
-    user = get_current_user()
-    if not user or user.get('role') != 'admin':
-        return jsonify({"error": "Admin access required"}), 403
+    # Access user from g instead of session
+    user = g.user
     
     # Same filtering as regular endpoint but without tenant restriction
     page = int(request.args.get('page', 1))
