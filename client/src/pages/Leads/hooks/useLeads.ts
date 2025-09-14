@@ -67,7 +67,7 @@ export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
 
       const queryString = params.toString();
       // Use admin endpoint for admin/manager roles to see all tenants' leads
-      const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'superadmin';
+      const isAdmin = user?.role === 'admin' || user?.role === 'manager';
       const url = isAdmin 
         ? `/api/admin/leads${queryString ? `?${queryString}` : ''}`
         : `/api/leads${queryString ? `?${queryString}` : ''}`;
@@ -185,7 +185,7 @@ export function useLeadStats(): UseLeadStatsResult {
       setError(null);
       
       // Use admin endpoint for admin/manager/superadmin roles
-      const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'superadmin';
+      const isAdmin = user?.role === 'admin' || user?.role === 'manager';
       if (!isAdmin) {
         throw new Error('Admin access required');
       }
