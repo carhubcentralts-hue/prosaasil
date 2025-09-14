@@ -40,6 +40,8 @@ export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
 
   const fetchLeads = useCallback(async () => {
     try {
+      console.log('🔄 fetchLeads starting with filters:', filters);
+      console.log('🔄 fetchLeads user:', user);
       setLoading(true);
       setError(null);
 
@@ -72,6 +74,7 @@ export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
         ? `/api/admin/leads${queryString ? `?${queryString}` : ''}`
         : `/api/leads${queryString ? `?${queryString}` : ''}`;
       
+      console.log('🔄 fetchLeads calling URL:', url, 'isAdmin:', isAdmin);
       const response = await http.get<{leads?: Lead[], items?: Lead[], total: number}>(url);
       
       // Handle both regular endpoint (leads) and admin endpoint (items) response formats
@@ -157,6 +160,7 @@ export function useLeads(filters: LeadFilters = {}): UseLeadsResult {
 
   // Initial fetch and when filters change
   useEffect(() => {
+    console.log('🔄 useLeads useEffect triggered, calling fetchLeads...');
     fetchLeads();
   }, [fetchLeads]);
 
