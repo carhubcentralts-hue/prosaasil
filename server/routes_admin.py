@@ -529,7 +529,7 @@ def admin_leads():
         owner_user_id = request.args.get('owner_user_id', type=int)
         
         # Build query for all tenants
-        query = db.session.query(Lead).join(Business, Lead.business_id == Business.id)
+        query = db.session.query(Lead).join(Business, Lead.tenant_id == Business.id)
         
         # Apply filters
         if status and status != 'all':
@@ -542,14 +542,30 @@ def admin_leads():
             query = query.filter(Lead.owner_user_id == owner_user_id)
         
         if search:
-            query = query.filter(
-                or_(
-                    Lead.name.ilike(f'%{search}%'),
-                    Lead.phone.ilike(f'%{search}%'),
-                    Lead.email.ilike(f'%{search}%'),
-                    Business.name.ilike(f'%{search}%')
-                )
-            )
+            # Build search conditions safely
+            conditions = []
+            
+            # Check for name field
+            name_field = getattr(Lead, 'full_name', None)
+            if name_field is None:
+                name_field = getattr(Lead, 'name', None)
+            if name_field is not None:
+                conditions.append(name_field.ilike(f'%{search}%'))
+            
+            # Check for phone field
+            phone_field = getattr(Lead, 'phone_e164', None)
+            if phone_field is None:
+                phone_field = getattr(Lead, 'phone', None)
+            if phone_field is not None:
+                conditions.append(phone_field.ilike(f'%{search}%'))
+            
+            # Always add email and business name
+            conditions.extend([
+                Lead.email.ilike(f'%{search}%'),
+                Business.name.ilike(f'%{search}%')
+            ])
+            
+            query = query.filter(or_(*conditions))
         
         # Count total
         total = query.count()
@@ -564,24 +580,19 @@ def admin_leads():
         # Format leads data
         leads_data = []
         for lead in leads:
-            business = lead.business
+            business = lead.tenant
             leads_data.append({
                 'id': lead.id,
-                'name': lead.name,
-                'phone': lead.phone,
+                'name': lead.full_name,
+                'phone': lead.phone_e164,
                 'email': lead.email,
                 'status': lead.status,
                 'source': lead.source,
-                'area': lead.area,
-                'property_type': lead.property_type,
-                'budget_min': lead.budget_min,
-                'budget_max': lead.budget_max,
-                'timing': lead.timing,
                 'created_at': lead.created_at.isoformat() if lead.created_at else None,
                 'updated_at': lead.updated_at.isoformat() if lead.updated_at else None,
                 'notes': lead.notes,
-                'business_id': lead.business_id,
-                'tenant_id': lead.business_id,  # Backwards compatibility
+                'business_id': lead.tenant_id,
+                'tenant_id': lead.tenant_id,  # Backwards compatibility
                 'business_name': business.name if business else None
             })
         
@@ -734,3 +745,107 @@ def admin_businesses_prompts():
     except Exception as e:
         logger.error(f"Error fetching businesses prompts: {e}")
         return jsonify({"error": "Failed to fetch businesses prompts"}), 500
+
+
+# ===== Admin Support Management endpoints =====
+# These endpoints allow admin to manage their own support line (prompt, phones)
+
+@admin_bp.route("/api/admin/support/profile", methods=["GET"])
+@require_api_auth(["admin"])
+def admin_support_profile():
+    """Get admin's own support tenant profile - business info, phones, prompt status"""
+    tenant_id = getattr(getattr(g, 'user', None), 'business_id', None) or getattr(getattr(g, 'user', None), 'tenant_id', None)
+    if not tenant_id:
+        return jsonify({"error": "No tenant on user"}), 400
+    biz = Business.query.get(tenant_id)
+    from server.models_sql import BusinessSettings
+    settings = BusinessSettings.query.filter_by(tenant_id=tenant_id).first()
+    if not biz:
+        return jsonify({
+            "tenant_id": tenant_id,
+            "name": None,
+            "phone_e164": "",
+            "whatsapp_number": "",
+            "calls_enabled": False,
+            "whatsapp_enabled": False,
+            "ai_prompt": settings.ai_prompt if settings else None,
+            "updated_at": settings.updated_at.isoformat() if settings and settings.updated_at else None,
+        })
+    return jsonify({
+        "tenant_id": biz.id,
+        "name": biz.name,
+        "phone_e164": biz.phone_number or "",
+        "whatsapp_number": biz.whatsapp_number or "",
+        "calls_enabled": bool(biz.phone_number),
+        "whatsapp_enabled": bool(biz.whatsapp_enabled),
+        "ai_prompt": settings.ai_prompt if settings else None,
+        "updated_at": settings.updated_at.isoformat() if settings and settings.updated_at else None,
+    })
+
+@admin_bp.route("/api/admin/support/prompt", methods=["GET", "PUT"])
+@require_api_auth(["admin"])
+def admin_support_prompt():
+    """Get/Update admin's own AI prompt for customer support"""
+    tenant_id = getattr(getattr(g, 'user', None), 'business_id', None) or getattr(getattr(g, 'user', None), 'tenant_id', None)
+    if not tenant_id:
+        return jsonify({"error": "No tenant on user"}), 400
+    from server.models_sql import BusinessSettings
+    if request.method == "GET":
+        settings = BusinessSettings.query.filter_by(tenant_id=tenant_id).first()
+        return jsonify({"ai_prompt": (settings.ai_prompt if settings and settings.ai_prompt else "")})
+    data = request.get_json(silent=True) or {}
+    prompt = (data.get("ai_prompt") or "").strip()
+    if not prompt:
+        return jsonify({"error": "ai_prompt is required"}), 400
+    settings = BusinessSettings.query.filter_by(tenant_id=tenant_id).first()
+    if not settings:
+        from datetime import datetime
+        settings = BusinessSettings()
+        settings.tenant_id = tenant_id
+        settings.ai_prompt = prompt
+        settings.updated_by = str(getattr(getattr(g, 'user', None), 'id', None))
+        settings.updated_at = datetime.utcnow()
+        db.session.add(settings)
+    else:
+        settings.ai_prompt = prompt
+        settings.updated_by = str(getattr(getattr(g, 'user', None), 'id', None))
+    db.session.commit()
+    return jsonify({
+        "ai_prompt": settings.ai_prompt,
+        "updated_at": settings.updated_at.isoformat() if settings.updated_at else None,
+    })
+
+@admin_bp.route("/api/admin/support/phones", methods=["GET", "PUT"])
+@require_api_auth(["admin"])
+def admin_support_phones():
+    """Get/Update admin's own phone numbers for customer support"""
+    tenant_id = getattr(getattr(g, 'user', None), 'business_id', None) or getattr(getattr(g, 'user', None), 'tenant_id', None)
+    if not tenant_id:
+        return jsonify({"error": "No tenant on user"}), 400
+    biz = Business.query.get(tenant_id)
+    if not biz:
+        return jsonify({"error": "Business not found"}), 404
+    if request.method == "GET":
+        return jsonify({
+            "phone_e164": biz.phone_number or "",
+            "whatsapp_number": biz.whatsapp_number or "",
+            "whatsapp_enabled": bool(biz.whatsapp_enabled),
+            "calls_enabled": bool(biz.phone_number),
+        })
+    data = request.get_json(silent=True) or {}
+    if "phone_e164" in data:
+        biz.phone_number = (data.get("phone_e164") or "").strip() or None
+        biz.calls_enabled = bool(biz.phone_number)
+    if "whatsapp_number" in data:
+        biz.whatsapp_number = (data.get("whatsapp_number") or "").strip() or None
+    if "whatsapp_enabled" in data:
+        biz.whatsapp_enabled = bool(data.get("whatsapp_enabled"))
+    db.session.commit()
+    return jsonify({
+        "phone_e164": biz.phone_number or "",
+        "whatsapp_number": biz.whatsapp_number or "",
+        "whatsapp_enabled": bool(biz.whatsapp_enabled),
+        "calls_enabled": bool(biz.phone_number),
+    })
+
+
