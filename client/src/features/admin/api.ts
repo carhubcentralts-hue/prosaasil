@@ -76,5 +76,9 @@ export const adminApi = {
     
     const response = await http.get<string>(`/api/admin/kpis/whatsapp?${searchParams.toString()}`);
     return parseInt(response) || 0;
+  },
+
+  getPhoneNumbers: async (): Promise<any> => {
+    return await http.get<any>('/api/admin/phone-numbers');
   }
 };

@@ -126,3 +126,34 @@ export const getDateRangeForFilter = (filter: 'today' | 'week' | 'month' | 'cust
       };
   }
 };
+
+export function usePhoneNumbers() {
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchPhoneNumbers = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const result = await adminApi.getPhoneNumbers();
+      setData(result);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPhoneNumbers();
+  }, [fetchPhoneNumbers]);
+
+  return {
+    data,
+    isLoading,
+    error,
+    refetch: fetchPhoneNumbers
+  };
+}

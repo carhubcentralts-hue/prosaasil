@@ -555,3 +555,41 @@ def admin_leads_stats():
     except Exception as e:
         logger.error(f"Error fetching admin leads stats: {e}")
         return jsonify({"error": "Failed to fetch leads statistics"}), 500
+
+
+@admin_bp.route("/api/admin/phone-numbers", methods=["GET"])
+@require_api_auth(["admin", "superadmin", "manager"])
+def admin_phone_numbers():
+    """Get all business phone numbers and settings for admin"""
+    try:
+        from server.models_sql import Business
+        
+        # Get all businesses with their phone numbers
+        businesses = db.session.query(Business).all()
+        
+        # Format response
+        business_phones = []
+        for business in businesses:
+            business_phones.append({
+                'id': business.id,
+                'name': business.name,
+                'phone_e164': business.phone_e164 or '',
+                'whatsapp_number': business.whatsapp_number or '',
+                'whatsapp_enabled': business.whatsapp_enabled or False,
+                'whatsapp_status': 'connected' if business.whatsapp_enabled else 'disabled',
+                'calls_status': 'active' if business.phone_e164 else 'no_phone'
+            })
+        
+        return jsonify({
+            'businesses': business_phones,
+            'total_businesses': len(business_phones),
+            'system_settings': {
+                'twilio_enabled': True,
+                'baileys_enabled': True,
+                'default_provider': 'twilio'
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching admin phone numbers: {e}")
+        return jsonify({"error": "Failed to fetch phone numbers"}), 500

@@ -20,7 +20,7 @@ import {
 import { Card, StatCard, Badge } from '../../shared/components/ui/Card';
 import { QuickManagementActions } from '../../shared/components/ui/ManagementCard';
 import { cn } from '../../shared/utils/cn';
-import { useAdminOverview, getDateRangeForFilter } from '../../features/admin/hooks';
+import { useAdminOverview, getDateRangeForFilter, usePhoneNumbers } from '../../features/admin/hooks';
 import { useLeads, useLeadStats } from '../Leads/hooks/useLeads';
 import { useNavigate } from 'react-router-dom';
 
@@ -389,6 +389,11 @@ export function AdminHomePage() {
           <LeadsDashboardCard />
         </div>
 
+        {/* Phone Numbers & Business Management */}
+        <div className="mb-6">
+          <PhoneNumbersCard />
+        </div>
+
         {/* Recent Activity */}
         <RecentActivityCard recentActivity={overviewData?.recent_activity} />
       </div>
@@ -505,6 +510,118 @@ function LeadsDashboardCard() {
           </button>
         </div>
       )}
+    </Card>
+  );
+}
+
+// Phone Numbers & Business Management Card
+function PhoneNumbersCard() {
+  const { data, isLoading, error } = usePhoneNumbers();
+  
+  if (isLoading) {
+    return (
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-slate-900">מספרי טלפון ועסקים</h3>
+          <Phone className="h-5 w-5 text-slate-400" />
+        </div>
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+          <span className="text-slate-600 mr-2">טוען מספרי טלפון...</span>
+        </div>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="p-6 bg-red-50 border-red-200">
+        <div className="flex items-center gap-3 text-red-700">
+          <XCircle className="h-5 w-5" />
+          <div>
+            <p className="font-medium">שגיאה בטעינת מספרי טלפון</p>
+            <p className="text-sm text-red-600">{error.message}</p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-slate-900">מספרי טלפון ועסקים</h3>
+        <div className="flex items-center gap-2">
+          <Badge variant="success">{data?.total_businesses || 0} עסקים</Badge>
+          <Phone className="h-5 w-5 text-slate-400" />
+        </div>
+      </div>
+      
+      {/* System Settings Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-slate-50 rounded-lg">
+        <div className="flex items-center gap-2">
+          <Badge variant={data?.system_settings?.twilio_enabled ? "success" : "danger"}>
+            <Phone className="h-3 w-3" />
+            Twilio
+          </Badge>
+          <span className="text-xs text-slate-600">שיחות</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant={data?.system_settings?.baileys_enabled ? "success" : "danger"}>
+            <MessageCircle className="h-3 w-3" />
+            Baileys
+          </Badge>
+          <span className="text-xs text-slate-600">WhatsApp ישיר</span>
+        </div>
+        <div className="text-xs text-slate-600">
+          ברירת מחדל: <span className="font-medium">{data?.system_settings?.default_provider || 'twilio'}</span>
+        </div>
+      </div>
+
+      {/* Business Phone Numbers Table */}
+      <div className="space-y-3">
+        <h4 className="text-sm font-medium text-slate-700">מספרי טלפון של עסקים</h4>
+        {data?.businesses && data.businesses.length > 0 ? (
+          <div className="space-y-2">
+            {data.businesses.map((business: any, index: number) => (
+              <div key={business.id || index} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Building2 className="h-4 w-4 text-slate-400" />
+                    <span className="font-medium text-slate-900">{business.name}</span>
+                    <Badge variant="neutral" className="text-xs">ID: {business.id}</Badge>
+                  </div>
+                  <div className="text-sm text-slate-600 font-mono" dir="ltr">
+                    <div>📞 {business.phone_e164 || 'אין מספר טלפון'}</div>
+                    {business.whatsapp_number && (
+                      <div>💬 {business.whatsapp_number}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge 
+                    variant={business.whatsapp_status === 'connected' ? 'success' : 'danger'}
+                    className="text-xs"
+                  >
+                    WhatsApp
+                  </Badge>
+                  <Badge 
+                    variant={business.calls_status === 'active' ? 'success' : 'warning'}
+                    className="text-xs"
+                  >
+                    שיחות
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-slate-500">
+            <Phone className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+            <p>לא נמצאו מספרי טלפון עבור עסקים</p>
+          </div>
+        )}
+      </div>
     </Card>
   );
 }
