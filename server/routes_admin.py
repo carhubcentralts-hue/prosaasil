@@ -3,7 +3,7 @@
 Admin API routes for KPIs, tenant management, and system overview
 Implements RBAC with multi-tenant support as per guidelines
 """
-from flask import Blueprint, jsonify, request, g
+from flask import Blueprint, jsonify, request, g, session
 from server.auth_api import require_api_auth
 from server.models_sql import Business, User, CallLog, WhatsAppMessage, Customer
 from server.db import db
@@ -772,7 +772,11 @@ def admin_businesses_prompts():
 @require_api_auth(["admin"])
 def admin_support_profile():
     """Get admin's own support tenant profile - business info, phones, prompt status"""
-    tenant_id = getattr(getattr(g, 'user', None), 'business_id', None) or getattr(getattr(g, 'user', None), 'tenant_id', None)
+    # Get tenant_id from session
+    user = session.get('user') or session.get('al_user')
+    if not user:
+        return jsonify({"error": "Not authenticated"}), 401
+    tenant_id = user.get('business_id')
     if not tenant_id:
         return jsonify({"error": "No tenant on user"}), 400
     biz = Business.query.get(tenant_id)
@@ -804,7 +808,11 @@ def admin_support_profile():
 @require_api_auth(["admin"])
 def admin_support_prompt():
     """Get/Update admin's own AI prompt for customer support"""
-    tenant_id = getattr(getattr(g, 'user', None), 'business_id', None) or getattr(getattr(g, 'user', None), 'tenant_id', None)
+    # Get tenant_id from session
+    user = session.get('user') or session.get('al_user')
+    if not user:
+        return jsonify({"error": "Not authenticated"}), 401
+    tenant_id = user.get('business_id')
     if not tenant_id:
         return jsonify({"error": "No tenant on user"}), 400
     from server.models_sql import BusinessSettings
@@ -881,7 +889,11 @@ def admin_support_prompt():
 @require_api_auth(["admin"])
 def admin_support_phones():
     """Get/Update admin's own phone numbers for customer support"""
-    tenant_id = getattr(getattr(g, 'user', None), 'business_id', None) or getattr(getattr(g, 'user', None), 'tenant_id', None)
+    # Get tenant_id from session
+    user = session.get('user') or session.get('al_user')
+    if not user:
+        return jsonify({"error": "Not authenticated"}), 401
+    tenant_id = user.get('business_id')
     if not tenant_id:
         return jsonify({"error": "No tenant on user"}), 400
     biz = Business.query.get(tenant_id)
