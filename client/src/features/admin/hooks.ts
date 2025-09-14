@@ -157,3 +157,97 @@ export function usePhoneNumbers() {
     refetch: fetchPhoneNumbers
   };
 }
+
+// Admin Support Management Hooks
+export function useSupportProfile() {
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchSupportProfile = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const result = await adminApi.getSupportProfile();
+      setData(result);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSupportProfile();
+  }, [fetchSupportProfile]);
+
+  return {
+    data,
+    isLoading,
+    error,
+    refetch: fetchSupportProfile
+  };
+}
+
+export function useSupportPrompt() {
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchSupportPrompt = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const result = await adminApi.getSupportPrompt();
+      setData(result);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSupportPrompt();
+  }, [fetchSupportPrompt]);
+
+  return {
+    data,
+    isLoading,
+    error,
+    refetch: fetchSupportPrompt
+  };
+}
+
+export function useSupportPhones() {
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchSupportPhones = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const result = await adminApi.getSupportPhones();
+      setData(result);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSupportPhones();
+  }, [fetchSupportPhones]);
+
+  return {
+    data,
+    isLoading,
+    error,
+    refetch: fetchSupportPhones
+  };
+}

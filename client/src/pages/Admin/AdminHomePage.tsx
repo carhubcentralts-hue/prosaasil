@@ -15,7 +15,8 @@ import {
   Loader2,
   Users,
   User,
-  ArrowRight
+  ArrowRight,
+  Shield
 } from 'lucide-react';
 import { Card, StatCard, Badge } from '../../shared/components/ui/Card';
 import { QuickManagementActions } from '../../shared/components/ui/ManagementCard';
@@ -584,12 +585,24 @@ function PhoneNumbersCard() {
         {data?.businesses && data.businesses.length > 0 ? (
           <div className="space-y-2">
             {data.businesses.map((business: any, index: number) => (
-              <div key={business.id || index} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
+              <div key={business.id || index} className={`flex items-center justify-between p-3 rounded-lg hover:bg-slate-100 transition-colors ${
+                business.is_admin_support ? 'bg-blue-50 border border-blue-200' : 'bg-slate-50'
+              }`}>
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <Building2 className="h-4 w-4 text-slate-400" />
-                    <span className="font-medium text-slate-900">{business.name}</span>
-                    <Badge variant="neutral" className="text-xs">ID: {business.id}</Badge>
+                    {business.is_admin_support ? (
+                      <Shield className="h-4 w-4 text-blue-600" />
+                    ) : (
+                      <Building2 className="h-4 w-4 text-slate-400" />
+                    )}
+                    <span className={`font-medium ${business.is_admin_support ? 'text-blue-900' : 'text-slate-900'}`}>
+                      {business.name}
+                    </span>
+                    {business.is_admin_support ? (
+                      <Badge variant="success" className="text-xs">תמיכה</Badge>
+                    ) : (
+                      <Badge variant="neutral" className="text-xs">ID: {business.id}</Badge>
+                    )}
                   </div>
                   <div className="text-sm text-slate-600 font-mono" dir="ltr">
                     <div>📞 {business.phone_e164 || 'אין מספר טלפון'}</div>
@@ -611,6 +624,11 @@ function PhoneNumbersCard() {
                   >
                     שיחות
                   </Badge>
+                  {business.is_admin_support && (
+                    <Badge variant="success" className="text-xs">
+                      🛡️ מנהל
+                    </Badge>
+                  )}
                 </div>
               </div>
             ))}

@@ -662,8 +662,25 @@ def admin_phone_numbers():
         # Get all businesses with their phone numbers
         businesses = db.session.query(Business).all()
         
-        # Format response
+        # Format response - include businesses and admin
         business_phones = []
+        
+        # Add admin/manager as first entry
+        admin_phone = '+972-54-123-4567'  # Default admin support phone
+        admin_whatsapp = '+972-50-987-6543'  # Default admin whatsapp
+        
+        business_phones.append({
+            'id': 'admin-support',
+            'name': 'תמיכה מנהל מערכת',
+            'phone_e164': admin_phone,
+            'whatsapp_number': admin_whatsapp,
+            'whatsapp_enabled': True,
+            'whatsapp_status': 'connected',
+            'calls_status': 'active',
+            'is_admin_support': True
+        })
+        
+        # Add regular businesses
         for business in businesses:
             business_phones.append({
                 'id': business.id,
@@ -672,7 +689,8 @@ def admin_phone_numbers():
                 'whatsapp_number': business.whatsapp_number or '',
                 'whatsapp_enabled': business.whatsapp_enabled or False,
                 'whatsapp_status': 'connected' if business.whatsapp_enabled else 'disabled',
-                'calls_status': 'active' if business.phone_e164 else 'no_phone'
+                'calls_status': 'active' if business.phone_e164 else 'no_phone',
+                'is_admin_support': False
             })
         
         return jsonify({

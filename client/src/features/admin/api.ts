@@ -80,5 +80,26 @@ export const adminApi = {
 
   getPhoneNumbers: async (): Promise<any> => {
     return await http.get<any>('/api/admin/phone-numbers');
+  },
+
+  // Admin Support Management APIs
+  getSupportProfile: async (): Promise<any> => {
+    return await http.get<any>('/api/admin/support/profile');
+  },
+
+  getSupportPrompt: async (): Promise<any> => {
+    return await http.get<any>('/api/admin/support/prompt');
+  },
+
+  updateSupportPrompt: async (data: any): Promise<any> => {
+    return await http.put<any>('/api/admin/support/prompt', data);
+  },
+
+  getSupportPhones: async (): Promise<any> => {
+    return await http.get<any>('/api/admin/support/phones');
+  },
+
+  updateSupportPhones: async (data: any): Promise<any> => {
+    return await http.put<any>('/api/admin/support/phones', data);
   }
 };

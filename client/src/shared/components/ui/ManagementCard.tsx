@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LucideIcon, ChevronRight, Building2, UserCog, Loader2 } from 'lucide-react';
+import { LucideIcon, ChevronRight, Building2, UserCog, Loader2, Headphones } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../../features/auth/hooks';
@@ -96,12 +96,12 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
         setLoading(true);
         
         // Fetch real business count from our new API
-        const businessData = await http.get('/api/admin/businesses?pageSize=1');
+        const businessData = await http.get('/api/admin/businesses?pageSize=1') as any;
         setBusinessCount(businessData.total || 0);
         
         // For users - we'll use a simple estimate for now until we create users API
         // TODO: Create a proper users API endpoint
-        setUserCount(user?.role === 'business' ? 5 : businessData.total * 3);
+        setUserCount(user?.role === 'business' ? 5 : (businessData as any).total * 3);
         
       } catch (error) {
         console.error('Error fetching management stats:', error);
@@ -126,6 +126,10 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
     alert('ניהול משתמשים בפיתוח! כאן תוכלו לנהל משתמשים ולהעניק הרשאות.');
   };
 
+  const handleSupportManagement = () => {
+    navigate('/app/admin/support');
+  };
+
   if (!user) return null;
 
   return (
@@ -141,6 +145,21 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
           stats={{
             count: loading ? 0 : (businessCount || 0),
             label: loading ? 'טוען...' : 'עסקים פעילים'
+          }}
+        />
+      )}
+
+      {/* Support Management - Admin/Manager only */}
+      {(user.role === 'admin' || user.role === 'manager') && !impersonating && (
+        <ManagementCard
+          title="ניהול תמיכה"
+          description="נהלו את הפרומפט והטלפונים שלכם לתמיכה בלקוחות"
+          icon={Headphones}
+          onClick={handleSupportManagement}
+          requiredRoles={['admin', 'manager']}
+          stats={{
+            count: 1,
+            label: 'הגדרות תמיכה'
           }}
         />
       )}
