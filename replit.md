@@ -4,6 +4,16 @@ This is AgentLocator, a Hebrew CRM system with AI-powered real-time call process
 
 ## Recent Major Enhancements (September 2025)
 
+### BUILD 44 - Complete Admin Support Management System (September 14, 2025)
+- **ENHANCED**: AdminSupportPage with complete frontend-backend integration and database persistence
+- **FIXED**: Critical field mapping bugs between frontend and backend API endpoints
+- **EXPANDED**: Phone settings management with WhatsApp integration toggle and emergency voice message support
+- **ENHANCED**: AI prompt management with advanced parameters (model, max_tokens, temperature) and real-time configuration
+- **RESOLVED**: Business creation workflow bug - backend now correctly expects phone_e164 format from frontend
+- **ADDED**: Complete database migrations for new Business columns (working_hours, voice_message) and BusinessSettings enhancements
+- **VERIFIED**: End-to-end functionality from AdminSupportPage through backend endpoints to database persistence
+- **SECURED**: All admin endpoints properly protected with require_api_auth(["admin"]) authorization
+
 ### BUILD 43 - Complete Systematic Implementation (September 12, 2025)
 - **IMPLEMENTED**: 5-part comprehensive guidelines for Hebrew AI Call Center CRM system compliance
 - **RESOLVED**: CSRF token mismatch - unified to SeaSurf's `_csrf_token` instead of custom XSRF-TOKEN  
