@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2 } from 'lucide-react';
+import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 import { Card } from '../../shared/components/ui/Card';
@@ -8,18 +8,12 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '.
 import { Select, SelectOption } from '../../shared/components/ui/Select';
 import LeadCreateModal from './components/LeadCreateModal';
 import LeadDetailModal from './components/LeadDetailModal';
+import StatusManagementModal from './components/StatusManagementModal';
 import { useLeads } from './hooks/useLeads';
 import { Lead, LeadStatus } from './types';
+import { useStatuses } from '../../features/statuses/hooks';
 
-const STATUSES: { key: LeadStatus; label: string; color: string }[] = [
-  { key: 'New', label: 'חדש', color: 'bg-blue-100 text-blue-800' },
-  { key: 'Attempting', label: 'בניסיון קשר', color: 'bg-yellow-100 text-yellow-800' },
-  { key: 'Contacted', label: 'נוצר קשר', color: 'bg-purple-100 text-purple-800' },
-  { key: 'Qualified', label: 'מוכשר', color: 'bg-green-100 text-green-800' },
-  { key: 'Won', label: 'זכיה', color: 'bg-emerald-100 text-emerald-800' },
-  { key: 'Lost', label: 'אובדן', color: 'bg-red-100 text-red-800' },
-  { key: 'Unqualified', label: 'לא מוכשר', color: 'bg-gray-100 text-gray-800' },
-];
+// Dynamic statuses loaded from API
 
 export default function LeadsPage() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -29,6 +23,15 @@ export default function LeadsPage() {
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'status'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [editingStatus, setEditingStatus] = useState<number | null>(null);
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  
+  // Load dynamic statuses
+  const { statuses, refreshStatuses } = useStatuses();
+
+  // Load statuses on component mount
+  useEffect(() => {
+    refreshStatuses();
+  }, [refreshStatuses]);
 
   // Memoize filters to prevent infinite loop
   const filters = useMemo(() => ({
@@ -48,10 +51,23 @@ export default function LeadsPage() {
 
   // Sort and filter leads
   const sortedLeads = useMemo(() => {
-    const statusOrder = STATUSES.reduce((acc, status, index) => {
-      acc[status.key] = index;
+    const statusOrder = statuses.reduce((acc, status, index) => {
+      acc[status.name] = index;
+      // ✅ Legacy compatibility: Add case-insensitive mappings
+      acc[status.name.toLowerCase()] = index;
       return acc;
-    }, {} as Record<LeadStatus, number>);
+    }, {} as Record<string, number>);
+    
+    // ✅ Legacy fallback mapping for capitalized statuses
+    const legacyMapping: Record<string, string> = {
+      'New': 'new',
+      'Attempting': 'attempting',
+      'Contacted': 'contacted',
+      'Qualified': 'qualified', 
+      'Won': 'won',
+      'Lost': 'lost',
+      'Unqualified': 'unqualified'
+    };
 
     const sorted = [...leads].sort((a, b) => {
       let aValue: any;
@@ -61,8 +77,20 @@ export default function LeadsPage() {
         aValue = a.full_name || `${a.first_name} ${a.last_name}`;
         bValue = b.full_name || `${b.first_name} ${b.last_name}`;
       } else if (sortBy === 'status') {
-        aValue = statusOrder[a.status];
-        bValue = statusOrder[b.status];
+        // ✅ Handle legacy status ordering with fallback
+        let aStatus = a.status.toLowerCase();
+        let bStatus = b.status.toLowerCase();
+        
+        // Try legacy mapping if direct lookup fails
+        if (statusOrder[aStatus] === undefined && legacyMapping[a.status]) {
+          aStatus = legacyMapping[a.status];
+        }
+        if (statusOrder[bStatus] === undefined && legacyMapping[b.status]) {
+          bStatus = legacyMapping[b.status];
+        }
+        
+        aValue = statusOrder[aStatus] ?? 999; // Unknown statuses go to end
+        bValue = statusOrder[bStatus] ?? 999;
       } else if (sortBy === 'created_at') {
         aValue = new Date(a.created_at).getTime();
         bValue = new Date(b.created_at).getTime();
@@ -74,7 +102,7 @@ export default function LeadsPage() {
     });
     
     return sorted;
-  }, [leads, sortBy, sortOrder]);
+  }, [leads, sortBy, sortOrder, statuses]);
 
   const handleSort = (column: 'name' | 'created_at' | 'status') => {
     if (sortBy === column) {
@@ -118,12 +146,46 @@ export default function LeadsPage() {
   };
 
   const getStatusColor = (status: LeadStatus): string => {
-    const statusConfig = STATUSES.find(s => s.key === status);
+    // ✅ Legacy compatibility: case-insensitive matching + fallback mapping
+    let statusConfig = statuses.find(s => s.name.toLowerCase() === status.toLowerCase());
+    
+    // Fallback mapping for legacy capitalized statuses
+    if (!statusConfig) {
+      const legacyMapping: Record<string, string> = {
+        'New': 'new',
+        'Attempting': 'attempting', 
+        'Contacted': 'contacted',
+        'Qualified': 'qualified',
+        'Won': 'won',
+        'Lost': 'lost',
+        'Unqualified': 'unqualified'
+      };
+      const normalizedStatus = legacyMapping[status] || status.toLowerCase();
+      statusConfig = statuses.find(s => s.name === normalizedStatus);
+    }
+    
     return statusConfig?.color || 'bg-gray-100 text-gray-800';
   };
 
   const getStatusLabel = (status: LeadStatus): string => {
-    const statusConfig = STATUSES.find(s => s.key === status);
+    // ✅ Legacy compatibility: case-insensitive matching + fallback mapping
+    let statusConfig = statuses.find(s => s.name.toLowerCase() === status.toLowerCase());
+    
+    // Fallback mapping for legacy capitalized statuses
+    if (!statusConfig) {
+      const legacyMapping: Record<string, string> = {
+        'New': 'new',
+        'Attempting': 'attempting',
+        'Contacted': 'contacted', 
+        'Qualified': 'qualified',
+        'Won': 'won',
+        'Lost': 'lost',
+        'Unqualified': 'unqualified'
+      };
+      const normalizedStatus = legacyMapping[status] || status.toLowerCase();
+      statusConfig = statuses.find(s => s.name === normalizedStatus);
+    }
+    
     return statusConfig?.label || status;
   };
 
@@ -168,14 +230,26 @@ export default function LeadsPage() {
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">לידים</h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">ניהול ומעקב אחרי לידים בטבלה מקצועית</p>
         </div>
-        <Button 
-          onClick={() => setIsCreateModalOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white"
-          data-testid="button-add-lead"
-        >
-          <Plus className="w-4 h-4 ml-2" />
-          ליד חדש
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={() => setIsStatusModalOpen(true)}
+            variant="secondary"
+            size="sm"
+            className="text-gray-700 border-gray-300 hover:bg-gray-50"
+            data-testid="button-manage-statuses"
+          >
+            <Settings className="w-4 h-4 ml-2" />
+            ניהול סטטוסים
+          </Button>
+          <Button 
+            onClick={() => setIsCreateModalOpen(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+            data-testid="button-add-lead"
+          >
+            <Plus className="w-4 h-4 ml-2" />
+            ליד חדש
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -198,8 +272,8 @@ export default function LeadsPage() {
             data-testid="select-status-filter"
           >
             <SelectOption value="all">כל הסטטוסים</SelectOption>
-            {STATUSES.map(status => (
-              <SelectOption key={status.key} value={status.key}>
+            {statuses.map(status => (
+              <SelectOption key={status.id} value={status.name}>
                 {status.label}
               </SelectOption>
             ))}
@@ -306,8 +380,8 @@ export default function LeadsPage() {
                         data-testid={`select-status-${lead.id}`}
                         autoFocus
                       >
-                        {STATUSES.map(status => (
-                          <SelectOption key={status.key} value={status.key}>
+                        {statuses.map(status => (
+                          <SelectOption key={status.id} value={status.name}>
                             {status.label}
                           </SelectOption>
                         ))}
@@ -421,6 +495,15 @@ export default function LeadsPage() {
           onUpdate={handleLeadUpdate}
         />
       )}
+      
+      <StatusManagementModal
+        isOpen={isStatusModalOpen}
+        onClose={() => {
+          setIsStatusModalOpen(false);
+          refreshStatuses(); // Refresh statuses when modal closes
+        }}
+        onStatusChange={refreshStatuses} // ✅ Pass refresh function to sync parent cache
+      />
     </div>
   );
 }

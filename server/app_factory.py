@@ -258,6 +258,10 @@ def create_app():
         from server.routes_ai_prompt import ai_prompt_bp
         app.register_blueprint(ai_prompt_bp)
         
+        # Status Management Blueprint - Custom Lead Statuses
+        from server.routes_status_management import status_management_bp
+        app.register_blueprint(status_management_bp)
+        
         @app.before_request  
         def setup_security_context():
             """Setup security context for each request"""

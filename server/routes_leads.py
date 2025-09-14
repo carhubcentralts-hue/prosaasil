@@ -58,6 +58,79 @@ def create_activity(lead_id, activity_type, payload, created_by=None):
     activity.at = datetime.utcnow()
     db.session.add(activity)
 
+def ensure_default_statuses_exist(business_id):
+    """Ensure default statuses exist for business - shared seeding logic"""
+    from server.models_sql import LeadStatus
+    
+    # Check if statuses already exist
+    existing_statuses = LeadStatus.query.filter_by(
+        business_id=business_id,
+        is_active=True
+    ).count()
+    
+    if existing_statuses > 0:
+        return  # Already seeded
+    
+    # Default Hebrew real estate statuses - ALWAYS lowercase canonical names
+    default_statuses = [
+        {'name': 'new', 'label': 'חדש', 'color': 'bg-blue-100 text-blue-800', 'is_default': True},
+        {'name': 'attempting', 'label': 'בניסיון קשר', 'color': 'bg-yellow-100 text-yellow-800'},
+        {'name': 'contacted', 'label': 'נוצר קשר', 'color': 'bg-purple-100 text-purple-800'},
+        {'name': 'qualified', 'label': 'מוכשר', 'color': 'bg-green-100 text-green-800'},
+        {'name': 'won', 'label': 'זכיה', 'color': 'bg-emerald-100 text-emerald-800', 'is_system': True},
+        {'name': 'lost', 'label': 'אובדן', 'color': 'bg-red-100 text-red-800', 'is_system': True},
+        {'name': 'unqualified', 'label': 'לא מוכשר', 'color': 'bg-gray-100 text-gray-800', 'is_system': True}
+    ]
+    
+    for index, status_data in enumerate(default_statuses):
+        status = LeadStatus()
+        status.business_id = business_id
+        status.name = status_data['name']  # Already lowercase canonical
+        status.label = status_data['label']
+        status.color = status_data['color']
+        status.order_index = index
+        status.is_default = status_data.get('is_default', False)
+        status.is_system = status_data.get('is_system', False)
+        db.session.add(status)
+    
+    db.session.commit()
+
+def get_default_status_for_business(business_id):
+    """Get default status for business with fallback to 'new'"""
+    from server.models_sql import LeadStatus
+    
+    # Ensure default statuses exist first
+    ensure_default_statuses_exist(business_id)
+    
+    # Get the default status
+    default_status = LeadStatus.query.filter_by(
+        business_id=business_id,
+        is_active=True,
+        is_default=True
+    ).first()
+    
+    if default_status:
+        return default_status.name  # Return canonical lowercase name
+    
+    # Fallback: if no default found, return 'new' (should not happen after seeding)
+    log.warning(f"No default status found for business {business_id}, using fallback 'new'")
+    return 'new'
+
+def get_valid_statuses_for_business(business_id):
+    """Get valid statuses for business, with guaranteed seeding"""
+    from server.models_sql import LeadStatus
+    
+    # Ensure default statuses exist first
+    ensure_default_statuses_exist(business_id)
+    
+    # Get statuses (guaranteed to exist now)
+    statuses = LeadStatus.query.filter_by(
+        business_id=business_id,
+        is_active=True
+    ).all()
+    
+    return [s.name for s in statuses]  # Return canonical lowercase names
+
 # === LEAD MANAGEMENT ENDPOINTS ===
 
 @leads_bp.route("/api/leads", methods=["GET"])
@@ -86,7 +159,8 @@ def list_leads():
     
     # Apply filters
     if status_filter:
-        query = query.filter(Lead.status == status_filter)
+        # ✅ FIXED: Case-insensitive status filtering for legacy compatibility
+        query = query.filter(func.lower(Lead.status) == status_filter.lower())
     
     if source_filter:
         query = query.filter(Lead.source == source_filter)
@@ -186,6 +260,22 @@ def create_lead():
     
     # Create lead
     user = get_current_user()
+    
+    # ✅ FIXED: Use actual default status from database, not hardcoded 'new'
+    valid_statuses = get_valid_statuses_for_business(tenant_id)
+    default_status = get_default_status_for_business(tenant_id)  # Get actual default from DB
+    
+    # Normalize provided status to canonical lowercase
+    provided_status = data.get('status')
+    if provided_status:
+        normalized_status = provided_status.lower().strip()
+        if normalized_status in valid_statuses:
+            default_status = normalized_status
+        else:
+            return jsonify({
+                "error": f"Invalid status '{provided_status}'. Valid options: {', '.join(valid_statuses)}"
+            }), 400
+    
     lead = Lead()
     lead.tenant_id = tenant_id
     lead.first_name = data.get('first_name')
@@ -193,7 +283,7 @@ def create_lead():
     lead.phone_e164 = data.get('phone_e164')
     lead.email = data.get('email')
     lead.source = data.get('source', 'manual')
-    lead.status = data.get('status', 'New')
+    lead.status = default_status  # Always canonical lowercase
     lead.owner_user_id = data.get('owner_user_id') or (user.get('id') if user else None)
     lead.tags = data.get('tags', [])
     lead.notes = data.get('notes')
@@ -358,14 +448,26 @@ def update_lead_status(lead_id):
         return jsonify({"error": "Status is required"}), 400
     
     new_status = data['status']
-    valid_statuses = ['New', 'Attempting', 'Contacted', 'Qualified', 'Won', 'Lost', 'Unqualified']
-    
-    if new_status not in valid_statuses:
-        return jsonify({"error": f"Invalid status. Valid options: {', '.join(valid_statuses)}"}), 400
     
     lead = Lead.query.filter_by(id=lead_id).first()
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
+    
+    # ✅ FIXED: Get valid statuses with guaranteed seeding - no more race condition
+    valid_statuses = get_valid_statuses_for_business(lead.tenant_id)
+    
+    # ✅ FIXED: Always normalize to canonical lowercase - no more TitleCase writes
+    original_status = new_status
+    normalized_status = new_status.lower().strip()
+    
+    # Find exact match in valid statuses (all are lowercase canonical)
+    if normalized_status not in valid_statuses:
+        return jsonify({
+            "error": f"Invalid status '{original_status}'. Valid options: {', '.join(valid_statuses)}"
+        }), 400
+    
+    # Always use the canonical lowercase name
+    new_status = normalized_status
         
     old_status = lead.status
     
@@ -475,12 +577,15 @@ def move_lead_in_kanban(lead_id):
     
     # Update status if provided
     if new_status and new_status != lead.status:
-        valid_statuses = ['New', 'Attempting', 'Contacted', 'Qualified', 'Won', 'Lost', 'Unqualified']
-        if new_status not in valid_statuses:
-            return jsonify({"error": f"Invalid status. Valid options: {', '.join(valid_statuses)}"}), 400
+        # ✅ FIXED: Use guaranteed seeding and canonical lowercase validation
+        valid_statuses = get_valid_statuses_for_business(tenant_id)
+        normalized_status = new_status.lower().strip()
+        
+        if normalized_status not in valid_statuses:
+            return jsonify({"error": f"Invalid status '{new_status}'. Valid options: {', '.join(valid_statuses)}"}), 400
         
         old_status = lead.status
-        lead.status = new_status
+        lead.status = normalized_status  # Always canonical lowercase
         
         # Log status change
         user = get_current_user()

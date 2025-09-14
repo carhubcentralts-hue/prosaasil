@@ -130,7 +130,7 @@ class Lead(db.Model):
     # Lead tracking
     source = db.Column(db.String(32), default="form", index=True)  # call|whatsapp|form|manual
     external_id = db.Column(db.String(128), index=True)  # call_sid|wa_msg_id
-    status = db.Column(db.String(32), default="New", index=True)  # New|Attempting|Contacted|Qualified|Won|Lost|Unqualified
+    status = db.Column(db.String(32), default="new", index=True)  # Canonical lowercase: new|attempting|contacted|qualified|won|lost|unqualified
     order_index = db.Column(db.Integer, default=0, index=True)  # For Kanban board ordering within status
     
     # Assignment
@@ -178,6 +178,38 @@ class LeadReminder(db.Model):
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
+
+class LeadStatus(db.Model):
+    """Custom lead statuses per business"""
+    __tablename__ = "lead_statuses"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Status configuration
+    name = db.Column(db.String(64), nullable=False)  # Internal name (e.g., "new", "contacted")
+    label = db.Column(db.String(128), nullable=False)  # Display name (e.g., "חדש", "נוצר קשר")
+    color = db.Column(db.String(64), default="bg-gray-100 text-gray-800")  # Tailwind classes
+    description = db.Column(db.Text)  # Optional description
+    
+    # Ordering and system
+    order_index = db.Column(db.Integer, default=0, index=True)  # Pipeline order
+    is_active = db.Column(db.Boolean, default=True)  # Can be disabled without deleting
+    is_default = db.Column(db.Boolean, default=False)  # Default status for new leads
+    is_system = db.Column(db.Boolean, default=False)  # System statuses (like "Won", "Lost")
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref="lead_statuses")
+    
+    # Unique constraint: name per business
+    __table_args__ = (
+        db.UniqueConstraint('business_id', 'name', name='_business_status_name'),
+        db.Index('idx_business_order', 'business_id', 'order_index'),
+    )
 
 class LeadActivity(db.Model):
     """Activity timeline for leads"""

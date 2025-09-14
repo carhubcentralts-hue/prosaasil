@@ -638,18 +638,19 @@ def admin_leads_stats():
             'total': 0
         }
         
-        # Process stats
+        # Process stats - ✅ FIXED: Case-insensitive for legacy/canonical compatibility
         for status, count in stats:
             stats_dict['total'] += count
-            if status == 'New':
+            status_lower = status.lower() if status else ''
+            if status_lower == 'new':
                 stats_dict['new'] = count
-            elif status in ['Attempting', 'Contacted']:
+            elif status_lower in ['attempting', 'contacted']:
                 stats_dict['in_progress'] += count
-            elif status == 'Qualified':
+            elif status_lower == 'qualified':
                 stats_dict['qualified'] = count
-            elif status == 'Won':
+            elif status_lower == 'won':
                 stats_dict['won'] = count
-            elif status == 'Lost':
+            elif status_lower in ['lost', 'unqualified']:
                 stats_dict['lost'] = count
         
         return jsonify(stats_dict)
