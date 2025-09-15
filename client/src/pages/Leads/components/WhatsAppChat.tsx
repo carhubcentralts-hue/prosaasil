@@ -48,6 +48,9 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
   const [conversation, setConversation] = useState<WhatsAppConversation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<string>('twilio');
+  const [showQRCode, setShowQRCode] = useState(false);
+  const [qrCode, setQRCode] = useState<string>('');
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [providers, setProviders] = useState<WhatsAppProvider[]>([
     { id: 'twilio', name: 'Twilio WhatsApp', type: 'twilio', status: 'active', description: 'ספק רשמי דרך Twilio Business API' },
     { id: 'baileys', name: 'WhatsApp Web', type: 'baileys', status: 'active', description: 'חיבור ישיר דרך WhatsApp Web' }
@@ -58,6 +61,19 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const fetchQRCode = async () => {
+    try {
+      setConnectionStatus('connecting');
+      const response = await http.get<{ qr: string }>('/api/whatsapp/baileys/qr');
+      setQRCode(response.qr);
+      setConnectionStatus('connected');
+    } catch (err) {
+      console.error('Failed to fetch QR code:', err);
+      setError('שגיאה בטעינת קוד QR');
+      setConnectionStatus('disconnected');
+    }
   };
 
   const getBusinessId = useCallback(() => {
@@ -242,7 +258,15 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
                 </Badge>
                 <select 
                   value={selectedProvider} 
-                  onChange={(e) => setSelectedProvider(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedProvider(e.target.value);
+                    if (e.target.value === 'baileys') {
+                      setShowQRCode(true);
+                      fetchQRCode();
+                    } else {
+                      setShowQRCode(false);
+                    }
+                  }}
                   className="ml-2 text-xs bg-transparent border-none cursor-pointer text-green-600 font-medium"
                   data-testid="select-whatsapp-provider"
                 >
@@ -267,6 +291,47 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
             </Button>
           </div>
         </div>
+
+        {/* QR Code Modal for Baileys */}
+        {showQRCode && selectedProvider === 'baileys' && (
+          <div className="p-4 border-b border-gray-200 bg-blue-50">
+            <div className="text-center">
+              <h4 className="font-medium text-blue-900 mb-2">חיבור WhatsApp Web</h4>
+              {connectionStatus === 'connecting' ? (
+                <div>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                  <p className="text-sm text-blue-600">יוצר קוד QR...</p>
+                </div>
+              ) : qrCode ? (
+                <div>
+                  <div className="bg-white p-3 rounded-lg inline-block mb-2">
+                    {qrCode.startsWith('data:image') ? (
+                      <img src={qrCode} alt="QR Code" className="w-32 h-32" />
+                    ) : (
+                      <div className="w-32 h-32 bg-gray-200 flex items-center justify-center text-xs text-gray-500 font-mono break-all p-1">
+                        {qrCode}
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-blue-600">סרוק עם WhatsApp במכשיר שלך</p>
+                  <button 
+                    onClick={() => setShowQRCode(false)}
+                    className="mt-2 text-xs text-blue-500 underline"
+                  >
+                    סגור
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={fetchQRCode}
+                  className="bg-blue-600 text-white px-4 py-2 rounded text-sm"
+                >
+                  צור קוד QR
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 bg-gray-50">

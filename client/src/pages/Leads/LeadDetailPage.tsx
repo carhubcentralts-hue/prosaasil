@@ -483,16 +483,91 @@ function TasksTab({ tasks }: { tasks: LeadTask[] }) {
 function InvoicesTab({ leadId }: { leadId: number }) {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+
+  const handleCreateInvoice = () => {
+    setShowInvoiceModal(true);
+  };
 
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-medium text-gray-900">חשבוניות</h3>
-        <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-create-invoice">
+        <Button 
+          size="sm" 
+          className="bg-blue-600 hover:bg-blue-700 text-white" 
+          data-testid="button-create-invoice"
+          onClick={handleCreateInvoice}
+        >
           <Plus className="w-4 h-4 ml-2" />
           חשבונית חדשה
         </Button>
       </div>
+      
+      {/* Invoice Modal */}
+      {showInvoiceModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="invoice-modal">
+          <Card className="w-full max-w-lg">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium">צור חשבונית חדשה</h3>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => setShowInvoiceModal(false)}
+                  data-testid="button-close-invoice-modal"
+                >
+                  ✕
+                </Button>
+              </div>
+              
+              <div className="grid grid-cols-1 gap-4">
+                <Button 
+                  className="p-4 bg-blue-50 hover:bg-blue-100 text-blue-900 text-right"
+                  onClick={() => {
+                    alert('יוצר הצעת מחיר לליד #' + leadId);
+                    setShowInvoiceModal(false);
+                  }}
+                  data-testid="button-invoice-quote"
+                >
+                  <div>
+                    <h4 className="font-medium">הצעת מחיר</h4>
+                    <p className="text-sm opacity-75">הכן הצעת מחיר מקצועית ללקוח</p>
+                  </div>
+                </Button>
+                
+                <Button 
+                  className="p-4 bg-green-50 hover:bg-green-100 text-green-900 text-right"
+                  onClick={() => {
+                    alert('יוצר חשבונית מס לליד #' + leadId);
+                    setShowInvoiceModal(false);
+                  }}
+                  data-testid="button-invoice-tax"
+                >
+                  <div>
+                    <h4 className="font-medium">חשבונית מס</h4>
+                    <p className="text-sm opacity-75">הפק חשבונית מס רשמית</p>
+                  </div>
+                </Button>
+                
+                <Button 
+                  className="p-4 bg-purple-50 hover:bg-purple-100 text-purple-900 text-right"
+                  onClick={() => {
+                    alert('יוצר קבלה לליד #' + leadId);
+                    setShowInvoiceModal(false);
+                  }}
+                  data-testid="button-invoice-receipt"
+                >
+                  <div>
+                    <h4 className="font-medium">קבלה</h4>
+                    <p className="text-sm opacity-75">הפק קבלה על תשלום</p>
+                  </div>
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
       {invoices.length === 0 ? (
         <div className="text-center py-8">
           <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
@@ -523,16 +598,91 @@ function InvoicesTab({ leadId }: { leadId: number }) {
 
 function ContractsTab({ leadId }: { leadId: number }) {
   const [contracts, setContracts] = useState<any[]>([]);
+  const [showContractModal, setShowContractModal] = useState(false);
+
+  const handleCreateContract = () => {
+    setShowContractModal(true);
+  };
 
   return (
     <Card className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-medium text-gray-900">חוזים ומסמכים</h3>
-        <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" data-testid="button-create-contract">
+        <Button 
+          size="sm" 
+          className="bg-green-600 hover:bg-green-700 text-white" 
+          data-testid="button-create-contract"
+          onClick={handleCreateContract}
+        >
           <Plus className="w-4 h-4 ml-2" />
           חוזה חדש
         </Button>
       </div>
+      
+      {/* Contract Modal */}
+      {showContractModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="contract-modal">
+          <Card className="w-full max-w-lg">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium">צור חוזה חדש</h3>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => setShowContractModal(false)}
+                  data-testid="button-close-contract-modal"
+                >
+                  ✕
+                </Button>
+              </div>
+              
+              <div className="grid grid-cols-1 gap-4">
+                <Button 
+                  className="p-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-right"
+                  onClick={() => {
+                    alert('יוצר חוזה מכר לליד #' + leadId);
+                    setShowContractModal(false);
+                  }}
+                  data-testid="button-contract-sale"
+                >
+                  <div>
+                    <h4 className="font-medium">חוזה מכר</h4>
+                    <p className="text-sm opacity-75">חוזה רכישת נדל"ן רשמי</p>
+                  </div>
+                </Button>
+                
+                <Button 
+                  className="p-4 bg-orange-50 hover:bg-orange-100 text-orange-900 text-right"
+                  onClick={() => {
+                    alert('יוצר חוזה שכירות לליד #' + leadId);
+                    setShowContractModal(false);
+                  }}
+                  data-testid="button-contract-rent"
+                >
+                  <div>
+                    <h4 className="font-medium">חוזה שכירות</h4>
+                    <p className="text-sm opacity-75">חוזה שכירות מפורט</p>
+                  </div>
+                </Button>
+                
+                <Button 
+                  className="p-4 bg-yellow-50 hover:bg-yellow-100 text-yellow-900 text-right"
+                  onClick={() => {
+                    alert('יוצר הסכם תיווך לליד #' + leadId);
+                    setShowContractModal(false);
+                  }}
+                  data-testid="button-contract-mediation"
+                >
+                  <div>
+                    <h4 className="font-medium">הסכם תיווך</h4>
+                    <p className="text-sm opacity-75">הסכם תיווך נדל"ן</p>
+                  </div>
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
       {contracts.length === 0 ? (
         <div className="text-center py-8">
           <Tag className="w-12 h-12 text-gray-300 mx-auto mb-4" />
