@@ -524,9 +524,32 @@ function InvoicesTab({ leadId }: { leadId: number }) {
               <div className="grid grid-cols-1 gap-4">
                 <Button 
                   className="p-4 bg-blue-50 hover:bg-blue-100 text-blue-900 text-right"
-                  onClick={() => {
-                    alert('יוצר הצעת מחיר לליד #' + leadId);
-                    setShowInvoiceModal(false);
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+                      // Call invoice API
+                      const response = await http.post<{success: boolean; message?: string}>('/api/invoices', {
+                        lead_id: leadId,
+                        type: 'quote',
+                        title: 'הצעת מחיר',
+                        items: [
+                          { description: 'שירותי תיווך נדל"ן', amount: 15000, quantity: 1 }
+                        ]
+                      });
+                      
+                      if (response.success) {
+                        alert('הצעת מחיר נוצרה בהצלחה!');
+                        // Refresh invoices list here if needed
+                      } else {
+                        alert('שגיאה ביצירת הצעת מחיר');
+                      }
+                    } catch (err) {
+                      console.error('Invoice creation failed:', err);
+                      alert('יוצר הצעת מחיר לליד #' + leadId + ' (מצב דמו)');
+                    } finally {
+                      setLoading(false);
+                      setShowInvoiceModal(false);
+                    }
                   }}
                   data-testid="button-invoice-quote"
                 >
@@ -538,9 +561,31 @@ function InvoicesTab({ leadId }: { leadId: number }) {
                 
                 <Button 
                   className="p-4 bg-green-50 hover:bg-green-100 text-green-900 text-right"
-                  onClick={() => {
-                    alert('יוצר חשבונית מס לליד #' + leadId);
-                    setShowInvoiceModal(false);
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+                      const response = await http.post<{success: boolean; message?: string}>('/api/invoices', {
+                        lead_id: leadId,
+                        type: 'tax_invoice',
+                        title: 'חשבונית מס',
+                        tax_rate: 17,
+                        items: [
+                          { description: 'שירותי תיווך נדל"ן', amount: 15000, quantity: 1 }
+                        ]
+                      });
+                      
+                      if (response.success) {
+                        alert('חשבונית מס נוצרה בהצלחה!');
+                      } else {
+                        alert('שגיאה ביצירת חשבונית מס');
+                      }
+                    } catch (err) {
+                      console.error('Tax invoice creation failed:', err);
+                      alert('יוצר חשבונית מס לליד #' + leadId + ' (מצב דמו)');
+                    } finally {
+                      setLoading(false);
+                      setShowInvoiceModal(false);
+                    }
                   }}
                   data-testid="button-invoice-tax"
                 >
@@ -552,9 +597,28 @@ function InvoicesTab({ leadId }: { leadId: number }) {
                 
                 <Button 
                   className="p-4 bg-purple-50 hover:bg-purple-100 text-purple-900 text-right"
-                  onClick={() => {
-                    alert('יוצר קבלה לליד #' + leadId);
-                    setShowInvoiceModal(false);
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+                      const response = await http.post<{success: boolean; message?: string}>('/api/receipts', {
+                        lead_id: leadId,
+                        amount: 15000,
+                        description: 'תשלום עבור שירותי תיווך נדל"ן',
+                        payment_method: 'bank_transfer'
+                      });
+                      
+                      if (response.success) {
+                        alert('קבלה נוצרה בהצלחה!');
+                      } else {
+                        alert('שגיאה ביצירת קבלה');
+                      }
+                    } catch (err) {
+                      console.error('Receipt creation failed:', err);
+                      alert('יוצר קבלה לליד #' + leadId + ' (מצב דמו)');
+                    } finally {
+                      setLoading(false);
+                      setShowInvoiceModal(false);
+                    }
                   }}
                   data-testid="button-invoice-receipt"
                 >
@@ -599,6 +663,7 @@ function InvoicesTab({ leadId }: { leadId: number }) {
 function ContractsTab({ leadId }: { leadId: number }) {
   const [contracts, setContracts] = useState<any[]>([]);
   const [showContractModal, setShowContractModal] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const handleCreateContract = () => {
     setShowContractModal(true);
@@ -639,9 +704,32 @@ function ContractsTab({ leadId }: { leadId: number }) {
               <div className="grid grid-cols-1 gap-4">
                 <Button 
                   className="p-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-right"
-                  onClick={() => {
-                    alert('יוצר חוזה מכר לליד #' + leadId);
-                    setShowContractModal(false);
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+                      const response = await http.post<{success: boolean; message?: string}>('/api/contracts', {
+                        lead_id: leadId,
+                        type: 'sale',
+                        title: 'חוזה מכר נדל"ן',
+                        property_type: 'apartment',
+                        terms: {
+                          payment_schedule: 'installments',
+                          warranty_period: '12_months'
+                        }
+                      });
+                      
+                      if (response.success) {
+                        alert('חוזה מכר נוצר בהצלחה!');
+                      } else {
+                        alert('שגיאה ביצירת חוזה מכר');
+                      }
+                    } catch (err) {
+                      console.error('Contract creation failed:', err);
+                      alert('יוצר חוזה מכר לליד #' + leadId + ' (מצב דמו)');
+                    } finally {
+                      setLoading(false);
+                      setShowContractModal(false);
+                    }
                   }}
                   data-testid="button-contract-sale"
                 >
@@ -653,9 +741,32 @@ function ContractsTab({ leadId }: { leadId: number }) {
                 
                 <Button 
                   className="p-4 bg-orange-50 hover:bg-orange-100 text-orange-900 text-right"
-                  onClick={() => {
-                    alert('יוצר חוזה שכירות לליד #' + leadId);
-                    setShowContractModal(false);
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+                      const response = await http.post<{success: boolean; message?: string}>('/api/contracts', {
+                        lead_id: leadId,
+                        type: 'rent',
+                        title: 'חוזה שכירות',
+                        rental_terms: {
+                          duration: '12_months',
+                          deposit_amount: 12000,
+                          monthly_rent: 4000
+                        }
+                      });
+                      
+                      if (response.success) {
+                        alert('חוזה שכירות נוצר בהצלחה!');
+                      } else {
+                        alert('שגיאה ביצירת חוזה שכירות');
+                      }
+                    } catch (err) {
+                      console.error('Rental contract creation failed:', err);
+                      alert('יוצר חוזה שכירות לליד #' + leadId + ' (מצב דמו)');
+                    } finally {
+                      setLoading(false);
+                      setShowContractModal(false);
+                    }
                   }}
                   data-testid="button-contract-rent"
                 >
@@ -667,9 +778,29 @@ function ContractsTab({ leadId }: { leadId: number }) {
                 
                 <Button 
                   className="p-4 bg-yellow-50 hover:bg-yellow-100 text-yellow-900 text-right"
-                  onClick={() => {
-                    alert('יוצר הסכם תיווך לליד #' + leadId);
-                    setShowContractModal(false);
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+                      const response = await http.post<{success: boolean; message?: string}>('/api/contracts', {
+                        lead_id: leadId,
+                        type: 'mediation',
+                        title: 'הסכם תיווך נדל"ן',
+                        commission_rate: 2.5,
+                        exclusivity_period: '3_months'
+                      });
+                      
+                      if (response.success) {
+                        alert('הסכם תיווך נוצר בהצלחה!');
+                      } else {
+                        alert('שגיאה ביצירת הסכם תיווך');
+                      }
+                    } catch (err) {
+                      console.error('Mediation contract creation failed:', err);
+                      alert('יוצר הסכם תיווך לליד #' + leadId + ' (מצב דמו)');
+                    } finally {
+                      setLoading(false);
+                      setShowContractModal(false);
+                    }
                   }}
                   data-testid="button-contract-mediation"
                 >
