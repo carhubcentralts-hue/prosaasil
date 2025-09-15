@@ -155,7 +155,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       {/* Header */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+          {/* Desktop Header */}
+          <div className="hidden sm:flex items-center justify-between h-16">
             <div className="flex items-center">
               <Button
                 variant="ghost"
@@ -193,13 +194,54 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               </Button>
             </div>
           </div>
+          
+          {/* Mobile Header */}
+          <div className="sm:hidden py-4">
+            <div className="flex items-center justify-between mb-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/app/leads')}
+                data-testid="button-back-mobile"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                חזור
+              </Button>
+              <StatusBadge status={lead.status} />
+            </div>
+            <div className="text-center mb-4">
+              <h1 className="text-lg font-semibold text-gray-900" data-testid="text-lead-name-mobile">
+                {lead.full_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'ללא שם'}
+              </h1>
+              <p className="text-sm text-gray-500" data-testid="text-lead-phone-mobile">
+                {lead.phone_e164}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" className="flex-1" data-testid="button-call-mobile">
+                <Phone className="w-4 h-4 mr-2" />
+                התקשר
+              </Button>
+              <Button 
+                size="sm" 
+                variant="secondary" 
+                className="flex-1"
+                onClick={() => setWhatsappChatOpen(true)}
+                data-testid="button-whatsapp-mobile"
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                וואטסאפ
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex space-x-8" aria-label="Tabs">
+          {/* Desktop Tabs */}
+          <nav className="hidden sm:flex space-x-8" aria-label="Tabs">
             {TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.key;
@@ -220,11 +262,36 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               );
             })}
           </nav>
+          
+          {/* Mobile Tabs - Scrollable */}
+          <div className="sm:hidden overflow-x-auto">
+            <nav className="flex space-x-6 py-3" aria-label="Mobile Tabs">
+              {TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`${
+                      isActive
+                        ? 'bg-blue-100 text-blue-600'
+                        : 'text-gray-500 hover:text-gray-700'
+                    } whitespace-nowrap px-3 py-2 rounded-lg font-medium text-sm flex items-center flex-shrink-0`}
+                    data-testid={`tab-mobile-${tab.key}`}
+                  >
+                    <Icon className="w-4 h-4 mr-2" />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         {activeTab === 'overview' && <OverviewTab lead={lead} reminders={reminders} onOpenReminder={() => setReminderModalOpen(true)} />}
         {activeTab === 'conversation' && <ConversationTab conversations={conversations} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} />}
@@ -259,12 +326,12 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
 // Tab Components
 function OverviewTab({ lead, reminders, onOpenReminder }: { lead: Lead; reminders: LeadReminder[]; onOpenReminder: () => void }) {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6">
       {/* Lead Info */}
       <div className="lg:col-span-2">
-        <Card className="p-6">
+        <Card className="p-4 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">פרטי קשר</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">שם פרטי</label>
               <p className="text-sm text-gray-900">{lead.first_name}</p>
@@ -315,8 +382,8 @@ function OverviewTab({ lead, reminders, onOpenReminder }: { lead: Lead; reminder
       </div>
 
       {/* Reminders */}
-      <div>
-        <Card className="p-6">
+      <div className="order-first lg:order-last">
+        <Card className="p-4 sm:p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900">תזכורות קרובות</h3>
             <Button
@@ -363,7 +430,7 @@ function OverviewTab({ lead, reminders, onOpenReminder }: { lead: Lead; reminder
 
 function ConversationTab({ conversations, onOpenWhatsApp }: { conversations: LeadConversation[]; onOpenWhatsApp: () => void }) {
   return (
-    <Card className="p-6">
+    <Card className="p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-medium text-gray-900">היסטוריית שיחות</h3>
         <Button 
@@ -392,7 +459,7 @@ function ConversationTab({ conversations, onOpenWhatsApp }: { conversations: Lea
         <div className="space-y-4">
           {conversations.map((conversation) => (
             <div key={conversation.id} className={`flex ${conversation.direction === 'outgoing' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+              <div className={`max-w-xs sm:max-w-sm lg:max-w-md px-4 py-2 rounded-lg ${
                 conversation.direction === 'outgoing' 
                   ? 'bg-blue-500 text-white' 
                   : 'bg-gray-100 text-gray-900'
@@ -414,14 +481,14 @@ function ConversationTab({ conversations, onOpenWhatsApp }: { conversations: Lea
 
 function CallsTab({ calls }: { calls: LeadCall[] }) {
   return (
-    <Card className="p-6">
+    <Card className="p-4 sm:p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-4">היסטוריית שיחות טלפון</h3>
       {calls.length === 0 ? (
         <p className="text-sm text-gray-500">אין שיחות טלפון</p>
       ) : (
         <div className="space-y-4">
           {calls.map((call) => (
-            <div key={call.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+            <div key={call.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 bg-gray-50 rounded-lg gap-3 sm:gap-0">
               <div className="flex items-center space-x-3">
                 <Phone className={`w-5 h-5 ${call.call_type === 'incoming' ? 'text-green-500' : 'text-blue-500'}`} />
                 <div>
@@ -431,7 +498,7 @@ function CallsTab({ calls }: { calls: LeadCall[] }) {
                   <p className="text-xs text-gray-500">{formatDate(call.created_at)}</p>
                 </div>
               </div>
-              <div className="text-right">
+              <div className="text-right sm:text-left">
                 <p className="text-sm text-gray-900">{call.duration}s</p>
                 {call.notes && <p className="text-xs text-gray-500">{call.notes}</p>}
               </div>
@@ -445,7 +512,7 @@ function CallsTab({ calls }: { calls: LeadCall[] }) {
 
 function TasksTab({ tasks }: { tasks: LeadTask[] }) {
   return (
-    <Card className="p-6">
+    <Card className="p-4 sm:p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-4">משימות</h3>
       {tasks.length === 0 ? (
         <p className="text-sm text-gray-500">אין משימות</p>
@@ -490,7 +557,7 @@ function InvoicesTab({ leadId }: { leadId: number }) {
   };
 
   return (
-    <Card className="p-6">
+    <Card className="p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-medium text-gray-900">חשבוניות</h3>
         <Button 
