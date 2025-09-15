@@ -229,7 +229,7 @@ export default function LeadsPage() {
   };
 
   return (
-    <main className="container mx-auto max-w-screen-md px-4 pb-24 pt-2" dir="rtl">
+    <main className="container mx-auto px-4 pb-24 pt-2" dir="rtl">
       {/* Header - sticky top */}
       <div className="sticky top-[env(safe-area-inset-top)] z-30 bg-white/80 backdrop-blur -mx-4 px-4 py-3 mb-6">
         <div className="flex items-center justify-between">
@@ -430,7 +430,7 @@ export default function LeadsPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleWhatsAppOpen(lead.phone_e164 || lead.display_phone || '')}
+                            onClick={() => handleWhatsAppOpen(lead.phone || lead.phone_e164 || lead.display_phone || '')}
                             className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
                             data-testid={`button-whatsapp-${lead.id}`}
                             title="פתח שיחה בווצאפ"
@@ -440,7 +440,7 @@ export default function LeadsPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleCall(lead.phone_e164 || lead.display_phone || '')}
+                            onClick={() => handleCall(lead.phone || lead.phone_e164 || lead.display_phone || '')}
                             className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                             data-testid={`button-call-${lead.id}`}
                             title="התקשר ללקוח"
