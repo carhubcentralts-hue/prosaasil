@@ -312,13 +312,10 @@ export default function LeadsPage() {
         </Card>
       )}
 
-      {/* Leads Table */}
+      {/* Desktop Table - Hidden on Mobile */}
       {!loading && (
-        <Card>
-          {/* Mobile-responsive table wrapper */}
-          <div className="overflow-x-auto -mx-2 sm:mx-0">
-            <div className="min-w-[800px] sm:min-w-0">
-              <Table data-testid="table-leads">
+        <Card className="hidden md:block">
+          <Table data-testid="table-leads">
             <TableHeader>
               <TableRow>
                 <TableHead 
@@ -564,8 +561,6 @@ export default function LeadsPage() {
               ))}
             </TableBody>
               </Table>
-            </div>
-          </div>
           
           {sortedLeads.length === 0 && !loading && (
             <div className="text-center py-12">
@@ -580,6 +575,150 @@ export default function LeadsPage() {
             </div>
           )}
         </Card>
+      )}
+
+      {/* Mobile Cards View - Hidden on Desktop */}
+      {!loading && (
+        <div className="md:hidden space-y-4">
+          {sortedLeads.length === 0 ? (
+            <Card className="p-8 text-center">
+              <p className="text-gray-500 dark:text-gray-400" data-testid="no-leads-message">
+                {searchQuery || selectedStatus !== 'all' ? 'אין לידים התואמים לחיפוש' : 'אין לידים עדיין'}
+              </p>
+            </Card>
+          ) : (
+            sortedLeads.map((lead) => (
+              <div 
+                key={lead.id} 
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => window.location.href = `/app/leads/${lead.id}`}
+                data-testid={`card-lead-mobile-${lead.id}`}
+              >
+                <Card className="p-4 space-y-3">
+                {/* Header: Name and Status */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 dark:text-white text-base mb-1 truncate" data-testid={`text-name-mobile-${lead.id}`}>
+                      {safe(lead.name) || safe(lead.full_name) || safe(`${lead.first_name || ''} ${lead.last_name || ''}`.trim()) || safe(lead.phone_e164)}
+                    </h3>
+                    {lead.email && (
+                      <p className="text-sm text-gray-600 dark:text-gray-400 truncate" data-testid={`text-email-mobile-${lead.id}`}>
+                        {safe(lead.email)}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex-shrink-0">
+                    {editingStatus === lead.id ? (
+                      <Select
+                        value={lead.status}
+                        onChange={(e) => handleStatusChange(lead.id, e.target.value as LeadStatus)}
+                        onBlur={() => setEditingStatus(null)}
+                        className="w-32 text-xs"
+                        data-testid={`select-status-mobile-${lead.id}`}
+                        autoFocus
+                      >
+                        {statuses.map(status => (
+                          <SelectOption key={status.id} value={status.name}>
+                            {status.label}
+                          </SelectOption>
+                        ))}
+                      </Select>
+                    ) : (
+                      <div className="relative group">
+                        <Badge 
+                          className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 text-xs px-3 py-2 transition-all duration-200`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingStatus(lead.id);
+                          }}
+                          data-testid={`badge-status-mobile-${lead.id}`}
+                        >
+                          {getStatusLabel(lead.status)}
+                        </Badge>
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 whitespace-nowrap pointer-events-none">
+                          לחץ לשינוי סטטוס
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Contact Info */}
+                <div className="flex items-center gap-4 text-sm">
+                  <div className="flex items-center gap-2" data-testid={`text-phone-mobile-${lead.id}`}>
+                    <Phone className="w-4 h-4 text-gray-400" />
+                    <span dir="ltr" className="text-gray-700 dark:text-gray-300">
+                      {safe(lead.phone) || safe(lead.phone_e164) || safe(lead.display_phone, 'ללא טלפון')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Meta Info */}
+                <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                  <div className="flex items-center gap-4">
+                    <span data-testid={`text-source-mobile-${lead.id}`}>
+                      מקור: {safe(lead.source) === 'call' || safe(lead.source) === 'phone' ? 'טלפון' : 
+                            safe(lead.source) === 'whatsapp' ? 'ווצאפ' :
+                            safe(lead.source) === 'form' || safe(lead.source) === 'website' ? 'טופס' :
+                            safe(lead.source) === 'manual' ? 'ידני' : safe(lead.source, 'לא ידוע')}
+                    </span>
+                    <span data-testid={`text-created-mobile-${lead.id}`}>
+                      {new Date(lead.created_at).toLocaleDateString('he-IL')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+                  {(lead.phone || lead.phone_e164 || lead.display_phone) && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleWhatsAppOpen(lead.phone || lead.phone_e164 || lead.display_phone || '');
+                        }}
+                        className="flex-1 h-9 text-green-600 border-green-200 hover:bg-green-50"
+                        data-testid={`button-whatsapp-mobile-${lead.id}`}
+                      >
+                        <MessageSquare className="w-4 h-4 ml-1" />
+                        ווצאפ
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCall(lead.phone || lead.phone_e164 || lead.display_phone || '');
+                        }}
+                        className="flex-1 h-9 text-blue-600 border-blue-200 hover:bg-blue-50"
+                        data-testid={`button-call-mobile-${lead.id}`}
+                      >
+                        <Phone className="w-4 h-4 ml-1" />
+                        חייג
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedLead(lead);
+                    }}
+                    className="flex-1 h-9 text-gray-600 border-gray-200 hover:bg-gray-50"
+                    data-testid={`button-edit-mobile-${lead.id}`}
+                  >
+                    <Edit className="w-4 h-4 ml-1" />
+                    ערוך
+                  </Button>
+                </div>
+                </Card>
+              </div>
+            ))
+          )}
+        </div>
       )}
 
       {/* Modals */}
