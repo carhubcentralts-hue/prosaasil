@@ -402,16 +402,20 @@ export default function LeadsPage() {
                       </Select>
                     ) : (
                       <div className="relative group flex items-center gap-2">
-                        <Badge 
-                          className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 text-xs px-2 py-1 transition-all duration-200 hover:ring-2 hover:ring-blue-300`}
+                        <div 
+                          className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 text-xs px-2 py-1 transition-all duration-200 hover:ring-2 hover:ring-blue-300 rounded-full inline-flex items-center font-medium`}
                           onClick={(e) => {
+                            e.preventDefault();
                             e.stopPropagation();
+                            console.log('Status badge clicked for lead', lead.id);
                             setEditingStatus(lead.id);
                           }}
                           data-testid={`badge-status-${lead.id}`}
+                          role="button"
+                          tabIndex={0}
                         >
                           {getStatusLabel(lead.status)} ✎️
-                        </Badge>
+                        </div>
                         <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 whitespace-nowrap pointer-events-none">
                           לחץ לשינוי סטטוס
                         </div>
@@ -626,16 +630,20 @@ export default function LeadsPage() {
                     ) : (
                       <div className="relative group">
                         <div className="flex items-center gap-2">
-                          <Badge 
-                            className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 text-xs px-3 py-2 transition-all duration-200`}
+                          <div 
+                            className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 text-xs px-3 py-2 transition-all duration-200 rounded-full inline-flex items-center font-medium`}
                             onClick={(e) => {
+                              e.preventDefault();
                               e.stopPropagation();
+                              console.log('Mobile status badge clicked for lead', lead.id);
                               setEditingStatus(lead.id);
                             }}
                             data-testid={`badge-status-mobile-${lead.id}`}
+                            role="button"
+                            tabIndex={0}
                           >
                             {getStatusLabel(lead.status)}
-                          </Badge>
+                          </div>
                           <span className="text-xs text-gray-400">לחץ לעריכה</span>
                         </div>
                         <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 whitespace-nowrap pointer-events-none">
