@@ -551,7 +551,7 @@ export function MainLayout() {
 
       {/* BUILD Indicator */}
       <div className="fixed bottom-1 left-1 text-xs text-gray-400 font-mono z-10 pointer-events-none">
-        BUILD: 52
+        BUILD: 54
       </div>
 
       {/* Notification Panel */}
