@@ -365,7 +365,7 @@ export default function LeadsPage() {
                 >
                   <TableCell data-testid={`text-name-${lead.id}`}>
                     <div className="font-medium text-gray-900 dark:text-white">
-                      {safe(lead.full_name) || safe(`${lead.first_name || ''} ${lead.last_name || ''}`.trim()) || safe(lead.phone_e164)}
+                      {safe(lead.name) || safe(lead.full_name) || safe(`${lead.first_name || ''} ${lead.last_name || ''}`.trim()) || safe(lead.phone_e164)}
                     </div>
                     {lead.email && (
                       <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -376,7 +376,7 @@ export default function LeadsPage() {
                   
                   <TableCell data-testid={`text-phone-${lead.id}`}>
                     <div dir="ltr" className="text-right">
-                      {safe(lead.phone_e164) || safe(lead.display_phone, 'ללא טלפון')}
+                      {safe(lead.phone) || safe(lead.phone_e164) || safe(lead.display_phone, 'ללא טלפון')}
                     </div>
                   </TableCell>
                   

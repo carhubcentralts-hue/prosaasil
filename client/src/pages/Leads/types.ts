@@ -6,21 +6,25 @@ export type LeadSource = 'call' | 'whatsapp' | 'form' | 'manual';
 export interface Lead {
   id: number;
   tenant_id: number;
-  first_name: string;
-  last_name: string;
+  business_id?: number;
+  business_name?: string;
+  first_name?: string;
+  last_name?: string;
+  name?: string; // ✅ Server returns this field
+  phone?: string; // ✅ Server returns this field  
   phone_e164?: string;
   email?: string;
   source: LeadSource;
   external_id?: string;
   status: LeadStatus;
-  order_index: number;
+  order_index?: number;
   owner_user_id?: number;
   tags?: string[];
   notes?: string;
   created_at: string;
   updated_at: string;
   last_contact_at?: string;
-  full_name: string;
+  full_name?: string;
   display_phone?: string;
 }
 
