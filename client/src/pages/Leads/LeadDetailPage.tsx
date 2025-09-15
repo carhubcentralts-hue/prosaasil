@@ -153,7 +153,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      <div className="bg-white border-b border-gray-200 sticky top-[env(safe-area-inset-top)] z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Desktop Header */}
           <div className="hidden sm:flex items-center justify-between h-16">
@@ -179,14 +179,25 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
             </div>
             <div className="flex items-center space-x-3">
               <StatusBadge status={lead.status} />
-              <Button size="sm" data-testid="button-call">
+              <Button 
+                size="sm" 
+                onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
+                data-testid="button-call"
+              >
                 <Phone className="w-4 h-4 mr-2" />
                 התקשר
               </Button>
               <Button 
                 size="sm" 
                 variant="secondary" 
-                onClick={() => setWhatsappChatOpen(true)}
+                onClick={() => {
+                  if (lead.phone_e164 || lead.phone) {
+                    const cleanPhone = (lead.phone_e164 || lead.phone || '').replace(/[^0-9]/g, '');
+                    window.open(`https://wa.me/${cleanPhone}`, '_blank');
+                  } else {
+                    setWhatsappChatOpen(true);
+                  }
+                }}
                 data-testid="button-whatsapp"
               >
                 <MessageSquare className="w-4 h-4 mr-2" />
@@ -218,7 +229,12 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               </p>
             </div>
             <div className="flex gap-2">
-              <Button size="sm" className="flex-1" data-testid="button-call-mobile">
+              <Button 
+                size="sm" 
+                className="flex-1" 
+                onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
+                data-testid="button-call-mobile"
+              >
                 <Phone className="w-4 h-4 mr-2" />
                 התקשר
               </Button>
@@ -226,7 +242,14 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 size="sm" 
                 variant="secondary" 
                 className="flex-1"
-                onClick={() => setWhatsappChatOpen(true)}
+                onClick={() => {
+                  if (lead.phone_e164 || lead.phone) {
+                    const cleanPhone = (lead.phone_e164 || lead.phone || '').replace(/[^0-9]/g, '');
+                    window.open(`https://wa.me/${cleanPhone}`, '_blank');
+                  } else {
+                    setWhatsappChatOpen(true);
+                  }
+                }}
                 data-testid="button-whatsapp-mobile"
               >
                 <MessageSquare className="w-4 h-4 mr-2" />
