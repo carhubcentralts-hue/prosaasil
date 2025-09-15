@@ -59,11 +59,11 @@ def create_app():
     print(f"🔧 APP_SHA={git_sha}")
     
     version_info = {
-        "build": 51,
+        "build": 54,
         "sha": git_sha,
         "fe": "client/dist",
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "app": "AgentLocator-72",
+        "app": "AgentLocator-Complete",
         "commit": os.getenv("GIT_COMMIT", git_sha),
         "startup_ts": int(time.time())
     }
@@ -316,6 +316,15 @@ def create_app():
         app.register_blueprint(twilio_bp)
         app.register_blueprint(calendar_bp)
         app.register_blueprint(leads_bp)
+        
+        # Register receipts and contracts endpoints
+        from server.routes_receipts_contracts import receipts_contracts_bp
+        app.register_blueprint(receipts_contracts_bp)
+        
+        # Register WhatsApp QR endpoints 
+        from server.routes_whatsapp_qr import whatsapp_qr_bp
+        app.register_blueprint(whatsapp_qr_bp)
+        
         print("✅ New API blueprints registered")
         print("✅ Twilio webhooks registered")
         
