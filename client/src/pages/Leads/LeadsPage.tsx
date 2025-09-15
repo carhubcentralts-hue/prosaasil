@@ -404,13 +404,21 @@ export default function LeadsPage() {
                         ))}
                       </Select>
                     ) : (
-                      <Badge 
-                        className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 text-xs px-2 py-1`}
-                        onClick={() => setEditingStatus(lead.id)}
-                        data-testid={`badge-status-${lead.id}`}
-                      >
-                        {getStatusLabel(lead.status)}
-                      </Badge>
+                      <div className="relative group">
+                        <Badge 
+                          className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 text-xs px-2 py-1 transition-all duration-200`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingStatus(lead.id);
+                          }}
+                          data-testid={`badge-status-${lead.id}`}
+                        >
+                          {getStatusLabel(lead.status)}
+                        </Badge>
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 whitespace-nowrap pointer-events-none">
+                          לחץ לשינוי סטטוס
+                        </div>
+                      </div>
                     )}
                   </TableCell>
                   
@@ -430,7 +438,8 @@ export default function LeadsPage() {
                   </TableCell>
                   
                   <TableCell className="min-w-[140px]">
-                    <div className="flex items-center gap-1 justify-start">
+                    {/* Mobile: Show text buttons, Desktop: Show icon buttons */}
+                    <div className="hidden sm:flex items-center gap-1 justify-start flex-wrap">
                       {(lead.phone || lead.phone_e164 || lead.display_phone) && (
                         <>
                           <Button
@@ -440,11 +449,11 @@ export default function LeadsPage() {
                               e.stopPropagation();
                               handleWhatsAppOpen(lead.phone || lead.phone_e164 || lead.display_phone || '');
                             }}
-                            className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                            className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-md"
                             data-testid={`button-whatsapp-${lead.id}`}
                             title="פתח שיחה בווצאפ"
                           >
-                            <MessageSquare className="w-3 h-3" />
+                            <MessageSquare className="w-4 h-4" />
                           </Button>
                           <Button
                             size="sm"
@@ -453,11 +462,11 @@ export default function LeadsPage() {
                               e.stopPropagation();
                               handleCall(lead.phone || lead.phone_e164 || lead.display_phone || '');
                             }}
-                            className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md"
                             data-testid={`button-call-${lead.id}`}
                             title="התקשר ללקוח"
                           >
-                            <Phone className="w-3 h-3" />
+                            <Phone className="w-4 h-4" />
                           </Button>
                         </>
                       )}
@@ -468,11 +477,11 @@ export default function LeadsPage() {
                           e.stopPropagation();
                           setSelectedLead(lead);
                         }}
-                        className="h-7 w-7 p-0 text-gray-600 hover:text-gray-700 hover:bg-gray-50"
+                        className="h-8 w-8 p-0 text-gray-600 hover:text-gray-700 hover:bg-gray-50 rounded-md"
                         data-testid={`button-edit-${lead.id}`}
                         title="ערוך ליד"
                       >
-                        <Edit className="w-3 h-3" />
+                        <Edit className="w-4 h-4" />
                       </Button>
                       <Button
                         size="sm"
@@ -481,12 +490,74 @@ export default function LeadsPage() {
                           e.stopPropagation();
                           handleDeleteLead(lead.id, lead.name || lead.full_name || `${lead.first_name} ${lead.last_name}`);
                         }}
-                        className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md"
                         data-testid={`button-delete-${lead.id}`}
                         title="מחק ליד"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className="w-4 h-4" />
                       </Button>
+                    </div>
+
+                    {/* Mobile: Text buttons with labels */}
+                    <div className="flex sm:hidden flex-col gap-1 w-full">
+                      {(lead.phone || lead.phone_e164 || lead.display_phone) && (
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleWhatsAppOpen(lead.phone || lead.phone_e164 || lead.display_phone || '');
+                            }}
+                            className="flex-1 h-7 px-2 text-xs text-green-600 border-green-200 hover:bg-green-50"
+                            data-testid={`button-whatsapp-mobile-${lead.id}`}
+                          >
+                            <MessageSquare className="w-3 h-3 ml-1" />
+                            ווצאפ
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCall(lead.phone || lead.phone_e164 || lead.display_phone || '');
+                            }}
+                            className="flex-1 h-7 px-2 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
+                            data-testid={`button-call-mobile-${lead.id}`}
+                          >
+                            <Phone className="w-3 h-3 ml-1" />
+                            חייג
+                          </Button>
+                        </div>
+                      )}
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedLead(lead);
+                          }}
+                          className="flex-1 h-7 px-2 text-xs text-gray-600 border-gray-200 hover:bg-gray-50"
+                          data-testid={`button-edit-mobile-${lead.id}`}
+                        >
+                          <Edit className="w-3 h-3 ml-1" />
+                          ערוך
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteLead(lead.id, lead.name || lead.full_name || `${lead.first_name} ${lead.last_name}`);
+                          }}
+                          className="flex-1 h-7 px-2 text-xs text-red-600 border-red-200 hover:bg-red-50"
+                          data-testid={`button-delete-mobile-${lead.id}`}
+                        >
+                          <Trash2 className="w-3 h-3 ml-1" />
+                          מחק
+                        </Button>
+                      </div>
                     </div>
                   </TableCell>
                 </TableRow>
