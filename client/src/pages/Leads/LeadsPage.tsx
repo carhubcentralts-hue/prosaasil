@@ -361,10 +361,11 @@ export default function LeadsPage() {
                 <TableRow
                   key={lead.id}
                   data-testid={`row-lead-${lead.id}`}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                  className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer"
+                  onClick={() => window.location.href = `/app/leads/${lead.id}`}
                 >
                   <TableCell data-testid={`text-name-${lead.id}`}>
-                    <div className="font-medium text-gray-900 dark:text-white">
+                    <div className="font-medium text-gray-900 dark:text-white hover:text-blue-600 transition-colors">
                       {safe(lead.name) || safe(lead.full_name) || safe(`${lead.first_name || ''} ${lead.last_name || ''}`.trim()) || safe(lead.phone_e164)}
                     </div>
                     {lead.email && (
