@@ -32,6 +32,14 @@ interface WhatsAppChatProps {
   onClose: () => void;
 }
 
+interface WhatsAppProvider {
+  id: string;
+  name: string;
+  type: 'twilio' | 'baileys';
+  status: 'active' | 'inactive';
+  description: string;
+}
+
 export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProps) {
   const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -39,6 +47,11 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
   const [sending, setSending] = useState(false);
   const [conversation, setConversation] = useState<WhatsAppConversation | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<string>('twilio');
+  const [providers, setProviders] = useState<WhatsAppProvider[]>([
+    { id: 'twilio', name: 'Twilio WhatsApp', type: 'twilio', status: 'active', description: 'ספק רשמי דרך Twilio Business API' },
+    { id: 'baileys', name: 'WhatsApp Web', type: 'baileys', status: 'active', description: 'חיבור ישיר דרך WhatsApp Web' }
+  ]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const { user, tenant } = useAuth();
@@ -140,7 +153,8 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
       }>('/api/whatsapp/send', {
         to: lead.phone_e164,
         message: newMessage.trim(),
-        business_id: getBusinessId()
+        business_id: getBusinessId(),
+        provider: selectedProvider
       });
 
       if (response.success) {
@@ -222,6 +236,23 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
               <p className="text-sm text-gray-600" data-testid="whatsapp-contact-phone">
                 {lead.phone_e164}
               </p>
+              <div className="flex items-center mt-1">
+                <Badge variant="success" className="text-xs">
+                  {providers.find(p => p.id === selectedProvider)?.name || 'Twilio'}
+                </Badge>
+                <select 
+                  value={selectedProvider} 
+                  onChange={(e) => setSelectedProvider(e.target.value)}
+                  className="ml-2 text-xs bg-transparent border-none cursor-pointer text-green-600 font-medium"
+                  data-testid="select-whatsapp-provider"
+                >
+                  {providers.filter(p => p.status === 'active').map(provider => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
           <div className="flex items-center space-x-2">

@@ -425,7 +425,7 @@ export default function LeadsPage() {
                   
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      {(lead.phone_e164 || lead.display_phone) && (
+                      {(lead.phone || lead.phone_e164 || lead.display_phone) && (
                         <>
                           <Button
                             size="sm"
@@ -462,7 +462,7 @@ export default function LeadsPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => handleDeleteLead(lead.id, lead.full_name || `${lead.first_name} ${lead.last_name}`)}
+                        onClick={() => handleDeleteLead(lead.id, lead.name || lead.full_name || `${lead.first_name} ${lead.last_name}`)}
                         className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                         data-testid={`button-delete-${lead.id}`}
                         title="מחק ליד"

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
 import { ReminderModal } from './components/ReminderModal';
 import { Button } from '../../shared/components/ui/Button';
@@ -18,6 +18,8 @@ const TABS = [
   { key: 'conversation', label: 'שיחות', icon: MessageSquare },
   { key: 'calls', label: 'שיחות טלפון', icon: Phone },
   { key: 'tasks', label: 'משימות', icon: CheckCircle2 },
+  { key: 'invoices', label: 'חשבוניות', icon: Calendar },
+  { key: 'contracts', label: 'חוזים', icon: Tag },
   { key: 'activity', label: 'פעילות', icon: Activity },
 ] as const;
 
@@ -227,6 +229,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         {activeTab === 'conversation' && <ConversationTab conversations={conversations} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} />}
         {activeTab === 'tasks' && <TasksTab tasks={tasks} />}
+        {activeTab === 'invoices' && <InvoicesTab leadId={lead.id} />}
+        {activeTab === 'contracts' && <ContractsTab leadId={lead.id} />}
         {activeTab === 'activity' && <ActivityTab activities={activities} />}
       </div>
 
@@ -470,6 +474,83 @@ function TasksTab({ tasks }: { tasks: LeadTask[] }) {
               </Badge>
             </div>
           ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function InvoicesTab({ leadId }: { leadId: number }) {
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-medium text-gray-900">חשבוניות</h3>
+        <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-create-invoice">
+          <Plus className="w-4 h-4 ml-2" />
+          חשבונית חדשה
+        </Button>
+      </div>
+      {invoices.length === 0 ? (
+        <div className="text-center py-8">
+          <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-sm text-gray-500 mb-4">אין חשבוניות עדיין</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-right">
+            <div className="p-4 bg-blue-50 rounded-lg">
+              <h4 className="font-medium text-blue-900">יצירת הצעת מחיר</h4>
+              <p className="text-sm text-blue-600 mt-1">הכן הצעת מחיר מקצועית ללקוח</p>
+            </div>
+            <div className="p-4 bg-green-50 rounded-lg">
+              <h4 className="font-medium text-green-900">חשבונית מס</h4>
+              <p className="text-sm text-green-600 mt-1">הפק חשבונית מס רשמית</p>
+            </div>
+            <div className="p-4 bg-purple-50 rounded-lg">
+              <h4 className="font-medium text-purple-900">קבלה</h4>
+              <p className="text-sm text-purple-600 mt-1">הפק קבלה על תשלום</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Invoice list will be here */}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function ContractsTab({ leadId }: { leadId: number }) {
+  const [contracts, setContracts] = useState<any[]>([]);
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-medium text-gray-900">חוזים ומסמכים</h3>
+        <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" data-testid="button-create-contract">
+          <Plus className="w-4 h-4 ml-2" />
+          חוזה חדש
+        </Button>
+      </div>
+      {contracts.length === 0 ? (
+        <div className="text-center py-8">
+          <Tag className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-sm text-gray-500 mb-4">אין חוזים עדיין</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-right">
+            <div className="p-4 bg-indigo-50 rounded-lg">
+              <h4 className="font-medium text-indigo-900">חוזה מכר</h4>
+              <p className="text-sm text-indigo-600 mt-1">חוזה רכישת נדל"ן רשמי</p>
+            </div>
+            <div className="p-4 bg-orange-50 rounded-lg">
+              <h4 className="font-medium text-orange-900">חוזה שכירות</h4>
+              <p className="text-sm text-orange-600 mt-1">חוזה שכירות מפורט</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Contract list will be here */}
         </div>
       )}
     </Card>
