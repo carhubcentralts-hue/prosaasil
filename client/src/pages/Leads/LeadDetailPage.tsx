@@ -663,6 +663,7 @@ function InvoicesTab({ leadId }: { leadId: number }) {
 function ContractsTab({ leadId }: { leadId: number }) {
   const [contracts, setContracts] = useState<any[]>([]);
   const [showContractModal, setShowContractModal] = useState(false);
+  const [customContractName, setCustomContractName] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleCreateContract = () => {
@@ -702,6 +703,60 @@ function ContractsTab({ leadId }: { leadId: number }) {
               </div>
               
               <div className="grid grid-cols-1 gap-4">
+                {/* Custom Contract Input */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    שם החוזה המותאם
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full p-2 border border-gray-300 rounded-md"
+                    placeholder="הכנס שם חוזה (לדוגמה: חוזה ייעוץ, חוזה ניהול, וכו')"
+                    value={customContractName}
+                    onChange={(e) => setCustomContractName(e.target.value)}
+                    data-testid="input-custom-contract-name"
+                  />
+                </div>
+                
+                <Button 
+                  className="p-4 bg-purple-50 hover:bg-purple-100 text-purple-900 text-right"
+                  onClick={async () => {
+                    const contractName = customContractName.trim() || 'חוזה מותאם אישית';
+                    try {
+                      setLoading(true);
+                      const response = await http.post<{success: boolean; message?: string}>('/api/contracts', {
+                        lead_id: leadId,
+                        type: 'custom',
+                        title: contractName,
+                        custom_details: {
+                          created_by: 'user',
+                          contract_category: 'custom'
+                        }
+                      });
+                      
+                      if (response.success) {
+                        alert(`${contractName} נוצר בהצלחה!`);
+                      } else {
+                        alert(`שגיאה ביצירת ${contractName}`);
+                      }
+                    } catch (err) {
+                      console.error('Custom contract creation failed:', err);
+                      alert(`יוצר ${contractName} לליד #${leadId} (מצב דמו)`);
+                    } finally {
+                      setLoading(false);
+                      setShowContractModal(false);
+                      setCustomContractName('');
+                    }
+                  }}
+                  data-testid="button-contract-custom"
+                  disabled={!customContractName.trim()}
+                >
+                  <div>
+                    <h4 className="font-medium">חוזה מותאם אישית</h4>
+                    <p className="text-sm opacity-75">צור חוזה לפי הצרכים שלך</p>
+                  </div>
+                </Button>
+                
                 <Button 
                   className="p-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-right"
                   onClick={async () => {

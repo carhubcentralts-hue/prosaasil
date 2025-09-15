@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from server.authz import require_api_auth
+from server.auth_api import require_api_auth
 import uuid
 from datetime import datetime
 
@@ -52,7 +52,8 @@ def create_contract():
     try:
         data = request.get_json()
         lead_id = data.get('lead_id')
-        contract_type = data.get('type', 'sale')  # sale, rent, mediation
+        contract_type = data.get('type', 'sale')  # sale, rent, mediation, custom
+        custom_title = data.get('title', '')
         
         if not lead_id:
             return jsonify({'success': False, 'message': 'Lead ID נדרש'}), 400
@@ -61,10 +62,11 @@ def create_contract():
         contract_types = {
             'sale': 'חוזה מכירה',
             'rent': 'חוזה שכירות', 
-            'mediation': 'חוזה תיווך'
+            'mediation': 'חוזה תיווך',
+            'custom': custom_title or 'חוזה מותאם אישית'
         }
         
-        contract_name = contract_types.get(contract_type, 'חוזה כללי')
+        contract_name = contract_types.get(contract_type, custom_title or 'חוזה כללי')
         contract_id = str(uuid.uuid4())
         
         contract_data = {

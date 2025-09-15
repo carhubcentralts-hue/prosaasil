@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify
-from server.authz import require_api_auth
+from server.auth_api import require_api_auth
 
 # Blueprint for WhatsApp QR code
 whatsapp_qr_bp = Blueprint('whatsapp_qr', __name__)
