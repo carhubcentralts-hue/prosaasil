@@ -161,10 +161,10 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" dir="rtl">
-      <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
+      <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
           <div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
               {TEXTS.title}
@@ -187,14 +187,14 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
           </div>
         </div>
 
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+        <div className="p-4 sm:p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
               <p className="text-red-600 text-sm">{error}</p>
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
             {/* Status List */}
             <div>
               <div className="flex items-center justify-between mb-4">
@@ -258,20 +258,22 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
                             size="sm"
                             variant="ghost"
                             onClick={() => handleEdit(status)}
-                            className="h-7 w-7 p-0"
+                            className="h-8 w-8 p-0 touch-target-44 hover:bg-gray-100"
                             data-testid={`button-edit-status-${status.id}`}
+                            title="ערוך סטטוס"
                           >
-                            <Edit className="w-3 h-3" />
+                            <Edit className="w-4 h-4" />
                           </Button>
                           {!status.is_system && (
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => handleDelete(status)}
-                              className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
+                              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 touch-target-44"
                               data-testid={`button-delete-status-${status.id}`}
+                              title="מחק סטטוס"
                             >
-                              <Trash2 className="w-3 h-3" />
+                              <Trash2 className="w-4 h-4" />
                             </Button>
                           )}
                         </div>
@@ -327,16 +329,16 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       {TEXTS.colorLabel}
                     </label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                       {COLOR_OPTIONS.map((option) => (
                         <button
                           key={option.value}
                           type="button"
                           onClick={() => setFormData(prev => ({ ...prev, color: option.value }))}
-                          className={`p-2 rounded-lg border-2 text-sm ${
+                          className={`p-3 rounded-lg border-2 text-sm touch-target-44 transition-colors ${
                             formData.color === option.value
-                              ? 'border-blue-500'
-                              : 'border-gray-200 hover:border-gray-300'
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                           }`}
                           data-testid={`button-color-${option.value}`}
                         >
@@ -402,7 +404,7 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
         </div>
         
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
           <div className="text-sm text-gray-600 dark:text-gray-400">
             💡 טיפ: לחץ על סטטוס ללידים בטבלה כדי לשנות אותו
           </div>
