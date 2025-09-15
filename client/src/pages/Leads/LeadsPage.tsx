@@ -229,41 +229,41 @@ export default function LeadsPage() {
   };
 
   return (
-    <main className="container mx-auto px-4 pb-24 pt-2" dir="rtl">
+    <main className="container mx-auto px-2 sm:px-4 pb-24 pt-2 max-w-full" dir="rtl">
       {/* Header - sticky top */}
-      <div className="sticky top-[env(safe-area-inset-top)] z-30 bg-white/80 backdrop-blur -mx-4 px-4 py-3 mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">לידים</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">ניהול ומעקב אחרי לידים בטבלה מקצועית</p>
+      <div className="sticky top-[env(safe-area-inset-top)] z-30 bg-white/80 backdrop-blur -mx-2 sm:-mx-4 px-2 sm:px-4 py-3 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="text-center sm:text-right">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">לידים</h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1 text-sm sm:text-base">ניהול ומעקב אחרי לידים בטבלה מקצועית</p>
           </div>
-          <div className="flex items-center gap-3">
-          <Button
-            onClick={() => setIsStatusModalOpen(true)}
-            variant="secondary"
-            size="sm"
-            className="text-gray-700 border-gray-300 hover:bg-gray-50"
-            data-testid="button-manage-statuses"
-          >
-            <Settings className="w-4 h-4 ml-2" />
-            ניהול סטטוסים
-          </Button>
-          <Button 
-            onClick={() => setIsCreateModalOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
-            data-testid="button-add-lead"
-          >
-            <Plus className="w-4 h-4 ml-2" />
-            ליד חדש
-          </Button>
-        </div>
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            <Button
+              onClick={() => setIsStatusModalOpen(true)}
+              variant="secondary"
+              size="sm"
+              className="text-gray-700 border-gray-300 hover:bg-gray-50 w-full sm:w-auto"
+              data-testid="button-manage-statuses"
+            >
+              <Settings className="w-4 h-4 ml-2" />
+              ניהול סטטוסים
+            </Button>
+            <Button 
+              onClick={() => setIsCreateModalOpen(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto"
+              data-testid="button-add-lead"
+            >
+              <Plus className="w-4 h-4 ml-2" />
+              ליד חדש
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Filters */}
       <Card className="p-4">
-        <div className="flex items-center gap-4">
-          <div className="relative flex-1 max-w-md">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="relative flex-1 sm:max-w-md">
             <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <Input
               placeholder="חפש לפי שם, טלפון או מייל..."
@@ -274,22 +274,25 @@ export default function LeadsPage() {
             />
           </div>
           
-          <Select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value as LeadStatus | 'all')}
-            data-testid="select-status-filter"
-          >
-            <SelectOption value="all">כל הסטטוסים</SelectOption>
-            {statuses.map(status => (
-              <SelectOption key={status.id} value={status.name}>
-                {status.label}
-              </SelectOption>
-            ))}
-          </Select>
-          
-          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-            <Filter className="w-4 h-4" />
-            {sortedLeads.length} לידים
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <Select
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value as LeadStatus | 'all')}
+              data-testid="select-status-filter"
+              className="w-full sm:w-auto min-w-[140px]"
+            >
+              <SelectOption value="all">כל הסטטוסים</SelectOption>
+              {statuses.map(status => (
+                <SelectOption key={status.id} value={status.name}>
+                  {status.label}
+                </SelectOption>
+              ))}
+            </Select>
+            
+            <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 justify-center sm:justify-start">
+              <Filter className="w-4 h-4" />
+              {sortedLeads.length} לידים
+            </div>
           </div>
         </div>
       </Card>
@@ -312,7 +315,10 @@ export default function LeadsPage() {
       {/* Leads Table */}
       {!loading && (
         <Card>
-          <Table data-testid="table-leads">
+          {/* Mobile-responsive table wrapper */}
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
+            <div className="min-w-[800px] sm:min-w-0">
+              <Table data-testid="table-leads">
             <TableHeader>
               <TableRow>
                 <TableHead 
@@ -364,24 +370,24 @@ export default function LeadsPage() {
                   className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer"
                   onClick={() => window.location.href = `/app/leads/${lead.id}`}
                 >
-                  <TableCell data-testid={`text-name-${lead.id}`}>
+                  <TableCell data-testid={`text-name-${lead.id}`} className="min-w-[150px]">
                     <div className="font-medium text-gray-900 dark:text-white hover:text-blue-600 transition-colors">
                       {safe(lead.name) || safe(lead.full_name) || safe(`${lead.first_name || ''} ${lead.last_name || ''}`.trim()) || safe(lead.phone_e164)}
                     </div>
                     {lead.email && (
-                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]">
                         {safe(lead.email)}
                       </div>
                     )}
                   </TableCell>
                   
-                  <TableCell data-testid={`text-phone-${lead.id}`}>
-                    <div dir="ltr" className="text-right">
+                  <TableCell data-testid={`text-phone-${lead.id}`} className="min-w-[120px]">
+                    <div dir="ltr" className="text-right text-sm">
                       {safe(lead.phone) || safe(lead.phone_e164) || safe(lead.display_phone, 'ללא טלפון')}
                     </div>
                   </TableCell>
                   
-                  <TableCell data-testid={`text-status-${lead.id}`}>
+                  <TableCell data-testid={`text-status-${lead.id}`} className="min-w-[130px]">
                     {editingStatus === lead.id ? (
                       <Select
                         value={lead.status}
@@ -399,7 +405,7 @@ export default function LeadsPage() {
                       </Select>
                     ) : (
                       <Badge 
-                        className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80`}
+                        className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 text-xs px-2 py-1`}
                         onClick={() => setEditingStatus(lead.id)}
                         data-testid={`badge-status-${lead.id}`}
                       >
@@ -408,8 +414,8 @@ export default function LeadsPage() {
                     )}
                   </TableCell>
                   
-                  <TableCell data-testid={`text-source-${lead.id}`}>
-                    <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+                  <TableCell data-testid={`text-source-${lead.id}`} className="min-w-[90px]">
+                    <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 text-xs px-2 py-1">
                       {safe(lead.source) === 'call' || safe(lead.source) === 'phone' ? 'טלפון' : 
                        safe(lead.source) === 'whatsapp' ? 'ווצאפ' :
                        safe(lead.source) === 'form' || safe(lead.source) === 'website' ? 'טופס' :
@@ -417,20 +423,23 @@ export default function LeadsPage() {
                     </Badge>
                   </TableCell>
                   
-                  <TableCell data-testid={`text-created-${lead.id}`}>
+                  <TableCell data-testid={`text-created-${lead.id}`} className="min-w-[100px]">
                     <div className="text-sm text-gray-600 dark:text-gray-400">
                       {new Date(lead.created_at).toLocaleDateString('he-IL')}
                     </div>
                   </TableCell>
                   
-                  <TableCell>
-                    <div className="flex items-center gap-1">
+                  <TableCell className="min-w-[140px]">
+                    <div className="flex items-center gap-1 justify-start">
                       {(lead.phone || lead.phone_e164 || lead.display_phone) && (
                         <>
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleWhatsAppOpen(lead.phone || lead.phone_e164 || lead.display_phone || '')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleWhatsAppOpen(lead.phone || lead.phone_e164 || lead.display_phone || '');
+                            }}
                             className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
                             data-testid={`button-whatsapp-${lead.id}`}
                             title="פתח שיחה בווצאפ"
@@ -440,7 +449,10 @@ export default function LeadsPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleCall(lead.phone || lead.phone_e164 || lead.display_phone || '')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCall(lead.phone || lead.phone_e164 || lead.display_phone || '');
+                            }}
                             className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                             data-testid={`button-call-${lead.id}`}
                             title="התקשר ללקוח"
@@ -452,7 +464,10 @@ export default function LeadsPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => setSelectedLead(lead)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedLead(lead);
+                        }}
                         className="h-7 w-7 p-0 text-gray-600 hover:text-gray-700 hover:bg-gray-50"
                         data-testid={`button-edit-${lead.id}`}
                         title="ערוך ליד"
@@ -462,7 +477,10 @@ export default function LeadsPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => handleDeleteLead(lead.id, lead.name || lead.full_name || `${lead.first_name} ${lead.last_name}`)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteLead(lead.id, lead.name || lead.full_name || `${lead.first_name} ${lead.last_name}`);
+                        }}
                         className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                         data-testid={`button-delete-${lead.id}`}
                         title="מחק ליד"
@@ -474,7 +492,9 @@ export default function LeadsPage() {
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+              </Table>
+            </div>
+          </div>
           
           {sortedLeads.length === 0 && !loading && (
             <div className="text-center py-12">
