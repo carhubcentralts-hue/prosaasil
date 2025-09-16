@@ -205,7 +205,7 @@ def api_customers():
                 <div class="flex justify-between items-start">
                     <div>
                         <h4 class="font-medium text-gray-900">{customer.name}</h4>
-                        <p class="text-sm text-gray-500">{customer.phone or 'ללא טלפון'}</p>
+                        <p class="text-sm text-gray-500">{customer.phone_e164 or 'ללא טלפון'}</p>
                         {f'<p class="text-sm text-gray-500">{customer.email}</p>' if customer.email else ''}
                     </div>
                     <span class="px-2 py-1 text-xs font-medium rounded-full {status_class}">
@@ -307,7 +307,7 @@ def api_call_history():
 def get_payments():
     """Get all payments for current business"""
     try:
-        business_id = g.user.get("business_id")
+        business_id = get_business_id()
         if not business_id:
             return jsonify({"error": "No business access"}), 403
         
@@ -315,7 +315,7 @@ def get_payments():
         
         return jsonify([{
             "id": str(p.id),
-            "amount": p.amount / 100,  # Convert cents to currency - FIXED: use p.amount instead of p.amount_cents
+            "amount": p.amount / 100,  # Convert cents to currency
             "status": p.status,
             "description": p.description or f"תשלום #{p.id}",
             "client_name": p.customer_name or "לא צוין",
@@ -326,19 +326,26 @@ def get_payments():
         } for p in payments])
         
     except Exception as e:
-        return jsonify({"error": "Failed to fetch payments"}), 500
+        print(f"Error in get_payments: {str(e)}")
+        return jsonify({"error": f"Failed to fetch payments: {str(e)}"}), 500
 
 @crm_bp.get("/api/crm/contracts") 
 @require_api_auth(["admin", "superadmin", "business"])
 def get_contracts():
     """Get all contracts for current business"""
     try:
-        business_id = g.user.get("business_id")
+        business_id = get_business_id()
         if not business_id:
             return jsonify({"error": "No business access"}), 403
             
-        # Join with Deal and Customer to get business-scoped data
-        contracts = db.session.query(Contract, Deal, Customer).join(Deal).join(Customer, Deal.customer_id == Customer.id).filter(Customer.business_id == business_id).order_by(Contract.created_at.desc()).all()
+        # Join with Deal and Customer to get business-scoped data - Fixed JOIN order
+        contracts = db.session.query(Contract, Deal, Customer).join(
+            Deal, Contract.deal_id == Deal.id
+        ).join(
+            Customer, Deal.customer_id == Customer.id
+        ).filter(
+            Customer.business_id == business_id
+        ).order_by(Contract.created_at.desc()).all()
         
         return jsonify([{
             "id": str(c.id),
@@ -346,18 +353,19 @@ def get_contracts():
             "client_name": customer.name or "לא צוין",
             "property_address": deal.title or "לא צוין",
             "contract_type": deal.stage or "sale",
-            "value": (deal.amount / 100) if deal.amount else 0,  # FIXED: frontend expects 'value' not 'amount'
+            "value": (deal.amount / 100) if deal.amount else 0,  # Frontend expects 'value'
             "amount": (deal.amount / 100) if deal.amount else 0,  # Keep for backwards compatibility
             "status": deal.stage or "draft",
-            "start_date": c.created_at.isoformat() if c.created_at else None,  # FIXED: frontend expects 'start_date' not 'created_date'
-            "end_date": c.signed_at.isoformat() if c.signed_at else None,     # FIXED: frontend expects 'end_date' not 'signed_date' 
-            "commission_rate": 3.5,  # FIXED: add default commission rate that frontend expects
-            "created_date": c.created_at.isoformat() if c.created_at else None,  # Keep for backwards compatibility
-            "signed_date": c.signed_at.isoformat() if c.signed_at else None      # Keep for backwards compatibility
+            "start_date": c.created_at.isoformat() if c.created_at else None,
+            "end_date": c.signed_at.isoformat() if c.signed_at else None,
+            "commission_rate": 3.5,  # Default commission rate
+            "created_date": c.created_at.isoformat() if c.created_at else None,
+            "signed_date": c.signed_at.isoformat() if c.signed_at else None
         } for c, deal, customer in contracts])
         
     except Exception as e:
-        return jsonify({"error": "Failed to fetch contracts"}), 500
+        print(f"Error in get_contracts: {str(e)}")
+        return jsonify({"error": f"Failed to fetch contracts: {str(e)}"}), 500
 
 @crm_bp.post("/api/crm/contracts")
 @require_api_auth(["admin", "superadmin", "business"])
