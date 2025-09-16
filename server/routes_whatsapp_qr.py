@@ -5,8 +5,6 @@ import logging
 import requests
 import base64
 import urllib.parse
-import qrcode
-from qrcode.constants import ERROR_CORRECT_M
 import io
 import json
 import time
@@ -141,25 +139,14 @@ def _generate_fallback_qr_code():
         # המרה ל-JSON מקודד
         qr_string = base64.b64encode(json.dumps(qr_data).encode()).decode()
         
-        # יצירת QR קוד ויזואלי
-        qr_code = qrcode.QRCode(
-            version=1,
-            error_correction=ERROR_CORRECT_M,
-            box_size=10,
-            border=4,
-        )
-        qr_code.add_data(qr_string)
-        qr_code.make(fit=True)
+        # יצירת QR קוד באמצעות API חיצוני
+        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(qr_string)}"
         
-        # יצירת תמונה
-        qr_image = qr_code.make_image(fill_color="black", back_color="white")
-        
-        # המרה ל-base64
-        img_buffer = io.BytesIO()
-        qr_image.save(img_buffer, format='PNG')
-        img_buffer.seek(0)
-        
-        qr_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+        image_response = requests.get(qr_url, timeout=10)
+        if image_response.status_code != 200:
+            raise Exception(f"QR API failed with status {image_response.status_code}")
+            
+        qr_base64 = base64.b64encode(image_response.content).decode('utf-8')
         
         logger.info("Fallback WhatsApp QR code generated successfully")
         return jsonify({
