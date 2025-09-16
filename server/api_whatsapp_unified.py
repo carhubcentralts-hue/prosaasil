@@ -160,8 +160,12 @@ def wa_in_twilio():
             status="received"
         )
 
-        # Generate Hebrew response
-        response_text = handle_whatsapp_logic(body)
+        # Generate AI-powered Hebrew response with context
+        context = {
+            "phone_number": from_number,
+            "channel": "twilio"
+        }
+        response_text = handle_whatsapp_logic(body, business_id=1, context=context)
         
         # Send auto-response via TwiML
         resp = MessagingResponse()
@@ -216,8 +220,12 @@ def wa_in_baileys():
             status="received"
         )
 
-        # Generate Hebrew response
-        response_text = handle_whatsapp_logic(body)
+        # Generate AI-powered Hebrew response with context
+        context = {
+            "phone_number": from_number,
+            "channel": "baileys"
+        }
+        response_text = handle_whatsapp_logic(body, business_id=1, context=context)
         
         # Send auto-response via Baileys (not through API to avoid loops)
         if response_text and len(response_text.strip()) > 0:
@@ -404,30 +412,34 @@ def _queue_baileys_response(to: str, text: str):
     except Exception as e:
         logger.error(f"Failed to queue Baileys response: {e}")
 
-def handle_whatsapp_logic(body: str) -> str:
-    """Handle WhatsApp message logic with Hebrew responses"""
+def handle_whatsapp_logic(body: str, business_id: int = 1, context: dict = None) -> str:
+    """Handle WhatsApp message logic with AI-powered Hebrew responses"""
     try:
-        # Simple Hebrew responses for WhatsApp
+        # Import AI service
+        from server.services.ai_service import generate_ai_response
+        
+        # Generate AI response with business context
+        ai_context = context or {}
+        ai_response = generate_ai_response(
+            message=body,
+            business_id=business_id,
+            context=ai_context
+        )
+        
+        logger.info(f"AI WhatsApp response generated: {len(ai_response)} chars")
+        return ai_response
+        
+    except Exception as e:
+        logger.error(f"AI WhatsApp logic error: {e}")
+        # Fallback to simple Hebrew responses
         body_lower = body.lower().strip()
         
         if any(word in body_lower for word in ["שלום", "היי", "הלו", "hello", "hi"]):
             return "שלום וברוכים הבאים לשי דירות ומשרדים! איך אוכל לעזור לכם?"
-        
         elif any(word in body_lower for word in ["דירה", "דירות", "נכס", "apartment", "house"]):
             return "אשמח לעזור לכם למצוא דירה מתאימה! אתם מחפשים לקניה או להשכרה? באיזה אזור?"
-        
-        elif any(word in body_lower for word in ["מחיר", "עלות", "כמה", "price", "cost"]):
-            return "המחירים משתנים לפי גודל הנכס, מיקום ומצב. נשמח לשלוח לכם הצעות מותאמות אישית!"
-        
-        elif any(word in body_lower for word in ["תודה", "תודה רבה", "thanks", "thank you"]):
-            return "בשמחה! אנחנו כאן לעזור. אל תהססו לפנות אלינו בכל שאלה נוספת."
-        
         else:
             return "תודה על הפנייה! אחד הסוכנים שלנו יחזור אליכם בהקדם עם מענה מפורט. נשמח לעזור!"
-    
-    except Exception as e:
-        logger.error(f"WhatsApp logic error: {e}")
-        return "תודה על הפנייה! נחזור אליכם בהקדם."
 
 @whatsapp_unified_bp.route("/templates", methods=["GET"])
 def get_templates():

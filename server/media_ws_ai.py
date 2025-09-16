@@ -116,7 +116,7 @@ class MediaStreamHandler:
         print("🎯 AI CONVERSATION STARTED")
         
         # מאפיינים לזיהוי עסק
-        self.business_id = None
+        self.business_id = 1  # ברירת מחדל לעסק ראשי
         self.phone_number = None
 
     def run(self):
