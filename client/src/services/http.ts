@@ -39,15 +39,24 @@ export async function apiFetch(url: string, options: RequestInit = {}, retryCoun
   
   const method = (options.method || 'GET').toUpperCase();
   
-  // Add CSRF for write operations (not exempted routes)
+  // Set Content-Type for POST/PUT/PATCH/DELETE requests with JSON body
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    // Only set Content-Type if not already set and we have a body
+    if (!headers.get('Content-Type') && options.body) {
+      // Don't override if it's FormData, Blob, or URLSearchParams
+      const body = options.body;
+      if (!(body instanceof FormData) && !(body instanceof Blob) && !(body instanceof URLSearchParams)) {
+        headers.set('Content-Type', 'application/json');
+      }
+    }
+    headers.set('X-Requested-With', 'XMLHttpRequest');
+  }
+  
+  // Add CSRF for write operations (excluding specific routes that don't need it)
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && 
-      !url.includes('/api/auth/login') && 
       !url.includes('/api/auth/logout') && 
       !url.includes('/api/webhooks/') && 
       !url.includes('/healthz')) {
-    
-    headers.set('Content-Type', 'application/json');
-    headers.set('X-Requested-With', 'XMLHttpRequest');
     
     const token = getCSRFToken();
     if (token) {

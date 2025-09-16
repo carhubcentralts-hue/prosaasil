@@ -6,7 +6,13 @@ const Card = ({ children, className = "" }: any) => (
   <div className={`border border-gray-200 rounded-lg bg-white ${className}`}>{children}</div>
 );
 
-const Button = ({ children, className = "", variant = "default", size = "default", ...props }: any) => {
+const Button = ({ children, className = "", variant = "default", size = "default", ...props }: {
+  children: React.ReactNode;
+  className?: string;
+  variant?: "default" | "outline" | "ghost" | "destructive";
+  size?: "default" | "sm";
+  [key: string]: any;
+}) => {
   const baseClasses = "px-4 py-2 rounded-md font-medium transition-colors inline-flex items-center";
   const variantClasses = {
     default: "bg-blue-600 text-white hover:bg-blue-700",
@@ -28,7 +34,11 @@ const Button = ({ children, className = "", variant = "default", size = "default
   );
 };
 
-const Badge = ({ children, className = "", variant = "default" }: any) => {
+const Badge = ({ children, className = "", variant = "default" }: {
+  children: React.ReactNode;
+  className?: string;
+  variant?: "default" | "admin" | "manager" | "business" | "agent" | "success" | "warning";
+}) => {
   const variantClasses = {
     default: "bg-gray-100 text-gray-800",
     admin: "bg-red-100 text-red-800",
