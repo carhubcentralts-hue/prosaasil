@@ -303,7 +303,7 @@ export function CallsPage() {
           <p className="text-slate-600 mt-1">צפה בכל השיחות, הקלטות ותמלילים</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={() => alert('מחיקת הקלטות ישנות - בפיתוח')} data-testid="button-delete-old">
             <Calendar className="h-4 w-4 ml-2" />
             מחק הקלטות ישנות
           </Button>
@@ -577,7 +577,7 @@ export function CallsPage() {
                     </Button>
                   </>
                 )}
-                <Button variant="outline">
+                <Button variant="outline" onClick={() => alert('פתיחת CRM - בפיתוח')} data-testid="button-open-crm">
                   <ExternalLink className="h-4 w-4 ml-2" />
                   פתח בCRM
                 </Button>

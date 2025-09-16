@@ -5,7 +5,7 @@ Includes call listing, details, transcript, and secure recording download
 from flask import Blueprint, request, jsonify, send_file, current_app, session
 from server.auth_api import require_api_auth
 from server.extensions import csrf
-from server.models_sql import Call, db
+from server.models_sql import CallLog as Call, db
 from server.tasks_recording import save_call_status
 from sqlalchemy import or_
 import os

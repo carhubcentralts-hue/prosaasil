@@ -202,7 +202,7 @@ export function WhatsAppPage() {
     
     try {
       setSendingMessage(true);
-      const response = await http.post('/api/whatsapp/send', {
+      const response = await http.post<{success: boolean; error?: string}>('/api/whatsapp/send', {
         to: selectedThread.phone,
         message: messageText,
         provider: selectedProvider
@@ -231,7 +231,7 @@ export function WhatsAppPage() {
       setSavingPrompt(true);
       
       // Call backend API to save prompt
-      const response = await http.put('/api/business/current/prompt', {
+      const response = await http.put<{success: boolean; error?: string}>('/api/business/current/prompt', {
         whatsapp_prompt: editingPrompt.trim()
       });
       
