@@ -87,6 +87,20 @@ export function BillingPage() {
   const [activeTab, setActiveTab] = useState<'payments' | 'contracts'>('payments');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showContractModal, setShowContractModal] = useState(false);
+  
+  // Form states
+  const [paymentForm, setPaymentForm] = useState({
+    lead_id: '',
+    amount: '',
+    description: ''
+  });
+  
+  const [contractForm, setContractForm] = useState({
+    lead_id: '',
+    title: '',
+    type: 'sale',
+    custom_title: ''
+  });
 
   useEffect(() => {
     loadData();
@@ -166,6 +180,62 @@ export function BillingPage() {
       style: 'currency',
       currency: 'ILS'
     }).format(amount);
+  };
+
+  // Create new payment/receipt
+  const handleCreatePayment = async () => {
+    try {
+      if (!paymentForm.amount || !paymentForm.description) {
+        alert('נא למלא את כל השדות הנדרשים');
+        return;
+      }
+
+      const response = await http.post('/api/receipts', {
+        lead_id: paymentForm.lead_id || '1', // Default lead if not selected
+        amount: parseFloat(paymentForm.amount),
+        description: paymentForm.description
+      }) as any;
+
+      if (response.success) {
+        alert(`חשבונית נוצרה בהצלחה! מספר: ${response.receipt_id}`);
+        setShowPaymentModal(false);
+        setPaymentForm({ lead_id: '', amount: '', description: '' });
+        loadData(); // Reload the data
+      } else {
+        alert('שגיאה ביצירת החשבונית: ' + response.message);
+      }
+    } catch (error) {
+      console.error('Error creating payment:', error);
+      alert('שגיאה ביצירת החשבונית');
+    }
+  };
+
+  // Create new contract
+  const handleCreateContract = async () => {
+    try {
+      if (!contractForm.title || !contractForm.type) {
+        alert('נא למלא את כל השדות הנדרשים');
+        return;
+      }
+
+      const response = await http.post('/api/contracts', {
+        lead_id: contractForm.lead_id || '1', // Default lead if not selected
+        type: contractForm.type,
+        title: contractForm.title
+      }) as any;
+
+      if (response.success) {
+        alert(`חוזה נוצר בהצלחה! מספר: ${response.contract_id}`);
+        setShowContractModal(false);
+        setContractForm({ lead_id: '', title: '', type: 'sale', custom_title: '' });
+        loadData(); // Reload the data
+      } else {
+        alert('שגיאה ביצירת החוזה: ' + response.message);
+      }
+    } catch (error) {
+      console.error('Error creating contract:', error);
+      alert('שגיאה ביצירת החוזה');
+    }
   };
 
   // Document viewing and downloading handlers
@@ -613,6 +683,8 @@ export function BillingPage() {
                     placeholder="0.00"
                     min="0"
                     step="0.01"
+                    value={paymentForm.amount}
+                    onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})}
                   />
                 </div>
                 
@@ -624,6 +696,8 @@ export function BillingPage() {
                     type="text"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="עמלת תיווך, שירותי ייעוץ..."
+                    value={paymentForm.description}
+                    onChange={(e) => setPaymentForm({...paymentForm, description: e.target.value})}
                   />
                 </div>
                 
@@ -679,10 +753,7 @@ export function BillingPage() {
                   </Button>
                   <Button
                     className="flex-1"
-                    onClick={() => {
-                      alert('התשלום נוצר בהצלחה!');
-                      setShowPaymentModal(false);
-                    }}
+                    onClick={handleCreatePayment}
                   >
                     צור חיוב
                   </Button>
@@ -719,6 +790,8 @@ export function BillingPage() {
                     type="text"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="חוזה מכירה - רחוב..."
+                    value={contractForm.title}
+                    onChange={(e) => setContractForm({...contractForm, title: e.target.value})}
                   />
                 </div>
                 
@@ -793,10 +866,7 @@ export function BillingPage() {
                   </Button>
                   <Button
                     className="flex-1"
-                    onClick={() => {
-                      alert('החוזה נוצר בהצלחה!');
-                      setShowContractModal(false);
-                    }}
+                    onClick={handleCreateContract}
                   >
                     צור חוזה
                   </Button>
