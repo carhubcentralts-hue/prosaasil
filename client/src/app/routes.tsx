@@ -31,6 +31,7 @@ import { CallsPage } from '../pages/calls/CallsPage';
 import { CrmPage } from '../pages/crm/CrmPage';
 import { BillingPage } from '../pages/billing/BillingPage';
 import { UsersPage } from '../pages/users/UsersPage';
+import { SettingsPage } from '../pages/settings/SettingsPage';
 
 export function AppRoutes() {
   return (
@@ -207,6 +208,16 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['admin', 'manager']}>
               <UsersPage />
+            </RoleGuard>
+          }
+        />
+
+        {/* Settings Routes */}
+        <Route
+          path="settings"
+          element={
+            <RoleGuard roles={['business', 'admin', 'manager']}>
+              <SettingsPage />
             </RoleGuard>
           }
         />
