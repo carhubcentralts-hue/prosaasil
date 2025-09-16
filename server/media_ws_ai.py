@@ -1362,7 +1362,7 @@ class MediaStreamHandler:
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response using dynamic prompts from database"""
         try:
-            # ✅ FIXED: Use AIService for dynamic prompts from database
+            # Use AIService for dynamic prompts from database
             from server.services.ai_service import generate_ai_response
             
             # Build context for the AI
@@ -1392,194 +1392,32 @@ class MediaStreamHandler:
             
         except Exception as e:
             print(f"❌ AI_SERVICE_ERROR: {e} - using fallback logic")
-            # Fallback to old OpenAI direct logic if AI service fails
-            try:
-                from server.services.lazy_services import get_openai_client
-                client = get_openai_client()
-                if not client:
-                    print("❌ OpenAI client not available for AI response")
-                    return "מצטער, יש בעיה טכנית."
-            
-            # 🎯 היסטוריה של שיחות למניעת חזרות
-            if not hasattr(self, 'conversation_history'):
-                self.conversation_history = []
-            
-            # ✅ FIXED: מניעת לולאות רק למקרים חמורים
-            if len(self.conversation_history) >= 5:  # ✅ רק אחרי 5+ שיחות
-                last_responses = [item['bot'] for item in self.conversation_history[-6:]]  # בדוק 6 אחרונים
-                # בדוק רק כפילויות מדויקות ממש
-                response_count = {}
-                for resp in last_responses:
-                    key_words = ' '.join(resp.split()[:5])  # ✅ 5 מילים - יותר ספציפי
-                    response_count[key_words] = response_count.get(key_words, 0) + 1
-                    if response_count[key_words] >= 4:  # ✅ FIXED: רק אחרי 4+ חזרות מדויקות
-                        print(f"🚫 SEVERE_LOOP_DETECTED: 4+ identical responses pattern")
-                        if "תודה" in hebrew_text:
-                            return "בשמחה! אני כאן לכל שאלה."
-                        else:
-                            return "איך אני יכולה לעזור לך היום?"
-                    
-            # 💾 בניית messages array עם היסטוריה מלאה לזיכרון מושלם
-            from typing import Any
-            messages: list[dict[str, Any]] = [{"role": "system", "content": ""}]  # נמלא אחרי הפרומפט
-            
-            # הוסף היסטוריה אחרונה (מקסימום 6 החלפות = 12 הודעות)
-            if self.conversation_history:
-                recent_history = self.conversation_history[-6:]  # 6 החלפות אחרונות
-                for turn in recent_history:
-                    messages.append({"role": "user", "content": turn['user']})
-                    messages.append({"role": "assistant", "content": turn['bot']})
-            
-            # הוסף את ההודעה הנוכחית
-            messages.append({"role": "user", "content": hebrew_text})
-            
-            # 🎯 זיהוי אזור מהבקשה
-            requested_area = self._detect_area(hebrew_text) or ""
-            
-            # ✅ בדיקת מידע שנאסף לתיאום פגישה
-            lead_info = self._analyze_lead_completeness()
-            
-            # 📅 יצירת פגישה אוטומטית אם יש מספיק מידע
-            if lead_info.get('meeting_ready', False) and hasattr(self, 'call_sid') and self.call_sid:
-                try:
-                    from server.auto_meeting import check_and_create_appointment
-                    phone_number = getattr(self, 'phone_number', '')
-                    result = check_and_create_appointment(
-                        str(self.call_sid), 
-                        lead_info, 
-                        self.conversation_history or [], 
-                        phone_number
-                    )
-                    if result.get('success'):
-                        print(f"✅ Auto appointment created: {result.get('appointment_id')} for {phone_number}")
-                except Exception as e:
-                    print(f"⚠️ Failed to create auto appointment: {e}")
-            
-            # ✅ אם זו השיחה הראשונה - ברכה מלאה
-            is_first_call = len(self.conversation_history) == 0
-            
-            if is_first_call:
-                greeting_prompt = """את סוכנת נדלן של "שי דירות ומשרדים". 
-                
-                התחילי בברכה חמה: "שלום! אני לאה מ'שי דירות ומשרדים'. אני כאן לעזור לך למצוא את הנכס המושלם!"
-                
-                אחרי הברכה שאלי שאלה אחת: "איזה אזור מעניין אותך?"""
-            else:
-                greeting_prompt = """את סוכנת נדלן מקצועית. אל תזכירי שוב את שמך או את שם החברה.
-                
-                תני תגובה ישירה ומוקדת למה שהלקוח אומר."""
-            
-            # ✅ טוען פרומפט מהדאטאבייס במקום הפרומפט הקבוע  
-            base_prompt = self._load_business_prompts('calls')
-            
-            # ✅ בניית פרומפט מותאם עם מידע דינמי
-            comprehensive_prompt = f"""{base_prompt}
-
-{greeting_prompt}
-
-מידע נוכחי על הלקוח:
-- אזור שהזכיר: {requested_area or 'לא ידוע עדיין'}  
-- מה שכבר אספת: {lead_info['summary']}
-
-{lead_info['meeting_prompt']}
-
-תני תגובה ממוקדת וישירה (מקסימום 15 מילים) עם שאלה אחת קונקרטית בסוף:"""
-            
-            # הגדר את ה-system prompt בתחילת המערך
-            messages[0]["content"] = comprehensive_prompt
-            
-            # 📊 לוגינג לבדיקת זיכרון
-            history_count = len(self.conversation_history) if self.conversation_history else 0
-            messages_count = len(messages) - 1  # מינוס system prompt
-            print(f"🧠 MEMORY: {history_count} היסטוריה → {messages_count} messages ל-OpenAI")
-
-            # ✅ GPT-4o MINI מהיר יותר לשיחה חיה!
-            try:
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",      # Fast model
-                    messages=messages,         # ✅ כולל היסטוריה מלאה לזיכרון מושלם! # type: ignore
-                    max_tokens=50,            # ✅ מגבלה חמורה ל-15 מילים מקסימום
-                    temperature=0.7,          # ✅ More natural human-like responses
-                    timeout=2.5               # ✅ 2.5 שניות - מספיק לעיבוד היסטוריה
-                )
-            except Exception as e:
-                print(f"⏰ AI timeout/error ({e}) - FAST emergency response")
-                # ✅ CLEAN emergency response - NO retry needed for speed
-                if requested_area and requested_area.strip():
-                    return f"סליחה! איזה סוג דירה אתה מחפש ב{requested_area}?"
-                elif "תודה" in hebrew_text:
-                    return "בשמחה! יש לי עוד אפשרויות אם אתה מעוניין."
-                else:
-                    return "איזה אזור מעניין אותך? יש לי נכסים במרכז הארץ."
-            
-            content = response.choices[0].message.content
-            if content and content.strip():
-                ai_answer = content.strip()
-                
-                # ✅ אל תקצר מדי - תן לה לתת תשובות מלאות!
-                words = ai_answer.split()
-                if len(words) > 25:  # מקס 25 מילים - תשובות קצרות וישירות!
-                    # קיצור חכם - שמור על משמעות ושאלה
-                    if '?' in ai_answer:
-                        first_question = ai_answer.split('?')[0] + '?'
-                        if len(first_question.split()) <= 15:
-                            ai_answer = first_question
-                        else:
-                            ai_answer = ' '.join(words[:20]) + '?'
-                    else:
-                        ai_answer = ' '.join(words[:20]) + '?'
-                    print(f"🔪 SHORTENED: {len(words)} → {len(ai_answer.split())} words")
-                
-                # ✅ בדיקה בסיסית - רק תשובות קצרות מדי או ריקות
-                if len(ai_answer.strip()) < 5:
-                    # תשובת חירום רק במקרה קיצוני
-                    if requested_area:
-                        ai_answer = f"נהדר! {requested_area} זה אזור מעולה. איזה סוג נכס אתה מחפש שם?"
-                    else:
-                        ai_answer = "איזה אזור מעניין אותך? אני מכירה היטב את השוק."
-                    print(f"🚫 EMERGENCY_FALLBACK: Too short answer")
-                
-                print(f"🤖 AI SUCCESS: {ai_answer}")
-                
-                # 💾 הוסף לhיסטוריה למניעת חזרות
-                self.conversation_history.append({
-                    'user': hebrew_text.strip(),
-                    'bot': ai_answer,
-                    'time': time.time()
-                })
-                
-                # 🧹 נקה היסטוריה ישנה (רק 10 אחרונים)
-                if len(self.conversation_history) > 10:
-                    self.conversation_history = self.conversation_history[-10:]
-                    
-                return ai_answer
-            else:
-                print("AI returned empty response - should not happen with good prompt")
-                # ✅ תגובת חירום חכמה רק אם באמת אין תוכן
-                if requested_area:
-                    return f"איזה סוג דירה אתה מחפש ב{requested_area}? יש לי כמה אפשרויות מעניינות."
-                else:
-                    return "איזה אזור מעניין אותך? יש לי דירות במרכז הארץ, מרכז-דרום ואזור ירושלים."
-            
-        except Exception as e:
-            print(f"AI_ERROR: {e} - Checking if valid text for emergency response")
-            
-            # ✅ FIXED: אל תגיב על טקסט ריק אפילו בחירום!
-            if not hebrew_text or not hebrew_text.strip():
-                print("🚫 AI_ERROR_ON_EMPTY_TEXT: No emergency response for empty input")
-                return ""  # ✅ החזר ריק לא None
-            
-            # ✅ רק אם יש טקסט אמיתי - אז תגיב חירום
-            emergency_area = self._detect_area(hebrew_text) or ""
-            print(f"🚨 AI_ERROR for REAL text: '{hebrew_text}' - detected area: {emergency_area}")
-            if emergency_area:
-                return f"מצטערת להשהיה! איזה סוג דירה אתה מחפש ב{emergency_area}? יש לי כמה אפשרויות."
-            elif "תודה" in hebrew_text or "ביי" in hebrew_text:
-                return "תודה רבה! אני כאן לכל שאלה."
-            elif any(word in hebrew_text for word in ["שלום", "היי", "הלו"]):
-                return "שלום! אני לאה משי דירות ומשרדים. איך אני יכולה לעזור?"
-            else:
-                return "איזה אזור מעניין אותך? יש לי דירות במרכז הארץ, מרכז-דרום ואזור ירושלים."
+            return self._fallback_response(hebrew_text)
+    
+    def _fallback_response(self, hebrew_text: str) -> str:
+        """Simple fallback response when AI service fails"""
+        if "שלום" in hebrew_text or "היי" in hebrew_text:
+            return "שלום! אני לאה משי דירות ומשרדים. איך אני יכולה לעזור?"
+        elif "תודה" in hebrew_text or "ביי" in hebrew_text:
+            return "תודה רבה! אני כאן לכל שאלה."
+        else:
+            return "איזה אזור מעניין אותך? יש לי דירות במרכז הארץ."
+    
+    def _detect_area(self, hebrew_text: str) -> str:
+        """זיהוי אזור מהטקסט של המשתמש"""
+        text_lower = hebrew_text.lower()
+        
+        # אזורים מרכזיים
+        if any(area in text_lower for area in ["תל אביב", "רמת גן", "גבעתיים", "בת ים"]):
+            return "מרכז"
+        elif any(area in text_lower for area in ["ירושלים", "בית שמש", "מעלה אדומים"]):
+            return "ירושלים והסביבה"  
+        elif any(area in text_lower for area in ["חיפה", "נהריה", "עכו", "קריות"]):
+            return "צפון"
+        elif any(area in text_lower for area in ["באר שבע", "אילת", "אשדוד", "אשקלון"]):
+            return "דרום"
+        else:
+            return ""
     
     def _hebrew_tts(self, text: str) -> bytes | None:
         """Hebrew Text-to-Speech using Google Cloud TTS with Wavenet voice"""
