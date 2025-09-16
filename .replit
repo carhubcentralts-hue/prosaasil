@@ -37,6 +37,3 @@ externalPort = 80
 [[ports]]
 localPort = 8000
 externalPort = 8000
-
-[agent]
-integrations = ["javascript_stripe:1.0.0"]
