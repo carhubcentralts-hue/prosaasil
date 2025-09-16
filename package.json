@@ -196,6 +196,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-hook-form": "^7.62.0",
+    "react-qr-code": "^2.0.18",
     "react-refresh": "^0.17.0",
     "react-remove-scroll": "^2.7.1",
     "react-remove-scroll-bar": "^2.3.8",

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Smartphone, Server } from 'lucide-react';
+import QRCodeReact from 'react-qr-code';
 import { http } from '../../services/http';
 
 // Temporary UI components
@@ -75,10 +76,13 @@ interface WhatsAppThread {
 
 interface QRCodeData {
   success: boolean;
-  qr?: string;
+  qr?: string; // For backwards compatibility
+  qr_data?: string; // New field with QR string data
   status?: string;
   message?: string;
   error?: string;
+  source?: string;
+  fallback_mode?: boolean;
 }
 
 export function WhatsAppPage() {
@@ -171,11 +175,14 @@ export function WhatsAppPage() {
       setQrLoading(true);
       const response = await http.get<QRCodeData>('/api/whatsapp/baileys/qr');
       
-      if (response.success && response.qr) {
-        setQrCode(response.qr);
+      if (response.success && (response.qr_data || response.qr)) {
+        // שם עדיפות ל-qr_data החדש, עם fallback ל-qr הישן
+        setQrCode(response.qr_data || response.qr || '');
         setShowQR(true);
+      } else if (response.success && response.status === 'connected') {
+        alert('WhatsApp כבר מחובר למערכת');
       } else {
-        alert('שגיאה ביצירת QR קוד: ' + (response.error || 'שגיאה לא ידועה'));
+        alert('שגיאה ביצירת QR קוד: ' + (response.error || response.message || 'שגיאה לא ידועה'));
       }
     } catch (error: any) {
       console.error('Error generating QR code:', error);
@@ -676,8 +683,21 @@ export function WhatsAppPage() {
               
               {qrCode ? (
                 <div className="mb-4">
-                  <img src={qrCode} alt="QR Code" className="mx-auto mb-2" data-testid="img-qr" />
-                  <p className="text-sm text-slate-600">
+                  {qrCode.startsWith('data:image/') ? (
+                    // Legacy base64 image support
+                    <img src={qrCode} alt="QR Code" className="mx-auto mb-2 w-48 h-48" data-testid="img-qr" />
+                  ) : (
+                    // New QR string rendering with react-qr-code
+                    <div className="bg-white p-4 rounded-lg mx-auto w-fit">
+                      <QRCodeReact
+                        value={qrCode}
+                        size={192}
+                        level="M"
+                        data-testid="qr-component"
+                      />
+                    </div>
+                  )}
+                  <p className="text-sm text-slate-600 mt-2">
                     סרוק עם WhatsApp שלך כדי להתחבר
                   </p>
                 </div>
