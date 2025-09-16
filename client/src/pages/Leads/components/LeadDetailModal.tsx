@@ -188,8 +188,8 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
-      <Card className="w-full max-w-4xl max-h-[90vh] overflow-hidden bg-white">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4" dir="rtl">
+      <Card className="w-full max-w-4xl max-h-[95vh] overflow-hidden bg-white flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b bg-gray-50">
           <div className="flex items-center gap-4">
@@ -262,11 +262,11 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
         </div>
 
         {/* Tab Content */}
-        <div className="p-6 max-h-[60vh] overflow-y-auto">
+        <div className="flex-1 p-4 md:p-6 overflow-y-auto overflow-x-hidden">
           {activeTab === 'overview' && (
-            <div className="space-y-6">
+            <div className="space-y-4 md:space-y-6">
               {/* Contact Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6">
                 <div>
                   <label className="block text-sm font-medium mb-2">שם פרטי</label>
                   {isEditing ? (
