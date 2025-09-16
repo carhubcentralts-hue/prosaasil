@@ -26,6 +26,9 @@ import { CalendarPage } from '../pages/Calendar/CalendarPage';
 import LeadsPage from '../pages/Leads/LeadsPage';
 import LeadDetailPage from '../pages/Leads/LeadDetailPage';
 import { NotificationsPage } from '../pages/Notifications/NotificationsPage';
+import { WhatsAppPage } from '../pages/wa/WhatsAppPage';
+import { CallsPage } from '../pages/calls/CallsPage';
+import { CrmPage } from '../pages/crm/CrmPage';
 
 export function AppRoutes() {
   return (
@@ -152,6 +155,36 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['business', 'admin', 'manager']}>
               <LeadDetailPage />
+            </RoleGuard>
+          }
+        />
+
+        {/* WhatsApp Routes */}
+        <Route
+          path="whatsapp"
+          element={
+            <RoleGuard roles={['business', 'admin', 'manager']}>
+              <WhatsAppPage />
+            </RoleGuard>
+          }
+        />
+
+        {/* Calls Routes */}
+        <Route
+          path="calls"
+          element={
+            <RoleGuard roles={['business', 'admin', 'manager']}>
+              <CallsPage />
+            </RoleGuard>
+          }
+        />
+
+        {/* CRM Routes */}
+        <Route
+          path="crm"
+          element={
+            <RoleGuard roles={['business', 'admin', 'manager']}>
+              <CrmPage />
             </RoleGuard>
           }
         />
