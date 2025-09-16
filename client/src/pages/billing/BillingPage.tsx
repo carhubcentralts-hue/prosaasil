@@ -236,6 +236,125 @@ export function BillingPage() {
     }).format(amount);
   };
 
+  // Document viewing and downloading handlers
+  const handleViewInvoice = async (paymentId: string) => {
+    try {
+      const payment = payments.find(p => p.id === paymentId);
+      if (!payment) return;
+
+      // Generate and open invoice PDF in new tab
+      const response = await fetch(`/api/billing/invoice/${paymentId}/view`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        window.URL.revokeObjectURL(url);
+      } else {
+        alert('שגיאה בפתיחת החשבונית');
+      }
+    } catch (error) {
+      console.error('Error viewing invoice:', error);
+      alert('שגיאה בפתיחת החשבונית');
+    }
+  };
+
+  const handleDownloadInvoice = async (paymentId: string) => {
+    try {
+      const payment = payments.find(p => p.id === paymentId);
+      if (!payment) return;
+
+      // Generate and download invoice PDF
+      const response = await fetch(`/api/billing/invoice/${paymentId}/download`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `invoice-${payment.invoice_number}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        alert('שגיאה בהורדת החשבונית');
+      }
+    } catch (error) {
+      console.error('Error downloading invoice:', error);
+      alert('שגיאה בהורדת החשבונית');
+    }
+  };
+
+  const handleViewContract = async (contractId: string) => {
+    try {
+      const contract = contracts.find(c => c.id === contractId);
+      if (!contract) return;
+
+      // Generate and open contract PDF in new tab
+      const response = await fetch(`/api/billing/contract/${contractId}/view`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        window.URL.revokeObjectURL(url);
+      } else {
+        alert('שגיאה בפתיחת החוזה');
+      }
+    } catch (error) {
+      console.error('Error viewing contract:', error);
+      alert('שגיאה בפתיחת החוזה');
+    }
+  };
+
+  const handleDownloadContract = async (contractId: string) => {
+    try {
+      const contract = contracts.find(c => c.id === contractId);
+      if (!contract) return;
+
+      // Generate and download contract PDF
+      const response = await fetch(`/api/billing/contract/${contractId}/download`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `contract-${contract.title.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        alert('שגיאה בהורדת החוזה');
+      }
+    } catch (error) {
+      console.error('Error downloading contract:', error);
+      alert('שגיאה בהורדת החוזה');
+    }
+  };
+
   // Calculate summary stats
   const totalRevenue = payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
   const pendingPayments = payments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
@@ -416,10 +535,22 @@ export function BillingPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center gap-2">
-                          <Button variant="ghost" size="sm">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => handleViewInvoice(payment.id)}
+                            title="צפייה בחשבונית"
+                            data-testid={`button-view-invoice-${payment.id}`}
+                          >
                             <Eye className="w-4 h-4" />
                           </Button>
-                          <Button variant="ghost" size="sm">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => handleDownloadInvoice(payment.id)}
+                            title="הורדת חשבונית"
+                            data-testid={`button-download-invoice-${payment.id}`}
+                          >
                             <Download className="w-4 h-4" />
                           </Button>
                         </div>
@@ -485,11 +616,25 @@ export function BillingPage() {
                 </div>
                 
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="flex-1">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="flex-1"
+                    onClick={() => handleViewContract(contract.id)}
+                    title="צפייה בחוזה"
+                    data-testid={`button-view-contract-${contract.id}`}
+                  >
                     <Eye className="w-4 h-4 mr-2" />
                     הצג
                   </Button>
-                  <Button variant="outline" size="sm" className="flex-1">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="flex-1"
+                    onClick={() => handleDownloadContract(contract.id)}
+                    title="הורדת חוזה"
+                    data-testid={`button-download-contract-${contract.id}`}
+                  >
                     <Download className="w-4 h-4 mr-2" />
                     הורד
                   </Button>
@@ -507,6 +652,228 @@ export function BillingPage() {
           </div>
         )}
       </div>
+
+      {/* Payment Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
+          <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-md shadow-xl">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  חיוב חדש
+                </h3>
+                <button
+                  onClick={() => setShowPaymentModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    סכום (₪)
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    תיאור
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="עמלת תיווך, שירותי ייעוץ..."
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    לקוח
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="שם הלקוח"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    שיטת תשלום
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      className="flex items-center justify-center p-4 border-2 border-blue-200 rounded-lg hover:border-blue-400 transition-colors"
+                      onClick={() => alert('PayPal - בקרוב!')}
+                    >
+                      <div className="text-center">
+                        <div className="w-8 h-8 bg-blue-600 rounded mx-auto mb-2 flex items-center justify-center">
+                          <CreditCard className="w-4 h-4 text-white" />
+                        </div>
+                        <span className="text-sm font-medium">PayPal</span>
+                      </div>
+                    </button>
+                    
+                    <button
+                      className="flex items-center justify-center p-4 border-2 border-green-200 rounded-lg hover:border-green-400 transition-colors"
+                      onClick={() => alert('Tranzilla - בקרוב!')}
+                    >
+                      <div className="text-center">
+                        <div className="w-8 h-8 bg-green-600 rounded mx-auto mb-2 flex items-center justify-center">
+                          <CreditCard className="w-4 h-4 text-white" />
+                        </div>
+                        <span className="text-sm font-medium">Tranzilla</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="flex gap-3 pt-4">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setShowPaymentModal(false)}
+                  >
+                    ביטול
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    onClick={() => {
+                      alert('התשלום נוצר בהצלחה!');
+                      setShowPaymentModal(false);
+                    }}
+                  >
+                    צור חיוב
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Contract Modal */}
+      {showContractModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
+          <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-md shadow-xl">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  חוזה חדש
+                </h3>
+                <button
+                  onClick={() => setShowContractModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    כותרת החוזה
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="חוזה מכירה - רחוב..."
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    שם הלקוח
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="שם הלקוח"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    כתובת הנכס
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="רחוב, עיר"
+                  />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      סוג חוזה
+                    </label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="sale">מכירה</option>
+                      <option value="rent">השכרה</option>
+                      <option value="management">ניהול</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      עמלה (%)
+                    </label>
+                    <input
+                      type="number"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="2.5"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    ערך הנכס (₪)
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="1000000"
+                    min="0"
+                  />
+                </div>
+                
+                <div className="flex gap-3 pt-4">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setShowContractModal(false)}
+                  >
+                    ביטול
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    onClick={() => {
+                      alert('החוזה נוצר בהצלחה!');
+                      setShowContractModal(false);
+                    }}
+                  >
+                    צור חוזה
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
