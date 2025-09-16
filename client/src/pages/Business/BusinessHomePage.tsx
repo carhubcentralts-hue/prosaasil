@@ -65,7 +65,7 @@ function QuickActionsCard() {
           <button
             key={index}
             className="flex flex-col items-center p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors min-h-[88px]"
-            onClick={() => alert('בקרוב! תכונה זו תהיה זמינה בגרסה הבאה.')}
+            onClick={() => window.location.href = '/app/leads'}
           >
             <div className={cn(
               'p-3 rounded-xl mb-3 transition-transform hover:scale-105',

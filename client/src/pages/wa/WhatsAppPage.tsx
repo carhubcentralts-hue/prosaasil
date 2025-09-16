@@ -461,7 +461,7 @@ export function WhatsAppPage() {
                 <div className="text-center py-8 text-slate-500">
                   <MessageSquare className="h-8 w-8 mx-auto mb-2" />
                   <p>טען את ההודעות...</p>
-                  <p className="text-xs mt-2">בקרוב: תמליל שיחות קוליות ותצוגת הודעות מלאה</p>
+                  <p className="text-xs mt-2">מערכת ההודעות תוצג כאן עם קישור לשיחה</p>
                 </div>
               </div>
 

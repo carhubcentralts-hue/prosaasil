@@ -727,7 +727,10 @@ export function BillingPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       className="flex items-center justify-center p-4 border-2 border-blue-200 rounded-lg hover:border-blue-400 transition-colors"
-                      onClick={() => alert('PayPal - בקרוב!')}
+                      onClick={() => {
+                        setPaymentForm({...paymentForm, payment_provider: 'paypal'});
+                        handleCreatePayment();
+                      }}
                     >
                       <div className="text-center">
                         <div className="w-8 h-8 bg-blue-600 rounded mx-auto mb-2 flex items-center justify-center">
@@ -739,7 +742,10 @@ export function BillingPage() {
                     
                     <button
                       className="flex items-center justify-center p-4 border-2 border-green-200 rounded-lg hover:border-green-400 transition-colors"
-                      onClick={() => alert('Tranzilla - בקרוב!')}
+                      onClick={() => {
+                        setPaymentForm({...paymentForm, payment_provider: 'tranzilla'});
+                        handleCreatePayment();
+                      }}
                     >
                       <div className="text-center">
                         <div className="w-8 h-8 bg-green-600 rounded mx-auto mb-2 flex items-center justify-center">
