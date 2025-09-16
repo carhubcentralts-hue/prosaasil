@@ -1,0 +1,129 @@
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/business/current/prompt -> ai_prompt.get_current_business_prompt
+  {'PUT', 'OPTIONS'} /api/business/current/prompt -> ai_prompt.update_current_business_prompt
+  {'OPTIONS', 'GET', 'HEAD'} /api/business/current/prompt/history -> ai_prompt.get_current_prompt_history
+  {'OPTIONS', 'GET', 'HEAD'} /api/calendar/appointments -> calendar.get_appointments
+  {'OPTIONS', 'POST'} /api/calendar/appointments -> calendar.create_appointment
+  {'OPTIONS', 'GET', 'HEAD'} /api/calendar/appointments/<int:appointment_id> -> calendar.get_appointment
+  {'PUT', 'OPTIONS'} /api/calendar/appointments/<int:appointment_id> -> calendar.update_appointment
+  {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id> -> calendar.delete_appointment
+  {'OPTIONS', 'GET', 'HEAD'} /api/calendar/stats -> calendar.get_calendar_stats
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls -> calls.list_calls
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/<call_sid>/details -> calls.get_call_details
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/<call_sid>/download -> calls.download_recording
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/active -> crm_bp.api_active_calls
+  {'OPTIONS', 'POST'} /api/calls/cleanup -> calls.cleanup_old_recordings
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/history -> crm_bp.api_call_history
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/stats -> calls.get_calls_stats
+  {'OPTIONS', 'POST'} /api/contracts -> receipts_contracts.create_contract
+  {'OPTIONS', 'POST'} /api/crm/contacts -> ui.api_crm_contacts_create
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/contracts -> crm_bp.get_contracts
+  {'OPTIONS', 'POST'} /api/crm/contracts -> crm_bp.create_contract
+  {'OPTIONS', 'POST'} /api/crm/contracts/sign -> crm_bp.contract_sign
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/customers -> crm_bp.api_customers
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/deals -> crm_bp.list_deals
+  {'OPTIONS', 'POST'} /api/crm/deals -> crm_bp.create_deal
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/invoices/<invoice_number> -> crm_bp.get_invoice
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments -> crm_bp.get_payments
+  {'OPTIONS', 'POST'} /api/crm/payments/create -> crm_bp.payments_create
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/paypal/return/cancel -> crm_bp.paypal_cancel
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/paypal/return/success -> crm_bp.paypal_success
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/tranzila/return/fail -> crm_bp.tranzila_fail
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/tranzila/return/success -> crm_bp.tranzila_success
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/threads -> crm_bp.api_threads
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/threads/<thread_id>/messages -> crm_bp.api_thread_messages
+  {'OPTIONS', 'GET', 'HEAD'} /api/dashboard/activity -> api_adapter.dashboard_activity
+  {'OPTIONS', 'GET', 'HEAD'} /api/dashboard/stats -> api_adapter.dashboard_stats
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads -> leads_bp.list_leads
+  {'OPTIONS', 'POST'} /api/leads -> leads_bp.create_lead
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id> -> leads_bp.get_lead_detail
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id> -> leads_bp.update_lead
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>/activities -> leads_bp.get_lead_activities
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp -> leads_bp.send_whatsapp_message
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/move -> leads_bp.move_lead_in_kanban
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>/reminders -> leads_bp.get_lead_reminders
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders -> leads_bp.create_reminder
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.get_reminder
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.update_reminder
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status -> leads_bp.update_lead_status
+  {'OPTIONS', 'PATCH'} /api/leads/bulk -> leads_bp.bulk_update_leads
+  {'OPTIONS', 'POST'} /api/receipts -> receipts_contracts.create_receipt
+  {'OPTIONS', 'GET', 'HEAD'} /api/reminders/due -> leads_bp.get_due_reminders
+  {'OPTIONS', 'GET', 'HEAD'} /api/statuses -> status_management.get_business_statuses
+  {'OPTIONS', 'POST'} /api/statuses -> status_management.create_status
+  {'PUT', 'OPTIONS'} /api/statuses/<int:status_id> -> status_management.update_status
+  {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id> -> status_management.delete_status
+  {'OPTIONS', 'POST'} /api/statuses/reorder -> status_management.reorder_statuses
+  {'OPTIONS', 'POST'} /api/ui/login -> ui.api_login
+  {'HEAD', 'OPTIONS', 'GET', 'POST'} /api/ui/logout -> ui.api_logout
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/baileys/qr -> whatsapp_qr.get_whatsapp_qr
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/baileys/status -> whatsapp_qr.get_whatsapp_status
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/conversation/<phone_number> -> whatsapp_unified.get_conversation_history
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/conversations -> whatsapp_unified.get_conversations
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/messages -> whatsapp_unified.get_messages
+  {'OPTIONS', 'POST'} /api/whatsapp/send -> whatsapp_unified.send_message
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/status -> whatsapp_unified.get_status
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/templates -> whatsapp_unified.get_templates
+  {'OPTIONS', 'POST'} /api/whatsapp/webhook/whatsapp/baileys -> whatsapp_unified.wa_in_baileys
+  {'OPTIONS', 'POST'} /api/whatsapp/webhook/whatsapp/twilio -> whatsapp_unified.wa_in_twilio
+  {'OPTIONS', 'POST'} /api/whatsapp/window-check -> whatsapp_unified.check_messaging_window
+================
+✅ Simple SPA routes registered (no blueprint)
+✅ Flask app context initialized successfully
+✅ EventLet Composite WSGI ready
+📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com
+🌐 All other routes → Flask app
+[2025-09-16 21:30:54 +0000] [7532] [INFO] Starting gunicorn 21.2.0
+[2025-09-16 21:30:54 +0000] [7532] [INFO] Listening at: http://0.0.0.0:5000 (7532)
+[2025-09-16 21:30:54 +0000] [7532] [INFO] Using worker: eventlet
+[2025-09-16 21:30:54 +0000] [7544] [INFO] Booting worker with pid: 7544
+🔍 WSGI Route: GET /
+🌐 Routing to Flask app: /
+10.81.9.42 - - [16/Sep/2025:21:30:55 +0000] "GET / HTTP/1.1" 200 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/__replco/workspace_iframe.html?initialPath=%2F&id=%3Ar4a9%3A" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /assets/index-6WqHGuc7.css
+🌐 Routing to Flask app: /assets/index-6WqHGuc7.css
+10.81.10.47 - - [16/Sep/2025:21:30:57 +0000] "GET /assets/index-6WqHGuc7.css HTTP/1.1" 304 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /assets/index-XexYu-dM.js
+🌐 Routing to Flask app: /assets/index-XexYu-dM.js
+10.81.10.47 - - [16/Sep/2025:21:30:57 +0000] "GET /assets/index-XexYu-dM.js HTTP/1.1" 304 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/auth/csrf
+🌐 Routing to Flask app: /api/auth/csrf
+10.81.9.42 - - [16/Sep/2025:21:31:02 +0000] "GET /api/auth/csrf HTTP/1.1" 200 60 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/auth/me
+🌐 Routing to Flask app: /api/auth/me
+10.81.9.42 - - [16/Sep/2025:21:31:03 +0000] "GET /api/auth/me HTTP/1.1" 401 30 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: POST /api/auth/login
+🌐 Routing to Flask app: /api/auth/login
+10.81.9.42 - - [16/Sep/2025:21:31:29 +0000] "POST /api/auth/login HTTP/1.1" 200 313 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/auth/csrf
+🌐 Routing to Flask app: /api/auth/csrf
+10.81.9.42 - - [16/Sep/2025:21:31:29 +0000] "GET /api/auth/csrf HTTP/1.1" 200 60 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔍 WSGI Route: GET /api/admin/businesses
+🌐 Routing to Flask app: /api/admin/businesses
+🔍 WSGI Route: GET /api/admin/leads/stats
+🌐 Routing to Flask app: /api/admin/leads/stats
+🔍 WSGI Route: GET /api/admin/phone-numbers
+🌐 Routing to Flask app: /api/admin/phone-numbers
+10.81.4.21 - - [16/Sep/2025:21:31:30 +0000] "GET /api/admin/phone-numbers HTTP/1.1" 200 721 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.9.42 - - [16/Sep/2025:21:31:30 +0000] "GET /api/admin/businesses?pageSize=1 HTTP/1.1" 200 433 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.2.41 - - [16/Sep/2025:21:31:30 +0000] "GET /api/admin/leads/stats HTTP/1.1" 200 67 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.10.47 - - [16/Sep/2025:21:31:30 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1219 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/overview
+🌐 Routing to Flask app: /api/admin/overview
+10.81.4.21 - - [16/Sep/2025:21:31:30 +0000] "GET /api/admin/overview?time_filter=today&start_date=2025-09-16&end_date=2025-09-16 HTTP/1.1" 200 345 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/whatsapp/status
+🌐 Routing to Flask app: /api/whatsapp/status
+🔍 WSGI Route: GET /api/crm/threads
+🌐 Routing to Flask app: /api/crm/threads
+🔍 WSGI Route: GET /api/business/current/prompt
+🌐 Routing to Flask app: /api/business/current/prompt
+CSRF-DBG cookie= upByIuGmaFi1Uuyr6OYIrjuNgqaFuZJmv5Glz_UGC1k header= None ct= None
+10.81.4.21 - - [16/Sep/2025:21:31:34 +0000] "GET /api/whatsapp/status HTTP/1.1" 200 85 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/whatsapp" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.10.47 - - [16/Sep/2025:21:31:34 +0000] "GET /api/crm/threads HTTP/1.1" 200 66 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/whatsapp" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.2.41 - - [16/Sep/2025:21:31:34 +0000] "GET /api/business/current/prompt HTTP/1.1" 200 313 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/whatsapp" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/whatsapp/baileys/qr
+🌐 Routing to Flask app: /api/whatsapp/baileys/qr
+Baileys service is not available, using fallback QR generation
+10.81.2.41 - - [16/Sep/2025:21:31:37 +0000] "GET /api/whatsapp/baileys/qr HTTP/1.1" 200 1212 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/whatsapp" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
