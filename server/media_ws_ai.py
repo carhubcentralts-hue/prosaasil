@@ -1360,13 +1360,44 @@ class MediaStreamHandler:
             return "את ליאה, עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."
 
     def _ai_response(self, hebrew_text: str) -> str:
-        """Generate NATURAL Hebrew AI response - exactly what the conversation needs!"""
+        """Generate NATURAL Hebrew AI response using dynamic prompts from database"""
         try:
-            from server.services.lazy_services import get_openai_client
-            client = get_openai_client()
-            if not client:
-                print("❌ OpenAI client not available for AI response")
-                return "מצטער, יש בעיה טכנית."
+            # ✅ FIXED: Use AIService for dynamic prompts from database
+            from server.services.ai_service import generate_ai_response
+            
+            # Build context for the AI
+            context = {
+                "phone_number": getattr(self, 'phone_number', ''),
+                "channel": "voice_call",
+                "previous_messages": []
+            }
+            
+            # Add conversation history for context
+            if hasattr(self, 'conversation_history') and self.conversation_history:
+                context["previous_messages"] = [
+                    f"משתמש: {item['user']}\nבוט: {item['bot']}" 
+                    for item in self.conversation_history[-3:]  # רק 3 אחרונות
+                ]
+            
+            # Generate AI response using business-specific prompt
+            business_id = getattr(self, 'business_id', 1)
+            ai_response = generate_ai_response(
+                message=hebrew_text,
+                business_id=business_id,
+                context=context
+            )
+            
+            print(f"✅ AI_SERVICE_RESPONSE: Generated {len(ai_response)} chars for business {business_id}")
+            return ai_response
+            
+        except Exception as e:
+            print(f"❌ AI_SERVICE_ERROR: {e} - using fallback logic")
+            # Fallback to old OpenAI direct logic if AI service fails
+                from server.services.lazy_services import get_openai_client
+                client = get_openai_client()
+                if not client:
+                    print("❌ OpenAI client not available for AI response")
+                    return "מצטער, יש בעיה טכנית."
             
             # 🎯 היסטוריה של שיחות למניעת חזרות
             if not hasattr(self, 'conversation_history'):
