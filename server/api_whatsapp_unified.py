@@ -13,6 +13,7 @@ from server.twilio_security import require_twilio_signature
 from server.extensions import csrf
 from twilio.twiml.messaging_response import MessagingResponse
 from datetime import datetime
+from typing import Optional
 import logging
 import hashlib
 import hmac
@@ -412,7 +413,7 @@ def _queue_baileys_response(to: str, text: str):
     except Exception as e:
         logger.error(f"Failed to queue Baileys response: {e}")
 
-def handle_whatsapp_logic(body: str, business_id: int = 1, context: dict = None) -> str:
+def handle_whatsapp_logic(body: str, business_id: int = 1, context: Optional[dict] = None) -> str:
     """Handle WhatsApp message logic with AI-powered Hebrew responses"""
     try:
         # Import AI service

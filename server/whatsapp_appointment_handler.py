@@ -120,12 +120,12 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
             }
         
         # חיפוש או יצירת לקוח
-        customer = Customer.query.filter_by(phone=customer_phone).first()
+        customer = Customer.query.filter_by(phone_e164=customer_phone).first()
         if not customer:
             # יצירת לקוח חדש
             customer = Customer()
             customer.name = f"לקוח מווצאפ {customer_phone[-4:]}"
-            customer.phone = customer_phone
+            customer.phone_e164 = customer_phone
             customer.status = "lead"
             
             # קישור לעסק ראשון כברירת מחדל
