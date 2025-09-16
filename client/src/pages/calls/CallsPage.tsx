@@ -100,19 +100,12 @@ export function CallsPage() {
     try {
       setLoading(true);
       
-      const response = await http.get('/api/calls', {
-        params: { 
-          search: searchQuery, 
-          status: statusFilter, 
-          direction: directionFilter,
-          limit: 50
-        }
-      });
+      const response = await http.get('/api/calls?search=' + encodeURIComponent(searchQuery) + '&status=' + statusFilter + '&direction=' + directionFilter + '&limit=50');
       
-      if (response.success) {
-        setCalls(response.calls);
+      if (response && typeof response === 'object' && 'success' in response && response.success) {
+        setCalls((response as any).calls || []);
       } else {
-        console.error('Error loading calls:', response.error);
+        console.error('Error loading calls:', response);
         // Fallback to empty array on error
         setCalls([]);
       }
@@ -164,8 +157,8 @@ export function CallsPage() {
       
       const response = await http.get(`/api/calls/${call.sid}/details`);
       
-      if (response.success) {
-        setCallDetails(response);
+      if (response && typeof response === 'object' && 'success' in response && (response as any).success) {
+        setCallDetails(response as CallDetails);
       } else {
         // Fallback to basic details
         const fallbackDetails: CallDetails = {
@@ -377,7 +370,8 @@ export function CallsPage() {
 
       {/* Calls List */}
       <Card className="p-0">
-        <div className="overflow-x-auto">
+        {/* Desktop Table View */}
+        <div className="hidden lg:block overflow-x-auto">
           <table className="w-full">
             <thead className="bg-slate-50 border-b">
               <tr>
@@ -496,6 +490,118 @@ export function CallsPage() {
               })}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Cards View */}
+        <div className="lg:hidden">
+          <div className="space-y-4 p-4">
+            {filteredCalls.map((call) => {
+              const daysLeft = getDaysUntilExpiry(call.expiresAt);
+              return (
+                <Card key={call.sid} className="p-4 border border-slate-200" data-testid={`call-card-${call.sid}`}>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-3 rounded-full ${call.direction === 'inbound' ? 'bg-green-100' : 'bg-blue-100'}`}>
+                        <Phone className={`h-5 w-5 ${call.direction === 'inbound' ? 'text-green-600' : 'text-blue-600'}`} />
+                      </div>
+                      <div>
+                        <p className="font-medium text-slate-900">{call.lead_name || 'לקוח אלמוני'}</p>
+                        <p className="text-sm text-slate-500">{call.from_e164}</p>
+                        <p className="text-xs text-slate-400">{formatDate(call.at)}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      <Badge variant={
+                        call.status === 'completed' ? 'success' :
+                        call.status === 'no-answer' ? 'warning' : 'default'
+                      }>
+                        {call.status === 'completed' ? 'הושלמה' :
+                         call.status === 'no-answer' ? 'לא נענה' :
+                         call.status === 'busy' ? 'תפוס' : call.status}
+                      </Badge>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-slate-400" />
+                      <span className="text-sm text-slate-600">{formatDuration(call.duration)}</span>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      {call.hasRecording ? (
+                        <div className="flex items-center gap-2">
+                          <Volume2 className="h-4 w-4 text-green-600" />
+                          <span className="text-xs text-slate-600">יש הקלטה</span>
+                          {daysLeft !== null && daysLeft <= 2 && (
+                            <Badge variant="warning" className="text-xs">
+                              {daysLeft} ימים
+                            </Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">אין הקלטה</span>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2 col-span-2">
+                      {call.hasTranscript ? (
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-blue-600" />
+                          <span className="text-xs text-slate-600 truncate">
+                            {call.transcription?.substring(0, 50)}...
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">אין תמליל</span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => loadCallDetails(call)}
+                      data-testid={`button-details-${call.sid}`}
+                      className="flex-1"
+                    >
+                      <MessageSquare className="h-4 w-4 mr-1" />
+                      פרטים
+                    </Button>
+                    
+                    {call.hasRecording && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => playRecording(call)}
+                          disabled={playingRecording === call.sid}
+                          data-testid={`button-play-${call.sid}`}
+                          className="flex-1"
+                        >
+                          <PlayCircle className={`h-4 w-4 mr-1 ${playingRecording === call.sid ? 'animate-spin' : ''}`} />
+                          השמע
+                        </Button>
+                        
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => downloadRecording(call)}
+                          disabled={downloadingRecording === call.sid}
+                          data-testid={`button-download-${call.sid}`}
+                          className="flex-1"
+                        >
+                          <Download className={`h-4 w-4 mr-1 ${downloadingRecording === call.sid ? 'animate-bounce' : ''}`} />
+                          הורד
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
         </div>
         
         {filteredCalls.length === 0 && (
