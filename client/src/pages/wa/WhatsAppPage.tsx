@@ -126,31 +126,24 @@ export function WhatsAppPage() {
   const loadThreads = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with real API call to get WhatsApp threads
-      // const response = await http.get('/api/whatsapp/threads');
+      // Load real WhatsApp threads from database
+      const response = await http.get<{threads: any[]}>('/api/crm/threads');
       
-      // Mock data for now - will be replaced with real API
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setThreads([
-        {
-          id: '1',
-          name: 'יוסי כהן',
-          phone: '+972501234567',
-          lastMessage: 'שלום, מעוניין בדירה',
-          unread: 2,
-          time: '10:30'
-        },
-        {
-          id: '2', 
-          name: 'רחל לוי',
-          phone: '+972507654321',
-          lastMessage: 'תודה על המידע',
-          unread: 0,
-          time: '09:15'
-        }
-      ]);
+      // Transform API response to match UI interface
+      const transformedThreads = (response.threads || []).map((thread: any) => ({
+        id: thread.id?.toString() || '',
+        name: thread.peer_name || thread.phone_e164 || 'לא ידוע',
+        phone: thread.phone_e164 || '',
+        lastMessage: thread.last_message || '',
+        unread: thread.unread_count || 0,
+        time: thread.last_activity ? new Date(thread.last_activity).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : ''
+      }));
+      
+      setThreads(transformedThreads);
     } catch (error) {
       console.error('Error loading threads:', error);
+      // Fallback to empty array if API fails
+      setThreads([]);
     } finally {
       setLoading(false);
     }
@@ -212,15 +205,15 @@ export function WhatsAppPage() {
     
     try {
       setSendingMessage(true);
-      const response = await http.post<{success: boolean; error?: string}>('/api/whatsapp/send', {
-        to: selectedThread.phone,
-        message: messageText,
+      const response = await http.post<{success: boolean; error?: string}>(`/api/crm/threads/${selectedThread.id}/message`, {
+        text: messageText.trim(),
         provider: selectedProvider
       });
       
       if (response.success) {
         setMessageText('');
-        // TODO: Update thread with new message
+        // Reload threads to get updated last message
+        await loadThreads();
         alert('הודעה נשלחה בהצלחה');
       } else {
         alert('שגיאה בשליחת הודעה: ' + (response.error || 'שגיאה לא ידועה'));
