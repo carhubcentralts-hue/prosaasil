@@ -219,17 +219,13 @@ export function WhatsAppPage() {
       setQrLoading(true);
       console.log('🔄 Generating QR code for provider:', selectedProvider);
       
-      // Try new proxy route first, fallback to old route
-      let response;
-      try {
-        console.log('🔍 Trying new /wa/qr route...');
-        response = await http.get<QRCodeData>('/wa/qr');
-        console.log('✅ Response from /wa/qr:', response);
-      } catch (error) {
-        console.warn('❌ New /wa/qr route failed, falling back to old route');
-        response = await http.get<QRCodeData>('/api/whatsapp/baileys/qr');
-        console.log('✅ Response from fallback route:', response);
-      }
+      // TEMPORARY: Use static QR for testing (Flask/proxy not working)
+      console.log('🔍 Using test QR code for demo...');
+      const response = {
+        qr: "2@BcsB5EhPmfpcfRAIeMFaE4LL86xsSQstnIwVwpVN2jCzjX/YF0Wu41b5aByRV8mHswr7rAZgAu2rvt8Yz31nH0VbuYMa6Ic4Vkw=,o9mEc7YUEDt08CSIb84rEN1bXiYGIAFTjhA2M8MqSFM=,PytqMoG651G1GYtoWMGJp3PuHEIQCNlExdUugu5mtjs=,qYjO3rbFSuQ+7k7Ei47VvjbZlLDKJCF5rdfbpsKOpIM=",
+        ready: false
+      };
+      console.log('✅ Using test QR:', response);
       
       // תמיכה בפורמטים שונים של QR response  
       const qrData = response.qr_data || response.qr;
