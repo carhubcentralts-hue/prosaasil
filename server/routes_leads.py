@@ -494,6 +494,59 @@ def update_lead_status(lead_id):
     
     return jsonify({"message": "Status unchanged"})
 
+@leads_bp.route("/api/leads/<int:lead_id>/reminders", methods=["GET"])
+def get_lead_reminders(lead_id):
+    """Get all reminders for a lead"""
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    if not check_lead_access(lead_id):
+        return jsonify({"error": "Lead not found or access denied"}), 404
+    
+    reminders = LeadReminder.query.filter_by(lead_id=lead_id).order_by(LeadReminder.due_at.desc()).all()
+    
+    return jsonify({
+        "reminders": [
+            {
+                "id": r.id,
+                "lead_id": r.lead_id,
+                "due_at": r.due_at.isoformat() if r.due_at else None,
+                "note": r.note,
+                "channel": r.channel,
+                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+                "created_by": r.created_by
+            }
+            for r in reminders
+        ]
+    })
+
+@leads_bp.route("/api/leads/<int:lead_id>/activities", methods=["GET"])
+def get_lead_activities(lead_id):
+    """Get all activities for a lead"""
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    if not check_lead_access(lead_id):
+        return jsonify({"error": "Lead not found or access denied"}), 404
+    
+    activities = LeadActivity.query.filter_by(lead_id=lead_id).order_by(LeadActivity.at.desc()).all()
+    
+    return jsonify({
+        "activities": [
+            {
+                "id": a.id,
+                "lead_id": a.lead_id,
+                "type": a.type,
+                "at": a.at.isoformat() if a.at else None,
+                "payload": a.payload,
+                "user_id": a.user_id
+            }
+            for a in activities
+        ]
+    })
+
 @leads_bp.route("/api/leads/<int:lead_id>/reminders", methods=["POST"])
 def create_reminder(lead_id):
     """Create 'חזור אליי' reminder"""
