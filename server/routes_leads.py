@@ -3,7 +3,6 @@ Leads CRM API routes - Monday/HubSpot/Salesforce style
 Modern lead management with Kanban board support, reminders, and activity tracking
 """
 from flask import Blueprint, jsonify, request, session, g
-from server.auth_api import require_api_auth
 from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, User, Business
 from server.db import db
 from datetime import datetime, timezone
