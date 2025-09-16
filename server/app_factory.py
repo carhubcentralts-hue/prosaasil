@@ -317,6 +317,10 @@ def create_app():
         app.register_blueprint(calendar_bp)
         app.register_blueprint(leads_bp)
         
+        # Calls API for recordings and transcripts
+        from server.routes_calls import calls_bp
+        app.register_blueprint(calls_bp)
+        
         # Register receipts and contracts endpoints
         from server.routes_receipts_contracts import receipts_contracts_bp
         app.register_blueprint(receipts_contracts_bp)
@@ -499,7 +503,7 @@ def create_app():
     
     # WhatsApp Unified API (send/status/list)
     from server.api_whatsapp_unified import whatsapp_unified_bp
-    app.register_blueprint(whatsapp_unified_bp)
+    app.register_blueprint(whatsapp_unified_bp, url_prefix='/api/whatsapp')
     
     # Baileys WhatsApp bridge routes (DISABLED - cleanup)
     # try:

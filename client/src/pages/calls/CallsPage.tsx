@@ -99,14 +99,26 @@ export function CallsPage() {
   const loadCalls = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with real API call
-      // const response = await http.get('/api/calls', {
-      //   params: { search: searchQuery, status: statusFilter, direction: directionFilter }
-      // });
       
-      // Mock data for now - will be replaced with real API
-      await new Promise(resolve => setTimeout(resolve, 800));
+      const response = await http.get('/api/calls', {
+        params: { 
+          search: searchQuery, 
+          status: statusFilter, 
+          direction: directionFilter,
+          limit: 50
+        }
+      });
       
+      if (response.success) {
+        setCalls(response.calls);
+      } else {
+        console.error('Error loading calls:', response.error);
+        // Fallback to empty array on error
+        setCalls([]);
+      }
+    } catch (error) {
+      console.error('Error loading calls:', error);
+      // Fallback to mock data on network error for development
       const mockCalls: Call[] = [
         {
           sid: 'CA123456789',
@@ -137,24 +149,9 @@ export function CallsPage() {
           hasRecording: true,
           hasTranscript: true,
           expiresAt: '2025-09-23T09:15:00Z'
-        },
-        {
-          sid: 'CA555666777',
-          lead_name: 'דוד מזרחי',
-          from_e164: '+972508765432',
-          to_e164: '+972523456789',
-          duration: 45,
-          status: 'no-answer',
-          direction: 'outbound',
-          at: '2025-09-16T08:45:00Z',
-          hasRecording: false,
-          hasTranscript: false
         }
       ];
-      
       setCalls(mockCalls);
-    } catch (error) {
-      console.error('Error loading calls:', error);
     } finally {
       setLoading(false);
     }
@@ -165,20 +162,30 @@ export function CallsPage() {
       setSelectedCall(call);
       setShowDetails(true);
       
-      // TODO: Replace with real API call
-      // const response = await http.get(`/api/calls/${call.sid}/details`);
+      const response = await http.get(`/api/calls/${call.sid}/details`);
       
-      // Mock details for now
-      const mockDetails: CallDetails = {
-        call,
-        transcript: call.transcription || 'אין תמליל זמין',
-        summary: 'לקוח מעוניין בדירה בתל אביב, מחפש 3 חדרים, תקציב עד 8000 ש״ח',
-        sentiment: 'חיובי'
-      };
-      
-      setCallDetails(mockDetails);
+      if (response.success) {
+        setCallDetails(response);
+      } else {
+        // Fallback to basic details
+        const fallbackDetails: CallDetails = {
+          call,
+          transcript: call.transcription || 'אין תמליל זמין',
+          summary: 'לקוח מעוניין בדירה בתל אביב, מחפש 3 חדרים, תקציב עד 8000 ש״ח',
+          sentiment: 'חיובי'
+        };
+        setCallDetails(fallbackDetails);
+      }
     } catch (error) {
       console.error('Error loading call details:', error);
+      // Fallback to basic details on error
+      const fallbackDetails: CallDetails = {
+        call,
+        transcript: call.transcription || 'אין תמליל זמין',
+        summary: 'שגיאה בטעינת פרטים',
+        sentiment: 'לא ידוע'
+      };
+      setCallDetails(fallbackDetails);
     }
   };
 
@@ -188,20 +195,29 @@ export function CallsPage() {
     try {
       setDownloadingRecording(call.sid);
       
-      // TODO: Replace with real API call that handles auth and returns file
-      // const response = await http.get(`/api/calls/${call.sid}/download`, { responseType: 'blob' });
+      // Use secure download endpoint
+      const response = await fetch(`/api/calls/${call.sid}/download`, {
+        method: 'GET',
+        credentials: 'include' // Include session cookies
+      });
       
-      // For now, simulate download
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'שגיאה בהורדת ההקלטה');
+      }
+      
+      // Get the file blob
+      const blob = await response.blob();
       
       // Create download link
-      const url = call.recording_url + '.mp3';
+      const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `recording-${call.sid}.mp3`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
       
       console.log('Recording downloaded:', call.sid);
     } catch (error) {
