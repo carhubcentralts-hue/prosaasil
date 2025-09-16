@@ -302,6 +302,114 @@ def api_call_history():
 
 # === PAYMENT ENDPOINTS ===
 
+@crm_bp.get("/api/crm/payments")
+@require_api_auth(["admin", "superadmin", "business"])
+def get_payments():
+    """Get all payments for current business"""
+    try:
+        business_id = g.user.get("business_id")
+        if not business_id:
+            return jsonify({"error": "No business access"}), 403
+        
+        payments = Payment.query.filter_by(business_id=business_id).order_by(Payment.created_at.desc()).all()
+        
+        return jsonify([{
+            "id": p.id,
+            "amount": p.amount_cents / 100,  # Convert cents to currency
+            "status": p.status,
+            "description": p.description or f"תשלום #{p.id}",
+            "client_name": p.customer_name or "לא צוין",
+            "due_date": p.created_at.isoformat(),
+            "paid_date": p.paid_at.isoformat() if p.paid_at else None,
+            "invoice_number": f"INV-{p.id}",
+            "payment_method": p.provider or "לא צוין"
+        } for p in payments])
+        
+    except Exception as e:
+        return jsonify({"error": "Failed to fetch payments"}), 500
+
+@crm_bp.get("/api/crm/contracts") 
+@require_api_auth(["admin", "superadmin", "business"])
+def get_contracts():
+    """Get all contracts for current business"""
+    try:
+        business_id = g.user.get("business_id")
+        if not business_id:
+            return jsonify({"error": "No business access"}), 403
+            
+        # Join with Deal and Customer to get business-scoped data
+        contracts = db.session.query(Contract, Deal, Customer).join(Deal).join(Customer, Deal.customer_id == Customer.id).filter(Customer.business_id == business_id).order_by(Contract.created_at.desc()).all()
+        
+        return jsonify([{
+            "id": c.id,
+            "title": c.template_name or f"חוזה #{c.id}",
+            "client_name": customer.name or "לא צוין",
+            "property_address": deal.title or "לא צוין",
+            "contract_type": deal.stage or "sale",
+            "amount": (deal.amount / 100) if deal.amount else 0,
+            "status": deal.stage or "draft",
+            "created_date": c.created_at.isoformat(),
+            "signed_date": c.signed_at.isoformat() if c.signed_at else None
+        } for c, deal, customer in contracts])
+        
+    except Exception as e:
+        return jsonify({"error": "Failed to fetch contracts"}), 500
+
+@crm_bp.post("/api/crm/contracts")
+@require_api_auth(["admin", "superadmin", "business"])
+def create_contract():
+    """Create a new contract"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "JSON data required"}), 400
+        
+        business_id = g.user.get("business_id")
+        if not business_id:
+            return jsonify({"error": "No business access"}), 403
+            
+        # First create or find customer
+        customer_name = data.get("client_name", "")
+        customer = Customer.query.filter_by(
+            business_id=business_id,
+            name=customer_name
+        ).first()
+        
+        if not customer:
+            customer = Customer()
+            customer.business_id = business_id
+            customer.name = customer_name
+            customer.status = "new"
+            db.session.add(customer)
+            db.session.flush()  # Get customer ID
+        
+        # Create deal
+        deal = Deal()
+        deal.customer_id = customer.id
+        deal.title = data.get("property_address", "חוזה חדש")
+        deal.stage = "draft"
+        deal.amount = int(float(data.get("amount", 0)) * 100)
+        db.session.add(deal)
+        db.session.flush()  # Get the deal ID
+        
+        # Create new contract
+        contract = Contract()
+        contract.deal_id = deal.id
+        contract.template_name = data.get("title", "חוזה חדש")
+        
+        db.session.add(contract)
+        db.session.commit()
+        
+        return jsonify({
+            "success": True,
+            "contract_id": contract.id,
+            "message": "חוזה נוצר בהצלחה"
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Failed to create contract"}), 500
+
 @crm_bp.post("/api/crm/payments/create")
 @require_api_auth(["admin", "superadmin", "business"])
 def payments_create():

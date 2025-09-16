@@ -92,14 +92,19 @@ export function BillingPage() {
   const [paymentForm, setPaymentForm] = useState({
     lead_id: '',
     amount: '',
-    description: ''
+    description: '',
+    client_name: '',
+    payment_provider: ''
   });
   
   const [contractForm, setContractForm] = useState({
     lead_id: '',
     title: '',
     type: 'sale',
-    custom_title: ''
+    custom_title: '',
+    client_name: '',
+    property_address: '',
+    amount: 0
   });
 
   useEffect(() => {
@@ -190,16 +195,17 @@ export function BillingPage() {
         return;
       }
 
-      const response = await http.post('/api/receipts', {
-        lead_id: paymentForm.lead_id || '1', // Default lead if not selected
-        amount: parseFloat(paymentForm.amount),
-        description: paymentForm.description
+      const response = await http.post('/api/crm/payments/create', {
+        amount: Math.round(parseFloat(paymentForm.amount) * 100), // Convert to cents
+        description: paymentForm.description,
+        customer_name: paymentForm.client_name || "לקוח",
+        provider: paymentForm.payment_provider || null
       }) as any;
 
       if (response.success) {
         alert(`חשבונית נוצרה בהצלחה! מספר: ${response.receipt_id}`);
         setShowPaymentModal(false);
-        setPaymentForm({ lead_id: '', amount: '', description: '' });
+        setPaymentForm({ lead_id: '', amount: '', description: '', client_name: '', payment_provider: '' });
         loadData(); // Reload the data
       } else {
         alert('שגיאה ביצירת החשבונית: ' + response.message);
@@ -218,16 +224,18 @@ export function BillingPage() {
         return;
       }
 
-      const response = await http.post('/api/contracts', {
-        lead_id: contractForm.lead_id || '1', // Default lead if not selected
-        type: contractForm.type,
-        title: contractForm.title
+      const response = await http.post('/api/crm/contracts', {
+        contract_type: contractForm.type,
+        title: contractForm.title,
+        client_name: contractForm.client_name || "לקוח",
+        property_address: contractForm.property_address || "",
+        amount: contractForm.amount || 0
       }) as any;
 
       if (response.success) {
         alert(`חוזה נוצר בהצלחה! מספר: ${response.contract_id}`);
         setShowContractModal(false);
-        setContractForm({ lead_id: '', title: '', type: 'sale', custom_title: '' });
+        setContractForm({ lead_id: '', title: '', type: 'sale', custom_title: '', client_name: '', property_address: '', amount: 0 });
         loadData(); // Reload the data
       } else {
         alert('שגיאה ביצירת החוזה: ' + response.message);
