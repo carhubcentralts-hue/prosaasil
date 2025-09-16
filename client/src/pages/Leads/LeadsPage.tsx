@@ -371,7 +371,7 @@ export default function LeadsPage() {
                   key={lead.id}
                   data-testid={`row-lead-${lead.id}`}
                   className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer"
-                  onClick={() => window.location.href = `/app/leads/${lead.id}`}
+                  onClick={() => navigate(`/app/leads/${lead.id}`)}
                 >
                   <TableCell data-testid={`text-name-${lead.id}`} className="min-w-[150px]">
                     <div className="font-medium text-gray-900 dark:text-white hover:text-blue-600 transition-colors">
@@ -485,7 +485,7 @@ export default function LeadsPage() {
                           navigate(`/app/leads/${lead.id}`);
                         }}
                         className="h-8 w-8 p-0 text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-md"
-                        data-testid={`button-view-${lead.id}`}
+                        data-testid={`button-details-${lead.id}`}
                         title="צפה בדף הלקוח המלא"
                       >
                         <User className="w-4 h-4" />
@@ -559,7 +559,7 @@ export default function LeadsPage() {
                             navigate(`/app/leads/${lead.id}`);
                           }}
                           className="flex-1 h-7 px-2 text-xs text-purple-600 border-purple-200 hover:bg-purple-50"
-                          data-testid={`button-view-mobile-${lead.id}`}
+                          data-testid={`button-details-mobile-${lead.id}`}
                         >
                           <User className="w-3 h-3 ml-1" />
                           פרטים
@@ -756,7 +756,7 @@ export default function LeadsPage() {
                       navigate(`/app/leads/${lead.id}`);
                     }}
                     className="flex-1 h-9 text-purple-600 border-purple-200 hover:bg-purple-50"
-                    data-testid={`button-view-fullpage-mobile-${lead.id}`}
+                    data-testid={`button-details-fullpage-mobile-${lead.id}`}
                   >
                     <User className="w-4 h-4 ml-1" />
                     צפה בלקוח
