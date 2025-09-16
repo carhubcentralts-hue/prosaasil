@@ -173,7 +173,14 @@ export function WhatsAppPage() {
     
     try {
       setQrLoading(true);
-      const response = await http.get<QRCodeData>('/api/whatsapp/baileys/qr');
+      // Try new proxy route first, fallback to old route
+      let response;
+      try {
+        response = await http.get<QRCodeData>('/wa/qr');
+      } catch (error) {
+        console.warn('New /wa/qr route failed, falling back to old route');
+        response = await http.get<QRCodeData>('/api/whatsapp/baileys/qr');
+      }
       
       if (response.success && (response.qr_data || response.qr)) {
         // שם עדיפות ל-qr_data החדש, עם fallback ל-qr הישן

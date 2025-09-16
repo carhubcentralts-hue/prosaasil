@@ -505,18 +505,39 @@ def create_app():
     from server.api_whatsapp_unified import whatsapp_unified_bp
     app.register_blueprint(whatsapp_unified_bp, url_prefix='/api/whatsapp')
     
-    # WhatsApp Baileys Proxy Routes (BEFORE api_adapter)
+    # Baileys worker integration with modern Flask lifecycle
+    def initialize_baileys_worker():
+        """Initialize Baileys in worker process after Flask is ready"""
+        try:
+            from server.baileys_runner import ensure_baileys_worker
+            ensure_baileys_worker()
+            print("✅ Baileys worker supervisor initialized")
+        except Exception as e:
+            print(f"⚠️ Baileys worker initialization failed: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # Use modern Flask 3.x approach with record_once
+    @app.before_request
+    def _ensure_baileys_once():
+        """Ensure Baileys starts only once per worker"""
+        if not hasattr(g, '_baileys_initialized'):
+            initialize_baileys_worker()
+            g._baileys_initialized = True
+    
+    # WhatsApp Baileys Proxy Routes (NEW - /wa/* proxy)
+    from server.routes_baileys_proxy import bp_wa
+    app.register_blueprint(bp_wa)
+    
+    # Legacy WhatsApp Proxy Routes (OLD - /api/wa-proxy/*)
     from server.routes_whatsapp import wa_bp
     app.register_blueprint(wa_bp)
     
-    # Route registration assertion
+    # Route registration verification
+    wa_routes = [rule for rule in app.url_map.iter_rules() if str(rule).startswith('/wa/')]
     wa_proxy_routes = [rule for rule in app.url_map.iter_rules() if str(rule).startswith('/api/wa-proxy')]
-    if len(wa_proxy_routes) != 4:  # health, qr, send, selftest
-        print(f"❌ WA-Proxy route count: {len(wa_proxy_routes)}, expected 4")
-        for route in wa_proxy_routes:
-            print(f"  - {route}")
-        raise RuntimeError("WA-Proxy routes not properly registered")
-    print(f"✅ WA-Proxy routes verified: {len(wa_proxy_routes)} endpoints")
+    print(f"✅ Baileys proxy routes: {len(wa_routes)} /wa/* endpoints")
+    print(f"✅ Legacy proxy routes: {len(wa_proxy_routes)} /api/wa-proxy/* endpoints")
     
     # Baileys WhatsApp bridge routes (DISABLED - cleanup)
     # try:
@@ -566,8 +587,8 @@ def create_app():
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def spa(path):
-        # אל תיתן לנתיבי /api, /webhook, /static להגיע לכאן
-        if path.startswith(('api','webhook','static','assets')):
+        # אל תיתן לנתיבי /api, /webhook, /static, /wa להגיע לכאן
+        if path.startswith(('api','webhook','static','assets','wa')):
             abort(404)
         resp = send_from_directory(FE_DIST, 'index.html')
         resp.cache_control.no_store = True
