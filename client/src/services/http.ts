@@ -1,26 +1,74 @@
-import { ApiError } from '../types/api';
+let csrfToken: string | null = null;
 
-// FE - fetch מרוכז לפי ההנחיות המדויקות
-export async function apiFetch(url: string, options: RequestInit = {}) {
-  const headers = new Headers(options.headers || {})
-  headers.set('Accept','application/json')
-  const method = (options.method || 'GET').toUpperCase()
-  if (!['GET','HEAD','OPTIONS'].includes(method)) {
-    headers.set('Content-Type','application/json')
-    headers.set('X-Requested-With','XMLHttpRequest')
-    // Try both tokens - debug what's actually available
-    let token = document.cookie.match(/(?:^|;\s*)_csrf_token=([^;]+)/)?.[1]
-    if (!token) {
-      token = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)?.[1]
+// Auto-refresh CSRF token on 403
+export async function refreshCSRF(): Promise<void> {
+  try {
+    const response = await fetch('/api/auth/csrf', { 
+      method: 'GET', 
+      credentials: 'include' 
+    });
+    if (response.ok) {
+      const data = await response.json();
+      csrfToken = data.csrfToken;
+      console.log('✅ CSRF token refreshed');
     }
+  } catch (error) {
+    console.error('❌ Failed to refresh CSRF token:', error);
+  }
+}
+
+// Get CSRF token from cookie or cached
+function getCSRFToken(): string | null {
+  if (csrfToken) return csrfToken;
+  
+  // Try both token formats
+  let token = document.cookie.match(/(?:^|;\s*)_csrf_token=([^;]+)/)?.[1];
+  if (!token) {
+    token = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)?.[1];
+  }
+  if (token) {
+    csrfToken = decodeURIComponent(token);
+  }
+  return csrfToken;
+}
+
+// Enhanced fetch with CSRF and retry logic
+export async function apiFetch(url: string, options: RequestInit = {}, retryCount = 0): Promise<Response> {
+  const headers = new Headers(options.headers || {});
+  headers.set('Accept', 'application/json');
+  
+  const method = (options.method || 'GET').toUpperCase();
+  
+  // Add CSRF for write operations (not exempted routes)
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && 
+      !url.includes('/api/auth/login') && 
+      !url.includes('/api/auth/logout') && 
+      !url.includes('/api/webhooks/') && 
+      !url.includes('/healthz')) {
+    
+    headers.set('Content-Type', 'application/json');
+    headers.set('X-Requested-With', 'XMLHttpRequest');
+    
+    const token = getCSRFToken();
     if (token) {
-      console.log('🔧 Using CSRF token:', token.substring(0, 16) + '...')
-      headers.set('X-CSRFToken', decodeURIComponent(token))
-    } else {
-      console.warn('⚠️ No CSRF token found in cookies!')
+      headers.set('X-CSRFToken', token);
     }
   }
-  return fetch(url, { ...options, headers, credentials:'include' })
+  
+  const response = await fetch(url, { 
+    ...options, 
+    headers, 
+    credentials: 'include' 
+  });
+  
+  // Handle 403 with CSRF refresh and retry (once only)
+  if (response.status === 403 && retryCount === 0) {
+    console.log('🔄 403 detected, refreshing CSRF and retrying...');
+    await refreshCSRF();
+    return apiFetch(url, options, 1); // Retry once
+  }
+  
+  return response;
 }
 
 class HttpClient {
@@ -33,17 +81,29 @@ class HttpClient {
       const response = await apiFetch(url, options);
       
       if (!response.ok) {
-        // ✅ תיקון: קרא את הbody פעם אחת בלבד למנוע "Body is disturbed or locked"
         const raw = await response.text();
-        let msg = `Request failed with status ${response.status}`;
+        let errorData: any = {};
+        
         try {
-          const j = raw ? JSON.parse(raw) : null;
-          msg = j?.message || j?.error || raw || msg;
+          errorData = raw ? JSON.parse(raw) : {};
         } catch {
-          // If parsing fails, use raw text or status message
+          errorData = { error: raw || 'Unknown error', message: raw || 'Request failed' };
         }
-        console.error('FE Error:', response.status, msg); // לוגים ברורים לפי ההנחיות
-        throw new Error(msg);
+        
+        // Ensure proper error shape {error, message, hint?}
+        const error = errorData.error || errorData.message || `HTTP ${response.status}`;
+        const message = errorData.message || errorData.error || raw || 'Request failed';
+        const hint = errorData.hint;
+        
+        console.error('FE Error:', response.status, { error, message, hint });
+        
+        // Create structured error
+        const apiError = new Error(message);
+        (apiError as any).status = response.status;
+        (apiError as any).error = error;
+        (apiError as any).hint = hint;
+        
+        throw apiError;
       }
 
       const contentType = response.headers.get('content-type');
@@ -94,3 +154,12 @@ class HttpClient {
 }
 
 export const http = new HttpClient();
+
+// Initialize CSRF token on app start (after login)
+export async function initializeAuth(): Promise<void> {
+  try {
+    await refreshCSRF();
+  } catch (error) {
+    console.warn('Failed to initialize CSRF token:', error);
+  }
+}
