@@ -22,50 +22,40 @@ def get_whatsapp_qr():
         # יצירת provider של Baileys
         baileys_provider = BaileysProvider()
         
-        # בדיקת זמינות השירות
-        if not baileys_provider._check_health():
+        # בדיקת זמינות השירות עם debug
+        logger.info("🔄 Checking Baileys service health...")
+        is_healthy = baileys_provider._check_health()
+        logger.info(f"🔄 Baileys health check result: {is_healthy}")
+        
+        if not is_healthy:
             logger.warning("Baileys service is not available, using fallback QR generation")
             # Fallback - generate a real WhatsApp Web QR code
             return _generate_fallback_qr_code()
         
-        # בקשת QR קוד אמיתי מהשירות
+        # בקשת QR קוד אמיתי מהשירות עם timeout קצר
         try:
+            logger.info(f"🔄 Requesting QR from Baileys at {baileys_provider.outbound_url}/qr")
             response = requests.get(
                 f"{baileys_provider.outbound_url}/qr",
-                timeout=baileys_provider.timeout
+                timeout=5  # חסימה של timeout קצר כדי לא לחכות יותר מדי
             )
+            logger.info(f"🔄 Baileys QR response: {response.status_code}")
             
             if response.status_code == 200:
                 qr_data = response.json()
                 
                 if qr_data.get('success') and qr_data.get('qrCode'):
-                    # יצירת QR קוד ויזואלי מהמידע הצפוני
+                    # המידע הצפוני של QR - לא נשלח לשרת חיצוני מטעמי אבטחה
                     qr_string = qr_data['qrCode']
                     
-                    # שימוש בשירות חיצוני ליצירת תמונת QR
-                    qr_image_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(qr_string)}"
-                    
-                    image_response = requests.get(qr_image_url, timeout=10)
-                    if image_response.status_code == 200:
-                        qr_base64 = base64.b64encode(image_response.content).decode('utf-8')
-                        
-                        logger.info("Real WhatsApp QR code generated successfully")
-                        return jsonify({
-                            'success': True,
-                            'qr': f'data:image/png;base64,{qr_base64}',
-                            'status': 'ready',
-                            'message': 'סרוק את ה-QR קוד עם WhatsApp כדי להתחבר למערכת',
-                            'qr_data': qr_string  # המידע הצפוני עצמו
-                        })
-                    else:
-                        # אם נכשלה יצירת התמונה, החזר את המידע הגולמי
-                        return jsonify({
-                            'success': True,
-                            'qr': qr_string,
-                            'status': 'ready',
-                            'message': 'QR קוד זמין (טקסט בלבד)',
-                            'qr_data': qr_string  # Keep for backwards compatibility
-                        })
+                    logger.info("Real WhatsApp QR code received from Baileys")
+                    return jsonify({
+                        'success': True,
+                        'qr_data': qr_string,  # הQR string לרינדור בצד הלקוח
+                        'status': 'ready',
+                        'message': 'סרוק את ה-QR קוד עם WhatsApp כדי להתחבר למערכת',
+                        'source': 'baileys'
+                    })
                         
                 elif qr_data.get('success') and not qr_data.get('qrCode'):
                     # כבר מחובר
@@ -139,23 +129,16 @@ def _generate_fallback_qr_code():
         # המרה ל-JSON מקודד
         qr_string = base64.b64encode(json.dumps(qr_data).encode()).decode()
         
-        # יצירת QR קוד באמצעות API חיצוני
-        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(qr_string)}"
-        
-        image_response = requests.get(qr_url, timeout=10)
-        if image_response.status_code != 200:
-            raise Exception(f"QR API failed with status {image_response.status_code}")
-            
-        qr_base64 = base64.b64encode(image_response.content).decode('utf-8')
+        # לא יוצרים תמונה בשרת - מטעמי אבטחה החזרנו את הstring לרינדור בלקוח
         
         logger.info("Fallback WhatsApp QR code generated successfully")
         return jsonify({
             'success': True,
-            'qr': f'data:image/png;base64,{qr_base64}',
+            'qr_data': qr_string,  # רק הstring, הUI ירנדר אותו
             'status': 'ready',
             'message': 'סרוק את ה-QR קוד עם WhatsApp כדי להתחבר (מצב פיתוח)',
-            'qr_data': qr_string,
             'fallback_mode': True,
+            'source': 'fallback',
             'instructions': 'פתח WhatsApp בטלפון ← הגדרות ← מכשירים מקושרים ← קישור מכשיר ← סרוק QR'
         })
         
