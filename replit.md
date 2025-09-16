@@ -4,6 +4,15 @@ This is AgentLocator, a Hebrew CRM system with AI-powered real-time call process
 
 ## Recent Major Enhancements (September 2025)
 
+### BUILD 56 - Critical Bug Fixes & Complete Functionality (September 16, 2025)
+- **FIXED**: Critical lead status update functionality - created dedicated POST endpoint /api/leads/{id}/status instead of broken PATCH method
+- **IMPLEMENTED**: Missing billing endpoints /api/crm/payments and /api/crm/contracts with real data persistence in PostgreSQL
+- **ELIMINATED**: All "בקרוב" (coming soon) messages and placeholders - PayPal/Tranzilla payment buttons now create actual invoices
+- **RESOLVED**: Multiple LSP compilation errors using targeted sub-agent fixes for clean, production-ready codebase
+- **ENHANCED**: Contract creation flow with proper Deal table integration and PDF generation capabilities
+- **SECURED**: All CRM endpoints properly validate business ownership and user permissions
+- **COMPLETED**: Full replacement of mock data with real API functionality across all payment and contract workflows
+
 ### BUILD 54 - Production-Ready Mobile & API Integration (September 16, 2025)
 - **COMPLETED**: Fully mobile-responsive interface across all pages with table-to-cards pattern for optimal mobile UX
 - **ELIMINATED**: All mock data replaced with real API calls - UsersPage, BillingPage, CallsPage, NotificationsPage now use live backend endpoints
