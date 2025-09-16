@@ -2,8 +2,9 @@
 Calls API Routes - מסלולי API לשיחות
 Includes call listing, details, transcript, and secure recording download
 """
-from flask import Blueprint, request, jsonify, send_file, current_app, session
+from flask import Blueprint, request, jsonify, send_file, current_app, session, g
 from server.auth_api import require_api_auth
+from server.routes_crm import get_business_id
 from server.extensions import csrf
 from server.models_sql import CallLog as Call, db
 from server.tasks_recording import save_call_status
@@ -34,7 +35,7 @@ def list_calls():
         
         # Get business_id from session if not provided
         if not business_id:
-            business_id = session.get('business_id')
+            business_id = get_business_id()
         
         if not business_id:
             return jsonify({"success": False, "error": "Business ID required"}), 400
@@ -46,8 +47,7 @@ def list_calls():
         if search:
             query = query.filter(
                 or_(
-                    Call.lead_name.ilike(f'%{search}%'),
-                    Call.from_e164.ilike(f'%{search}%'),
+                    Call.from_number.ilike(f'%{search}%'),
                     Call.transcription.ilike(f'%{search}%')
                 )
             )
@@ -55,8 +55,9 @@ def list_calls():
         if status != 'all':
             query = query.filter(Call.status == status)
             
-        if direction != 'all':
-            query = query.filter(Call.direction == direction)
+        # Direction filter commented out as field doesn't exist in current CallLog model
+        # if direction != 'all':
+        #     query = query.filter(Call.direction == direction)
         
         # Order by creation time desc
         query = query.order_by(Call.created_at.desc())
@@ -74,14 +75,14 @@ def list_calls():
                 expiry_date = (call.created_at + timedelta(days=7)).isoformat()
             
             calls_data.append({
-                "sid": call.sid,
-                "lead_id": call.lead_id,
-                "lead_name": call.lead_name,
-                "from_e164": call.from_e164,
-                "to_e164": call.to_e164,
-                "duration": call.duration or 0,
+                "sid": call.call_sid,
+                "lead_id": getattr(call, 'lead_id', None),
+                "lead_name": getattr(call, 'lead_name', None),
+                "from_e164": call.from_number,
+                "to_e164": getattr(call, 'to_number', None),
+                "duration": getattr(call, 'duration', 0),
                 "status": call.status,
-                "direction": call.direction,
+                "direction": getattr(call, 'direction', 'inbound'),
                 "at": call.created_at.isoformat() if call.created_at else None,
                 "recording_url": call.recording_url,
                 "transcription": call.transcription,
@@ -110,12 +111,12 @@ def list_calls():
 def get_call_details(call_sid):
     """פרטי שיחה מפורטים עם תמליל מלא"""
     try:
-        business_id = session.get('business_id')
+        business_id = get_business_id()
         if not business_id:
             return jsonify({"success": False, "error": "Business ID required"}), 400
         
         call = Call.query.filter(
-            Call.sid == call_sid,
+            Call.call_sid == call_sid,
             Call.business_id == business_id
         ).first()
         
@@ -125,22 +126,22 @@ def get_call_details(call_sid):
         # Enhanced call details
         details = {
             "call": {
-                "sid": call.sid,
-                "lead_id": call.lead_id,
-                "lead_name": call.lead_name,
-                "from_e164": call.from_e164,
-                "to_e164": call.to_e164,
-                "duration": call.duration or 0,
+                "sid": call.call_sid,
+                "lead_id": getattr(call, 'lead_id', None),
+                "lead_name": getattr(call, 'lead_name', None),
+                "from_e164": call.from_number,
+                "to_e164": getattr(call, 'to_number', None),
+                "duration": getattr(call, 'duration', 0),
                 "status": call.status,
-                "direction": call.direction,
+                "direction": getattr(call, 'direction', 'inbound'),
                 "at": call.created_at.isoformat() if call.created_at else None,
                 "recording_url": call.recording_url,
                 "hasRecording": bool(call.recording_url),
                 "hasTranscript": bool(call.transcription)
             },
             "transcript": call.transcription or "אין תמליל זמין",
-            "summary": call.summary or "הובנה ע״י בינה מלאכותית - פגישה או עניין במוצר", 
-            "sentiment": call.sentiment or "ניטרלי"
+            "summary": getattr(call, 'summary', "הובנה ע״י בינה מלאכותית - פגישה או עניין במוצר"), 
+            "sentiment": getattr(call, 'sentiment', "ניטרלי")
         }
         
         return jsonify({
@@ -157,12 +158,12 @@ def get_call_details(call_sid):
 def download_recording(call_sid):
     """הורדה מאובטחת של הקלטה דרך השרת"""
     try:
-        business_id = session.get('business_id')
+        business_id = get_business_id()
         if not business_id:
             return jsonify({"success": False, "error": "Business ID required"}), 400
         
         call = Call.query.filter(
-            Call.sid == call_sid,
+            Call.call_sid == call_sid,
             Call.business_id == business_id
         ).first()
         
@@ -268,7 +269,7 @@ def cleanup_old_recordings():
 def get_calls_stats():
     """סטטיסטיקות שיחות"""
     try:
-        business_id = session.get('business_id')
+        business_id = get_business_id()
         if not business_id:
             return jsonify({"success": False, "error": "Business ID required"}), 400
         

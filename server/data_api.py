@@ -2,9 +2,10 @@
 Data API endpoints for UI
 Based on attached instructions - missing API endpoints
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from server.models_sql import User, Business, CallLog, WhatsAppMessage, Customer, db
 from server.authz import auth_required, roles_required
+from server.routes_crm import get_business_id
 from datetime import datetime, timedelta
 
 data_api = Blueprint('data_api', __name__)
@@ -112,8 +113,9 @@ def admin_calls():
 def crm_threads():
     """Get WhatsApp/CRM threads"""
     # For now, return WhatsApp messages grouped by phone number
+    business_id = get_business_id()
     messages = WhatsAppMessage.query.filter_by(
-        business_id=1  # TODO: Get from session user
+        business_id=business_id
     ).order_by(WhatsAppMessage.created_at.desc()).limit(20).all()
     
     threads_html = ""
@@ -147,9 +149,10 @@ def crm_threads():
 @auth_required  
 def crm_thread_messages(thread_id):
     """Get messages for a specific thread"""
+    business_id = get_business_id()
     messages = WhatsAppMessage.query.filter_by(
         to_number=thread_id,
-        business_id=1  # TODO: Get from session user
+        business_id=business_id
     ).order_by(WhatsAppMessage.created_at.asc()).all()
     
     messages_html = ""
@@ -175,8 +178,9 @@ def crm_thread_messages(thread_id):
 @auth_required
 def crm_customers():
     """Get customers for CRM"""
+    business_id = get_business_id()
     customers = Customer.query.filter_by(
-        business_id=1  # TODO: Get from session user
+        business_id=business_id
     ).limit(20).all()
     
     customers_html = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">'
@@ -215,9 +219,10 @@ def calls_active():
     """Get active calls"""
     # For now, show recent calls from last hour
     one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+    business_id = get_business_id()
     calls = CallLog.query.filter(
         CallLog.created_at >= one_hour_ago,
-        CallLog.business_id == 1  # TODO: Get from session user
+        CallLog.business_id == business_id
     ).order_by(CallLog.created_at.desc()).all()
     
     calls_html = ""
@@ -243,8 +248,9 @@ def calls_active():
 @auth_required
 def calls_history():
     """Get call history"""
+    business_id = get_business_id()
     calls = CallLog.query.filter_by(
-        business_id=1  # TODO: Get from session user
+        business_id=business_id
     ).order_by(CallLog.created_at.desc()).limit(20).all()
     
     calls_html = ""
@@ -287,8 +293,11 @@ def whatsapp_send():
         from server.dao_crm import upsert_thread, insert_message
         
         # Find/create thread for this contact
+        business_id = get_business_id()
+        if business_id is None:
+            return jsonify({'error': 'Business ID required'}), 400
         dao_thread_id = upsert_thread(
-            business_id=1,  # TODO: Get from session user
+            business_id=int(business_id),
             type_="whatsapp",
             provider="baileys",
             peer_number=thread_id
