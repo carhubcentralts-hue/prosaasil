@@ -100,6 +100,12 @@ export function WhatsAppPage() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [selectedPrompt, setSelectedPrompt] = useState('');
   const [prompts, setPrompts] = useState<any[]>([]);
+  
+  // Settings and prompt editing state
+  const [showSettings, setShowSettings] = useState(false);
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [editingPrompt, setEditingPrompt] = useState('');
+  const [savingPrompt, setSavingPrompt] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -217,6 +223,42 @@ export function WhatsAppPage() {
     }
   };
 
+  // Function to save prompt
+  const savePrompt = async () => {
+    if (!editingPrompt.trim()) return;
+    
+    try {
+      setSavingPrompt(true);
+      
+      // Call backend API to save prompt
+      const response = await http.put('/api/business/current/prompt', {
+        whatsapp_prompt: editingPrompt.trim()
+      });
+      
+      if (response.success) {
+        // Reload prompts
+        await loadPrompts();
+        setShowPromptEditor(false);
+        setEditingPrompt('');
+        alert('פרומפט נשמר בהצלחה!');
+      } else {
+        alert('שגיאה בשמירת הפרומפט: ' + (response.error || 'שגיאה לא ידועה'));
+      }
+    } catch (error) {
+      console.error('Error saving prompt:', error);
+      alert('שגיאה בשמירת הפרומפט');
+    } finally {
+      setSavingPrompt(false);
+    }
+  };
+
+  // Function to open prompt editor with current prompt
+  const openPromptEditor = () => {
+    const currentPrompt = prompts.find(p => p.id === selectedPrompt);
+    setEditingPrompt(currentPrompt?.content || '');
+    setShowPromptEditor(true);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -241,7 +283,7 @@ export function WhatsAppPage() {
             <QrCode className="h-4 w-4 ml-2" />
             QR קוד
           </Button>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} data-testid="button-settings">
             <Settings className="h-4 w-4 ml-2" />
             הגדרות
           </Button>
@@ -360,7 +402,7 @@ export function WhatsAppPage() {
               </p>
             </div>
 
-            <Button variant="outline" className="w-full" data-testid="button-edit-prompt">
+            <Button variant="outline" className="w-full" onClick={openPromptEditor} data-testid="button-edit-prompt">
               <Settings className="h-4 w-4 ml-2" />
               ערוך פרומפט
             </Button>
@@ -535,6 +577,115 @@ export function WhatsAppPage() {
           </div>
         </Card>
       </div>
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="modal-settings">
+          <Card className="p-6 max-w-md mx-4 w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-slate-900">הגדרות WhatsApp</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowSettings(false)}>×</Button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  ספק פעיל
+                </label>
+                <select
+                  value={selectedProvider}
+                  onChange={(e) => setSelectedProvider(e.target.value as 'twilio' | 'baileys')}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                >
+                  <option value="twilio">Twilio WhatsApp Business API</option>
+                  <option value="baileys">Baileys (WhatsApp Web)</option>
+                </select>
+              </div>
+              
+              <div className="p-3 bg-blue-50 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>סטטוס:</strong> {whatsappStatus.connected ? "מחובר" : "לא מחובר"}
+                </p>
+                <p className="text-sm text-blue-800 mt-1">
+                  <strong>ספק נוכחי:</strong> {whatsappStatus.provider}
+                </p>
+              </div>
+              
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowSettings(false)}
+                  className="flex-1"
+                >
+                  בטל
+                </Button>
+                <Button 
+                  onClick={() => {
+                    setShowSettings(false);
+                    loadWhatsAppStatus(); // Refresh status after changes
+                  }}
+                  className="flex-1"
+                >
+                  שמור
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Prompt Editor Modal */}
+      {showPromptEditor && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="modal-prompt-editor">
+          <Card className="p-6 max-w-2xl mx-4 w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-slate-900">עריכת פרומפט WhatsApp</h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowPromptEditor(false)}>×</Button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  תוכן הפרומפט
+                </label>
+                <textarea
+                  value={editingPrompt}
+                  onChange={(e) => setEditingPrompt(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md h-32"
+                  placeholder="הכנס את הפרומפט לבוט WhatsApp..."
+                  data-testid="textarea-prompt"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  {editingPrompt.length} תווים
+                </p>
+              </div>
+              
+              <div className="p-3 bg-yellow-50 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  <strong>שים לב:</strong> שינויים בפרומפט יחולו מיידית על כל ההודעות החדשות
+                </p>
+              </div>
+              
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowPromptEditor(false)}
+                  className="flex-1"
+                >
+                  בטל
+                </Button>
+                <Button 
+                  onClick={savePrompt}
+                  disabled={savingPrompt || !editingPrompt.trim()}
+                  className="flex-1"
+                >
+                  {savingPrompt ? "שומר..." : "שמור פרומפט"}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* QR Code Modal */}
       {showQR && (
