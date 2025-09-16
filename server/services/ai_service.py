@@ -81,14 +81,14 @@ class AIService:
 
 תפקידך: לעזור, לאסוף מידע ולהוביל לפגישה."""
 
-    def generate_response(self, message: str, business_id: int = 1, context: Dict[str, Any] = None) -> str:
+    def generate_response(self, message: str, business_id: int = 1, context: Optional[Dict[str, Any]] = None) -> str:
         """יצירת תגובה מפרומפט דינמי + הקשר"""
         try:
             # טעינת פרומפט עסק
             prompt_data = self.get_business_prompt(business_id)
             
             # בניית הודעות
-            messages = [
+            messages: List[Dict[str, str]] = [
                 {"role": "system", "content": prompt_data["system_prompt"]}
             ]
             
@@ -121,7 +121,11 @@ class AIService:
                 temperature=prompt_data["temperature"]
             )
             
-            ai_response = response.choices[0].message.content.strip()
+            ai_response = response.choices[0].message.content
+            if ai_response:
+                ai_response = ai_response.strip()
+            else:
+                ai_response = "מצטער, לא הצלחתי לייצר תגובה כרגע."
             logger.info(f"AI response generated for business {business_id}: {len(ai_response)} chars")
             return ai_response
             
@@ -168,7 +172,7 @@ def get_ai_service() -> AIService:
     return _ai_service
 
 def generate_ai_response(message: str, business_id: int = 1, 
-                        context: Dict[str, Any] = None) -> str:
+                        context: Optional[Dict[str, Any]] = None) -> str:
     """פונקציה עזר לקריאה מהירה לשירות AI"""
     return get_ai_service().generate_response(message, business_id, context)
 
