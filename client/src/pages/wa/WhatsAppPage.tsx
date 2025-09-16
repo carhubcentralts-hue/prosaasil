@@ -381,25 +381,18 @@ export function WhatsAppPage() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                פרומפט פעיל
+                פרומפט WhatsApp נוכחי
               </label>
-              <select
-                value={selectedPrompt}
-                onChange={(e) => setSelectedPrompt(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                data-testid="select-prompt"
-              >
-                {prompts.map((prompt) => (
-                  <option key={prompt.id} value={prompt.id}>
-                    {prompt.name}
-                  </option>
-                ))}
-              </select>
+              <div className="p-3 border border-slate-200 rounded-lg bg-slate-50 max-h-32 overflow-y-auto">
+                <p className="text-sm text-slate-700 whitespace-pre-wrap">
+                  {editingPrompt || 'אין פרומפט מוגדר'}
+                </p>
+              </div>
             </div>
             
             <div className="p-3 bg-blue-50 rounded-lg">
               <p className="text-sm text-blue-800">
-                <strong>שים לב:</strong> הבוט יגיב אוטומטית להודעות נכנסות לפי הפרומפט שנבחר
+                <strong>שים לב:</strong> הבוט יגיב אוטומטית להודעות נכנסות לפי הפרומפט שמוגדר
               </p>
             </div>
 
