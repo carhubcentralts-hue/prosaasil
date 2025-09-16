@@ -1393,6 +1393,7 @@ class MediaStreamHandler:
         except Exception as e:
             print(f"❌ AI_SERVICE_ERROR: {e} - using fallback logic")
             # Fallback to old OpenAI direct logic if AI service fails
+            try:
                 from server.services.lazy_services import get_openai_client
                 client = get_openai_client()
                 if not client:
