@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 import { Card } from '../../shared/components/ui/Card';
@@ -23,6 +24,7 @@ const safe = (val: any, dash: string = '—'): string => {
 };
 
 export default function LeadsPage() {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<LeadStatus | 'all'>('all');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -480,6 +482,19 @@ export default function LeadsPage() {
                         variant="ghost"
                         onClick={(e) => {
                           e.stopPropagation();
+                          navigate(`/app/leads/${lead.id}`);
+                        }}
+                        className="h-8 w-8 p-0 text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-md"
+                        data-testid={`button-view-${lead.id}`}
+                        title="צפה בדף הלקוח המלא"
+                      >
+                        <User className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setSelectedLead(lead);
                         }}
                         className="h-8 w-8 p-0 text-gray-600 hover:text-gray-700 hover:bg-gray-50 rounded-md"
@@ -536,6 +551,19 @@ export default function LeadsPage() {
                         </div>
                       )}
                       <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/app/leads/${lead.id}`);
+                          }}
+                          className="flex-1 h-7 px-2 text-xs text-purple-600 border-purple-200 hover:bg-purple-50"
+                          data-testid={`button-view-mobile-${lead.id}`}
+                        >
+                          <User className="w-3 h-3 ml-1" />
+                          פרטים
+                        </Button>
                         <Button
                           size="sm"
                           variant="secondary"
@@ -720,6 +748,19 @@ export default function LeadsPage() {
                       </Button>
                     </>
                   )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/app/leads/${lead.id}`);
+                    }}
+                    className="flex-1 h-9 text-purple-600 border-purple-200 hover:bg-purple-50"
+                    data-testid={`button-view-fullpage-mobile-${lead.id}`}
+                  >
+                    <User className="w-4 h-4 ml-1" />
+                    צפה בלקוח
+                  </Button>
                   <Button
                     size="sm"
                     variant="secondary"
