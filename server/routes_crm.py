@@ -314,12 +314,12 @@ def get_payments():
         payments = Payment.query.filter_by(business_id=business_id).order_by(Payment.created_at.desc()).all()
         
         return jsonify([{
-            "id": p.id,
-            "amount": p.amount_cents / 100,  # Convert cents to currency
+            "id": str(p.id),
+            "amount": p.amount / 100,  # Convert cents to currency - FIXED: use p.amount instead of p.amount_cents
             "status": p.status,
             "description": p.description or f"תשלום #{p.id}",
             "client_name": p.customer_name or "לא צוין",
-            "due_date": p.created_at.isoformat(),
+            "due_date": p.created_at.isoformat() if p.created_at else None,
             "paid_date": p.paid_at.isoformat() if p.paid_at else None,
             "invoice_number": f"INV-{p.id}",
             "payment_method": p.provider or "לא צוין"
@@ -341,15 +341,19 @@ def get_contracts():
         contracts = db.session.query(Contract, Deal, Customer).join(Deal).join(Customer, Deal.customer_id == Customer.id).filter(Customer.business_id == business_id).order_by(Contract.created_at.desc()).all()
         
         return jsonify([{
-            "id": c.id,
+            "id": str(c.id),
             "title": c.template_name or f"חוזה #{c.id}",
             "client_name": customer.name or "לא צוין",
             "property_address": deal.title or "לא צוין",
             "contract_type": deal.stage or "sale",
-            "amount": (deal.amount / 100) if deal.amount else 0,
+            "value": (deal.amount / 100) if deal.amount else 0,  # FIXED: frontend expects 'value' not 'amount'
+            "amount": (deal.amount / 100) if deal.amount else 0,  # Keep for backwards compatibility
             "status": deal.stage or "draft",
-            "created_date": c.created_at.isoformat(),
-            "signed_date": c.signed_at.isoformat() if c.signed_at else None
+            "start_date": c.created_at.isoformat() if c.created_at else None,  # FIXED: frontend expects 'start_date' not 'created_date'
+            "end_date": c.signed_at.isoformat() if c.signed_at else None,     # FIXED: frontend expects 'end_date' not 'signed_date' 
+            "commission_rate": 3.5,  # FIXED: add default commission rate that frontend expects
+            "created_date": c.created_at.isoformat() if c.created_at else None,  # Keep for backwards compatibility
+            "signed_date": c.signed_at.isoformat() if c.signed_at else None      # Keep for backwards compatibility
         } for c, deal, customer in contracts])
         
     except Exception as e:
@@ -447,6 +451,8 @@ def payments_create():
         pay.amount = amount
         pay.currency = currency.lower()
         pay.status = "created"
+        pay.customer_name = data.get("customer_name") or data.get("client_name")  # Support both field names
+        pay.description = data.get("description") or f"תשלום #{int(time.time())}"
         db.session.add(pay)
         db.session.commit()
 

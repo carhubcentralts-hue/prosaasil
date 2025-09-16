@@ -262,6 +262,9 @@ class Payment(db.Model):
     amount = db.Column(db.Integer, nullable=False)           # באגורות
     currency = db.Column(db.String(8), default='ils')
     status = db.Column(db.String(20), default='created')     # created|approved|captured|failed|simulated
+    customer_name = db.Column(db.String(160))                # Customer name for frontend compatibility
+    description = db.Column(db.String(255))                  # Payment description
+    paid_at = db.Column(db.DateTime)                         # When payment was completed
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Legacy Stripe fields (keep for compatibility, not used)
