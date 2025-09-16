@@ -42,7 +42,7 @@ def get_status():
         logger.error(f"Error getting WhatsApp status: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@whatsapp_unified_bp.route("/api/whatsapp/send", methods=["POST"])
+@whatsapp_unified_bp.route("/send", methods=["POST"])
 def send_message():
     """Send WhatsApp message via current provider"""
     try:
@@ -233,7 +233,7 @@ def wa_in_baileys():
         current_app.logger.exception("WA_IN_BAILEYS_ERROR")
         return jsonify({"success": True}), 200
 
-@whatsapp_unified_bp.route("/api/whatsapp/messages", methods=["GET"])
+@whatsapp_unified_bp.route("/messages", methods=["GET"])
 def get_messages():
     """Get WhatsApp messages with pagination - UNIFIED DAO VERSION"""
     try:
@@ -264,7 +264,7 @@ def get_messages():
         logger.error(f"Error fetching WhatsApp messages: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@whatsapp_unified_bp.route("/api/whatsapp/conversations", methods=["GET"])
+@whatsapp_unified_bp.route("/conversations", methods=["GET"])
 def get_conversations():
     """Get WhatsApp conversations grouped by phone number"""
     try:
@@ -314,7 +314,7 @@ def get_conversations():
         logger.error(f"Error fetching conversations: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@whatsapp_unified_bp.route("/api/whatsapp/conversation/<phone_number>", methods=["GET"])
+@whatsapp_unified_bp.route("/conversation/<phone_number>", methods=["GET"])
 def get_conversation_history(phone_number):
     """Get conversation history with specific phone number"""
     try:
@@ -429,7 +429,7 @@ def handle_whatsapp_logic(body: str) -> str:
         logger.error(f"WhatsApp logic error: {e}")
         return "תודה על הפנייה! נחזור אליכם בהקדם."
 
-@whatsapp_unified_bp.route("/api/whatsapp/templates", methods=["GET"])
+@whatsapp_unified_bp.route("/templates", methods=["GET"])
 def get_templates():
     """Get list of approved WhatsApp templates"""
     try:
@@ -442,7 +442,7 @@ def get_templates():
         logger.error(f"Error getting templates: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@whatsapp_unified_bp.route("/api/whatsapp/window-check", methods=["POST"])
+@whatsapp_unified_bp.route("/window-check", methods=["POST"])
 def check_messaging_window():
     """Check 24-hour messaging window status for a number"""
     try:
