@@ -12,6 +12,7 @@ import StatusManagementModal from './components/StatusManagementModal';
 import { useLeads } from './hooks/useLeads';
 import { Lead, LeadStatus } from './types';
 import { useStatuses } from '../../features/statuses/hooks';
+import { http } from '../../services/http';
 
 // Dynamic statuses loaded from API
 
@@ -121,7 +122,8 @@ export default function LeadsPage() {
 
   const handleStatusChange = async (leadId: number, newStatus: LeadStatus) => {
     try {
-      await updateLead(leadId, { status: newStatus });
+      // Use the specific status update endpoint
+      await http.post(`/api/leads/${leadId}/status`, { status: newStatus });
       await refreshLeads();
       setEditingStatus(null);
     } catch (error) {
