@@ -47,22 +47,26 @@ const menuItems = [
   { 
     icon: MessageCircle, 
     label: 'WhatsApp',
-    comingSoon: true
+    to: '/app/whatsapp',
+    roles: ['business', 'admin', 'manager']
   },
   { 
     icon: Phone, 
     label: 'שיחות',
-    comingSoon: true
+    to: '/app/calls',
+    roles: ['business', 'admin', 'manager']
   },
   { 
     icon: Building2, 
     label: 'CRM',
-    comingSoon: true
+    to: '/app/crm',
+    roles: ['business', 'admin', 'manager']
   },
   { 
     icon: CreditCard, 
     label: 'תשלומים וחוזים',
-    comingSoon: true
+    to: '/app/billing',
+    roles: ['business', 'admin', 'manager']
   },
   { 
     icon: UserCog, 
@@ -91,13 +95,14 @@ const menuItems = [
   { 
     icon: UserCog, 
     label: 'ניהול משתמשים', 
-    roles: ['admin', 'manager'],
-    comingSoon: true
+    to: '/app/users',
+    roles: ['admin', 'manager']
   },
   { 
     icon: Settings, 
     label: 'הגדרות מערכת',
-    comingSoon: true
+    to: '/app/settings',
+    roles: ['business', 'admin', 'manager']
   },
   { 
     icon: Calendar, 
@@ -351,11 +356,8 @@ export function MainLayout() {
                     navigate(item.to);
                     // Always close sidebar after navigation (mobile AND desktop)
                     setTimeout(() => setSidebarOpen(false), 100);
-                  } else if (item.comingSoon) {
-                    handleComingSoon();
                   }
                 }}
-                comingSoon={item.comingSoon}
                 navigate={navigate}
               />
             );
@@ -532,10 +534,8 @@ export function MainLayout() {
                 onClick={() => {
                   if (item.to) {
                     navigate(item.to);
-                    // Always close sidebar after navigation (mobile AND desktop)
+                    // Always close sidebar after navigation (mobile AND desktop)  
                     setTimeout(() => setSidebarOpen(false), 100);
-                  } else if (item.comingSoon) {
-                    handleComingSoon();
                   }
                 }}
               >
