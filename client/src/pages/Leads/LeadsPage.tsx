@@ -152,47 +152,49 @@ export default function LeadsPage() {
   };
 
   const getStatusColor = (status: LeadStatus): string => {
-    // ✅ Legacy compatibility: case-insensitive matching + fallback mapping
-    let statusConfig = statuses.find(s => s.name.toLowerCase() === status.toLowerCase());
+    // Simple synchronous color mapping
+    const colorMap: Record<string, string> = {
+      'new': 'bg-blue-100 text-blue-800',
+      'attempting': 'bg-yellow-100 text-yellow-800',
+      'contacted': 'bg-purple-100 text-purple-800',
+      'qualified': 'bg-green-100 text-green-800',
+      'won': 'bg-emerald-100 text-emerald-800',
+      'lost': 'bg-red-100 text-red-800',
+      'unqualified': 'bg-gray-100 text-gray-800',
+      // Legacy capitalized mappings
+      'New': 'bg-blue-100 text-blue-800',
+      'Attempting': 'bg-yellow-100 text-yellow-800',
+      'Contacted': 'bg-purple-100 text-purple-800',
+      'Qualified': 'bg-green-100 text-green-800',
+      'Won': 'bg-emerald-100 text-emerald-800',
+      'Lost': 'bg-red-100 text-red-800',
+      'Unqualified': 'bg-gray-100 text-gray-800'
+    };
     
-    // Fallback mapping for legacy capitalized statuses
-    if (!statusConfig) {
-      const legacyMapping: Record<string, string> = {
-        'New': 'new',
-        'Attempting': 'attempting', 
-        'Contacted': 'contacted',
-        'Qualified': 'qualified',
-        'Won': 'won',
-        'Lost': 'lost',
-        'Unqualified': 'unqualified'
-      };
-      const normalizedStatus = legacyMapping[status] || status.toLowerCase();
-      statusConfig = statuses.find(s => s.name === normalizedStatus);
-    }
-    
-    return statusConfig?.color || 'bg-gray-100 text-gray-800';
+    return colorMap[status] || 'bg-gray-100 text-gray-800';
   };
 
   const getStatusLabel = (status: LeadStatus): string => {
-    // ✅ Legacy compatibility: case-insensitive matching + fallback mapping
-    let statusConfig = statuses.find(s => s.name.toLowerCase() === status.toLowerCase());
+    // Simple synchronous label mapping
+    const labelMap: Record<string, string> = {
+      'new': 'חדש',
+      'attempting': 'מנסה ליצור קשר',
+      'contacted': 'יצרנו קשר',
+      'qualified': 'מתאים',
+      'won': 'נצחנו',
+      'lost': 'איבדנו',
+      'unqualified': 'לא מתאים',
+      // Legacy capitalized mappings
+      'New': 'חדש',
+      'Attempting': 'מנסה ליצור קשר',
+      'Contacted': 'יצרנו קשר',
+      'Qualified': 'מתאים',
+      'Won': 'נצחנו',
+      'Lost': 'איבדנו',
+      'Unqualified': 'לא מתאים'
+    };
     
-    // Fallback mapping for legacy capitalized statuses
-    if (!statusConfig) {
-      const legacyMapping: Record<string, string> = {
-        'New': 'new',
-        'Attempting': 'attempting',
-        'Contacted': 'contacted', 
-        'Qualified': 'qualified',
-        'Won': 'won',
-        'Lost': 'lost',
-        'Unqualified': 'unqualified'
-      };
-      const normalizedStatus = legacyMapping[status] || status.toLowerCase();
-      statusConfig = statuses.find(s => s.name === normalizedStatus);
-    }
-    
-    return statusConfig?.label || status;
+    return labelMap[status] || status;
   };
 
   const handleDeleteLead = async (leadId: number, leadName: string) => {

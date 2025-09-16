@@ -98,8 +98,6 @@ export function WhatsAppPage() {
   const [qrLoading, setQrLoading] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
-  const [selectedPrompt, setSelectedPrompt] = useState('');
-  const [prompts, setPrompts] = useState<any[]>([]);
   
   // Settings and prompt editing state
   const [showSettings, setShowSettings] = useState(false);
@@ -156,22 +154,9 @@ export function WhatsAppPage() {
       
       // Set the WhatsApp prompt as the editing content
       setEditingPrompt(response.whatsapp_prompt || '');
-      
-      // Create a single prompt entry representing the current WhatsApp prompt
-      setPrompts([
-        { 
-          id: 'whatsapp', 
-          name: 'פרומפט WhatsApp נוכחי', 
-          active: true,
-          content: response.whatsapp_prompt || '',
-          version: response.version
-        }
-      ]);
-      setSelectedPrompt('whatsapp');
     } catch (error) {
       console.error('Error loading prompts:', error);
       // Fallback to empty state if API fails
-      setPrompts([]);
       setEditingPrompt('');
     }
   };
@@ -242,7 +227,6 @@ export function WhatsAppPage() {
         // Reload prompts
         await loadPrompts();
         setShowPromptEditor(false);
-        setEditingPrompt('');
         alert('פרומפט נשמר בהצלחה!');
       } else {
         alert('שגיאה בשמירת הפרומפט: ' + (response.error || 'שגיאה לא ידועה'));
@@ -565,7 +549,7 @@ export function WhatsAppPage() {
             <div>
               <p className="text-sm font-medium text-slate-600">בוט פעיל</p>
               <p className="text-2xl font-bold text-slate-900" data-testid="stat-bot">
-                {prompts.find(p => p.id === selectedPrompt)?.name.split(' ')[1] || 'כללי'}
+                WhatsApp
               </p>
             </div>
           </div>
