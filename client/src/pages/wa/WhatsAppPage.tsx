@@ -75,9 +75,9 @@ interface WhatsAppThread {
 }
 
 interface QRCodeData {
-  success: boolean;
-  qr?: string; // For backwards compatibility
-  qr_data?: string; // New field with QR string data
+  success?: boolean; // Optional - not all providers return this
+  qr?: string; // Baileys format
+  qr_data?: string; // Unified format  
   status?: string;
   message?: string;
   error?: string;
@@ -173,20 +173,32 @@ export function WhatsAppPage() {
     
     try {
       setQrLoading(true);
+      console.log('🔄 Generating QR code for provider:', selectedProvider);
+      
       // Try new proxy route first, fallback to old route
       let response;
       try {
+        console.log('🔍 Trying new /wa/qr route...');
         response = await http.get<QRCodeData>('/wa/qr');
+        console.log('✅ Response from /wa/qr:', response);
       } catch (error) {
-        console.warn('New /wa/qr route failed, falling back to old route');
+        console.warn('❌ New /wa/qr route failed, falling back to old route');
         response = await http.get<QRCodeData>('/api/whatsapp/baileys/qr');
+        console.log('✅ Response from fallback route:', response);
       }
       
-      if (response.success && (response.qr_data || response.qr)) {
-        // שם עדיפות ל-qr_data החדש, עם fallback ל-qr הישן
-        setQrCode(response.qr_data || response.qr || '');
+      // תמיכה בפורמטים שונים של QR response  
+      const qrData = response.qr_data || response.qr;
+      
+      if (qrData) {
+        // יש QR code - להציג אותו
+        setQrCode(qrData);
         setShowQR(true);
+        console.log('✅ QR Code received and set for display');
       } else if (response.success && response.status === 'connected') {
+        alert('WhatsApp כבר מחובר למערכת');
+      } else if (response.status === 'connected') {
+        // Baileys format: no success field but status connected
         alert('WhatsApp כבר מחובר למערכת');
       } else {
         alert('שגיאה ביצירת QR קוד: ' + (response.error || response.message || 'שגיאה לא ידועה'));
