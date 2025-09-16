@@ -1,4 +1,4 @@
 [workflows."Start application"]
 name = "Start application"
-command = "env EVENTLET_NO_GREENDNS=1 EVENTLET_HUB=poll gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:${PORT} --worker-connections 256 --timeout 120 --keep-alive 75 --log-level info --access-logfile - --error-logfile -"
+command = "bash -lc 'exec ./start_complete_system.sh'"
 type = "server"
