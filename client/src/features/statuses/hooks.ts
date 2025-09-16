@@ -34,8 +34,10 @@ export function useStatuses(): UseStatusesResult {
       setLoading(true);
       setError(null);
       
-      const response = await http.get<LeadStatus[]>('/api/statuses');
-      setStatuses(Array.isArray(response) ? response : []);
+      const response = await http.get<{items: LeadStatus[], total: number}>('/api/statuses');
+      // Handle backend response format: {items: [...], total: N}
+      const statusList = response.items || [];
+      setStatuses(Array.isArray(statusList) ? statusList : []);
     } catch (err) {
       console.error('Failed to fetch statuses:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch statuses');

@@ -595,7 +595,12 @@ export default function LeadsPage() {
               <div 
                 key={lead.id} 
                 className="cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => window.location.href = `/app/leads/${lead.id}`}
+                onClick={(e) => {
+                  // Only navigate if we're not clicking on status badge or action buttons
+                  if (!e.defaultPrevented && editingStatus !== lead.id) {
+                    setSelectedLead(lead);
+                  }
+                }}
                 data-testid={`card-lead-mobile-${lead.id}`}
               >
                 <Card className="p-4 space-y-3">
