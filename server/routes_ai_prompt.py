@@ -171,6 +171,14 @@ def update_business_prompt(business_id):
         
         db.session.commit()
         
+        # ✅ CRITICAL: Invalidate AI service cache after prompt update for real-time effect
+        try:
+            from server.services.ai_service import invalidate_business_cache
+            invalidate_business_cache(business_id)
+            logger.info(f"AI cache invalidated for business {business_id} - prompt changes will apply immediately")
+        except Exception as cache_error:
+            logger.error(f"Failed to invalidate AI cache: {cache_error}")
+        
         # Runtime Apply - לוג הוכחה לפי ההנחיות המדויקות
         logger.info(f"AI_PROMPT loaded tenant={business_id} v={next_version}")
         
