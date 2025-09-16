@@ -349,10 +349,11 @@ export function UsersPage() {
         </div>
       </div>
 
-      {/* Users Table */}
+      {/* Users Table - Desktop */}
       <div className="flex-1 overflow-hidden">
         <Card className="h-full m-6">
-          <div className="overflow-x-auto">
+          {/* Desktop Table View */}
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
@@ -449,6 +450,93 @@ export function UsersPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Cards View */}
+          <div className="lg:hidden">
+            <div className="space-y-4 p-4">
+              {filteredUsers.map((user) => (
+                <Card key={user.id} className="p-4 border border-gray-200">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0 h-12 w-12">
+                        <div className="h-12 w-12 rounded-full bg-gray-300 flex items-center justify-center">
+                          <span className="text-lg font-medium text-gray-700">
+                            {user.name.charAt(0)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="mr-3">
+                        <div className="text-base font-medium text-gray-900">{user.name}</div>
+                        <div className="text-sm text-gray-500 flex items-center gap-1">
+                          <Mail className="w-3 h-3" />
+                          {user.email}
+                        </div>
+                        {user.phone && (
+                          <div className="text-sm text-gray-500 flex items-center gap-1" dir="ltr">
+                            <Phone className="w-3 h-3" />
+                            {user.phone}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      <Badge variant={getRoleColor(user.role)}>
+                        {getRoleLabel(user.role)}
+                      </Badge>
+                      <Badge variant={getStatusColor(user.status)}>
+                        {getStatusLabel(user.status)}
+                      </Badge>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 gap-2 mb-3">
+                    {user.business_name && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500">עסק: </span>
+                        <span className="text-sm text-gray-900">{user.business_name}</span>
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-xs font-medium text-gray-500">כניסה אחרונה: </span>
+                      <span className="text-sm text-gray-900">
+                        {user.last_login 
+                          ? new Date(user.last_login).toLocaleDateString('he-IL')
+                          : 'לא התחבר'
+                        }
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => handleImpersonate(user)}
+                      title="התחזות"
+                      className="flex-1"
+                    >
+                      <Eye className="w-4 h-4 mr-1" />
+                      התחזות
+                    </Button>
+                    <Button variant="ghost" size="sm" title="עריכה" className="flex-1">
+                      <Edit className="w-4 h-4 mr-1" />
+                      ערוך
+                    </Button>
+                    <Button variant="ghost" size="sm" title="הגדרות" className="flex-1">
+                      <Settings className="w-4 h-4 mr-1" />
+                      הגדרות
+                    </Button>
+                    {user.role !== 'admin' && (
+                      <Button variant="ghost" size="sm" title="מחיקה" className="flex-1">
+                        <Trash2 className="w-4 h-4 mr-1 text-red-500" />
+                        מחק
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+              ))}
+            </div>
           </div>
           
           {filteredUsers.length === 0 && (
