@@ -40,20 +40,43 @@ def _setup_node_environment():
     # Set PORT for Baileys
     env["PORT"] = str(BAILEYS_PORT)
     
-    # Setup NODE_PATH for global dependencies
+    # Setup NODE_PATH dynamically using npm
     node_paths = []
     
-    # Add global node_modules directories
-    possible_paths = [
-        "/usr/lib/node_modules",
-        "/usr/local/lib/node_modules", 
-        "/opt/homebrew/lib/node_modules",  # macOS ARM
+    try:
+        # Get npm local root (project dependencies)
+        result = subprocess.run(['npm', 'root'], cwd=ROOT, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0 and result.stdout.strip():
+            local_root = result.stdout.strip()
+            if os.path.isdir(local_root):
+                node_paths.append(local_root)
+                print(f"✅ Added npm local root: {local_root}")
+    except Exception as e:
+        print(f"⚠️ Could not get npm local root: {e}")
+    
+    try:
+        # Get npm global root
+        result = subprocess.run(['npm', 'root', '-g'], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0 and result.stdout.strip():
+            global_root = result.stdout.strip() 
+            if os.path.isdir(global_root):
+                node_paths.append(global_root)
+                print(f"✅ Added npm global root: {global_root}")
+    except Exception as e:
+        print(f"⚠️ Could not get npm global root: {e}")
+    
+    # Add fallback paths
+    fallback_paths = [
+        "/home/runner/workspace/node_modules",  # Replit workspace
         os.path.join(ROOT, "node_modules"),  # Local modules
-        os.path.join(ROOT, "services", "baileys", "node_modules")  # Baileys modules
+        os.path.join(ROOT, "services", "baileys", "node_modules"),  # Baileys modules
+        "/usr/lib/node_modules",
+        "/usr/local/lib/node_modules",
+        "/opt/homebrew/lib/node_modules",  # macOS ARM
     ]
     
-    for path in possible_paths:
-        if os.path.isdir(path):
+    for path in fallback_paths:
+        if os.path.isdir(path) and path not in node_paths:
             node_paths.append(path)
     
     if node_paths:
