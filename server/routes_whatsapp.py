@@ -34,3 +34,19 @@ def whatsapp_qr():
         return (r.text, r.status_code, {'Content-Type': 'application/json'})
     except requests.RequestException:
         return jsonify({'error': 'baileys_unavailable'}), 503
+
+@wa_bp.route('/selftest')
+def selftest():
+    """Quick diagnostic endpoint"""
+    try:
+        health_r = requests.get(f'{BAILEYS_URL}/health', timeout=2)
+        qr_r = requests.get(f'{BAILEYS_URL}/qr', timeout=2)
+        return jsonify({
+            'baileys_url': BAILEYS_URL,
+            'health_status': health_r.status_code,
+            'health_response': health_r.json() if health_r.status_code == 200 else None,
+            'qr_status': qr_r.status_code,
+            'timestamp': int(__import__('time').time())
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'baileys_url': BAILEYS_URL}), 500

@@ -505,9 +505,18 @@ def create_app():
     from server.api_whatsapp_unified import whatsapp_unified_bp
     app.register_blueprint(whatsapp_unified_bp, url_prefix='/api/whatsapp')
     
-    # WhatsApp Baileys Proxy Routes
+    # WhatsApp Baileys Proxy Routes (BEFORE api_adapter)
     from server.routes_whatsapp import wa_bp
     app.register_blueprint(wa_bp)
+    
+    # Route registration assertion
+    wa_proxy_routes = [rule for rule in app.url_map.iter_rules() if str(rule).startswith('/api/wa-proxy')]
+    if len(wa_proxy_routes) != 4:  # health, qr, send, selftest
+        print(f"❌ WA-Proxy route count: {len(wa_proxy_routes)}, expected 4")
+        for route in wa_proxy_routes:
+            print(f"  - {route}")
+        raise RuntimeError("WA-Proxy routes not properly registered")
+    print(f"✅ WA-Proxy routes verified: {len(wa_proxy_routes)} endpoints")
     
     # Baileys WhatsApp bridge routes (DISABLED - cleanup)
     # try:

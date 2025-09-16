@@ -77,7 +77,17 @@ app.post('/send', async (req, res) => {
 const PORT = Number(process.env.PORT || 3001)
 app.listen(PORT, '0.0.0.0', () => pino.info(`Baileys HTTP on :${PORT}`))
 
+// Add uncaught exception handlers
+process.on('uncaughtException', (err) => {
+  pino.error({ err }, 'Uncaught exception - continuing')
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  pino.error({ reason, promise }, 'Unhandled rejection - continuing')
+})
+
 start().catch(err => {
   pino.error(err)
-  process.exit(1)
+  // Don't exit - try to reconnect
+  setTimeout(() => start().catch(() => {}), 5000)
 })
