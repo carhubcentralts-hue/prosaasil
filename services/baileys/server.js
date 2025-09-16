@@ -49,6 +49,47 @@ async function start() {
       }
     }
   })
+
+  // Listen for incoming messages and forward to Flask backend for AI processing
+  sock.ev.on('messages.upsert', async (m) => {
+    const messages = m.messages || [];
+    for (const message of messages) {
+      // Skip if message is from us (fromMe = true)
+      if (message.key && message.key.fromMe) {
+        continue;
+      }
+      
+      // Extract message data
+      const from = message.key.remoteJid;
+      const messageText = message.message?.conversation || 
+                        message.message?.extendedTextMessage?.text || 
+                        "[Media/Non-text message]";
+      
+      pino.info(`📨 Inbound WhatsApp from ${from}: ${messageText}`);
+      
+      try {
+        // Forward to Flask backend for AI processing
+        const axios = require('axios');
+        const response = await axios.post('http://127.0.0.1:5000/api/whatsapp/baileys/inbound', {
+          from: from,
+          text: messageText,
+          messageId: message.key.id,
+          timestamp: Date.now(),
+          rawMessage: message
+        }, {
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Baileys-Internal/1.0'
+          },
+          timeout: 10000
+        });
+        
+        pino.info(`✅ Message forwarded to Flask: ${response.status}`);
+      } catch (error) {
+        pino.error(`❌ Failed to forward message to Flask: ${error.message}`);
+      }
+    }
+  })
 }
 
 app.get('/health', (req, res) => {
@@ -74,8 +115,8 @@ app.post('/send', async (req, res) => {
   }
 })
 
-const PORT = Number(process.env.PORT || 3001)
-app.listen(PORT, '0.0.0.0', () => pino.info(`Baileys HTTP on :${PORT}`))
+const PORT = Number(process.env.BAILEYS_PORT || process.env.PORT || 3300)
+app.listen(PORT, '127.0.0.1', () => pino.info(`Baileys HTTP on :${PORT}`))
 
 // Add uncaught exception handlers
 process.on('uncaughtException', (err) => {

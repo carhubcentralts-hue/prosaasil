@@ -177,6 +177,107 @@ def wa_in_twilio():
         current_app.logger.exception("WA_IN_TWILIO_ERROR")
         return "", 204  # Always return 204 to Twilio
 
+@csrf.exempt  
+@whatsapp_unified_bp.route("/baileys/inbound", methods=["POST"])
+def baileys_inbound_processor():
+    """
+    Process inbound WhatsApp messages from Baileys server.js
+    This is called by services/baileys/server.js for AI processing
+    """
+    try:
+        # Security: Only accept requests from localhost (Baileys internal)
+        if request.remote_addr not in ['127.0.0.1', '::1', 'localhost']:
+            current_app.logger.warning(f"Baileys inbound rejected from {request.remote_addr}")
+            abort(403)
+        
+        data = request.get_json() or {}
+        
+        # Extract Baileys message data
+        from_number = data.get("from", "").replace("@s.whatsapp.net", "").replace("@c.us", "")
+        message_text = data.get("text", "")
+        message_id = data.get("messageId", "")
+        timestamp = data.get("timestamp", datetime.now().timestamp() * 1000)
+        
+        if not from_number or not message_text:
+            current_app.logger.warning("Invalid Baileys inbound payload")
+            return jsonify({"success": False, "error": "Invalid payload"}), 400
+
+        current_app.logger.info("BAILEYS_INBOUND_AI", extra={
+            "from": from_number, "text_len": len(message_text), "msg_id": message_id
+        })
+
+        # Find/create thread for this conversation  
+        thread_id = upsert_thread(
+            business_id=1, 
+            type_="whatsapp", 
+            provider="baileys", 
+            peer_number=from_number
+        )
+
+        # Record inbound message
+        insert_message(
+            thread_id=thread_id,
+            direction="in",
+            message_type="text",
+            content_text=message_text,
+            provider_msg_id=message_id,
+            status="received"
+        )
+
+        # Generate AI-powered Hebrew response
+        context = {
+            "phone_number": from_number,
+            "channel": "baileys",
+            "thread_id": thread_id
+        }
+        
+        ai_response = handle_whatsapp_logic(message_text, business_id=1, context=context)
+        
+        # Send AI response back through secure internal Baileys call
+        if ai_response and len(ai_response.strip()) > 0:
+            try:
+                import requests
+                baileys_port = os.environ.get('BAILEYS_PORT', '3300')
+                
+                # Send via internal Baileys /send endpoint
+                send_payload = {
+                    "to": from_number,
+                    "text": ai_response
+                }
+                
+                response = requests.post(
+                    f"http://127.0.0.1:{baileys_port}/send",
+                    json=send_payload,
+                    timeout=5
+                )
+                
+                if response.status_code == 200:
+                    # Record outbound AI response
+                    insert_message(
+                        thread_id=thread_id,
+                        direction="out", 
+                        message_type="text",
+                        content_text=ai_response,
+                        provider_msg_id=f"ai_{message_id}",
+                        status="sent"
+                    )
+                    current_app.logger.info(f"✅ AI response sent via Baileys to {from_number}")
+                else:
+                    current_app.logger.error(f"❌ Baileys send failed: {response.status_code}")
+                    
+            except Exception as send_error:
+                current_app.logger.error(f"❌ Failed to send AI response via Baileys: {send_error}")
+        
+        return jsonify({
+            "success": True,
+            "ai_response": ai_response,
+            "thread_id": thread_id
+        })
+        
+    except Exception as e:
+        current_app.logger.exception("BAILEYS_INBOUND_AI_ERROR")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @csrf.exempt
 @whatsapp_unified_bp.route("/webhook/whatsapp/baileys", methods=["POST"])
 def wa_in_baileys():

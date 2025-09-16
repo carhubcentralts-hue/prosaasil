@@ -116,6 +116,50 @@ export function WhatsAppPage() {
     loadPrompts();
   }, []);
 
+  // Auto-refresh QR code every 10 seconds until connected
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    
+    if (showQR && qrCode && !whatsappStatus.connected) {
+      console.log('🔄 Starting QR auto-refresh interval');
+      interval = setInterval(async () => {
+        try {
+          // Check QR status
+          const qrResponse = await http.get<QRCodeData>('/wa/qr');
+          const qrData = qrResponse.qr_data || qrResponse.qr;
+          
+          if (qrData && qrData !== qrCode) {
+            console.log('🔄 QR code refreshed');
+            setQrCode(qrData);
+          } else if (qrResponse.ready === true || !qrData) {
+            // Connected or no QR needed - check status to confirm
+            try {
+              const statusResponse = await http.get<WhatsAppStatus>('/api/whatsapp/status');
+              if (statusResponse.connected || statusResponse.ready) {
+                console.log('✅ WhatsApp connected - stopping QR refresh');
+                setShowQR(false);
+                setQrCode('');
+                setWhatsappStatus(statusResponse);
+                return; // Stop interval
+              }
+            } catch (statusError) {
+              console.warn('❌ Status check failed:', statusError);
+            }
+          }
+        } catch (error) {
+          console.warn('❌ QR auto-refresh failed:', error);
+        }
+      }, 10000); // Refresh every 10 seconds
+    }
+    
+    return () => {
+      if (interval) {
+        console.log('🛑 Stopping QR auto-refresh interval');
+        clearInterval(interval);
+      }
+    };
+  }, [showQR, qrCode, whatsappStatus.connected]);
+
   const loadWhatsAppStatus = async () => {
     try {
       const response = await http.get<WhatsAppStatus>('/api/whatsapp/status');

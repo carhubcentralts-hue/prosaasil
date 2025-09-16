@@ -4,25 +4,43 @@ import requests, os
 bp_wa = Blueprint("wa_proxy", __name__)
 BAILEYS_PORT = int(os.getenv("BAILEYS_PORT", "3300"))
 
-@bp_wa.route("/wa/<path:path>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"])
+# SECURITY: Whitelist-only proxy - block dangerous endpoints like /send
+ALLOWED_PATHS = {"health", "qr"}
+
+@bp_wa.route("/wa/<path:path>", methods=["GET", "OPTIONS"])
 def wa_proxy(path):
-    """Proxy all /wa/* requests to Baileys service running on localhost:BAILEYS_PORT"""
+    """
+    SECURE proxy for Baileys service - only allow safe read-only endpoints
+    /wa/send is BLOCKED to prevent unauthorized message sending
+    """
+    # Security check: only allow whitelisted paths
+    if path not in ALLOWED_PATHS:
+        print(f"🚫 Blocked Baileys proxy access to: /wa/{path}")
+        return Response(
+            '{"error":"forbidden","message":"Endpoint not allowed via proxy"}',
+            status=403,
+            headers=[('Content-Type', 'application/json')]
+        )
+    
+    # Only allow GET requests for safety
+    if request.method != "GET":
+        print(f"🚫 Blocked Baileys proxy {request.method} to: /wa/{path}")
+        return Response(
+            '{"error":"method_not_allowed","message":"Only GET requests allowed"}',
+            status=405,
+            headers=[('Content-Type', 'application/json')]
+        )
+    
     url = f"http://127.0.0.1:{BAILEYS_PORT}/{path}"
     
-    # מעבירים שיטה, גוף, כותרות רלוונטיות
-    headers = {k:v for k,v in request.headers if k.lower() not in ("host","content-length")}
-    
     try:
-        resp = requests.request(
-            request.method, 
+        resp = requests.get(
             url, 
-            params=dict(request.args),  # Convert MultiDict to dict
-            data=request.get_data(), 
-            headers=headers, 
-            timeout=30
+            params=dict(request.args),
+            timeout=10  # Shorter timeout for safety
         )
         
-        # מחזירים כמו שקיבלנו
+        # Return response safely
         excluded = {"content-encoding","transfer-encoding","connection"}
         headers_out = [(k,v) for k,v in resp.headers.items() if k.lower() not in excluded]
         
