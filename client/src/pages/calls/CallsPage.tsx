@@ -1,17 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { Phone, PlayCircle, Clock, User, MessageSquare, ExternalLink } from 'lucide-react';
+import { Phone, PlayCircle, Clock, User, MessageSquare, ExternalLink, Download, Trash2, Calendar, FileText, Volume2, AlertTriangle } from 'lucide-react';
+import { http } from '../../services/http';
 
 // Temporary UI components
-const Card = ({ children, className = "" }: any) => (
-  <div className={`border border-gray-200 rounded-lg bg-white ${className}`}>{children}</div>
+const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
+  <div className={`border border-gray-200 rounded-lg bg-white shadow-sm ${className}`}>{children}</div>
 );
 
-const Button = ({ children, className = "", variant = "default", size = "default", ...props }: any) => {
-  const baseClasses = "px-4 py-2 rounded-md font-medium transition-colors inline-flex items-center";
+const Button = ({ children, className = "", variant = "default", size = "default", disabled = false, ...props }: {
+  children: React.ReactNode;
+  className?: string;
+  variant?: "default" | "outline" | "ghost" | "destructive";
+  size?: "default" | "sm";
+  disabled?: boolean;
+  [key: string]: any;
+}) => {
+  const baseClasses = "px-4 py-2 rounded-md font-medium transition-colors inline-flex items-center disabled:opacity-50 disabled:cursor-not-allowed";
   const variantClasses = {
     default: "bg-blue-600 text-white hover:bg-blue-700",
     outline: "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50",
-    ghost: "text-gray-700 hover:bg-gray-100"
+    ghost: "text-gray-700 hover:bg-gray-100",
+    destructive: "bg-red-600 text-white hover:bg-red-700"
   };
   const sizeClasses = {
     default: "px-4 py-2",
@@ -20,6 +29,7 @@ const Button = ({ children, className = "", variant = "default", size = "default
   return (
     <button 
       className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`} 
+      disabled={disabled}
       {...props}
     >
       {children}
@@ -27,7 +37,11 @@ const Button = ({ children, className = "", variant = "default", size = "default
   );
 };
 
-const Badge = ({ children, className = "", variant = "default" }: any) => {
+const Badge = ({ children, className = "", variant = "default" }: {
+  children: React.ReactNode;
+  className?: string;
+  variant?: "default" | "success" | "warning" | "destructive";
+}) => {
   const variantClasses = {
     default: "bg-gray-100 text-gray-800",
     success: "bg-green-100 text-green-800",
@@ -41,7 +55,7 @@ const Badge = ({ children, className = "", variant = "default" }: any) => {
   );
 };
 
-// Mock data interface
+// Interface definitions
 interface Call {
   sid: string;
   lead_id?: number;
@@ -52,8 +66,18 @@ interface Call {
   status: string;
   direction: 'inbound' | 'outbound';
   at: string;
+  recording_url?: string;
+  transcription?: string;
   hasRecording?: boolean;
   hasTranscript?: boolean;
+  expiresAt?: string; // Auto-delete date
+}
+
+interface CallDetails {
+  call: Call;
+  transcript: string;
+  summary?: string;
+  sentiment?: string;
 }
 
 export function CallsPage() {
@@ -64,49 +88,64 @@ export function CallsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [directionFilter, setDirectionFilter] = useState('all');
+  const [callDetails, setCallDetails] = useState<CallDetails | null>(null);
+  const [downloadingRecording, setDownloadingRecording] = useState<string | null>(null);
+  const [playingRecording, setPlayingRecording] = useState<string | null>(null);
 
   useEffect(() => {
     loadCalls();
   }, [searchQuery, statusFilter, directionFilter]);
 
   const loadCalls = async () => {
-    setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      setLoading(true);
+      // TODO: Replace with real API call
+      // const response = await http.get('/api/calls', {
+      //   params: { search: searchQuery, status: statusFilter, direction: directionFilter }
+      // });
+      
+      // Mock data for now - will be replaced with real API
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
       const mockCalls: Call[] = [
         {
           sid: 'CA123456789',
-          lead_id: 1,
           lead_name: 'יוסי כהן',
           from_e164: '+972501234567',
-          to_e164: '+972587654321',
-          duration: 120,
+          to_e164: '+972523456789',
+          duration: 185,
           status: 'completed',
           direction: 'inbound',
           at: '2025-09-16T10:30:00Z',
+          recording_url: 'https://api.twilio.com/2010-04-01/Accounts/ACxxx/Recordings/RExxx.mp3',
+          transcription: 'שלום, אני מחפש דירה בתל אביב. יש לכם משהו זמין?',
           hasRecording: true,
-          hasTranscript: true
+          hasTranscript: true,
+          expiresAt: '2025-09-23T10:30:00Z'
         },
         {
           sid: 'CA987654321',
-          lead_id: 2,
           lead_name: 'רחל לוי',
           from_e164: '+972507654321',
-          to_e164: '+972587654321',
-          duration: 45,
+          to_e164: '+972523456789',
+          duration: 94,
           status: 'completed',
           direction: 'outbound',
           at: '2025-09-16T09:15:00Z',
+          recording_url: 'https://api.twilio.com/2010-04-01/Accounts/ACxxx/Recordings/RExxx2.mp3',
+          transcription: 'תודה על הפניה. נשמח לקבוע פגישה לצפייה בדירה.',
           hasRecording: true,
-          hasTranscript: false
+          hasTranscript: true,
+          expiresAt: '2025-09-23T09:15:00Z'
         },
         {
-          sid: 'CA555444333',
-          from_e164: '+972509876543',
-          to_e164: '+972587654321',
-          duration: 0,
+          sid: 'CA555666777',
+          lead_name: 'דוד מזרחי',
+          from_e164: '+972508765432',
+          to_e164: '+972523456789',
+          duration: 45,
           status: 'no-answer',
-          direction: 'inbound',
+          direction: 'outbound',
           at: '2025-09-16T08:45:00Z',
           hasRecording: false,
           hasTranscript: false
@@ -114,47 +153,113 @@ export function CallsPage() {
       ];
       
       setCalls(mockCalls);
+    } catch (error) {
+      console.error('Error loading calls:', error);
+    } finally {
       setLoading(false);
-    }, 500);
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'success';
-      case 'no-answer': return 'warning';
-      case 'busy': return 'warning';
-      case 'failed': return 'destructive';
-      default: return 'default';
     }
   };
 
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'completed': return 'הושלם';
-      case 'no-answer': return 'לא נענה';
-      case 'busy': return 'תפוס';
-      case 'failed': return 'נכשל';
-      default: return status;
+  const loadCallDetails = async (call: Call) => {
+    try {
+      setSelectedCall(call);
+      setShowDetails(true);
+      
+      // TODO: Replace with real API call
+      // const response = await http.get(`/api/calls/${call.sid}/details`);
+      
+      // Mock details for now
+      const mockDetails: CallDetails = {
+        call,
+        transcript: call.transcription || 'אין תמליל זמין',
+        summary: 'לקוח מעוניין בדירה בתל אביב, מחפש 3 חדרים, תקציב עד 8000 ש״ח',
+        sentiment: 'חיובי'
+      };
+      
+      setCallDetails(mockDetails);
+    } catch (error) {
+      console.error('Error loading call details:', error);
+    }
+  };
+
+  const downloadRecording = async (call: Call) => {
+    if (!call.recording_url) return;
+    
+    try {
+      setDownloadingRecording(call.sid);
+      
+      // TODO: Replace with real API call that handles auth and returns file
+      // const response = await http.get(`/api/calls/${call.sid}/download`, { responseType: 'blob' });
+      
+      // For now, simulate download
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Create download link
+      const url = call.recording_url + '.mp3';
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `recording-${call.sid}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      console.log('Recording downloaded:', call.sid);
+    } catch (error) {
+      console.error('Error downloading recording:', error);
+      alert('שגיאה בהורדת ההקלטה: ' + (error as Error).message);
+    } finally {
+      setDownloadingRecording(null);
+    }
+  };
+
+  const playRecording = async (call: Call) => {
+    if (!call.recording_url) return;
+    
+    try {
+      setPlayingRecording(call.sid);
+      
+      // TODO: Replace with real audio player implementation
+      // For now, just simulate playing
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('Playing recording:', call.sid);
+    } catch (error) {
+      console.error('Error playing recording:', error);
+    } finally {
+      setPlayingRecording(null);
     }
   };
 
   const formatDuration = (seconds: number) => {
-    if (seconds === 0) return '0:00';
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleCallClick = (call: Call) => {
-    setSelectedCall(call);
-    setShowDetails(true);
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('he-IL', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getDaysUntilExpiry = (expiresAt?: string) => {
+    if (!expiresAt) return null;
+    const now = new Date();
+    const expiry = new Date(expiresAt);
+    const diffTime = expiry.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
   };
 
   const filteredCalls = calls.filter(call => {
-    const matchesSearch = searchQuery === '' || 
+    const matchesSearch = !searchQuery || 
       call.lead_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       call.from_e164.includes(searchQuery) ||
-      call.to_e164.includes(searchQuery);
+      call.transcription?.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' || call.status === statusFilter;
     const matchesDirection = directionFilter === 'all' || call.direction === directionFilter;
@@ -166,245 +271,364 @@ export function CallsPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
-          <p>טוען שיחות...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">טוען שיחות...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] bg-gray-50">
+    <div className="space-y-6" dir="rtl">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Phone className="w-6 h-6 text-blue-600" />
-            <h1 className="text-2xl font-bold text-gray-900">שיחות</h1>
-            <Badge>{calls.length} שיחות</Badge>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm">
-              <ExternalLink className="w-4 h-4 mr-2" />
-              ייצא נתונים
-            </Button>
-          </div>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">שיחות טלפון</h1>
+          <p className="text-slate-600 mt-1">צפה בכל השיחות, הקלטות ותמלילים</p>
+        </div>
+        <div className="flex gap-3">
+          <Button variant="outline" size="sm">
+            <Calendar className="h-4 w-4 ml-2" />
+            מחק הקלטות ישנות
+          </Button>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
+      <Card className="p-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">חיפוש</label>
             <input
               type="text"
-              placeholder="חיפוש לפי שם, טלפון..."
+              placeholder="חפש לפי שם, טלפון או תוכן..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-slate-300 rounded-md"
+              data-testid="input-search"
             />
           </div>
           
-          <div className="flex gap-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">סטטוס</label>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-slate-300 rounded-md"
+              data-testid="select-status"
             >
               <option value="all">כל הסטטוסים</option>
-              <option value="completed">הושלם</option>
-              <option value="no-answer">לא נענה</option>
+              <option value="completed">הושלמה</option>
               <option value="busy">תפוס</option>
-              <option value="failed">נכשל</option>
+              <option value="no-answer">לא נענה</option>
+              <option value="canceled">בוטלה</option>
             </select>
-            
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">כיוון</label>
             <select
               value={directionFilter}
               onChange={(e) => setDirectionFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-slate-300 rounded-md"
+              data-testid="select-direction"
             >
               <option value="all">כל הכיוונים</option>
-              <option value="inbound">נכנס</option>
-              <option value="outbound">יוצא</option>
+              <option value="inbound">נכנסת</option>
+              <option value="outbound">יוצאת</option>
             </select>
           </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Calls List */}
-        <div className={`${
-          showDetails ? 'hidden lg:flex' : 'flex'
-        } w-full lg:w-1/2 xl:w-2/3 flex-col bg-white`}>
           
-          <div className="flex-1 overflow-y-auto">
-            {filteredCalls.length === 0 ? (
-              <div className="text-center py-12">
-                <Phone className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">אין שיחות</h3>
-                <p className="text-gray-500">אין שיחות שמתאימות לחיפוש</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-200">
-                {filteredCalls.map((call) => (
-                  <div
-                    key={call.sid}
-                    className={`p-4 cursor-pointer hover:bg-gray-50 ${
-                      selectedCall?.sid === call.sid ? 'bg-blue-50' : ''
-                    }`}
-                    onClick={() => handleCallClick(call)}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-full ${
-                          call.direction === 'inbound' ? 'bg-green-100' : 'bg-blue-100'
-                        }`}>
-                          <Phone className={`w-4 h-4 ${
-                            call.direction === 'inbound' ? 'text-green-600' : 'text-blue-600'
-                          }`} />
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-gray-900">
-                            {call.lead_name || 'לא ידוע'}
-                          </h3>
-                          <p className="text-sm text-gray-600" dir="ltr">
-                            {call.direction === 'inbound' ? call.from_e164 : call.to_e164}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="text-right">
-                        <Badge variant={getStatusColor(call.status)}>
-                          {getStatusLabel(call.status)}
-                        </Badge>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {new Date(call.at).toLocaleString('he-IL')}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between text-sm text-gray-500">
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-4 h-4" />
-                          {formatDuration(call.duration)}
-                        </div>
-                        {call.hasRecording && (
-                          <div className="flex items-center gap-1 text-blue-600">
-                            <PlayCircle className="w-4 h-4" />
-                            הקלטה
-                          </div>
-                        )}
-                        {call.hasTranscript && (
-                          <div className="flex items-center gap-1 text-green-600">
-                            <MessageSquare className="w-4 h-4" />
-                            תמליל
-                          </div>
-                        )}
-                      </div>
-                      <span className="text-xs">
-                        {call.direction === 'inbound' ? 'נכנס' : 'יוצא'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+          <div className="flex items-end">
+            <Button onClick={loadCalls} className="w-full">
+              <Phone className="h-4 w-4 ml-2" />
+              רענן
+            </Button>
           </div>
         </div>
+      </Card>
 
-        {/* Call Details Panel */}
-        {showDetails && selectedCall && (
-          <div className={`${
-            showDetails ? 'flex' : 'hidden lg:flex'
-          } w-full lg:w-1/2 xl:w-1/3 flex-col bg-white border-l border-gray-200`}>
-            
-            {/* Details Header */}
-            <div className="border-b border-gray-200 px-6 py-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-gray-900">פרטי שיחה</h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="lg:hidden"
-                  onClick={() => setShowDetails(false)}
-                >
-                  ←
+      {/* Auto-delete warning */}
+      <Card className="p-4 bg-yellow-50 border-yellow-200">
+        <div className="flex items-center gap-3">
+          <AlertTriangle className="h-5 w-5 text-yellow-600" />
+          <div>
+            <p className="text-sm font-medium text-yellow-800">מחיקה אוטומטית של הקלטות</p>
+            <p className="text-sm text-yellow-700">הקלטות נמחקות אוטומטית אחרי 7 ימים לחיסכון במקום. הורד הקלטות חשובות לפני המחיקה.</p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Calls List */}
+      <Card className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50 border-b">
+              <tr>
+                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">שיחה</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">מש/ךילוח</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">סטטוס</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">הקלטה</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">תמליל</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">פעולות</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {filteredCalls.map((call) => {
+                const daysLeft = getDaysUntilExpiry(call.expiresAt);
+                return (
+                  <tr key={call.sid} className="hover:bg-slate-50" data-testid={`call-row-${call.sid}`}>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-full ${call.direction === 'inbound' ? 'bg-green-100' : 'bg-blue-100'}`}>
+                          <Phone className={`h-4 w-4 ${call.direction === 'inbound' ? 'text-green-600' : 'text-blue-600'}`} />
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-900">{call.lead_name || 'לקוח אלמוני'}</p>
+                          <p className="text-sm text-slate-500">{call.from_e164}</p>
+                          <p className="text-xs text-slate-400">{formatDate(call.at)}</p>
+                        </div>
+                      </div>
+                    </td>
+                    
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-slate-400" />
+                        <span className="text-sm text-slate-600">{formatDuration(call.duration)}</span>
+                      </div>
+                    </td>
+                    
+                    <td className="px-6 py-4">
+                      <Badge variant={
+                        call.status === 'completed' ? 'success' :
+                        call.status === 'no-answer' ? 'warning' : 'default'
+                      }>
+                        {call.status === 'completed' ? 'הושלמה' :
+                         call.status === 'no-answer' ? 'לא נענה' :
+                         call.status === 'busy' ? 'תפוס' : call.status}
+                      </Badge>
+                    </td>
+                    
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        {call.hasRecording ? (
+                          <div className="flex items-center gap-2">
+                            <Volume2 className="h-4 w-4 text-green-600" />
+                            {daysLeft !== null && daysLeft <= 2 && (
+                              <Badge variant="warning" className="text-xs">
+                                {daysLeft} ימים
+                              </Badge>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">אין הקלטה</span>
+                        )}
+                      </div>
+                    </td>
+                    
+                    <td className="px-6 py-4">
+                      {call.hasTranscript ? (
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-blue-600" />
+                          <span className="text-xs text-slate-600 truncate max-w-32">
+                            {call.transcription?.substring(0, 30)}...
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">אין תמליל</span>
+                      )}
+                    </td>
+                    
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => loadCallDetails(call)}
+                          data-testid={`button-details-${call.sid}`}
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                        </Button>
+                        
+                        {call.hasRecording && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => playRecording(call)}
+                              disabled={playingRecording === call.sid}
+                              data-testid={`button-play-${call.sid}`}
+                            >
+                              <PlayCircle className={`h-4 w-4 ${playingRecording === call.sid ? 'animate-spin' : ''}`} />
+                            </Button>
+                            
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => downloadRecording(call)}
+                              disabled={downloadingRecording === call.sid}
+                              data-testid={`button-download-${call.sid}`}
+                            >
+                              <Download className={`h-4 w-4 ${downloadingRecording === call.sid ? 'animate-bounce' : ''}`} />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        
+        {filteredCalls.length === 0 && (
+          <div className="text-center py-12">
+            <Phone className="h-12 w-12 mx-auto mb-4 text-slate-400" />
+            <h3 className="text-lg font-medium text-slate-900 mb-2">אין שיחות</h3>
+            <p className="text-slate-600">
+              {searchQuery || statusFilter !== 'all' || directionFilter !== 'all'
+                ? 'לא נמצאו שיחות התואמות למסננים'
+                : 'עדיין לא היו שיחות במערכת'}
+            </p>
+          </div>
+        )}
+      </Card>
+
+      {/* Call Details Modal */}
+      {showDetails && selectedCall && callDetails && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="modal-call-details">
+          <Card className="p-6 max-w-2xl mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="flex justify-between items-start">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">פרטי שיחה</h2>
+                  <p className="text-sm text-slate-500">{selectedCall.sid}</p>
+                </div>
+                <Button variant="ghost" onClick={() => setShowDetails(false)} data-testid="button-close-details">
+                  ✕
                 </Button>
               </div>
-            </div>
 
-            {/* Details Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {/* Call Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-slate-700">לקוח</p>
+                  <p className="text-slate-900">{selectedCall.lead_name || 'לקוח אלמוני'}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-700">מספר טלפון</p>
+                  <p className="text-slate-900">{selectedCall.from_e164}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-700">משך השיחה</p>
+                  <p className="text-slate-900">{formatDuration(selectedCall.duration)}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-700">תאריך</p>
+                  <p className="text-slate-900">{formatDate(selectedCall.at)}</p>
+                </div>
+              </div>
+
+              {/* Summary */}
+              {callDetails.summary && (
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">סיכום השיחה</h3>
+                  <p className="text-slate-700 bg-slate-50 p-3 rounded-lg">{callDetails.summary}</p>
+                </div>
+              )}
+
+              {/* Transcript */}
               <div>
-                <h3 className="font-medium text-gray-900 mb-3">מידע כללי</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700">שם</label>
-                    <p className="text-sm text-gray-900">{selectedCall.lead_name || 'לא ידוע'}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-700">מספר טלפון</label>
-                    <p className="text-sm text-gray-900" dir="ltr">
-                      {selectedCall.direction === 'inbound' ? selectedCall.from_e164 : selectedCall.to_e164}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-700">משך השיחה</label>
-                    <p className="text-sm text-gray-900">{formatDuration(selectedCall.duration)}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-700">סטטוס</label>
-                    <Badge variant={getStatusColor(selectedCall.status)}>
-                      {getStatusLabel(selectedCall.status)}
-                    </Badge>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-700">זמן</label>
-                    <p className="text-sm text-gray-900">
-                      {new Date(selectedCall.at).toLocaleString('he-IL')}
-                    </p>
-                  </div>
+                <h3 className="text-lg font-semibold text-slate-900 mb-2">תמליל מלא</h3>
+                <div className="bg-slate-50 p-4 rounded-lg max-h-64 overflow-y-auto">
+                  <p className="text-slate-700 whitespace-pre-wrap">{callDetails.transcript}</p>
                 </div>
               </div>
 
               {/* Actions */}
-              <div>
-                <h3 className="font-medium text-gray-900 mb-3">פעולות</h3>
-                <div className="space-y-2">
-                  {selectedCall.hasRecording && (
-                    <Button variant="outline" className="w-full justify-center">
-                      <PlayCircle className="w-4 h-4 mr-2" />
-                      השמע הקלטה
+              <div className="flex gap-3">
+                {selectedCall.hasRecording && (
+                  <>
+                    <Button variant="outline" onClick={() => playRecording(selectedCall)}>
+                      <PlayCircle className="h-4 w-4 ml-2" />
+                      נגן הקלטה
                     </Button>
-                  )}
-                  
-                  {selectedCall.hasTranscript && (
-                    <Button variant="outline" className="w-full justify-center">
-                      <MessageSquare className="w-4 h-4 mr-2" />
-                      הצג תמליל
+                    <Button variant="outline" onClick={() => downloadRecording(selectedCall)}>
+                      <Download className="h-4 w-4 ml-2" />
+                      הורד הקלטה
                     </Button>
-                  )}
-                  
-                  <Button variant="outline" className="w-full justify-center">
-                    <Phone className="w-4 h-4 mr-2" />
-                    התקשר שוב
-                  </Button>
-                  
-                  {selectedCall.lead_id && (
-                    <Button variant="outline" className="w-full justify-center">
-                      <User className="w-4 h-4 mr-2" />
-                      פתח ליד
-                    </Button>
-                  )}
-                </div>
+                  </>
+                )}
+                <Button variant="outline">
+                  <ExternalLink className="h-4 w-4 ml-2" />
+                  פתח בCRM
+                </Button>
               </div>
             </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="p-4">
+          <div className="flex items-center">
+            <div className="p-2 bg-blue-100 rounded-full ml-3">
+              <Phone className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-600">סה״כ שיחות</p>
+              <p className="text-2xl font-bold text-slate-900" data-testid="stat-total-calls">{calls.length}</p>
+            </div>
           </div>
-        )}
+        </Card>
+
+        <Card className="p-4">
+          <div className="flex items-center">
+            <div className="p-2 bg-green-100 rounded-full ml-3">
+              <Volume2 className="h-5 w-5 text-green-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-600">עם הקלטה</p>
+              <p className="text-2xl font-bold text-slate-900" data-testid="stat-with-recording">
+                {calls.filter(c => c.hasRecording).length}
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <div className="flex items-center">
+            <div className="p-2 bg-purple-100 rounded-full ml-3">
+              <FileText className="h-5 w-5 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-600">עם תמליל</p>
+              <p className="text-2xl font-bold text-slate-900" data-testid="stat-with-transcript">
+                {calls.filter(c => c.hasTranscript).length}
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-4">
+          <div className="flex items-center">
+            <div className="p-2 bg-yellow-100 rounded-full ml-3">
+              <AlertTriangle className="h-5 w-5 text-yellow-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-600">תפוגה בקרוב</p>
+              <p className="text-2xl font-bold text-slate-900" data-testid="stat-expiring">
+                {calls.filter(c => {
+                  const days = getDaysUntilExpiry(c.expiresAt);
+                  return days !== null && days <= 2;
+                }).length}
+              </p>
+            </div>
+          </div>
+        </Card>
       </div>
     </div>
   );
