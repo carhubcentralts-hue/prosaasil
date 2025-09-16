@@ -158,18 +158,28 @@ export function WhatsAppPage() {
 
   const loadPrompts = async () => {
     try {
-      // TODO: Replace with real API call to get AI prompts
-      // const response = await http.get('/api/ai-prompts');
+      // Load real AI prompt from database
+      const response = await http.get<{calls_prompt: string, whatsapp_prompt: string, version: number}>('/api/business/current/prompt');
       
-      // Mock data for now
+      // Set the WhatsApp prompt as the editing content
+      setEditingPrompt(response.whatsapp_prompt || '');
+      
+      // Create a single prompt entry representing the current WhatsApp prompt
       setPrompts([
-        { id: '1', name: 'בוט נדל״ן כללי', active: true },
-        { id: '2', name: 'בוט השכרה', active: false },
-        { id: '3', name: 'בוט מכירה', active: false }
+        { 
+          id: 'whatsapp', 
+          name: 'פרומפט WhatsApp נוכחי', 
+          active: true,
+          content: response.whatsapp_prompt || '',
+          version: response.version
+        }
       ]);
-      setSelectedPrompt('1');
+      setSelectedPrompt('whatsapp');
     } catch (error) {
       console.error('Error loading prompts:', error);
+      // Fallback to empty state if API fails
+      setPrompts([]);
+      setEditingPrompt('');
     }
   };
 
@@ -254,8 +264,6 @@ export function WhatsAppPage() {
 
   // Function to open prompt editor with current prompt
   const openPromptEditor = () => {
-    const currentPrompt = prompts.find(p => p.id === selectedPrompt);
-    setEditingPrompt(currentPrompt?.content || '');
     setShowPromptEditor(true);
   };
 
