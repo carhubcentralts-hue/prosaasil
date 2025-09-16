@@ -111,40 +111,7 @@ export function CallsPage() {
       }
     } catch (error) {
       console.error('Error loading calls:', error);
-      // Fallback to mock data on network error for development
-      const mockCalls: Call[] = [
-        {
-          sid: 'CA123456789',
-          lead_name: 'יוסי כהן',
-          from_e164: '+972501234567',
-          to_e164: '+972523456789',
-          duration: 185,
-          status: 'completed',
-          direction: 'inbound',
-          at: '2025-09-16T10:30:00Z',
-          recording_url: 'https://api.twilio.com/2010-04-01/Accounts/ACxxx/Recordings/RExxx.mp3',
-          transcription: 'שלום, אני מחפש דירה בתל אביב. יש לכם משהו זמין?',
-          hasRecording: true,
-          hasTranscript: true,
-          expiresAt: '2025-09-23T10:30:00Z'
-        },
-        {
-          sid: 'CA987654321',
-          lead_name: 'רחל לוי',
-          from_e164: '+972507654321',
-          to_e164: '+972523456789',
-          duration: 94,
-          status: 'completed',
-          direction: 'outbound',
-          at: '2025-09-16T09:15:00Z',
-          recording_url: 'https://api.twilio.com/2010-04-01/Accounts/ACxxx/Recordings/RExxx2.mp3',
-          transcription: 'תודה על הפניה. נשמח לקבוע פגישה לצפייה בדירה.',
-          hasRecording: true,
-          hasTranscript: true,
-          expiresAt: '2025-09-23T09:15:00Z'
-        }
-      ];
-      setCalls(mockCalls);
+      setCalls([]);
     } finally {
       setLoading(false);
     }
@@ -158,25 +125,28 @@ export function CallsPage() {
       const response = await http.get(`/api/calls/${call.sid}/details`);
       
       if (response && typeof response === 'object' && 'success' in response && (response as any).success) {
-        setCallDetails(response as CallDetails);
+        // Use response.data or response.details if available, otherwise fall back to basic structure
+        const responseData = (response as any).data || (response as any).details || response;
+        setCallDetails({
+          call,
+          transcript: responseData.transcript || call.transcription || 'אין תמליל זמין',
+          summary: responseData.summary,
+          sentiment: responseData.sentiment
+        });
       } else {
-        // Fallback to basic details
+        // Fallback to basic details without hardcoded content
         const fallbackDetails: CallDetails = {
           call,
-          transcript: call.transcription || 'אין תמליל זמין',
-          summary: 'לקוח מעוניין בדירה בתל אביב, מחפש 3 חדרים, תקציב עד 8000 ש״ח',
-          sentiment: 'חיובי'
+          transcript: call.transcription || 'אין תמליל זמין'
         };
         setCallDetails(fallbackDetails);
       }
     } catch (error) {
       console.error('Error loading call details:', error);
-      // Fallback to basic details on error
+      // Fallback to basic details on error without hardcoded content
       const fallbackDetails: CallDetails = {
         call,
-        transcript: call.transcription || 'אין תמליל זמין',
-        summary: 'שגיאה בטעינת פרטים',
-        sentiment: 'לא ידוע'
+        transcript: call.transcription || 'אין תמליל זמין'
       };
       setCallDetails(fallbackDetails);
     }

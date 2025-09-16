@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { CreditCard, FileText, Download, Eye, Plus, DollarSign, Calendar, AlertCircle, Clock } from 'lucide-react';
+import { CreditCard, FileText, Download, Eye, Plus, DollarSign, Calendar, AlertCircle, Clock, X } from 'lucide-react';
+import { http } from '../../services/http';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -92,92 +93,23 @@ export function BillingPage() {
   }, []);
 
   const loadData = async () => {
-    setLoading(true);
-    // Simulate API calls
-    setTimeout(() => {
-      const mockPayments: Payment[] = [
-        {
-          id: '1',
-          amount: 25000,
-          status: 'paid',
-          description: 'עמלת מכירה - דירת 4 חדרים',
-          client_name: 'יוסי כהן',
-          due_date: '2025-09-10',
-          paid_date: '2025-09-08',
-          invoice_number: 'INV-2025-001',
-          payment_method: 'העברה בנקאית'
-        },
-        {
-          id: '2',
-          amount: 15000,
-          status: 'pending',
-          description: 'עמלת השכרה - דירת 3 חדרים',
-          client_name: 'רחל לוי',
-          due_date: '2025-09-20',
-          invoice_number: 'INV-2025-002'
-        },
-        {
-          id: '3',
-          amount: 30000,
-          status: 'overdue',
-          description: 'עמלת מכירה - בית פרטי',
-          client_name: 'מיכאל שמואל',
-          due_date: '2025-09-05',
-          invoice_number: 'INV-2025-003'
-        },
-        {
-          id: '4',
-          amount: 8000,
-          status: 'pending',
-          description: 'ניהול נכסים - שכירות חודשית',
-          client_name: 'שרה דוד',
-          due_date: '2025-09-25',
-          invoice_number: 'INV-2025-004'
-        }
-      ];
-
-      const mockContracts: Contract[] = [
-        {
-          id: '1',
-          title: 'חוזה מכירה - רחוב הרצל 15',
-          client_name: 'יוסי כהן',
-          property_address: 'רחוב הרצל 15, תל אביב',
-          contract_type: 'sale',
-          value: 2500000,
-          status: 'completed',
-          start_date: '2025-08-01',
-          end_date: '2025-09-01',
-          commission_rate: 2.5
-        },
-        {
-          id: '2',
-          title: 'חוזה השכרה - רחוב דיזנגוף 45',
-          client_name: 'רחל לוי',
-          property_address: 'רחוב דיזנגוף 45, תל אביב',
-          contract_type: 'rent',
-          value: 8000,
-          status: 'active',
-          start_date: '2025-09-01',
-          end_date: '2026-09-01',
-          commission_rate: 1.0
-        },
-        {
-          id: '3',
-          title: 'חוזה ניהול - רחוב אלנבי 20',
-          client_name: 'מיכאל שמואל',
-          property_address: 'רחוב אלנבי 20, תל אביב',
-          contract_type: 'management',
-          value: 12000,
-          status: 'draft',
-          start_date: '2025-10-01',
-          commission_rate: 8.0
-        }
-      ];
-
-      setPayments(mockPayments);
-      setContracts(mockContracts);
+    try {
+      setLoading(true);
+      
+      const [paymentsResponse, contractsResponse] = await Promise.all([
+        http.get('/api/crm/payments'),
+        http.get('/api/crm/contracts')
+      ]);
+      
+      setPayments(Array.isArray(paymentsResponse) ? paymentsResponse : []);
+      setContracts(Array.isArray(contractsResponse) ? contractsResponse : []);
+    } catch (error) {
+      console.error('Error loading billing data:', error);
+      setPayments([]);
+      setContracts([]);
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   const getPaymentStatusColor = (status: string) => {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, UserPlus, Shield, Settings, Eye, Edit, Trash2, Mail, Phone } from 'lucide-react';
+import { http } from '../../services/http';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -85,76 +86,22 @@ export function UsersPage() {
   }, [searchQuery, roleFilter, statusFilter]);
 
   const loadUsers = async () => {
-    setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      const mockUsers: SystemUser[] = [
-        {
-          id: '1',
-          email: 'admin@shai-realestate.co.il',
-          name: 'מנהל מערכת',
-          role: 'admin',
-          status: 'active',
-          last_login: '2025-09-16T10:30:00Z',
-          created_at: '2025-01-01T00:00:00Z',
-          phone: '+972-50-1234567',
-          permissions: ['all']
-        },
-        {
-          id: '2',
-          email: 'manager@shai-realestate.co.il',
-          name: 'שרה לוי - מנהלת',
-          role: 'manager',
-          business_id: '1',
-          business_name: 'שי דירות ומשרדים בע״מ',
-          status: 'active',
-          last_login: '2025-09-16T09:15:00Z',
-          created_at: '2025-02-15T00:00:00Z',
-          phone: '+972-52-9876543',
-          permissions: ['business_management', 'user_management', 'reports']
-        },
-        {
-          id: '3',
-          email: 'owner@shai-realestate.co.il',
-          name: 'שי כהן - בעלים',
-          role: 'business_owner',
-          business_id: '1',
-          business_name: 'שי דירות ומשרדים בע״מ',
-          status: 'active',
-          last_login: '2025-09-15T16:45:00Z',
-          created_at: '2025-01-15T00:00:00Z',
-          phone: '+972-54-1122334',
-          permissions: ['business_full_access', 'settings', 'billing']
-        },
-        {
-          id: '4',
-          email: 'agent1@shai-realestate.co.il',
-          name: 'דני גולן - סוכן',
-          role: 'business_agent',
-          business_id: '1',
-          business_name: 'שי דירות ומשרדים בע״מ',
-          status: 'active',
-          last_login: '2025-09-16T08:30:00Z',
-          created_at: '2025-03-01T00:00:00Z',
-          phone: '+972-55-6677889',
-          permissions: ['leads_access', 'calls_access', 'basic_crm']
-        },
-        {
-          id: '5',
-          email: 'temp@example.com',
-          name: 'משתמש זמני',
-          role: 'read_only',
-          business_id: '1',
-          business_name: 'שי דירות ומשרדים בע״מ',
-          status: 'pending',
-          created_at: '2025-09-14T00:00:00Z',
-          permissions: ['read_only']
-        }
-      ];
+    try {
+      setLoading(true);
+      const response = await http.get('/api/admin/users');
       
-      setUsers(mockUsers);
+      if (response && Array.isArray(response)) {
+        setUsers(response);
+      } else {
+        // Fallback to empty array if API is not available
+        setUsers([]);
+      }
+    } catch (error) {
+      console.error('Error loading users:', error);
+      setUsers([]);
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   const getRoleColor = (role: string) => {
