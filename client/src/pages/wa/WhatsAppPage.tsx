@@ -278,7 +278,7 @@ export function WhatsAppPage() {
           <h1 className="text-2xl font-bold text-slate-900">WhatsApp Business</h1>
           <p className="text-slate-600 mt-1">נהל את כל שיחות WhatsApp במקום אחד</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           <Button variant="outline" size="sm" onClick={() => setShowQR(true)} data-testid="button-qr">
             <QrCode className="h-4 w-4 ml-2" />
             QR קוד
