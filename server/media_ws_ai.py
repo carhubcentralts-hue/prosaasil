@@ -1052,8 +1052,12 @@ class MediaStreamHandler:
             except Exception as e:
                 print(f"⚠️ Audio quality check failed: {e} - proceeding anyway")
             
-            from server.services.lazy_services import get_stt_client
-            from google.cloud import speech
+            try:
+                from server.services.lazy_services import get_stt_client
+                from google.cloud import speech
+            except ImportError as import_error:
+                print(f"⚠️ Google Speech library not available: {import_error} - using Whisper")
+                return self._whisper_fallback(pcm16_8k)
             
             client = get_stt_client()
             if not client:
@@ -1108,8 +1112,12 @@ class MediaStreamHandler:
         """✅ FIXED: Google STT basic model כ-fallback לפני Whisper"""
         try:
             print(f"🔄 GOOGLE_STT_BASIC: Trying basic model as fallback")
-            from server.services.lazy_services import get_stt_client
-            from google.cloud import speech
+            try:
+                from server.services.lazy_services import get_stt_client
+                from google.cloud import speech
+            except ImportError as import_error:
+                print(f"⚠️ Google Speech library not available: {import_error} - using Whisper")
+                return self._whisper_fallback(pcm16_8k)
             
             client = get_stt_client()
             if not client:

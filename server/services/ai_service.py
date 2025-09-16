@@ -116,7 +116,7 @@ class AIService:
             # קריאה ל-OpenAI
             response = self.client.chat.completions.create(
                 model=prompt_data["model"],
-                messages=messages,
+                messages=messages,  # type: ignore
                 max_tokens=prompt_data["max_tokens"],
                 temperature=prompt_data["temperature"]
             )
