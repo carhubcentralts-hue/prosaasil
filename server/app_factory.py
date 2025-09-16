@@ -505,6 +505,10 @@ def create_app():
     from server.api_whatsapp_unified import whatsapp_unified_bp
     app.register_blueprint(whatsapp_unified_bp, url_prefix='/api/whatsapp')
     
+    # WhatsApp Baileys Proxy Routes
+    from server.routes_whatsapp import wa_bp
+    app.register_blueprint(wa_bp)
+    
     # Baileys WhatsApp bridge routes (DISABLED - cleanup)
     # try:
     #     from server.routes_whatsapp_baileys import baileys_bp
