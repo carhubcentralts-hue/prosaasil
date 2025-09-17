@@ -105,12 +105,46 @@ async function startSession(tenantId) {
           continue;
         }
         
-        console.log(`📨 Inbound WhatsApp from ${message.key.remoteJid} for tenant ${tenantId}`);
+        // Extract message data properly
+        const from = message.key.remoteJid;
+        const messageId = message.key.id;
+        const timestamp = message.messageTimestamp;
         
-        // Forward to Flask webhook using axios
-        await axios.post(`${FLASK_BASE_URL}/webhook/whatsapp/incoming`, {
-          tenantId, 
-          payload: m
+        // Extract text content based on message type
+        let text = '';
+        let messageType = 'text';
+        
+        if (message.message?.conversation) {
+          text = message.message.conversation;
+        } else if (message.message?.extendedTextMessage?.text) {
+          text = message.message.extendedTextMessage.text;
+        } else if (message.message?.imageMessage?.caption) {
+          text = message.message.imageMessage.caption;
+          messageType = 'image';
+        } else if (message.message?.videoMessage?.caption) {
+          text = message.message.videoMessage.caption;
+          messageType = 'video';
+        } else if (message.message?.documentMessage?.caption) {
+          text = message.message.documentMessage.caption;
+          messageType = 'document';
+        }
+        
+        // Skip if no text content
+        if (!text || text.trim() === '') {
+          console.log(`⏩ Skipping message with no text content from ${from}`);
+          continue;
+        }
+        
+        console.log(`📨 Inbound WhatsApp from ${from} for tenant ${tenantId}: "${text.substring(0, 50)}..."`);
+        
+        // Forward to Flask webhook with proper structure
+        await axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`, {
+          tenantId,
+          from,
+          text,
+          messageId,
+          type: messageType,
+          timestamp
         }, {
           headers: { 
             'Content-Type': 'application/json', 

@@ -256,3 +256,109 @@ def health_check():
             'error': str(e),
             'baileys_service': 'unreachable'
         }), 503
+
+# === WEBHOOK ENDPOINTS ===
+
+@whatsapp_bp.route('/webhook/incoming', methods=['POST'])
+def webhook_incoming():
+    """
+    Webhook endpoint to receive incoming WhatsApp messages from Baileys service.
+    Called by services/whatsapp/baileys_service.js with Internal Secret authentication.
+    """
+    try:
+        # Validate Internal Secret
+        received_secret = request.headers.get('X-Internal-Secret')
+        if not received_secret or received_secret != INTERNAL_SECRET:
+            logger.warning("Webhook rejected - invalid internal secret")
+            return jsonify({'success': False, 'error': 'unauthorized'}), 401
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'no_data'}), 400
+        
+        # Extract webhook data
+        tenant_id = data.get('tenantId')
+        from_number = data.get('from', '').replace('@s.whatsapp.net', '').replace('@c.us', '')
+        message_text = data.get('text', '')
+        message_id = data.get('messageId', '')
+        message_type = data.get('type', 'text')
+        timestamp = data.get('timestamp')
+        
+        if not tenant_id or not from_number or not message_text:
+            logger.warning("Invalid webhook payload - missing required fields")
+            return jsonify({'success': False, 'error': 'invalid_payload'}), 400
+        
+        logger.info(f"WhatsApp webhook received: tenant={tenant_id}, from={from_number}, type={message_type}")
+        
+        # Import here to avoid circular imports
+        from server.dao_crm import upsert_thread, insert_message
+        from server.api_whatsapp_unified import handle_whatsapp_logic
+        
+        # Find/create thread for this tenant and conversation
+        thread_id = upsert_thread(
+            business_id=int(tenant_id),
+            type_="whatsapp",
+            provider="baileys",
+            peer_number=from_number
+        )
+        
+        # Record incoming message
+        message_record_id = insert_message(
+            thread_id=thread_id,
+            direction="in",
+            message_type=message_type,
+            content_text=message_text,
+            provider_msg_id=message_id,
+            status="received"
+        )
+        
+        # Generate AI response with fallback
+        ai_response = ""
+        try:
+            context = {
+                "phone_number": from_number,
+                "channel": "baileys",
+                "thread_id": thread_id,
+                "tenant_id": tenant_id
+            }
+            
+            ai_response = handle_whatsapp_logic(message_text, business_id=int(tenant_id), context=context)
+        except Exception as ai_error:
+            logger.error(f"AI response generation failed: {ai_error}")
+            # Continue processing even if AI fails
+        
+        # Send AI response back via Baileys
+        if ai_response and len(ai_response.strip()) > 0:
+            try:
+                response = make_baileys_request('POST', 'send', tenant_id, json={
+                    'to': from_number,
+                    'text': ai_response
+                })
+                
+                if response.status_code == 200:
+                    # Record outbound AI response
+                    insert_message(
+                        thread_id=thread_id,
+                        direction="out",
+                        message_type="text",
+                        content_text=ai_response,
+                        provider_msg_id=f"ai_{message_id}",
+                        status="sent"
+                    )
+                    logger.info(f"AI response sent via Baileys to {from_number} (tenant: {tenant_id})")
+                else:
+                    logger.error(f"Failed to send AI response via Baileys: {response.status_code}")
+                    
+            except Exception as send_error:
+                logger.error(f"Error sending AI response: {send_error}")
+        
+        return jsonify({
+            'success': True,
+            'thread_id': thread_id,
+            'message_id': message_record_id,
+            'ai_response_sent': bool(ai_response and len(ai_response.strip()) > 0)
+        })
+        
+    except Exception as e:
+        logger.error(f"Webhook processing failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
