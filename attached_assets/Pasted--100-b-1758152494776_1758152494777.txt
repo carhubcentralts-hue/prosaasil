@@ -1,0 +1,218 @@
+יאללה – סוגרים את זה ל־100% בלי לשבור כלום ובלי כפילויות.
+מתייחס למה שיש לך כבר עכשיו (לפי הסקרין: baileys_service.js עם API, WhatsAppPage.tsx מציג QR, routes_whatsapp.py מחובר, WSGI+eventlet).
+המטרה: QR נסרק ⇒ session נקלט ⇒ connected:true יציב ⇒ הודעות נכנסות, ושום דבר (Twilio/ויזואליה/שאר המודולים) לא נפגע.
+
+להלן Runbook 100% לעבודה נקייה ומסודרת. תן לאייג’נט לבצע בדיוק לפי הסדר; אם הוא נתקע – שיעצור בנקודה וידווח את הפלט.
+
+⸻
+
+0) גיבוי ומה לא עושים
+	•	לא מוחקים קבצים. רק מנטרלים כפילויות ע״י בחירת נקודת־כניסה אחת והסרת import/register כפול.
+	•	שומרים snapshot של ה־ENV ושל קבצי ה־runner (Procfile / workflows / .replit).
+
+⸻
+
+1) יישור ENV (חובה, פעם אחת)
+
+הוסף/עדכן ב-Secrets או .env (אותם ערכים גם ל-Node וגם ל-Flask):
+
+INTERNAL_SECRET=<מחרוזת ארוכה זהה בשני הצדדים>
+BAILEYS_PORT=3300
+BAILEYS_BASE_URL=http://127.0.0.1:3300
+FLASK_BASE_URL=http://127.0.0.1:5000
+
+בדיקות:
+
+echo "$INTERNAL_SECRET" | wc -c         # >20
+echo "$BAILEYS_PORT" "$BAILEYS_BASE_URL" "$FLASK_BASE_URL"
+
+
+⸻
+
+2) ביטול כפילויות (ה“טפיליות”) – בחירת קבצים קנוניים בלבד
+
+2.1 Baileys (Node)
+	•	נשארים עם: services/whatsapp/baileys_service.js (זה עם ה-API).
+	•	נקודת כניסה יחידה ל־workflow: services/baileys/server.js עם גשר בלבד:
+
+// services/baileys/server.js
+require('../whatsapp/baileys_service').start();
+
+
+	•	אין app.listen() בקבצים אחרים, ואין עוד אפליקציות Express שמאזינות.
+
+בדיקת כפילויות:
+
+grep -R --line-number -E "app\.listen|listen\(" services | grep -v 'whatsapp/baileys_service.js'
+
+אם מצאת – נטרל (אל תימחק, רק אל תשתמש).
+
+2.2 Flask – ראוטים של WhatsApp
+	•	קובץ קנוני: routes_whatsapp.py (או איך שקראת לו).
+	•	ודא שהוא נרשם פעם אחת בלבד ב-create_app / wsgi.py.
+	•	נטרל כל ייבוא כפול של קבצים כמו routes_whatsapp_clean.py / whatsapp_bp.py / routes_whatsapp_qr.py.
+
+בדיקת כפילויות:
+
+grep -R --line-number -E "register_blueprint\(.*whatsapp" server | sed 's/^/register: /'
+
+צריך לראות רישום אחד בלבד.
+
+2.3 פרונט
+	•	משתמשים רק ב-WhatsAppPage.tsx/הקומפוננטות שלו.
+	•	אין פניות ישירות ל-:3300 מהדפדפן – הכל דרך /api/whatsapp/*.
+בדיקה:
+
+grep -R --line-number ":3300" client src || echo "OK – no direct :3300 in client"
+
+
+⸻
+
+3) חוזה API קנוני בין שלושת השכבות
+
+החוזה חייב להיות זהה בדיוק בשלושתם (React⇄Flask⇄Node):
+	•	POST /api/whatsapp/start → 200 {"ok":true}
+	•	GET  /api/whatsapp/status → 200 {"connected":bool,"hasQR":bool,"pushName":string?}
+	•	GET  /api/whatsapp/qr
+	•	אם יש QR: 200 {"dataUrl":"data:image/png;base64,..."}
+	•	אם אין:   200 {"dataUrl":null}  (תמיד JSON, לא 204/HTML)
+
+Node (baileys_service.js)
+	•	/healthz מחזיר ok.
+	•	/whatsapp/:tenantId/qr מחזיר תמיד JSON (אם אין QR → 404 עם {error:'no_qr'} או שתחזיר 200 עם dataUrl:null – רק תהיה עקבי מול Flask).
+	•	יצירת תיקיות storage/whatsapp/<tenantId>/auth עם fs.mkdirSync(..., {recursive:true}).
+	•	שימוש ב-axios (לא fetch) ל-webhook ל-Flask.
+	•	process.on('unhandledRejection'...)/uncaughtException ללכוד הכל ללוג.
+
+Flask (routes_whatsapp.py)
+	•	פונה ל-BAILEYS_BASE_URL עם header X-Internal-Secret: INTERNAL_SECRET.
+	•	תמיד מחזיר JSON לפרונט; אם Node ענה 404/no_qr → החזר 200 {"dataUrl":null}.
+	•	החרגת CSRF רק ל־/api/whatsapp/* ול־/webhook/* של Twilio.
+
+React (WhatsAppPage.tsx)
+	•	כשres.status===200 → await res.json();
+	•	אם מסיבה כלשהי יש 204/HTML – אל לעשות res.json() (זה מה שגרם ל־“Unexpected end of JSON input”).
+דוגמה בטוחה:
+
+const res = await fetch('/api/whatsapp/qr', { credentials:'include' });
+if (res.status !== 200) throw new Error(`QR failed: ${res.status}`);
+const { dataUrl } = await res.json();
+setQR(dataUrl || '');
+
+
+⸻
+
+4) הרצה יציבה – Runner יחיד בלבד (לא טרמינלים זמניים)
+
+אופציה מועדפת: Honcho
+
+pip install honcho
+
+Procfile:
+
+web: gunicorn -w 1 -k eventlet -b 0.0.0.0:5000 wsgi:app
+whatsapp: node services/baileys/server.js
+
+פקודת Run/Workflow:
+
+honcho start -f Procfile
+
+מריצים מה־Runner/כפתור Run בלבד. טרמינל זמני = תהליך ימות בשקט.
+
+(אם אי אפשר Honcho – שים start_all.sh שנשאר בחזית ומוגדר ב־Run.)
+
+⸻
+
+5) צ’ק־ליסט GO (לפני UI)
+
+בטרמינל קריאה בלבד בזמן שה־Runner רץ:
+
+# 5.1 בייליס חי
+curl -sS http://127.0.0.1:3300/healthz   # "ok"
+
+# 5.2 התחלה
+curl -i -sS -X POST http://127.0.0.1:5000/api/whatsapp/start
+
+# 5.3 סטטוס
+curl -i -sS http://127.0.0.1:5000/api/whatsapp/status
+
+# 5.4 QR
+curl -i -sS http://127.0.0.1:5000/api/whatsapp/qr
+
+צפוי:
+	•	healthz → 200 ok
+	•	start → 200 {“ok”:true}
+	•	status (לפני סריקה) → connected:false, hasQR:true
+	•	qr → 200 {“dataUrl”:“data:image/png;base64,…”}
+
+סרוק עם WhatsApp; אז:
+	•	status → connected:true
+	•	qr → {“dataUrl”:null}
+
+⸻
+
+6) לוגים ותצפיות חובה בזמן סריקה
+
+ב־baileys_service.js הדפס:
+
+sock.ev.on('connection.update', ({connection, lastDisconnect, qr}) => {
+  console.log('[update]', { connection, hasQr: !!qr, reason: lastDisconnect?.error?.output?.statusCode });
+});
+
+צפה ל:
+	•	connection:'open' אחרי סריקה תקינה, ואז qrDataUrl=''.
+
+אם אתה רואה close עם Reason 401/DisconnectReason.loggedOut:
+	•	מחק את storage/whatsapp/<tenantId>/auth ונסה pairing מחדש.
+	•	ודא שהשעון במכונה והטלפון מסונכרנים (Clock skew מפיל pairing).
+	•	ודא שאין חריגה ממגבלת מכשירים מחוברים ב־WhatsApp.
+
+⸻
+
+7) Twilio ושיחות – לא נוגעים, רק הקשחה
+	•	אל תשנה את ה-webhooks של Twilio; הם נשארים על 5000.
+	•	הוסף אימות X-Twilio-Signature (אם טרם קיים).
+	•	Whisper/GCP: ודא cred נכונים.
+	•	שמור על CSRF exemptions רק ל־/webhook/* ול־/api/whatsapp/*.
+
+⸻
+
+8) בדיקת כפילויות סופית (שקט תעשייתי)
+
+# פורטים ישנים
+grep -R --line-number -E "3001|3310" .
+
+# ראוטים כפולים
+grep -R --line-number -E "register_blueprint\(.*whatsapp" server
+
+# קריאות ישירות ל-:3300 בצד לקוח
+grep -R --line-number ":3300" client src
+
+# מאזינים כפולים ב-Node
+grep -R --line-number -E "app\.listen|server\.listen" services | grep -v 'whatsapp/baileys_service.js'
+
+הכול צריך לצאת נקי.
+
+⸻
+
+9) מה לשלוח אם משהו עדיין לא מתחבר אחרי סריקה
+
+הדבק בדיוק:
+
+curl -i -sS http://127.0.0.1:3300/healthz
+curl -i -sS -X POST http://127.0.0.1:5000/api/whatsapp/start
+curl -i -sS http://127.0.0.1:5000/api/whatsapp/status
+curl -i -sS http://127.0.0.1:5000/api/whatsapp/qr
+
+ובתוספת 5 שורות לוג אחרונות מ-baileys_service.js סביב זמן הסריקה (כולל [update]).
+
+⸻
+
+TL;DR – מה האייג’נט שלך צריך לעשות עכשיו
+	1.	לאשר ENV (INTERNAL_SECRET וכו’).
+	2.	לוודא שאין כפילויות: נקודת כניסה יחידה לנוד, Blueprint WhatsApp יחיד בפלסק, אין קריאות ישירות ל-:3300 בפרונט.
+	3.	להריץ דרך Runner יחיד (Honcho/Procfile), לא מטאבים.
+	4.	לעבור את צ’ק־ליסט GO; רק אז לבדוק UI.
+	5.	אם pairing נכשל – לשלוח 4 פקודות curl + לוג [connection.update].
+
+ביצוע לפי זה מביא אותך ל־100% בלי לשבור UI, בלי לפגוע ב-Twilio, ובלי מחיקות מסוכנות.
