@@ -329,42 +329,42 @@ def create_app():
         from server.routes_whatsapp import whatsapp_bp
         app.register_blueprint(whatsapp_bp)
         
-        # CSRF exemptions לroutes WhatsApp - using endpoint names instead of view_functions
+        # CSRF exemptions לroutes WhatsApp - only GET routes for security
         try:
-            csrf.exempt(app.view_functions.get('whatsapp.status'))
-            csrf.exempt(app.view_functions.get('whatsapp.qr'))  
-            csrf.exempt(app.view_functions.get('whatsapp.start'))
-            print("✅ WhatsApp CSRF exemptions applied")
+            csrf.exempt(app.view_functions.get('whatsapp.status'))  # GET - safe
+            csrf.exempt(app.view_functions.get('whatsapp.qr'))      # GET - safe  
+            # POST start NOT exempt for security - requires CSRF token
+            app.logger.info("WhatsApp CSRF exemptions applied (GET only)")
         except Exception as e:
-            print(f"⚠️ WhatsApp CSRF exemption warning: {e}")
+            app.logger.warning(f"WhatsApp CSRF exemption issue: {e}")
         
-        print("✅ New API blueprints registered")
-        print("✅ Twilio webhooks registered")
+        app.logger.info("New API blueprints registered")
+        app.logger.info("Twilio webhooks registered")
         
         # Register API Adapter Blueprint - Frontend Compatibility Layer
         from server.api_adapter import api_adapter_bp
         app.register_blueprint(api_adapter_bp)
-        print("✅ API Adapter blueprint registered")
+        app.logger.info("API Adapter blueprint registered")
         
         # Health endpoints - MUST be registered
         from server.health_endpoints import health_bp
         app.register_blueprint(health_bp)
-        print("✅ Health endpoints registered")
+        app.logger.info("Health endpoints registered")
         
         # data_api removed - כפילות
         
         # Register UI blueprint last (after React routes are defined)
-        print(f"🔧 Registering UI Blueprint: {ui_bp}")
+        app.logger.info(f"Registering UI Blueprint: {ui_bp}")
         app.register_blueprint(ui_bp, url_prefix='')  # No prefix for admin/business routes
         
         # CSRF exemption for login after blueprint registration
         from server.ui.routes import api_login
         csrf.exempt(api_login)
-        print("✅ CSRF exemption added for login")
+        app.logger.info("CSRF exemption added for login")
         
-        print("✅ All blueprints registered")
+        app.logger.info("All blueprints registered")
     except Exception as e:
-        print(f"❌ Blueprint registration error: {e}")
+        app.logger.error(f"Blueprint registration error: {e}")
         import traceback
         traceback.print_exc()
     
