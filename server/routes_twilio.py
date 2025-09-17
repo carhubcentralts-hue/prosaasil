@@ -117,6 +117,7 @@ def incoming_call():
 
 @csrf.exempt
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
+@require_twilio_signature
 def stream_ended():
     """שלב 5: Webhooks קשיחים - מחזיר 204 ללא TwiML - ULTRA FAST"""
     # החזרה מיידית ללא עיבוד כלל
@@ -207,7 +208,8 @@ def handle_recording():
     return resp
 
 @csrf.exempt
-@twilio_bp.route("/webhook/stream_status", methods=["POST"])
+@twilio_bp.route("/webhook/stream_status", methods=["POST"])  
+@require_twilio_signature
 def stream_status():
     """שלב 5: Webhooks קשיחים - ULTRA FAST מחזיר 204"""
     # החזרה מיידית ללא עיבוד כלל
