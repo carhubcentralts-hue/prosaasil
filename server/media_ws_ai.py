@@ -118,6 +118,9 @@ class MediaStreamHandler:
         # מאפיינים לזיהוי עסק
         self.business_id = 1  # ברירת מחדל לעסק ראשי
         self.phone_number = None
+        
+        # היסטוריית שיחה למעקב אחר הקשר
+        self.conversation_history = []  # רשימה של הודעות {'user': str, 'bot': str}
 
     def run(self):
         # Media stream handler initialized")
@@ -1403,21 +1406,6 @@ class MediaStreamHandler:
         else:
             return "איזה אזור מעניין אותך? יש לי דירות במרכז הארץ."
     
-    def _detect_area(self, hebrew_text: str) -> str:
-        """זיהוי אזור מהטקסט של המשתמש"""
-        text_lower = hebrew_text.lower()
-        
-        # אזורים מרכזיים
-        if any(area in text_lower for area in ["תל אביב", "רמת גן", "גבעתיים", "בת ים"]):
-            return "מרכז"
-        elif any(area in text_lower for area in ["ירושלים", "בית שמש", "מעלה אדומים"]):
-            return "ירושלים והסביבה"  
-        elif any(area in text_lower for area in ["חיפה", "נהריה", "עכו", "קריות"]):
-            return "צפון"
-        elif any(area in text_lower for area in ["באר שבע", "אילת", "אשדוד", "אשקלון"]):
-            return "דרום"
-        else:
-            return ""
     
     def _hebrew_tts(self, text: str) -> bytes | None:
         """Hebrew Text-to-Speech using Google Cloud TTS with Wavenet voice"""
