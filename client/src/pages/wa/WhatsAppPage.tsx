@@ -83,6 +83,7 @@ interface QRCodeData {
   error?: string;
   source?: string;
   fallback_mode?: boolean;
+  ready?: boolean; // Connection status
 }
 
 export function WhatsAppPage() {
