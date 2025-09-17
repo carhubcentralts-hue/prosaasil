@@ -26,6 +26,10 @@ cd services/whatsapp
 nohup node baileys_service.js > /tmp/baileys_system.log 2>&1 &
 BAILEYS_PID=$!
 echo "✅ Baileys started (PID: $BAILEYS_PID)"
+
+# Signal trap לניקוי התהליכים
+trap 'kill ${BAILEYS_PID} 2>/dev/null || true' TERM INT EXIT
+
 cd ../..
 
 # המתן לBaileys להתחיל
