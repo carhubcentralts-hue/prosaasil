@@ -78,6 +78,7 @@ interface QRCodeData {
   success?: boolean; // Optional - not all providers return this
   qr?: string; // Baileys format
   qr_data?: string; // Unified format  
+  dataUrl?: string; // Base64 QR image format
   status?: string;
   message?: string;
   error?: string;
@@ -132,7 +133,7 @@ export function WhatsAppPage() {
             return;
           }
           
-          const qrData = qrResponse.qr_data || qrResponse.qr;
+          const qrData = qrResponse.qr_data || qrResponse.qr || qrResponse.dataUrl;
           
           if (qrData && qrData !== qrCode) {
             console.log('🔄 QR code refreshed');
@@ -226,7 +227,7 @@ export function WhatsAppPage() {
         console.log(`✅ Response from ${endpoint}:`, response);
         
         // Check if we got valid QR data
-        const qrData = response.qr_data || response.qr;
+        const qrData = response.qr_data || response.qr || response.dataUrl;
         if (qrData || response.status === 'connected') {
           return response;
         }
@@ -279,7 +280,7 @@ export function WhatsAppPage() {
       }
       
       // תמיכה בפורמטים שונים של QR response  
-      const qrData = response.qr_data || response.qr;
+      const qrData = response.qr_data || response.qr || response.dataUrl;
       
       if (qrData) {
         // יש QR code - להציג אותו
