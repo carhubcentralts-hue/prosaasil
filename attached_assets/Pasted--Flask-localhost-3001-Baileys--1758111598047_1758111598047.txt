@@ -1,0 +1,226 @@
+הבעיה לפי הלוגים שלך ברורה: Flask מנסה לקרוא ל־localhost:3001 אבל שירות ה-Baileys בכלל לא מאזין/מתרסק מיד, לכן מתקבלת ECONNREFUSED. זה כמעט תמיד שילוב של 3 דברים:
+	1.	השירות לא באמת רץ (או יוצא מיד בגלל שגיאה לא מטופלת),
+	2.	הוא מאזין ל־host/port לא נכונים,
+	3.	orchestration לא משאיר אותו בחיים (ב-Replit “תהליך ברקע” נהרג כש־Run נגמר).
+
+להלן הנחיה “סגורה” שתפתור את כל השרשרת – ותוודא שדף ה-WhatsApp מציג QR אמיתי.
+
+⸻
+
+שלב 0 — בדיקת מצב מיידית (דגלים אדומים)
+
+תריץ בטרמינל:
+
+node -v
+ss -ltnp | grep 3001 || lsof -i :3001
+curl -sS http://127.0.0.1:3001/healthz
+echo $INTERNAL_SECRET $BAILEYS_PORT $FLASK_BASE_URL
+
+אם:
+	•	Node < 18 → כנראה fetch לא קיים וגורם ליציאה, נטפל בזה למטה.
+	•	אין מאזין על :3001 → השירות לא באמת רץ (או נופל).
+	•	/healthz נכשל → אותו דבר.
+	•	משתני ENV ריקים → נטפל בשלב 2.
+
+⸻
+
+שלב 1 — מתקנים את שירות ה-Baileys כך שלא יתרסק ויאזין נכון
+
+א. החלף שימוש ב-fetch ל-axios (תואם גם Node 16)
+
+בקובץ השירות services/whatsapp/baileys_service.js:
+	•	ייבא axios, הגן על שגיאות, והאזן על 0.0.0.0.
+
+- const express = require('express');
++ const express = require('express');
+  const cors = require('cors');
+  const QRCode = require('qrcode');
+  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
++ const axios = require('axios');
+  const fs = require('fs');
+  const path = require('path');
+
+@@
+- app.listen(PORT, () => console.log(`Baileys service on ${PORT}`));
++ // לוג שגיאות גלובליות שלא יפילו את התהליך
++ process.on('unhandledRejection', (err) => console.error('[UNHANDLED REJECTION]', err));
++ process.on('uncaughtException', (err) => console.error('[UNCAUGHT EXCEPTION]', err));
++
++ app.listen(PORT, '0.0.0.0', () => console.log(`Baileys service on ${PORT}`));
+
+@@  // messages.upsert webhook → Flask
+- await fetch(`${FLASK_BASE_URL}/webhook/whatsapp/incoming`, {
+-   method: 'POST',
+-   headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': INTERNAL_SECRET },
+-   body: JSON.stringify({ tenantId, payload })
+- });
++ try {
++   await axios.post(
++     `${FLASK_BASE_URL}/webhook/whatsapp/incoming`,
++     { tenantId, payload },
++     { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
++   );
++ } catch (e) {
++   console.error('[Webhook → Flask] failed', e?.message || e);
++ }
+
+ב. ודא שאין יציאה “שקטה”
+
+הוסף “heartbeat” כדי לוודא שהתהליך נשאר חי:
+
+setInterval(() => console.log('💓 baileys alive'), 30000);
+
+אחרי התיקון, הרץ ידנית:
+node services/whatsapp/baileys_service.js
+ובחלון שני: curl -sS http://127.0.0.1:3001/healthz → חייב להחזיר ok.
+
+⸻
+
+שלב 2 — ENV וכתובת נכונה (למנוע IPv6/localhost תקלות)
+
+ב־Replit/ENV:
+
+INTERNAL_SECRET=<מחרוזת ארוכה זהה גם בפלאסק>
+BAILEYS_PORT=3001
+FLASK_BASE_URL=http://127.0.0.1:5000
+BAILEYS_BASE_URL=http://127.0.0.1:3001
+
+שים לב: אני מכוון ל־127.0.0.1 (לא localhost) כדי להימנע מפתרון ל-IPv6 (::1) שלא מאזין.
+
+ב-Flask ודא שאתה קורא את BAILEYS_BASE_URL הזה (עם ‎127.0.0.1‎).
+
+⸻
+
+שלב 3 — orchestration נכון (שני תהליכים שנשארים חיים)
+
+ב-Replit “Run” צריך תהליך אחד קדמי שלא יוצא ושמחזיק את שניהם.
+
+אפשרות מומלצת: Honcho + Procfile (קליל, פועל נהדר)
+	1.	התקן:
+
+pip install honcho
+
+	2.	צור Procfile בשורש:
+
+web: python -u main.py
+whatsapp: node services/whatsapp/baileys_service.js
+
+	3.	בקובץ .replit או ב-Run command, הגדר:
+
+honcho start -f Procfile
+
+Honcho ישאיר את שני התהליכים רצים בקדמה; אם אחד ימות תראה לוג מיידי.
+
+(אלטרנטיבה: concurrently ב-Node, או supervisord. Honcho מספיק כאן.)
+
+⸻
+
+שלב 4 — Flask Proxy (ודא קנוניזציה ושמות נכונים)
+
+בקובץ הקנוני שלך ל-WhatsApp (למשל routes_whatsapp.py) ודא שזה נראה כך:
+
+import os, requests
+from flask import Blueprint, jsonify, request
+
+whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/api/whatsapp')
+BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3001')
+INT_SECRET = os.getenv('INTERNAL_SECRET')
+
+def tenant_id_from_ctx():
+    return getattr(request, 'tenant_id', None) or request.headers.get('X-Tenant-Id') or '1'
+
+def _headers():
+    return {'X-Internal-Secret': INT_SECRET, 'Content-Type': 'application/json'}
+
+@whatsapp_bp.route('/status', methods=['GET'])
+def status():
+    t = tenant_id_from_ctx()
+    r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=5)
+    return jsonify(r.json()), r.status_code
+
+@whatsapp_bp.route('/qr', methods=['GET'])
+def qr():
+    t = tenant_id_from_ctx()
+    r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/qr", headers=_headers(), timeout=5)
+    if r.status_code == 404:
+        return ('', 204)
+    return jsonify(r.json()), r.status_code
+
+@whatsapp_bp.route('/start', methods=['POST'])
+def start():
+    t = tenant_id_from_ctx()
+    r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/start", headers=_headers(), timeout=5)
+    return jsonify(r.json()), r.status_code
+
+אל תשכח: השבת/נטרל כפילויות נתיבים ב־routes.py/api_routes.py/whatsapp_routes.py — שישאר קובץ אחד קנוני ל-WhatsApp.
+
+⸻
+
+שלב 5 — צד React (ה-QR יופיע ברגע שה-service באמת מאזין)
+
+בדף החיבור (WhatsApp Connect) קריאות:
+	•	POST /api/whatsapp/start
+	•	poll כל 2–3 שניות: GET /api/whatsapp/status ו־GET /api/whatsapp/qr
+	•	הצג <img src={dataUrl} /> כשיש תשובה 200; אם 204 → אין QR כרגע.
+
+(הקוד שנתתי לך קודם לעמוד החיבור מתאים – לא צריך לשנות עיצוב גלובלי.)
+
+⸻
+
+שלב 6 — אם עדיין יש ECONNREFUSED, בדיקות נוק־אאוט
+	1.	האם Node מאזין?
+
+ss -ltnp | grep 3001 || lsof -i :3001
+
+אין מאזין → השירות לא נטען. הרץ:
+
+node services/whatsapp/baileys_service.js
+
+בדוק שיש LOG: Baileys service on 3001 ואז:
+
+curl -sS http://127.0.0.1:3001/healthz
+
+אם עכשיו עובד → orchestration היה הבעיה → ודא שה-Honcho הוא ה-Run היחיד ושאין start_services.sh מקביל שמסיים מוקדם.
+	2.	Node < 18?
+node -v
+אם <18 חובה להחליף fetch→axios (עשינו), ולוודא אין await fetch נסתר. חפש:
+
+grep -R "fetch(" -n services/whatsapp
+
+מצאתי → החלף ל-axios.
+	3.	IPv6 מול IPv4
+ב-Flask השתמשת http://localhost:3001? החלף ל-http://127.0.0.1:3001.
+ב-Node האזן ל-0.0.0.0.
+	4.	Crash שקט מה-Baileys
+הוספנו unhandledRejection/uncaughtException. עכשיו תראה את הסיבה האמיתית בלוג. תקן בהתאם (לרוב הרשאות/נתיב storage או מחסור ב-ENV).
+	5.	storage permissions
+וודא שהתיקיות נוצרות:
+
+mkdir -p storage/whatsapp/1/auth
+
+הרץ שוב POST /api/whatsapp/start ובדוק שאין שגיאת גישה.
+
+⸻
+
+שלב 7 — ראיות GO (כדי לדעת שסיימנו)
+	•	honcho start -f Procfile מראה שני תהליכים רצים.
+	•	curl http://127.0.0.1:3001/healthz → ok
+	•	POST /api/whatsapp/start → 200
+כעבור ≤3 שניות:
+GET /api/whatsapp/status → { connected:false, hasQR:true }
+GET /api/whatsapp/qr → 200 { dataUrl: "data:image/png;base64,..." }
+	•	אחרי סריקה:
+GET /api/whatsapp/status → { connected:true, pushName:... }
+GET /api/whatsapp/qr → 204
+
+⸻
+
+למה זה פותר את כל מה שהסוכן התבלבל בו
+	•	לא מסתמכים על רקע שנופל: Honcho מחזיק את שני השירותים “בחזית”.
+	•	אין יציאה על שגיאות: תפסנו Rejection/Exception לוגית.
+	•	אין תלות ב-fetch של Node18: axios עובד בכל גרסה.
+	•	אין הסתבכות IPv6: 127.0.0.1 + האזנה ל-0.0.0.0.
+	•	ENV עקבי: INTERNAL_SECRET/URLs ידועים לשני הצדדים.
+	•	בדיקות GO ברורות: אתה יודע בוודאות מתי זה באמת עובד.
+
+לך על זה לפי הסדר—ברגע שה-/healthz של 3001 מחזיר ok, דף ה-WhatsApp יציג QR אמיתי.

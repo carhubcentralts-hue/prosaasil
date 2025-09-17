@@ -1,1 +1,2 @@
-web: gunicorn -k eventlet -w 1 wsgi:app --bind 0.0.0.0:${PORT}
+web: python -u run_production_server.py
+whatsapp: node services/whatsapp/baileys_service.js

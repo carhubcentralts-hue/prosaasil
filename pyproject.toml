@@ -62,4 +62,5 @@ dependencies = [
     "flask-seasurf>=2.0.0",
     "reportlab>=4.4.3",
     "google-cloud-speech>=2.26.0",
+    "honcho>=2.0.0",
 ]

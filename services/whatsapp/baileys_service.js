@@ -3,25 +3,22 @@ const express = require('express');
 const cors = require('cors');
 const QRCode = require('qrcode');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Environment validation
-const requiredEnvVars = ['INTERNAL_SECRET', 'FLASK_BASE_URL'];
-const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
-if (missingEnvVars.length > 0) {
-  console.error(`❌ Missing required environment variables: ${missingEnvVars.join(', ')}`);
-  process.exit(1);
-}
+// Environment validation - שימוש במשתנים הקיימים!
+const PORT = process.env.BAILEYS_PORT || 3300; // משתמש בפורט הקיים
+const INTERNAL_SECRET = process.env.BAILEYS_WEBHOOK_SECRET; // משתמש בסיקרט הקיים
+const FLASK_BASE_URL = process.env.FLASK_BASE_URL || 'http://127.0.0.1:5000'; // ברירת מחדל
 
-const PORT = process.env.BAILEYS_PORT || 3001;
-const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
-const FLASK_BASE_URL = process.env.FLASK_BASE_URL;
+console.log(`🔧 Using PORT: ${PORT}`);
+console.log(`🔧 Using INTERNAL_SECRET: ${INTERNAL_SECRET ? 'Found' : 'Missing'}`);
+console.log(`🔧 Using FLASK_BASE_URL: ${FLASK_BASE_URL}`);
 
 // Security: Strong tenant ID validation (prevent path traversal)
 const TENANT_ID_REGEX = /^[A-Za-z0-9_-]{1,64}$/;
@@ -286,11 +283,18 @@ app.post('/whatsapp/:tenantId/logout', requireSecret, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+// לוג שגיאות גלובליות שלא יפילו את התהליך
+process.on('unhandledRejection', (err) => console.error('[UNHANDLED REJECTION]', err));
+process.on('uncaughtException', (err) => console.error('[UNCAUGHT EXCEPTION]', err));
+
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Baileys Multi-Tenant Service running on port ${PORT}`);
   console.log(`📁 Auth storage: storage/whatsapp/*/auth/`);
   console.log(`🔐 Internal secret: ${INTERNAL_SECRET ? 'Configured' : 'MISSING'}`);
 });
+
+// Heartbeat כדי לוודא שהתהליך נשאר חי
+setInterval(() => console.log('💓 baileys alive'), 30000);
 
 // Graceful shutdown with proper cleanup
 async function gracefulShutdown(signal) {
