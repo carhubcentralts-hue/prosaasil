@@ -1,5 +1,6 @@
 import os, requests
 from flask import Blueprint, jsonify, request
+from server.extensions import csrf
 
 whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/api/whatsapp')
 BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
@@ -25,6 +26,7 @@ def qr():
         return jsonify({"dataUrl": None}), 200
     return jsonify(r.json()), r.status_code
 
+@csrf.exempt  # Bypass CSRF for internal API
 @whatsapp_bp.route('/start', methods=['POST'])
 def start():
     t = tenant_id_from_ctx()
