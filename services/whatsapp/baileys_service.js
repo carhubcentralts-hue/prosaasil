@@ -51,6 +51,16 @@ app.get('/whatsapp/:tenantId/qr', requireSecret, (req, res) => {
   if (s?.qrDataUrl) return res.json({ dataUrl: s.qrDataUrl });
   return res.status(404).json({ error: 'no_qr' });
 });
+app.post('/whatsapp/:tenantId/reset', requireSecret, async (req, res) => {
+  try { 
+    await resetSession(req.params.tenantId); 
+    return res.json({ ok: true }); 
+  }
+  catch (e) { 
+    console.error('[reset] error', e); 
+    return res.status(500).json({ error: 'reset_failed' }); 
+  }
+});
 
 /** Baileys session logic */
 async function startSession(tenantId) {
@@ -90,6 +100,20 @@ async function startSession(tenantId) {
   });
 
   return s;
+}
+
+async function resetSession(tenantId) {
+  const s = sessions.get(tenantId);
+  if (s?.sock) {
+    try {
+      s.sock.end();
+      s.sock.removeAllListeners();
+    } catch (e) {
+      console.error('[reset] cleanup error', e);
+    }
+  }
+  sessions.delete(tenantId);
+  return await startSession(tenantId);
 }
 
 /** single server instance – we export start() to avoid double listen */
