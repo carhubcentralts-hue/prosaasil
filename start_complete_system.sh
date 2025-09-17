@@ -12,7 +12,7 @@ npm ci
 echo "📱 Starting Baileys WhatsApp service..."
 BAILEYS_WEBHOOK_SECRET=$BAILEYS_WEBHOOK_SECRET \
 PUBLIC_BASE_URL=$PUBLIC_BASE_URL \
-BAILEYS_PORT=3300 \
+BAILEYS_PORT=${BAILEYS_PORT:-3310} \
 node server.js >> baileys.log 2>&1 &
 
 echo "📱 Baileys PID: $!"

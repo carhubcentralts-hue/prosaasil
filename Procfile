@@ -1,2 +1,2 @@
-web: python -u run_production_server.py
-whatsapp: node services/whatsapp/baileys_service.js
+web: python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:5000 --timeout 60 --keep-alive 30 --log-level info --access-logfile - --error-logfile - --preload
+whatsapp: bash -lc 'cd services/baileys && node server.js'

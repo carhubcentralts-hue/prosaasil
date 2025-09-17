@@ -34,10 +34,24 @@ function validateTenantId(tenantId) {
 
 const sessions = new Map(); // tenantId -> { sock, state, qrDataUrl, connected, pushName }
 
-// 🛡️ Handle SIGHUP to stay alive when running in background
+// 🛡️ Handle SIGHUP and ensure process stays alive in background
 process.on('SIGHUP', () => {
   console.log('📴 Received SIGHUP, ignoring to stay alive in background');
 });
+
+// Ensure process doesn't exit on uncaught exceptions in background
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception (handled):', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection (handled):', reason);
+});
+
+// Keep process alive in background
+if (process.env.NODE_ENV !== 'development') {
+  process.stdin.resume();
+}
 
 function authDir(tenantId) {
   // Security: Validate tenant ID and ensure path stays within storage/whatsapp
@@ -283,14 +297,29 @@ app.post('/whatsapp/:tenantId/logout', requireSecret, async (req, res) => {
   }
 });
 
+// הוספת מזהה שירות לכל תגובה
+app.use((req, res, next) => {
+  res.set('X-Service', 'baileys-whatsapp');
+  next();
+});
+
+// שורש endpoint לזיהוי השירות
+app.get('/', (req, res) => res.send('baileys-whatsapp-service'));
+
 // לוג שגיאות גלובליות שלא יפילו את התהליך
 process.on('unhandledRejection', (err) => console.error('[UNHANDLED REJECTION]', err));
 process.on('uncaughtException', (err) => console.error('[UNCAUGHT EXCEPTION]', err));
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Baileys Multi-Tenant Service running on port ${PORT}`);
   console.log(`📁 Auth storage: storage/whatsapp/*/auth/`);
   console.log(`🔐 Internal secret: ${INTERNAL_SECRET ? 'Configured' : 'MISSING'}`);
+  console.log(`🔗 Actual bound address:`, server.address());
+});
+
+server.on('error', (err) => {
+  console.error('❌ Listen error:', err);
+  process.exit(1);
 });
 
 // Heartbeat כדי לוודא שהתהליך נשאר חי
