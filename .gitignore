@@ -11,6 +11,8 @@ vite.config.ts.*
 # Baileys auth state (session data) - NEVER commit
 baileys-service/auth_info_baileys/
 auth_info_baileys/
+storage/whatsapp/**/auth/
+services/whatsapp/auth_info_baileys/
 
 # Logs
 *.log

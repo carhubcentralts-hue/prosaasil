@@ -77,15 +77,19 @@ for i in {1..10}; do
   sleep 1
 done
 
-# עכשיו הפעל Vite frontend על 3310 עם trap support
-echo "🌐 Starting Vite Frontend on port 3310..."
-cd client && npm run dev &
-VITE_PID=$!
-echo "✅ Vite started (PID: $VITE_PID)"
+# עכשיו בנה ופעל את הFrontend עבור production
+echo "🌐 Building Frontend for production..."
+cd client && npm run build
 
-# המתן ל-Vite (foreground)
+# הפעל את הFrontend הבנוי באמצעות serve
+echo "🌐 Starting Production Frontend on port 3310..."
+npx serve dist -p 3310 --single &
+VITE_PID=$!
+echo "✅ Production Frontend started (PID: $VITE_PID)"
+
+# המתן ל-Frontend (foreground)
 echo "🎯 כל השירותים פעילים! המערכת מוכנה."
-echo "📊 Frontend: http://localhost:3310"
+echo "📊 Frontend: http://localhost:3310 (PRODUCTION BUILD)"
 echo "📊 Flask API: http://localhost:5000"
 echo "📊 Baileys: http://localhost:3300 (internal)"
 wait ${VITE_PID}
