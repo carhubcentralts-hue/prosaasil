@@ -458,18 +458,7 @@ def create_app():
             'production': True
         })
     
-    # תיקון /healthz ישירות כפי שצריך
-    @csrf.exempt  # GET healthz exempt per instructions
-    @app.route('/healthz', methods=['GET'])
-    def healthz_app_factory():
-        """Direct healthz route - WORKING VERSION"""
-        return "ok", 200
-    
-    @csrf.exempt  # Debug healthz also exempt
-    @app.route('/healthz-direct', methods=['GET'])
-    def healthz_direct():
-        """Direct healthz route for debugging"""
-        return "ok", 200
+    # Health endpoints handled by health_endpoints.py blueprint
     
     print("✅ Factory debug route registered: /debug-factory-http")
     print("✅ /healthz route added directly to app_factory")
@@ -671,11 +660,7 @@ def create_app():
     def handle_server_error(e):
         return jsonify({"error": "server_error", "message": "Internal server error"}), 500
     
-    # VERSION ENDPOINT - לוודא שהקוד החדש רץ
-    @csrf.exempt  # GET version exempt per instructions
-    @app.route('/version', methods=['GET'])
-    def version_endpoint():
-        return jsonify(version_info)
+    # Version endpoint handled by health_endpoints.py blueprint
     
     # POST-STARTUP DATABASE OPERATIONS ENDPOINT
     @app.route('/api/admin/run-migrations', methods=['POST'])
