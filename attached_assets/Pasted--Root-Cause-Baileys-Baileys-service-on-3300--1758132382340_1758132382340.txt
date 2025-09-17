@@ -1,0 +1,136 @@
+הבנתי. לפי הדיווח האחרון ה־Root Cause כרגע:
+Baileys מודפס “Baileys service on 3300” ואז התהליך מת מיד — אין מאזין, לכן curl 127.0.0.1:3300/healthz נכשל; Flask 5000 פנוי. עכשיו נעשה אבחון נקי שייתן תשובה חד־משמעית למה התהליך מת (קוד? סיגנל? פורט חסום?). לא נוגעים בקוד היישום — רק טסטים קטנים.
+
+להדביק אחד־לאחד. אם משהו נכשל—עוצרים באותו צעד ומחזירים את הפלט.
+
+⸻
+
+שלב 1 — האם ה־OS שולח סיגנל (KILL/TERM/HUP)?
+
+טאב טרמינל #1 (קדמי, לא ברקע):
+
+node -e "process.on('exit',c=>console.error('EXIT',c));
+['SIGTERM','SIGINT','SIGHUP','SIGQUIT'].forEach(s=>process.on(s,()=>{console.error('SIGNAL',s);}));
+const http=require('http');http.createServer((q,r)=>r.end('ok')).listen(3300,'0.0.0.0',()=>console.error('LISTEN 3300'));
+setInterval(()=>{},1e9);"
+
+טאב #2:
+
+curl -sS http://127.0.0.1:3300/   # מצופה: ok
+
+פענוח:
+	•	אם בטאב #1 אתה רואה LISTEN 3300 ואז מיד SIGNAL SIGTERM/SIGHUP/SIGQUIT → הפלטפורמה מחסלת את התהליך.
+	•	אם אין “SIGNAL” אבל מופיע EXIT <code> מהר מאוד → התהליך יוצא “מרצון” (כנראה process.exit/סגירה פנימית).
+
+תחזיר לי את מה שמודפס (SIGNAL/EXIT). אל תמשיך לשלב הבא אם זה לא יציב.
+
+⸻
+
+שלב 2 — האם פורט 3300 בכלל מותר פה?
+
+אם שלב 1 נכשל/יצא מהר, נבדוק “פורט ניסוי” אחר:
+
+טאב #1:
+
+node -e "const http=require('http');http.createServer((q,r)=>r.end('ok')).listen(5001,'0.0.0.0',()=>console.error('LISTEN 5001'));setInterval(()=>{},1e9);"
+
+טאב #2:
+
+curl -sS http://127.0.0.1:5001/
+
+פענוח:
+	•	אם 5001 עובד יציב אבל 3300 נופל → 3300 נחסם/נקטע בסביבה.
+	•	אם גם 5001 נופל מיד → זו מדיניות תהליכים (קוטלים תהליך Node משני/לא־ראשי) ולא בעיית פורט.
+
+תחזיר מה הופיע (“LISTEN 5001” ואז ok? או נפל?).
+
+⸻
+
+שלב 3 — האם זה “יציאה שקטה” של Node?
+
+נבדוק את קוד היציאה:
+
+טאב #1:
+
+node services/baileys/server.js; echo "NODE_EXIT:$?"
+
+אם אין server.js:
+
+node services/whatsapp/baileys_service.js; echo "NODE_EXIT:$?"
+
+פענוח:
+	•	NODE_EXIT:0 מיד → משהו קורא ל־process.exit(0) / ה־OS שלח SIGKILL (שאין דרך ללכוד).
+	•	קוד אחר (≠0) → לרוב חריג שלא נתפס.
+
+תחזיר את המספר המדויק אחרי שהשורה הודפסה.
+
+⸻
+
+שלב 4 — האם קריסת Baileys קשורה לדיסק/הרשאות?
+
+בדיקה נקודתית לנתיב ה־auth (בעיה נפוצה שמפילה בלי לוג):
+
+mkdir -p storage/whatsapp/1/auth && ls -ld storage/whatsapp/1/auth
+
+ואז:
+
+node -e "const fs=require('fs'),path=require('path');const p=path.join(process.cwd(),'storage','whatsapp','1','auth');try{fs.accessSync(p,fs.constants.R_OK|fs.constants.W_OK);console.error('AUTH_OK',p);}catch(e){console.error('AUTH_BAD',e.message);process.exit(1);}setInterval(()=>{},1e9);"
+
+פענוח: אם זה לא “AUTH_OK …” → יש בעיית הרשאה/נתיב שמסוגלת להפיל את ה־socket בעת useMultiFileAuthState.
+
+⸻
+
+שלב 5 — הפרדה בין “בעיה בקוד” ל“מדיניות פלטפורמה”
+
+אם בשלב 1 ראינו SIGNAL מיד אחרי האזנה, או אם שלב 2 הוכיח ש־3300 לא יציב אבל 5001 כן — זה לא קוד. זו מדיניות ריצה (תהליך משני/פורט אסור).
+
+במקרה כזה, רק לאימות (עדיין בלי לשנות קוד היישום), תריץ תהליך אחד שמרים את שניהם כדי למנוע הריגת “תהליך משני”:
+
+טאב #1 (קדמי יחיד):
+
+bash -lc '
+set -e
+python -u - <<PY &
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading, subprocess, os, time, signal, sys
+# מרימים Baileys כתת-תהליך אבל שומרים עליו
+env = os.environ.copy()
+env.setdefault("BAILEYS_PORT","3300")
+p = subprocess.Popen(["node","services/baileys/server.js"], env=env)
+class H(BaseHTTPRequestHandler):
+    def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+srv = HTTPServer(("0.0.0.0",5000), H)
+def reap():
+    try: p.wait(timeout=0)
+    except: pass
+try:
+    print("FLASK-STUB listening 5000; Baileys PID", p.pid, flush=True)
+    srv.serve_forever()
+finally:
+    p.terminate()
+PY
+'
+
+טאב #2:
+
+curl -sS http://127.0.0.1:3300/healthz || echo "no health"
+curl -sS http://127.0.0.1:5000/
+
+פענוח: אם בתצורה הזו שני השירותים “נשארים בחיים” וה־curl עובד — ברור שהבעיה היא מי מריץ את מי (פלטפורמה מחסלת תהליך עצמאי). הפתרון יהיה מריץ יחיד (Honcho/Procfile או launcher יחיד) — אבל קודם נאשר את זה בניסוי הזה.
+
+⸻
+
+מה לשלוח לי חזרה (בדיוק)
+	1.	הפלט מהשלב 1 (האם הודפס SIGNAL … או EXIT …).
+	2.	תוצאת שלב 2 (5001 — “ok” או נכשל).
+	3.	NODE_EXIT:<code> משלב 3.
+	4.	תוצאת שלב 4 (AUTH_OK או AUTH_BAD …).
+	5.	תוצאת שלב 5 (האם בשיטה של “תהליך יחיד” שני ה־curl מצליחים).
+
+עם 5 הנתונים האלה אדע במדויק אם זה:
+	•	חסימת פורט 3300,
+	•	סיגנל מהפלטפורמה,
+	•	process.exit/יציאה נקייה,
+	•	או הרשאות/דיסק ל־auth.
+
+ואז אתן תיקון חד־פעמי (ENV/launcher) בלי “לקוות לטוב”.
