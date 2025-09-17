@@ -125,9 +125,9 @@ export function WhatsAppPage() {
       console.log('🔄 Starting QR auto-refresh interval');
       interval = setInterval(async () => {
         try {
-          // Check QR status
-          const qrResponse = await http.get<QRCodeData>('/wa/qr');
-          const qrData = qrResponse.qr_data || qrResponse.qr;
+          // Check QR status using unified function
+          const qrResponse = await getQRCode();
+          const qrData = qrResponse?.qr_data || qrResponse?.qr;
           
           if (qrData && qrData !== qrCode) {
             console.log('🔄 QR code refreshed');
@@ -210,6 +210,29 @@ export function WhatsAppPage() {
     }
   };
 
+  // Unified QR retrieval function with all fallbacks
+  const getQRCode = async (): Promise<QRCodeData | null> => {
+    const endpoints = ['/api/whatsapp/qr', '/wa/qr', '/api/whatsapp/baileys/qr'];
+    
+    for (const endpoint of endpoints) {
+      try {
+        console.log(`🔍 Trying ${endpoint}...`);
+        const response = await http.get<QRCodeData>(endpoint);
+        console.log(`✅ Response from ${endpoint}:`, response);
+        
+        // Check if we got valid QR data
+        const qrData = response.qr_data || response.qr;
+        if (qrData || response.status === 'connected') {
+          return response;
+        }
+      } catch (error) {
+        console.warn(`❌ ${endpoint} failed:`, error);
+      }
+    }
+    
+    return null;
+  };
+
   const generateQRCode = async () => {
     if (selectedProvider !== 'baileys') {
       alert('QR קוד זמין רק לספק Baileys');
@@ -220,16 +243,29 @@ export function WhatsAppPage() {
       setQrLoading(true);
       console.log('🔄 Generating QR code for provider:', selectedProvider);
       
-      // Try proxy route first, fallback to Baileys endpoint
-      let response;
+      // First start the WhatsApp session with explicit provider
       try {
-        console.log('🔍 Trying /wa/qr proxy route...');
-        response = await http.get<QRCodeData>('/wa/qr');
-        console.log('✅ Response from proxy:', response);
-      } catch (error) {
-        console.warn('❌ Proxy failed, using Baileys endpoint...');
-        response = await http.get<QRCodeData>('/api/whatsapp/baileys/qr');
-        console.log('✅ Response from Baileys:', response);
+        console.log('🚀 Starting WhatsApp session...');
+        await http.post('/api/whatsapp/start', { provider: selectedProvider });
+        console.log('✅ WhatsApp session started');
+      } catch (startError: any) {
+        console.warn('❌ Failed to start WhatsApp session:', startError);
+        // Continue anyway, maybe session already exists
+      }
+      
+      // Poll for QR code availability with backoff
+      let response = null;
+      let attempts = 0;
+      const maxAttempts = 10;
+      
+      while (!response && attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, attempts === 0 ? 500 : 1000));
+        response = await getQRCode();
+        attempts++;
+        
+        if (!response) {
+          console.log(`⏳ QR not ready yet, attempt ${attempts}/${maxAttempts}`);
+        }
       }
       
       // תמיכה בפורמטים שונים של QR response  
