@@ -4,7 +4,6 @@ WhatsApp Appointment Handler - ניהול פגישות דרך וואטסאפ
 from datetime import datetime, timedelta
 from server.models_sql import Appointment, Customer, Business, WhatsAppMessage, db
 from server.whatsapp_templates import send_template_message, select_template
-# from server.api_whatsapp_unified import send_message  # לא צריך import ישיר
 import re
 import json
 from typing import Dict, List, Optional

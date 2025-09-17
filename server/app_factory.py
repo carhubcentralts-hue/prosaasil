@@ -500,8 +500,6 @@ def create_app():
     # CRM unified moved to routes_crm.py - no separate API blueprint needed
     
     # WhatsApp Unified API - REPLACED by canonical routes_whatsapp.py
-    # from server.api_whatsapp_unified import whatsapp_unified_bp
-    # app.register_blueprint(whatsapp_unified_bp, url_prefix='/api/whatsapp')
     
     # Baileys worker integration - DISABLED for clean setup
     # External Baileys service runs on port 3300 via start_system_stable.sh
