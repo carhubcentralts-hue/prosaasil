@@ -1,2 +1,2 @@
-web: python -u main.py
+web: python -m gunicorn wsgi:app -k eventlet -w 1 -b 0.0.0.0:5000 --timeout 60 --keep-alive 30 --log-level info --access-logfile - --error-logfile - --preload
 whatsapp: node services/baileys/server.js
