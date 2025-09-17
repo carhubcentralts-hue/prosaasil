@@ -90,5 +90,5 @@ app.get('/whatsapp/:tenantId/qr', requireSecret, (req, res) => {
 process.on('unhandledRejection', err => console.error('[UNHANDLED]', err));
 process.on('uncaughtException', err => console.error('[UNCAUGHT]', err));
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Baileys service on ${PORT}`));
+app.listen(PORT, '127.0.0.1', () => console.log(`Baileys service on ${PORT}`));
 setInterval(() => console.log('💓 baileys alive'), 30000);
