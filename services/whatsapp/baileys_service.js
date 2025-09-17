@@ -37,6 +37,11 @@ function validateTenantId(tenantId) {
 
 const sessions = new Map(); // tenantId -> { sock, state, qrDataUrl, connected, pushName }
 
+// 🛡️ Handle SIGHUP to stay alive when running in background
+process.on('SIGHUP', () => {
+  console.log('📴 Received SIGHUP, ignoring to stay alive in background');
+});
+
 function authDir(tenantId) {
   // Security: Validate tenant ID and ensure path stays within storage/whatsapp
   validateTenantId(tenantId);
@@ -312,7 +317,12 @@ async function gracefulShutdown(signal) {
   }
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+// Handle SIGTERM/SIGINT with optional bypass for debugging
+if (process.env.BAILEYS_IGNORE_SIGTERM === '1') {
+  process.on('SIGTERM', () => console.log('📴 Ignoring SIGTERM in debug mode'));
+} else {
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+}
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Error handling

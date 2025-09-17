@@ -13,6 +13,7 @@ export INTERNAL_SECRET=test-local-secret-123
 export FLASK_BASE_URL=http://localhost:5000
 export BAILEYS_PORT=3001
 export BAILEYS_BASE_URL=http://localhost:3001
+export BAILEYS_IGNORE_SIGTERM=1
 
 # Kill any existing services on ports 5000 and 3001
 echo "🧹 Cleaning up existing services..."
@@ -74,3 +75,13 @@ echo "- Baileys: tail -f baileys.log"
 echo ""
 echo "🛑 To stop services: ./stop_services.sh"
 echo "✅ Services startup complete!"
+
+# 🛡️ Install signal handlers to manage child processes
+trap 'echo "🛑 Stopping services..."; kill -TERM $FLASK_PID $BAILEYS_PID 2>/dev/null; wait $FLASK_PID 2>/dev/null; wait $BAILEYS_PID 2>/dev/null; exit 0' SIGINT SIGTERM SIGHUP
+
+echo "📊 Keeping services alive... (Ctrl+C to stop)"
+echo "- Flask PID: $FLASK_PID"  
+echo "- Baileys PID: $BAILEYS_PID"
+
+# Keep script alive to protect child processes
+wait -n $FLASK_PID $BAILEYS_PID
