@@ -503,25 +503,8 @@ def create_app():
     # from server.api_whatsapp_unified import whatsapp_unified_bp
     # app.register_blueprint(whatsapp_unified_bp, url_prefix='/api/whatsapp')
     
-    # Baileys worker integration with modern Flask lifecycle
-    def initialize_baileys_worker():
-        """Initialize Baileys in worker process after Flask is ready"""
-        try:
-            from server.baileys_runner import ensure_baileys_worker
-            ensure_baileys_worker()
-            print("✅ Baileys worker supervisor initialized")
-        except Exception as e:
-            print(f"⚠️ Baileys worker initialization failed: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    # Use modern Flask 3.x approach with record_once
-    @app.before_request
-    def _ensure_baileys_once():
-        """Ensure Baileys starts only once per worker"""
-        if not hasattr(g, '_baileys_initialized'):
-            initialize_baileys_worker()
-            g._baileys_initialized = True
+    # Baileys worker integration - DISABLED for clean setup
+    # External Baileys service runs on port 3300 via start_system_stable.sh
     
     # WhatsApp Baileys Proxy Routes - REPLACED by canonical routes_whatsapp.py
     # from server.routes_baileys_proxy import bp_wa
