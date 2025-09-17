@@ -1,4 +1,0 @@
-[workflows."Start application"]
-name = "Start application"
-command = "BAILEYS_PORT=3310 WHATSAPP_PROVIDER=baileys exec python -m honcho start -f Procfile"
-type = "server"

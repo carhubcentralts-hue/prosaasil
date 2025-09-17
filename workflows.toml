@@ -1,0 +1,4 @@
+[workflows."Start application"]
+name = "Start application"
+command = "bash -lc 'PORT=5000 BAILEYS_PORT=3310 WHATSAPP_PROVIDER=baileys ./start_complete_system.sh'"
+type = "server"

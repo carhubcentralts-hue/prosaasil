@@ -6,7 +6,7 @@ echo "🚀 Starting AgentLocator Complete System..."
 # Install Baileys dependencies
 echo "📦 Installing Baileys dependencies..."
 cd services/baileys
-npm ci
+npm install 2>/dev/null || true
 
 # Start Baileys service in background
 echo "📱 Starting Baileys WhatsApp service..."
@@ -18,8 +18,8 @@ node server.js >> baileys.log 2>&1 &
 echo "📱 Baileys PID: $!"
 echo $! > ../baileys.pid
 
-# Return to main directory
-cd ..
+# Return to main directory (repo root)
+cd ../..
 
 # Start Python Flask server with Gunicorn in foreground
 echo "🐍 Starting Flask server with Gunicorn..."
