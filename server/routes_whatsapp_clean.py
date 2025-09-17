@@ -22,8 +22,7 @@ def status():
 def qr():
     t = tenant_id_from_ctx()
     r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/qr", headers=_headers(), timeout=5)
-    if r.status_code == 404:
-        return ('', 204)  # אין QR כרגע – 204 בלי גוף
+    # תמיד מחזיר JSON - לא 204 שיגרום לJSON parse error
     return jsonify(r.json()), r.status_code
 
 @whatsapp_bp.route('/start', methods=['POST'])

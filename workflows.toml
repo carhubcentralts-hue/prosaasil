@@ -1,4 +1,4 @@
 [workflows."Start application"]
 name = "Start application"
-command = "bash -lc 'PORT=5000 BAILEYS_PORT=3310 WHATSAPP_PROVIDER=baileys ./start_complete_system.sh'"
+command = "bash -lc 'INTERNAL_SECRET=${INTERNAL_SECRET:-dev-secret} BAILEYS_PORT=3300 FLASK_BASE_URL=http://127.0.0.1:5000 BAILEYS_BASE_URL=http://127.0.0.1:3300 ./start_system_stable.sh'"
 type = "server"
