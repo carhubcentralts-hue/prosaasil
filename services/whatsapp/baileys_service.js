@@ -64,12 +64,19 @@ app.post('/whatsapp/:tenantId/reset', requireSecret, async (req, res) => {
 
 /** Baileys session logic */
 async function startSession(tenantId) {
-  if (sessions.get(tenantId)?.sock) return sessions.get(tenantId);
+  console.log(`[${tenantId}] 🚀 startSession called`);
+  if (sessions.get(tenantId)?.sock) {
+    console.log(`[${tenantId}] ⚠️ Session already exists, returning existing`);
+    return sessions.get(tenantId);
+  }
+  console.log(`[${tenantId}] 📁 Loading auth state from: ${authDir(tenantId)}`);
   const { state, saveCreds } = await useMultiFileAuthState(authDir(tenantId));
+  console.log(`[${tenantId}] 🔧 Creating WhatsApp socket`);
   const sock = makeWASocket({ auth: state, printQRInTerminal: false });
 
   const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '' };
   sessions.set(tenantId, s);
+  console.log(`[${tenantId}] 💾 Session stored in memory`);
 
   sock.ev.on('creds.update', saveCreds);
   sock.ev.on('connection.update', async (u) => {
