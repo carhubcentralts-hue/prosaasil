@@ -1,5 +1,6 @@
 // services/whatsapp/baileys_service.js
 const express = require('express');
+const cors = require('cors');
 const QRCode = require('qrcode');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const fs = require('fs');
@@ -7,6 +8,7 @@ const path = require('path');
 const axios = require('axios');
 
 const app = express();
+app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 // Environment validation
