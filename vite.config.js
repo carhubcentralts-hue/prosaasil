@@ -12,7 +12,7 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: 3000,  // Frontend on port 3000
+    port: 3002,  // Frontend on port 3002
     proxy: {
       '/api': process.env.NODE_ENV === 'production' 
         ? '' // Same domain in production
@@ -30,7 +30,7 @@ export default defineConfig({
   },
   preview: {
     host: '0.0.0.0',
-    port: 3000,
+    port: 3002,
   },
   resolve: {
     alias: {
