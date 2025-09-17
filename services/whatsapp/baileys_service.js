@@ -95,7 +95,7 @@ async function startSession(tenantId) {
   sock.ev.on('connection.update', async (u) => {
     try {
       const { connection, lastDisconnect, qr } = u;
-      console.log(`[${tenantId}] Connection update:`, { connection, qr: !!qr, lastDisconnect: lastDisconnect?.error?.output?.statusCode });
+      console.log(`[${tenantId}] [update]`, { connection, hasQr: !!qr, reason: lastDisconnect?.error?.output?.statusCode });
       
       if (qr) {
         console.log(`[${tenantId}] 🔄 Generating new QR code`);
