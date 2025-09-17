@@ -79,7 +79,7 @@ done
 
 # עכשיו הפעל Vite frontend על 3310 עם trap support
 echo "🌐 Starting Vite Frontend on port 3310..."
-npm run dev &
+cd client && npm run dev &
 VITE_PID=$!
 echo "✅ Vite started (PID: $VITE_PID)"
 

@@ -329,10 +329,14 @@ def create_app():
         from server.routes_whatsapp import whatsapp_bp
         app.register_blueprint(whatsapp_bp)
         
-        # CSRF exemptions לroutes WhatsApp לפי הנחיות המשתמש
-        csrf.exempt(whatsapp_bp.view_functions['status'])
-        csrf.exempt(whatsapp_bp.view_functions['qr'])
-        csrf.exempt(whatsapp_bp.view_functions['start'])
+        # CSRF exemptions לroutes WhatsApp - using endpoint names instead of view_functions
+        try:
+            csrf.exempt(app.view_functions.get('whatsapp.status'))
+            csrf.exempt(app.view_functions.get('whatsapp.qr'))  
+            csrf.exempt(app.view_functions.get('whatsapp.start'))
+            print("✅ WhatsApp CSRF exemptions applied")
+        except Exception as e:
+            print(f"⚠️ WhatsApp CSRF exemption warning: {e}")
         
         print("✅ New API blueprints registered")
         print("✅ Twilio webhooks registered")

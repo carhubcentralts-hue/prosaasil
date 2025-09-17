@@ -5,6 +5,9 @@ export default defineConfig({
   plugins: [react()],
   base: '/',                  // ← חשוב! assets תמיד יהיו /assets/ (לא יחסיים)
   server: {
+    host: '0.0.0.0',
+    port: 3310,
+    strictPort: true,
     proxy: {
       '/api': 'http://localhost:5000'
     }
