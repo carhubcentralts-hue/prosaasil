@@ -254,3 +254,8 @@ function start() {
 }
 
 module.exports = { start, app };
+
+// 🚀 Allow direct execution
+if (require.main === module) {
+  start();
+}
