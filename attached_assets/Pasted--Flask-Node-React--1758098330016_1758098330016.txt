@@ -1,0 +1,485 @@
+קיבלת. הנה הנחיה אחת, סופית ומדויקת לסוכן שלך — מותאמת בול לפרויקט (Flask + Node + React), כולל:
+	•	Google STT כראשי + Whisper כ-fallback
+	•	Baileys כשירות יציב (REST + multi-tenant + QR + /healthz)
+	•	איחוד ראוטים, קשיחות פרודקשן (Validator/CSRF/Health/Version)
+	•	UI Onboarding ל-WhatsApp בלי לשבור עיצוב קיים (RTL + Assistant)
+	•	שיחות מהירות (ללא 11205) — פיצול העיבוד מה-webhook הראשי
+	•	תיקוני קומפילציה / אינדנטציה / Docker נצרכים
+
+🛑 חוקי ברזל:
+• אין ליצור קבצים כפולים או _v2/_copy.
+• שומרים RTL, Tailwind, Assistant; אין שינוי טוקנים גלובליים.
+• לא משנים שמות API קיימים ללקוחות — רק מסדרים פנים-מערכתי.
+• בכל שלב מצרפים ראיית GO (בדיקה/לוג/סקרינשוט).
+
+⸻
+
+0) התקנות ותצורה (חד-פעמי)
+	1.	Python deps — עדכן requirements.txt (הוסף אם חסר):
+
+google-cloud-speech>=2.26.0
+twilio>=9.0.0
+
+	2.	Node deps — עדכן package.json:
+
+{
+  "scripts": {
+    "start:baileys": "node services/whatsapp/baileys_service.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.0.0",
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "qrcode": "^1.5.3"
+  }
+}
+
+	3.	ENV (עדכן .env/Replit Secrets):
+
+# Flask
+TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxx
+INTERNAL_SECRET=long_random_secret_for_internal_calls
+BAILEYS_BASE_URL=http://localhost:3001
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/gcp_speech_key.json
+GCP_SPEECH_LANGUAGE=he-IL
+GCP_SPEECH_ENABLE_PUNCTUATION=true
+DEPLOY_ID=dev
+GIT_SHA=local
+
+# Node
+BAILEYS_PORT=3001
+FLASK_BASE_URL=http://localhost:5000
+
+
+⸻
+
+1) Baileys → שירות Express אמיתי (multi-tenant + QR + /healthz)
+
+צור/עדכן קובץ יחיד: services/whatsapp/baileys_service.js (אל תיצור עותקים נוספים):
+
+const express = require('express');
+const cors = require('cors');
+const QRCode = require('qrcode');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const fs = require('fs');
+const path = require('path');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const PORT = process.env.BAILEYS_PORT || 3001;
+const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
+const FLASK_BASE_URL = process.env.FLASK_BASE_URL || 'http://localhost:5000';
+if (!INTERNAL_SECRET) { console.error('INTERNAL_SECRET missing'); process.exit(1); }
+
+const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, pushName }
+
+const authDir = (tenantId) => path.join(process.cwd(), 'storage', 'whatsapp', tenantId, 'auth');
+
+function requireSecret(req, res, next) {
+  if (req.header('X-Internal-Secret') !== INTERNAL_SECRET) return res.status(401).json({ error: 'unauthorized' });
+  next();
+}
+
+async function startSession(tenantId) {
+  if (sessions.get(tenantId)?.sock) return sessions.get(tenantId);
+
+  fs.mkdirSync(authDir(tenantId), { recursive: true });
+  const { state, saveCreds } = await useMultiFileAuthState(authDir(tenantId));
+
+  const sock = makeWASocket({ auth: state, printQRInTerminal: false });
+  const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '' };
+  sessions.set(tenantId, s);
+
+  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('connection.update', async (u) => {
+    const { connection, lastDisconnect, qr } = u;
+    if (qr) s.qrDataUrl = await QRCode.toDataURL(qr);
+    if (connection === 'open') {
+      s.connected = true;
+      s.pushName = sock?.user?.name || sock?.user?.id || '';
+      s.qrDataUrl = '';
+    }
+    if (connection === 'close') {
+      s.connected = false;
+      const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
+      if (shouldReconnect) setTimeout(() => startSession(tenantId), 2000);
+    }
+  });
+
+  // הודעות נכנסות → העבר ל-Flask
+  sock.ev.on('messages.upsert', async (payload) => {
+    try {
+      await fetch(`${FLASK_BASE_URL}/webhook/whatsapp/incoming`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': INTERNAL_SECRET },
+        body: JSON.stringify({ tenantId, payload })
+      });
+    } catch (_) {}
+  });
+
+  return s;
+}
+
+app.get('/healthz', (req, res) => res.status(200).send('ok'));
+
+app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
+  await startSession(req.params.tenantId);
+  res.json({ ok: true });
+});
+
+app.get('/whatsapp/:tenantId/status', requireSecret, (req, res) => {
+  const s = sessions.get(req.params.tenantId);
+  res.json({ connected: !!s?.connected, pushName: s?.pushName || '', hasQR: !!s?.qrDataUrl });
+});
+
+app.get('/whatsapp/:tenantId/qr', requireSecret, (req, res) => {
+  const s = sessions.get(req.params.tenantId);
+  if (s?.qrDataUrl) return res.json({ dataUrl: s.qrDataUrl });
+  return res.status(404).json({ error: 'no qr' });
+});
+
+app.post('/whatsapp/:tenantId/logout', requireSecret, async (req, res) => {
+  const s = sessions.get(req.params.tenantId);
+  if (s?.sock?.logout) await s.sock.logout();
+  sessions.delete(req.params.tenantId);
+  res.json({ ok: true });
+});
+
+app.listen(PORT, () => console.log(`Baileys service on ${PORT}`));
+
+ראיית GO: curl http://localhost:3001/healthz → ok.
+
+⸻
+
+2) Flask — קובץ קנוני ל-WhatsApp + פרוקסי ל-Baileys + Webhook
+
+א. קובץ קנוני: עבודה מרוכזת ב־routes_whatsapp.py (או הקיים המקביל).
+ב. איחוד: נטרל/מחק רישומי Blueprint/Routes כפולים ב־routes.py, whatsapp_routes.py, api_routes.py — השאר רק את הקנוני.
+
+תוכן קנוני (הוסף/עדכן):
+
+# routes_whatsapp.py
+import os, requests
+from flask import Blueprint, jsonify, request
+
+whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/api/whatsapp')
+BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://localhost:3001')
+INT_SECRET = os.getenv('INTERNAL_SECRET')
+
+def tenant_id_from_ctx():
+    # שלוף tenant_id מה-session/JWT לפי הפרויקט שלך (אם יש helper קיים – השתמש בו)
+    return getattr(request, 'tenant_id', None) or request.headers.get('X-Tenant-Id')
+
+def _headers():
+    return {'X-Internal-Secret': INT_SECRET, 'Content-Type': 'application/json'}
+
+@whatsapp_bp.route('/status', methods=['GET'])
+def status():
+    t = tenant_id_from_ctx()
+    r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=5)
+    return jsonify(r.json()), r.status_code
+
+@whatsapp_bp.route('/qr', methods=['GET'])
+def qr():
+    t = tenant_id_from_ctx()
+    r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/qr", headers=_headers(), timeout=5)
+    if r.status_code == 404:
+        return ('', 204)
+    return jsonify(r.json()), r.status_code
+
+@whatsapp_bp.route('/start', methods=['POST'])
+def start():
+    t = tenant_id_from_ctx()
+    r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/start", headers=_headers(), timeout=5)
+    return jsonify(r.json()), r.status_code
+
+@whatsapp_bp.route('/logout', methods=['POST'])
+def logout():
+    t = tenant_id_from_ctx()
+    r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/logout", headers=_headers(), timeout=5)
+    return jsonify(r.json()), r.status_code
+
+Webhook מ-Baileys ל-Flask (אותו קובץ או webhook_whatsapp.py):
+
+from flask import Blueprint, request, jsonify
+import os
+
+webhook_bp = Blueprint('whatsapp_webhook', __name__, url_prefix='/webhook/whatsapp')
+
+@webhook_bp.route('/incoming', methods=['POST'])
+def incoming():
+    if request.headers.get('X-Internal-Secret') != os.getenv('INTERNAL_SECRET'):
+        return jsonify({'error':'unauthorized'}), 401
+    data = request.json or {}
+    # TODO: שמירת הודעה לטיימליין CRM / מודל ההודעות שלך
+    return jsonify({'ok': True}), 200
+
+CSRF: החרג אך ורק את /api/whatsapp/* ו־/webhook/whatsapp/* אם יש CSRF גלובלי.
+
+ראיית GO:
+	•	GET /api/whatsapp/status ⇒ {connected:false, hasQR:false} לפני start
+	•	POST /api/whatsapp/start ⇒ 200
+	•	GET /api/whatsapp/qr ⇒ 200 {dataUrl:…} ואז לאחר סריקה ⇒ 204.
+
+⸻
+
+3) React — מסך Onboarding ל-WhatsApp (QR + Status) בלי לשבור עיצוב
+
+אם כבר יש דף חיבור — שדרג אותו; אם חסר, צור: src/pages/WhatsAppConnect.tsx
+(שומר RTL, Assistant, מרווחים; אין שינוי לטיילוינד גלובלי)
+
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+
+export default function WhatsAppConnect() {
+  const [status, setStatus] = useState<{connected:boolean, pushName?:string, hasQR?:boolean}>({connected:false});
+  const [qr, setQR] = useState<string>('');
+  const [busy, setBusy] = useState(false);
+
+  const fetchStatus = async () => {
+    const { data } = await axios.get('/api/whatsapp/status');
+    setStatus(data);
+  };
+  const fetchQR = async () => {
+    const res = await axios.get('/api/whatsapp/qr', { validateStatus: () => true });
+    if (res.status === 204) setQR('');
+    else if (res.status === 200) setQR(res.data.dataUrl || '');
+  };
+
+  useEffect(() => {
+    fetchStatus();
+    const sInt = setInterval(fetchStatus, 3000);
+    return () => clearInterval(sInt);
+  }, []);
+  useEffect(() => {
+    if (!status.connected) {
+      fetchQR();
+      const qInt = setInterval(fetchQR, 3000);
+      return () => clearInterval(qInt);
+    }
+  }, [status.connected]);
+
+  const start = async () => {
+    setBusy(true);
+    try { await axios.post('/api/whatsapp/start'); await fetchStatus(); await fetchQR(); }
+    finally { setBusy(false); }
+  };
+  const logout = async () => { await axios.post('/api/whatsapp/logout'); setQR(''); await fetchStatus(); };
+
+  return (
+    <div dir="rtl" className="max-w-[420px] mx-auto bg-white rounded-lg shadow p-6 space-y-4">
+      <h2 className="text-xl font-bold">חיבור ל-WhatsApp</h2>
+      {status.connected ? (
+        <div className="flex items-center justify-between">
+          <span className="inline-flex items-center px-2 py-1 text-sm bg-green-100 rounded">
+            מחובר כ-{status.pushName || '—'}
+          </span>
+          <button onClick={logout} className="px-3 py-2 rounded bg-gray-100">התנתק</button>
+        </div>
+      ) : (
+        <>
+          <div className="inline-flex items-center px-2 py-1 text-sm bg-gray-100 rounded">סטטוס: לא מחובר</div>
+          <button onClick={start} disabled={busy} className="w-full h-11 rounded bg-emerald-500 text-white">
+            {busy ? 'מבצע…' : 'יצירת QR'}
+          </button>
+          <div className="flex items-center justify-center h-[320px] border rounded">
+            {qr ? <img src={qr} alt="whatsapp-qr" className="w-80 h-80 object-contain" /> :
+                  <div className="text-sm text-gray-500">לחץ “יצירת QR” וסרוק דרך WhatsApp &gt; מכשירים מקושרים</div>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+ראיית GO: רואים QR → סורקים → הדף מתעדכן ל-Connected.
+
+⸻
+
+4) שיחות: Google STT ראשי + Whisper fallback, ו-Webhook מהיר
+
+4.1 פונקציית Google STT ראשית
+
+צור/עדכן stt_google.py:
+
+import os
+from google.cloud import speech_v1p1beta1 as speech
+
+LANG = os.getenv("GCP_SPEECH_LANGUAGE", "he-IL")
+PUNCT = os.getenv("GCP_SPEECH_ENABLE_PUNCTUATION", "true").lower() == "true"
+
+def transcribe_with_google(local_audio_path: str) -> dict:
+    client = speech.SpeechClient()
+    with open(local_audio_path, "rb") as f:
+        content = f.read()
+
+    audio = speech.RecognitionAudio(content=content)
+    config = speech.RecognitionConfig(
+        language_code=LANG,
+        enable_automatic_punctuation=PUNCT,
+        audio_channel_count=1,
+        enable_word_confidence=True,
+        model="latest_long"  # אפשר לשנות בהתאם
+    )
+    resp = client.recognize(config=config, audio=audio)
+    text = ""
+    confidence = 0.0
+    if resp.results:
+        best = resp.results[0].alternatives[0]
+        text = best.transcript.strip()
+        confidence = best.confidence or 0.0
+    return {"text": text, "confidence": confidence}
+
+4.2 Whisper כ-fallback (קיים אצלך)
+
+ב־whisper_handler.py בטל כל time.sleep() וחשוף פונקציה:
+
+def transcribe_with_whisper(local_audio_path: str) -> dict:
+    # השתמש בקוד הקיים שלך ל-Whisper וחזֵר {"text": "...", "confidence": 0.0}
+    ...
+
+4.3 עטיפה אחת — Google ואז Whisper אם נכשל / confidence נמוך
+
+צור/עדכן transcription_service.py:
+
+from stt_google import transcribe_with_google
+from whisper_handler import transcribe_with_whisper
+
+def smart_transcribe(local_audio_path: str, min_confidence: float = 0.6) -> dict:
+    try:
+        g = transcribe_with_google(local_audio_path)
+        if g.get("text"):
+            if g.get("confidence", 0.0) >= min_confidence:
+                return {**g, "engine": "google"}
+            # אם הטקסט קצר/ביטחון נמוך -> fallback
+    except Exception:
+        pass
+    w = transcribe_with_whisper(local_audio_path)
+    return {**w, "engine": "whisper"}
+
+4.4 Webhook Twilio מהיר (ללא עיבוד בפנים)
+
+ב-routes.py:
+	•	ב־/webhook/handle_recording: החזר TwiML מיד (≤500ms).
+	•	הוסף action/statusCallback שמפנים ל־/webhook/handle_recording_complete.
+
+ב-background_processor.py (או מודול ייעודי):
+
+from concurrent.futures import ThreadPoolExecutor
+executor = ThreadPoolExecutor(max_workers=4)
+
+def process_recording_async(file_url: str, call_sid: str):
+    # הורד קובץ → שמור זמנית → smart_transcribe → תן ל-LLM שלך → הפקת TTS → עדכון state/DB
+    ...
+
+def enqueue_recording(file_url: str, call_sid: str):
+    executor.submit(process_recording_async, file_url, call_sid)
+
+וב-routes.py (ב־handle_recording_complete):
+
+@bp.route('/webhook/handle_recording_complete', methods=['POST'])
+def handle_recording_complete():
+    if not validate_twilio(request): return 'forbidden', 403
+    file_url = request.form.get('RecordingUrl')
+    call_sid = request.form.get('CallSid')
+    enqueue_recording(file_url, call_sid)
+    return 'ok', 200
+
+ראיית GO: אין 11205 ב-Twilio Debugger; זמני מענה ראשוניים < 1–2 שנ’.
+
+⸻
+
+5) אבטחה — Twilio Request Validator + CSRF ממוקד
+
+ב-security.py (או בראש ה-routes הקיימים):
+
+from twilio.request_validator import RequestValidator
+import os
+validator = RequestValidator(os.getenv('TWILIO_AUTH_TOKEN'))
+
+def validate_twilio(req):
+    sig = req.headers.get('X-Twilio-Signature')
+    url = req.url
+    params = req.form.to_dict() if req.form else {}
+    return validator.validate(url, params, sig)
+
+בכל /webhook/*:
+
+if not validate_twilio(request): return 'forbidden', 403
+
+CSRF: החרג רק /webhook/* ו-/api/whatsapp/* (פרוקסי).
+
+⸻
+
+6) Health/Version + לוגים
+
+ב-Flask (בקובץ הראשי):
+
+@app.route('/healthz', methods=['GET'])
+def healthz():
+    return 'ok', 200
+
+@app.route('/version', methods=['GET'])
+def version():
+    import os, json
+    return json.dumps({"deploy": os.getenv('DEPLOY_ID','local'), "sha": os.getenv('GIT_SHA','dev')}), 200
+
+Baileys כבר חשפנו /healthz.
+לוגים: וודא שמירת קבצים ל-logs/ (אל תדפיס עומסים לקונסול בפרוד).
+
+⸻
+
+7) תיקוני קוד חוסמי Build
+	•	תקן אינדנטציה: enhanced_crm_service.py, notification_service.py (הרץ black . / ruff ותוקן ידנית את המקומות הבעייתיים).
+	•	הסר כפילויות “enhanced_*” ע״י מיזוג לקבצים קנוניים ושינוי import-ים בהתאם.
+	•	הסר הגדרות ראוטים כפולות (במיוחד WhatsApp) — השאר קובץ קנוני אחד.
+
+⸻
+
+8) Docker/Run (אם רלוונטי)
+	•	Dev (Replit): הרץ שני תהליכים:
+python main.py  +  npm run start:baileys
+	•	Prod (מומלץ לפצל שירותים): Flask ו-Baileys כתהליכים נפרדים/קונטיינרים.
+	•	אם משתמשים ב-supervisor — הוסף שני programs (flask/baileys) עם autostart.
+
+⸻
+
+9) בדיקות GO/NO-GO (להציג ראיות)
+
+Baileys/WhatsApp
+	•	GET http://localhost:3001/healthz → 200 ok
+	•	POST /api/whatsapp/start → 200 {ok:true}
+	•	GET  /api/whatsapp/status → {connected:false, hasQR:true} תוך ≤3 שנ’
+	•	GET  /api/whatsapp/qr → 200 {dataUrl:...} → לאחר סריקה: 204
+
+Voice/STT
+	•	שיחה נכנסת: /webhook/handle_recording מחזיר מיד (≤500ms)
+	•	handle_recording_complete נקרא → enqueue_recording רץ
+	•	smart_transcribe: Google (engine=‘google’, confidence≥0.6) או fallback ל-Whisper
+	•	אין Error 11205; זמני מענה ראשוניים < 2–3 שנ’
+
+Security
+	•	/webhook/* עם חתימה שגויה → 403
+	•	/api/whatsapp/* נגישים רק דרך Flask (Node דורש X-Internal-Secret)
+
+Health/Version
+	•	GET /healthz (Flask) → ok
+	•	GET /version → מציג {deploy, sha}
+
+UI
+	•	מסך חיבור WhatsApp:
+Not Connected → כפתור “יצירת QR” → QR מוצג → לאחר סריקה → Connected + pushName
+RTL/Assistant נשמרים; אין שבירת עיצוב.
+
+⸻
+
+הערות יישום אחרונות
+	•	אל תשנה הגדרות עיצוב גלובליות (Tailwind/theme/tokens.css).
+	•	אל תיצור _v2/_copy; במקום זה מזג לקובץ קנוני.
+	•	לאחר כל שינוי — דווח לוג GO (URL + סטטוס/JSON קצר) כדי שנראה שזה חי.
+
+⸻
+
+זו ההנחיה ה־100%. אם תרצה גם דיפ-פאצ׳ים (git diff) לקבצים ספציפיים — אמקם אותם לפי שמות הקבצים שלך אחד-אחד.

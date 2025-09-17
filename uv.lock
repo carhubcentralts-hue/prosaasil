@@ -836,6 +836,21 @@ wheels = [
 ]
 
 [[package]]
+name = "google-cloud-speech"
+version = "2.33.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9a/74/9c5a556f8af19cab461058aa15e1409e7afa453ca2383473a24a12801ef7/google_cloud_speech-2.33.0.tar.gz", hash = "sha256:fd08511b5124fdaa768d71a4054e84a5d8eb02531cb6f84f311c0387ea1314ed", size = 389072 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/12/1d/880342b2541b4bad888ad8ab2ac77d4b5dad25b32a2a1c5f21140c14c8e3/google_cloud_speech-2.33.0-py3-none-any.whl", hash = "sha256:4ba16c8517c24a6abcde877289b0f40b719090504bf06b1adea248198ccd50a5", size = 335681 },
+]
+
+[[package]]
 name = "google-cloud-texttospeech"
 version = "2.16.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2087,6 +2102,7 @@ dependencies = [
     { name = "google-auth-httplib2" },
     { name = "google-auth-oauthlib" },
     { name = "google-cloud-core" },
+    { name = "google-cloud-speech" },
     { name = "google-cloud-texttospeech" },
     { name = "greenlet" },
     { name = "grpcio" },
@@ -2148,6 +2164,7 @@ requires-dist = [
     { name = "google-auth-httplib2", specifier = ">=0.2.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.2.2" },
     { name = "google-cloud-core", specifier = "==2.4.1" },
+    { name = "google-cloud-speech", specifier = ">=2.26.0" },
     { name = "google-cloud-texttospeech", specifier = "==2.16.4" },
     { name = "greenlet", specifier = ">=3.0,<3.3" },
     { name = "grpcio", specifier = "==1.62.2" },
@@ -2179,7 +2196,7 @@ requires-dist = [
     { name = "simple-websocket", specifier = "==1.0.0" },
     { name = "soundfile", specifier = ">=0.13.1" },
     { name = "sqlalchemy", specifier = "==2.0.35" },
-    { name = "twilio", specifier = ">=9.6.4" },
+    { name = "twilio", specifier = ">=9.0.0" },
     { name = "urllib3", specifier = "==2.3.0" },
     { name = "werkzeug", specifier = ">=3.1.3" },
 ]
