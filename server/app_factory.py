@@ -325,9 +325,9 @@ def create_app():
         from server.routes_receipts_contracts import receipts_contracts_bp
         app.register_blueprint(receipts_contracts_bp)
         
-        # Register WhatsApp QR endpoints 
-        from server.routes_whatsapp_qr import whatsapp_qr_bp
-        app.register_blueprint(whatsapp_qr_bp)
+        # WhatsApp Canonical API (replaces all other WhatsApp routes)
+        from server.routes_whatsapp import whatsapp_bp
+        app.register_blueprint(whatsapp_bp)
         
         print("✅ New API blueprints registered")
         print("✅ Twilio webhooks registered")
@@ -501,9 +501,9 @@ def create_app():
         }), 400
     # CRM unified moved to routes_crm.py - no separate API blueprint needed
     
-    # WhatsApp Unified API (send/status/list)
-    from server.api_whatsapp_unified import whatsapp_unified_bp
-    app.register_blueprint(whatsapp_unified_bp, url_prefix='/api/whatsapp')
+    # WhatsApp Unified API - REPLACED by canonical routes_whatsapp.py
+    # from server.api_whatsapp_unified import whatsapp_unified_bp
+    # app.register_blueprint(whatsapp_unified_bp, url_prefix='/api/whatsapp')
     
     # Baileys worker integration with modern Flask lifecycle
     def initialize_baileys_worker():
@@ -525,13 +525,13 @@ def create_app():
             initialize_baileys_worker()
             g._baileys_initialized = True
     
-    # WhatsApp Baileys Proxy Routes (NEW - /wa/* proxy)
-    from server.routes_baileys_proxy import bp_wa
-    app.register_blueprint(bp_wa)
+    # WhatsApp Baileys Proxy Routes - REPLACED by canonical routes_whatsapp.py
+    # from server.routes_baileys_proxy import bp_wa
+    # app.register_blueprint(bp_wa)
     
-    # Legacy WhatsApp Proxy Routes (OLD - /api/wa-proxy/*)
-    from server.routes_whatsapp import wa_bp
-    app.register_blueprint(wa_bp)
+    # Legacy WhatsApp Proxy Routes - REPLACED by canonical routes_whatsapp.py
+    # from server.routes_whatsapp import wa_bp
+    # app.register_blueprint(wa_bp)
     
     # Route registration verification
     wa_routes = [rule for rule in app.url_map.iter_rules() if str(rule).startswith('/wa/')]
