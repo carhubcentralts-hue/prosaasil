@@ -75,19 +75,40 @@ async function startSession(tenantId) {
   sock.ev.on('connection.update', async (u) => {
     try {
       const { connection, lastDisconnect, qr } = u;
-      if (qr) s.qrDataUrl = await QRCode.toDataURL(qr);
+      console.log(`[${tenantId}] Connection update:`, { connection, qr: !!qr, lastDisconnect: lastDisconnect?.error?.output?.statusCode });
+      
+      if (qr) {
+        console.log(`[${tenantId}] 🔄 Generating new QR code`);
+        s.qrDataUrl = await QRCode.toDataURL(qr);
+      }
+      
       if (connection === 'open') {
+        console.log(`[${tenantId}] ✅ WhatsApp connected successfully`);
         s.connected = true;
         s.pushName = sock?.user?.name || sock?.user?.id || '';
         s.qrDataUrl = '';
       }
+      
       if (connection === 'close') {
+        console.log(`[${tenantId}] ❌ WhatsApp connection closed`);
         s.connected = false;
         const shouldReconnect =
           (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
-        if (shouldReconnect) setTimeout(() => startSession(tenantId), 2000);
+        if (shouldReconnect) {
+          console.log(`[${tenantId}] 🔄 Will reconnect in 2 seconds`);
+          setTimeout(() => startSession(tenantId), 2000);
+        } else {
+          console.log(`[${tenantId}] ⚠️ Logged out - won't reconnect`);
+        }
       }
-    } catch (e) { console.error('[connection.update]', e); }
+      
+      if (connection === 'connecting') {
+        console.log(`[${tenantId}] 🔗 Connecting to WhatsApp...`);
+      }
+      
+    } catch (e) { 
+      console.error(`[${tenantId}] [connection.update] Error:`, e); 
+    }
   });
 
   sock.ev.on('messages.upsert', async (payload) => {
