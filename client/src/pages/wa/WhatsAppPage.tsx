@@ -171,6 +171,17 @@ export function WhatsAppPage() {
     try {
       const response = await http.get<WhatsAppStatus>('/api/whatsapp/status');
       setWhatsappStatus(response);
+      
+      // Auto-start session if not connected - always try baileys for QR functionality
+      if (!response.connected) {
+        try {
+          console.log('🚀 Auto-starting WhatsApp session...');
+          await http.post('/api/whatsapp/start', { provider: 'baileys' });
+          console.log('✅ WhatsApp session auto-started');
+        } catch (startError) {
+          console.warn('❌ Auto-start failed:', startError);
+        }
+      }
     } catch (error) {
       console.error('Error loading WhatsApp status:', error);
     }

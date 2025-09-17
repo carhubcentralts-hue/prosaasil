@@ -21,6 +21,7 @@ app.use(express.json());
 
 /** simple health BEFORE anything else */
 app.get('/healthz', (req, res) => res.status(200).send('ok'));
+app.get('/health', (req, res) => res.status(200).send('ok'));  // Add /health alias for Python compatibility
 app.get('/', (req, res) => res.status(200).send('ok'));
 
 const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, pushName }

@@ -329,6 +329,10 @@ def create_app():
         from server.routes_whatsapp import whatsapp_bp
         app.register_blueprint(whatsapp_bp)
         
+        # WhatsApp Webhook endpoints for Baileys service
+        from server.routes_webhook import webhook_bp
+        app.register_blueprint(webhook_bp)
+        
         # CSRF exemptions לroutes WhatsApp - only GET routes for security
         try:
             csrf.exempt(app.view_functions.get('whatsapp.status'))  # GET - safe
