@@ -39,3 +39,10 @@ def reset():
     t = tenant_id_from_ctx()
     r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/reset", headers=_headers(), timeout=10)
     return jsonify(r.json()), r.status_code
+
+@csrf.exempt  # Bypass CSRF for internal API  
+@whatsapp_bp.route('/disconnect', methods=['POST'])
+def disconnect():
+    t = tenant_id_from_ctx()
+    r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/disconnect", headers=_headers(), timeout=10)
+    return jsonify(r.json()), r.status_code

@@ -4,7 +4,14 @@ This is AgentLocator, a Hebrew CRM system with AI-powered real-time call process
 
 ## Recent Major Enhancements (September 2025)
 
-### BUILD 57 - Perfect WhatsApp Baileys Integration & Production GO Certification (September 17, 2025)
+### BUILD 57 - WhatsApp Connection Reset & Disconnect Fix (September 17, 2025)
+- **FIXED**: WhatsApp QR generation issues - completely reset auth state before creating new sessions
+- **ADDED**: Full disconnect functionality with automatic session cleanup and auth file removal
+- **ENHANCED**: WhatsApp Management page with clear Disconnect button for easy connection reset
+- **IMPROVED**: Baileys service logging to troubleshoot connection issues effectively
+- **RESOLVED**: "Already connected" state preventing new QR generation by forcing clean slate initialization
+
+### BUILD 57 (Previous) - Perfect WhatsApp Baileys Integration & Production GO Certification (September 17, 2025)
 - **PRODUCTION READY**: ✅ GO FOR PRODUCTION with 4/4 health checks PASSING
 - **ARCHITECTURE COMPLETE**: Multi-tenant Baileys service with canonical Flask proxy integration
 - **SECURITY ENHANCED**: Internal Secret authentication, Twilio webhook validation, path traversal protection  

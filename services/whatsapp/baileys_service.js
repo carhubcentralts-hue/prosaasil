@@ -62,6 +62,17 @@ app.post('/whatsapp/:tenantId/reset', requireSecret, async (req, res) => {
   }
 });
 
+app.post('/whatsapp/:tenantId/disconnect', requireSecret, async (req, res) => {
+  try { 
+    await disconnectSession(req.params.tenantId); 
+    return res.json({ ok: true, message: 'Disconnected successfully' }); 
+  }
+  catch (e) { 
+    console.error('[disconnect] error', e); 
+    return res.status(500).json({ error: 'disconnect_failed' }); 
+  }
+});
+
 /** Baileys session logic */
 async function startSession(tenantId) {
   console.log(`[${tenantId}] 🚀 startSession called`);
@@ -131,17 +142,65 @@ async function startSession(tenantId) {
 }
 
 async function resetSession(tenantId) {
+  console.log(`[${tenantId}] 🔄 resetSession called - full cleanup and restart`);
   const s = sessions.get(tenantId);
   if (s?.sock) {
     try {
+      console.log(`[${tenantId}] 🔚 Closing existing socket`);
       s.sock.end();
       s.sock.removeAllListeners();
     } catch (e) {
-      console.error('[reset] cleanup error', e);
+      console.error(`[${tenantId}] [reset] cleanup error`, e);
     }
   }
   sessions.delete(tenantId);
+  
+  // Clear auth files
+  const authPath = authDir(tenantId);
+  try {
+    console.log(`[${tenantId}] 🗑️ Clearing auth files from: ${authPath}`);
+    await import('fs').then(fs => fs.promises.rm(authPath, { recursive: true, force: true }));
+  } catch (e) { console.error(`[${tenantId}] [resetSession] cleanup error`, e); }
+  
+  console.log(`[${tenantId}] 🆕 Starting fresh session`);
   return await startSession(tenantId);
+}
+
+async function disconnectSession(tenantId) {
+  console.log(`[${tenantId}] 🔌 disconnectSession called - permanent disconnect`);
+  const s = sessions.get(tenantId);
+  
+  if (s?.sock) {
+    try {
+      // Send logout command to WhatsApp first
+      console.log(`[${tenantId}] 📤 Sending logout to WhatsApp`);
+      await s.sock.logout();
+    } catch (e) { 
+      console.log(`[${tenantId}] ⚠️ Logout command failed (OK if not connected):`, e.message); 
+    }
+    
+    try {
+      console.log(`[${tenantId}] 🔚 Closing socket`);
+      s.sock.end();
+      s.sock.removeAllListeners();
+    } catch (e) { 
+      console.error(`[${tenantId}] sock.end() failed`, e); 
+    }
+    
+    sessions.delete(tenantId);
+  }
+  
+  // Clear auth files completely
+  const authPath = authDir(tenantId);
+  try {
+    console.log(`[${tenantId}] 🗑️ Removing all auth files from: ${authPath}`);
+    await import('fs').then(fs => fs.promises.rm(authPath, { recursive: true, force: true }));
+    console.log(`[${tenantId}] ✅ WhatsApp disconnected and cleaned up`);
+  } catch (e) { 
+    console.error(`[${tenantId}] [disconnectSession] cleanup error`, e); 
+  }
+  
+  return { disconnected: true, message: 'WhatsApp disconnected completely' };
 }
 
 /** single server instance – we export start() to avoid double listen */

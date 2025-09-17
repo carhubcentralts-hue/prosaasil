@@ -239,6 +239,24 @@ export function WhatsAppPage() {
     return null;
   };
 
+  const disconnectWhatsApp = async () => {
+    try {
+      console.log('🔌 Disconnecting WhatsApp...');
+      const response = await http.post('/api/whatsapp/disconnect', {});
+      console.log('✅ WhatsApp disconnected:', response);
+      
+      // Reset local state
+      setQrCode('');
+      setShowQR(false);
+      setWhatsappStatus({ provider: 'baileys', ready: false, connected: false, configured: true });
+      
+      alert('WhatsApp נותק בהצלחה! כעת תוכל/י ליצור QR חדש.');
+    } catch (error: any) {
+      console.error('❌ Disconnect failed:', error);
+      alert('שגיאה בניתוק WhatsApp: ' + (error?.message || 'שגיאה לא ידועה'));
+    }
+  };
+
   const generateQRCode = async () => {
     if (selectedProvider !== 'baileys') {
       alert('QR קוד זמין רק לספק Baileys');
@@ -456,19 +474,31 @@ export function WhatsAppPage() {
             </div>
 
             {selectedProvider === 'baileys' && (
-              <Button 
-                onClick={generateQRCode} 
-                disabled={qrLoading}
-                className="w-full"
-                data-testid="button-generate-qr"
-              >
-                {qrLoading ? (
-                  <RefreshCw className="h-4 w-4 ml-2 animate-spin" />
-                ) : (
-                  <QrCode className="h-4 w-4 ml-2" />
-                )}
-                {qrLoading ? "יוצר QR קוד..." : "צור QR קוד חדש"}
-              </Button>
+              <div className="space-y-3">
+                <Button 
+                  onClick={generateQRCode} 
+                  disabled={qrLoading}
+                  className="w-full"
+                  data-testid="button-generate-qr"
+                >
+                  {qrLoading ? (
+                    <RefreshCw className="h-4 w-4 ml-2 animate-spin" />
+                  ) : (
+                    <QrCode className="h-4 w-4 ml-2" />
+                  )}
+                  {qrLoading ? "יוצר QR קוד..." : "צור QR קוד חדש"}
+                </Button>
+                
+                <Button 
+                  variant="destructive"
+                  onClick={disconnectWhatsApp} 
+                  className="w-full"
+                  data-testid="button-disconnect"
+                >
+                  <RefreshCw className="h-4 w-4 ml-2" />
+                  נתק חיבור מלא
+                </Button>
+              </div>
             )}
           </div>
         </Card>
