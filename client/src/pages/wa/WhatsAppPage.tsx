@@ -127,7 +127,12 @@ export function WhatsAppPage() {
         try {
           // Check QR status using unified function
           const qrResponse = await getQRCode();
-          const qrData = qrResponse?.qr_data || qrResponse?.qr;
+          if (!qrResponse) {
+            console.warn('❌ No QR response during auto-refresh');
+            return;
+          }
+          
+          const qrData = qrResponse.qr_data || qrResponse.qr;
           
           if (qrData && qrData !== qrCode) {
             console.log('🔄 QR code refreshed');
@@ -266,6 +271,11 @@ export function WhatsAppPage() {
         if (!response) {
           console.log(`⏳ QR not ready yet, attempt ${attempts}/${maxAttempts}`);
         }
+      }
+      
+      if (!response) {
+        alert('לא ניתן היה ליצור QR קוד. נסה שוב מאוחר יותר.');
+        return;
       }
       
       // תמיכה בפורמטים שונים של QR response  
