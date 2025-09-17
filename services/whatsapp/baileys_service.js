@@ -106,11 +106,46 @@ async function startSession(tenantId) {
         s.connected = true;
         s.pushName = sock?.user?.name || sock?.user?.id || '';
         s.qrDataUrl = '';
+        
+        // 🚀 Notify Flask about successful connection
+        try {
+          console.log(`[${tenantId}] 📡 Notifying Flask about connection success`);
+          await axios.post(`${FLASK_BASE_URL}/webhook/whatsapp/status`,
+            { 
+              tenantId, 
+              status: 'connected', 
+              pushName: s.pushName,
+              timestamp: new Date().toISOString()
+            },
+            { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
+          );
+          console.log(`[${tenantId}] ✅ Flask notified about connection`);
+        } catch (e) { 
+          console.error(`[${tenantId}] ❌ Failed to notify Flask about connection:`, e?.message || e); 
+        }
       }
       
       if (connection === 'close') {
         console.log(`[${tenantId}] ❌ WhatsApp connection closed`);
         s.connected = false;
+        
+        // 🚀 Notify Flask about disconnection
+        try {
+          console.log(`[${tenantId}] 📡 Notifying Flask about disconnection`);
+          await axios.post(`${FLASK_BASE_URL}/webhook/whatsapp/status`,
+            { 
+              tenantId, 
+              status: 'disconnected', 
+              reason: lastDisconnect?.error?.output?.statusCode || 'unknown',
+              timestamp: new Date().toISOString()
+            },
+            { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
+          );
+          console.log(`[${tenantId}] ✅ Flask notified about disconnection`);
+        } catch (e) { 
+          console.error(`[${tenantId}] ❌ Failed to notify Flask about disconnection:`, e?.message || e); 
+        }
+        
         const shouldReconnect =
           (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
         if (shouldReconnect) {
