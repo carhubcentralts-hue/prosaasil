@@ -21,10 +21,10 @@ export async function refreshCSRF(): Promise<void> {
 function getCSRFToken(): string | null {
   if (csrfToken) return csrfToken;
   
-  // Try both token formats
-  let token = document.cookie.match(/(?:^|;\s*)_csrf_token=([^;]+)/)?.[1];
+  // Try XSRF-TOKEN first (as configured on server), then fallback to _csrf_token
+  let token = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)?.[1];
   if (!token) {
-    token = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)?.[1];
+    token = document.cookie.match(/(?:^|;\s*)_csrf_token=([^;]+)/)?.[1];
   }
   if (token) {
     csrfToken = decodeURIComponent(token);
@@ -73,6 +73,8 @@ export async function apiFetch(url: string, options: RequestInit = {}, retryCoun
   // Handle 403 with CSRF refresh and retry (once only)
   if (response.status === 403 && retryCount === 0) {
     console.log('🔄 403 detected, refreshing CSRF and retrying...');
+    // Clear cached token before refresh
+    csrfToken = null;
     await refreshCSRF();
     return apiFetch(url, options, 1); // Retry once
   }
