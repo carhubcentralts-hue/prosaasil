@@ -1,0 +1,302 @@
+  {'GET', 'HEAD', 'OPTIONS'} /ui/admin/switch_business
+  {'GET', 'HEAD', 'OPTIONS'} /ui/admin/tenants/new
+  {'GET', 'HEAD', 'OPTIONS'} /ui/admin/users/new
+  {'GET', 'HEAD', 'OPTIONS'} /ui/admin/tenants
+  {'GET', 'HEAD', 'OPTIONS'} /ui/admin/users
+  {'GET', 'HEAD', 'OPTIONS'} /ui/whatsapp/threads
+  {'GET', 'HEAD', 'OPTIONS'} /ui/whatsapp/messages
+  {'POST', 'OPTIONS'} /ui/whatsapp/send
+  {'GET', 'HEAD', 'OPTIONS'} /ui/calls/active
+  {'GET', 'HEAD', 'OPTIONS'} /ui/calls/history
+  {'GET', 'HEAD', 'OPTIONS'} /ui/biz/contacts
+  {'GET', 'HEAD', 'OPTIONS'} /ui/biz/contacts/new
+  {'GET', 'HEAD', 'OPTIONS'} /ui/biz/users/new
+  {'GET', 'HEAD', 'OPTIONS'} /ui/biz/users
+  {'POST', 'OPTIONS'} /api/ui/login
+  {'GET', 'POST', 'HEAD', 'OPTIONS'} /api/ui/logout
+  {'POST', 'OPTIONS'} /api/admin/tenants
+  {'POST', 'OPTIONS'} /api/admin/users
+  {'POST', 'OPTIONS'} /api/biz/users
+  {'POST', 'OPTIONS'} /api/crm/contacts
+  {'POST', 'OPTIONS'} /admin/impersonate/<int:business_id>
+  {'POST', 'OPTIONS'} /admin/stop-impersonate
+  {'GET', 'HEAD', 'OPTIONS'} /biz/invoices
+  {'GET', 'HEAD', 'OPTIONS'} /biz/contracts
+  {'GET', 'HEAD', 'OPTIONS'} /logout
+  {'GET', 'HEAD', 'OPTIONS'} /unauthorized
+  {'GET', 'HEAD', 'OPTIONS'} /test-websocket-version
+🔍 Route registration complete
+🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+✅ Health routes handled by health_endpoints.py blueprint
+✅ Factory debug route registered: /debug-factory-http
+✅ /healthz route added directly to app_factory
+🆘 Emergency healthz-direct route added
+✅ WhatsApp routes removed - using unified only
+✅ Baileys proxy routes: 0 /wa/* endpoints
+✅ Legacy proxy routes: 0 /api/wa-proxy/* endpoints
+FE_DIST = /home/runner/workspace/client/dist mtime = 1758127739.3806782
+🔧 Database migrations skipped (set RUN_MIGRATIONS_ON_START=1 to enable)
+🔧 Server will start immediately without blocking on DB operations
+🔧 Warmup disabled for debugging
+
+=== URL MAP ===
+  {'POST', 'OPTIONS'} /admin/impersonate/<int:business_id> -> ui.admin_impersonate_business
+  {'POST', 'OPTIONS'} /api/admin/business -> business_management.create_business
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/business/<int:business_id> -> business_management.get_business
+  {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id> -> business_management.update_business
+  {'POST', 'OPTIONS'} /api/admin/business/<int:business_id>/change-password -> business_management.change_business_password
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/businesses -> admin_bp.api_admin_businesses
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/businesses -> api_adapter.admin_businesses
+  {'POST', 'OPTIONS'} /api/admin/businesses/<int:business_id>/impersonate -> business_management.impersonate_business
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/businesses/<int:business_id>/overview -> admin_bp.get_business_overview
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.get_business_prompt
+  {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.update_business_prompt
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/businesses/<int:business_id>/prompt/history -> ai_prompt.get_prompt_history
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/businesses/prompts -> admin_bp.admin_businesses_prompts
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/calls -> admin_bp.api_admin_calls
+  {'POST', 'OPTIONS'} /api/admin/impersonate/exit -> business_management.exit_impersonation
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/businesses -> admin_bp.api_kpis_businesses
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/calls -> admin_bp.api_kpis_calls
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/calls -> admin_bp.api_admin_kpis_calls
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/overview -> admin_bp.api_admin_kpis_overview
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/revenue -> admin_bp.api_kpis_revenue
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/whatsapp -> admin_bp.api_kpis_whatsapp
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/whatsapp -> admin_bp.api_admin_kpis_whatsapp
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/leads -> admin_bp.admin_leads
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/leads/stats -> admin_bp.admin_leads_stats
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/overview -> admin_bp.api_overview
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/phone-numbers -> admin_bp.admin_phone_numbers
+  {'POST', 'OPTIONS'} /api/admin/run-migrations -> run_migrations_endpoint
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/stats -> api_adapter.admin_stats
+  {'POST', 'OPTIONS'} /api/admin/statuses/initialize/<int:business_id> -> status_management.initialize_default_statuses
+  {'GET', 'HEAD', 'OPTIONS', 'PUT'} /api/admin/support/phones -> admin_bp.admin_support_phones
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/support/profile -> admin_bp.admin_support_profile
+  {'GET', 'HEAD', 'OPTIONS', 'PUT'} /api/admin/support/prompt -> admin_bp.admin_support_prompt
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/tenants -> admin_bp.api_tenants
+  {'POST', 'OPTIONS'} /api/admin/tenants -> ui.api_admin_tenants_create
+  {'POST', 'OPTIONS'} /api/admin/user -> business_management.create_user
+  {'GET', 'HEAD', 'OPTIONS'} /api/admin/user/<int:user_id> -> business_management.get_user
+  {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id> -> business_management.update_user
+  {'POST', 'OPTIONS'} /api/admin/user/<int:user_id>/change-password -> business_management.change_user_password
+  {'POST', 'OPTIONS'} /api/admin/user/<int:user_id>/toggle-status -> business_management.toggle_user_status
+  {'POST', 'OPTIONS'} /api/admin/users -> ui.api_admin_users_create
+  {'GET', 'HEAD', 'OPTIONS'} /api/auth/csrf -> auth_api.get_csrf
+  {'GET', 'HEAD', 'OPTIONS'} /api/auth/current -> auth_api.get_current_user_legacy
+  {'POST', 'OPTIONS'} /api/auth/forgot -> auth_api.forgot_password
+  {'POST', 'OPTIONS'} /api/auth/login -> auth_api.login
+  {'POST', 'OPTIONS'} /api/auth/logout -> auth_api.logout
+  {'GET', 'HEAD', 'OPTIONS'} /api/auth/me -> auth_api.get_current_user
+  {'POST', 'OPTIONS'} /api/auth/reset -> auth_api.reset_password
+  {'GET', 'HEAD', 'OPTIONS'} /api/billing/contract/<contract_id>/download -> receipts_contracts.download_contract
+  {'GET', 'HEAD', 'OPTIONS'} /api/billing/contract/<contract_id>/view -> receipts_contracts.view_contract
+  {'GET', 'HEAD', 'OPTIONS'} /api/billing/invoice/<invoice_id>/download -> receipts_contracts.download_invoice
+  {'GET', 'HEAD', 'OPTIONS'} /api/billing/invoice/<invoice_id>/view -> receipts_contracts.view_invoice
+  {'POST', 'OPTIONS'} /api/biz/users -> ui.api_biz_users_create
+  {'GET', 'HEAD', 'OPTIONS'} /api/business/current/prompt -> ai_prompt.get_current_business_prompt
+  {'OPTIONS', 'PUT'} /api/business/current/prompt -> ai_prompt.update_current_business_prompt
+  {'GET', 'HEAD', 'OPTIONS'} /api/business/current/prompt/history -> ai_prompt.get_current_prompt_history
+  {'GET', 'HEAD', 'OPTIONS'} /api/calendar/appointments -> calendar.get_appointments
+  {'POST', 'OPTIONS'} /api/calendar/appointments -> calendar.create_appointment
+  {'GET', 'HEAD', 'OPTIONS'} /api/calendar/appointments/<int:appointment_id> -> calendar.get_appointment
+  {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id> -> calendar.update_appointment
+  {'DELETE', 'OPTIONS'} /api/calendar/appointments/<int:appointment_id> -> calendar.delete_appointment
+  {'GET', 'HEAD', 'OPTIONS'} /api/calendar/stats -> calendar.get_calendar_stats
+  {'GET', 'HEAD', 'OPTIONS'} /api/calls -> calls.list_calls
+  {'GET', 'HEAD', 'OPTIONS'} /api/calls/<call_sid>/details -> calls.get_call_details
+  {'GET', 'HEAD', 'OPTIONS'} /api/calls/<call_sid>/download -> calls.download_recording
+  {'GET', 'HEAD', 'OPTIONS'} /api/calls/active -> crm_bp.api_active_calls
+  {'POST', 'OPTIONS'} /api/calls/cleanup -> calls.cleanup_old_recordings
+  {'GET', 'HEAD', 'OPTIONS'} /api/calls/history -> crm_bp.api_call_history
+  {'GET', 'HEAD', 'OPTIONS'} /api/calls/stats -> calls.get_calls_stats
+  {'POST', 'OPTIONS'} /api/contracts -> receipts_contracts.create_contract
+  {'POST', 'OPTIONS'} /api/crm/contacts -> ui.api_crm_contacts_create
+  {'GET', 'HEAD', 'OPTIONS'} /api/crm/contracts -> crm_bp.get_contracts
+  {'POST', 'OPTIONS'} /api/crm/contracts -> crm_bp.create_contract
+  {'POST', 'OPTIONS'} /api/crm/contracts/sign -> crm_bp.contract_sign
+  {'GET', 'HEAD', 'OPTIONS'} /api/crm/customers -> crm_bp.api_customers
+  {'GET', 'HEAD', 'OPTIONS'} /api/crm/deals -> crm_bp.list_deals
+  {'POST', 'OPTIONS'} /api/crm/deals -> crm_bp.create_deal
+  {'GET', 'HEAD', 'OPTIONS'} /api/crm/invoices/<invoice_number> -> crm_bp.get_invoice
+  {'GET', 'HEAD', 'OPTIONS'} /api/crm/payments -> crm_bp.get_payments
+  {'POST', 'OPTIONS'} /api/crm/payments/create -> crm_bp.payments_create
+  {'GET', 'HEAD', 'OPTIONS'} /api/crm/payments/paypal/return/cancel -> crm_bp.paypal_cancel
+  {'GET', 'HEAD', 'OPTIONS'} /api/crm/payments/paypal/return/success -> crm_bp.paypal_success
+  {'GET', 'HEAD', 'OPTIONS'} /api/crm/payments/tranzila/return/fail -> crm_bp.tranzila_fail
+  {'GET', 'HEAD', 'OPTIONS'} /api/crm/payments/tranzila/return/success -> crm_bp.tranzila_success
+  {'GET', 'HEAD', 'OPTIONS'} /api/crm/threads -> crm_bp.api_threads
+  {'GET', 'HEAD', 'OPTIONS'} /api/crm/threads/<thread_id>/messages -> crm_bp.api_thread_messages
+  {'GET', 'HEAD', 'OPTIONS'} /api/dashboard/activity -> api_adapter.dashboard_activity
+  {'GET', 'HEAD', 'OPTIONS'} /api/dashboard/stats -> api_adapter.dashboard_stats
+  {'GET', 'HEAD', 'OPTIONS'} /api/leads -> leads_bp.list_leads
+  {'POST', 'OPTIONS'} /api/leads -> leads_bp.create_lead
+  {'GET', 'HEAD', 'OPTIONS'} /api/leads/<int:lead_id> -> leads_bp.get_lead_detail
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id> -> leads_bp.update_lead
+  {'GET', 'HEAD', 'OPTIONS'} /api/leads/<int:lead_id>/activities -> leads_bp.get_lead_activities
+  {'POST', 'OPTIONS'} /api/leads/<int:lead_id>/message/whatsapp -> leads_bp.send_whatsapp_message
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/move -> leads_bp.move_lead_in_kanban
+  {'GET', 'HEAD', 'OPTIONS'} /api/leads/<int:lead_id>/reminders -> leads_bp.get_lead_reminders
+  {'POST', 'OPTIONS'} /api/leads/<int:lead_id>/reminders -> leads_bp.create_reminder
+  {'GET', 'HEAD', 'OPTIONS'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.get_reminder
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.update_reminder
+  {'POST', 'OPTIONS'} /api/leads/<int:lead_id>/status -> leads_bp.update_lead_status
+  {'OPTIONS', 'PATCH'} /api/leads/bulk -> leads_bp.bulk_update_leads
+  {'POST', 'OPTIONS'} /api/receipts -> receipts_contracts.create_receipt
+  {'GET', 'HEAD', 'OPTIONS'} /api/reminders/due -> leads_bp.get_due_reminders
+  {'GET', 'HEAD', 'OPTIONS'} /api/statuses -> status_management.get_business_statuses
+  {'POST', 'OPTIONS'} /api/statuses -> status_management.create_status
+  {'OPTIONS', 'PUT'} /api/statuses/<int:status_id> -> status_management.update_status
+  {'DELETE', 'OPTIONS'} /api/statuses/<int:status_id> -> status_management.delete_status
+  {'POST', 'OPTIONS'} /api/statuses/reorder -> status_management.reorder_statuses
+  {'POST', 'OPTIONS'} /api/ui/login -> ui.api_login
+  {'GET', 'POST', 'HEAD', 'OPTIONS'} /api/ui/logout -> ui.api_logout
+  {'GET', 'HEAD', 'OPTIONS'} /api/whatsapp/qr -> whatsapp.qr
+  {'POST', 'OPTIONS'} /api/whatsapp/start -> whatsapp.start
+  {'GET', 'HEAD', 'OPTIONS'} /api/whatsapp/status -> whatsapp.status
+================
+✅ Simple SPA routes registered (no blueprint)
+✅ Flask app context initialized successfully
+✅ EventLet Composite WSGI ready
+📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com
+🌐 All other routes → Flask app
+[2025-09-17 17:14:59 +0000] [5697] [INFO] Starting gunicorn 21.2.0
+[2025-09-17 17:14:59 +0000] [5697] [INFO] Listening at: http://0.0.0.0:5000 (5697)
+[2025-09-17 17:14:59 +0000] [5697] [INFO] Using worker: eventlet
+[2025-09-17 17:14:59 +0000] [5723] [INFO] Booting worker with pid: 5723
+🔍 WSGI Route: GET /
+🌐 Routing to Flask app: /
+10.81.6.121 - - [17/Sep/2025:17:15:00 +0000] "GET / HTTP/1.1" 200 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/__replco/workspace_iframe.html?initialPath=%2F&id=%3Arg9%3A" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /assets/index-6WqHGuc7.css
+🌐 Routing to Flask app: /assets/index-6WqHGuc7.css
+10.81.8.41 - - [17/Sep/2025:17:15:02 +0000] "GET /assets/index-6WqHGuc7.css HTTP/1.1" 200 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /assets/index-Jz-rW2vj.js
+🌐 Routing to Flask app: /assets/index-Jz-rW2vj.js
+10.81.3.31 - - [17/Sep/2025:17:15:02 +0000] "GET /assets/index-Jz-rW2vj.js HTTP/1.1" 200 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/auth/csrf
+🌐 Routing to Flask app: /api/auth/csrf
+10.81.3.31 - - [17/Sep/2025:17:15:04 +0000] "GET /api/auth/csrf HTTP/1.1" 200 60 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/auth/me
+🌐 Routing to Flask app: /api/auth/me
+10.81.3.31 - - [17/Sep/2025:17:15:04 +0000] "GET /api/auth/me HTTP/1.1" 401 30 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B^[[B^[[B^[[B^[[B🔍 WSGI Route: POST /api/auth/login
+🌐 Routing to Flask app: /api/auth/login
+10.81.3.31 - - [17/Sep/2025:17:15:33 +0000] "POST /api/auth/login HTTP/1.1" 200 313 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/auth/csrf
+🌐 Routing to Flask app: /api/auth/csrf
+10.81.3.31 - - [17/Sep/2025:17:15:33 +0000] "GET /api/auth/csrf HTTP/1.1" 200 60 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/login" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/leads
+🌐 Routing to Flask app: /api/admin/leads
+🔍 WSGI Route: GET /api/admin/businesses
+🌐 Routing to Flask app: /api/admin/businesses
+🔍 WSGI Route: GET /api/admin/phone-numbers
+🌐 Routing to Flask app: /api/admin/phone-numbers
+🔍 WSGI Route: GET /api/admin/leads/stats
+🌐 Routing to Flask app: /api/admin/leads/stats
+10.81.11.6 - - [17/Sep/2025:17:15:34 +0000] "GET /api/admin/phone-numbers HTTP/1.1" 200 721 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.8.41 - - [17/Sep/2025:17:15:34 +0000] "GET /api/admin/leads/stats HTTP/1.1" 200 67 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.3.31 - - [17/Sep/2025:17:15:34 +0000] "GET /api/admin/businesses?pageSize=1 HTTP/1.1" 200 433 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.6.121 - - [17/Sep/2025:17:15:34 +0000] "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 1219 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/admin/overview
+🌐 Routing to Flask app: /api/admin/overview
+10.81.11.6 - - [17/Sep/2025:17:15:35 +0000] "GET /api/admin/overview?time_filter=today&start_date=2025-09-17&end_date=2025-09-17 HTTP/1.1" 200 345 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/admin/overview" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /api/crm/threads
+🌐 Routing to Flask app: /api/crm/threads
+🔍 WSGI Route: GET /api/whatsapp/status
+🌐 Routing to Flask app: /api/whatsapp/status
+🔍 WSGI Route: GET /api/business/current/prompt
+🌐 Routing to Flask app: /api/business/current/prompt
+CSRF-DBG cookie= KWPsNCoUyTgDgXtsx16jfMvjByRrxJ0SYT-h5vKFO_s header= None ct= None
+[2025-09-17 17:15:38,803] ERROR in app: Exception on /api/whatsapp/status [GET]
+Traceback (most recent call last):
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connection.py", line 198, in _new_conn
+    sock = connection.create_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/util/connection.py", line 85, in create_connection
+    raise err
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/util/connection.py", line 73, in create_connection
+    sock.connect(sa)
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/eventlet/greenio/base.py", line 265, in connect
+    socket_checkerr(fd)
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/eventlet/greenio/base.py", line 50, in socket_checkerr
+    raise OSError(err, errno.errorcode[err])
+ConnectionRefusedError: [Errno 111] ECONNREFUSED
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+               ^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connectionpool.py", line 493, in _make_request
+    conn.request(
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connection.py", line 445, in request
+    self.endheaders()
+  File "/nix/store/7d088dip86hlzri9sk0h78b63yfmx0a0-python3-3.11.13/lib/python3.11/http/client.py", line 1298, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/nix/store/7d088dip86hlzri9sk0h78b63yfmx0a0-python3-3.11.13/lib/python3.11/http/client.py", line 1058, in _send_output
+    self.send(msg)
+  File "/nix/store/7d088dip86hlzri9sk0h78b63yfmx0a0-python3-3.11.13/lib/python3.11/http/client.py", line 996, in send
+    self.connect()
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connection.py", line 276, in connect
+    self.sock = self._new_conn()
+                ^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connection.py", line 213, in _new_conn
+    raise NewConnectionError(
+urllib3.exceptions.NewConnectionError: <urllib3.connection.HTTPConnection object at 0x7f3d30b46910>: Failed to establish a new connection: [Errno 111] ECONNREFUSED
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/requests/adapters.py", line 667, in send
+    resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/urllib3/util/retry.py", line 519, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='127.0.0.1', port=3300): Max retries exceeded with url: /whatsapp/1/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f3d30b46910>: Failed to establish a new connection: [Errno 111] ECONNREFUSED'))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+                                                ^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/server/routes_whatsapp.py", line 17, in status
+    r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=5)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/requests/api.py", line 73, in get
+    return request("get", url, params=params, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/requests/adapters.py", line 700, in send
+    raise ConnectionError(e, request=request)
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='127.0.0.1', port=3300): Max retries exceeded with url: /whatsapp/1/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f3d30b46910>: Failed to establish a new connection: [Errno 111] ECONNREFUSED'))
+10.81.11.6 - - [17/Sep/2025:17:15:38 +0000] "GET /api/whatsapp/status HTTP/1.1" 500 59 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/whatsapp" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.6.121 - - [17/Sep/2025:17:15:38 +0000] "GET /api/crm/threads HTTP/1.1" 200 66 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/whatsapp" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+10.81.3.31 - - [17/Sep/2025:17:15:39 +0000] "GET /api/business/current/prompt HTTP/1.1" 200 313 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/whatsapp" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+🔍 WSGI Route: GET /wa/qr
+🌐 Routing to Flask app: /wa/qr
+10.81.3.31 - - [17/Sep/2025:17:15:40 +0000] "GET /wa/qr HTTP/1.1" 200 0 "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/app/whatsapp" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B
