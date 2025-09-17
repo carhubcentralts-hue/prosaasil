@@ -1,2 +1,2 @@
-// services/baileys/server.js
+// Bridge לשירות החדש – לא לגעת ב-workflow
 require('../whatsapp/baileys_service');

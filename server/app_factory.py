@@ -326,8 +326,13 @@ def create_app():
         app.register_blueprint(receipts_contracts_bp)
         
         # WhatsApp Canonical API (replaces all other WhatsApp routes)
-        from server.routes_whatsapp_clean import whatsapp_bp
+        from server.routes_whatsapp import whatsapp_bp
         app.register_blueprint(whatsapp_bp)
+        
+        # CSRF exemptions לroutes WhatsApp לפי הנחיות המשתמש
+        csrf.exempt(whatsapp_bp.view_functions['status'])
+        csrf.exempt(whatsapp_bp.view_functions['qr'])
+        csrf.exempt(whatsapp_bp.view_functions['start'])
         
         print("✅ New API blueprints registered")
         print("✅ Twilio webhooks registered")
