@@ -17,3 +17,6 @@ services/whatsapp/auth_info_baileys/
 # Logs
 *.log
 server.log
+# WhatsApp Auth Files
+storage/whatsapp/*/auth/*
+services/whatsapp/auth/*
