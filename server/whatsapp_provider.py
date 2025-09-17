@@ -29,7 +29,7 @@ class BaileysProvider(Provider):
     """Baileys HTTP API provider with health checks and failover"""
     
     def __init__(self):
-        self.outbound_url = os.getenv("BAILEYS_OUTBOUND_URL", "http://localhost:3001")
+        self.outbound_url = os.getenv("BAILEYS_BASE_URL", "http://127.0.0.1:3300")
         self.webhook_secret = os.getenv("BAILEYS_WEBHOOK_SECRET", "")
         self.timeout = 5.0
         self._last_health_check = 0

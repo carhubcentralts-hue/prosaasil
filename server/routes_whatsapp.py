@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 whatsapp_bp = Blueprint('whatsapp_canonical', __name__, url_prefix='/api/whatsapp')
 
 # Configuration
-BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://localhost:3001')
+BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
 INTERNAL_SECRET = os.getenv('INTERNAL_SECRET')
 
 def get_tenant_id():

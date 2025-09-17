@@ -493,7 +493,7 @@ def _queue_baileys_response(to: str, text: str):
         import requests
         import os
         
-        baileys_url = os.environ.get('BAILEYS_OUTBOUND_URL', 'http://localhost:3001')
+        baileys_url = os.environ.get('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
         
         payload = {
             "to": to,

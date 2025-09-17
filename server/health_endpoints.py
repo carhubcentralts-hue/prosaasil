@@ -35,7 +35,7 @@ def readyz():
         import requests
         baileys_status = "unknown"
         try:
-            baileys_url = os.getenv('BAILEYS_BASE_URL', 'http://localhost:3001')
+            baileys_url = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
             response = requests.get(f"{baileys_url}/healthz", timeout=2)
             baileys_status = "healthy" if response.status_code == 200 else f"unhealthy: {response.status_code}"
         except Exception:
