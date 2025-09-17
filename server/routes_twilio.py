@@ -138,17 +138,72 @@ def stream_ended():
 @twilio_bp.route("/webhook/handle_recording", methods=["POST"])
 @require_twilio_signature
 def handle_recording():
-    """Handle recording webhook"""
-    call_sid = request.form.get("CallSid")
+    """
+    Handle recording webhook - ULTRA FAST response with immediate processing
+    שלב 4: שדרוג למענה מיידי עם monitoring משופר
+    """
+    import time
+    start_time = time.time()
+    
+    # Fast data extraction
+    call_sid = request.form.get("CallSid", "unknown")
     rec_url = request.form.get("RecordingUrl")
-    if rec_url:
-        try:
-            enqueue_recording(request.form)
-        except Exception:
-            current_app.logger.exception("recording_queue_fail")
+    rec_duration = request.form.get("RecordingDuration", "0")
+    rec_status = request.form.get("RecordingStatus", "unknown")
+    
+    # Immediate response preparation (no blocking operations)
     resp = make_response("", 204)
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
+    resp.headers.update({
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Connection": "close"  # Ensure connection closes immediately
+    })
+    
+    # TRUE non-blocking background processing with daemon thread
+    if rec_url and rec_url.strip():
+        try:
+            # Truly async - starts thread and returns immediately
+            form_copy = dict(request.form)  # Copy form data before thread
+            
+            def async_enqueue():
+                """Background thread for recording processing"""
+                try:
+                    enqueue_recording(form_copy)
+                    current_app.logger.info("REC_QUEUED_ASYNC", extra={
+                        "call_sid": call_sid[:16],
+                        "duration": rec_duration,
+                        "status": rec_status
+                    })
+                except Exception as e:
+                    current_app.logger.error("REC_QUEUE_ASYNC_FAIL", extra={
+                        "call_sid": call_sid[:16],
+                        "error_type": type(e).__name__
+                    })
+            
+            # Fire daemon thread and return immediately (non-blocking)
+            threading.Thread(target=async_enqueue, daemon=True).start()
+            
+            # Immediate success log (thread started, not completed)
+            current_app.logger.info("REC_THREAD_STARTED", extra={
+                "call_sid": call_sid[:16],
+                "processing_ms": int((time.time() - start_time) * 1000)
+            })
+            
+        except Exception as e:
+            # Thread creation failed - ultra-fast error log
+            current_app.logger.error("REC_THREAD_FAIL", extra={
+                "call_sid": call_sid[:16],
+                "error_type": type(e).__name__,
+                "processing_ms": int((time.time() - start_time) * 1000)
+            })
+    else:
+        # Log missing recording URL
+        current_app.logger.warning("REC_NO_URL", extra={
+            "call_sid": call_sid[:16],
+            "status": rec_status,
+            "processing_ms": int((time.time() - start_time) * 1000)
+        })
+    
     return resp
 
 @csrf.exempt
