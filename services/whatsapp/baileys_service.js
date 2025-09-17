@@ -1,368 +1,100 @@
-// services/whatsapp/baileys_service.js
 const express = require('express');
 const cors = require('cors');
 const QRCode = require('qrcode');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const axios = require('axios');
+const axios = require('axios');           // ← לא fetch (Node<18 מתקשה)
 const fs = require('fs');
 const path = require('path');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json());
 
-// Environment validation - שימוש במשתנים הקיימים!
-const PORT = process.env.BAILEYS_PORT || 3300; // משתמש בפורט הקיים
-const INTERNAL_SECRET = process.env.BAILEYS_WEBHOOK_SECRET; // משתמש בסיקרט הקיים
-const FLASK_BASE_URL = process.env.FLASK_BASE_URL || 'http://127.0.0.1:5000'; // ברירת מחדל
+const PORT = process.env.BAILEYS_PORT || 3300;
+const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
+const FLASK_BASE_URL = process.env.FLASK_BASE_URL || 'http://127.0.0.1:5000';
 
-console.log(`🔧 Using PORT: ${PORT}`);
-console.log(`🔧 Using INTERNAL_SECRET: ${INTERNAL_SECRET ? 'Found' : 'Missing'}`);
-console.log(`🔧 Using FLASK_BASE_URL: ${FLASK_BASE_URL}`);
+if (!INTERNAL_SECRET) { console.error('INTERNAL_SECRET missing'); process.exit(1); }
 
-// Security: Strong tenant ID validation (prevent path traversal)
-const TENANT_ID_REGEX = /^[A-Za-z0-9_-]{1,64}$/;
-function validateTenantId(tenantId) {
-  if (!tenantId || typeof tenantId !== 'string') {
-    throw new Error('Invalid tenant ID: must be a non-empty string');
-  }
-  if (!TENANT_ID_REGEX.test(tenantId)) {
-    throw new Error('Invalid tenant ID: must contain only alphanumeric characters, hyphens, and underscores (1-64 chars)');
-  }
-  return tenantId;
-}
-
-const sessions = new Map(); // tenantId -> { sock, state, qrDataUrl, connected, pushName }
-
-// 🛡️ Handle SIGHUP and ensure process stays alive in background
-process.on('SIGHUP', () => {
-  console.log('📴 Received SIGHUP, ignoring to stay alive in background');
-});
-
-// Ensure process doesn't exit on uncaught exceptions in background
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception (handled):', error);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection (handled):', reason);
-});
-
-// Keep process alive in background
-if (process.env.NODE_ENV !== 'development') {
-  process.stdin.resume();
-}
+const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, pushName }
 
 function authDir(tenantId) {
-  // Security: Validate tenant ID and ensure path stays within storage/whatsapp
-  validateTenantId(tenantId);
-  const storageRoot = path.join(process.cwd(), 'storage', 'whatsapp');
-  const authPath = path.join(storageRoot, tenantId, 'auth');
-  
-  // Double-check that the resolved path is within our storage directory
-  if (!authPath.startsWith(storageRoot)) {
-    throw new Error('Path traversal attempt detected');
-  }
-  
-  return authPath;
+  const p = path.join(process.cwd(), 'storage', 'whatsapp', String(tenantId), 'auth');
+  fs.mkdirSync(p, { recursive: true });  // ← בלי זה יש EACCES/ENOENT → קריסה
+  return p;
 }
 
 async function startSession(tenantId) {
-  validateTenantId(tenantId);
   if (sessions.get(tenantId)?.sock) return sessions.get(tenantId);
 
-  fs.mkdirSync(authDir(tenantId), { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(authDir(tenantId));
+  const sock = makeWASocket({ auth: state, printQRInTerminal: false });
 
-  const sock = makeWASocket({ 
-    auth: state, 
-    printQRInTerminal: false,
-    browser: ['Shai CRM', 'Chrome', '120']
-  });
-  
-  const session = { sock, state, saveCreds, qrDataUrl: '', connected: false, pushName: '' };
-  sessions.set(tenantId, session);
+  const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '' };
+  sessions.set(tenantId, s);
 
   sock.ev.on('creds.update', saveCreds);
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
-    if (qr) {
-      try {
-        session.qrDataUrl = await QRCode.toDataURL(qr);
-        console.log(`🔄 QR updated for tenant ${tenantId}`);
-      } catch (error) {
-        console.error(`❌ QR generation failed for tenant ${tenantId}:`, error);
-      }
-    }
 
-    if (connection === 'open') {
-      session.connected = true;
-      session.pushName = sock?.user?.name || sock?.user?.id || '';
-      session.qrDataUrl = '';
-      console.log(`✅ WhatsApp connected for tenant ${tenantId} as ${session.pushName}`);
-    }
-    if (connection === 'close') {
-      session.connected = false;
-      const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
-      if (shouldReconnect) {
-        console.log(`🔄 Reconnecting tenant ${tenantId} after disconnect...`);
-        setTimeout(() => startSession(tenantId), 2000);
-      } else {
-        console.log(`🚪 Tenant ${tenantId} logged out`);
-      }
-    }
-  });
-
-  // הודעות נכנסות → שלח ל-Flask Webhook
-  sock.ev.on('messages.upsert', async (m) => {
+  sock.ev.on('connection.update', async (u) => {
     try {
-      const messages = m.messages || [];
-      for (const message of messages) {
-        // Skip outgoing messages (fromMe = true)
-        if (message.key && message.key.fromMe) {
-          continue;
-        }
-        
-        // Extract message data properly
-        const from = message.key.remoteJid;
-        const messageId = message.key.id;
-        const timestamp = message.messageTimestamp;
-        
-        // Extract text content based on message type
-        let text = '';
-        let messageType = 'text';
-        
-        if (message.message?.conversation) {
-          text = message.message.conversation;
-        } else if (message.message?.extendedTextMessage?.text) {
-          text = message.message.extendedTextMessage.text;
-        } else if (message.message?.imageMessage?.caption) {
-          text = message.message.imageMessage.caption;
-          messageType = 'image';
-        } else if (message.message?.videoMessage?.caption) {
-          text = message.message.videoMessage.caption;
-          messageType = 'video';
-        } else if (message.message?.documentMessage?.caption) {
-          text = message.message.documentMessage.caption;
-          messageType = 'document';
-        }
-        
-        // Skip if no text content
-        if (!text || text.trim() === '') {
-          console.log(`⏩ Skipping message with no text content from ${from}`);
-          continue;
-        }
-        
-        console.log(`📨 Inbound WhatsApp from ${from} for tenant ${tenantId}: "${text.substring(0, 50)}..."`);
-        
-        // Forward to Flask webhook with proper structure
-        await axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`, {
-          tenantId,
-          from,
-          text,
-          messageId,
-          type: messageType,
-          timestamp
-        }, {
-          headers: { 
-            'Content-Type': 'application/json', 
-            'X-Internal-Secret': INTERNAL_SECRET 
-          },
-          timeout: 5000
-        });
+      const { connection, lastDisconnect, qr } = u;
+      if (qr) s.qrDataUrl = await QRCode.toDataURL(qr);
+      if (connection === 'open') {
+        s.connected = true;
+        s.pushName = sock?.user?.name || sock?.user?.id || '';
+        s.qrDataUrl = '';
       }
-    } catch (e) { 
-      console.error(`❌ Failed to forward message for tenant ${tenantId}:`, e.message);
+      if (connection === 'close') {
+        s.connected = false;
+        const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
+        if (shouldReconnect) setTimeout(() => startSession(tenantId), 2000);
+      }
+    } catch (e) {
+      console.error('[connection.update] error', e);
     }
   });
 
-  return session;
+  sock.ev.on('messages.upsert', async (payload) => {
+    try {
+      await axios.post(`${FLASK_BASE_URL}/webhook/whatsapp/incoming`,
+        { tenantId, payload },
+        { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
+      );
+    } catch (e) {
+      console.error('[Webhook→Flask] failed', e?.message || e);
+    }
+  });
+
+  return s;
 }
 
 function requireSecret(req, res, next) {
-  if (req.header('X-Internal-Secret') !== INTERNAL_SECRET) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }
+  if (req.header('X-Internal-Secret') !== INTERNAL_SECRET) return res.status(401).json({ error: 'unauthorized' });
   next();
 }
 
-// Health check endpoint
 app.get('/healthz', (req, res) => res.status(200).send('ok'));
 
-// Start session for tenant
 app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
-  const { tenantId } = req.params;
-  try {
-    validateTenantId(tenantId);
-    await startSession(tenantId);
-    res.json({ ok: true, message: `Session started for tenant ${tenantId}` });
-  } catch (error) {
-    console.error(`❌ Failed to start session for tenant ${tenantId}:`, error);
-    if (error.message.includes('Invalid tenant ID') || error.message.includes('Path traversal')) {
-      res.status(400).json({ error: 'invalid_tenant_id', message: error.message });
-    } else {
-      res.status(500).json({ error: 'failed_to_start', message: error.message });
-    }
-  }
+  try { await startSession(req.params.tenantId); return res.json({ ok: true }); }
+  catch (e) { console.error('start error', e); return res.status(500).json({ error: 'start_failed' }); }
 });
 
-// Get session status
 app.get('/whatsapp/:tenantId/status', requireSecret, (req, res) => {
-  const { tenantId } = req.params;
-  try {
-    validateTenantId(tenantId);
-    const s = sessions.get(tenantId);
-    res.json({ 
-      connected: !!s?.connected, 
-      pushName: s?.pushName || '', 
-      hasQR: !!s?.qrDataUrl 
-    });
-  } catch (error) {
-    res.status(400).json({ error: 'invalid_tenant_id', message: error.message });
-  }
+  const s = sessions.get(req.params.tenantId);
+  return res.json({ connected: !!s?.connected, pushName: s?.pushName || '', hasQR: !!s?.qrDataUrl });
 });
 
-// Get QR code
 app.get('/whatsapp/:tenantId/qr', requireSecret, (req, res) => {
-  const { tenantId } = req.params;
-  try {
-    validateTenantId(tenantId);
-    const s = sessions.get(tenantId);
-    if (s?.qrDataUrl) {
-      return res.json({ dataUrl: s.qrDataUrl });
-    }
-    return res.status(404).json({ error: 'no qr' });
-  } catch (error) {
-    res.status(400).json({ error: 'invalid_tenant_id', message: error.message });
-  }
+  const s = sessions.get(req.params.tenantId);
+  if (s?.qrDataUrl) return res.json({ dataUrl: s.qrDataUrl });   // תמיד JSON תקין
+  return res.status(404).json({ error: 'no_qr' });               // לא 200 ריק
 });
 
-// Send message
-app.post('/whatsapp/:tenantId/send', requireSecret, async (req, res) => {
-  const { tenantId } = req.params;
-  const { to, text } = req.body;
-  
-  try {
-    validateTenantId(tenantId);
-    
-    if (!to || !text) {
-      return res.status(400).json({ error: 'to and text are required' });
-    }
-    
-    const s = sessions.get(tenantId);
-    if (!s?.connected) {
-      return res.status(503).json({ error: 'not_connected' });
-    }
-    
-    const jid = to.endsWith('@s.whatsapp.net') ? to : to.replace(/[^\d]/g, '') + '@s.whatsapp.net';
-    await s.sock.sendMessage(jid, { text });
-    res.json({ ok: true, message: 'Message sent' });
-  } catch (error) {
-    console.error(`❌ Failed to send message for tenant ${tenantId}:`, error);
-    if (error.message.includes('Invalid tenant ID')) {
-      res.status(400).json({ error: 'invalid_tenant_id', message: error.message });
-    } else {
-      res.status(500).json({ error: 'send_failed', message: error.message });
-    }
-  }
-});
+// לא להיכבות בשקט
+process.on('unhandledRejection', err => console.error('[UNHANDLED]', err));
+process.on('uncaughtException', err => console.error('[UNCAUGHT]', err));
 
-// Logout session
-app.post('/whatsapp/:tenantId/logout', requireSecret, async (req, res) => {
-  const { tenantId } = req.params;
-  
-  try {
-    validateTenantId(tenantId);
-    const s = sessions.get(tenantId);
-    
-    if (s?.sock?.logout) {
-      await s.sock.logout();
-    }
-    sessions.delete(tenantId);
-    
-    // Clean up auth directory
-    const authPath = authDir(tenantId);
-    if (fs.existsSync(authPath)) {
-      fs.rmSync(authPath, { recursive: true, force: true });
-    }
-    
-    res.json({ ok: true, message: `Session logged out for tenant ${tenantId}` });
-  } catch (error) {
-    console.error(`❌ Failed to logout tenant ${tenantId}:`, error);
-    if (error.message.includes('Invalid tenant ID') || error.message.includes('Path traversal')) {
-      res.status(400).json({ error: 'invalid_tenant_id', message: error.message });
-    } else {
-      res.status(500).json({ error: 'logout_failed', message: error.message });
-    }
-  }
-});
-
-// הוספת מזהה שירות לכל תגובה
-app.use((req, res, next) => {
-  res.set('X-Service', 'baileys-whatsapp');
-  next();
-});
-
-// שורש endpoint לזיהוי השירות
-app.get('/', (req, res) => res.send('baileys-whatsapp-service'));
-
-// לוג שגיאות גלובליות שלא יפילו את התהליך
-process.on('unhandledRejection', (err) => console.error('[UNHANDLED REJECTION]', err));
-process.on('uncaughtException', (err) => console.error('[UNCAUGHT EXCEPTION]', err));
-
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Baileys Multi-Tenant Service running on port ${PORT}`);
-  console.log(`📁 Auth storage: storage/whatsapp/*/auth/`);
-  console.log(`🔐 Internal secret: ${INTERNAL_SECRET ? 'Configured' : 'MISSING'}`);
-  console.log(`🔗 Actual bound address:`, server.address());
-});
-
-server.on('error', (err) => {
-  console.error('❌ Listen error:', err);
-  process.exit(1);
-});
-
-// Heartbeat כדי לוודא שהתהליך נשאר חי
+app.listen(PORT, '0.0.0.0', () => console.log(`Baileys service on ${PORT}`));
+// heartbeat ללוג
 setInterval(() => console.log('💓 baileys alive'), 30000);
-
-// Graceful shutdown with proper cleanup
-async function gracefulShutdown(signal) {
-  console.log(`🛑 Received ${signal}. Shutting down Baileys service gracefully...`);
-  
-  try {
-    // Close all active sessions
-    for (const [tenantId, session] of sessions.entries()) {
-      try {
-        console.log(`📱 Closing session for tenant: ${tenantId}`);
-        if (session.sock && session.sock.end) {
-          await session.sock.end();
-        }
-      } catch (error) {
-        console.error(`❌ Error closing session for ${tenantId}:`, error.message);
-      }
-    }
-    
-    console.log('✅ All sessions closed successfully');
-  } catch (error) {
-    console.error('❌ Error during graceful shutdown:', error);
-  } finally {
-    process.exit(0);
-  }
-}
-
-// Handle SIGTERM/SIGINT with optional bypass for debugging
-if (process.env.BAILEYS_IGNORE_SIGTERM === '1') {
-  process.on('SIGTERM', () => console.log('📴 Ignoring SIGTERM in debug mode'));
-} else {
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-}
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-// Error handling
-process.on('uncaughtException', (err) => {
-  console.error('❌ Uncaught Exception:', err);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-});
