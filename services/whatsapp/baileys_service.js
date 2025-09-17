@@ -76,6 +76,7 @@ app.post('/whatsapp/:tenantId/disconnect', requireSecret, async (req, res) => {
 
 /** Baileys session logic */
 async function startSession(tenantId) {
+  console.error(`[${tenantId}] 🚀🚀🚀 DEBUG: startSession called - SHOULD BE VISIBLE!`);
   console.log(`[${tenantId}] 🚀 startSession called`);
   if (sessions.get(tenantId)?.sock) {
     console.log(`[${tenantId}] ⚠️ Session already exists, returning existing`);
