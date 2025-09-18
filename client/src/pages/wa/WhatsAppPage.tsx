@@ -118,7 +118,7 @@ export function WhatsAppPage() {
     loadPrompts();
   }, []);
 
-  // Auto-refresh QR code every 10 seconds until connected
+  // Poll status/QR only - no start calls in loop
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
     
@@ -126,37 +126,25 @@ export function WhatsAppPage() {
       console.log('🔄 Starting QR auto-refresh interval');
       interval = setInterval(async () => {
         try {
-          // Check QR status using unified function
-          const qrResponse = await getQRCode();
-          if (!qrResponse) {
-            console.warn('❌ No QR response during auto-refresh');
+          const statusResponse = await http.get<WhatsAppStatus>('/api/whatsapp/status');
+          if (statusResponse.connected) {
+            console.log('✅ WhatsApp connected - stopping QR refresh');
+            setShowQR(false);
+            setQrCode('');
+            setWhatsappStatus(statusResponse);
             return;
           }
           
-          const qrData = qrResponse.qr_data || qrResponse.qr || qrResponse.dataUrl;
-          
+          const qrResponse = await getQRCode();
+          const qrData = qrResponse?.dataUrl;
           if (qrData && qrData !== qrCode) {
             console.log('🔄 QR code refreshed');
             setQrCode(qrData);
-          } else if (qrResponse.ready === true || !qrData) {
-            // Connected or no QR needed - check status to confirm
-            try {
-              const statusResponse = await http.get<WhatsAppStatus>('/api/whatsapp/status');
-              if (statusResponse.connected || statusResponse.ready) {
-                console.log('✅ WhatsApp connected - stopping QR refresh');
-                setShowQR(false);
-                setQrCode('');
-                setWhatsappStatus(statusResponse);
-                return; // Stop interval
-              }
-            } catch (statusError) {
-              console.warn('❌ Status check failed:', statusError);
-            }
           }
         } catch (error) {
           console.warn('❌ QR auto-refresh failed:', error);
         }
-      }, 10000); // Refresh every 10 seconds
+      }, 2500); // Poll every 2.5s
     }
     
     return () => {
@@ -171,17 +159,7 @@ export function WhatsAppPage() {
     try {
       const response = await http.get<WhatsAppStatus>('/api/whatsapp/status');
       setWhatsappStatus(response);
-      
-      // Auto-start session if not connected - always try baileys for QR functionality
-      if (!response.connected) {
-        try {
-          console.log('🚀 Auto-starting WhatsApp session...');
-          await http.post('/api/whatsapp/start', { provider: 'baileys' });
-          console.log('✅ WhatsApp session auto-started');
-        } catch (startError) {
-          console.warn('❌ Auto-start failed:', startError);
-        }
-      }
+      // No auto-start - let user manually trigger with QR button
     } catch (error) {
       console.error('Error loading WhatsApp status:', error);
     }
@@ -277,51 +255,40 @@ export function WhatsAppPage() {
       setQrLoading(true);
       console.log('🔄 Generating QR code for provider:', selectedProvider);
       
-      // First start the WhatsApp session with explicit provider
-      try {
-        console.log('🚀 Starting WhatsApp session...');
-        await http.post('/api/whatsapp/start', { provider: selectedProvider });
-        console.log('✅ WhatsApp session started');
-      } catch (startError: any) {
-        console.warn('❌ Failed to start WhatsApp session:', startError);
-        // Continue anyway, maybe session already exists
-      }
+      // Single start call - no duplicates!
+      await http.post('/api/whatsapp/start', { provider: selectedProvider });
       
-      // Poll for QR code availability with backoff
-      let response = null;
+      // Start polling for status/QR - no looping on start!
+      const pollForQR = async () => {
+        const statusResponse = await http.get<WhatsAppStatus>('/api/whatsapp/status');
+        if (statusResponse.connected) {
+          alert('WhatsApp כבר מחובר למערכת');
+          return true; // Stop polling
+        }
+        
+        const qrResponse = await getQRCode();
+        if (qrResponse?.dataUrl) {
+          setQrCode(qrResponse.dataUrl);
+          setShowQR(true);
+          console.log('✅ QR Code received and set for display');
+          return true; // Stop polling
+        }
+        return false; // Continue polling
+      };
+      
+      // Poll up to 10 times with 2.5s intervals
       let attempts = 0;
       const maxAttempts = 10;
       
-      while (!response && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, attempts === 0 ? 500 : 1000));
-        response = await getQRCode();
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, attempts === 0 ? 500 : 2500));
+        const success = await pollForQR();
+        if (success) break;
         attempts++;
-        
-        if (!response) {
-          console.log(`⏳ QR not ready yet, attempt ${attempts}/${maxAttempts}`);
-        }
       }
       
-      if (!response) {
+      if (attempts >= maxAttempts) {
         alert('לא ניתן היה ליצור QR קוד. נסה שוב מאוחר יותר.');
-        return;
-      }
-      
-      // תמיכה בפורמטים שונים של QR response  
-      const qrData = response.qr_data || response.qr || response.dataUrl;
-      
-      if (qrData) {
-        // יש QR code - להציג אותו
-        setQrCode(qrData);
-        setShowQR(true);
-        console.log('✅ QR Code received and set for display');
-      } else if (response.success && response.status === 'connected') {
-        alert('WhatsApp כבר מחובר למערכת');
-      } else if (response.status === 'connected') {
-        // Baileys format: no success field but status connected
-        alert('WhatsApp כבר מחובר למערכת');
-      } else {
-        alert('שגיאה ביצירת QR קוד: ' + (response.error || response.message || 'שגיאה לא ידועה'));
       }
     } catch (error: any) {
       console.error('Error generating QR code:', error);

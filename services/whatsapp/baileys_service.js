@@ -24,7 +24,7 @@ app.get('/healthz', (req, res) => res.status(200).send('ok'));
 app.get('/health', (req, res) => res.status(200).send('ok'));  // Add /health alias for Python compatibility
 app.get('/', (req, res) => res.status(200).send('ok'));
 
-const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, pushName }
+const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, starting, pushName }
 
 function authDir(tenantId) {
   const p = path.join(process.cwd(), 'storage', 'whatsapp', String(tenantId), 'auth');
@@ -40,8 +40,8 @@ function requireSecret(req, res, next) {
 
 /** REST API (always the same app instance) */
 app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
-  try { await startSession(req.params.tenantId); return res.json({ ok: true }); }
-  catch (e) { console.error('[start] error', e); return res.status(500).json({ error: 'start_failed' }); }
+  try { await startSession(req.params.tenantId); res.json({ ok: true }); }
+  catch (e) { console.error('start error', e); res.status(500).json({ error: 'start_failed' }); }
 });
 app.get('/whatsapp/:tenantId/status', requireSecret, (req, res) => {
   const s = sessions.get(req.params.tenantId);
@@ -76,120 +76,45 @@ app.post('/whatsapp/:tenantId/disconnect', requireSecret, async (req, res) => {
 
 /** Baileys session logic */
 async function startSession(tenantId) {
-  console.error(`[${tenantId}] 🚀🚀🚀 DEBUG: startSession called - SHOULD BE VISIBLE!`);
   console.log(`[${tenantId}] 🚀 startSession called`);
-  if (sessions.get(tenantId)?.sock) {
-    console.log(`[${tenantId}] ⚠️ Session already exists, returning existing`);
-    return sessions.get(tenantId);
-  }
-  console.log(`[${tenantId}] 📁 Loading auth state from: ${authDir(tenantId)}`);
-  const { state, saveCreds } = await useMultiFileAuthState(authDir(tenantId));
-  console.log(`[${tenantId}] 🔧 Creating WhatsApp socket with iPhone-compatible settings`);
-  const sock = makeWASocket({ 
-    auth: state, 
+  const cur = sessions.get(tenantId);
+  if (cur?.sock) return cur;
+  if (cur?.starting) return cur;
+  sessions.set(tenantId, { starting: true });
+
+  const authPath = authDir(tenantId);  // fs.mkdirSync(..., {recursive:true}) כבר קיים
+  const { state, saveCreds } = await useMultiFileAuthState(authPath);
+
+  // --- גרסה/דפדפן יציבים (מונע pairing תקוע) ---
+  const sock = makeWASocket({
+    auth: state,
     printQRInTerminal: false,
-    browser: ['Ubuntu', 'Chrome', '110.0.0'],  // Standard desktop browser
+    browser: ["AgentLocator", "Chrome", "10.0"],
     defaultQueryTimeoutMs: 60000,
     connectTimeoutMs: 30000
   });
 
-  const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '' };
+  const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '', starting: false };
   sessions.set(tenantId, s);
-  console.log(`[${tenantId}] 💾 Session stored in memory`);
+  console.log(`[${tenantId}] 💾 Session stored in memory with stable browser settings`);
 
   sock.ev.on('creds.update', saveCreds);
-  sock.ev.on('connection.update', async (u) => {
+  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     try {
-      const { connection, lastDisconnect, qr, isNewLogin } = u;
-      console.error(`[${tenantId}] 🚀🚀🚀 CONNECTION UPDATE (ENHANCED DEBUG):`, { 
-        connection, 
-        hasQr: !!qr, 
-        isNewLogin,
-        reason: lastDisconnect?.error?.output?.statusCode,
-        timestamp: new Date().toISOString(),
-        full_update: JSON.stringify(u, null, 2)
-      });
-      console.log(`[${tenantId}] 🔍 Raw connection update:`, u);
-      
-      if (qr) {
-        console.log(`[${tenantId}] 🔄 Generating iPhone-optimized QR code`);
-        // QR optimized for iPhone scanning
-        s.qrDataUrl = await QRCode.toDataURL(qr, {
-          errorCorrectionLevel: 'H',    // גבוה יותר לiPhone
-          type: 'image/png',
-          quality: 0.92,
-          margin: 2,                    // margin נוח לiPhone
-          color: {
-            dark: '#000000',
-            light: '#FFFFFF'
-          },
-          width: 512                    // גודל אופטימלי לiPhone
-        });
-        console.log(`[${tenantId}] ✅ iPhone QR generated, length: ${s.qrDataUrl.length}`);
-      }
-      
+      if (qr) s.qrDataUrl = await QRCode.toDataURL(qr);
       if (connection === 'open') {
-        console.log(`[${tenantId}] ✅ WhatsApp connected successfully`);
-        s.connected = true;
+        s.connected = true; s.qrDataUrl = '';
         s.pushName = sock?.user?.name || sock?.user?.id || '';
-        s.qrDataUrl = '';
-        
-        // 🚀 Notify Flask about successful connection
-        try {
-          console.log(`[${tenantId}] 📡 Notifying Flask about connection success`);
-          await axios.post(`${FLASK_BASE_URL}/webhook/whatsapp/status`,
-            { 
-              tenantId, 
-              status: 'connected', 
-              pushName: s.pushName,
-              timestamp: new Date().toISOString()
-            },
-            { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
-          );
-          console.log(`[${tenantId}] ✅ Flask notified about connection`);
-        } catch (e) { 
-          console.error(`[${tenantId}] ❌ Failed to notify Flask about connection:`, e?.message || e); 
-        }
+        console.log('[update]', { tenantId, connection: 'open', pushName: s.pushName });
       }
-      
       if (connection === 'close') {
-        console.log(`[${tenantId}] ❌ WhatsApp connection closed`);
         s.connected = false;
-        
-        // 🚀 Notify Flask about disconnection
-        try {
-          console.log(`[${tenantId}] 📡 Notifying Flask about disconnection`);
-          await axios.post(`${FLASK_BASE_URL}/webhook/whatsapp/status`,
-            { 
-              tenantId, 
-              status: 'disconnected', 
-              reason: lastDisconnect?.error?.output?.statusCode || 'unknown',
-              timestamp: new Date().toISOString()
-            },
-            { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
-          );
-          console.log(`[${tenantId}] ✅ Flask notified about disconnection`);
-        } catch (e) { 
-          console.error(`[${tenantId}] ❌ Failed to notify Flask about disconnection:`, e?.message || e); 
-        }
-        
-        const shouldReconnect =
-          (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
-        if (shouldReconnect) {
-          console.log(`[${tenantId}] 🔄 Will reconnect in 2 seconds`);
-          setTimeout(() => startSession(tenantId), 2000);
-        } else {
-          console.log(`[${tenantId}] ⚠️ Logged out - won't reconnect`);
-        }
+        const reason = lastDisconnect?.error?.output?.statusCode;
+        console.log('[update]', { tenantId, connection: 'close', reason });
+        // אם לא loggedOut – ננסה מחדש בעדינות (לא מיד, כדי לא ליצור מרוץ)
+        if (reason !== DisconnectReason.loggedOut) setTimeout(() => startSession(tenantId), 2000);
       }
-      
-      if (connection === 'connecting') {
-        console.log(`[${tenantId}] 🔗 Connecting to WhatsApp...`);
-      }
-      
-    } catch (e) { 
-      console.error(`[${tenantId}] [connection.update] Error:`, e); 
-    }
+    } catch (e) { console.error('[connection.update] error', e); }
   });
 
   sock.ev.on('messages.upsert', async (payload) => {
