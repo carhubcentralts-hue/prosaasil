@@ -84,8 +84,14 @@ async function startSession(tenantId) {
   }
   console.log(`[${tenantId}] 📁 Loading auth state from: ${authDir(tenantId)}`);
   const { state, saveCreds } = await useMultiFileAuthState(authDir(tenantId));
-  console.log(`[${tenantId}] 🔧 Creating WhatsApp socket`);
-  const sock = makeWASocket({ auth: state, printQRInTerminal: false });
+  console.log(`[${tenantId}] 🔧 Creating WhatsApp socket with iPhone-compatible settings`);
+  const sock = makeWASocket({ 
+    auth: state, 
+    printQRInTerminal: false,
+    browser: ['AgentLocator', 'Safari', '15.0'],  // iPhone compatibility
+    defaultQueryTimeoutMs: 30000,
+    connectTimeoutMs: 15000
+  });
 
   const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '' };
   sessions.set(tenantId, s);
@@ -94,12 +100,30 @@ async function startSession(tenantId) {
   sock.ev.on('creds.update', saveCreds);
   sock.ev.on('connection.update', async (u) => {
     try {
-      const { connection, lastDisconnect, qr } = u;
-      console.log(`[${tenantId}] [update]`, { connection, hasQr: !!qr, reason: lastDisconnect?.error?.output?.statusCode });
+      const { connection, lastDisconnect, qr, isNewLogin } = u;
+      console.log(`[${tenantId}] 🚀🚀 CONNECTION UPDATE:`, { 
+        connection, 
+        hasQr: !!qr, 
+        isNewLogin,
+        reason: lastDisconnect?.error?.output?.statusCode,
+        timestamp: new Date().toISOString()
+      });
       
       if (qr) {
-        console.log(`[${tenantId}] 🔄 Generating new QR code`);
-        s.qrDataUrl = await QRCode.toDataURL(qr);
+        console.log(`[${tenantId}] 🔄 Generating iPhone-optimized QR code`);
+        // QR optimized for iPhone scanning
+        s.qrDataUrl = await QRCode.toDataURL(qr, {
+          errorCorrectionLevel: 'H',    // גבוה יותר לiPhone
+          type: 'image/png',
+          quality: 0.92,
+          margin: 2,                    // margin נוח לiPhone
+          color: {
+            dark: '#000000',
+            light: '#FFFFFF'
+          },
+          width: 512                    // גודל אופטימלי לiPhone
+        });
+        console.log(`[${tenantId}] ✅ iPhone QR generated, length: ${s.qrDataUrl.length}`);
       }
       
       if (connection === 'open') {
