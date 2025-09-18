@@ -88,9 +88,9 @@ async function startSession(tenantId) {
   const sock = makeWASocket({ 
     auth: state, 
     printQRInTerminal: false,
-    browser: ['AgentLocator', 'Safari', '15.0'],  // iPhone compatibility
-    defaultQueryTimeoutMs: 30000,
-    connectTimeoutMs: 15000
+    browser: ['Ubuntu', 'Chrome', '110.0.0'],  // Standard desktop browser
+    defaultQueryTimeoutMs: 60000,
+    connectTimeoutMs: 30000
   });
 
   const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '' };
