@@ -101,13 +101,15 @@ async function startSession(tenantId) {
   sock.ev.on('connection.update', async (u) => {
     try {
       const { connection, lastDisconnect, qr, isNewLogin } = u;
-      console.log(`[${tenantId}] 🚀🚀 CONNECTION UPDATE:`, { 
+      console.error(`[${tenantId}] 🚀🚀🚀 CONNECTION UPDATE (ENHANCED DEBUG):`, { 
         connection, 
         hasQr: !!qr, 
         isNewLogin,
         reason: lastDisconnect?.error?.output?.statusCode,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        full_update: JSON.stringify(u, null, 2)
       });
+      console.log(`[${tenantId}] 🔍 Raw connection update:`, u);
       
       if (qr) {
         console.log(`[${tenantId}] 🔄 Generating iPhone-optimized QR code`);
