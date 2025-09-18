@@ -68,19 +68,25 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
   const fetchQRCode = async () => {
     try {
       setConnectionStatus('connecting');
-      const response = await http.get<{ qr: string }>('/api/whatsapp/baileys/qr');
-      setQRCode(response.qr);
+      const response = await http.get<{ dataUrl: string }>('/api/whatsapp/qr');
+      setQRCode(response.dataUrl);
       
-      // Generate QR image from string
+      // Use the QR data URL directly if it's already base64, otherwise generate QR image
       try {
-        const qrImageDataUrl = await QRCode.toDataURL(response.qr, {
-          width: 256,
-          margin: 2,
-          color: {
-            dark: '#000000',
-            light: '#FFFFFF'
-          }
-        });
+        let qrImageDataUrl = response.dataUrl;
+        
+        // If it's not a data URL, generate QR from the string
+        if (!response.dataUrl.startsWith('data:image/')) {
+          qrImageDataUrl = await QRCode.toDataURL(response.dataUrl, {
+            width: 256,
+            margin: 2,
+            color: {
+              dark: '#000000',
+              light: '#FFFFFF'
+            }
+          });
+        }
+        
         setQrImageUrl(qrImageDataUrl);
         setConnectionStatus('connected');
       } catch (qrErr) {

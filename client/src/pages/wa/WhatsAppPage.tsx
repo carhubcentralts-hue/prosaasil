@@ -229,7 +229,7 @@ export function WhatsAppPage() {
 
   // Unified QR retrieval function with all fallbacks
   const getQRCode = async (): Promise<QRCodeData | null> => {
-    const endpoints = ['/api/whatsapp/qr', '/wa/qr', '/api/whatsapp/baileys/qr'];
+    const endpoints = ['/api/whatsapp/qr'];
     
     for (const endpoint of endpoints) {
       try {
@@ -238,8 +238,7 @@ export function WhatsAppPage() {
         console.log(`✅ Response from ${endpoint}:`, response);
         
         // Check if we got valid QR data
-        const qrData = response.qr_data || response.qr || response.dataUrl;
-        if (qrData || response.status === 'connected') {
+        if (response.dataUrl || response.status === 'connected') {
           return response;
         }
       } catch (error) {
