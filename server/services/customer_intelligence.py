@@ -22,6 +22,67 @@ class CustomerIntelligence:
         self.business_id = business_id
         self.business = Business.query.get(business_id)
         
+    def find_or_create_customer_from_whatsapp(
+        self, 
+        phone_number: str, 
+        message_text: str
+    ) -> Tuple[Customer, Lead, bool]:
+        """
+        זיהוי או יצירת לקוח מתוך הודעת WhatsApp
+        
+        Returns:
+            Tuple[Customer, Lead, bool]: (לקוח, ליד, האם נוצר חדש)
+        """
+        try:
+            phone_e164 = self._normalize_phone(phone_number)
+            
+            # חפש לקוח קיים לפי מספר טלפון
+            customer = Customer.query.filter_by(
+                business_id=self.business_id,
+                phone_e164=phone_e164
+            ).first()
+            
+            was_created = False
+            
+            if not customer:
+                # יצירת לקוח חדש
+                extracted_info = self._extract_info_from_transcription(message_text)
+                
+                customer = Customer()
+                customer.business_id = self.business_id
+                customer.phone_e164 = phone_e164
+                customer.name = extracted_info.get('name') or f"WhatsApp {phone_e164[-4:]}"
+                customer.source = "whatsapp"
+                customer.created_at = datetime.utcnow()
+                
+                db.session.add(customer)
+                db.session.flush()  # כדי לקבל ID
+                was_created = True
+            
+            # יצירת ליד חדש לכל הודעה (אלא אם יש כבר ליד פעיל)
+            existing_lead = Lead.query.filter_by(
+                business_id=self.business_id,
+                customer_id=customer.id
+            ).filter(Lead.status.in_(['חדש', 'בניסיון קשר', 'נוצר קשר', 'מוכשר'])).first()
+            
+            if not existing_lead:
+                lead = self._create_lead_from_whatsapp(customer, message_text)
+            else:
+                lead = existing_lead
+                # עדכון הליד הקיים עם מידע חדש
+                self._update_lead_from_message(lead, message_text)
+            
+            db.session.commit()
+            return customer, lead, was_created
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"❌ Error in WhatsApp customer/lead creation: {e}")
+            # יצירת לקוח ליד fallback במקרה של שגיאה
+            fallback_customer = self._create_fallback_customer(phone_number)
+            fallback_lead = self._create_fallback_lead(fallback_customer, "whatsapp")
+            return fallback_customer, fallback_lead, True
+
     def find_or_create_customer_from_call(
         self, 
         phone_number: str, 
@@ -429,6 +490,41 @@ class CustomerIntelligence:
                 customer.phone_e164, message, extracted_info
             )[1]
     
+    def _create_lead_from_whatsapp(self, customer: Customer, message_text: str) -> Lead:
+        """יצירת ליד חדש מהודעת WhatsApp"""
+        extracted_info = self._extract_info_from_transcription(message_text)
+        
+        lead = Lead()
+        lead.business_id = self.business_id
+        lead.customer_id = customer.id
+        lead.source = "whatsapp"
+        lead.status = "חדש"
+        lead.area = extracted_info.get('area')
+        lead.property_type = extracted_info.get('property_type')
+        lead.budget_min = extracted_info.get('budget_min')
+        lead.budget_max = extracted_info.get('budget_max')
+        lead.notes = f"WhatsApp: {message_text[:200]}..."
+        lead.created_at = datetime.utcnow()
+        
+        db.session.add(lead)
+        return lead
+    
+    def _update_lead_from_message(self, lead: Lead, message_text: str):
+        """עדכון ליד קיים עם מידע חדש מהודעה"""
+        extracted_info = self._extract_info_from_transcription(message_text)
+        
+        # עדכון שדות רק אם יש מידע חדש
+        if extracted_info.get('area') and not lead.area:
+            lead.area = extracted_info['area']
+        if extracted_info.get('property_type') and not lead.property_type:
+            lead.property_type = extracted_info['property_type']
+        if extracted_info.get('budget_min') and not lead.budget_min:
+            lead.budget_min = extracted_info['budget_min']
+        if extracted_info.get('budget_max') and not lead.budget_max:
+            lead.budget_max = extracted_info['budget_max']
+        
+        lead.updated_at = datetime.utcnow()
+
     def _create_fallback_customer(self, phone: str) -> Customer:
         """צור לקוח fallback במקרה של שגיאה"""
         customer = Customer()

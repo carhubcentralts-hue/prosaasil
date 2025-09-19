@@ -39,21 +39,94 @@ def whatsapp_incoming():
         
         logger.info(f"WhatsApp incoming webhook - tenant: {tenant_id}, events: {len(events.get('messages', []))}")
         
-        # TODO: Process incoming messages/events
-        # This is where you would:
-        # 1. Parse WhatsApp messages
-        # 2. Create leads from new contacts
-        # 3. Update conversation threads
-        # 4. Trigger AI responses if needed
-        
-        # For now, just log and acknowledge
+        # ✨ CUSTOMER INTELLIGENCE: Process incoming WhatsApp messages
         messages = events.get('messages', [])
-        for msg in messages:
-            from_number = msg.get('key', {}).get('remoteJid', 'unknown')
-            message_text = msg.get('message', {}).get('conversation', '')
-            logger.info(f"WhatsApp message from {from_number}: {message_text[:50]}...")
         
-        return '', 204  # Acknowledge receipt
+        if messages:
+            # Process in background to not block webhook response
+            from threading import Thread
+            
+            def process_whatsapp_messages():
+                try:
+                    from server.app_factory import create_app
+                    from server.services.customer_intelligence import CustomerIntelligence
+                    from server.db import db
+                    from server.models_sql import Business
+                    import time
+                    
+                    app = create_app()
+                    with app.app_context():
+                        # Find business by tenant_id (convert from business_X format)
+                        business_id = int(tenant_id.replace('business_', '')) if 'business_' in tenant_id else int(tenant_id)
+                        business = Business.query.get(business_id)
+                        
+                        if not business:
+                            logger.error(f"Business not found for tenant {tenant_id}")
+                            return
+                        
+                        ci = CustomerIntelligence(business_id)
+                        
+                        for msg in messages:
+                            try:
+                                # Parse WhatsApp message
+                                from_jid = msg.get('key', {}).get('remoteJid', '')
+                                phone_number = from_jid.split('@')[0] if '@' in from_jid else from_jid
+                                
+                                # Get message text
+                                message_content = msg.get('message', {})
+                                message_text = (
+                                    message_content.get('conversation', '') or
+                                    message_content.get('extendedTextMessage', {}).get('text', '') or
+                                    '[Media/Unsupported message]'
+                                )
+                                
+                                if not phone_number or not message_text or message_text == '[Media/Unsupported message]':
+                                    continue
+                                
+                                logger.info(f"Processing WhatsApp message from {phone_number}: {message_text[:50]}...")
+                                
+                                # ✨ Create/update customer and lead using Customer Intelligence
+                                customer, lead, was_created = ci.find_or_create_customer_from_whatsapp(
+                                    phone_number, message_text
+                                )
+                                
+                                # ✨ Generate conversation summary
+                                conversation_summary = ci.generate_conversation_summary(
+                                    message_text,
+                                    conversation_data={'source': 'whatsapp', 'phone': phone_number}
+                                )
+                                
+                                # ✨ Auto-update lead status based on message content
+                                new_status = ci.auto_update_lead_status(lead, conversation_summary)
+                                
+                                # Update lead notes with WhatsApp message
+                                timestamp = time.strftime('%H:%M:%S')
+                                if lead.notes:
+                                    lead.notes += f"\n[WhatsApp {timestamp}]: {message_text[:100]}..."
+                                else:
+                                    lead.notes = f"[WhatsApp {timestamp}]: {message_text[:100]}..."
+                                
+                                db.session.commit()
+                                
+                                # Detailed logging
+                                logger.info(f"🎯 WhatsApp AI Processing: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'})")
+                                logger.info(f"📱 WhatsApp Intent: {conversation_summary.get('intent', 'N/A')}")
+                                logger.info(f"📊 WhatsApp Status: {new_status}")
+                                logger.info(f"⚡ WhatsApp Next Action: {conversation_summary.get('next_action', 'N/A')}")
+                                
+                            except Exception as msg_error:
+                                logger.error(f"Failed to process WhatsApp message: {msg_error}")
+                                continue
+                                
+                except Exception as e:
+                    logger.error(f"WhatsApp background processing failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Start background processing
+            Thread(target=process_whatsapp_messages, daemon=True).start()
+        
+        return '', 204  # Acknowledge receipt immediately
         
     except Exception as e:
         logger.error(f"WhatsApp incoming webhook error: {e}")
