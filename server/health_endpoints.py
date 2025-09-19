@@ -69,7 +69,7 @@ def version():
         "status": "ok",
         "service": "agentlocator-whatsapp-crm",
         "version": "1.2.0",
-        "build": 57,
+        "build": 58,
         "phase": "whatsapp_integration",
         "features": [
             "multi_tenant_baileys",
