@@ -333,6 +333,10 @@ def create_app():
         from server.routes_webhook import webhook_bp
         app.register_blueprint(webhook_bp)
         
+        # Customer Intelligence API
+        from server.routes_intelligence import intelligence_bp
+        app.register_blueprint(intelligence_bp)
+        
         # CSRF exemptions לroutes WhatsApp - only GET routes for security
         try:
             csrf.exempt(app.view_functions.get('whatsapp.status'))  # GET - safe

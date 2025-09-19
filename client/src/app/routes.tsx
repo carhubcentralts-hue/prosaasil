@@ -32,6 +32,7 @@ import { CrmPage } from '../pages/crm/CrmPage';
 import { BillingPage } from '../pages/billing/BillingPage';
 import { UsersPage } from '../pages/users/UsersPage';
 import { SettingsPage } from '../pages/settings/SettingsPage';
+import CustomerIntelligencePage from '../pages/Intelligence/CustomerIntelligencePage';
 
 export function AppRoutes() {
   return (
@@ -228,6 +229,16 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['business', 'admin', 'manager']}>
               <NotificationsPage />
+            </RoleGuard>
+          }
+        />
+
+        {/* Customer Intelligence Dashboard */}
+        <Route
+          path="intelligence"
+          element={
+            <RoleGuard roles={['business', 'admin', 'manager']}>
+              <CustomerIntelligencePage />
             </RoleGuard>
           }
         />
