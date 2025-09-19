@@ -52,7 +52,7 @@ class CustomerIntelligence:
                 customer.business_id = self.business_id
                 customer.phone_e164 = phone_e164
                 customer.name = extracted_info.get('name') or f"WhatsApp {phone_e164[-4:]}"
-                customer.source = "whatsapp"
+                # customer.source = "whatsapp"  # Field doesn't exist in model
                 customer.created_at = datetime.utcnow()
                 
                 db.session.add(customer)
@@ -61,9 +61,9 @@ class CustomerIntelligence:
             
             # יצירת ליד חדש לכל הודעה (אלא אם יש כבר ליד פעיל)
             existing_lead = Lead.query.filter_by(
-                business_id=self.business_id,
-                customer_id=customer.id
-            ).filter(Lead.status.in_(['חדש', 'בניסיון קשר', 'נוצר קשר', 'מוכשר'])).first()
+                tenant_id=self.business_id,
+                phone_e164=phone_e164
+            ).filter(Lead.status.in_(['new', 'attempting', 'contacted', 'qualified'])).first()
             
             if not existing_lead:
                 lead = self._create_lead_from_whatsapp(customer, message_text)
@@ -131,7 +131,7 @@ class CustomerIntelligence:
             fallback_lead = self._create_fallback_lead(fallback_customer, call_sid)
             return fallback_customer, fallback_lead, True
     
-    def find_or_create_customer_from_whatsapp(
+    def find_or_create_customer_from_whatsapp_with_direction(
         self,
         phone_number: str,
         message_body: str,
@@ -495,14 +495,18 @@ class CustomerIntelligence:
         extracted_info = self._extract_info_from_transcription(message_text)
         
         lead = Lead()
-        lead.business_id = self.business_id
-        lead.customer_id = customer.id
+        lead.tenant_id = self.business_id
+        # lead.customer_id = customer.id  # Use phone_e164 matching instead
         lead.source = "whatsapp"
-        lead.status = "חדש"
-        lead.area = extracted_info.get('area')
-        lead.property_type = extracted_info.get('property_type')
-        lead.budget_min = extracted_info.get('budget_min')
-        lead.budget_max = extracted_info.get('budget_max')
+        lead.status = "new"
+        # Store extracted info in tags since fields don't exist in model
+        lead_tags = {
+            'area': extracted_info.get('area'),
+            'property_type': extracted_info.get('property_type'),
+            'budget_min': extracted_info.get('budget_min'),
+            'budget_max': extracted_info.get('budget_max')
+        }
+        lead.tags = {k: v for k, v in lead_tags.items() if v is not None}
         lead.notes = f"WhatsApp: {message_text[:200]}..."
         lead.created_at = datetime.utcnow()
         
@@ -514,14 +518,17 @@ class CustomerIntelligence:
         extracted_info = self._extract_info_from_transcription(message_text)
         
         # עדכון שדות רק אם יש מידע חדש
-        if extracted_info.get('area') and not lead.area:
-            lead.area = extracted_info['area']
-        if extracted_info.get('property_type') and not lead.property_type:
-            lead.property_type = extracted_info['property_type']
-        if extracted_info.get('budget_min') and not lead.budget_min:
-            lead.budget_min = extracted_info['budget_min']
-        if extracted_info.get('budget_max') and not lead.budget_max:
-            lead.budget_max = extracted_info['budget_max']
+        # Update tags with new extracted info
+        current_tags = lead.tags or {}
+        if extracted_info.get('area') and not current_tags.get('area'):
+            current_tags['area'] = extracted_info['area']
+        if extracted_info.get('property_type') and not current_tags.get('property_type'):
+            current_tags['property_type'] = extracted_info['property_type']
+        if extracted_info.get('budget_min') and not current_tags.get('budget_min'):
+            current_tags['budget_min'] = extracted_info['budget_min']
+        if extracted_info.get('budget_max') and not current_tags.get('budget_max'):
+            current_tags['budget_max'] = extracted_info['budget_max']
+        lead.tags = current_tags
         
         lead.updated_at = datetime.utcnow()
 

@@ -1699,7 +1699,7 @@ class MediaStreamHandler:
                         
                         # זיהוי/יצירת לקוח וליד עם התמלול הנוכחי
                         customer, lead, was_created = ci.find_or_create_customer_from_call(
-                            self.phone_number,
+                            str(self.phone_number or ""),
                             self.call_sid or f"live_{int(time.time())}",
                             full_conversation,
                             conversation_data={'conversation_history': self.response_history}
