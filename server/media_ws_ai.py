@@ -714,6 +714,9 @@ class MediaStreamHandler:
                     'time': time.time()
                 })
                 
+                # ✨ 6. Customer Intelligence - זיהוי/יצירת לקוח וליד חכם
+                self._process_customer_intelligence(text, reply)
+                
                 # 6. דבר רק אם יש מה לומר
                 self._speak_simple(reply)
             else:
@@ -1660,3 +1663,81 @@ class MediaStreamHandler:
             'summary': summary,
             'meeting_prompt': meeting_prompt
         }
+    
+    def _process_customer_intelligence(self, user_text: str, bot_reply: str):
+        """
+        ✨ עיבוד חכם של השיחה עם זיהוי/יצירת לקוח וליד אוטומטית
+        """
+        try:
+            # וודא שיש מספר טלפון ו-business_id
+            if not self.phone_number or not hasattr(self, 'business_id'):
+                print("⚠️ Missing phone_number or business_id for customer intelligence")
+                return
+            
+            # Import only when needed to avoid circular imports
+            from server.services.customer_intelligence import CustomerIntelligence
+            from server.app_factory import create_app
+            from server.db import db
+            
+            # הרצה אסינכרונית כדי לא לחסום את השיחה
+            import threading
+            
+            def process_in_background():
+                try:
+                    app = create_app()
+                    with app.app_context():
+                        business_id = getattr(self, 'business_id', 1)
+                        ci = CustomerIntelligence(business_id)
+                        
+                        # יצירת טקסט מלא מההיסטוריה הנוכחית
+                        full_conversation = ""
+                        if hasattr(self, 'response_history') and self.response_history:
+                            full_conversation = " ".join([
+                                f"{turn['user']} {turn['bot']}" 
+                                for turn in self.response_history[-5:]  # רק 5 אחרונות
+                            ])
+                        
+                        # זיהוי/יצירת לקוח וליד עם התמלול הנוכחי
+                        customer, lead, was_created = ci.find_or_create_customer_from_call(
+                            self.phone_number,
+                            self.call_sid or f"live_{int(time.time())}",
+                            full_conversation,
+                            conversation_data={'conversation_history': self.response_history}
+                        )
+                        
+                        # סיכום חכם של השיחה
+                        conversation_summary = ci.generate_conversation_summary(
+                            full_conversation,
+                            {'conversation_history': self.response_history}
+                        )
+                        
+                        # עדכון סטטוס אוטומטי
+                        new_status = ci.auto_update_lead_status(lead, conversation_summary)
+                        
+                        # עדכון פתקיות הליד עם התקדמות השיחה הנוכחית
+                        if lead.notes:
+                            lead.notes += f"\n[Live Call]: {user_text[:100]}... → {bot_reply[:50]}..."
+                        else:
+                            lead.notes = f"[Live Call]: {user_text[:100]}... → {bot_reply[:50]}..."
+                        
+                        db.session.commit()
+                        
+                        # רישום לוגים מפורטים
+                        print(f"🎯 Live Call AI Processing: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'})")
+                        print(f"📋 Live Summary: {conversation_summary.get('summary', 'N/A')}")
+                        print(f"🎭 Live Intent: {conversation_summary.get('intent', 'N/A')}")
+                        print(f"📊 Live Status: {new_status}")
+                        print(f"⚡ Live Next Action: {conversation_summary.get('next_action', 'N/A')}")
+                        
+                except Exception as e:
+                    print(f"❌ Customer Intelligence background processing failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # הרץ ברקע כדי לא לחסום את השיחה
+            thread = threading.Thread(target=process_in_background, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            print(f"❌ Customer Intelligence setup failed: {e}")
+            # אל תקריס את השיחה - המשך רגיל

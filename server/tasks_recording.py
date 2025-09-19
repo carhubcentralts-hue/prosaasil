@@ -93,41 +93,75 @@ def transcribe_hebrew(audio_file):
         return ""
 
 def save_call_to_db(call_sid, from_number, recording_url, transcription):
-    """שמור שיחה ותמלול ל-DB"""
+    """שמור שיחה ותמלול ל-DB + יצירת לקוח/ליד אוטומטית"""
     try:
-        # Import here to avoid circular imports
-        import sqlite3
+        # ✅ Use PostgreSQL + SQLAlchemy instead of SQLite
+        from server.app_factory import create_app
+        from server.db import db
+        from server.models_sql import CallLog, Business
+        from server.services.customer_intelligence import CustomerIntelligence
         
-        # Use simple SQLite for now (later PostgreSQL)
-        db_path = "database.db"
-        conn = sqlite3.connect(db_path)
-        
-        # Create table if not exists
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS call_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                call_sid TEXT UNIQUE,
-                from_number TEXT,
-                recording_url TEXT,
-                transcription TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Insert/update call
-        conn.execute("""
-            INSERT OR REPLACE INTO call_logs 
-            (call_sid, from_number, recording_url, transcription)
-            VALUES (?, ?, ?, ?)
-        """, (call_sid, from_number, recording_url, transcription))
-        
-        conn.commit()
-        conn.close()
-        
-        log.info("Call saved to DB: %s", call_sid)
+        app = create_app()
+        with app.app_context():
+            # 1. שמור בCallLog
+            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+            if not call_log:
+                # חפש business (זמני - עד שיהיה mapping מדויק)
+                business = Business.query.first()  # TODO: זהה business מהשיחה
+                if not business:
+                    log.error("No business found for call processing")
+                    return
+                
+                call_log = CallLog()
+                call_log.business_id = business.id
+                call_log.call_sid = call_sid
+                call_log.from_number = from_number
+                call_log.recording_url = recording_url
+                call_log.transcription = transcription
+                call_log.status = "processed"
+                call_log.created_at = datetime.utcnow()
+                
+                db.session.add(call_log)
+            else:
+                # עדכן תמלול לCall קיים
+                call_log.transcription = transcription
+                call_log.status = "processed"
+                call_log.updated_at = datetime.utcnow()
+            
+            db.session.commit()
+            
+            # 2. ✨ יצירת לקוח/ליד אוטומטית עם Customer Intelligence
+            if from_number and call_log.business_id:
+                ci = CustomerIntelligence(call_log.business_id)
+                
+                # זיהוי/יצירת לקוח וליד
+                customer, lead, was_created = ci.find_or_create_customer_from_call(
+                    from_number, call_sid, transcription
+                )
+                
+                # עדכון CallLog עם customer_id
+                call_log.customer_id = customer.id
+                
+                # 3. ✨ סיכום חכם של השיחה
+                conversation_summary = ci.generate_conversation_summary(transcription)
+                
+                # 4. ✨ עדכון סטטוס אוטומטי
+                new_status = ci.auto_update_lead_status(lead, conversation_summary)
+                
+                # עדכון הליד עם הסיכום
+                lead.notes = f"סיכום: {conversation_summary.get('summary', '')}\n" + (lead.notes or "")
+                
+                db.session.commit()
+                
+                log.info(f"🎯 Call processed with AI: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'}), Lead status: {new_status}")
+                log.info(f"📋 Summary: {conversation_summary.get('summary', 'N/A')}")
+                log.info(f"🎭 Intent: {conversation_summary.get('intent', 'N/A')}")
+                log.info(f"⚡ Next action: {conversation_summary.get('next_action', 'N/A')}")
+            
+            log.info("Call saved to PostgreSQL with AI processing: %s", call_sid)
         
     except Exception as e:
-        log.error("DB save failed: %s", e)
+        log.error("DB save + AI processing failed: %s", e)
 
 def save_call_status(call_sid, status):
     """שלח עדכון סטטוס שיחה לעיבוד ברקע (Thread) למנוע timeout"""
