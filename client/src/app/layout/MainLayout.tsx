@@ -16,7 +16,8 @@ import {
   Search,
   Bell,
   User,
-  Bot
+  Bot,
+  Brain
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
@@ -60,6 +61,12 @@ const menuItems = [
     icon: Building2, 
     label: 'CRM',
     to: '/app/crm',
+    roles: ['business', 'admin', 'manager']
+  },
+  { 
+    icon: Brain, 
+    label: 'אינטליגנציה לקוחות',
+    to: '/app/intelligence',
     roles: ['business', 'admin', 'manager']
   },
   { 
