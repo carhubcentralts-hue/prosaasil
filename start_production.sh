@@ -9,6 +9,12 @@ export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 echo "🚀 Starting AgentLocator Production System"
 echo "📊 Flask: 0.0.0.0:${PORT} | Baileys: 127.0.0.1:${BAILEYS_PORT}"
 
+# Ensure INTERNAL_SECRET is set
+if [ -z "${INTERNAL_SECRET:-}" ]; then
+    echo "❌ INTERNAL_SECRET environment variable is required"
+    exit 1
+fi
+
 # 1) Start Baileys (internal service)
 echo "🟡 Starting Baileys on port ${BAILEYS_PORT}..."
 node services/baileys/server.js &
