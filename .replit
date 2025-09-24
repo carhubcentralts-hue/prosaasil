@@ -11,7 +11,7 @@ EVENTLET_HUB         = "poll"
 [deployment]
 run = ["sh", "-c", "bash ./start_production.sh"]
 deploymentTarget = "cloudrun"
-build = ["sh", "-c", "npm ci && npm ci --prefix client && npm run build --prefix client && pip install -e ."]
+build = ["sh", "-c", "npm ci && cd client && npm install && npm run build && cd .. && pip install -e ."]
 
 [nix]
 channel = "stable-25_05"
