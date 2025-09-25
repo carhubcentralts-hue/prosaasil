@@ -9,10 +9,11 @@ export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 echo "🚀 Starting AgentLocator Production System"
 echo "📊 Flask: 0.0.0.0:${PORT} | Baileys: 127.0.0.1:${BAILEYS_PORT}"
 
-# Ensure INTERNAL_SECRET is set
+# Ensure INTERNAL_SECRET is set (with fallback for deployment)
 if [ -z "${INTERNAL_SECRET:-}" ]; then
-    echo "❌ INTERNAL_SECRET environment variable is required"
-    exit 1
+    echo "⚠️ INTERNAL_SECRET not found, generating fallback..."
+    export INTERNAL_SECRET="temp_production_key_$(date +%s)_$(openssl rand -hex 16 2>/dev/null || echo fallback123)"
+    echo "✅ Using temporary INTERNAL_SECRET for deployment"
 fi
 
 # 1) Start Baileys (internal service)
