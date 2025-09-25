@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, session, g
 from werkzeug.security import generate_password_hash
-from server.models_sql import Business, User, db
+from server.models_sql import Business, User, BusinessSettings, db
+from datetime import datetime
 from server.routes_admin import require_api_auth
 from server.extensions import csrf
 from functools import wraps
@@ -434,4 +435,102 @@ def exit_impersonation():
         return jsonify({"error": "שגיאה ביציאה מהתחזות"}), 500
 
 # === ADDITIONAL BUSINESS ENDPOINTS FROM api_business.py ===
+
+# Business current info route
+@biz_mgmt_bp.route('/api/business/current', methods=['GET'])
+@require_api_auth(['business', 'admin', 'manager'])
+def get_current_business():
+    """Get current business details for authenticated user"""
+    try:
+        from flask import request
+        
+        # Get business_id from context
+        business_id = getattr(request, 'business_id', None)
+        if not business_id:
+            return jsonify({"error": "No business context found"}), 400
+            
+        business = Business.query.filter_by(id=business_id).first()
+        if not business:
+            return jsonify({"error": "Business not found"}), 404
+            
+        # Get settings if available
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        
+        return jsonify({
+            "id": business.id,
+            "name": business.name,
+            "phone_number": settings.phone_number if settings and settings.phone_number else business.phone_e164,
+            "email": settings.email if settings and settings.email else f"office@{business.name.lower().replace(' ', '-')}.co.il",
+            "address": settings.address if settings else "",
+            "working_hours": settings.working_hours if settings and settings.working_hours else business.working_hours,
+            "timezone": settings.timezone if settings else "Asia/Jerusalem"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting current business: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@biz_mgmt_bp.route('/api/business/current/settings', methods=['PUT'])
+@require_api_auth(['business', 'admin', 'manager'])
+def update_current_business_settings():
+    """Update current business settings"""
+    try:
+        from flask import request, session
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid JSON data"}), 400
+            
+        # Get business_id from context
+        business_id = getattr(request, 'business_id', None)
+        if not business_id:
+            return jsonify({"error": "No business context found"}), 400
+            
+        business = Business.query.filter_by(id=business_id).first()
+        if not business:
+            return jsonify({"error": "Business not found"}), 404
+            
+        # Update business name if provided
+        if 'business_name' in data:
+            business.name = data['business_name']
+            
+        # Get or create settings
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        if not settings:
+            settings = BusinessSettings()
+            settings.tenant_id = business_id
+            db.session.add(settings)
+            
+        # Update settings fields
+        if 'phone_number' in data:
+            settings.phone_number = data['phone_number']
+            # Also update the main business table
+            business.phone_e164 = data['phone_number']
+        if 'email' in data:
+            settings.email = data['email']
+        if 'address' in data:
+            settings.address = data['address']
+        if 'working_hours' in data:
+            settings.working_hours = data['working_hours']
+            # Also update the main business table
+            business.working_hours = data['working_hours']
+        if 'timezone' in data:
+            settings.timezone = data['timezone']
+            
+        # Track who updated
+        user_email = session.get('al_user', {}).get('email', 'Unknown')
+        settings.updated_by = user_email
+        settings.updated_at = datetime.now()
+        
+        db.session.commit()
+        
+        return jsonify({
+            "success": True,
+            "message": "הגדרות עסק עודכנו בהצלחה"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating business settings: {e}")
+        db.session.rollback()
+        return jsonify({"error": "Internal server error"}), 500
 

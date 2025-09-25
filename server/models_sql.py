@@ -76,6 +76,12 @@ class BusinessSettings(db.Model):
     model = db.Column(db.String(50), default="gpt-4o-mini")  # AI model for prompts
     max_tokens = db.Column(db.Integer, default=150)  # Maximum tokens for AI responses
     temperature = db.Column(db.Float, default=0.7)   # AI temperature setting (0-2)
+    # Business settings
+    phone_number = db.Column(db.String(255))  # Business phone number
+    email = db.Column(db.String(255))  # Business email
+    address = db.Column(db.String(500))  # Business address
+    working_hours = db.Column(db.String(100))  # Business working hours
+    timezone = db.Column(db.String(50), default="Asia/Jerusalem")  # Business timezone
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
