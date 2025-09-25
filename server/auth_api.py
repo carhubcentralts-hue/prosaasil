@@ -372,6 +372,9 @@ def require_api_auth(roles=None):
             tenant = session.get('impersonated_tenant_id') or session['user'].get('business_id')  # Fixed: use business_id not tenant_id
             impersonating = bool(session.get('impersonating'))
             
+            # Add business_id to request object for route handlers
+            request.business_id = tenant
+            
             # Route-based permissions logic
             is_admin_route = request.path.startswith('/api/admin/')
             
