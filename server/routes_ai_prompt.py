@@ -70,6 +70,7 @@ def get_business_prompt(business_id):
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['PUT', 'OPTIONS'])
+@csrf.exempt
 @require_api_auth(['admin', 'manager'])
 def update_business_prompt(business_id):
     """Update AI prompts for business - Admin (דורש CSRF) - שיחות ווואטסאפ נפרד"""

@@ -10,14 +10,18 @@ export RUN_MIGRATIONS_ON_START=1
 echo "🚀 Starting AgentLocator Production System"
 echo "📊 Flask: 0.0.0.0:${PORT} | Baileys: 127.0.0.1:${BAILEYS_PORT}"
 
-# Ensure INTERNAL_SECRET is set (with fallback for deployment)
+# Ensure INTERNAL_SECRET is set (with FIXED fallback for deployment)
 if [ -z "${INTERNAL_SECRET:-}" ]; then
-    echo "⚠️ INTERNAL_SECRET not found, generating fallback..."
-    export INTERNAL_SECRET="temp_production_key_$(date +%s)_$(openssl rand -hex 16 2>/dev/null || echo fallback123)"
-    echo "✅ Using temporary INTERNAL_SECRET for deployment"
+    echo "⚠️ INTERNAL_SECRET not found, using fixed production key..."
+    export INTERNAL_SECRET="fixed_production_key_agent_locator_2025_reliable"
+    echo "✅ Using fixed INTERNAL_SECRET for deployment"
 fi
 
-# 1) Start Baileys (internal service)
+# 1) Install Node dependencies and start Baileys (internal service)
+echo "🟡 Installing Node dependencies for Baileys..."
+cd services/whatsapp && npm install --omit=dev || npm ci --omit=dev || echo "⚠️ Could not install deps"
+cd ../..
+
 echo "🟡 Starting Baileys on port ${BAILEYS_PORT}..."
 node services/baileys/server.js &
 BAI=$!
