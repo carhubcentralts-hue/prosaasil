@@ -97,7 +97,7 @@ const menuItems = [
     icon: Bot, 
     label: 'הגדרות AI Agent', 
     to: '/app/business/agent-prompts',
-    roles: ['business']
+    roles: ['business', 'admin', 'manager']
   },
   { 
     icon: UserCog, 

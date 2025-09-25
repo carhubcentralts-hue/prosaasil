@@ -125,20 +125,73 @@ export function SettingsPage() {
   }, []);
 
   const loadSettings = async () => {
-    setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      setLoading(true);
+      
+      // Load business settings from API
+      const response = await fetch('/api/business/current', {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setBusinessSettings({
+          business_name: data.name || '',
+          phone_number: data.phone_number || '',
+          email: data.email || '',
+          address: data.address || '',
+          working_hours: data.working_hours || '09:00-18:00',
+          timezone: data.timezone || 'Asia/Jerusalem'
+        });
+      } else {
+        console.error('Failed to load business settings');
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    } finally {
       setLoading(false);
-    }, 500);
+    }
+  };
+
+  const saveBusinessSettings = async () => {
+    try {
+      setSaving(true);
+      
+      const response = await fetch('/api/business/current/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(businessSettings)
+      });
+      
+      if (response.ok) {
+        // Show success message
+        alert('הגדרות עסק נשמרו בהצלחה');
+      } else {
+        const error = await response.json();
+        alert('שגיאה בשמירת הגדרות: ' + (error.message || 'שגיאה לא ידועה'));
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      alert('שגיאה בשמירת הגדרות');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSave = async () => {
-    setSaving(true);
-    // Simulate API call
-    setTimeout(() => {
-      setSaving(false);
-      alert('הגדרות נשמרו בהצלחה');
-    }, 1000);
+    if (activeTab === 'business') {
+      await saveBusinessSettings();
+    } else {
+      // Handle other tabs later
+      setSaving(true);
+      setTimeout(() => {
+        setSaving(false);
+        alert('הגדרות נשמרו בהצלחה');
+      }, 1000);
+    }
   };
 
   const toggleSecret = (key: string) => {
