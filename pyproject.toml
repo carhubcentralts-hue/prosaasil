@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "repl-nix-workspace"
+name = "agentlocator"
 version = "0.1.0"
-description = "Add your description here"
+description = "Hebrew CRM system with AI-powered real estate agent"
 requires-python = ">=3.11"
 dependencies = [
     "asyncio>=3.4.3",
@@ -64,3 +68,11 @@ dependencies = [
     "google-cloud-speech>=2.26.0",
     "honcho>=2.0.0",
 ]
+
+[tool.setuptools]
+py-modules = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["server*", "services*"]
+exclude = ["tests*", "client*", "node_modules*", "__pycache__*"]
