@@ -442,10 +442,10 @@ def exit_impersonation():
 def get_current_business():
     """Get current business details for authenticated user"""
     try:
-        from flask import request
+        from flask import request, g
         
         # Get business_id from context
-        business_id = getattr(request, 'business_id', None)
+        business_id = getattr(g, 'business_id', None)
         if not business_id:
             return jsonify({"error": "No business context found"}), 400
             
@@ -475,14 +475,14 @@ def get_current_business():
 def update_current_business_settings():
     """Update current business settings"""
     try:
-        from flask import request, session
+        from flask import request, session, g
         
         data = request.get_json()
         if not data:
             return jsonify({"error": "Invalid JSON data"}), 400
             
         # Get business_id from context
-        business_id = getattr(request, 'business_id', None)
+        business_id = getattr(g, 'business_id', None)
         if not business_id:
             return jsonify({"error": "No business context found"}), 400
             
