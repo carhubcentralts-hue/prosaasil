@@ -35,9 +35,11 @@ def _watchdog(call_sid, wss_host, start_timeout=6, no_media_timeout=6):
 def _do_redirect(call_sid, wss_host, reason):
     """Watchdog redirect function"""
     current_app.logger.warning("WATCHDOG_REDIRECT", extra={"call_sid": call_sid, "reason": reason})
+    # ✅ FIX: Absolute URL for watchdog redirect
+    host = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'localhost'
     twiml = f"""<Response>
   <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
-          action="/webhook/handle_recording" />
+          action="https://{host}/webhook/handle_recording" />
 </Response>"""
     try:
         # Use Deployment ENV vars (critical for production)
@@ -46,6 +48,83 @@ def _do_redirect(call_sid, wss_host, reason):
         current_app.logger.info("WATCHDOG_REDIRECT_OK", extra={"call_sid": call_sid})
     except Exception:
         current_app.logger.exception("WATCHDOG_REDIRECT_FAIL")
+
+def _trigger_recording_for_call(call_sid):
+    """חפש או עורר הקלטה לשיחה לאחר שהזרם נגמר"""
+    try:
+        # וידוא שיש אישורי Twilio
+        account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+        auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+        
+        if not account_sid or not auth_token:
+            print(f"❌ Missing Twilio credentials for recording {call_sid}")
+            return
+            
+        from twilio.rest import Client
+        client = Client(account_sid, auth_token)
+        
+        # קודם נחפש הקלטות קיימות לשיחה
+        try:
+            recordings = client.recordings.list(call_sid=call_sid, limit=5)
+            
+            if recordings:
+                # נמצאו הקלטות - נעבד אותן
+                for recording in recordings:
+                    print(f"✅ Found existing recording for {call_sid}: {recording.uri}")
+                    
+                    # קבל פרטי השיחה למספרי טלפון
+                    from_num = ''
+                    to_num = ''
+                    try:
+                        call = client.calls(call_sid).fetch()
+                        from_num = getattr(call, 'from_', '') or str(getattr(call, 'from_formatted', '') or '')
+                        to_num = getattr(call, 'to', '') or str(getattr(call, 'to_formatted', '') or '')
+                    except Exception as e:
+                        print(f"⚠️ Could not get call details: {e}")
+                    
+                    # בנה form data כמו webhook של Twilio
+                    # ✅ FIX: Use correct MP3 URL construction
+                    recording_mp3_url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Recordings/{recording.sid}.mp3"
+                    form_data = {
+                        'CallSid': call_sid,
+                        'RecordingUrl': recording_mp3_url,
+                        'RecordingDuration': str(recording.duration),
+                        'RecordingStatus': recording.status,
+                        'From': from_num,
+                        'To': to_num
+                    }
+                    
+                    # שלח לעיבוד
+                    enqueue_recording(form_data)
+                    print(f"✅ Recording queued for processing: {call_sid}")
+                    return
+                    
+        except Exception as e:
+            print(f"⚠️ Error checking recordings for {call_sid}: {e}")
+        
+        # אם אין הקלטות, נסה לעדכן השיחה לכלול Record (אם עדיין פעילה)
+        try:
+            call = client.calls(call_sid).fetch()
+            
+            if call.status in ['in-progress', 'ringing']:
+                # השיחה עדיין פעילה - עדכן ל-Record TwiML
+                # ✅ FIX: Use absolute URL for Twilio webhooks
+                host = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'your-app.replit.app'
+                record_twiml = f"""<Response>
+  <Record playBeep="false" timeout="30" maxLength="300" transcribe="false"
+          action="https://{host}/webhook/handle_recording" />
+</Response>"""
+                
+                client.calls(call_sid).update(twiml=record_twiml)
+                print(f"✅ Updated call {call_sid} to Record TwiML")
+            else:
+                print(f"ℹ️ Call {call_sid} ended without recording (status: {call.status})")
+                
+        except Exception as e:
+            print(f"⚠️ Error updating call {call_sid}: {e}")
+            
+    except Exception as e:
+        print(f"❌ Failed to trigger recording for {call_sid}: {e}")
 
 # TwiML Preview endpoint (ללא Play, מינימלי)
 @csrf.exempt
@@ -119,19 +198,28 @@ def incoming_call():
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
 @require_twilio_signature
 def stream_ended():
-    """שלב 5: Webhooks קשיחים - מחזיר 204 ללא TwiML - ULTRA FAST"""
-    # החזרה מיידית ללא עיבוד כלל
+    """Stream ended - trigger recording + fast response"""
+    call_sid = request.form.get('CallSid', '')
+    
+    # החזרה מיידית
     resp = make_response("", 204)
     resp.headers["Cache-Control"] = "no-store"
     
-    # לוגים ברקע (לא חוסמים את הresponse)
+    # עיבוד ברקע - עורר הקלטה או חפש הקלטה קיימת
+    if call_sid:
+        threading.Thread(
+            target=_trigger_recording_for_call, 
+            args=(call_sid,), 
+            daemon=True
+        ).start()
+        
     try:
         call_sid = request.form.get('CallSid', 'N/A')
         stream_sid = request.form.get('StreamSid', 'N/A') 
         status = request.form.get('Status', 'N/A')
         print(f"STREAM_ENDED call={call_sid} stream={stream_sid} status={status}")
     except:
-        pass  # אף פעם לא לחסום על לוגים
+        pass
         
     return resp
 

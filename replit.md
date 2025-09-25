@@ -4,6 +4,15 @@ This is AgentLocator, a Hebrew CRM system with AI-powered real-time call process
 
 ## Recent Major Enhancements (September 2025)
 
+### BUILD 58 - Complete Automation Fix & Comprehensive System Restoration (September 25, 2025)
+- **CRITICAL FIXES**: Resolved all 4 major automation issues preventing system functionality
+- **TWILIO RECORDING FIXED**: Implemented automatic recording trigger in stream_ended with existing recording detection and fallback Record TwiML
+- **LEAD AUTO-CREATION RESTORED**: Enhanced business identification logic with smart phone number matching for automatic customer/lead generation
+- **PROMPT AUTO-SYNC ACHIEVED**: Unified prompt system with AIService fallback to business.system_prompt, ensuring real-time prompt updates in phone calls
+- **WHATSAPP QR RESOLVED**: Fixed Baileys service startup by adding explicit start() call in server.js, enabling WhatsApp QR code generation
+- **PRODUCTION READY**: All automation workflows now function correctly - calls record, leads generate automatically, prompts update live, WhatsApp connects
+- **ARCHITECT VALIDATED**: Comprehensive fixes reviewed and approved with additional URL construction and parameter passing improvements
+
 ### BUILD 57 - WhatsApp Connection Reset & Disconnect Fix (September 17, 2025)
 - **FIXED**: WhatsApp QR generation issues - completely reset auth state before creating new sessions
 - **ADDED**: Full disconnect functionality with automatic session cleanup and auth file removal

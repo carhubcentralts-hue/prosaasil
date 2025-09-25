@@ -31,8 +31,9 @@ def process_recording_async(form_data):
         # 2. תמלול עברית
         transcription = transcribe_hebrew(audio_file)
         
-        # 3. שמור לDB
-        save_call_to_db(call_sid, from_number, recording_url, transcription)
+        # 3. שמור לDB - ✅ FIX: Pass to_number for better business detection
+        to_number = form_data.get('To', '')
+        save_call_to_db(call_sid, from_number, recording_url, transcription, to_number)
         
         log.info("Recording processed successfully: CallSid=%s", call_sid)
         
@@ -92,7 +93,7 @@ def transcribe_hebrew(audio_file):
         log.error("Transcription failed: %s", e)
         return ""
 
-def save_call_to_db(call_sid, from_number, recording_url, transcription):
+def save_call_to_db(call_sid, from_number, recording_url, transcription, to_number=None):
     """שמור שיחה ותמלול ל-DB + יצירת לקוח/ליד אוטומטית"""
     try:
         # ✅ Use PostgreSQL + SQLAlchemy instead of SQLite
@@ -106,8 +107,8 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription):
             # 1. שמור בCallLog
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
             if not call_log:
-                # חפש business (זמני - עד שיהיה mapping מדויק)
-                business = Business.query.first()  # TODO: זהה business מהשיחה
+                # זהה business בצורה חכמה - לפי מספר הנכנס/יוצא
+                business = _identify_business_for_call(to_number, from_number)
                 if not business:
                     log.error("No business found for call processing")
                     return
@@ -162,6 +163,58 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription):
         
     except Exception as e:
         log.error("DB save + AI processing failed: %s", e)
+
+def _identify_business_for_call(to_number, from_number):
+    """זהה עסק לפי מספרי הטלפון בשיחה - חכם"""
+    from server.models_sql import Business
+    from sqlalchemy import or_
+    
+    # שלב 1: נסה לזהות לפי מספר הנכנס (to_number)
+    if to_number:
+        # נקה את המספר מסימנים מיוחדים
+        clean_to = to_number.replace('+', '').replace('-', '').replace(' ', '')
+        
+        # חפש עסק שהמספר שלו תואם למספר הנכנס
+        business = Business.query.filter(
+            or_(
+                Business.phone_number.ilike(f'%{clean_to[-10:]}%'),  # 10 ספרות אחרונות
+                Business.phone_e164.ilike(f'%{clean_to[-10:]}%')
+            )
+        ).first()
+        
+        if business:
+            print(f"✅ זיהוי עסק לפי מספר נכנס {to_number}: {business.name}")
+            return business
+    
+    # שלב 2: אם לא נמצא, חפש לפי מספר היוצא (from_number) - אולי עסק שמתקשר החוצה
+    if from_number:
+        clean_from = from_number.replace('+', '').replace('-', '').replace(' ', '')
+        
+        business = Business.query.filter(
+            or_(
+                Business.phone_number.ilike(f'%{clean_from[-10:]}%'),
+                Business.phone_e164.ilike(f'%{clean_from[-10:]}%')
+            )
+        ).first()
+        
+        if business:
+            print(f"✅ זיהוי עסק לפי מספר יוצא {from_number}: {business.name}")
+            return business
+    
+    # שלב 3: fallback לעסק הראשון הפעיל
+    business = Business.query.filter(Business.is_active == True).first()
+    if business:
+        print(f"✅ שימוש בעסק ברירת מחדל (פעיל): {business.name}")
+        return business
+        
+    # שלב 4: fallback אחרון לכל עסק
+    business = Business.query.first()
+    if business:
+        print(f"⚠️ שימוש בעסק ברירת מחדל (כללי): {business.name}")
+        return business
+        
+    print("❌ לא נמצא שום עסק במערכת")
+    return None
 
 def save_call_status(call_sid, status):
     """שלח עדכון סטטוס שיחה לעיבוד ברקע (Thread) למנוע timeout"""

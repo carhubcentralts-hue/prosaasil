@@ -36,17 +36,30 @@ class AIService:
             settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
             business = Business.query.get(business_id)
             
+            # בחירת פרומפט חכמה - עם fallback ל-business.system_prompt
+            system_prompt = ""
+            if settings and settings.ai_prompt and len(settings.ai_prompt.strip()) > 20:
+                # יש פרומפט ב-settings והוא לא קצר מדי
+                system_prompt = settings.ai_prompt
+            elif business and business.system_prompt and len(business.system_prompt.strip()) > 20:
+                # fallback לפרומפט המלא מטבלת business
+                system_prompt = business.system_prompt
+                print(f"✅ Using fallback prompt from business.system_prompt for {business_id}")
+            else:
+                # fallback אחרון לפרומפט ברירת מחדל
+                system_prompt = self._get_default_hebrew_prompt(business.name if business else "שי דירות")
+            
             if not settings:
                 # ברירת מחדל אם אין הגדרות
                 prompt_data = {
-                    "system_prompt": self._get_default_hebrew_prompt(business.name if business else "שי דירות"),
+                    "system_prompt": system_prompt,
                     "model": "gpt-4o-mini",  # המודל הנוכחי במערכת
                     "max_tokens": 150,
                     "temperature": 0.7
                 }
             else:
                 prompt_data = {
-                    "system_prompt": settings.ai_prompt or self._get_default_hebrew_prompt(business.name if business else "שי דירות"),
+                    "system_prompt": system_prompt,
                     "model": settings.model,
                     "max_tokens": settings.max_tokens,
                     "temperature": settings.temperature

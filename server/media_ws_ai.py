@@ -1365,11 +1365,35 @@ class MediaStreamHandler:
             print(f"❌ שגיאה בטעינת פרומפט מדאטאבייס: {e}")
             return "את ליאה, עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."
 
+    def _identify_business_from_phone(self):
+        """זיהוי business_id לפי מספר הטלפון אם חסר"""
+        if self.phone_number:
+            from server.models_sql import Business
+            business = Business.query.filter(
+                Business.phone_number == self.phone_number
+            ).first()
+            if business:
+                self.business_id = business.id
+                print(f"✅ זיהוי עסק לפי טלפון {self.phone_number}: {business.name}")
+                return
+        
+        # fallback לעסק ראשון
+        from server.models_sql import Business
+        business = Business.query.first()
+        if business:
+            self.business_id = business.id
+            print(f"✅ שימוש בעסק ברירת מחדל: {business.name}")
+
     def _ai_response(self, hebrew_text: str) -> str:
-        """Generate NATURAL Hebrew AI response using dynamic prompts from database"""
+        """Generate NATURAL Hebrew AI response using unified AIService - UPDATED for prompt auto-sync"""
         try:
-            # Use AIService for dynamic prompts from database
+            # ✅ UNIFIED: Use AIService for ALL prompt management (auto-updates!)
             from server.services.ai_service import generate_ai_response
+            
+            # וידוא שיש business_id
+            if not hasattr(self, 'business_id') or not self.business_id:
+                # זיהוי business_id אם חסר
+                self._identify_business_from_phone()
             
             # Build context for the AI
             context = {
@@ -1385,7 +1409,7 @@ class MediaStreamHandler:
                     for item in self.conversation_history[-3:]  # רק 3 אחרונות
                 ]
             
-            # Generate AI response using business-specific prompt
+            # ✅ CRITICAL: Generate AI response using unified AIService (auto-updates!)
             business_id = getattr(self, 'business_id', 1)
             ai_response = generate_ai_response(
                 message=hebrew_text,
