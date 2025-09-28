@@ -7,12 +7,9 @@ BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
 INT_SECRET   = os.getenv('INTERNAL_SECRET')
 
 def tenant_id_from_ctx():
-    # Fix: Always use business_1 since that's what baileys expects
-    tenant_raw = getattr(request, 'tenant_id', None) or request.headers.get('X-Tenant-Id') or '1'
-    # Convert numeric tenant ID to business format for baileys
-    if tenant_raw.isdigit():
-        return f'business_{tenant_raw}'
-    return tenant_raw
+    # CRITICAL FIX: Always return 'business_1' for unified storage
+    # This ensures Flask and Baileys use the same tenant path
+    return 'business_1'
 
 def _headers():
     return {'X-Internal-Secret': INT_SECRET, 'Content-Type': 'application/json'}
