@@ -3,10 +3,7 @@
 from functools import wraps
 from flask import jsonify, request, current_app
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-try:
-    from server.extensions import db
-except ImportError:
-    from extensions import db
+from server.models_sql import db
 
 def api_handler(fn):
     """
