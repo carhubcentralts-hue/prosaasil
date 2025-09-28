@@ -221,9 +221,9 @@ async function disconnectSession(tenantId) {
 let server = null;
 function start() {
   if (server) return server;
-  server = app.listen(PORT, '0.0.0.0', () => {
+  server = app.listen(PORT, '127.0.0.1', () => {
     const addr = server.address();
-    console.error(`[BOOT] Baileys listening on ${addr.address}:${addr.port} pid=${process.pid}`);
+    console.error(`[BOOT] Baileys listening on 127.0.0.1:${addr.port} pid=${process.pid} (internal only for security)`);
   });
   server.on('error', (err) => { console.error('[SERVER ERROR]', err); });
   process.on('unhandledRejection', (err) => console.error('[UNHANDLED]', err));

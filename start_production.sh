@@ -10,12 +10,14 @@ export RUN_MIGRATIONS_ON_START=1
 echo "🚀 Starting AgentLocator Production System"
 echo "📊 Flask: 0.0.0.0:${PORT} | Baileys: 127.0.0.1:${BAILEYS_PORT}"
 
-# Ensure INTERNAL_SECRET is set (with FIXED fallback for deployment)
+# Ensure INTERNAL_SECRET is set (CRITICAL: Must come from environment!)
 if [ -z "${INTERNAL_SECRET:-}" ]; then
-    echo "⚠️ INTERNAL_SECRET not found, using fixed production key..."
-    export INTERNAL_SECRET="fixed_production_key_agent_locator_2025_reliable"
-    echo "✅ Using fixed INTERNAL_SECRET for deployment"
+    echo "❌ FATAL: INTERNAL_SECRET not found in environment!"
+    echo "   Set INTERNAL_SECRET before running this script."
+    echo "   Example: export INTERNAL_SECRET=\$(openssl rand -hex 32)"
+    exit 1
 fi
+echo "✅ INTERNAL_SECRET found in environment"
 
 # 1) Install Node dependencies and start Baileys (internal service)
 echo "🟡 Installing Node dependencies for Baileys..."

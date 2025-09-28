@@ -19,6 +19,9 @@ def api_handler(fn):
     def wrapper(*args, **kwargs):
         try:
             rv = fn(*args, **kwargs)
+            # Handle Flask Response objects (already processed)
+            if hasattr(rv, 'status_code'):  # Flask Response
+                return rv
             if isinstance(rv, tuple):
                 return rv
             return jsonify(rv if rv is not None else {"ok": True}), 200

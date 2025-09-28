@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify, session
 from server.models_sql import Business, BusinessSettings, PromptRevisions, User, db
 from server.routes_admin import require_api_auth  # Standardized import per guidelines
 from server.extensions import csrf
+from server.utils.api_guard import api_handler
 from datetime import datetime
 import logging
 
@@ -71,6 +72,7 @@ def get_business_prompt(business_id):
 
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['PUT', 'OPTIONS'])
 @csrf.exempt
+@api_handler
 @require_api_auth(['admin', 'manager'])
 def update_business_prompt(business_id):
     """Update AI prompts for business - Admin (דורש CSRF) - שיחות ווואטסאפ נפרד"""
@@ -188,7 +190,7 @@ def update_business_prompt(business_id):
             "calls_prompt": current_prompts.get('calls', ''),
             "whatsapp_prompt": current_prompts.get('whatsapp', ''),
             "version": next_version,
-            "updated_at": settings.updated_at.isoformat(),
+            "updated_at": settings.updated_at.isoformat() if settings.updated_at else datetime.utcnow().isoformat(),
             "message": "הפרומפט נשמר בהצלחה"
         })
         
@@ -213,6 +215,7 @@ def get_current_business_prompt():
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['PUT'])
+@api_handler
 @require_api_auth(['business', 'admin'])  # ✅ אדמין יכול לעדכן פרומפטים גם כשהוא מתחזה
 def update_current_business_prompt():
     """Update AI prompt for current business - Business (Impersonated, דורש CSRF)"""
