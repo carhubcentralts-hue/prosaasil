@@ -23,7 +23,7 @@ cd services/whatsapp && npm install --omit=dev || npm ci --omit=dev || echo "⚠
 cd ../..
 
 echo "🟡 Starting Baileys on port ${BAILEYS_PORT}..."
-node services/baileys/server.js &
+node services/whatsapp/baileys_service.js &
 BAI=$!
 echo "✅ Baileys started (PID: $BAI)"
 
