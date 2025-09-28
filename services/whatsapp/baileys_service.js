@@ -4,7 +4,7 @@ const QRCode = require('qrcode');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 
 const PORT = Number(process.env.BAILEYS_PORT || 3300);
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
@@ -27,8 +27,11 @@ app.get('/', (req, res) => res.status(200).send('ok'));
 const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, starting, pushName }
 
 function authDir(tenantId) {
-  const p = path.join(process.cwd(), 'storage', 'whatsapp', String(tenantId), 'auth');
+  // CRITICAL FIX: Unified tenant path (always business_1)
+  const normalizedTenant = tenantId === '1' ? 'business_1' : String(tenantId);
+  const p = path.join(process.cwd(), 'storage', 'whatsapp', normalizedTenant, 'auth');
   fs.mkdirSync(p, { recursive: true });
+  console.log(`[authDir] tenant=${tenantId} -> normalized=${normalizedTenant} -> path=${p}`);
   return p;
 }
 function requireSecret(req, res, next) {
@@ -86,10 +89,14 @@ async function startSession(tenantId) {
   const { state, saveCreds } = await useMultiFileAuthState(authPath);
 
   // --- גרסה/דפדפן יציבים (מונע pairing תקוע) ---
+  const { version } = await fetchLatestBaileysVersion();
+  console.log(`[${tenantId}] 🔧 Using Baileys version:`, version);
+  
   const sock = makeWASocket({
+    version,
     auth: state,
     printQRInTerminal: false,
-    browser: ["AgentLocator", "Chrome", "10.0"],
+    browser: ['AgentLocator', 'Chrome', '10.0'],
     defaultQueryTimeoutMs: 60000,
     connectTimeoutMs: 30000
   });
@@ -101,20 +108,39 @@ async function startSession(tenantId) {
   sock.ev.on('creds.update', saveCreds);
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     try {
-      if (qr) s.qrDataUrl = await QRCode.toDataURL(qr);
-      if (connection === 'open') {
-        s.connected = true; s.qrDataUrl = '';
-        s.pushName = sock?.user?.name || sock?.user?.id || '';
-        console.log('[update]', { tenantId, connection: 'open', pushName: s.pushName });
+      // DETAILED LOGGING for debugging
+      console.log(`[update] ${tenantId}:`, { 
+        connection, 
+        hasQr: !!qr, 
+        reason: lastDisconnect?.error?.output?.statusCode 
+      });
+      
+      if (qr) {
+        s.qrDataUrl = await QRCode.toDataURL(qr);
+        console.log(`[${tenantId}] 📱 QR generated successfully`);
       }
+      
+      if (connection === 'open') {
+        s.connected = true; 
+        s.qrDataUrl = '';
+        s.pushName = sock?.user?.name || sock?.user?.id || '';
+        console.log(`[${tenantId}] ✅ Connected! pushName: ${s.pushName}`);
+      }
+      
       if (connection === 'close') {
         s.connected = false;
         const reason = lastDisconnect?.error?.output?.statusCode;
-        console.log('[update]', { tenantId, connection: 'close', reason });
+        console.log(`[${tenantId}] ❌ Disconnected. Reason: ${reason}`);
+        
         // אם לא loggedOut – ננסה מחדש בעדינות (לא מיד, כדי לא ליצור מרוץ)
-        if (reason !== DisconnectReason.loggedOut) setTimeout(() => startSession(tenantId), 2000);
+        if (reason !== DisconnectReason.loggedOut) {
+          console.log(`[${tenantId}] 🔄 Will retry in 2 seconds...`);
+          setTimeout(() => startSession(tenantId), 2000);
+        }
       }
-    } catch (e) { console.error('[connection.update] error', e); }
+    } catch (e) { 
+      console.error(`[${tenantId}] [connection.update] error:`, e); 
+    }
   });
 
   sock.ev.on('messages.upsert', async (payload) => {
