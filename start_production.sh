@@ -38,6 +38,15 @@ trap 'echo "🛑 Shutting down..."; kill -TERM $BAI $FL 2>/dev/null || true; wai
 echo "🎯 Both services running. System ready!"
 echo "📊 Access: http://0.0.0.0:${PORT}"
 
+# Give services time to fully start up before announcing ready
+sleep 3
+echo "🔍 Final status check..."
+if kill -0 $BAI 2>/dev/null && kill -0 $FL 2>/dev/null; then
+    echo "✅ All services confirmed running and ready!"
+else
+    echo "⚠️ One or more services may have issues"
+fi
+
 # Wait for both processes
 while kill -0 $BAI 2>/dev/null && kill -0 $FL 2>/dev/null; do 
     sleep 2
