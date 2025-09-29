@@ -6,6 +6,11 @@ whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/api/whatsapp')
 BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
 INT_SECRET   = os.getenv('INTERNAL_SECRET')
 
+# === שלב 2: QR/סטטוס דרך Flask (קריאה מקבצים של Baileys) ===
+AUTH_DIR = os.path.join(os.getcwd(), "baileys_auth_info")
+QR_TXT   = os.path.join(AUTH_DIR, "qr_code.txt")
+CREDS    = os.path.join(AUTH_DIR, "creds.json")
+
 def tenant_id_from_ctx():
     # CRITICAL FIX: Always return 'business_1' for unified storage
     # This ensures Flask and Baileys use the same tenant path
@@ -16,12 +21,29 @@ def _headers():
 
 @whatsapp_bp.route('/status', methods=['GET'])
 def status():
-    t = tenant_id_from_ctx()
-    r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=5)
-    return jsonify(r.json()), r.status_code
+    # שלב 2: קודם נבדוק קבצים (תואם להנחיות)
+    has_qr = os.path.exists(QR_TXT)
+    connected = os.path.exists(CREDS) and not has_qr
+    if has_qr or connected:
+        return jsonify({"connected": connected, "hasQR": has_qr}), 200
+    
+    # אם אין קבצים, ננסה את המערכת הנוכחית
+    try:
+        t = tenant_id_from_ctx()
+        r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=5)
+        return jsonify(r.json()), r.status_code
+    except:
+        return jsonify({"connected": False, "hasQR": False}), 200
 
 @whatsapp_bp.route('/qr', methods=['GET'])
 def qr():
+    # שלב 2: קודם נבדוק קבצים (תואם להנחיות)
+    if os.path.exists(QR_TXT):
+        with open(QR_TXT, "r", encoding="utf-8") as f:
+            qr_text = f.read().strip()
+        return jsonify({"dataUrl": None, "qrText": qr_text}), 200
+    
+    # אם אין קבצים, ננסה את המערכת הנוכחית
     t = tenant_id_from_ctx()
     print(f"🔍 Flask QR: tenant={t}, URL={BAILEYS_BASE}/whatsapp/{t}/qr")
     try:
@@ -37,9 +59,16 @@ def qr():
 @csrf.exempt  # Bypass CSRF for internal API
 @whatsapp_bp.route('/start', methods=['POST'])
 def start():
-    t = tenant_id_from_ctx()
-    r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/start", headers=_headers(), timeout=10)
-    return jsonify(r.json()), r.status_code
+    # שלב 2: קריאה מקבצים (תואם להנחיות)
+    os.makedirs(AUTH_DIR, exist_ok=True)
+    # אבל גם נתמוך במערכת הנוכחית עם Baileys service
+    try:
+        t = tenant_id_from_ctx()
+        r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/start", headers=_headers(), timeout=10)
+        return jsonify(r.json()), r.status_code
+    except:
+        # Node כבר רץ (`baileys_client.js`), אין מה להדליק פה
+        return jsonify({"ok": True}), 200
 
 @csrf.exempt  # Bypass CSRF for internal API  
 @whatsapp_bp.route('/reset', methods=['POST'])
@@ -54,6 +83,7 @@ def disconnect():
     t = tenant_id_from_ctx()
     r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/disconnect", headers=_headers(), timeout=10)
     return jsonify(r.json()), r.status_code
+
 
 # === שלב 1: השלמת 3 routes ש-UI מבקש (תואם ל-WhatsAppPage.jsx) ===
 from server.models_sql import WhatsAppMessage, Customer
