@@ -1,5 +1,6 @@
 """
 Hebrew AI Call Center - Twilio Routes FIXED לפי ההנחיות המדויקות
+שלב 4: שיחות → לידים + תמלול אוטומטי
 """
 import os
 import time
@@ -12,6 +13,8 @@ from server.extensions import csrf
 
 # ייבוא מראש למניעת עיכובים ב-webhooks
 from server.tasks_recording import save_call_status, enqueue_recording
+from server.models_sql import db, Business, Customer, CallLog
+from sqlalchemy.orm import sessionmaker
 
 twilio_bp = Blueprint("twilio", __name__)
 
@@ -126,6 +129,46 @@ def _trigger_recording_for_call(call_sid):
     except Exception as e:
         print(f"❌ Failed to trigger recording for {call_sid}: {e}")
 
+def _create_lead_from_call(call_sid, from_number):
+    """שלב 4: יצירת ליד אוטומטי מכל שיחה נכנסת"""
+    try:
+        # ברירת מחדל business_id=1 (ניתן לשנות לפי צרכים)
+        business_id = 1
+        
+        with db.session.begin():  # תמיד transaction
+            # בדוק אם כבר קיים customer למספר הזה
+            customer = Customer.query.filter_by(
+                business_id=business_id,
+                phone_e164=from_number
+            ).first()
+            
+            if not customer:
+                # צור customer חדש
+                customer = Customer(
+                    business_id=business_id,
+                    name=f"Unknown Caller {from_number[-4:]}",  # השם יהיה Last 4 digits
+                    phone_e164=from_number,
+                    status="new"  # סטטוס התחלתי
+                )
+                db.session.add(customer)
+                db.session.flush()  # כדי לקבל ID
+                
+            # צור call_log מקושר לליד
+            call_log = CallLog(
+                business_id=business_id,
+                customer_id=customer.id,
+                call_sid=call_sid,
+                from_number=from_number,
+                status="in_progress"
+            )
+            db.session.add(call_log)
+            
+        print(f"✅ Auto-created lead for {from_number}, customer_id={customer.id}")
+        
+    except Exception as e:
+        print(f"❌ Failed to create lead for {call_sid}: {e}")
+        db.session.rollback()
+
 # TwiML Preview endpoint (ללא Play, מינימלי)
 @csrf.exempt
 @twilio_bp.route("/webhook/incoming_call_preview", methods=["GET"])
@@ -164,8 +207,9 @@ def incoming_call_preview():
 @twilio_bp.route("/webhook/incoming_call", methods=["POST"])
 @require_twilio_signature
 def incoming_call():
-    """TwiML מהיר וללא עיכובים - One True Path"""
+    """TwiML מהיר וללא עיכובים - One True Path + automatic lead creation"""
     call_sid = request.form.get("CallSid", "")
+    from_number = request.form.get("From", "")
     
     # תיקון קריטי: וידוא https:// ב-base URLs (לפי ההנחיות)
     scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
@@ -185,6 +229,14 @@ def incoming_call():
         '</Response>',
     ]
     twiml = "".join(parts)
+    
+    # === שלב 4: יצירה אוטומטית של ליד לכל שיחה נכנסת ===
+    if from_number:
+        threading.Thread(
+            target=_create_lead_from_call,
+            args=(call_sid, from_number),
+            daemon=True
+        ).start()
     
     # החזרה מיידית ללא עיכובים + תיקון Error 12100
     resp = make_response(twiml.encode("utf-8"), 200)
