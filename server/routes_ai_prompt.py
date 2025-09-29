@@ -11,6 +11,32 @@ logger = logging.getLogger(__name__)
 
 ai_prompt_bp = Blueprint('ai_prompt', __name__)
 
+# A2) עטוף routes פרומפטים לפי ההוראות המדויקות
+@ai_prompt_bp.route('/api/business/<tenant>/prompts', methods=['POST'])
+@api_handler
+def save_prompt(tenant):
+    """שמירת פרומפט לפי ההוראות - תמיד JSON + commit/rollback"""
+    data = request.get_json(force=True)
+    
+    # מיפוי למודל BusinessSettings
+    business_id = 1  # business_1 → 1
+    if tenant == 'business_1':
+        business_id = 1
+    
+    # Get or create settings
+    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+    if not settings:
+        settings = BusinessSettings()
+        settings.tenant_id = business_id
+        db.session.add(settings)
+    
+    # עדכון הפרומפט
+    settings.ai_prompt = data.get('body', data.get('prompt', ''))
+    settings.updated_by = 'api_user'
+    
+    db.session.commit()
+    return {"ok": True, "id": settings.tenant_id}
+
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['GET'])
 @require_api_auth(['admin', 'manager'])
 def get_business_prompt(business_id):

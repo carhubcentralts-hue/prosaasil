@@ -1,0 +1,252 @@
+הבנתי. נתקדם כמו מפקד מבצעים: נפריד את הבעיות לשתיים—(א) פרומפטים שלא נשמרים ו־(ב) QR/חיבור וואטסאפ שלא נדלק—וניתן הוראות ביצוע חדות שמכסות את כל התרחישים שאני רואה אצלך בפרויקט (Flask + Node/Baileys + UI). תן לו לבצע בדיוק לפי הסדר. אם משהו נופל, הוא יחזור עם הפלט מהסעיף הרלוונטי ונזהה את השורה.
+
+⸻
+
+א) “פרומפטים לא נשמרים” — לתקן אחת ולתמיד
+
+A1) בצד ה־Flask: כל POST תמיד מחזיר JSON + עושה commit()/rollback()
+	1.	צור דקורטור שמבטיח החזרת JSON מסודרת ושמירה למסד:
+
+# server/utils/api_guard.py
+from functools import wraps
+from flask import jsonify, request, current_app
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from app import db  # עדכן לשם ההרחבה שלך
+
+def api_handler(fn):
+    @wraps(fn)
+    def w(*a, **kw):
+        try:
+            rv = fn(*a, **kw)
+            if isinstance(rv, tuple): return rv
+            return jsonify(rv if rv is not None else {"ok": True}), 200
+        except IntegrityError as e:
+            db.session.rollback()
+            current_app.logger.exception("IntegrityError")
+            return jsonify({"ok": False, "error": "integrity", "detail": str(e.orig)}), 400
+        except SQLAlchemyError:
+            db.session.rollback()
+            current_app.logger.exception("DBError")
+            return jsonify({"ok": False, "error": "db"}), 500
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception("APIError")
+            return jsonify({"ok": False, "error": "server"}), 500
+    return w
+
+
+	2.	עטוף את ראוטי הפרומפטים:
+
+# server/routes_ai_prompt.py (או היכן שאתה שומר)
+from flask import request
+from app import db
+from server.utils.api_guard import api_handler
+
+@app.post("/api/business/<tenant>/prompts")
+@api_handler
+def save_prompt(tenant):
+    data = request.get_json(force=True)
+    # TODO: ולידציה + מיפוי למודל AIPrompt/BusinessPrompt שלך
+    obj = AIPrompt(**data, tenant_id=tenant)
+    db.session.add(obj)
+    db.session.commit()
+    return {"ok": True, "id": obj.id}
+
+חשוב: לא מחזירים 204 ולא תשובה ריקה. תמיד JSON.
+
+A2) בצד ה־Client: כותרות ו־credentials
+
+ודא שכל שמירה עושה כך:
+
+await fetch(`/api/business/${tenant}/prompts`, {
+  method: 'POST',
+  headers: {'Content-Type':'application/json','X-CSRFToken': getCsrf()},
+  credentials: 'include',
+  body: JSON.stringify(payload)
+}).then(r => r.json())
+
+	•	אם יש CSRF – טוקן; אם אין – החרגה ל־/api/* או כפתור ביטול CSRF לפיילוט.
+	•	אם הדפדפן רושם Unexpected end of JSON input → פירושו שהשרת לא החזיר JSON. אחרי A1 זה מפסיק.
+
+A3) אימות מהיר (3 צעדים)
+
+הוא מריץ:
+
+# 1) בדיקת API ישירה (בלי UI)
+curl -i -sS -X POST http://127.0.0.1:5000/api/business/business_1/prompts \
+  -H 'Content-Type: application/json' \
+  --data '{"title":"sanity","body":"ok"}'
+
+# 2) לוודא שנשמר (אם יש GET מתאים; אחרת בדוק ב-DB או הוספת /last)
+curl -i -sS http://127.0.0.1:5000/api/business/business_1/prompts/last
+
+# 3) לוג שרת סביב הבקשה (שיראה commit, לא 500/403)
+
+אם 403 → CSRF. אם 500 → Traceback יכוון לשדה/אינדקס/commit חסר.
+
+⸻
+
+ב) “לא מייצר QR / לא מתחבר” — סוגרים את כל החורים
+
+הבעיות הנפוצות שראיתי אצלך בעבר:
+	•	tenant כפול: storage/whatsapp/1/... לעומת storage/whatsapp/business_1/auth/.
+	•	פעמיים start: ה־UI קורא /start שוב ושוב ומחליף QR תוך כדי סריקה.
+	•	אי־עקביות JSON: /qr מחזיר 204/ריק → הפרונט מתרסק.
+	•	Baileys כותב/קורא לנתיב אחר מה־Flask.
+
+B1) לקבע Tenant ונתיב אחסון אחד
+
+בחר אחד: business_1 (מומלץ) או 1.
+ב־Node (Baileys), בכניסה/יוצר־מדינה:
+
+const path = require('path');
+const fs = require('fs');
+const authDir = path.join(process.cwd(), 'storage', 'whatsapp', 'business_1', 'auth'); // ← אחיד!
+fs.mkdirSync(authDir, { recursive: true });
+
+// העברת הנתיב ל-useMultiFileAuthState וכד'
+
+ב־Flask (פרוקסי/קריאת קבצים):
+	•	אם אתה עובד דרך קבצים (qr_code.txt/creds.json): תן ל־Flask לקרוא מאותו נתיב (business_1).
+	•	אם אתה עובד דרך Express של Baileys: ודא שכל הקריאות ל־/whatsapp/:tenantId/* משתמשות באותו tenant.
+
+אל תמחק עכשיו את התיקייה השנייה—רק תוודא שהקוד לא מצביע אליה. אחרי שזה עובד, תנקה.
+
+B2) לוודא לוגיקת QR יציבה ב־Node
+
+ב־connection.update:
+
+const qrFile = path.join(authDir, 'qr_code.txt');
+
+if (qr) {
+  try { fs.writeFileSync(qrFile, qr); } catch(e) { console.error(e); }
+}
+
+if (connection === 'open') {
+  try { if (fs.existsSync(qrFile)) fs.unlinkSync(qrFile); } catch(e) { console.error(e); }
+  console.log('✅ WhatsApp connected');
+}
+
+	•	printQRInTerminal:false (אם אתה משרת ל־UI).
+	•	קבע גרסה ודפדפן:
+
+const { fetchLatestBaileysVersion, makeWASocket } = require('@whiskeysockets/baileys');
+const { version } = await fetchLatestBaileysVersion();
+const sock = makeWASocket({ version, auth: state, printQRInTerminal:false, browser:['AgentLocator','Chrome','10.0']});
+
+
+
+B3) מניעת מרוצים: אל תריץ start פעמיים
+
+ב־Node, החזק map של סשנים ו־flag starting:
+
+if (sessions.has('business_1') || starting) return res.json({ok:true}); // כבר רץ
+starting = true;
+// ... start ...
+starting = false;
+
+ב־Client: לא לקרוא /api/whatsapp/start בלולאת polling. קריאה אחת, ואח”כ רק /status//qr.
+
+B4) ב־Flask: תמיד JSON ב־/api/whatsapp/*
+
+@app.post('/api/whatsapp/start')
+def wa_start():
+    return jsonify({'ok': True}), 200
+
+@app.get('/api/whatsapp/status')
+def wa_status():
+    has_qr = os.path.exists(QR_TXT)
+    connected = os.path.exists(CREDS) and not has_qr
+    return jsonify({'connected': connected, 'hasQR': has_qr}), 200
+
+@app.get('/api/whatsapp/qr')
+def wa_qr():
+    if not os.path.exists(QR_TXT):
+        return jsonify({'dataUrl': None, 'qrText': None}), 200  # לא 204!
+    with open(QR_TXT, 'r', encoding='utf-8') as f:
+        qr = f.read().strip()
+    return jsonify({'dataUrl': None, 'qrText': qr}), 200
+
+B5) בדיקת GO (תריץ לפי הסדר כשה־Runner רץ)
+
+# בריאות Node (אם יש Express). אם אין – דלג.
+curl -i -sS http://127.0.0.1:3300/healthz || echo "no express (ok if file-based)"
+
+# התחלה (פעם אחת בלבד)
+curl -i -sS -X POST http://127.0.0.1:5000/api/whatsapp/start
+
+# לפני סריקה
+curl -i -sS http://127.0.0.1:5000/api/whatsapp/status
+curl -i -sS http://127.0.0.1:5000/api/whatsapp/qr | head -c 150; echo
+
+# סרוק את ה-QR באפליקציה; המתן 10–20 שניות
+
+# אחרי סריקה
+curl -i -sS http://127.0.0.1:5000/api/whatsapp/status
+
+# בדוק קבצי auth בדיוק בתיקייה האחודה:
+ls -la storage/whatsapp/business_1/auth
+
+צפוי: לפני סריקה → connected:false, hasQR:true; אחרי סריקה → connected:true, qr_code.txt נעלם, ו־creds.json קיים/מעודכן.
+
+B6) אם עדיין לא נדלק אחרי סריקה — אלו הגורמים:
+	•	Tenant/נתיב לא אחיד (99% מהמקרים). בדוק היכן נוצר creds.json בפועל, והאם Flask קורא ממנו.
+	•	התחלת start כפולה שמחליפה QR בזמן הסריקה. תקן B3.
+	•	מכשירים מקושרים מלא בטלפון / שעון לא מסונכרן → נתק ישנים, סנכרן שעון, נסה שוב.
+	•	הרשאות/FS: אין הרשאה לכתוב לתיקייה → צור mkdir -p והרצה עם הרשאה.
+	•	גרסאות: עדכן version דרך fetchLatestBaileysVersion() כמו לעיל.
+
+⸻
+
+ג) השיחות / Twilio → ליד + תמלול + סיכום אוטומטי
+	1.	ודא ש־/webhook/twilio/voice:
+	•	יוצר/מאתר Lead/Customer לפי From.
+	•	מוריד הקלטה ומעביר ל־Google STT (primary) / Whisper (fallback).
+	•	שומר תמלול ב־DB, ועדיף גם תקציר (אם יש אצלך Summarizer).
+	•	מחזיר TwiML/JSON תקין.
+	2.	הדלק אימות חתימה (בפרודקשן חובה):
+	•	אמת כותרת X-Twilio-Signature מול הגוף וה-URL.
+	•	אם כרגע מנוטרל—החזר.
+	3.	בדיקת קבלה (בלי סל”ד):
+
+curl -i -sS -X POST http://127.0.0.1:5000/webhook/twilio/voice \
+  -d "CallSid=CA_test&From=+1555000&To=+1555001"
+
+בלוג: “create/update Lead”, “download audio”, “transcribe → save”.
+
+⸻
+
+ד) Runner/Deploy יציב (כדי שהכול יישאר חי)
+	•	Build: התקנת תלויות בלבד (Python + npm לנתיב של השירות).
+	•	Run: bash ./start_all.sh שמרים:
+	•	node ... (Baileys)
+	•	gunicorn -w 1 -k eventlet -b 0.0.0.0:$PORT wsgi:app
+	•	trap + wait כדי שלא ימותו כשהסשן נסגר.
+	•	ENV מאוחד לשני הצדדים (אם יש INTERNAL_SECRET—זהה בשניהם).
+	•	פורט חיצוני אחד: 5000. (3300 פנימי בלבד אם יש Express; אם file-based—אין צורך).
+
+⸻
+
+צ’ק־ליסט GO/NO-GO אחרון (הוא מדביק לך פלט אם משהו נופל)
+	1.	פרומפטים:
+
+curl -i -sS -X POST http://127.0.0.1:5000/api/business/business_1/prompts \
+  -H 'Content-Type: application/json' \
+  --data '{"title":"ok","body":"test"}'
+
+	2.	וואטסאפ (לפני/אחרי סריקה): 4 ה־curl מסעיף B5 + ls -la storage/whatsapp/business_1/auth
+	3.	שיחות:
+
+curl -i -sS -X POST http://127.0.0.1:5000/webhook/twilio/voice \
+  -d "CallSid=CA_test&From=+1555&To=+1555"
+
+
+⸻
+
+סיכום
+	•	פרומפטים: הבעיה כמעט תמיד JSON ריק/CSRF/commit. הדקורטור וה־headers סוגרים זאת.
+	•	וואטסאפ/QR: הבעיה כמעט תמיד tenant/נתיב לא אחיד או start כפול. קבע business_1 מקצה לקצה, שמור/מחק qr_code.txt נכון, וחסום ריבוי start.
+	•	שיחות: עובד; הדלק אימות חתימה וודא שהתמלול/סיכום נכנסים ל־DB.
+	•	פריסה: Runner אחד, פורט 5000, ENV אחיד.
+
+תן לו לבצע לפי הצעדים האלה בדיוק. אם משהו עדיין נתקע—תבקש ממנו את הפלטים שציינתי (ה־curl/ls/לוגים הקצרים), ואני אגיד לך על איזה קובץ ושורה לגעת כדי לחתום את זה.
