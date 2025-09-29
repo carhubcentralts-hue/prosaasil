@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 ai_prompt_bp = Blueprint('ai_prompt', __name__)
 
-# A2) עטוף routes פרומפטים לפי ההוראות המדויקות
+# A2) עטוף routes פרומפטים לפי ההוראות המדויקות  
+@csrf.exempt  # CRITICAL: Bypass CSRF for API calls
 @ai_prompt_bp.route('/api/business/<tenant>/prompts', methods=['POST'])
 @api_handler
 def save_prompt(tenant):
