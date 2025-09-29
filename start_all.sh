@@ -8,7 +8,7 @@ export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 # INTERNAL_SECRET צריך להיות מוגדר בסודות הדיפלוימנט
 
 # 1) Start Baileys (תקן לנתיב הכניסה שלך)
-node services/baileys/server.js &            # או: node services/whatsapp/baileys_service.js
+node services/whatsapp/baileys_service.js &
 BAI=$!
 
 # 2) Start Flask (ה־listener היחיד החיצוני)
