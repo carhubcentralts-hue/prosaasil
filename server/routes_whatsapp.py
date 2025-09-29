@@ -54,3 +54,79 @@ def disconnect():
     t = tenant_id_from_ctx()
     r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/disconnect", headers=_headers(), timeout=10)
     return jsonify(r.json()), r.status_code
+
+# === שלב 1: השלמת 3 routes ש-UI מבקש (תואם ל-WhatsAppPage.jsx) ===
+from server.models_sql import WhatsAppMessage, Customer
+from server.db import db
+from sqlalchemy import func
+
+@whatsapp_bp.route('/contacts', methods=['GET'])
+def api_wa_contacts():
+    business_id = request.args.get("business_id", type=int)
+    if not business_id:
+        return jsonify({"error":"missing business_id"}), 400
+    
+    # Get unique WhatsApp conversations (simulating WhatsAppConversation with WhatsAppMessage)
+    convs = db.session.query(
+        WhatsAppMessage.to_number,
+        func.max(WhatsAppMessage.created_at).label('last_message_at'),
+        func.count(WhatsAppMessage.id).label('message_count')
+    ).filter_by(business_id=business_id).group_by(
+        WhatsAppMessage.to_number
+    ).order_by(func.max(WhatsAppMessage.created_at).desc()).limit(20).all()
+    
+    out = []
+    for c in convs:
+        # Try to get customer name from Customer table
+        customer = Customer.query.filter_by(business_id=business_id, phone_e164=c.to_number).first()
+        customer_name = customer.name if customer else c.to_number
+        
+        out.append({
+            "id": c.to_number,  # Use phone number as ID since no conversation table
+            "customer_phone": c.to_number,
+            "customer_name": customer_name,
+            "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
+        })
+    return jsonify({"contacts": out}), 200
+
+@whatsapp_bp.route('/messages', methods=['GET'])
+def api_wa_messages():
+    contact_id = request.args.get("contact_id")  # This is the phone number
+    if not contact_id:
+        return jsonify({"error":"missing contact_id"}), 400
+    
+    # Get business_id from session or assume business_1 for now
+    business_id = 1  # TODO: Get from session/auth context
+    
+    msgs = WhatsAppMessage.query.filter_by(
+        business_id=business_id,
+        to_number=contact_id
+    ).order_by(WhatsAppMessage.created_at.asc()).all()
+    
+    return jsonify({"messages":[{
+        "id": m.id,
+        "text": m.body,
+        "type": m.message_type,
+        "direction": m.direction,
+        "ts": m.created_at.isoformat() if m.created_at else None,
+        "platform": m.provider,
+    } for m in msgs]}), 200
+
+@whatsapp_bp.route('/stats', methods=['GET'])
+def api_wa_stats():
+    business_id = request.args.get("business_id", type=int)
+    if not business_id:
+        return jsonify({"error":"missing business_id"}), 400
+    
+    # Count unique conversations
+    total_convs = db.session.query(WhatsAppMessage.to_number).filter_by(
+        business_id=business_id
+    ).distinct().count()
+    
+    # Count total messages
+    total_msgs = WhatsAppMessage.query.filter_by(business_id=business_id).count()
+    
+    return jsonify({
+        "total_conversations": total_convs, 
+        "total_messages": total_msgs
+    }), 200
