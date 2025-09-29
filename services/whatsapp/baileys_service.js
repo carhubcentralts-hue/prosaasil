@@ -43,8 +43,22 @@ function requireSecret(req, res, next) {
 
 /** REST API (always the same app instance) */
 app.post('/whatsapp/:tenantId/start', requireSecret, async (req, res) => {
-  try { await startSession(req.params.tenantId); res.json({ ok: true }); }
-  catch (e) { console.error('start error', e); res.status(500).json({ error: 'start_failed' }); }
+  // B3) מניעת מרוצים: אל תריץ start פעמיים
+  const tenantId = req.params.tenantId;
+  const existing = sessions.get(tenantId);
+  if (existing && (existing.sock || existing.starting)) {
+    console.log(`[${tenantId}] ⚠️ Already running or starting - skipping duplicate start`);
+    return res.json({ok: true}); // כבר רץ
+  }
+  
+  try { 
+    await startSession(tenantId); 
+    res.json({ ok: true }); 
+  }
+  catch (e) { 
+    console.error('start error', e); 
+    res.status(500).json({ error: 'start_failed' }); 
+  }
 });
 app.get('/whatsapp/:tenantId/status', requireSecret, (req, res) => {
   const s = sessions.get(req.params.tenantId);
@@ -115,9 +129,19 @@ async function startSession(tenantId) {
         reason: lastDisconnect?.error?.output?.statusCode 
       });
       
+      // B2) לוגיקת QR יציבה בNode עם qr_code.txt
+      const qrFile = path.join(authPath, 'qr_code.txt');
+      
       if (qr) {
         s.qrDataUrl = await QRCode.toDataURL(qr);
         console.log(`[${tenantId}] 📱 QR generated successfully`);
+        // כתיבת QR לקובץ לפי ההוראות
+        try { 
+          fs.writeFileSync(qrFile, qr); 
+          console.log(`[${tenantId}] 💾 QR saved to ${qrFile}`);
+        } catch(e) { 
+          console.error(`[${tenantId}] QR file write error:`, e); 
+        }
       }
       
       if (connection === 'open') {
@@ -125,6 +149,15 @@ async function startSession(tenantId) {
         s.qrDataUrl = '';
         s.pushName = sock?.user?.name || sock?.user?.id || '';
         console.log(`[${tenantId}] ✅ Connected! pushName: ${s.pushName}`);
+        // מחיקת QR כשמתחברים לפי ההוראות
+        try { 
+          if (fs.existsSync(qrFile)) {
+            fs.unlinkSync(qrFile); 
+            console.log(`[${tenantId}] 🗑️ QR file deleted after connection`);
+          }
+        } catch(e) { 
+          console.error(`[${tenantId}] QR file delete error:`, e); 
+        }
       }
       
       if (connection === 'close') {

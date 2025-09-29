@@ -6,14 +6,17 @@ whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/api/whatsapp')
 BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
 INT_SECRET   = os.getenv('INTERNAL_SECRET')
 
-# === שלב 2: QR/סטטוס דרך Flask (קריאה מקבצים של Baileys) ===
-AUTH_DIR = os.path.join(os.getcwd(), "baileys_auth_info")
+# === B1) QR/סטטוס דרך Flask - tenant אחיד business_1 ===
+# בדיוק כמו ב-Node: storage/whatsapp/business_1/auth
+AUTH_DIR = os.path.join(os.getcwd(), "storage", "whatsapp", "business_1", "auth")  
 QR_TXT   = os.path.join(AUTH_DIR, "qr_code.txt")
 CREDS    = os.path.join(AUTH_DIR, "creds.json")
+os.makedirs(AUTH_DIR, exist_ok=True)  # וודא שהתיקייה קיימת
 
 def tenant_id_from_ctx():
-    # CRITICAL FIX: Always return 'business_1' for unified storage
+    # B1) CRITICAL FIX: Always return 'business_1' for unified storage
     # This ensures Flask and Baileys use the same tenant path
+    # בדיוק לפי ההוראות - tenant אחיד!
     return 'business_1'
 
 def _headers():
@@ -21,7 +24,8 @@ def _headers():
 
 @whatsapp_bp.route('/status', methods=['GET'])
 def status():
-    # שלב 2: קודם נבדוק קבצים (תואם להנחיות)
+    """B4) תמיד JSON - Status route לפי ההוראות"""
+    # קריאה מקבצים (tenant אחיד business_1)
     has_qr = os.path.exists(QR_TXT)
     connected = os.path.exists(CREDS) and not has_qr
     if has_qr or connected:
@@ -37,7 +41,8 @@ def status():
 
 @whatsapp_bp.route('/qr', methods=['GET'])
 def qr():
-    # שלב 2: קודם נבדוק קבצים (תואם להנחיות)
+    """B4) תמיד JSON - QR route לפי ההוראות"""
+    # קריאה מקבצים (tenant אחיד business_1)
     if os.path.exists(QR_TXT):
         with open(QR_TXT, "r", encoding="utf-8") as f:
             qr_text = f.read().strip()
@@ -45,30 +50,19 @@ def qr():
     
     # אם אין קבצים, ננסה את המערכת הנוכחית
     t = tenant_id_from_ctx()
-    print(f"🔍 Flask QR: tenant={t}, URL={BAILEYS_BASE}/whatsapp/{t}/qr")
     try:
         r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/qr", headers=_headers(), timeout=10)
-        print(f"🔍 Baileys response: status={r.status_code}, content_length={len(r.content)}")
         if r.status_code == 404:           # אין QR כרגע
-            return jsonify({"dataUrl": None}), 200
+            return jsonify({"dataUrl": None, "qrText": None}), 200  # תמיד JSON!
         return jsonify(r.json()), r.status_code
     except Exception as e:
-        print(f"❌ Flask QR error: {e}")
-        return jsonify({"dataUrl": None, "error": str(e)}), 500
+        return jsonify({"dataUrl": None, "qrText": None, "error": str(e)}), 200  # תמיד JSON!
 
 @csrf.exempt  # Bypass CSRF for internal API
 @whatsapp_bp.route('/start', methods=['POST'])
 def start():
-    # שלב 2: קריאה מקבצים (תואם להנחיות)
-    os.makedirs(AUTH_DIR, exist_ok=True)
-    # אבל גם נתמוך במערכת הנוכחית עם Baileys service
-    try:
-        t = tenant_id_from_ctx()
-        r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/start", headers=_headers(), timeout=10)
-        return jsonify(r.json()), r.status_code
-    except:
-        # Node כבר רץ (`baileys_client.js`), אין מה להדליק פה
-        return jsonify({"ok": True}), 200
+    """B4) תמיד JSON ב-/api/whatsapp/start - לפי ההוראות"""
+    return jsonify({'ok': True}), 200
 
 @csrf.exempt  # Bypass CSRF for internal API  
 @whatsapp_bp.route('/reset', methods=['POST'])
