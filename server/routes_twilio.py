@@ -144,23 +144,21 @@ def _create_lead_from_call(call_sid, from_number):
             
             if not customer:
                 # צור customer חדש
-                customer = Customer(
-                    business_id=business_id,
-                    name=f"Unknown Caller {from_number[-4:]}",  # השם יהיה Last 4 digits
-                    phone_e164=from_number,
-                    status="new"  # סטטוס התחלתי
-                )
+                customer = Customer()
+                customer.business_id = business_id
+                customer.name = f"Unknown Caller {from_number[-4:]}"
+                customer.phone_e164 = from_number
+                customer.status = "new"
                 db.session.add(customer)
                 db.session.flush()  # כדי לקבל ID
                 
             # צור call_log מקושר לליד
-            call_log = CallLog(
-                business_id=business_id,
-                customer_id=customer.id,
-                call_sid=call_sid,
-                from_number=from_number,
-                status="in_progress"
-            )
+            call_log = CallLog()
+            call_log.business_id = business_id
+            call_log.customer_id = customer.id
+            call_log.call_sid = call_sid
+            call_log.from_number = from_number
+            call_log.status = "in_progress"
             db.session.add(call_log)
             
         print(f"✅ Auto-created lead for {from_number}, customer_id={customer.id}")
