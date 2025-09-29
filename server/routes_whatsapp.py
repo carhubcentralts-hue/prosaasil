@@ -85,6 +85,9 @@ def disconnect():
     return jsonify(r.json()), r.status_code
 
 
+# === שלב 3: JSON יציב ו-commit/rollback ===
+from server.utils.api_guard import api_handler
+
 # === שלב 1: השלמת 3 routes ש-UI מבקש (תואם ל-WhatsAppPage.jsx) ===
 from server.models_sql import WhatsAppMessage, Customer
 from server.db import db
@@ -160,3 +163,29 @@ def api_wa_stats():
         "total_conversations": total_convs, 
         "total_messages": total_msgs
     }), 200
+
+# === שלב 3: דוגמה לשמירת פרומפטים עם api_handler ===
+from server.models_sql import Business, BusinessSettings
+
+@whatsapp_bp.route('/prompts/<int:business_id>', methods=['POST'])
+@csrf.exempt  # לדוגמה - בפרודקשן תרצה CSRF
+@api_handler
+def save_whatsapp_prompt(business_id):
+    """שמירת פרומפט וואטסאפ לעסק - דוגמה לשימוש ב-api_handler"""
+    data = request.get_json(force=True)
+    
+    business = Business.query.filter_by(id=business_id).first()
+    if not business:
+        return {"ok": False, "error": "business_not_found"}, 404
+    
+    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+    if not settings:
+        settings = BusinessSettings()
+        settings.tenant_id = business_id
+        db.session.add(settings)
+    
+    # העדכון כאן - אם יש שגיאה, api_handler יטפל
+    settings.ai_prompt = data.get('whatsapp_prompt', '')
+    db.session.commit()  # api_handler יעשה rollback אם נכשל
+    
+    return {"ok": True, "id": business_id, "prompt_length": len(settings.ai_prompt)}
