@@ -71,7 +71,6 @@ def get_business_prompt(business_id):
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['PUT', 'OPTIONS'])
-@csrf.exempt
 @api_handler
 @require_api_auth(['admin', 'manager'])
 def update_business_prompt(business_id):
@@ -215,7 +214,6 @@ def get_current_business_prompt():
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['PUT'])
-@csrf.exempt  # CRITICAL FIX: Business users need to save prompts without CSRF issues
 @api_handler
 @require_api_auth(['business', 'admin'])  # ✅ אדמין יכול לעדכן פרומפטים גם כשהוא מתחזה
 def update_current_business_prompt():
