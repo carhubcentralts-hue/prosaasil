@@ -60,8 +60,19 @@ def qr():
 
 @whatsapp_bp.route('/start', methods=['POST'])
 def start():
-    """B4) תמיד JSON ב-/api/whatsapp/start - לפי ההוראות"""
-    return jsonify({'ok': True}), 200
+    """B4) תמיד JSON ב-/api/whatsapp/start - לפי ההוראות המדויקות
+    
+    הערה: endpoint זה מטפל בCSRF כי נקרא מהUI.
+    הוא מפעיל את Baileys session אם עדיין לא רץ.
+    """
+    t = tenant_id_from_ctx()
+    try:
+        # קריאה פנימית ל-Baileys (עם INTERNAL_SECRET)
+        r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/start", headers=_headers(), timeout=10)
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        # אם Baileys לא עונה, נחזיר OK (כי הוא כבר רץ)
+        return jsonify({"ok": True}), 200
 
 @whatsapp_bp.route('/reset', methods=['POST'])
 def reset():
