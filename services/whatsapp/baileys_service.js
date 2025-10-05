@@ -119,7 +119,10 @@ async function startSession(tenantId) {
   sessions.set(tenantId, s);
   console.log(`[${tenantId}] 💾 Session stored in memory with stable browser settings`);
 
-  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('creds.update', async () => {
+    await saveCreds();
+    console.log(`[${tenantId}] 🔐 Credentials saved to disk`);
+  });
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     try {
       // DETAILED LOGGING for debugging
@@ -179,6 +182,15 @@ async function startSession(tenantId) {
           }
           // המתן קצת יותר לפני ניסיון חוזר עם QR חדש
           setTimeout(() => startSession(tenantId), 3000);
+          return;
+        }
+        
+        // ✅ FIX: שגיאה 515 = Stream Error אחרי pairing מוצלח
+        // צריך לנסות מחדש אבל NOT לנקות credentials!
+        if (reason === 515) {
+          console.log(`[${tenantId}] 🔄 515 Stream Error after pairing - will retry with saved credentials`);
+          // המתן יותר זמן כדי ש-WhatsApp ייצב
+          setTimeout(() => startSession(tenantId), 5000);
           return;
         }
         
