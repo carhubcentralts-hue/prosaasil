@@ -449,73 +449,63 @@ export default function LeadsPage() {
                     <div className="hidden sm:flex items-center gap-1 justify-start flex-wrap">
                       {(lead.phone || lead.phone_e164 || lead.display_phone) && (
                         <>
-                          <Button
-                            size="sm"
-                            variant="secondary"
+                          <button
                             onClick={(e) => {
                               e.stopPropagation();
                               handleWhatsAppOpen(lead.phone || lead.phone_e164 || lead.display_phone || '');
                             }}
-                            className="h-8 w-8 p-0 bg-green-500 text-white hover:bg-green-600 border-0 rounded-md shadow-sm"
+                            className="h-8 w-8 p-0 bg-green-500 text-white hover:bg-green-600 border-0 rounded-md shadow-sm inline-flex items-center justify-center transition-colors"
                             data-testid={`button-whatsapp-${lead.id}`}
                             title="פתח שיחה בווצאפ"
                           >
                             <MessageSquare className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
+                          </button>
+                          <button
                             onClick={(e) => {
                               e.stopPropagation();
                               handleCall(lead.phone || lead.phone_e164 || lead.display_phone || '');
                             }}
-                            className="h-8 w-8 p-0 bg-blue-500 text-white hover:bg-blue-600 border-0 rounded-md shadow-sm"
+                            className="h-8 w-8 p-0 bg-blue-500 text-white hover:bg-blue-600 border-0 rounded-md shadow-sm inline-flex items-center justify-center transition-colors"
                             data-testid={`button-call-${lead.id}`}
                             title="התקשר ללקוח"
                           >
                             <Phone className="w-4 h-4" />
-                          </Button>
+                          </button>
                         </>
                       )}
-                      <Button
-                        size="sm"
-                        variant="secondary"
+                      <button
                         onClick={(e) => {
                           e.stopPropagation();
                           navigate(`/app/leads/${lead.id}`);
                         }}
-                        className="h-8 w-8 p-0 bg-purple-500 text-white hover:bg-purple-600 border-0 rounded-md shadow-sm"
+                        className="h-8 w-8 p-0 bg-purple-500 text-white hover:bg-purple-600 border-0 rounded-md shadow-sm inline-flex items-center justify-center transition-colors"
                         data-testid={`button-details-${lead.id}`}
                         title="צפה בדף הלקוח המלא"
                       >
                         <User className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
+                      </button>
+                      <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelectedLead(lead);
                         }}
-                        className="h-8 w-8 p-0 bg-gray-500 text-white hover:bg-gray-600 border-0 rounded-md shadow-sm"
+                        className="h-8 w-8 p-0 bg-gray-500 text-white hover:bg-gray-600 border-0 rounded-md shadow-sm inline-flex items-center justify-center transition-colors"
                         data-testid={`button-edit-${lead.id}`}
                         title="ערוך ליד"
                       >
                         <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
+                      </button>
+                      <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleDeleteLead(lead.id, lead.name || lead.full_name || `${lead.first_name} ${lead.last_name}`);
                         }}
-                        className="h-8 w-8 p-0 bg-red-500 text-white hover:bg-red-600 border-0 rounded-md shadow-sm"
+                        className="h-8 w-8 p-0 bg-red-500 text-white hover:bg-red-600 border-0 rounded-md shadow-sm inline-flex items-center justify-center transition-colors"
                         data-testid={`button-delete-${lead.id}`}
                         title="מחק ליד"
                       >
                         <Trash2 className="w-4 h-4" />
-                      </Button>
+                      </button>
                     </div>
 
                     {/* Mobile: Text buttons with labels */}

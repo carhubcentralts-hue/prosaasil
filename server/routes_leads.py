@@ -432,6 +432,34 @@ def update_lead(lead_id):
     
     return jsonify({"message": "Lead updated successfully", "changes": changes})
 
+@leads_bp.route("/api/leads/<int:lead_id>", methods=["DELETE"])
+def delete_lead(lead_id):
+    """Delete a lead"""
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    if not check_lead_access(lead_id):
+        return jsonify({"error": "Lead not found or access denied"}), 404
+    
+    lead = Lead.query.filter_by(id=lead_id).first()
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+    
+    user = get_current_user()
+    
+    # Delete related activities and reminders first (cascade)
+    LeadActivity.query.filter_by(lead_id=lead_id).delete()
+    LeadReminder.query.filter_by(lead_id=lead_id).delete()
+    
+    # Delete the lead
+    db.session.delete(lead)
+    db.session.commit()
+    
+    log.info(f"✅ Lead {lead_id} deleted by user {user.get('email') if user else 'unknown'}")
+    
+    return jsonify({"message": "Lead deleted successfully"}), 200
+
 @leads_bp.route("/api/leads/<int:lead_id>/status", methods=["POST"])
 def update_lead_status(lead_id):
     """Update lead status (for Kanban board)"""
