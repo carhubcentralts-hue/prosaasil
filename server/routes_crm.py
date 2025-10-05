@@ -95,16 +95,16 @@ def get_business_id():
 @crm_bp.get("/api/crm/threads")
 @require_api_auth(["admin", "superadmin", "business", "agent"])
 def api_threads():
-    """Get communication threads (WhatsApp conversations)"""
+    """Get communication threads (WhatsApp conversations) as JSON"""
     try:
         business_id = get_business_id()
         thread_type = request.args.get("type", "whatsapp")
         
         if thread_type == "whatsapp":
             # Get unique WhatsApp conversations
-            threads = db.session.query(
+            threads_data = db.session.query(
                 WhatsAppMessage.to_number,
-                func.max(WhatsAppMessage.created_at).label('last_message'),
+                func.max(WhatsAppMessage.created_at).label('last_message_time'),
                 func.count(WhatsAppMessage.id).label('message_count')
             ).filter_by(business_id=business_id).group_by(
                 WhatsAppMessage.to_number
@@ -112,36 +112,34 @@ def api_threads():
                 func.max(WhatsAppMessage.created_at).desc()
             ).limit(20).all()
             
-            threads_html = ""
-            for thread in threads:
-                threads_html += f"""
-                <div class="p-4 cursor-pointer hover:bg-gray-50 border-b border-gray-100" 
-                     onclick="selectThread('{thread.to_number}')">
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <p class="font-medium text-gray-900">{thread.to_number}</p>
-                            <p class="text-sm text-gray-500">{thread.message_count} הודעות</p>
-                        </div>
-                        <span class="text-xs text-gray-400">
-                            {thread.last_message.strftime('%d/%m %H:%M') if thread.last_message else 'לא ידוע'}
-                        </span>
-                    </div>
-                </div>
-                """
-            
-            if not threads_html:
-                threads_html = '<div class="p-4 text-center text-gray-500">אין שיחות</div>'
+            # Convert to JSON format
+            threads_list = []
+            for thread in threads_data:
+                # Get the last message text
+                last_msg = WhatsAppMessage.query.filter_by(
+                    business_id=business_id,
+                    to_number=thread.to_number
+                ).order_by(WhatsAppMessage.created_at.desc()).first()
                 
-            return threads_html
+                threads_list.append({
+                    "id": thread.to_number,
+                    "name": thread.to_number,  # TODO: Get name from leads/customer
+                    "phone": thread.to_number,
+                    "lastMessage": last_msg.body[:50] + "..." if last_msg and last_msg.body and len(last_msg.body) > 50 else (last_msg.body if last_msg else ""),
+                    "unread": 0,  # TODO: Implement unread count
+                    "time": thread.last_message_time.strftime('%d/%m %H:%M') if thread.last_message_time else ''
+                })
+                
+            return jsonify({"threads": threads_list})
         
-        return '<div class="p-4 text-center text-gray-500">סוג לא נתמך</div>'
+        return jsonify({"threads": []})
     except Exception as e:
-        return f'<div class="p-4 text-center text-red-500">שגיאה: {str(e)}</div>'
+        return jsonify({"error": str(e), "threads": []}), 500
 
 @crm_bp.get("/api/crm/threads/<thread_id>/messages")
 @require_api_auth(["admin", "superadmin", "business", "agent"])
 def api_thread_messages(thread_id):
-    """Get messages for a specific thread"""
+    """Get messages for a specific thread as JSON"""
     try:
         business_id = get_business_id()
         
@@ -150,35 +148,21 @@ def api_thread_messages(thread_id):
             to_number=thread_id
         ).order_by(WhatsAppMessage.created_at.asc()).all()
         
-        messages_html = ""
+        # Convert to JSON format
+        messages_list = []
         for msg in messages:
-            if msg.direction == "out":
-                # Outgoing message (right side)
-                messages_html += f"""
-                <div class="flex justify-end mb-4">
-                    <div class="bg-blue-500 text-white rounded-lg px-4 py-2 max-w-xs">
-                        <p>{msg.body}</p>
-                        <span class="text-xs opacity-75">{msg.created_at.strftime('%H:%M') if msg.created_at else 'לא ידוע'}</span>
-                    </div>
-                </div>
-                """
-            else:
-                # Incoming message (left side)
-                messages_html += f"""
-                <div class="flex justify-start mb-4">
-                    <div class="bg-gray-200 text-gray-900 rounded-lg px-4 py-2 max-w-xs">
-                        <p>{msg.body}</p>
-                        <span class="text-xs text-gray-500">{msg.created_at.strftime('%H:%M') if msg.created_at else 'לא ידוע'}</span>
-                    </div>
-                </div>
-                """
-        
-        if not messages_html:
-            messages_html = '<div class="text-center text-gray-500 mt-20">אין הודעות בשיחה זו</div>'
+            messages_list.append({
+                "id": msg.id,
+                "body": msg.body,
+                "direction": msg.direction,  # "in" or "out"
+                "timestamp": msg.created_at.strftime('%Y-%m-%d %H:%M:%S') if msg.created_at else '',
+                "time": msg.created_at.strftime('%H:%M') if msg.created_at else '',
+                "status": msg.status or "delivered"
+            })
             
-        return messages_html
+        return jsonify({"messages": messages_list})
     except Exception as e:
-        return f'<div class="text-center text-red-500 mt-20">שגיאה: {str(e)}</div>'
+        return jsonify({"error": str(e), "messages": []}), 500
 
 @crm_bp.get("/api/crm/customers")
 @require_api_auth(["admin", "superadmin", "business", "agent"])
