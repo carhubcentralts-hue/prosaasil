@@ -79,6 +79,7 @@ interface QRCodeData {
   qr?: string; // Baileys format
   qr_data?: string; // Unified format  
   dataUrl?: string; // Base64 QR image format
+  qrText?: string; // QR text format (new)
   status?: string;
   message?: string;
   error?: string;
@@ -136,7 +137,7 @@ export function WhatsAppPage() {
           }
           
           const qrResponse = await getQRCode();
-          const qrData = qrResponse?.dataUrl;
+          const qrData = qrResponse?.dataUrl || qrResponse?.qrText;
           if (qrData && qrData !== qrCode) {
             console.log('🔄 QR code refreshed');
             setQrCode(qrData);
@@ -215,8 +216,8 @@ export function WhatsAppPage() {
         const response = await http.get<QRCodeData>(endpoint);
         console.log(`✅ Response from ${endpoint}:`, response);
         
-        // Check if we got valid QR data
-        if (response.dataUrl || response.status === 'connected') {
+        // Check if we got valid QR data (support both dataUrl and qrText)
+        if (response.dataUrl || response.qrText || response.status === 'connected') {
           return response;
         }
       } catch (error) {
@@ -267,8 +268,9 @@ export function WhatsAppPage() {
         }
         
         const qrResponse = await getQRCode();
-        if (qrResponse?.dataUrl) {
-          setQrCode(qrResponse.dataUrl);
+        const qrData = qrResponse?.dataUrl || qrResponse?.qrText;
+        if (qrData) {
+          setQrCode(qrData);
           setShowQR(true);
           console.log('✅ QR Code received and set for display');
           return true; // Stop polling

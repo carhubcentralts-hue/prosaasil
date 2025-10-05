@@ -97,8 +97,8 @@ def get_business_prompt(business_id):
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['PUT', 'OPTIONS'])
-@api_handler
 @require_api_auth(['admin', 'manager'])
+@api_handler
 def update_business_prompt(business_id):
     """Update AI prompts for business - Admin (דורש CSRF) - שיחות ווואטסאפ נפרד"""
     
@@ -240,8 +240,8 @@ def get_current_business_prompt():
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['PUT'])
-@api_handler
 @require_api_auth(['business', 'admin'])  # ✅ אדמין יכול לעדכן פרומפטים גם כשהוא מתחזה
+@api_handler
 def update_current_business_prompt():
     """Update AI prompt for current business - Business (Impersonated, דורש CSRF)"""
     try:
