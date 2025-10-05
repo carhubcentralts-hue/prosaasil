@@ -165,6 +165,23 @@ async function startSession(tenantId) {
         const reason = lastDisconnect?.error?.output?.statusCode;
         console.log(`[${tenantId}] ❌ Disconnected. Reason: ${reason}`);
         
+        // ✅ FIX: אם קיבלנו 401 (Unauthorized) - קבצי האימות פגומים, צריך לנקות אותם
+        if (reason === 401) {
+          console.log(`[${tenantId}] 🗑️ 401 Unauthorized - clearing corrupt auth files`);
+          try {
+            const authPath = authDir(tenantId);
+            fs.rmSync(authPath, { recursive: true, force: true });
+            console.log(`[${tenantId}] ✅ Auth files cleared, will restart with fresh QR`);
+            // צור את התיקייה מחדש כדי שהניסיון הבא יעבוד
+            fs.mkdirSync(authPath, { recursive: true });
+          } catch (e) {
+            console.error(`[${tenantId}] Failed to clear auth files:`, e);
+          }
+          // המתן קצת יותר לפני ניסיון חוזר עם QR חדש
+          setTimeout(() => startSession(tenantId), 3000);
+          return;
+        }
+        
         // אם לא loggedOut – ננסה מחדש בעדינות (לא מיד, כדי לא ליצור מרוץ)
         if (reason !== DisconnectReason.loggedOut) {
           console.log(`[${tenantId}] 🔄 Will retry in 2 seconds...`);
