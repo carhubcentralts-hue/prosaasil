@@ -26,33 +26,51 @@ cd services/whatsapp && npm install --omit=dev || npm ci --omit=dev || echo "⚠
 cd ../..
 
 echo "🟡 Starting Baileys on port ${BAILEYS_PORT}..."
-node services/whatsapp/baileys_service.js &
+nohup node services/whatsapp/baileys_service.js > /tmp/baileys_prod.log 2>&1 &
 BAI=$!
 echo "✅ Baileys started (PID: $BAI)"
 
 # 2) Start Flask (external listener)
 echo "🟡 Starting Flask on port ${PORT}..."
-gunicorn -w 1 -k eventlet -b 0.0.0.0:${PORT} wsgi:app &
+nohup gunicorn -w 1 -k eventlet -b 0.0.0.0:${PORT} wsgi:app > /tmp/flask_prod.log 2>&1 &
 FL=$!
 echo "✅ Flask started (PID: $FL)"
 
-# Keep both alive and cleanly shutdown
-trap 'echo "🛑 Shutting down..."; kill -TERM $BAI $FL 2>/dev/null || true; wait || true' INT TERM
 echo "🎯 Both services running. System ready!"
 echo "📊 Access: http://0.0.0.0:${PORT}"
+echo "📝 Logs: /tmp/baileys_prod.log | /tmp/flask_prod.log"
 
 # Give services time to fully start up before announcing ready
-sleep 3
+sleep 5
 echo "🔍 Final status check..."
 if kill -0 $BAI 2>/dev/null && kill -0 $FL 2>/dev/null; then
     echo "✅ All services confirmed running and ready!"
+    echo "🔑 PIDs saved - Baileys: $BAI | Flask: $FL"
 else
-    echo "⚠️ One or more services may have issues"
+    echo "⚠️ One or more services may have issues - check logs"
+    exit 1
 fi
 
-# Wait for both processes
-while kill -0 $BAI 2>/dev/null && kill -0 $FL 2>/dev/null; do 
-    sleep 2
-done
+echo "✅ Startup complete - keeping processes alive..."
+echo "💡 Press Ctrl+C to stop all services"
 
-echo "❌ One of the services stopped"
+# Keep script alive and monitor processes
+trap 'echo "🛑 Shutting down..."; kill $BAI $FL 2>/dev/null; exit 0' INT TERM
+
+# Infinite loop to keep script alive and monitor processes
+while true; do
+    # Check if processes are still running
+    if ! kill -0 $BAI 2>/dev/null; then
+        echo "❌ Baileys died (PID $BAI) - restarting..."
+        nohup node services/whatsapp/baileys_service.js >> /tmp/baileys_prod.log 2>&1 &
+        BAI=$!
+    fi
+    
+    if ! kill -0 $FL 2>/dev/null; then
+        echo "❌ Flask died (PID $FL) - restarting..."
+        nohup gunicorn -w 1 -k eventlet -b 0.0.0.0:${PORT} wsgi:app >> /tmp/flask_prod.log 2>&1 &
+        FL=$!
+    fi
+    
+    sleep 5
+done
