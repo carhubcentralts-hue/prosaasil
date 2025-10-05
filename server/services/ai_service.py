@@ -20,9 +20,9 @@ class AIService:
         self._cache = {}  # קאש פרומפטים לביצועים
         self._cache_timeout = 300  # 5 דקות
         
-    def get_business_prompt(self, business_id: int) -> Dict[str, Any]:
-        """טעינת פרומפט עסק מהמסד נתונים עם קאש"""
-        cache_key = f"business_{business_id}"
+    def get_business_prompt(self, business_id: int, channel: str = "calls") -> Dict[str, Any]:
+        """טעינת פרומפט עסק מהמסד נתונים עם קאש - לפי ערוץ (calls/whatsapp)"""
+        cache_key = f"business_{business_id}_{channel}"
         now = datetime.now().timestamp()
         
         # בדיקת קאש
@@ -45,8 +45,9 @@ class AIService:
                     # נסיון לפרוס כ-JSON (פורמט חדש עם calls/whatsapp)
                     if settings.ai_prompt.strip().startswith('{'):
                         prompt_obj = json.loads(settings.ai_prompt)
-                        # בחירת הפרומפט הנכון - calls לשיחות טלפון (ברירת מחדל)
-                        system_prompt = prompt_obj.get('calls', prompt_obj.get('whatsapp', settings.ai_prompt))
+                        # בחירת הפרומפט הנכון לפי channel
+                        system_prompt = prompt_obj.get(channel, prompt_obj.get('calls', settings.ai_prompt))
+                        logger.info(f"✅ Using {channel} prompt for business {business_id}")
                     else:
                         # פרומפט טקסט פשוט (legacy)
                         system_prompt = settings.ai_prompt
@@ -56,10 +57,10 @@ class AIService:
             elif business and business.system_prompt and len(business.system_prompt.strip()) > 20:
                 # fallback לפרומפט המלא מטבלת business
                 system_prompt = business.system_prompt
-                print(f"✅ Using fallback prompt from business.system_prompt for {business_id}")
+                logger.info(f"✅ Using fallback prompt from business.system_prompt for {business_id}")
             else:
                 # fallback אחרון לפרומפט ברירת מחדל
-                system_prompt = self._get_default_hebrew_prompt(business.name if business else "שי דירות")
+                system_prompt = self._get_default_hebrew_prompt(business.name if business else "שי דירות", channel)
             
             if not settings:
                 # ברירת מחדל אם אין הגדרות
@@ -85,15 +86,27 @@ class AIService:
             logger.error(f"Error loading business prompt {business_id}: {e}")
             # Fallback לפרומפט ברירת מחדל
             return {
-                "system_prompt": self._get_default_hebrew_prompt("שי דירות"),
+                "system_prompt": self._get_default_hebrew_prompt("שי דירות", channel),
                 "model": "gpt-4o-mini",
                 "max_tokens": 150,
                 "temperature": 0.7
             }
     
-    def _get_default_hebrew_prompt(self, business_name: str = "שי דירות") -> str:
-        """פרומפט ברירת מחדל בעברית לנדל"ן"""
-        return f"""אתה "לאה", סוכנת הנדל"ן הדיגיטלית של {business_name}.
+    def _get_default_hebrew_prompt(self, business_name: str = "שי דירות", channel: str = "calls") -> str:
+        """פרומפט ברירת מחדל בעברית לנדל"ן - מותאם לערוץ"""
+        if channel == "whatsapp":
+            return f"""אתה "לאה", סוכנת WhatsApp של {business_name}.
+
+כללים:
+- תענה בעברית, תשובות קצרות (עד 100 מילים)
+- תהיי חמה וידידותית בסגנון WhatsApp
+- תבקשי פרטים: אזור, סוג נכס, תקציב
+- תציעי לקבוע פגישה כשיש מידע מספיק
+
+תפקידך: לעזור למצוא נכס ולהוביל לפגישה."""
+        else:
+            # Calls default
+            return f"""אתה "לאה", סוכנת הנדל"ן הדיגיטלית של {business_name}.
 
 אני עוזרת ללקוחות למצוא את הנכס המושלם - דירות, בתים ומשרדים.
 
@@ -106,11 +119,11 @@ class AIService:
 
 תפקידך: לעזור, לאסוף מידע ולהוביל לפגישה."""
 
-    def generate_response(self, message: str, business_id: int = 1, context: Optional[Dict[str, Any]] = None) -> str:
-        """יצירת תגובה מפרומפט דינמי + הקשר"""
+    def generate_response(self, message: str, business_id: int = 1, context: Optional[Dict[str, Any]] = None, channel: str = "calls") -> str:
+        """יצירת תגובה מפרומפט דינמי + הקשר - לפי ערוץ (calls/whatsapp)"""
         try:
-            # טעינת פרומפט עסק
-            prompt_data = self.get_business_prompt(business_id)
+            # טעינת פרומפט עסק לפי ערוץ
+            prompt_data = self.get_business_prompt(business_id, channel)
             
             # בניית הודעות
             messages: List[Dict[str, str]] = [
@@ -197,9 +210,9 @@ def get_ai_service() -> AIService:
     return _ai_service
 
 def generate_ai_response(message: str, business_id: int = 1, 
-                        context: Optional[Dict[str, Any]] = None) -> str:
-    """פונקציה עזר לקריאה מהירה לשירות AI"""
-    return get_ai_service().generate_response(message, business_id, context)
+                        context: Optional[Dict[str, Any]] = None, channel: str = "calls") -> str:
+    """פונקציה עזר לקריאה מהירה לשירות AI - לפי ערוץ"""
+    return get_ai_service().generate_response(message, business_id, context, channel)
 
 def invalidate_business_cache(business_id: int):
     """פונקציה עזר למחיקת קאש עסק"""

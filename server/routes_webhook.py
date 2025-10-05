@@ -108,6 +108,41 @@ def whatsapp_incoming():
                                 
                                 db.session.commit()
                                 
+                                # ✨ Generate AI response using WhatsApp prompt
+                                from server.services.ai_service import generate_ai_response
+                                from server.whatsapp_provider import get_whatsapp_service
+                                
+                                try:
+                                    ai_response = generate_ai_response(
+                                        message=message_text,
+                                        business_id=business_id,
+                                        context={
+                                            'customer_name': customer.name,
+                                            'phone_number': phone_number,
+                                            'source': 'whatsapp'
+                                        },
+                                        channel='whatsapp'  # ✅ Use WhatsApp prompt
+                                    )
+                                    
+                                    # Send AI response back to customer
+                                    wa_service = get_whatsapp_service()
+                                    send_result = wa_service.send_message(f"{phone_number}@s.whatsapp.net", ai_response)
+                                    
+                                    if send_result.get('status') == 'sent':
+                                        logger.info(f"✅ AI response sent to {phone_number}: {ai_response[:50]}...")
+                                        
+                                        # Add AI response to lead notes
+                                        if lead.notes:
+                                            lead.notes += f"\n[לאה {timestamp}]: {ai_response[:100]}..."
+                                        else:
+                                            lead.notes = f"[לאה {timestamp}]: {ai_response[:100]}..."
+                                        db.session.commit()
+                                    else:
+                                        logger.warning(f"⚠️ Failed to send AI response: {send_result}")
+                                        
+                                except Exception as ai_error:
+                                    logger.error(f"❌ AI response failed: {ai_error}")
+                                
                                 # Detailed logging
                                 logger.info(f"🎯 WhatsApp AI Processing: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'})")
                                 logger.info(f"📱 WhatsApp Intent: {conversation_summary.get('intent', 'N/A')}")
