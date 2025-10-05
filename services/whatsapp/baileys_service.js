@@ -91,6 +91,40 @@ app.post('/whatsapp/:tenantId/disconnect', requireSecret, async (req, res) => {
   }
 });
 
+app.post('/send', async (req, res) => {
+  try {
+    const { to, text, type = 'text' } = req.body;
+    
+    if (!to || !text) {
+      return res.status(400).json({ error: 'Missing required fields: to, text' });
+    }
+    
+    // Use business_1 as default tenant for now (multi-tenant support can be added later)
+    const tenantId = 'business_1';
+    const s = sessions.get(tenantId);
+    
+    if (!s || !s.sock || !s.connected) {
+      console.error(`[${tenantId}] Cannot send - not connected`);
+      return res.status(503).json({ error: 'WhatsApp not connected' });
+    }
+    
+    // Send message
+    console.log(`[${tenantId}] 📤 Sending message to ${to}: ${text.substring(0, 50)}...`);
+    const result = await s.sock.sendMessage(to, { text: text });
+    
+    console.log(`[${tenantId}] ✅ Message sent successfully:`, result.key.id);
+    return res.json({ 
+      ok: true, 
+      messageId: result.key.id,
+      status: 'sent'
+    });
+    
+  } catch (e) {
+    console.error('[send] error:', e);
+    return res.status(500).json({ error: 'send_failed', message: e.message });
+  }
+});
+
 /** Baileys session logic */
 async function startSession(tenantId) {
   console.log(`[${tenantId}] 🚀 startSession called`);
@@ -213,11 +247,18 @@ async function startSession(tenantId) {
 
   sock.ev.on('messages.upsert', async (payload) => {
     try {
-      await axios.post(`${FLASK_BASE_URL}/webhook/whatsapp/incoming`,
+      console.log(`[${tenantId}] 📨 Incoming message detected:`, JSON.stringify(payload, null, 2));
+      const response = await axios.post(`${FLASK_BASE_URL}/webhook/whatsapp/incoming`,
         { tenantId, payload },
         { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
       );
-    } catch (e) { console.error('[Webhook→Flask] failed', e?.message || e); }
+      console.log(`[${tenantId}] ✅ Webhook→Flask success:`, response.status);
+    } catch (e) { 
+      console.error(`[${tenantId}] ❌ [Webhook→Flask] failed:`, e?.message || e);
+      if (e.response) {
+        console.error(`[${tenantId}] Flask response:`, e.response.status, e.response.data);
+      }
+    }
   });
 
   return s;
