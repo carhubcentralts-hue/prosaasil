@@ -1,0 +1,486 @@
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/business/current/prompt
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/business/current/prompt
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses/<int:business_id>/prompt/history
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/business/current/prompt/history
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/statuses
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/statuses
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/statuses/<int:status_id>
+18:10:48 web.1     |   {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id>
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/statuses/reorder
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/statuses/initialize/<int:business_id>
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/auth/csrf
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/auth/login
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/auth/forgot
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/auth/reset
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/auth/logout
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/auth/me
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/auth/current
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/overview
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/calls
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/whatsapp
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/businesses
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/revenue
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses/<int:business_id>/overview
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/overview
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/calls
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/whatsapp
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/tenants
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/calls
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/leads
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/leads/stats
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/phone-numbers
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses/prompts
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/support/profile
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'PUT', 'GET'} /api/admin/support/prompt
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'PUT', 'GET'} /api/admin/support/phones
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/threads
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/threads/<thread_id>/messages
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/customers
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls/active
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls/history
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/payments
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/contracts
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/crm/contracts
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/crm/payments/create
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/payments/paypal/return/success
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/payments/paypal/return/cancel
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/payments/tranzila/return/success
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/payments/tranzila/return/fail
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/invoices/<invoice_number>
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/crm/contracts/sign
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/deals
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/crm/deals
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/business/<int:business_id>
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/business
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id>
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/business/<int:business_id>/change-password
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/user
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/user/<int:user_id>
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id>
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/user/<int:user_id>/change-password
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/user/<int:user_id>/toggle-status
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/businesses/<int:business_id>/impersonate
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/impersonate/exit
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/business/current
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/business/current/settings
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /webhook/incoming_call_preview
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /webhook/incoming_call
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /webhook/stream_ended
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /webhook/handle_recording
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /webhook/stream_status
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /webhook/call_status
+18:10:48 web.1     |   {'HEAD', 'POST', 'OPTIONS', 'GET'} /webhook/test
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /webhook/test_media_streams_1756667590
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calendar/appointments
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/calendar/appointments
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calendar/appointments/<int:appointment_id>
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id>
+18:10:48 web.1     |   {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id>
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calendar/stats
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/leads
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/leads
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/leads/<int:lead_id>
+18:10:48 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/leads/<int:lead_id>/status
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/leads/<int:lead_id>/reminders
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/leads/<int:lead_id>/activities
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/leads/<int:lead_id>/reminders
+18:10:48 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/move
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+18:10:48 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/reminders/due
+18:10:48 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/bulk
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/leads/<int:lead_id>/message/whatsapp
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls/<call_sid>/details
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls/<call_sid>/download
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/calls/cleanup
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls/stats
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/receipts
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/contracts
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/billing/invoice/<invoice_id>/view
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/billing/invoice/<invoice_id>/download
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/billing/contract/<contract_id>/view
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/billing/contract/<contract_id>/download
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/whatsapp/status
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/whatsapp/qr
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/whatsapp/start
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/whatsapp/reset
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/whatsapp/disconnect
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/whatsapp/contacts
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/whatsapp/messages
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/whatsapp/stats
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/whatsapp/prompts/<int:business_id>
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/whatsapp/send
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /webhook/whatsapp/incoming
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /webhook/whatsapp/status
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/intelligence/customers
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/intelligence/stats
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/dashboard/stats
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/dashboard/activity
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/stats
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /healthz
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /readyz
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /version
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /livez
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /app/admin
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /app/biz
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/admin/overview
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/admin/switch_business
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/admin/tenants/new
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/admin/users/new
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/admin/tenants
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/admin/users
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/whatsapp/threads
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/whatsapp/messages
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /ui/whatsapp/send
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/calls/active
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/calls/history
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/biz/contacts
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/biz/contacts/new
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/biz/users/new
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /ui/biz/users
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/ui/login
+18:10:48 web.1     |   {'HEAD', 'POST', 'OPTIONS', 'GET'} /api/ui/logout
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/tenants
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/users
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/biz/users
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/crm/contacts
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /admin/impersonate/<int:business_id>
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /admin/stop-impersonate
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /biz/invoices
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /biz/contracts
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /logout
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /unauthorized
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /test-websocket-version
+18:10:48 web.1     | 🔍 Route registration complete
+18:10:48 web.1     | 🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+18:10:48 web.1     | ✅ Health routes handled by health_endpoints.py blueprint
+18:10:48 web.1     | ✅ Factory debug route registered: /debug-factory-http
+18:10:48 web.1     | ✅ /healthz route added directly to app_factory
+18:10:48 web.1     | 🆘 Emergency healthz-direct route added
+18:10:48 web.1     | ✅ WhatsApp routes removed - using unified only
+18:10:48 web.1     | ✅ Baileys proxy routes: 0 /wa/* endpoints
+18:10:48 web.1     | ✅ Legacy proxy routes: 0 /api/wa-proxy/* endpoints
+18:10:48 web.1     | FE_DIST = /home/runner/workspace/client/dist mtime = 1759681679.9120133
+18:10:48 web.1     | 🔧 Database migrations skipped (set RUN_MIGRATIONS_ON_START=1 to enable)
+18:10:48 web.1     | 🔧 Server will start immediately without blocking on DB operations
+18:10:48 web.1     | 🔧 Warmup disabled for debugging
+18:10:48 web.1     | 
+18:10:48 web.1     | === URL MAP ===
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /admin/impersonate/<int:business_id> -> ui.admin_impersonate_business
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/business -> business_management.create_business
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/business/<int:business_id> -> business_management.get_business
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id> -> business_management.update_business
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/business/<int:business_id>/change-password -> business_management.change_business_password
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses -> admin_bp.api_admin_businesses
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses -> api_adapter.admin_businesses
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/businesses/<int:business_id>/impersonate -> business_management.impersonate_business
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses/<int:business_id>/overview -> admin_bp.get_business_overview
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.get_business_prompt
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.update_business_prompt
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses/<int:business_id>/prompt/history -> ai_prompt.get_prompt_history
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses/prompts -> admin_bp.admin_businesses_prompts
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/calls -> admin_bp.api_admin_calls
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/impersonate/exit -> business_management.exit_impersonation
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/businesses -> admin_bp.api_kpis_businesses
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/calls -> admin_bp.api_kpis_calls
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/calls -> admin_bp.api_admin_kpis_calls
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/overview -> admin_bp.api_admin_kpis_overview
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/revenue -> admin_bp.api_kpis_revenue
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/whatsapp -> admin_bp.api_kpis_whatsapp
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/kpis/whatsapp -> admin_bp.api_admin_kpis_whatsapp
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/leads -> admin_bp.admin_leads
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/leads/stats -> admin_bp.admin_leads_stats
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/overview -> admin_bp.api_overview
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/phone-numbers -> admin_bp.admin_phone_numbers
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/run-migrations -> run_migrations_endpoint
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/stats -> api_adapter.admin_stats
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/statuses/initialize/<int:business_id> -> status_management.initialize_default_statuses
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'PUT', 'GET'} /api/admin/support/phones -> admin_bp.admin_support_phones
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/support/profile -> admin_bp.admin_support_profile
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'PUT', 'GET'} /api/admin/support/prompt -> admin_bp.admin_support_prompt
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/tenants -> admin_bp.api_tenants
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/tenants -> ui.api_admin_tenants_create
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/user -> business_management.create_user
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/admin/user/<int:user_id> -> business_management.get_user
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id> -> business_management.update_user
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/user/<int:user_id>/change-password -> business_management.change_user_password
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/user/<int:user_id>/toggle-status -> business_management.toggle_user_status
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/admin/users -> ui.api_admin_users_create
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/auth/csrf -> auth_api.get_csrf
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/auth/current -> auth_api.get_current_user_legacy
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/auth/forgot -> auth_api.forgot_password
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/auth/login -> auth_api.login
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/auth/logout -> auth_api.logout
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/auth/me -> auth_api.get_current_user
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/auth/reset -> auth_api.reset_password
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/billing/contract/<contract_id>/download -> receipts_contracts.download_contract
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/billing/contract/<contract_id>/view -> receipts_contracts.view_contract
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/billing/invoice/<invoice_id>/download -> receipts_contracts.download_invoice
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/billing/invoice/<invoice_id>/view -> receipts_contracts.view_invoice
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/biz/users -> ui.api_biz_users_create
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/business/<tenant>/prompts -> ai_prompt.save_prompt
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/business/current -> business_management.get_current_business
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/business/current/prompt -> ai_prompt.get_current_business_prompt
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/business/current/prompt -> ai_prompt.update_current_business_prompt
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/business/current/prompt/history -> ai_prompt.get_current_prompt_history
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/business/current/settings -> business_management.update_current_business_settings
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calendar/appointments -> calendar.get_appointments
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/calendar/appointments -> calendar.create_appointment
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calendar/appointments/<int:appointment_id> -> calendar.get_appointment
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id> -> calendar.update_appointment
+18:10:48 web.1     |   {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id> -> calendar.delete_appointment
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calendar/stats -> calendar.get_calendar_stats
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls -> calls.list_calls
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls/<call_sid>/details -> calls.get_call_details
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls/<call_sid>/download -> calls.download_recording
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls/active -> crm_bp.api_active_calls
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/calls/cleanup -> calls.cleanup_old_recordings
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls/history -> crm_bp.api_call_history
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/calls/stats -> calls.get_calls_stats
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/contracts -> receipts_contracts.create_contract
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/crm/contacts -> ui.api_crm_contacts_create
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/contracts -> crm_bp.get_contracts
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/crm/contracts -> crm_bp.create_contract
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/crm/contracts/sign -> crm_bp.contract_sign
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/customers -> crm_bp.api_customers
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/deals -> crm_bp.list_deals
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/crm/deals -> crm_bp.create_deal
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/invoices/<invoice_number> -> crm_bp.get_invoice
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/payments -> crm_bp.get_payments
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/crm/payments/create -> crm_bp.payments_create
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/payments/paypal/return/cancel -> crm_bp.paypal_cancel
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/payments/paypal/return/success -> crm_bp.paypal_success
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/payments/tranzila/return/fail -> crm_bp.tranzila_fail
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/payments/tranzila/return/success -> crm_bp.tranzila_success
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/threads -> crm_bp.api_threads
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/crm/threads/<thread_id>/messages -> crm_bp.api_thread_messages
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/dashboard/activity -> api_adapter.dashboard_activity
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/dashboard/stats -> api_adapter.dashboard_stats
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/intelligence/customers -> intelligence.get_intelligent_customers
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/intelligence/stats -> intelligence.get_intelligence_stats
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/leads -> leads_bp.list_leads
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/leads -> leads_bp.create_lead
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/leads/<int:lead_id> -> leads_bp.get_lead_detail
+18:10:48 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id> -> leads_bp.update_lead
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/leads/<int:lead_id>/activities -> leads_bp.get_lead_activities
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/leads/<int:lead_id>/message/whatsapp -> leads_bp.send_whatsapp_message
+18:10:48 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/move -> leads_bp.move_lead_in_kanban
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/leads/<int:lead_id>/reminders -> leads_bp.get_lead_reminders
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/leads/<int:lead_id>/reminders -> leads_bp.create_reminder
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.get_reminder
+18:10:48 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.update_reminder
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/leads/<int:lead_id>/status -> leads_bp.update_lead_status
+18:10:48 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/bulk -> leads_bp.bulk_update_leads
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/receipts -> receipts_contracts.create_receipt
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/reminders/due -> leads_bp.get_due_reminders
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/statuses -> status_management.get_business_statuses
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/statuses -> status_management.create_status
+18:10:48 web.1     |   {'OPTIONS', 'PUT'} /api/statuses/<int:status_id> -> status_management.update_status
+18:10:48 web.1     |   {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id> -> status_management.delete_status
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/statuses/reorder -> status_management.reorder_statuses
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/ui/login -> ui.api_login
+18:10:48 web.1     |   {'HEAD', 'POST', 'OPTIONS', 'GET'} /api/ui/logout -> ui.api_logout
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/whatsapp/contacts -> whatsapp.api_wa_contacts
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/whatsapp/disconnect -> whatsapp.disconnect
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/whatsapp/messages -> whatsapp.api_wa_messages
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/whatsapp/prompts/<int:business_id> -> whatsapp.save_whatsapp_prompt
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/whatsapp/qr -> whatsapp.qr
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/whatsapp/reset -> whatsapp.reset
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/whatsapp/send -> whatsapp.send_manual_message
+18:10:48 web.1     |   {'POST', 'OPTIONS'} /api/whatsapp/start -> whatsapp.start
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/whatsapp/stats -> whatsapp.api_wa_stats
+18:10:48 web.1     |   {'HEAD', 'OPTIONS', 'GET'} /api/whatsapp/status -> whatsapp.status
+18:10:48 web.1     | ================
+18:10:48 web.1     | ✅ Simple SPA routes registered (no blueprint)
+18:10:48 web.1     | ✅ Flask app context initialized successfully
+18:10:48 web.1     | ✅ EventLet Composite WSGI ready
+18:10:48 web.1     | 📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com
+18:10:48 web.1     | 🌐 All other routes → Flask app
+18:11:35 web.1     | 🔍 WSGI Route: GET /
+18:11:35 web.1     | 🌐 Routing to Flask app: /
+18:11:36 web.1     | 🔍 WSGI Route: GET /assets/index-BjZJWB8C.css
+18:11:36 web.1     | 🌐 Routing to Flask app: /assets/index-BjZJWB8C.css
+18:11:36 web.1     | 🔍 WSGI Route: GET /assets/index-CJpz_Cln.js
+18:11:36 web.1     | 🌐 Routing to Flask app: /assets/index-CJpz_Cln.js
+18:11:37 web.1     | 🔍 WSGI Route: GET /api/auth/csrf
+18:11:37 web.1     | 🌐 Routing to Flask app: /api/auth/csrf
+18:11:37 web.1     | 🔍 WSGI Route: GET /api/auth/me
+18:11:37 web.1     | 🌐 Routing to Flask app: /api/auth/me
+18:12:38 web.1     | 🔍 WSGI Route: POST /api/auth/login
+18:12:38 web.1     | 🌐 Routing to Flask app: /api/auth/login
+18:12:40 web.1     | 🔍 WSGI Route: GET /api/auth/csrf
+18:12:40 web.1     | 🌐 Routing to Flask app: /api/auth/csrf
+18:12:40 web.1     | 🔍 WSGI Route: GET /api/admin/leads/stats
+18:12:40 web.1     | 🌐 Routing to Flask app: /api/admin/leads/stats
+18:12:40 web.1     | 🔍 WSGI Route: GET /api/admin/businesses
+18:12:40 web.1     | 🌐 Routing to Flask app: /api/admin/businesses
+18:12:40 web.1     | 🔍 WSGI Route: GET /api/admin/phone-numbers
+18:12:40 web.1     | 🌐 Routing to Flask app: /api/admin/phone-numbers
+18:12:40 web.1     | 🔍 WSGI Route: GET /api/admin/leads
+18:12:40 web.1     | 🌐 Routing to Flask app: /api/admin/leads
+18:12:41 web.1     | 🔍 WSGI Route: GET /api/admin/overview
+18:12:41 web.1     | 🌐 Routing to Flask app: /api/admin/overview
+18:12:43 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:12:43 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:12:43 web.1     | 🔍 WSGI Route: GET /api/business/current/prompt
+18:12:43 web.1     | 🌐 Routing to Flask app: /api/business/current/prompt
+18:12:43 web.1     | CSRF-DBG cookie= kZOUFtGuo9SNbGNxYgZOpyAiEgrgXDLwq7FhQZ9dJRo header= None ct= None
+18:12:43 web.1     | 🔍 WSGI Route: GET /api/crm/threads
+18:12:43 web.1     | 🌐 Routing to Flask app: /api/crm/threads
+18:12:46 web.1     | 🔍 WSGI Route: POST /api/whatsapp/disconnect
+18:12:46 web.1     | 🌐 Routing to Flask app: /api/whatsapp/disconnect
+18:12:46 web.1     | [2025-10-05 18:12:46,086] WARNING in flask_seasurf: Forbidden (CSRF token missing or incorrect.): /api/whatsapp/disconnect
+18:12:46 web.1     | 🔍 WSGI Route: GET /api/auth/csrf
+18:12:46 web.1     | 🌐 Routing to Flask app: /api/auth/csrf
+18:12:46 web.1     | 🔍 WSGI Route: POST /api/whatsapp/disconnect
+18:12:46 web.1     | 🌐 Routing to Flask app: /api/whatsapp/disconnect
+18:12:46 baileys.1 | [business_1] 🔌 disconnectSession called - permanent disconnect
+18:12:46 baileys.1 | [authDir] tenant=business_1 -> normalized=business_1 -> path=/home/runner/workspace/storage/whatsapp/business_1/auth
+18:12:46 baileys.1 | [business_1] 🗑️ Removing all auth files from: /home/runner/workspace/storage/whatsapp/business_1/auth
+18:12:46 baileys.1 | [business_1] ✅ WhatsApp disconnected and cleaned up
+18:12:48 web.1     | 🔍 WSGI Route: POST /api/whatsapp/start
+18:12:48 web.1     | 🌐 Routing to Flask app: /api/whatsapp/start
+18:12:48 baileys.1 | [business_1] 🚀 startSession called
+18:12:48 baileys.1 | [authDir] tenant=business_1 -> normalized=business_1 -> path=/home/runner/workspace/storage/whatsapp/business_1/auth
+18:12:48 baileys.1 | [business_1] 🔧 Using Baileys version: [ 2, 3000, 1023223821 ]
+18:12:49 baileys.1 | [business_1] 💾 Session stored in memory with stable browser settings
+18:12:49 baileys.1 | [update] business_1: { connection: 'connecting', hasQr: false, reason: undefined }
+18:12:49 baileys.1 | {"level":30,"time":"2025-10-05T18:12:49.189Z","pid":3840,"hostname":"3572cc25f02f","class":"baileys","browser":["AgentLocator","Chrome","10.0"],"helloMsg":{"clientHello":{"ephemeral":{"type":"Buffer","data":[232,101,242,136,19,67,168,166,75,25,72,187,41,8,67,217,232,120,118,37,160,186,253,251,94,83,7,46,18,112,106,114]}}},"msg":"connected to WA"}
+18:12:49 baileys.1 | {"level":30,"time":"2025-10-05T18:12:49.330Z","pid":3840,"hostname":"3572cc25f02f","class":"baileys","node":{"shards":[],"connectType":1,"connectReason":1,"userAgent":{"appVersion":{"primary":2,"secondary":3000,"tertiary":1023223821},"platform":14,"releaseChannel":0,"osVersion":"0.1","device":"Desktop","osBuildNumber":"0.1","localeLanguageIso6391":"en","mnc":"000","mcc":"000","localeCountryIso31661Alpha2":"US"},"webInfo":{"webSubPlatform":0},"passive":false,"pull":false,"devicePairingData":{"buildHash":{"type":"Buffer","data":[115,217,80,121,67,37,77,218,204,172,136,191,249,135,15,136]},"deviceProps":{"type":"Buffer","data":[10,12,65,103,101,110,116,76,111,99,97,116,111,114,24,1,32,0]},"eRegid":{"0":0,"1":0,"2":0,"3":137},"eKeytype":{"type":"Buffer","data":[5]},"eIdent":{"type":"Buffer","data":[22,197,28,163,125,160,77,17,109,35,1,65,125,0,197,86,237,30,91,50,44,166,207,18,213,214,251,162,21,93,149,27]},"eSkeyId":{"0":0,"1":0,"2":1},"eSkeyVal":{"type":"Buffer","data":[39,96,37,74,233,221,146,192,146,46,20,254,151,97,106,126,224,75,229,212,209,47,89,13,61,187,164,199,167,246,182,56]},"eSkeySig":{"type":"Buffer","data":[198,233,236,43,72,61,61,61,203,247,61,183,205,67,182,225,222,19,170,164,235,139,63,78,17,109,210,120,131,155,113,90,255,165,113,243,246,47,230,115,132,232,81,234,119,252,15,230,154,223,76,207,35,92,192,122,42,18,30,5,23,57,229,7]}}},"msg":"not logged in, attempting registration..."}
+18:12:49 baileys.1 | [update] business_1: { connection: undefined, hasQr: true, reason: undefined }
+18:12:49 baileys.1 | [business_1] 📱 QR generated successfully
+18:12:49 baileys.1 | [business_1] 💾 QR saved to /home/runner/workspace/storage/whatsapp/business_1/auth/qr_code.txt
+18:12:49 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:12:49 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:12:49 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:12:49 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:12:52 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:12:52 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:12:52 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:12:52 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:12:55 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:12:55 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:12:55 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:12:55 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:12:57 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:12:57 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:12:57 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:12:57 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:12:59 baileys.1 | {"level":30,"time":"2025-10-05T18:12:59.526Z","pid":3840,"hostname":"3572cc25f02f","class":"baileys","me":{"id":"972504294724:49@s.whatsapp.net","lid":"87621728518253:49@lid"},"platform":"iphone","msg":"pairing configured successfully, expect to restart the connection..."}
+18:12:59 baileys.1 | [update] business_1: { connection: undefined, hasQr: false, reason: undefined }
+18:13:00 baileys.1 | {"level":50,"time":"2025-10-05T18:13:00.038Z","pid":3840,"hostname":"3572cc25f02f","class":"baileys","node":{"tag":"stream:error","attrs":{"code":"515"}},"msg":"stream errored out"}
+18:13:00 baileys.1 | [update] business_1: { connection: 'close', hasQr: false, reason: 515 }
+18:13:00 baileys.1 | [business_1] ❌ Disconnected. Reason: 515
+18:13:00 baileys.1 | [business_1] 🔄 Will retry in 2 seconds...
+18:13:00 baileys.1 | {"level":30,"time":"2025-10-05T18:13:00.039Z","pid":3840,"hostname":"3572cc25f02f","class":"baileys","trace":"Error: Stream Errored (restart required)\n    at WebSocketClient.<anonymous> (file:///home/runner/workspace/services/whatsapp/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js:725:13)\n    at WebSocketClient.emit (node:events:524:28)\n    at file:///home/runner/workspace/services/whatsapp/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js:417:35\n    at Object.decodeFrame (file:///home/runner/workspace/services/whatsapp/node_modules/@whiskeysockets/baileys/lib/Utils/noise-handler.js:141:17)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)","msg":"connection errored"}
+18:13:00 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:13:00 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:13:00 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:13:00 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:13:02 baileys.1 | [business_1] 🚀 startSession called
+18:13:02 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:13:02 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:13:02 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:13:02 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+^[[B18:13:05 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:13:05 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:13:05 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:13:05 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B18:13:07 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:13:07 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+^[[B^[[B18:13:07 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:13:07 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B18:13:10 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:13:10 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:13:10 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:13:10 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B18:13:12 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:13:12 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+^[[B^[[B18:13:12 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:13:12 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+^[[B^[[B^[[B^[[B^[[B18:13:15 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:13:15 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:13:15 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:13:15 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:13:17 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:13:17 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:13:17 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:13:17 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B18:18:20 web.1     | 🔍 WSGI Route: POST /api/whatsapp/disconnect
+18:18:20 web.1     | 🌐 Routing to Flask app: /api/whatsapp/disconnect
+18:18:20 baileys.1 | [business_1] 🔌 disconnectSession called - permanent disconnect
+18:18:20 baileys.1 | [business_1] 📤 Sending logout to WhatsApp
+18:18:20 baileys.1 | [business_1] ⚠️ Logout command failed (OK if not connected): Connection Closed
+18:18:20 baileys.1 | [business_1] 🔚 Closing socket
+18:18:20 baileys.1 | [business_1] sock.end() failed TypeError: s.sock.removeAllListeners is not a function
+18:18:20 baileys.1 |     at disconnectSession (/home/runner/workspace/services/whatsapp/baileys_service.js:249:14)
+18:18:20 baileys.1 |     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+18:18:20 baileys.1 |     at async /home/runner/workspace/services/whatsapp/baileys_service.js:85:5
+18:18:20 baileys.1 | [authDir] tenant=business_1 -> normalized=business_1 -> path=/home/runner/workspace/storage/whatsapp/business_1/auth
+18:18:20 baileys.1 | [business_1] 🗑️ Removing all auth files from: /home/runner/workspace/storage/whatsapp/business_1/auth
+18:18:20 baileys.1 | [business_1] ✅ WhatsApp disconnected and cleaned up
+18:18:23 web.1     | 🔍 WSGI Route: POST /api/whatsapp/start
+18:18:23 web.1     | 🌐 Routing to Flask app: /api/whatsapp/start
+18:18:23 baileys.1 | [business_1] 🚀 startSession called
+18:18:23 baileys.1 | [authDir] tenant=business_1 -> normalized=business_1 -> path=/home/runner/workspace/storage/whatsapp/business_1/auth
+18:18:23 baileys.1 | [business_1] 🔧 Using Baileys version: [ 2, 3000, 1023223821 ]
+18:18:23 baileys.1 | [business_1] 💾 Session stored in memory with stable browser settings
+18:18:23 baileys.1 | [update] business_1: { connection: 'connecting', hasQr: false, reason: undefined }
+18:18:23 baileys.1 | {"level":30,"time":"2025-10-05T18:18:23.541Z","pid":3840,"hostname":"3572cc25f02f","class":"baileys","browser":["AgentLocator","Chrome","10.0"],"helloMsg":{"clientHello":{"ephemeral":{"type":"Buffer","data":[231,135,142,57,17,68,27,173,26,158,72,192,255,48,41,57,108,14,126,62,203,191,6,106,72,128,171,164,67,107,104,115]}}},"msg":"connected to WA"}
+18:18:23 baileys.1 | {"level":30,"time":"2025-10-05T18:18:23.685Z","pid":3840,"hostname":"3572cc25f02f","class":"baileys","node":{"shards":[],"connectType":1,"connectReason":1,"userAgent":{"appVersion":{"primary":2,"secondary":3000,"tertiary":1023223821},"platform":14,"releaseChannel":0,"osVersion":"0.1","device":"Desktop","osBuildNumber":"0.1","localeLanguageIso6391":"en","mnc":"000","mcc":"000","localeCountryIso31661Alpha2":"US"},"webInfo":{"webSubPlatform":0},"passive":false,"pull":false,"devicePairingData":{"buildHash":{"type":"Buffer","data":[115,217,80,121,67,37,77,218,204,172,136,191,249,135,15,136]},"deviceProps":{"type":"Buffer","data":[10,12,65,103,101,110,116,76,111,99,97,116,111,114,24,1,32,0]},"eRegid":{"0":0,"1":0,"2":0,"3":84},"eKeytype":{"type":"Buffer","data":[5]},"eIdent":{"type":"Buffer","data":[58,7,62,95,71,233,122,57,190,10,113,190,199,53,69,63,244,251,57,197,78,111,244,178,223,102,186,18,51,32,42,75]},"eSkeyId":{"0":0,"1":0,"2":1},"eSkeyVal":{"type":"Buffer","data":[253,141,231,9,178,93,42,162,248,216,191,96,110,226,121,140,60,53,190,202,89,247,170,118,32,28,45,147,44,19,192,34]},"eSkeySig":{"type":"Buffer","data":[86,157,80,175,100,238,167,146,193,43,124,11,99,199,217,184,53,217,198,135,181,228,112,106,209,210,247,110,244,157,78,137,233,8,143,47,89,162,240,77,123,253,53,178,121,73,76,214,95,23,11,59,202,129,53,238,8,101,248,209,216,87,180,0]}}},"msg":"not logged in, attempting registration..."}
+18:18:23 baileys.1 | [update] business_1: { connection: undefined, hasQr: true, reason: undefined }
+18:18:24 baileys.1 | [business_1] 📱 QR generated successfully
+18:18:24 baileys.1 | [business_1] 💾 QR saved to /home/runner/workspace/storage/whatsapp/business_1/auth/qr_code.txt
+18:18:24 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:18:24 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:18:24 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:18:24 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:18:26 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:18:26 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:18:27 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:18:27 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:18:29 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:18:29 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:18:29 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:18:29 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:18:31 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:18:31 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:18:32 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:18:32 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:18:33 baileys.1 | {"level":30,"time":"2025-10-05T18:18:33.471Z","pid":3840,"hostname":"3572cc25f02f","class":"baileys","me":{"id":"972504294724:50@s.whatsapp.net","lid":"87621728518253:50@lid"},"platform":"iphone","msg":"pairing configured successfully, expect to restart the connection..."}
+18:18:33 baileys.1 | [update] business_1: { connection: undefined, hasQr: false, reason: undefined }
+18:18:34 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:18:34 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:18:34 baileys.1 | {"level":50,"time":"2025-10-05T18:18:34.608Z","pid":3840,"hostname":"3572cc25f02f","class":"baileys","node":{"tag":"stream:error","attrs":{"code":"515"}},"msg":"stream errored out"}
+18:18:34 baileys.1 | [update] business_1: { connection: 'close', hasQr: false, reason: 515 }
+18:18:34 baileys.1 | [business_1] ❌ Disconnected. Reason: 515
+18:18:34 baileys.1 | [business_1] 🔄 Will retry in 2 seconds...
+18:18:34 baileys.1 | {"level":30,"time":"2025-10-05T18:18:34.608Z","pid":3840,"hostname":"3572cc25f02f","class":"baileys","trace":"Error: Stream Errored (restart required)\n    at WebSocketClient.<anonymous> (file:///home/runner/workspace/services/whatsapp/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js:725:13)\n    at WebSocketClient.emit (node:events:524:28)\n    at file:///home/runner/workspace/services/whatsapp/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js:417:35\n    at Object.decodeFrame (file:///home/runner/workspace/services/whatsapp/node_modules/@whiskeysockets/baileys/lib/Utils/noise-handler.js:141:17)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)","msg":"connection errored"}
+18:18:34 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:18:34 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:18:36 baileys.1 | [business_1] 🚀 startSession called
+18:18:36 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:18:36 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:18:37 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:18:37 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+18:18:39 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:18:39 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:18:39 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:18:39 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B18:18:41 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:18:41 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+^[[B^[[B18:18:42 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:18:42 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B18:18:44 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:18:44 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+^[[B^[[B18:18:44 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:18:44 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
+^[[B^[[B^[[B^[[B^[[B^[[B18:18:46 web.1     | 🔍 WSGI Route: GET /api/whatsapp/status
+18:18:46 web.1     | 🌐 Routing to Flask app: /api/whatsapp/status
+18:18:47 web.1     | 🔍 WSGI Route: GET /api/whatsapp/qr
+18:18:47 web.1     | 🌐 Routing to Flask app: /api/whatsapp/qr
