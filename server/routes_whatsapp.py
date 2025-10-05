@@ -44,13 +44,7 @@ def status():
 @csrf.exempt  # GET requests don't need CSRF
 def qr():
     """B4) תמיד JSON - QR route לפי ההוראות"""
-    # קריאה מקבצים (tenant אחיד business_1)
-    if os.path.exists(QR_TXT):
-        with open(QR_TXT, "r", encoding="utf-8") as f:
-            qr_text = f.read().strip()
-        return jsonify({"dataUrl": None, "qrText": qr_text}), 200
-    
-    # אם אין קבצים, ננסה את המערכת הנוכחית
+    # ✅ תמיד נקבל dataUrl מBaileys (הוא יוצר dataUrl עם QRCode.toDataURL)
     t = tenant_id_from_ctx()
     try:
         r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/qr", headers=_headers(), timeout=10)
@@ -58,6 +52,11 @@ def qr():
             return jsonify({"dataUrl": None, "qrText": None}), 200  # תמיד JSON!
         return jsonify(r.json()), r.status_code
     except Exception as e:
+        # Fallback: read from file if Baileys not responding
+        if os.path.exists(QR_TXT):
+            with open(QR_TXT, "r", encoding="utf-8") as f:
+                qr_text = f.read().strip()
+            return jsonify({"dataUrl": None, "qrText": qr_text}), 200
         return jsonify({"dataUrl": None, "qrText": None, "error": str(e)}), 200  # תמיד JSON!
 
 @whatsapp_bp.route('/start', methods=['POST'])

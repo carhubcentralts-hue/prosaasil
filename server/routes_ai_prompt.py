@@ -35,6 +35,15 @@ def save_prompt(tenant):
     settings.updated_by = 'api_user'
     
     db.session.commit()
+    
+    # ✅ CRITICAL: Invalidate cache after save for immediate effect
+    try:
+        from server.services.ai_service import invalidate_business_cache
+        invalidate_business_cache(business_id)
+        logger.info(f"AI cache invalidated for business {business_id} after prompt save")
+    except Exception as e:
+        logger.error(f"Failed to invalidate cache: {e}")
+    
     return {"ok": True, "id": settings.tenant_id}
 
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['GET'])
