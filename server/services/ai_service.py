@@ -12,6 +12,28 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Global AI service instance for cache sharing
+_global_ai_service = None
+
+def get_ai_service():
+    """Get or create global AI service instance"""
+    global _global_ai_service
+    if _global_ai_service is None:
+        _global_ai_service = AIService()
+    return _global_ai_service
+
+def invalidate_business_cache(business_id: int):
+    """🔥 CRITICAL: Invalidate cache for business - called after prompt updates"""
+    service = get_ai_service()
+    cache_keys_to_remove = [
+        f"business_{business_id}_calls",
+        f"business_{business_id}_whatsapp"
+    ]
+    for key in cache_keys_to_remove:
+        if key in service._cache:
+            del service._cache[key]
+            logger.info(f"✅ Cache invalidated: {key}")
+
 class AIService:
     """מנגנון AI מרכזי שטוען פרומפטים מהמסד נתונים ומחבר עם OpenAI"""
     
@@ -199,22 +221,7 @@ class AIService:
         except Exception as e:
             logger.error(f"Failed to save conversation history: {e}")
 
-# Global instance
-_ai_service = None
-
-def get_ai_service() -> AIService:
-    """קבלת instance יחיד של שירות ה-AI"""
-    global _ai_service
-    if _ai_service is None:
-        _ai_service = AIService()
-    return _ai_service
-
 def generate_ai_response(message: str, business_id: int = 1, 
                         context: Optional[Dict[str, Any]] = None, channel: str = "calls") -> str:
     """פונקציה עזר לקריאה מהירה לשירות AI - לפי ערוץ"""
     return get_ai_service().generate_response(message, business_id, context, channel)
-
-def invalidate_business_cache(business_id: int):
-    """פונקציה עזר למחיקת קאש עסק"""
-    service = get_ai_service()
-    service.invalidate_cache(business_id)

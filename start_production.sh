@@ -9,7 +9,7 @@ export RUN_MIGRATIONS_ON_START=1
 
 echo "🚀 Starting AgentLocator Production System - Build #59"
 echo "📊 Flask: 0.0.0.0:${PORT} | Baileys: 127.0.0.1:${BAILEYS_PORT}"
-echo "✅ תיקונים לפי ההוראות: API handlers יציבים, tenant אחיד, QR יציב"
+echo "✅ Build 59: Prompt cache invalidation + QR persistence fixes"
 
 # Ensure INTERNAL_SECRET is set (CRITICAL: Must come from environment!)
 if [ -z "${INTERNAL_SECRET:-}" ]; then
