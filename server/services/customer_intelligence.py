@@ -496,6 +496,7 @@ class CustomerIntelligence:
         
         lead = Lead()
         lead.tenant_id = self.business_id
+        lead.phone_e164 = customer.phone_e164  # ✅ FIX: Associate lead with phone number!
         # lead.customer_id = customer.id  # Use phone_e164 matching instead
         lead.source = "whatsapp"
         lead.status = "new"
