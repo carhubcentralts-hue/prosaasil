@@ -14,12 +14,12 @@ Preferred communication style: Simple, everyday language.
 - **WSGI Server**: Gunicorn with eventlet worker.
 - **Database**: PostgreSQL (SQLite for development).
 - **Authentication**: JWT-based with role-based access control (admin, business_owner, business_agent, read_only).
-- **Security**: SeaSurf CSRF protection.
-- **AI Prompt System**: Real-time prompt management with versioning.
+- **Security**: SeaSurf CSRF protection (NO @csrf.exempt anywhere).
+- **AI Prompt System**: Real-time prompt management with versioning and channel-specific prompts (calls vs whatsapp).
 
 ## Frontend Architecture
-- **Framework**: React 19.
-- **Build Tool**: Vite 5.4.19.
+- **Framework**: React 19 (Static build served by Flask).
+- **Build Tool**: Vite 7.1.4.
 - **Styling**: Tailwind CSS v4 with RTL support and Hebrew typography (Heebo font).
 - **Routing**: React Router v7 with AuthGuard/RoleGuard.
 - **State Management**: Context API for authentication.
