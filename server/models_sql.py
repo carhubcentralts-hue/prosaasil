@@ -65,8 +65,10 @@ class CallLog(db.Model):
     from_number = db.Column(db.String(64), index=True)
     recording_url = db.Column(db.String(512))
     transcription = db.Column(db.Text)
+    summary = db.Column(db.Text)  # ✨ סיכום חכם קצר של השיחה (10-30 מילים)
     status = db.Column(db.String(32), default="received")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 # AI Prompt Management - לפי ההנחיות המדויקות
 class BusinessSettings(db.Model):
@@ -145,6 +147,7 @@ class Lead(db.Model):
     # Metadata
     tags = db.Column(db.JSON)  # JSON array for flexible tagging
     notes = db.Column(db.Text)
+    summary = db.Column(db.Text)  # ✨ סיכום חכם קצר (10-30 מילים) מכל השיחות
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
