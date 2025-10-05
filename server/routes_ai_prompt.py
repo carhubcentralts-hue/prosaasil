@@ -38,6 +38,7 @@ def save_prompt(tenant):
     return {"ok": True, "id": settings.tenant_id}
 
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['GET'])
+@csrf.exempt  # GET requests don't need CSRF
 @require_api_auth(['admin', 'manager'])
 def get_business_prompt(business_id):
     """Get AI prompts for business - Admin (שיחות ווואטסאפ נפרד)"""
@@ -225,6 +226,7 @@ def update_business_prompt(business_id):
         return jsonify({"error": "שגיאה בעדכון הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['GET'])
+@csrf.exempt  # GET requests don't need CSRF
 @require_api_auth(['business', 'admin'])  # ✅ אדמין יכול לקרוא פרומפטים גם כשהוא מתחזה
 def get_current_business_prompt():
     """Get AI prompt for current business - Business (Impersonated)"""
@@ -256,6 +258,7 @@ def update_current_business_prompt():
         return jsonify({"error": "שגיאה בעדכון הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt/history', methods=['GET'])
+@csrf.exempt  # GET requests don't need CSRF
 @require_api_auth(['admin', 'manager'])
 def get_prompt_history(business_id):
     """Get prompt history for business - Admin"""
@@ -282,6 +285,7 @@ def get_prompt_history(business_id):
         return jsonify({"error": "שגיאה בטעינת ההיסטוריה"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt/history', methods=['GET'])
+@csrf.exempt  # GET requests don't need CSRF
 @require_api_auth(['business'])
 def get_current_prompt_history():
     """Get prompt history for current business - Business (Impersonated)"""

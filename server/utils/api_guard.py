@@ -15,12 +15,12 @@ def api_handler(fn):
             db.session.rollback()
             current_app.logger.exception("IntegrityError")
             return jsonify({"ok": False, "error": "integrity", "detail": str(e.orig)}), 400
-        except SQLAlchemyError:
+        except SQLAlchemyError as e:
             db.session.rollback()
             current_app.logger.exception("DBError")
-            return jsonify({"ok": False, "error": "db"}), 500
-        except Exception:
+            return jsonify({"ok": False, "error": "db", "detail": str(e)}), 500
+        except Exception as e:
             db.session.rollback()
-            current_app.logger.exception("APIError")
-            return jsonify({"ok": False, "error": "server"}), 500
+            current_app.logger.exception(f"APIError in {fn.__name__}: {str(e)}")
+            return jsonify({"ok": False, "error": "server", "detail": str(e)}), 500
     return w

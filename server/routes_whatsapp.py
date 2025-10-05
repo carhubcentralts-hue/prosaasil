@@ -23,6 +23,7 @@ def _headers():
     return {'X-Internal-Secret': INT_SECRET, 'Content-Type': 'application/json'}
 
 @whatsapp_bp.route('/status', methods=['GET'])
+@csrf.exempt  # GET requests don't need CSRF
 def status():
     """B4) תמיד JSON - Status route לפי ההוראות"""
     # קריאה מקבצים (tenant אחיד business_1)
@@ -40,6 +41,7 @@ def status():
         return jsonify({"connected": False, "hasQR": False}), 200
 
 @whatsapp_bp.route('/qr', methods=['GET'])
+@csrf.exempt  # GET requests don't need CSRF
 def qr():
     """B4) תמיד JSON - QR route לפי ההוראות"""
     # קריאה מקבצים (tenant אחיד business_1)
