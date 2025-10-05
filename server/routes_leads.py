@@ -439,14 +439,20 @@ def delete_lead(lead_id):
     if auth_error:
         return auth_error
     
-    if not check_lead_access(lead_id):
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Authentication required"}), 401
+    
+    # ✅ Admin/Superadmin can delete any lead across tenants
+    is_admin = user.get('role') in ['admin', 'superadmin']
+    
+    # Check access - admin can access all, regular users need tenant match
+    if not is_admin and not check_lead_access(lead_id):
         return jsonify({"error": "Lead not found or access denied"}), 404
     
     lead = Lead.query.filter_by(id=lead_id).first()
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
-    
-    user = get_current_user()
     
     # Delete related activities and reminders first (cascade)
     LeadActivity.query.filter_by(lead_id=lead_id).delete()
@@ -456,7 +462,7 @@ def delete_lead(lead_id):
     db.session.delete(lead)
     db.session.commit()
     
-    log.info(f"✅ Lead {lead_id} deleted by user {user.get('email') if user else 'unknown'}")
+    log.info(f"✅ Lead {lead_id} deleted by {user.get('role')} user {user.get('email')}")
     
     return jsonify({"message": "Lead deleted successfully"}), 200
 
