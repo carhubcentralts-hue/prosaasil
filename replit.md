@@ -37,10 +37,12 @@ Preferred communication style: Simple, everyday language.
 ## CRM Features
 - **Multi-tenant Architecture**: Business-based data isolation.
 - **Call Logging**: Comprehensive call tracking with transcription and status management.
+- **Conversation Memory**: Full conversation history stored in `conversation_turn` table with automatic persistence.
+- **Contextual AI Responses**: AI maintains conversation context across all turns using synchronized history (conversation_history).
 - **WhatsApp Integration**: Both Twilio and Baileys (direct WhatsApp Web API) support.
-- **Intelligent Lead Collection**: Automated capture of key lead information.
+- **Intelligent Lead Collection**: Automated capture of key lead information with real-time lead creation from calls.
 - **Meeting Scheduling**: Automatic detection and coordination when lead data is complete.
-- **Hebrew Real Estate Agent**: "Leah" - specialized AI agent with 15-word response limit and focused questioning.
+- **Hebrew Real Estate Agent**: "Leah" - specialized AI agent with context-aware responses and natural conversation flow.
 - **Customizable Status Management**: Per-business custom lead statuses with default Hebrew options.
 - **Billing and Contracts**: Integrated payment processing (PayPal, Tranzilla) and contract generation.
 
