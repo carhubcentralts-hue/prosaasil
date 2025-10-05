@@ -58,20 +58,17 @@ def qr():
     except Exception as e:
         return jsonify({"dataUrl": None, "qrText": None, "error": str(e)}), 200  # תמיד JSON!
 
-@csrf.exempt  # Bypass CSRF for internal API
 @whatsapp_bp.route('/start', methods=['POST'])
 def start():
     """B4) תמיד JSON ב-/api/whatsapp/start - לפי ההוראות"""
     return jsonify({'ok': True}), 200
 
-@csrf.exempt  # Bypass CSRF for internal API  
 @whatsapp_bp.route('/reset', methods=['POST'])
 def reset():
     t = tenant_id_from_ctx()
     r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/reset", headers=_headers(), timeout=10)
     return jsonify(r.json()), r.status_code
 
-@csrf.exempt  # Bypass CSRF for internal API  
 @whatsapp_bp.route('/disconnect', methods=['POST'])
 def disconnect():
     t = tenant_id_from_ctx()
@@ -162,7 +159,6 @@ def api_wa_stats():
 from server.models_sql import Business, BusinessSettings
 
 @whatsapp_bp.route('/prompts/<int:business_id>', methods=['POST'])
-@csrf.exempt  # לדוגמה - בפרודקשן תרצה CSRF
 @api_handler
 def save_whatsapp_prompt(business_id):
     """שמירת פרומפט וואטסאפ לעסק - דוגמה לשימוש ב-api_handler"""

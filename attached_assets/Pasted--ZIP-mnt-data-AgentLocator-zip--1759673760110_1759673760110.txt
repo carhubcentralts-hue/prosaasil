@@ -1,0 +1,213 @@
+המשכתי ובדקתי בפועל את ה-ZIP האחרון שצירפת (/mnt/data/AgentLocator.zip). פתחתי וסרקתי את כל העץ שנמצא בתוכו (/mnt/data/AgentLocator_scanned/AgentLocator, ~10K פריטים). הנה מצב אמיתי + הנחיה סופר-מדויקת ל־100% מוכנות.
+
+מצב נוכחי (עובדתי)
+
+מה יש בפרויקט:
+	•	יש Flask (נמצא server/, wsgi.py קיים).
+	•	יש Node/WhatsApp: תיקיות services/whatsapp/ וגם services/baileys/ קיימות.
+	•	יש Client (תיקיית client/) + templates.
+	•	יש סקריפטים להרצה: start_all.sh קיים, וכן Procfile ו־.replit.
+
+מה לא מצאתי בקוד (קריטי לבעיות שלך):
+	1.	אין רואטים של Flask במסלולים שה־UI צריך לוואטסאפ:
+לא נמצאו בקוד "/api/whatsapp/status", "/api/whatsapp/qr", "/api/whatsapp/contacts", "/api/whatsapp/messages", "/api/whatsapp/stats".
+(כן—סרקתי את כל קבצי ה־.py בפרויקט; לא מופיע מחרוזת הנתיבים האלה.)
+	2.	אחסון וואטסאפ מפוצל בין טננטים שונים: קיימות גם storage/whatsapp/1/… וגם storage/whatsapp/business_1/… וגם storage/whatsapp/test, test-tenant.
+זה בדיוק מייצר מצב ש־QR “נסרק” אבל הסטטוס/ה־UI קורא נתיב אחר → נשאר “טוען/לא מתחבר”.
+	3.	לא נמצאו כרגע קבצי QR/creds בתוך ה־ZIP (אין qr_code.txt/creds.json), כלומר או שלא נוצרו עדיין בסביבת הריצה הזו, או שהם מחוקים/בנתיב אחר.
+	4.	אבטחה: לא זיהיתי DEBUG=True פתוח או CORS('*') פרוץ בסריקה; יופי. אבל לא ראיתי במפורש אימות חתימה ל־Twilio בכל ה-routes (ייתכן שבקובץ ייעודי כן מוגדר—ודא שהוא משולב ב-routes בפועל).
+
+מסקנה:
+המערכת כמעט שלמה, אבל שני חסמים מרכזיים מסבירים את “לא שומר פרומפטים” ו“לא מייצר/לא מתקדם QR”:
+	•	חסר גשר REST ב־Flask ל-WhatsApp (ה־UI לא מקבל JSON תקין במסלולי /api/whatsapp/* ולכן “שומר/טוען לנצח”).
+	•	כפילות tenant/נתיב בצד ה-Baileys/Storage שמבלבלת את הסטטוס והחיבור.
+
+⸻
+
+מה לעשות עכשיו — הנחיה חד-משמעית (בלי לשבור UI/קוד קיים)
+
+1) איחוד Tenant ונתיב אחסון ל-WhatsApp (קריטי)
+
+בחר מזהה אחד, מומלץ business_1.
+בצד Node (שירות ה-Baileys שלך, למשל services/whatsapp/baileys_service.js או מקבילו):
+	•	קבע נתיב אחסון אחד בלבד:
+
+const path = require('path');
+const fs   = require('fs');
+const authDir = path.join(process.cwd(), 'storage', 'whatsapp', 'business_1', 'auth');
+fs.mkdirSync(authDir, { recursive: true });
+// ודא שזה הנתיב שעובר ל-useMultiFileAuthState / שמירת creds/qr
+
+
+
+אל תמחק בינתיים תיקיות אחרות; פשוט תדאג שהקוד קורא וכותב רק לשם. אחר כך תנקה.
+
+בצד Flask (אם אתה קורא קבצים ישירות):
+ודא שכל קריאה ל-QR/סטטוס קוראת מאותו נתיב:
+storage/whatsapp/business_1/auth/qr_code.txt ו־.../creds.json.
+
+2) ליצור 3–6 רואטים חסרים ל-WhatsApp ב-Flask (API אחיד ל-UI)
+
+ב־Flask (למשל בקובץ server/routes_whatsapp.py או בלופרינט ייעודי), הוסף:
+
+import os
+from flask import Blueprint, jsonify, request, current_app
+
+bp_wa = Blueprint('wa_api', __name__)
+AUTH_DIR = os.path.join(os.getcwd(), "storage", "whatsapp", "business_1", "auth")
+QR_TXT   = os.path.join(AUTH_DIR, "qr_code.txt")
+CREDS    = os.path.join(AUTH_DIR, "creds.json")
+
+@bp_wa.post("/api/whatsapp/start")
+def wa_start():
+    os.makedirs(AUTH_DIR, exist_ok=True)
+    # אם ה-Node רץ — אין מה "להדליק" כאן, רק לאותת ל-UI שהתחלנו
+    return jsonify({"ok": True}), 200
+
+@bp_wa.get("/api/whatsapp/status")
+def wa_status():
+    has_qr = os.path.exists(QR_TXT)
+    connected = os.path.exists(CREDS) and not has_qr
+    return jsonify({"connected": connected, "hasQR": has_qr}), 200
+
+@bp_wa.get("/api/whatsapp/qr")
+def wa_qr():
+    if not os.path.exists(QR_TXT):
+        # תמיד JSON — לא 204 ולא תשובה ריקה!
+        return jsonify({"dataUrl": None, "qrText": None}), 200
+    with open(QR_TXT, "r", encoding="utf-8") as f:
+        qr = f.read().strip()
+    return jsonify({"dataUrl": None, "qrText": qr}), 200
+
+# אם ה-UI שלך משתמש גם באלו:
+@bp_wa.get("/api/whatsapp/contacts")
+def wa_contacts():
+    # שלוף מה-DB את רשימת שיחות/אנשי קשר לתצוגה
+    return jsonify({"contacts": []}), 200
+
+@bp_wa.get("/api/whatsapp/messages")
+def wa_messages():
+    contact_id = request.args.get("contact_id", type=int)
+    return jsonify({"messages": []}), 200
+
+@bp_wa.get("/api/whatsapp/stats")
+def wa_stats():
+    return jsonify({"total_conversations": 0, "total_messages": 0}), 200
+
+ובאתחול האפליקציה (למשל ב-server/app.py/wsgi.py):
+
+from server.routes_whatsapp import bp_wa
+app.register_blueprint(bp_wa)
+
+למה זה פותר: ה-UI מקבל תמיד JSON—אין יותר Unexpected end of JSON input, וה-QR/סטטוס מתיישרים לקבצים שמפיק ה-Baileys.
+
+3) עדכון Baileys להיגיון QR יציב (כשמתחבר – למחוק QR)
+
+ב-Node, באירוע connection.update:
+
+const qrFile = path.join(authDir, 'qr_code.txt');
+
+if (qr) {
+  try { fs.writeFileSync(qrFile, qr); } catch(e) { console.error(e); }
+}
+
+if (connection === 'open') {
+  try { if (fs.existsSync(qrFile)) fs.unlinkSync(qrFile); } catch(e) { console.error(e); }
+  console.log('✅ WhatsApp connected');
+}
+
+ולמנוע תחרות:
+	•	אל תריץ /api/whatsapp/start בלולאה (פעם אחת).
+	•	בצד Node אפשר לשים flag starting/sessions כדי לא להתחיל שוב אם כבר רץ.
+
+4) “שמירת פרומפטים” — להבטיח שכל POST מחזיר JSON + commit()
+
+עטוף את הראוטים ששומרים פרומפטים בדקורטור פשוט שמחזיר תמיד JSON ומבצע commit/rollback. לדוגמה:
+
+from functools import wraps
+from flask import jsonify, request
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from server.extensions import db  # ה-ext שלך
+
+def api_handler(fn):
+    @wraps(fn)
+    def w(*a, **kw):
+        try:
+            rv = fn(*a, **kw)
+            if isinstance(rv, tuple): return rv
+            return jsonify(rv if rv is not None else {"ok": True}), 200
+        except IntegrityError:
+            db.session.rollback(); return jsonify({"ok": False, "error": "integrity"}), 400
+        except SQLAlchemyError:
+            db.session.rollback(); return jsonify({"ok": False, "error": "db"}), 500
+        except Exception:
+            db.session.rollback(); return jsonify({"ok": False, "error": "server"}), 500
+    return w
+
+שימוש:
+
+@bp.post("/api/business/<tenant>/prompts")
+@api_handler
+def save_prompt(tenant):
+    data = request.get_json(force=True)
+    # map -> מודל שלך, למשל AIPrompt
+    obj = AIPrompt(**data, tenant_id=tenant)
+    db.session.add(obj); db.session.commit()
+    return {"ok": True, "id": obj.id}
+
+ובצד ה־Client:
+
+await fetch(`/api/business/business_1/prompts`,{
+  method:'POST',
+  headers:{'Content-Type':'application/json','X-CSRFToken': getCsrf()},
+  credentials:'include',
+  body: JSON.stringify(payload)
+}).then(r=>r.json())
+
+5) אבטחה/פריסה
+	•	Twilio: ודא אימות חתימה (X-Twilio-Signature) מופעל בפועל על ה-routes (אם יש twilio_security.py—תחבר אותו ל-routes).
+	•	ENV אחוד: אותו INTERNAL_SECRET/מפתחות בשני הצדדים.
+	•	Runner אחד: start_all.sh צריך להרים גם Gunicorn (5000) וגם Node (3300 פנימי) ולהישאר בחיים עם trap+wait.
+	•	PORT חיצוני יחיד: חשוף רק 5000; 3300 פנימי.
+
+⸻
+
+בדיקת GO/NO-GO (שולח לך בדיוק מה להריץ)
+
+כשהמערכת רצה:
+
+וואטסאפ
+
+curl -sS -i -X POST http://127.0.0.1:5000/api/whatsapp/start
+curl -sS -i       http://127.0.0.1:5000/api/whatsapp/status
+curl -sS -i       http://127.0.0.1:5000/api/whatsapp/qr | head -c 150; echo
+
+# סרוק את ה-QR באפליקציה, המתן 10–20 שניות:
+curl -sS -i       http://127.0.0.1:5000/api/whatsapp/status
+
+# ודא קבצי auth בנתיב האחוד:
+ls -la storage/whatsapp/business_1/auth
+
+צפוי: לפני סריקה → connected:false, hasQR:true; אחרי סריקה → connected:true ו־qr_code.txt נעלם, creds.json קיים.
+
+פרומפטים
+
+curl -sS -i -X POST http://127.0.0.1:5000/api/business/business_1/prompts \
+  -H 'Content-Type: application/json' \
+  --data '{"title":"sanity","body":"ok"}'
+
+צפוי: 200 ו־JSON עם ok:true.
+
+שיחות
+	•	בצע שיחה טסט ל-Webhook; בדוק בלוגים שנוצר ליד/תמלול נשמר.
+	•	ודא שה-Twilio Signature validator מופעל.
+
+⸻
+
+למה זה יסגור את הכול
+	•	QR/חיבור: ה-UI סוף-סוף מדבר עם Flask במסלולים קיימים שתואמים את המציאות (קבצי QR/creds).
+	•	שמירה: כל POST מחזיר JSON עקבי עם commit() — אין יותר “שומר ולא מופיע”.
+	•	כפילות Tenant: נעלמת → מצב חיבור לא יקפא בין 1 ל־business_1.
+	•	אבטחה/יציבות: אימות Twilio + Runner יחיד מבטיחים פרודקשן יציב.
+
+אם תרצה—אכין לך Patch-ים למיקום המדויק של הקבצים (שם קובץ/שורה) פעם שנייה שתריץ את בדיקות ה-curl ותדביק לי את הפלטים.
