@@ -151,6 +151,61 @@ def api_wa_messages():
         "platform": m.provider,
     } for m in msgs]}), 200
 
+@whatsapp_bp.route('/conversation/<phone_number>', methods=['GET'])
+@csrf.exempt  # GET requests don't need CSRF
+def get_conversation(phone_number):
+    """
+    Get WhatsApp conversation for a specific phone number
+    Returns messages in format expected by WhatsAppChat component
+    """
+    try:
+        # Get business_id from request or default to 1
+        business_id = request.args.get('business_id', 1, type=int)
+        
+        # Clean phone number (remove + and @s.whatsapp.net)
+        clean_phone = phone_number.replace('+', '').replace('@s.whatsapp.net', '')
+        
+        # Get all messages for this phone number
+        msgs = WhatsAppMessage.query.filter_by(
+            business_id=business_id,
+            to_number=clean_phone
+        ).order_by(WhatsAppMessage.created_at.asc()).all()
+        
+        # Format messages for frontend
+        formatted_messages = []
+        for m in msgs:
+            formatted_messages.append({
+                "id": str(m.id),
+                "direction": m.direction,  # 'in' or 'out'
+                "content_text": m.body or "",
+                "sent_at": m.created_at.isoformat() if m.created_at else None,
+                "status": m.status or "sent",
+                "provider": m.provider or "baileys"
+            })
+        
+        # Get last message timestamp
+        last_message_at = msgs[-1].created_at.isoformat() if msgs else None
+        
+        return jsonify({
+            "id": clean_phone,
+            "phone_number": clean_phone,
+            "messages": formatted_messages,
+            "total_messages": len(formatted_messages),
+            "last_message_at": last_message_at
+        }), 200
+        
+    except Exception as e:
+        print(f"Error fetching conversation: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "id": phone_number,
+            "phone_number": phone_number,
+            "messages": [],
+            "total_messages": 0,
+            "last_message_at": None
+        }), 200  # Return empty conversation instead of error
+
 @whatsapp_bp.route('/stats', methods=['GET'])
 def api_wa_stats():
     business_id = request.args.get("business_id", type=int)

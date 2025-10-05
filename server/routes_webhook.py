@@ -99,6 +99,19 @@ def whatsapp_incoming():
                                 # ✨ Auto-update lead status based on message content
                                 new_status = ci.auto_update_lead_status(lead, conversation_summary)
                                 
+                                # ✅ Save incoming message to WhatsAppMessage table
+                                from server.models_sql import WhatsAppMessage
+                                
+                                incoming_msg = WhatsAppMessage()
+                                incoming_msg.business_id = business_id
+                                incoming_msg.to_number = phone_number
+                                incoming_msg.direction = 'in'
+                                incoming_msg.body = message_text
+                                incoming_msg.message_type = 'text'
+                                incoming_msg.status = 'received'
+                                incoming_msg.provider = 'baileys'
+                                db.session.add(incoming_msg)
+                                
                                 # Update lead notes with WhatsApp message
                                 timestamp = time.strftime('%H:%M:%S')
                                 if lead.notes:
@@ -107,6 +120,23 @@ def whatsapp_incoming():
                                     lead.notes = f"[WhatsApp {timestamp}]: {message_text[:100]}..."
                                 
                                 db.session.commit()
+                                
+                                # ✅ Extract previous messages from lead notes for conversation memory
+                                previous_messages = []
+                                if lead.notes:
+                                    import re
+                                    # חילוץ הודעות קודמות מה-notes (פורמט: [WhatsApp HH:MM:SS]: message או [לאה HH:MM:SS]: message)
+                                    note_lines = lead.notes.split('\n')
+                                    for line in note_lines[-10:]:  # רק 10 הודעות אחרונות
+                                        # Match: [WhatsApp 18:49:50]: דירה ברמלה...
+                                        match = re.match(r'\[(WhatsApp|לאה)\s+\d+:\d+:\d+\]:\s*(.+)', line)
+                                        if match:
+                                            sender = match.group(1)
+                                            content = match.group(2).replace('...', '').strip()
+                                            if sender == 'WhatsApp':
+                                                previous_messages.append(f"לקוח: {content}")
+                                            else:  # לאה
+                                                previous_messages.append(f"לאה: {content}")
                                 
                                 # ✨ Generate AI response using WhatsApp prompt
                                 from server.services.ai_service import generate_ai_response
@@ -119,7 +149,8 @@ def whatsapp_incoming():
                                         context={
                                             'customer_name': customer.name,
                                             'phone_number': phone_number,
-                                            'source': 'whatsapp'
+                                            'source': 'whatsapp',
+                                            'previous_messages': previous_messages  # ✅ הוספת היסטוריית שיחה!
                                         },
                                         channel='whatsapp'  # ✅ Use WhatsApp prompt
                                     )
@@ -130,6 +161,18 @@ def whatsapp_incoming():
                                     
                                     if send_result.get('status') == 'sent':
                                         logger.info(f"✅ AI response sent to {phone_number}: {ai_response[:50]}...")
+                                        
+                                        # ✅ Save AI response to WhatsAppMessage table
+                                        outgoing_msg = WhatsAppMessage()
+                                        outgoing_msg.business_id = business_id
+                                        outgoing_msg.to_number = phone_number
+                                        outgoing_msg.direction = 'out'
+                                        outgoing_msg.body = ai_response
+                                        outgoing_msg.message_type = 'text'
+                                        outgoing_msg.status = 'sent'
+                                        outgoing_msg.provider = send_result.get('provider', 'baileys')
+                                        outgoing_msg.provider_message_id = send_result.get('message_id')
+                                        db.session.add(outgoing_msg)
                                         
                                         # Add AI response to lead notes
                                         if lead.notes:
