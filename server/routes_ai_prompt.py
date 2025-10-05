@@ -251,7 +251,6 @@ def get_current_business_prompt():
 
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['PUT'])
 @require_api_auth(['business', 'admin'])  # ✅ אדמין יכול לעדכן פרומפטים גם כשהוא מתחזה
-@api_handler
 def update_current_business_prompt():
     """Update AI prompt for current business - Business (Impersonated, דורש CSRF)"""
     try:
@@ -259,7 +258,7 @@ def update_current_business_prompt():
         if not tenant_id:
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
         
-        # Call the internal handler directly (already wrapped with api_handler)
+        # Call the internal handler directly - returns Flask Response
         return update_business_prompt(tenant_id)
         
     except Exception as e:
