@@ -29,14 +29,22 @@ class CustomerIntelligence:
     ) -> Tuple[Customer, Lead, bool]:
         """
         זיהוי או יצירת לקוח מתוך הודעת WhatsApp
+        ✅ תמיד נרמל טלפון לפני בדיקה - מונע כפילויות!
         
         Returns:
             Tuple[Customer, Lead, bool]: (לקוח, ליד, האם נוצר חדש)
         """
         try:
+            # ✅ נרמל טלפון קודם כל - תמיד +972 format
             phone_e164 = self._normalize_phone(phone_number)
             
-            # חפש לקוח קיים לפי מספר טלפון
+            if not phone_e164 or not phone_e164.startswith('+972'):
+                log.error(f"❌ Failed to normalize phone: {phone_number} -> {phone_e164}")
+                raise ValueError(f"Invalid phone number format: {phone_number}")
+            
+            log.info(f"📱 WhatsApp from {phone_e164}")
+            
+            # חפש לקוח קיים לפי מספר טלפון מנורמל
             customer = Customer.query.filter_by(
                 business_id=self.business_id,
                 phone_e164=phone_e164
@@ -50,34 +58,36 @@ class CustomerIntelligence:
                 
                 customer = Customer()
                 customer.business_id = self.business_id
-                customer.phone_e164 = phone_e164
+                customer.phone_e164 = phone_e164  # ✅ מנורמל!
                 customer.name = extracted_info.get('name') or f"WhatsApp {phone_e164[-4:]}"
-                # customer.source = "whatsapp"  # Field doesn't exist in model
                 customer.created_at = datetime.utcnow()
                 
                 db.session.add(customer)
-                db.session.flush()  # כדי לקבל ID
+                db.session.flush()
                 was_created = True
+                log.info(f"🆕 Created new customer: {customer.name} ({phone_e164})")
             
-            # יצירת ליד חדש לכל הודעה (אלא אם יש כבר ליד פעיל)
+            # ✅ חפש ליד קיים לפי מספר מנורמל - מונע כפילויות!
             existing_lead = Lead.query.filter_by(
                 tenant_id=self.business_id,
-                phone_e164=phone_e164
+                phone_e164=phone_e164  # ✅ משתמש במספר מנורמל!
             ).filter(Lead.status.in_(['new', 'attempting', 'contacted', 'qualified'])).first()
             
             if not existing_lead:
                 lead = self._create_lead_from_whatsapp(customer, message_text)
+                log.info(f"🆕 Created new lead for {phone_e164}")
             else:
                 lead = existing_lead
                 # עדכון הליד הקיים עם מידע חדש
                 self._update_lead_from_message(lead, message_text)
+                log.info(f"♻️ Updated existing lead {lead.id} for {phone_e164}")
             
             db.session.commit()
             return customer, lead, was_created
             
         except Exception as e:
             db.session.rollback()
-            print(f"❌ Error in WhatsApp customer/lead creation: {e}")
+            log.error(f"❌ Error in WhatsApp customer/lead creation: {e}")
             # יצירת לקוח ליד fallback במקרה של שגיאה
             fallback_customer = self._create_fallback_customer(phone_number)
             fallback_lead = self._create_fallback_lead(fallback_customer, "whatsapp")
@@ -280,24 +290,34 @@ class CustomerIntelligence:
     # === PRIVATE HELPER METHODS ===
     
     def _normalize_phone(self, phone: str) -> str:
-        """נקה וסדר מספר טלפון לפורמט E164"""
+        """נקה וסדר מספר טלפון לפורמט E164 - תמיד +972XXXXXXXXX"""
         if not phone:
             return ""
         
-        # הסר תווים לא נומריים
+        # הסר תווים לא נומריים (שמור +)
         digits_only = re.sub(r'[^\d+]', '', phone)
         
-        # התמודד עם פורמטים שונים
+        # התמודד עם פורמטים שונים - תמיד החזר +972
         if digits_only.startswith('+972'):
+            # כבר בפורמט נכון
             return digits_only
         elif digits_only.startswith('972'):
+            # חסר + בהתחלה
             return '+' + digits_only
         elif digits_only.startswith('0') and len(digits_only) == 10:
+            # פורמט ישראלי מקומי: 0501234567 -> +972501234567
             return '+972' + digits_only[1:]
         elif len(digits_only) == 9:
+            # חסר 0 בהתחלה: 501234567 -> +972501234567
             return '+972' + digits_only
         else:
-            return phone  # החזר כמו שזה אם לא זוהה
+            # פורמט לא מזוהה - נסה להוסיף +972 בכל מקרה
+            log.warning(f"⚠️ Unrecognized phone format: {phone}, attempting +972 prefix")
+            clean = digits_only.lstrip('+')
+            if clean.startswith('972'):
+                return '+' + clean
+            else:
+                return '+972' + clean
     
     def _extract_info_from_transcription(self, transcription: str, conversation_data: Optional[Dict] = None) -> Dict:
         """חלץ מידע מתמלול השיחה"""
