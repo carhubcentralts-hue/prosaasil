@@ -39,8 +39,20 @@ class AIService:
             # בחירת פרומפט חכמה - עם fallback ל-business.system_prompt
             system_prompt = ""
             if settings and settings.ai_prompt and len(settings.ai_prompt.strip()) > 20:
-                # יש פרומפט ב-settings והוא לא קצר מדי
-                system_prompt = settings.ai_prompt
+                # יש פרומפט ב-settings - צריך לבדוק אם זה JSON או טקסט
+                import json
+                try:
+                    # נסיון לפרוס כ-JSON (פורמט חדש עם calls/whatsapp)
+                    if settings.ai_prompt.strip().startswith('{'):
+                        prompt_obj = json.loads(settings.ai_prompt)
+                        # בחירת הפרומפט הנכון - calls לשיחות טלפון (ברירת מחדל)
+                        system_prompt = prompt_obj.get('calls', prompt_obj.get('whatsapp', settings.ai_prompt))
+                    else:
+                        # פרומפט טקסט פשוט (legacy)
+                        system_prompt = settings.ai_prompt
+                except json.JSONDecodeError:
+                    # אם זה לא JSON תקין, השתמש בזה כטקסט
+                    system_prompt = settings.ai_prompt
             elif business and business.system_prompt and len(business.system_prompt.strip()) > 20:
                 # fallback לפרומפט המלא מטבלת business
                 system_prompt = business.system_prompt
