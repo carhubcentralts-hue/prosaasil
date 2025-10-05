@@ -168,38 +168,43 @@ async function startSession(tenantId) {
         const reason = lastDisconnect?.error?.output?.statusCode;
         console.log(`[${tenantId}] ❌ Disconnected. Reason: ${reason}`);
         
-        // ✅ FIX: אם קיבלנו 401 (Unauthorized) - קבצי האימות פגומים, צריך לנקות אותם
-        if (reason === 401) {
-          console.log(`[${tenantId}] 🗑️ 401 Unauthorized - clearing corrupt auth files`);
+        // ✅ FIX: אם קיבלנו loggedOut - קבצי האימות פגומים, צריך לנקות אותם
+        if (reason === DisconnectReason.loggedOut) {
+          console.log(`[${tenantId}] 🗑️ ${reason} loggedOut - clearing auth files`);
           try {
             const authPath = authDir(tenantId);
             fs.rmSync(authPath, { recursive: true, force: true });
             console.log(`[${tenantId}] ✅ Auth files cleared, will restart with fresh QR`);
-            // צור את התיקייה מחדש כדי שהניסיון הבא יעבוד
             fs.mkdirSync(authPath, { recursive: true });
           } catch (e) {
             console.error(`[${tenantId}] Failed to clear auth files:`, e);
           }
-          // המתן קצת יותר לפני ניסיון חוזר עם QR חדש
           setTimeout(() => startSession(tenantId), 3000);
           return;
         }
         
-        // ✅ FIX: שגיאה 515 = Stream Error אחרי pairing מוצלח
+        // ✅ FIX: שגיאה restartRequired (515) = Stream Error אחרי pairing מוצלח
         // צריך לנסות מחדש אבל NOT לנקות credentials!
-        // reason יכול להיות string או number, בדיקה עם ==
-        if (reason == 515) {
-          console.log(`[${tenantId}] 🔄 515 Stream Error after pairing - will retry with saved credentials`);
+        if (reason === DisconnectReason.restartRequired) {
+          console.log(`[${tenantId}] 🔄 515 restartRequired after pairing - will retry with saved credentials`);
+          // נקה את ה-socket הישן אבל שמור את ה-credentials
+          try {
+            if (s.sock) {
+              s.sock.removeAllListeners();
+              s.sock.end();
+            }
+          } catch (e) {
+            console.log(`[${tenantId}] Socket cleanup warning:`, e.message);
+          }
+          sessions.delete(tenantId);
           // המתן יותר זמן כדי ש-WhatsApp ייצב
           setTimeout(() => startSession(tenantId), 5000);
           return;
         }
         
         // אם לא loggedOut – ננסה מחדש בעדינות (לא מיד, כדי לא ליצור מרוץ)
-        if (reason !== DisconnectReason.loggedOut) {
-          console.log(`[${tenantId}] 🔄 Will retry in 2 seconds...`);
-          setTimeout(() => startSession(tenantId), 2000);
-        }
+        console.log(`[${tenantId}] 🔄 Will retry in 2 seconds...`);
+        setTimeout(() => startSession(tenantId), 2000);
       }
     } catch (e) { 
       console.error(`[${tenantId}] [connection.update] error:`, e); 
