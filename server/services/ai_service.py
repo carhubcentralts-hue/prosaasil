@@ -154,23 +154,36 @@ class AIService:
             
             # הוספת הקשר אם קיים
             if context:
+                # הוספת מידע בסיסי על הלקוח
                 context_info = []
                 if context.get("customer_name"):
                     context_info.append(f"שם הלקוח: {context['customer_name']}")
                 if context.get("phone_number"):
                     context_info.append(f"טלפון: {context['phone_number']}")
-                if context.get("previous_messages"):
-                    context_info.append("הודעות קודמות בשיחה:")
-                    for msg in context["previous_messages"][-3:]:  # רק 3 אחרונות
-                        context_info.append(f"- {msg}")
                 
                 if context_info:
                     messages.append({
                         "role": "system", 
-                        "content": "הקשר נוסף:\n" + "\n".join(context_info)
+                        "content": "מידע על הלקוח:\n" + "\n".join(context_info)
                     })
+                
+                # ✨ שיפור: שליחת previous_messages כשיחה אמיתית (לא כטקסט)
+                if context.get("previous_messages"):
+                    prev_msgs = context["previous_messages"][-6:]  # עד 6 הודעות אחרונות
+                    for msg in prev_msgs:
+                        # המבנה הוא "לקוח: ..." או "לאה: ..."
+                        if msg.startswith("לקוח:"):
+                            messages.append({
+                                "role": "user",
+                                "content": msg.replace("לקוח:", "").strip()
+                            })
+                        elif msg.startswith("לאה:"):
+                            messages.append({
+                                "role": "assistant",
+                                "content": msg.replace("לאה:", "").strip()
+                            })
             
-            # הוספת הודעת המשתמש
+            # הוספת הודעת המשתמש הנוכחית
             messages.append({"role": "user", "content": message})
             
             # קריאה ל-OpenAI
