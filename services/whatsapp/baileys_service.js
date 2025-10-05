@@ -249,6 +249,13 @@ async function startSession(tenantId) {
     try {
       // ✅ FIX: סנן הודעות שהבוט שלח בעצמו (fromMe: true)
       const messages = payload.messages || [];
+      
+      // 🔍 DEBUG: Log all messages to see what's coming in
+      console.log(`[${tenantId}] 🔔 ${messages.length} message(s) received, checking fromMe...`);
+      messages.forEach((msg, idx) => {
+        console.log(`[${tenantId}] Message ${idx}: fromMe=${msg.key?.fromMe}, remoteJid=${msg.key?.remoteJid}`);
+      });
+      
       const incomingMessages = messages.filter(msg => !msg.key.fromMe);
       
       if (incomingMessages.length === 0) {
