@@ -205,7 +205,10 @@ def incoming_call_preview():
 @twilio_bp.route("/webhook/incoming_call", methods=["POST"])
 @require_twilio_signature
 def incoming_call():
-    """TwiML מהיר וללא עיכובים - One True Path + automatic lead creation"""
+    """✨ TwiML מהיר וללא עיכובים - מטרה: < 1.5s response time"""
+    import time
+    start_time = time.time()  # ⏱️ התחלת מדידה
+    
     call_sid = request.form.get("CallSid", "")
     from_number = request.form.get("From", "")
     
@@ -242,6 +245,12 @@ def incoming_call():
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["X-Debug-Version"] = "TwiML_v2_fixed"
+    
+    # ⏱️ מדידת זמן תגובה - מטרה: < 1.5s
+    response_time_ms = int((time.time() - start_time) * 1000)
+    status_emoji = "✅" if response_time_ms < 1500 else "⚠️"
+    print(f"{status_emoji} incoming_call response time: {response_time_ms}ms (target: <1500ms) - CallSid: {call_sid[:16]}")
+    
     return resp
 
 @csrf.exempt
