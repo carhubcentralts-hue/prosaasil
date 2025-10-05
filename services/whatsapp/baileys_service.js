@@ -247,9 +247,25 @@ async function startSession(tenantId) {
 
   sock.ev.on('messages.upsert', async (payload) => {
     try {
-      console.log(`[${tenantId}] 📨 Incoming message detected:`, JSON.stringify(payload, null, 2));
+      // ✅ FIX: סנן הודעות שהבוט שלח בעצמו (fromMe: true)
+      const messages = payload.messages || [];
+      const incomingMessages = messages.filter(msg => !msg.key.fromMe);
+      
+      if (incomingMessages.length === 0) {
+        console.log(`[${tenantId}] ⏭️ Skipping ${messages.length} outgoing message(s) (fromMe: true)`);
+        return;
+      }
+      
+      console.log(`[${tenantId}] 📨 ${incomingMessages.length} incoming message(s) detected (from customer)`);
+      
+      // שלח רק הודעות נכנסות (לא הודעות שהבוט שלח)
+      const filteredPayload = {
+        ...payload,
+        messages: incomingMessages
+      };
+      
       const response = await axios.post(`${FLASK_BASE_URL}/webhook/whatsapp/incoming`,
-        { tenantId, payload },
+        { tenantId, payload: filteredPayload },
         { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
       );
       console.log(`[${tenantId}] ✅ Webhook→Flask success:`, response.status);
