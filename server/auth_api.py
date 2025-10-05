@@ -75,44 +75,18 @@ def verify_password(stored_hash, password):
 
 @auth_api.get("/csrf")
 def get_csrf():
-    """✅ תיקון: מחזיר טוכן CSRF חדש תמיד - לפי הארכיטקט"""
-    import os
-    from flask import current_app, make_response
+    """✅ תיקון לפי architect: מחזיר את token של SeaSurf (מסונכרן עם cookie)"""
+    from flask import current_app
+    from server.extensions import csrf
     
-    IS_PREVIEW = (
-        'picard.replit.dev' in os.getenv('REPLIT_URL', '') or
-        os.getenv('PREVIEW_MODE') == '1'
-    )
-    
-    # ✅ ייצר token חדש תמיד במקום לקרוא מcookies
-    token = secrets.token_urlsafe(32)
-    cookie_name = current_app.config.get('SEASURF_COOKIE_NAME', '_csrf_token')
+    # ✅ CRITICAL FIX: קבל את ה-token הקיים של SeaSurf (לא ליצור חדש!)
+    # כך ה-header וה-cookie יהיו מסונכרנים
+    token = csrf._get_token()
     
     resp = jsonify({"csrfToken": token})
     
-    # ✅ הגדר cookie לSeaSurf (double-submit pattern)
-    allow_insecure = os.getenv('ALLOW_INSECURE_COOKIES') == '1'
-    secure = not allow_insecure  # False רק לcurl HTTP testing
-    
-    resp.set_cookie(
-        cookie_name, 
-        token, 
-        httponly=False, 
-        samesite=('None' if IS_PREVIEW else 'Lax'), 
-        secure=secure, 
-        path='/'
-    )
-    
-    # גם XSRF-TOKEN לcompatiblity
-    resp.set_cookie(
-        'XSRF-TOKEN', 
-        token, 
-        httponly=False, 
-        samesite=('None' if IS_PREVIEW else 'Lax'), 
-        secure=secure, 
-        path='/'
-    )
-    
+    # SeaSurf כבר מגדיר את ה-cookie ב-response middleware
+    # לכן אנחנו רק מחזירים את אותו token ב-JSON
     return resp
 
 @csrf.exempt  # Proper SeaSurf exemption
