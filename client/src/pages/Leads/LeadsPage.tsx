@@ -451,12 +451,12 @@ export default function LeadsPage() {
                         <>
                           <Button
                             size="sm"
-                            variant="ghost"
+                            variant="secondary"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleWhatsAppOpen(lead.phone || lead.phone_e164 || lead.display_phone || '');
                             }}
-                            className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-md"
+                            className="h-8 w-8 p-0 bg-green-500 text-white hover:bg-green-600 border-0 rounded-md shadow-sm"
                             data-testid={`button-whatsapp-${lead.id}`}
                             title="פתח שיחה בווצאפ"
                           >
@@ -464,12 +464,12 @@ export default function LeadsPage() {
                           </Button>
                           <Button
                             size="sm"
-                            variant="ghost"
+                            variant="secondary"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleCall(lead.phone || lead.phone_e164 || lead.display_phone || '');
                             }}
-                            className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md"
+                            className="h-8 w-8 p-0 bg-blue-500 text-white hover:bg-blue-600 border-0 rounded-md shadow-sm"
                             data-testid={`button-call-${lead.id}`}
                             title="התקשר ללקוח"
                           >
@@ -479,12 +479,12 @@ export default function LeadsPage() {
                       )}
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant="secondary"
                         onClick={(e) => {
                           e.stopPropagation();
                           navigate(`/app/leads/${lead.id}`);
                         }}
-                        className="h-8 w-8 p-0 text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-md"
+                        className="h-8 w-8 p-0 bg-purple-500 text-white hover:bg-purple-600 border-0 rounded-md shadow-sm"
                         data-testid={`button-details-${lead.id}`}
                         title="צפה בדף הלקוח המלא"
                       >
@@ -492,12 +492,12 @@ export default function LeadsPage() {
                       </Button>
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant="secondary"
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelectedLead(lead);
                         }}
-                        className="h-8 w-8 p-0 text-gray-600 hover:text-gray-700 hover:bg-gray-50 rounded-md"
+                        className="h-8 w-8 p-0 bg-gray-500 text-white hover:bg-gray-600 border-0 rounded-md shadow-sm"
                         data-testid={`button-edit-${lead.id}`}
                         title="ערוך ליד"
                       >
@@ -505,12 +505,12 @@ export default function LeadsPage() {
                       </Button>
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant="secondary"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleDeleteLead(lead.id, lead.name || lead.full_name || `${lead.first_name} ${lead.last_name}`);
                         }}
-                        className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md"
+                        className="h-8 w-8 p-0 bg-red-500 text-white hover:bg-red-600 border-0 rounded-md shadow-sm"
                         data-testid={`button-delete-${lead.id}`}
                         title="מחק ליד"
                       >
