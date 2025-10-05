@@ -190,3 +190,58 @@ def save_whatsapp_prompt(business_id):
     db.session.commit()  # api_handler יעשה rollback אם נכשל
     
     return {"ok": True, "id": business_id, "prompt_length": len(settings.ai_prompt)}
+
+@whatsapp_bp.route('/send', methods=['POST'])
+@api_handler
+def send_manual_message():
+    """שליחת הודעה ידנית מנציג - Agent Takeover"""
+    data = request.get_json(force=True)
+    
+    to_number = data.get('to')
+    message = data.get('message')
+    business_id = data.get('business_id', 1)
+    
+    if not to_number or not message:
+        return {"ok": False, "error": "missing_required_fields"}, 400
+    
+    try:
+        # שליחת הודעה דרך WhatsApp provider
+        from server.whatsapp_provider import get_whatsapp_service
+        
+        wa_service = get_whatsapp_service()
+        
+        # התאמת פורמט המספר (אם נדרש)
+        formatted_number = to_number
+        if '@' not in formatted_number:
+            formatted_number = f"{to_number}@s.whatsapp.net"
+        
+        send_result = wa_service.send_message(formatted_number, message)
+        
+        if send_result.get('status') == 'sent':
+            # שמירת ההודעה בבסיס הנתונים
+            wa_msg = WhatsAppMessage()
+            wa_msg.business_id = business_id
+            wa_msg.to_number = to_number.replace('@s.whatsapp.net', '')
+            wa_msg.body = message
+            wa_msg.message_type = 'text'
+            wa_msg.direction = 'outbound'
+            wa_msg.provider = send_result.get('provider', 'unknown')
+            wa_msg.provider_message_id = send_result.get('sid')
+            wa_msg.status = 'sent'
+            
+            db.session.add(wa_msg)
+            db.session.commit()
+            
+            return {
+                "ok": True, 
+                "message_id": wa_msg.id,
+                "provider": send_result.get('provider')
+            }
+        else:
+            return {
+                "ok": False, 
+                "error": send_result.get('error', 'send_failed')
+            }, 500
+            
+    except Exception as e:
+        return {"ok": False, "error": str(e)}, 500

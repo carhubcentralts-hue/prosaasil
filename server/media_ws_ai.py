@@ -1414,7 +1414,8 @@ class MediaStreamHandler:
             ai_response = generate_ai_response(
                 message=hebrew_text,
                 business_id=business_id,
-                context=context
+                context=context,
+                channel='calls'  # ✅ Use 'calls' prompt for phone calls
             )
             
             print(f"✅ AI_SERVICE_RESPONSE: Generated {len(ai_response)} chars for business {business_id}")
