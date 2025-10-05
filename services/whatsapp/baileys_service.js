@@ -187,7 +187,8 @@ async function startSession(tenantId) {
         
         // ✅ FIX: שגיאה 515 = Stream Error אחרי pairing מוצלח
         // צריך לנסות מחדש אבל NOT לנקות credentials!
-        if (reason === 515) {
+        // reason יכול להיות string או number, בדיקה עם ==
+        if (reason == 515) {
           console.log(`[${tenantId}] 🔄 515 Stream Error after pairing - will retry with saved credentials`);
           // המתן יותר זמן כדי ש-WhatsApp ייצב
           setTimeout(() => startSession(tenantId), 5000);
