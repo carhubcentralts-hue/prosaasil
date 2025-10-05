@@ -1,0 +1,89 @@
+~/workspace$ test_system.sh
+bash: test_system.sh: command not found
+~/workspace$ bash test_system.sh
+=== בדיקת WhatsApp API ===
+
+1️⃣ בדיקת /api/whatsapp/start
+HTTP/1.1 200 OK
+Server: gunicorn
+Date: Sun, 05 Oct 2025 17:46:59 GMT
+Connection: keep-alive
+Content-Type: application/json
+Content-Length: 12
+Access-Control-Allow-Origin: http://localhost:5000
+Access-Control-Allow-Credentials: true
+Vary: Origin, Cookie
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' wss: ws:; frame-ancestors 'none'; object-src 'none';
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+{"ok":true}
+
+2️⃣ בדיקת /api/whatsapp/status (לפני סריקה)
+{
+  "connected": false,
+  "hasQR": true
+}
+
+3️⃣ בדיקת /api/whatsapp/qr
+Has dataUrl: False, Has qrText: True
+
+4️⃣ בדיקת קבצים ב-storage
+total 52
+drwxr-xr-x 1 runner runner  584 Oct  5 17:15 .
+drwxr-xr-x 1 runner runner    8 Oct  5 17:10 ..
+-rw-r--r-- 1 runner runner 1942 Oct  5 17:19 creds.json
+-rw-r--r-- 1 runner runner   14 Oct  5 17:14 lid-mapping-136777679552726_reverse.json
+-rw-r--r-- 1 runner runner   17 Oct  5 17:14 lid-mapping-972536345474.json
+-rw-r--r-- 1 runner runner  164 Oct  5 17:14 pre-key-33.json
+-rw-r--r-- 1 runner runner  164 Oct  5 17:14 pre-key-34.json
+-rw-r--r-- 1 runner runner  164 Oct  5 17:14 pre-key-35.json
+-rw-r--r-- 1 runner runner  164 Oct  5 17:14 pre-key-36.json
+-rw-r--r-- 1 runner runner  164 Oct  5 17:14 pre-key-37.json
+-rw-r--r-- 1 runner runner  164 Oct  5 17:14 pre-key-39.json
+-rw-r--r-- 1 runner runner  237 Oct  5 17:13 qr_code.txt
+-rw-r--r-- 1 runner runner  615 Oct  5 17:14 sender-key-status@broadcast--972536345474--0.json
+-rw-r--r-- 1 runner runner  948 Oct  5 17:14 session-136777679552726_1.0.json
+-rw-r--r-- 1 runner runner  902 Oct  5 17:15 session-87621728518253_1.0.json
+
+=== בדיקת Prompts API ===
+
+5️⃣ קבלת CSRF + Login
+✅ Logged in, CSRF: 43e877637d1cdf32eaed...
+
+6️⃣ קריאת Prompt נוכחי
+Calls: בדיקה אוטומטית טלפון ✅...
+WhatsApp: בדיקה אוטומטית וואטסאפ ✅...
+
+7️⃣ שמירת Prompt חדש
+✅ Success!
+
+=== בדיקת Twilio Webhook ===
+
+8️⃣ טסט webhook (ללא חתימה)
+HTTP/1.1 405 METHOD NOT ALLOWED
+Server: gunicorn
+Date: Sun, 05 Oct 2025 17:47:04 GMT
+Connection: keep-alive
+Content-Type: text/html; charset=utf-8
+Allow: GET, HEAD, OPTIONS
+Content-Length: 153
+Access-Control-Allow-Origin: http://localhost:5000
+Access-Control-Allow-Credentials: true
+Vary: Origin, Cookie
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' wss: ws:; frame-ancestors 'none'; object-src 'none';
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+<!doctype html>
+<html lang=en>
+<title>405 Method Not Allowed</title>
+
+✅ סיימתי בדיקות - בדוק את הפלט למעלה
+~/workspace$ 
