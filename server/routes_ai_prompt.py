@@ -108,7 +108,6 @@ def get_business_prompt(business_id):
 
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['PUT', 'OPTIONS'])
 @require_api_auth(['admin', 'manager'])
-@api_handler
 def update_business_prompt(business_id):
     """Update AI prompts for business - Admin (דורש CSRF) - שיחות ווואטסאפ נפרד"""
     
@@ -259,7 +258,8 @@ def update_current_business_prompt():
         tenant_id = session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')  # Fixed key per guidelines
         if not tenant_id:
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
-            
+        
+        # Call the internal handler directly (already wrapped with api_handler)
         return update_business_prompt(tenant_id)
         
     except Exception as e:
