@@ -17,7 +17,7 @@ def enqueue_recording(form_data):
     log.info("Recording processing queued for CallSid=%s", form_data.get("CallSid"))
 
 def process_recording_async(form_data):
-    """עיבוד הקלטה אסינכרוני מלא"""
+    """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם"""
     try:
         recording_url = form_data.get("RecordingUrl")
         call_sid = form_data.get("CallSid")
@@ -28,17 +28,24 @@ def process_recording_async(form_data):
         # 1. הורד קובץ הקלטה
         audio_file = download_recording(recording_url, call_sid)
         
-        # 2. תמלול עברית
+        # 2. תמלול עברית (Google STT v2 + Whisper fallback)
         transcription = transcribe_hebrew(audio_file)
         
-        # 3. שמור לDB - ✅ FIX: Pass to_number for better business detection
-        to_number = form_data.get('To', '')
-        save_call_to_db(call_sid, from_number, recording_url, transcription, to_number)
+        # 3. ✨ סיכום חכם GPT (10-30 מילים)
+        summary = ""
+        if transcription and len(transcription) > 10:
+            from server.services.summary_service import summarize_conversation
+            summary = summarize_conversation(transcription, call_sid)
+            log.info(f"✅ Summary generated: {summary[:50]}...")
         
-        log.info("Recording processed successfully: CallSid=%s", call_sid)
+        # 4. שמור לDB עם תמלול + סיכום
+        to_number = form_data.get('To', '')
+        save_call_to_db(call_sid, from_number, recording_url, transcription, to_number, summary)
+        
+        log.info("✅ Recording processed successfully: CallSid=%s", call_sid)
         
     except Exception as e:
-        log.error("Recording processing failed: %s", e)
+        log.error("❌ Recording processing failed: %s", e)
 
 def download_recording(recording_url, call_sid):
     """הורד קובץ הקלטה מTwilio"""
@@ -91,8 +98,8 @@ def transcribe_hebrew(audio_file):
         log.error("❌ Transcription failed: %s", e)
         return ""
 
-def save_call_to_db(call_sid, from_number, recording_url, transcription, to_number=None):
-    """שמור שיחה ותמלול ל-DB + יצירת לקוח/ליד אוטומטית"""
+def save_call_to_db(call_sid, from_number, recording_url, transcription, to_number=None, summary=None):
+    """✨ שמור שיחה + תמלול + סיכום ל-DB + יצירת לקוח/ליד אוטומטית"""
     try:
         # ✅ Use PostgreSQL + SQLAlchemy instead of SQLite
         from server.app_factory import create_app
@@ -117,13 +124,15 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 call_log.from_number = from_number
                 call_log.recording_url = recording_url
                 call_log.transcription = transcription
+                call_log.summary = summary  # ✨ סיכום חכם
                 call_log.status = "processed"
                 call_log.created_at = datetime.utcnow()
                 
                 db.session.add(call_log)
             else:
-                # עדכן תמלול לCall קיים
+                # עדכן תמלול וסיכום לCall קיים
                 call_log.transcription = transcription
+                call_log.summary = summary  # ✨ סיכום חכם
                 call_log.status = "processed"
                 call_log.updated_at = datetime.utcnow()
             
@@ -141,13 +150,14 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # עדכון CallLog עם customer_id
                 call_log.customer_id = customer.id
                 
-                # 3. ✨ סיכום חכם של השיחה
+                # 3. ✨ סיכום חכם של השיחה (שימוש בסיכום שכבר יצרנו!)
                 conversation_summary = ci.generate_conversation_summary(transcription)
                 
                 # 4. ✨ עדכון סטטוס אוטומטי
                 new_status = ci.auto_update_lead_status(lead, conversation_summary)
                 
-                # עדכון הליד עם הסיכום
+                # 5. ✨ שמירת הסיכום בליד (summary מה-GPT + notes עם פרטים)
+                lead.summary = summary  # סיכום קצר (10-30 מילים)
                 lead.notes = f"סיכום: {conversation_summary.get('summary', '')}\n" + (lead.notes or "")
                 
                 db.session.commit()
