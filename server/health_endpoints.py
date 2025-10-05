@@ -63,19 +63,19 @@ def readyz():
 
 @health_bp.route('/version', methods=['GET'])
 def version():
-    """Version and build information - Updated for BUILD 57: WhatsApp Multi-Tenant Integration"""
+    """Version and build information - BUILD 59: Prompt cache invalidation + QR persistence"""
     import time
     return jsonify({
         "status": "ok",
         "service": "agentlocator-whatsapp-crm",
         "version": "1.2.0",
-        "build": 58,
-        "phase": "whatsapp_integration",
+        "build": 59,
+        "phase": "ai_prompt_fixes",
         "features": [
+            "prompt_cache_invalidation",
+            "qr_code_persistence",
+            "csrf_exempt_get_routes",
             "multi_tenant_baileys",
-            "canonical_proxy",
-            "webhook_internal_secret",
-            "async_recording_handler",
             "twilio_validation"
         ],
         "deploy_id": os.getenv("DEPLOY_ID", "development"),
