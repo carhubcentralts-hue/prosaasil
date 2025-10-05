@@ -74,23 +74,21 @@ def download_recording(recording_url, call_sid):
         return None
 
 def transcribe_hebrew(audio_file):
-    """תמלול עברית עם OpenAI Whisper"""
+    """✨ תמלול עברית עם Google STT v2 (Primary) + Whisper (Fallback)"""
     if not audio_file or not os.path.exists(audio_file):
         log.error("Audio file not found: %s", audio_file)
         return ""
     
     try:
-        from server.services.whisper_handler import transcribe_he
+        # ✨ שימוש בשירות STT החדש המאוחד - מהיר ואמין!
+        from server.services.stt_service import transcribe_audio_file
         
-        with open(audio_file, "rb") as f:
-            audio_bytes = f.read()
-            
-        transcription = transcribe_he(audio_bytes)
-        log.info("Transcription completed: %d chars", len(transcription or ""))
+        transcription = transcribe_audio_file(audio_file)
+        log.info("✅ Transcription completed: %d chars", len(transcription or ""))
         return transcription or ""
         
     except Exception as e:
-        log.error("Transcription failed: %s", e)
+        log.error("❌ Transcription failed: %s", e)
         return ""
 
 def save_call_to_db(call_sid, from_number, recording_url, transcription, to_number=None):
