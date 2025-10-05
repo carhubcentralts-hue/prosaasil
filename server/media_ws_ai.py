@@ -706,13 +706,22 @@ class MediaStreamHandler:
                 ai_processing_time = time.time() - ai_processing_start
                 print(f"📊 AI_PROCESSING: {ai_processing_time:.3f}s")
                 
-                # 5. הוסף להיסטוריה
+                # 5. הוסף להיסטוריה (שני מבנים - סנכרון)
                 self.response_history.append({
                     'id': conversation_id,
                     'user': text,
                     'bot': reply,
                     'time': time.time()
                 })
+                
+                # ✅ CRITICAL FIX: סנכרון conversation_history לזיכרון AI
+                self.conversation_history.append({
+                    'user': text,
+                    'bot': reply
+                })
+                
+                # ✅ שמירת תור שיחה במסד נתונים לזיכרון קבוע
+                self._save_conversation_turn(text, reply)
                 
                 # ✨ 6. Customer Intelligence - זיהוי/יצירת לקוח וליד חכם
                 self._process_customer_intelligence(text, reply)
@@ -1402,11 +1411,11 @@ class MediaStreamHandler:
                 "previous_messages": []
             }
             
-            # Add conversation history for context
+            # Add conversation history for context - ✅ FIXED FORMAT
             if hasattr(self, 'conversation_history') and self.conversation_history:
                 context["previous_messages"] = [
-                    f"משתמש: {item['user']}\nבוט: {item['bot']}" 
-                    for item in self.conversation_history[-3:]  # רק 3 אחרונות
+                    f"לקוח: {item['user']}\nלאה: {item['bot']}" 
+                    for item in self.conversation_history[-6:]  # עד 6 תורות אחרונים לזיכרון מלא
                 ]
             
             # ✅ CRITICAL: Generate AI response using unified AIService (auto-updates!)
@@ -1688,6 +1697,69 @@ class MediaStreamHandler:
             'summary': summary,
             'meeting_prompt': meeting_prompt
         }
+    
+    def _save_conversation_turn(self, user_text: str, bot_reply: str):
+        """✅ שמירת תור שיחה במסד נתונים לזיכרון קבוע"""
+        try:
+            from server.models_sql import ConversationTurn, CallLog
+            from server.app_factory import create_app
+            from server.db import db
+            import threading
+            
+            def save_in_background():
+                try:
+                    app = create_app()
+                    with app.app_context():
+                        # מצא או צור call_log
+                        call_log = None
+                        if hasattr(self, 'call_sid') and self.call_sid:
+                            call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                        
+                        if not call_log:
+                            # צור call_log חדש
+                            call_log = CallLog(
+                                business_id=getattr(self, 'business_id', 1),
+                                call_sid=self.call_sid or f"live_{int(time.time())}",
+                                from_number=str(self.phone_number or ""),
+                                status="in_progress"
+                            )
+                            db.session.add(call_log)
+                            db.session.flush()  # כדי לקבל ID
+                        
+                        # שמור תור משתמש
+                        user_turn = ConversationTurn(
+                            call_log_id=call_log.id,
+                            call_sid=self.call_sid or f"live_{int(time.time())}",
+                            speaker='user',
+                            message=user_text,
+                            confidence_score=1.0
+                        )
+                        db.session.add(user_turn)
+                        
+                        # שמור תור AI
+                        bot_turn = ConversationTurn(
+                            call_log_id=call_log.id,
+                            call_sid=self.call_sid or f"live_{int(time.time())}",
+                            speaker='assistant',
+                            message=bot_reply,
+                            confidence_score=1.0
+                        )
+                        db.session.add(bot_turn)
+                        
+                        db.session.commit()
+                        print(f"✅ Saved conversation turn to DB: call_log_id={call_log.id}")
+                        
+                except Exception as e:
+                    print(f"❌ Failed to save conversation turn: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # רוץ ברקע כדי לא לחסום
+            thread = threading.Thread(target=save_in_background, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            print(f"❌ Conversation turn save setup failed: {e}")
     
     def _process_customer_intelligence(self, user_text: str, bot_reply: str):
         """

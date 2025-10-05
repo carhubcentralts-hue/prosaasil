@@ -70,6 +70,19 @@ class CallLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class ConversationTurn(db.Model):
+    """תורות שיחה - כל הודעה בשיחה טלפונית או WhatsApp"""
+    __tablename__ = "conversation_turn"
+    id = db.Column(db.Integer, primary_key=True)
+    call_log_id = db.Column(db.Integer, db.ForeignKey("call_log.id"), index=True)
+    call_sid = db.Column(db.String(64), index=True)
+    speaker = db.Column(db.String(32))  # 'user' or 'assistant'
+    message = db.Column(db.Text)
+    confidence_score = db.Column(db.Float)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 # AI Prompt Management - לפי ההנחיות המדויקות
 class BusinessSettings(db.Model):
     __tablename__ = "business_settings"
