@@ -1,0 +1,92 @@
+Call Details
+Details
+Insights Summary
+Metrics
+Properties
+Call SID
+CA572d2570b1df68e10b58a6e6abe8c717
+Date
+01:13:21 IDT 2025-10-09
+Start Time
+01:13:22 IDT 2025-10-09
+End Time
+01:13:24 IDT 2025-10-09
+Duration
+2 sec
+Cost
+$0.00
+From
++972504294724
+To
+
++97233763805
+Direction
+Incoming
+Type
+Phone
+Status
+Completed
+Stir/Shaken Status 
+—
+Errors and Warnings
+Debug Event SID
+NOc6ed20122e0956cf477e4af55ed591a2
+Error
+12100
+Message
+Document parse failure
+Debug Event SID
+NO247970e7e6e5b553b0e942417f0d3c0a
+Error
+12100
+Message
+Falling back to https://ai-crmd.replit.app/webhook/incoming_call
+Request Inspector
++ Expand All
+POST
+https://ai-crmd.replit.app/webhook/incoming_call
+2025-10-08 22:13:22 UTC186ms200
+Request
+Response
+Headers
+BodyShow Raw
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect action="https://ai-crmd.replit.app/webhook/stream_ended">
+        <Stream url="wss://ai-crmd.replit.app/ws/twilio-media" statusCallback="https://ai-crmd.replit.app/webhook/stream_status">
+            <Parameter name="CallSid" value="CA572d2570b1df68e10b58a6e6abe8c717"/>
+        </Stream>
+    </Connect>
+</Response>
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 22:13:22 UTC117ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_ended
+2025-10-08 22:13:23 UTC90ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 22:13:23 UTC138ms204
+POST
+https://ai-crmd.replit.app/webhook/incoming_call
+2025-10-08 22:13:23 UTC92ms200
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 22:13:23 UTC136ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 22:13:23 UTC112ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_ended
+2025-10-08 22:13:23 UTC148ms204
+POST
+https://api.twilio.com/2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Calls/CA572d2570b1df68e10b58a6e6abe8c717.json
+2025-10-08 22:13:24 UTC40ms400
+POST
+https://api.twilio.com/2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Calls/CA572d2570b1df68e10b58a6e6abe8c717.json
+2025-10-08 22:13:24 UTC48ms200
+POST
+https://ai-crmd.replit.app/webhook/call_status
+2025-10-08 22:13:25 UTC73ms204
+
+Delete this call log
