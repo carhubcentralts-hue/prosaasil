@@ -41,10 +41,8 @@ def _do_redirect(call_sid, wss_host, reason):
     # ✅ FIX: Prefer PUBLIC_HOST in production, then dev domain for local testing
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
     host = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'localhost'
-    twiml = f"""<Response>
-  <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
-          action="https://{host}/webhook/handle_recording" />
-</Response>"""
+    # ✅ FIX Error 12100: NO leading spaces/whitespace in XML tags
+    twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Record playBeep="false" timeout="4" maxLength="30" transcribe="false" action="https://{host}/webhook/handle_recording"/></Response>'
     try:
         # Use Deployment ENV vars (critical for production)
         client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
@@ -115,10 +113,8 @@ def _trigger_recording_for_call(call_sid):
                 # ✅ FIX: Prefer PUBLIC_HOST in production, then dev domain for local testing
                 public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
                 host = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'your-app.replit.app'
-                record_twiml = f"""<Response>
-  <Record playBeep="false" timeout="30" maxLength="300" transcribe="false"
-          action="https://{host}/webhook/handle_recording" />
-</Response>"""
+                # ✅ FIX Error 12100: NO leading spaces/whitespace in XML tags
+                record_twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Record playBeep="false" timeout="30" maxLength="300" transcribe="false" action="https://{host}/webhook/handle_recording"/></Response>'
                 
                 client.calls(call_sid).update(twiml=record_twiml)
                 print(f"✅ Updated call {call_sid} to Record TwiML")
@@ -370,20 +366,27 @@ def handle_recording():
 @require_twilio_signature
 def stream_status():
     """שלב 5: Webhooks קשיחים - ULTRA FAST מחזיר 204"""
-    # החזרה מיידית ללא עיבוד כלל
-    resp = make_response("", 204)
-    resp.headers["Cache-Control"] = "no-store"
-    
-    # לוגים ברקע (לא חוסמים את הresponse)  
     try:
-        call_sid = request.form.get('CallSid', 'N/A')
-        stream_sid = request.form.get('StreamSid', 'N/A')
-        event = request.form.get('Status', 'N/A')
-        print(f"STREAM_STATUS call={call_sid} stream={stream_sid} event={event}")
-    except:
-        pass  # אף פעם לא לחסום על לוגים
+        # החזרה מיידית ללא עיבוד כלל
+        resp = make_response("", 204)
+        resp.headers["Cache-Control"] = "no-store"
         
-    return resp
+        # לוגים ברקע (לא חוסמים את הresponse)  
+        try:
+            call_sid = request.form.get('CallSid', 'N/A')
+            stream_sid = request.form.get('StreamSid', 'N/A')
+            event = request.form.get('Status', 'N/A')
+            print(f"STREAM_STATUS call={call_sid} stream={stream_sid} event={event}")
+        except Exception as e:
+            print(f"⚠️ stream_status logging error: {e}")
+            
+        return resp
+    except Exception as e:
+        # 🔍 Catch any error and return 204 anyway
+        print(f"❌ stream_status error: {e}")
+        import traceback
+        traceback.print_exc()
+        return make_response("", 204)
 
 @csrf.exempt
 @twilio_bp.route("/webhook/call_status", methods=["POST"])
@@ -423,14 +426,18 @@ def test_media_streams_new():
     base   = f"{scheme}://{host}"
     call_sid = "TEST_NEW"
     
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Connect action="{base}/webhook/stream_ended">
-    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">
-      <Parameter name="call_sid" value="{call_sid}"/>
-    </Stream>
-  </Connect>
-</Response>"""
+    # ✅ FIX Error 12100: NO leading spaces/whitespace in XML tags
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<Response>',
+        f'<Connect action="{base}/webhook/stream_ended">',
+        f'<Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
+        f'<Parameter name="call_sid" value="{call_sid}"/>',
+        '</Stream>',
+        '</Connect>',
+        '</Response>',
+    ]
+    twiml = "".join(parts)
     
     resp = make_response(twiml.encode("utf-8"), 200)
     resp.headers["Content-Type"] = "application/xml; charset=utf-8"
