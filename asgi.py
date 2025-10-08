@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 import asyncio
 import json
 import logging
+import threading
+from queue import Queue, Empty
 from asgiref.wsgi import WsgiToAsgi
 from starlette.applications import Starlette
 from starlette.routing import Mount, WebSocketRoute
@@ -21,127 +23,127 @@ from server.app_factory import create_app
 log = logging.getLogger("twilio_ws")
 flask_app = create_app()
 
-# Wrapper to make Starlette WebSocket work with sync MediaStreamHandler
-class AsyncToSyncWebSocketAdapter:
-    """Adapter that makes async Starlette WebSocket look sync to MediaStreamHandler"""
-    def __init__(self, starlette_ws: WebSocket):
-        self.ws = starlette_ws
-        self.receive_queue = asyncio.Queue()
-        self.send_queue = asyncio.Queue()
-        self._running = True
+class SyncWebSocketWrapper:
+    """
+    Makes async Starlette WebSocket work with sync MediaStreamHandler
+    Uses queues to bridge async/sync boundary
+    """
+    def __init__(self):
+        self.recv_queue = Queue()  # async → sync
+        self.send_queue = Queue()  # sync → async
+        self.running = True
         
-    async def _receive_loop(self):
-        """Background task: read from async WS, put in queue for sync consumer"""
-        try:
-            while self._running:
-                try:
-                    msg = await self.ws.receive_json()
-                    await self.receive_queue.put(json.dumps(msg))
-                except Exception as e:
-                    log.error(f"Receive error: {e}")
-                    break
-        finally:
-            await self.receive_queue.put(None)  # Signal EOF
-            
-    async def _send_loop(self):
-        """Background task: read from queue, send to async WS"""
-        try:
-            while self._running:
-                data = await self.send_queue.get()
-                if data is None:
-                    break
-                try:
-                    if isinstance(data, str):
-                        await self.ws.send_text(data)
-                    else:
-                        await self.ws.send_bytes(data)
-                except Exception as e:
-                    log.error(f"Send error: {e}")
-                    break
-        except Exception:
-            pass
-    
     def receive(self):
-        """Sync receive for MediaStreamHandler"""
-        # Block until message available
-        loop = asyncio.new_event_loop()
+        """Sync receive - blocks until message available"""
         try:
-            msg = loop.run_until_complete(self.receive_queue.get())
+            msg = self.recv_queue.get(timeout=30)  # 30s timeout
+            if msg is None:  # EOF signal
+                return None
             return msg
-        finally:
-            loop.close()
+        except Empty:
+            return None
     
     def send(self, data):
-        """Sync send for MediaStreamHandler"""
-        # Schedule send
-        try:
-            asyncio.create_task(self.send_queue.put(data))
-        except RuntimeError:
-            # No event loop, create one
-            loop = asyncio.new_event_loop()
-            try:
-                loop.run_until_complete(self.send_queue.put(data))
-            finally:
-                loop.close()
+        """Sync send - puts in queue for async sender"""
+        if self.running:
+            self.send_queue.put(data)
     
     def stop(self):
-        """Stop adapter"""
-        self._running = False
+        """Stop wrapper"""
+        self.running = False
+        self.recv_queue.put(None)  # Signal EOF
 
 async def ws_twilio_media(websocket: WebSocket):
     """
     WebSocket handler for Twilio Media Streams
-    Runs MediaStreamHandler in background thread
+    Bridges async Starlette WS to sync MediaStreamHandler
     """
     # Accept with Twilio subprotocol
     await websocket.accept(subprotocol="audio.twilio.com")
     
-    call_sid = None
     log.info("📞 WebSocket connected: /ws/twilio-media")
     
+    # Create sync wrapper
+    ws_wrapper = SyncWebSocketWrapper()
+    handler_thread = None
+    
     try:
-        # Import handler
+        # Import MediaStreamHandler
         from server.media_ws_ai import MediaStreamHandler
         
-        # Create adapter
-        adapter = AsyncToSyncWebSocketAdapter(websocket)
-        
-        # Start background tasks for adapter
-        receive_task = asyncio.create_task(adapter._receive_loop())
-        send_task = asyncio.create_task(adapter._send_loop())
-        
-        # Run MediaStreamHandler in thread
-        handler = MediaStreamHandler(adapter)
-        
+        # Start MediaStreamHandler in background thread
         def run_handler():
             try:
+                handler = MediaStreamHandler(ws_wrapper)
                 handler.run()
+                log.info("✅ MediaStreamHandler completed")
             except Exception as e:
-                log.exception(f"Handler error: {e}")
+                log.exception(f"❌ MediaStreamHandler error: {e}")
+            finally:
+                ws_wrapper.stop()
         
-        # Start handler in background thread
-        import threading
         handler_thread = threading.Thread(target=run_handler, daemon=True)
         handler_thread.start()
+        log.info("✅ MediaStreamHandler thread started")
         
-        # Wait for handler thread to finish
-        await asyncio.get_event_loop().run_in_executor(None, handler_thread.join)
+        # Task 1: Receive from Starlette WS → put in queue for sync handler
+        async def receive_loop():
+            try:
+                while ws_wrapper.running:
+                    try:
+                        msg = await websocket.receive_json()
+                        ws_wrapper.recv_queue.put(json.dumps(msg))
+                    except Exception as e:
+                        log.error(f"Receive error: {e}")
+                        break
+            finally:
+                ws_wrapper.stop()
         
-        # Stop adapter
-        adapter.stop()
+        # Task 2: Get from queue → send to Starlette WS
+        async def send_loop():
+            try:
+                while ws_wrapper.running:
+                    # Non-blocking check for messages
+                    try:
+                        data = await asyncio.get_event_loop().run_in_executor(
+                            None, ws_wrapper.send_queue.get, True, 0.1  # 100ms timeout
+                        )
+                        if data is None:
+                            break
+                        if isinstance(data, str):
+                            await websocket.send_text(data)
+                        else:
+                            await websocket.send_bytes(data)
+                    except Empty:
+                        await asyncio.sleep(0.01)  # Yield to other tasks
+                    except Exception as e:
+                        log.error(f"Send error: {e}")
+                        break
+            except Exception:
+                pass
         
-        # Cancel background tasks
-        receive_task.cancel()
-        send_task.cancel()
+        # Run both tasks concurrently
+        await asyncio.gather(
+            receive_loop(),
+            send_loop(),
+            return_exceptions=True
+        )
+        
+        # Wait for handler thread to finish (with timeout)
+        if handler_thread:
+            await asyncio.get_event_loop().run_in_executor(
+                None, handler_thread.join, 5  # 5s timeout
+            )
         
     except Exception as e:
         log.exception(f"WebSocket error: {e}")
     finally:
+        ws_wrapper.stop()
         try:
             await websocket.close()
         except Exception:
             pass
-        log.info(f"📞 WebSocket closed call={call_sid}")
+        log.info("📞 WebSocket closed")
 
 # ASGI Application with Starlette
 asgi_app = Starlette(routes=[

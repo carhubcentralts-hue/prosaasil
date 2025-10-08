@@ -38,9 +38,9 @@ def _watchdog(call_sid, wss_host, start_timeout=6, no_media_timeout=6):
 def _do_redirect(call_sid, wss_host, reason):
     """Watchdog redirect function"""
     current_app.logger.warning("WATCHDOG_REDIRECT", extra={"call_sid": call_sid, "reason": reason})
-    # ✅ FIX: Absolute URL for watchdog redirect
+    # ✅ FIX: Prefer PUBLIC_HOST in production, then dev domain for local testing
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
-    host = os.environ.get('REPLIT_DEV_DOMAIN') or public_host or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'localhost'
+    host = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'localhost'
     twiml = f"""<Response>
   <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
           action="https://{host}/webhook/handle_recording" />
@@ -112,9 +112,9 @@ def _trigger_recording_for_call(call_sid):
             
             if call.status in ['in-progress', 'ringing']:
                 # השיחה עדיין פעילה - עדכן ל-Record TwiML
-                # ✅ FIX: Use absolute URL for Twilio webhooks
+                # ✅ FIX: Prefer PUBLIC_HOST in production, then dev domain for local testing
                 public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
-                host = os.environ.get('REPLIT_DEV_DOMAIN') or public_host or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'your-app.replit.app'
+                host = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'your-app.replit.app'
                 record_twiml = f"""<Response>
   <Record playBeep="false" timeout="30" maxLength="300" transcribe="false"
           action="https://{host}/webhook/handle_recording" />
