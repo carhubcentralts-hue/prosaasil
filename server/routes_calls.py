@@ -170,8 +170,8 @@ def download_recording(call_sid):
         if not call or not call.recording_url:
             return jsonify({"success": False, "error": "Recording not found"}), 404
         
-        # Check if recording is expired (2 days)
-        if call.created_at and (datetime.utcnow() - call.created_at).days > 2:
+        # Check if recording is expired (48 hours exactly)
+        if call.created_at and (datetime.utcnow() - call.created_at) > timedelta(days=2):
             return jsonify({"success": False, "error": "Recording expired and deleted"}), 410
         
         # Security: Validate recording URL is from trusted Twilio domain
