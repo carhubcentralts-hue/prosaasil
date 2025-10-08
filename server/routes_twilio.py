@@ -174,9 +174,11 @@ def incoming_call_preview():
     """GET endpoint for TwiML preview - MEDIA STREAMS MODE"""
     call_sid = "CA_PREVIEW_" + str(int(time.time()))
     
-    # תיקון קריטי: וידוא https:// ב-base URLs  
+    # תיקון קריטי: וידוא https:// ב-base URLs
+    # ✅ FIX: Use Replit domain as fallback, not localhost!
     scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
-    host   = (request.headers.get("X-Forwarded-Host")  or request.host).split(",")[0].strip()
+    replit_domain = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('PUBLIC_HOST') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+    host   = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     base   = f"{scheme}://{host}"
     
     # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד
@@ -213,8 +215,10 @@ def incoming_call():
     from_number = request.form.get("From", "")
     
     # תיקון קריטי: וידוא https:// ב-base URLs (לפי ההנחיות)
+    # ✅ FIX: Use Replit domain as fallback, not localhost!
     scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
-    host   = (request.headers.get("X-Forwarded-Host")  or request.host).split(",")[0].strip()
+    replit_domain = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('PUBLIC_HOST') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+    host   = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     base   = f"{scheme}://{host}"
     
     # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד  
