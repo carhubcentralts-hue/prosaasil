@@ -1,1 +1,9 @@
 61
+## Recent Changes (2025-10-08)
+
+### Recording Retention System
+- Changed recording retention from 7 days to **2 days (48 hours exactly)**
+- Added `auto_cleanup_old_recordings()` function for automated cleanup
+- Updated `POST /api/calls/cleanup` to delete both DB entries and disk files
+- Fixed expiry check to be exactly 48 hours (not 71h59m)
+- Transcriptions are preserved indefinitely
