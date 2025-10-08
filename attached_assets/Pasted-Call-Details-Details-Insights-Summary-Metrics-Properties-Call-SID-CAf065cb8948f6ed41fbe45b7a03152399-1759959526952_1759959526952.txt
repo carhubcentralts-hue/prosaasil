@@ -1,0 +1,117 @@
+Call Details
+Details
+Insights Summary
+Metrics
+Properties
+Call SID
+CAf065cb8948f6ed41fbe45b7a03152399
+Date
+00:38:06 IDT 2025-10-09
+Start Time
+00:38:06 IDT 2025-10-09
+End Time
+00:38:16 IDT 2025-10-09
+Duration
+10 sec
+Cost
+$0.00
+From
++972504294724
+To
+
++97233763805
+Direction
+Incoming
+Type
+Phone
+Status
+Completed
+Stir/Shaken Status 
+—
+Media
+Recording SID
+REcb165dc461b2dbb7dafd3640a6e476e1
+Downloads
+WAV
+MP3
+Listen
+Recording SID
+RE460f32537f862a25a30f880cbee2ac13
+Downloads
+WAV
+MP3
+Listen
+Errors and Warnings
+Debug Event SID
+NO534280d8674e2deeeed89d19373413b0
+Error
+11200
+Message
+Got HTTP 502 response to https://7a5fd26d-6a88-446b-90da-2c7d3928c77f-00-1s8411yp74g9o.picard.replit.dev/webhook/handle_recording
+Debug Event SID
+NOabde5f967671bfeb2908407f933011cd
+Error
+11200
+Message
+Got HTTP 502 response to https://7a5fd26d-6a88-446b-90da-2c7d3928c77f-00-1s8411yp74g9o.picard.replit.dev/webhook/handle_recording
+Debug Event SID
+NO815689c9258c4b1fd87bf8fbdc59b130
+Error
+12100
+Message
+Falling back to https://ai-crmd.replit.app/webhook/incoming_call
+Request Inspector
++ Expand All
+POST
+https://ai-crmd.replit.app/webhook/incoming_call
+2025-10-08 21:38:06 UTC69ms200
+Request
+Response
+Headers
+BodyShow Raw
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect action="https://ai-crmd.replit.app/webhook/stream_ended">
+        <Stream url="wss://ai-crmd.replit.app/ws/twilio-media" statusCallback="https://ai-crmd.replit.app/webhook/stream_status">
+            <Parameter name="CallSid" value="CAf065cb8948f6ed41fbe45b7a03152399"/>
+        </Stream>
+    </Connect>
+</Response>
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 21:38:06 UTC64ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 21:38:06 UTC76ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_ended
+2025-10-08 21:38:06 UTC121ms204
+POST
+https://ai-crmd.replit.app/webhook/incoming_call
+2025-10-08 21:38:06 UTC73ms200
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 21:38:06 UTC85ms204
+POST
+https://api.twilio.com/2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Calls/CAf065cb8948f6ed41fbe45b7a03152399.json
+2025-10-08 21:38:07 UTC32ms200
+POST
+https://ai-crmd.replit.app/webhook/stream_ended
+2025-10-08 21:38:07 UTC76ms204
+POST
+https://api.twilio.com/2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Calls/CAf065cb8948f6ed41fbe45b7a03152399.json
+2025-10-08 21:38:07 UTC59ms200
+POST
+https://7a5fd26d-6a88-446b-90da-2c7d3928c77f-00-1s8411yp74g9o.picard.replit.dev/webhook/handle_recording
+2025-10-08 21:38:07 UTC140ms502
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 21:38:07 UTC896ms204
+POST
+https://7a5fd26d-6a88-446b-90da-2c7d3928c77f-00-1s8411yp74g9o.picard.replit.dev/webhook/handle_recording
+2025-10-08 21:38:16 UTC156ms502
+POST
+https://ai-crmd.replit.app/webhook/call_status
+2025-10-08 21:38:16 UTC79ms204
+
+Delete this call log
