@@ -186,14 +186,15 @@ def incoming_call_preview():
     base   = f"{scheme}://{host}"
     
     # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד
+    # ✅ FIX Error 12100: NO leading spaces/whitespace in XML tags
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Response>',
-        f'  <Connect action="{base}/webhook/stream_ended">',
-        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
-        f'      <Parameter name="CallSid" value="{call_sid}"/>',
-        f'    </Stream>',
-        f'  </Connect>',
+        f'<Connect action="{base}/webhook/stream_ended">',
+        f'<Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
+        f'<Parameter name="CallSid" value="{call_sid}"/>',
+        f'</Stream>',
+        f'</Connect>',
         '</Response>',
     ]
     twiml = "".join(parts)
@@ -226,15 +227,16 @@ def incoming_call():
     host   = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     base   = f"{scheme}://{host}"
     
-    # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד  
+    # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד
+    # ✅ FIX Error 12100: NO leading spaces/whitespace in XML tags
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<Response>',
-        f'  <Connect action="{base}/webhook/stream_ended">',
-        f'    <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
-        f'      <Parameter name="CallSid" value="{call_sid}"/>',
-        f'    </Stream>',
-        f'  </Connect>',
+        f'<Connect action="{base}/webhook/stream_ended">',
+        f'<Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
+        f'<Parameter name="CallSid" value="{call_sid}"/>',
+        f'</Stream>',
+        f'</Connect>',
         '</Response>',
     ]
     twiml = "".join(parts)
