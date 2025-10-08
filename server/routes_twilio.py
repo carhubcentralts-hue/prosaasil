@@ -39,7 +39,8 @@ def _do_redirect(call_sid, wss_host, reason):
     """Watchdog redirect function"""
     current_app.logger.warning("WATCHDOG_REDIRECT", extra={"call_sid": call_sid, "reason": reason})
     # ✅ FIX: Absolute URL for watchdog redirect
-    host = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'localhost'
+    public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
+    host = os.environ.get('REPLIT_DEV_DOMAIN') or public_host or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'localhost'
     twiml = f"""<Response>
   <Record playBeep="false" timeout="4" maxLength="30" transcribe="false"
           action="https://{host}/webhook/handle_recording" />
@@ -112,7 +113,8 @@ def _trigger_recording_for_call(call_sid):
             if call.status in ['in-progress', 'ringing']:
                 # השיחה עדיין פעילה - עדכן ל-Record TwiML
                 # ✅ FIX: Use absolute URL for Twilio webhooks
-                host = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'your-app.replit.app'
+                public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
+                host = os.environ.get('REPLIT_DEV_DOMAIN') or public_host or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'your-app.replit.app'
                 record_twiml = f"""<Response>
   <Record playBeep="false" timeout="30" maxLength="300" transcribe="false"
           action="https://{host}/webhook/handle_recording" />
@@ -177,7 +179,9 @@ def incoming_call_preview():
     # תיקון קריטי: וידוא https:// ב-base URLs
     # ✅ FIX: Use Replit domain as fallback, not localhost!
     scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
-    replit_domain = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('PUBLIC_HOST') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+    # Clean PUBLIC_HOST from https:// and trailing slashes
+    public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
+    replit_domain = os.environ.get('REPLIT_DEV_DOMAIN') or public_host or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
     host   = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     base   = f"{scheme}://{host}"
     
@@ -217,7 +221,9 @@ def incoming_call():
     # תיקון קריטי: וידוא https:// ב-base URLs (לפי ההנחיות)
     # ✅ FIX: Use Replit domain as fallback, not localhost!
     scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
-    replit_domain = os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('PUBLIC_HOST') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+    # Clean PUBLIC_HOST from https:// and trailing slashes
+    public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
+    replit_domain = os.environ.get('REPLIT_DEV_DOMAIN') or public_host or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
     host   = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     base   = f"{scheme}://{host}"
     
