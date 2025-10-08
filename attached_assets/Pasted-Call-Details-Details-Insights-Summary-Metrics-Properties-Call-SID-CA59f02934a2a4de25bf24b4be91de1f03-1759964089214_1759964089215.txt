@@ -1,0 +1,99 @@
+Call Details
+Details
+Insights Summary
+Metrics
+Properties
+Call SID
+CA59f02934a2a4de25bf24b4be91de1f03
+Date
+01:53:57 IDT 2025-10-09
+Start Time
+01:53:58 IDT 2025-10-09
+End Time
+01:54:05 IDT 2025-10-09
+Duration
+7 sec
+Cost
+$0.00
+From
++972504294724
+To
+
++97233763805
+Direction
+Incoming
+Type
+Phone
+Status
+Completed
+Stir/Shaken Status 
+—
+Media
+Recording SID
+REd7cf7a8e5a38a6aa8649f1573cd5fc56
+Downloads
+WAV
+MP3
+Listen
+Media is not accessible for absent recordings.
+Errors and Warnings
+Debug Event SID
+NOd0e69959fc3aeb88d6b3a3988ede4680
+Error
+12100
+Message
+Falling back to https://ai-crmd.replit.app/webhook/incoming_call
+Request Inspector
++ Expand All
+POST
+https://ai-crmd.replit.app/webhook/incoming_call
+2025-10-08 22:53:58 UTC132ms200
+Request
+Response
+Headers
+BodyShow Raw
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect action="https://ai-crmd.replit.app/webhook/stream_ended">
+        <Stream url="wss://ai-crmd.replit.app/ws/twilio-media" statusCallback="https://ai-crmd.replit.app/webhook/stream_status">
+            <Parameter name="CallSid" value="CA59f02934a2a4de25bf24b4be91de1f03"/>
+        </Stream>
+    </Connect>
+</Response>
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 22:53:58 UTC147ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 22:53:59 UTC67ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_ended
+2025-10-08 22:53:59 UTC91ms204
+POST
+https://ai-crmd.replit.app/webhook/incoming_call
+2025-10-08 22:53:59 UTC83ms200
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 22:53:59 UTC89ms204
+POST
+https://api.twilio.com/2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Calls/CA59f02934a2a4de25bf24b4be91de1f03.json
+2025-10-08 22:53:59 UTC33ms200
+POST
+https://ai-crmd.replit.app/webhook/stream_ended
+2025-10-08 22:53:59 UTC119ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 22:53:59 UTC123ms204
+POST
+https://api.twilio.com/2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Calls/CA59f02934a2a4de25bf24b4be91de1f03.json
+2025-10-08 22:53:59 UTC22ms200
+POST
+https://ai-crmd.replit.app/webhook/handle_recording
+2025-10-08 22:53:59 UTC124ms200
+POST
+https://ai-crmd.replit.app/webhook/handle_recording
+2025-10-08 22:54:05 UTC85ms200
+POST
+https://ai-crmd.replit.app/webhook/call_status
+2025-10-08 22:54:05 UTC130ms204
+
