@@ -1,13 +1,13 @@
 62
 ## Recent Changes (2025-10-08)
 
-### Build 62 - CRITICAL FIX: Error 12100 סופית נפתר!
-- **🔧 Twilio SDK (VoiceResponse)** - החלפת XML ידני ב-Twilio SDK הרשמי
-- **✅ `_twiml()` helper** - פונקציה אחידה להחזרת TwiML תקין
-- **📝 Content-Type תקין** - `text/xml; charset=utf-8` בכל response
-- **🎯 /webhook/incoming_call** - שימוש ב-VoiceResponse().connect().stream()
-- **🎯 /webhook/incoming_call_preview** - גם כן עם SDK
-- **🚀 Build validation** - TwiML מאומת שמתחיל ב-<?xml ומכיל <Response><Connect><Stream>
+### Build 62 - CRITICAL FIX: Parameter חסר!
+- **🔧 Stream Parameter** - הוספת `stream.parameter(name="CallSid", value=call_sid)` חובה!
+- **✅ Twilio SDK** - VoiceResponse().connect().stream() עם parameter
+- **📝 TwiML תקין** - `<Stream><Parameter name="CallSid" value="..."/></Stream>`
+- **🎯 /webhook/incoming_call** - עם parameter
+- **🎯 /webhook/incoming_call_preview** - עם parameter
+- **🚀 Error 12100 FIX** - ה-WebSocket handler צריך את ה-CallSid!
 
 ### Recording Retention System (Build 61)
 - Changed recording retention from 7 days to **2 days (48 hours exactly)**

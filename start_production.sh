@@ -9,7 +9,7 @@ export RUN_MIGRATIONS_ON_START=1
 
 echo "🚀 Starting AgentLocator Production System - Build #62"
 echo "📊 Flask: 0.0.0.0:${PORT} | Baileys: 127.0.0.1:${BAILEYS_PORT}"
-echo "✅ Build 62: TwiML whitespace fixes + WebSocket stability improvements"
+echo "✅ Build 62: Twilio SDK + Stream Parameter (CallSid FIX)"
 
 # Ensure INTERNAL_SECRET is set (CRITICAL: Must come from environment!)
 if [ -z "${INTERNAL_SECRET:-}" ]; then

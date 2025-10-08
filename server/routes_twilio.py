@@ -182,21 +182,22 @@ def _create_lead_from_call(call_sid, from_number):
 @twilio_bp.route("/webhook/incoming_call_preview", methods=["GET"])
 def incoming_call_preview():
     """
-    ✅ Build 62: Preview endpoint with Twilio SDK
+    ✅ Build 62: Preview with Parameter
     """
+    call_sid = "CA_PREVIEW_" + str(int(time.time()))
+    
     # בנה host נכון
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
     replit_domain = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
     host = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     
-    # ✅ שימוש ב-Twilio SDK
     vr = VoiceResponse()
-    
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
-    connect.stream(
+    stream = connect.stream(
         url=f"wss://{host}/ws/twilio-media",
         status_callback=f"https://{host}/webhook/stream_status"
     )
+    stream.parameter(name="CallSid", value=call_sid)
     
     return _twiml(vr)
 
@@ -205,8 +206,7 @@ def incoming_call_preview():
 @require_twilio_signature
 def incoming_call():
     """
-    ✅ Build 62: TwiML with Twilio SDK (VoiceResponse) - NO manual XML!
-    תיקון Error 12100 פעם אחת ולתמיד
+    ✅ Build 62: TwiML with Twilio SDK + Parameter (CRITICAL!)
     """
     start_time = time.time()
     
@@ -218,20 +218,20 @@ def incoming_call():
     replit_domain = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
     host = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     
-    # ✅ שימוש ב-Twilio SDK (VoiceResponse) - תיקון Error 12100
+    # ✅ Twilio SDK
     vr = VoiceResponse()
     
-    # הוסף Say קצר (אופציונלי - אפשר להסיר אחר כך)
-    # vr.say("שלום, מחברים את השיחה.", language="he-IL")
-    
-    # ✅ Connect + Stream באמצעות SDK
+    # ✅ Connect + Stream
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
-    connect.stream(
+    stream = connect.stream(
         url=f"wss://{host}/ws/twilio-media",
         status_callback=f"https://{host}/webhook/stream_status"
     )
     
-    # === יצירה אוטומטית של ליד לכל שיחה נכנסת ===
+    # ✅ CRITICAL: הוסף Parameter עם CallSid (חובה!)
+    stream.parameter(name="CallSid", value=call_sid)
+    
+    # === יצירה אוטומטית של ליד ===
     if from_number:
         threading.Thread(
             target=_create_lead_from_call,
@@ -239,12 +239,11 @@ def incoming_call():
             daemon=True
         ).start()
     
-    # ⏱️ מדידת זמן תגובה
+    # ⏱️ מדידה
     response_time_ms = int((time.time() - start_time) * 1000)
     status_emoji = "✅" if response_time_ms < 1500 else "⚠️"
-    print(f"{status_emoji} incoming_call SDK response: {response_time_ms}ms - CallSid: {call_sid[:16]}")
+    print(f"{status_emoji} incoming_call: {response_time_ms}ms - {call_sid[:16]}")
     
-    # ✅ החזרה עם _twiml() - תקין 100%
     return _twiml(vr)
 
 @csrf.exempt
