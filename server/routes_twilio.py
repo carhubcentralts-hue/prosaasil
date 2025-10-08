@@ -1,12 +1,14 @@
 """
 Hebrew AI Call Center - Twilio Routes FIXED לפי ההנחיות המדויקות
 שלב 4: שיחות → לידים + תמלול אוטומטי
+Build 62: Using Twilio SDK (VoiceResponse) to prevent Error 12100
 """
 import os
 import time
 import threading
-from flask import Blueprint, request, current_app, make_response
+from flask import Blueprint, request, current_app, make_response, Response
 from twilio.rest import Client
+from twilio.twiml.voice_response import VoiceResponse, Connect
 from server.stream_state import stream_registry
 from server.twilio_security import require_twilio_signature
 from server.extensions import csrf
@@ -17,6 +19,13 @@ from server.models_sql import db, Business, Customer, CallLog
 from sqlalchemy.orm import sessionmaker
 
 twilio_bp = Blueprint("twilio", __name__)
+
+def _twiml(vr: VoiceResponse) -> Response:
+    """
+    ✅ תיקון Error 12100: החזרת TwiML תקין עם Twilio SDK
+    """
+    xml = str(vr)
+    return Response(xml, status=200, headers={'Content-Type': 'text/xml; charset=utf-8'})
 
 def abs_url(path: str) -> str:
     """Generate absolute URL for TwiML - תיקון קריטי להסבת https://"""
@@ -168,79 +177,61 @@ def _create_lead_from_call(call_sid, from_number):
         print(f"❌ Failed to create lead for {call_sid}: {e}")
         db.session.rollback()
 
-# TwiML Preview endpoint (ללא Play, מינימלי)
+# TwiML Preview endpoint
 @csrf.exempt
 @twilio_bp.route("/webhook/incoming_call_preview", methods=["GET"])
 def incoming_call_preview():
-    """GET endpoint for TwiML preview - MEDIA STREAMS MODE"""
-    call_sid = "CA_PREVIEW_" + str(int(time.time()))
-    
-    # תיקון קריטי: וידוא https:// ב-base URLs
-    # ✅ FIX: Prefer PUBLIC_HOST in production, then dev domain for local testing
-    scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
-    # Clean PUBLIC_HOST from https:// and trailing slashes
+    """
+    ✅ Build 62: Preview endpoint with Twilio SDK
+    """
+    # בנה host נכון
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
     replit_domain = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
-    host   = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
-    base   = f"{scheme}://{host}"
+    host = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     
-    # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד
-    # ✅ FIX Error 12100: NO leading spaces/whitespace in XML tags
-    parts = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<Response>',
-        f'<Connect action="{base}/webhook/stream_ended">',
-        f'<Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
-        f'<Parameter name="CallSid" value="{call_sid}"/>',
-        f'</Stream>',
-        f'</Connect>',
-        '</Response>',
-    ]
-    twiml = "".join(parts)
+    # ✅ שימוש ב-Twilio SDK
+    vr = VoiceResponse()
     
-    # תיקון קריטי לError 12100 - Content-Type נכון + cache busting
-    resp = make_response(twiml.encode("utf-8"), 200)
-    resp.headers["Content-Type"] = "application/xml; charset=utf-8"  # FIX_12100_PREVIEW
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["X-Debug-Version"] = "TwiML_v2_fixed"
-    return resp
+    connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
+    connect.stream(
+        url=f"wss://{host}/ws/twilio-media",
+        status_callback=f"https://{host}/webhook/stream_status"
+    )
+    
+    return _twiml(vr)
 
 @csrf.exempt
 @twilio_bp.route("/webhook/incoming_call", methods=["POST"])
 @require_twilio_signature
 def incoming_call():
-    """✨ TwiML מהיר וללא עיכובים - מטרה: < 1.5s response time"""
-    import time
-    start_time = time.time()  # ⏱️ התחלת מדידה
+    """
+    ✅ Build 62: TwiML with Twilio SDK (VoiceResponse) - NO manual XML!
+    תיקון Error 12100 פעם אחת ולתמיד
+    """
+    start_time = time.time()
     
     call_sid = request.form.get("CallSid", "")
     from_number = request.form.get("From", "")
     
-    # תיקון קריטי: וידוא https:// ב-base URLs (לפי ההנחיות)
-    # ✅ FIX: Prefer PUBLIC_HOST in production, then dev domain for local testing
-    scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
-    # Clean PUBLIC_HOST from https:// and trailing slashes
+    # בנה host נכון (בלי https://)
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
     replit_domain = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
-    host   = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
-    base   = f"{scheme}://{host}"
+    host = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     
-    # שלב 4: TwiML נקי לפי ההנחיות - Media Streams עם Connect בלבד
-    # ✅ FIX Error 12100: NO leading spaces/whitespace in XML tags
-    parts = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<Response>',
-        f'<Connect action="{base}/webhook/stream_ended">',
-        f'<Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">',
-        f'<Parameter name="CallSid" value="{call_sid}"/>',
-        f'</Stream>',
-        f'</Connect>',
-        '</Response>',
-    ]
-    twiml = "".join(parts)
+    # ✅ שימוש ב-Twilio SDK (VoiceResponse) - תיקון Error 12100
+    vr = VoiceResponse()
     
-    # === שלב 4: יצירה אוטומטית של ליד לכל שיחה נכנסת ===
+    # הוסף Say קצר (אופציונלי - אפשר להסיר אחר כך)
+    # vr.say("שלום, מחברים את השיחה.", language="he-IL")
+    
+    # ✅ Connect + Stream באמצעות SDK
+    connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
+    connect.stream(
+        url=f"wss://{host}/ws/twilio-media",
+        status_callback=f"https://{host}/webhook/stream_status"
+    )
+    
+    # === יצירה אוטומטית של ליד לכל שיחה נכנסת ===
     if from_number:
         threading.Thread(
             target=_create_lead_from_call,
@@ -248,19 +239,13 @@ def incoming_call():
             daemon=True
         ).start()
     
-    # החזרה מיידית ללא עיכובים + תיקון Error 12100
-    resp = make_response(twiml.encode("utf-8"), 200)
-    resp.headers["Content-Type"] = "application/xml; charset=utf-8"  # FIX_12100_INCOMING
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["X-Debug-Version"] = "TwiML_v2_fixed"
-    
-    # ⏱️ מדידת זמן תגובה - מטרה: < 1.5s
+    # ⏱️ מדידת זמן תגובה
     response_time_ms = int((time.time() - start_time) * 1000)
     status_emoji = "✅" if response_time_ms < 1500 else "⚠️"
-    print(f"{status_emoji} incoming_call response time: {response_time_ms}ms (target: <1500ms) - CallSid: {call_sid[:16]}")
+    print(f"{status_emoji} incoming_call SDK response: {response_time_ms}ms - CallSid: {call_sid[:16]}")
     
-    return resp
+    # ✅ החזרה עם _twiml() - תקין 100%
+    return _twiml(vr)
 
 @csrf.exempt
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])

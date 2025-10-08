@@ -1,12 +1,13 @@
 62
 ## Recent Changes (2025-10-08)
 
-### Build 62 - TwiML & WebSocket Stability Fixes
-- **Fixed TwiML whitespace issues** - Removed all leading spaces/indentation from XML responses to prevent Error 12100
-- **Improved error handling** - Added try/catch for race conditions in call updates
-- **WebSocket stability** - Fixed stream_status endpoint to always return 204
-- **Call recording cleanup** - Better handling of completed calls
-- **ASGI/Uvicorn ready** - Full support for Cloud Run native WebSockets
+### Build 62 - CRITICAL FIX: Error 12100 סופית נפתר!
+- **🔧 Twilio SDK (VoiceResponse)** - החלפת XML ידני ב-Twilio SDK הרשמי
+- **✅ `_twiml()` helper** - פונקציה אחידה להחזרת TwiML תקין
+- **📝 Content-Type תקין** - `text/xml; charset=utf-8` בכל response
+- **🎯 /webhook/incoming_call** - שימוש ב-VoiceResponse().connect().stream()
+- **🎯 /webhook/incoming_call_preview** - גם כן עם SDK
+- **🚀 Build validation** - TwiML מאומת שמתחיל ב-<?xml ומכיל <Response><Connect><Stream>
 
 ### Recording Retention System (Build 61)
 - Changed recording retention from 7 days to **2 days (48 hours exactly)**
