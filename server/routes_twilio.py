@@ -116,8 +116,11 @@ def _trigger_recording_for_call(call_sid):
                 # ✅ FIX Error 12100: NO leading spaces/whitespace in XML tags
                 record_twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Record playBeep="false" timeout="30" maxLength="300" transcribe="false" action="https://{host}/webhook/handle_recording"/></Response>'
                 
-                client.calls(call_sid).update(twiml=record_twiml)
-                print(f"✅ Updated call {call_sid} to Record TwiML")
+                try:
+                    client.calls(call_sid).update(twiml=record_twiml)
+                    print(f"✅ Updated call {call_sid} to Record TwiML")
+                except Exception as e:
+                    print(f"⚠️ Could not update call {call_sid} (may have ended): {e}")
             else:
                 print(f"ℹ️ Call {call_sid} ended without recording (status: {call.status})")
                 
