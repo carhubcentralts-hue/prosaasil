@@ -10,11 +10,11 @@ Preferred communication style: Simple, everyday language.
 
 ## Backend Architecture
 - **Framework**: Flask with SQLAlchemy ORM.
-- **WebSocket Support**: Eventlet-based WebSocket handling for Twilio Media Streams.
-- **WSGI Server**: Gunicorn with eventlet worker.
+- **WebSocket Support**: Starlette-based native WebSocket handling for Twilio Media Streams (Cloud Run compatible).
+- **ASGI Server**: Uvicorn with native WebSocket support (replaced Gunicorn/Eventlet for Cloud Run compatibility).
 - **Database**: PostgreSQL (SQLite for development).
 - **Authentication**: JWT-based with role-based access control (admin, business_owner, business_agent, read_only).
-- **Security**: SeaSurf CSRF protection (NO @csrf.exempt anywhere).
+- **Security**: SeaSurf CSRF protection with @csrf.exempt on Twilio webhooks.
 - **AI Prompt System**: Real-time prompt management with versioning and channel-specific prompts (calls vs whatsapp).
 
 ## Frontend Architecture
@@ -27,10 +27,10 @@ Preferred communication style: Simple, everyday language.
 - **Security**: CSRF protection, secure redirects, and role-based access control.
 
 ## Real-time Communication
-- **Twilio Integration**: Media Streams WebSocket with enhanced stability and keepalive mechanisms.
+- **Twilio Integration**: Media Streams WebSocket with Starlette/ASGI for Cloud Run native WebSocket support.
 - **Audio Processing**: μ-law to PCM conversion with optimized barge-in detection (200ms grace period).
-- **WebSocket Protocol**: Custom protocol for Twilio's `audio.twilio.com` subprotocol.
-- **Call Management**: TwiML generation for call routing and recording.
+- **WebSocket Protocol**: Starlette WebSocketRoute with Twilio's `audio.twilio.com` subprotocol support.
+- **Call Management**: TwiML generation for call routing and recording with WSS (secure WebSocket).
 - **Voice Activity Detection**: Calibrated VAD for Hebrew speech.
 - **Natural Conversation Flow**: Immediate TTS interruption and seamless turn-taking.
 
