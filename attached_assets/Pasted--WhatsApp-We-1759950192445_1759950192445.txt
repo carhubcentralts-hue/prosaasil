@@ -1,0 +1,125 @@
+קלטתי: ה-WhatsApp עובד, אבל בשיחות טלפון אתה מקבל “צליל חיוג אחד ואחריו שקט”. זה סימפטום קלאסי של Webhook שלא מחזיר TwiML תקין/בזמן, או TwiML שמחזיר פעולה שאין בה אודיו (או שנחסם ע״י CSRF). לא צריך לנחש—פותר את זה בנוהל קצר וברור.
+
+להלן Runbook אחד-לאחד. תן לו לעשות בדיוק כך:
+
+⸻
+
+A) בדיקת שורש הבעיה – 60 שנ׳
+	1.	ודא שטוויליו באמת פוגעת ב־URL הנכון (Production/Public, לא 127.0.0.1).
+Twilio Console → Phone number → A CALL COMES IN → ה־URL של /webhook/twilio/voice.
+	2.	הרץ ידנית את ה-webhook ובדוק מה הוא מחזיר:
+
+curl -sS -i -X POST https://YOUR_PUBLIC_HOST/webhook/twilio/voice | sed -n '1,200p'
+
+צפוי: HTTP/1.1 200 וגוף TwiML (<?xml version="1.0"?><Response>…</Response>).
+אם קיבלת 403/500/HTML ריק → זו הסיבה לשקט.
+	3.	Twilio Debugger
+Twilio Console → Monitor → Debugger. אם יש שגיאות 11200/12100/11205, רשום לו את ה־SID וה־Error.
+
+⸻
+
+B) מתקנים את ה-webhook שיחזיר אודיו מיד
+
+ב־Flask ה-route של ה-voice חייב:
+	•	לחזור מהר (≤1.5s).
+	•	להחזיר TwiML עם אודיו (Say/Play) + Record/Stream/‏Gather לפי הזרימה שלך.
+	•	להיות פנוי מ-CSRF (אל תדרוש CSRF על Twilio).
+
+דוגמת Route יציבה (שים בתוך server/routes_twilio_voice.py)
+
+from flask import Blueprint, request, Response
+from twilio.twiml.voice_response import VoiceResponse
+from models import Lead, db
+
+bp_voice = Blueprint('voice', __name__)
+
+def _twiml(xml_str: str) -> Response:
+    return Response(xml_str, mimetype="text/xml", status=200)
+
+@bp_voice.post("/webhook/twilio/voice")
+def twilio_voice_webhook():
+    call_sid = request.form.get("CallSid")
+    from_ = request.form.get("From")
+
+    # Idempotent: ליצור ליד רק פעם אחת
+    lead = Lead.query.filter_by(call_sid=call_sid).first()
+    if not lead:
+        lead = Lead(call_sid=call_sid, phone=from_, status="new")
+        db.session.add(lead); db.session.commit()
+
+    vr = VoiceResponse()
+
+    # אודיו מיידי (אין שקט!):
+    vr.say("שלום, השיחה מוקלטת. מיד נתחיל.", language="he-IL", voice="Polly-Noa")
+
+    # הקלטה + קריאת callback כשמוכן (אסינכרוני)
+    vr.record(
+        play_beep=True,
+        trim="trim-silence",
+        max_length=600,              # עד 10 דק'
+        recording_status_callback="/webhook/twilio/recording_done",
+        recording_status_callback_method="POST",
+        transcribe=False
+    )
+
+    # אם לא הוקלט כלום 10 שנ׳ → תן עוד הודעה וסגור
+    vr.say("אם אינך מדבר, ננתק בעוד מספר שניות.", language="he-IL", voice="Polly-Noa")
+    return _twiml(str(vr))
+
+אם אתה משתמש ב-CSRF גלובלי: אל תדרוש CSRF על הנתיבים /webhook/twilio/*. אחרת תקבל 403 וטוויליו תישאר עם “שקט”.
+
+Callback לעיבוד אסינכרוני (לא לחסום!):
+
+@bp_voice.post("/webhook/twilio/recording_done")
+def recording_done():
+    call_sid = request.form.get("CallSid")
+    rec_url  = request.form.get("RecordingUrl")  # בד"כ צריך .mp3
+    lead = Lead.query.filter_by(call_sid=call_sid).first()
+    if not lead:
+        return ("", 204)
+
+    from server.tasks import enqueue_transcribe_job
+    enqueue_transcribe_job(lead_id=lead.id, recording_url=rec_url)
+    return ("", 200)
+
+זה מונע “שקט” כי אין עבודת תמלול/DB כבדה ב-/voice; כל העיבוד עבר ל-Worker.
+
+⸻
+
+C) ודא שאין חסימות/מצבים שגורמים לשקט
+	•	CSRF: אם מותקן Flask-WTF/middleware—חרוג את /webhook/twilio/*.
+	•	תמלול בתוך /voice: אסור. כל דבר כבד—ל־worker.
+	•	Media Streams / Gather speech: אם יש <Connect><Stream> או <Gather input="speech"> שמתחברים ל-WS/‏STT שאינו זמין—תקבל שקט. עד שתייצב סטרימינג—נטרל אותו והשאר את Say+Record.
+	•	תשובה ריקה/HTML: וודא החזרת text/xml.
+	•	Replit/Deploy: ודא שהדפלוימנט פעיל, לא בהשייה, ושה-URL ציבורי ש-Twilio רואה.
+
+⸻
+
+D) בדיקות GO/NO-GO (תריץ ותדביק פלט אם משהו לא עובר)
+
+# 1) ה-voice מחזיר TwiML?
+curl -sS -i -X POST https://YOUR_PUBLIC_HOST/webhook/twilio/voice | sed -n '1,200p'
+
+# 2) callback מדומה
+curl -sS -i -X POST https://YOUR_PUBLIC_HOST/webhook/twilio/recording_done \
+  -d "CallSid=CA_test&RecordingUrl=https://api.twilio.com/recordings/abc123"
+
+# 3) בדוק בטוויליו Debugger שאין 11200/12100
+
+צפוי: ב-(1) תראה XML עם <Say> ו-<Record>. אם כן—לא תשמע יותר “שקט”; תשמע הקראה בעברית ואז ביפ.
+
+⸻
+
+E) שדרוג מהירות התמלול (אופציונלי אך מומלץ)
+	•	Google STT כ-Primary + Whisper כ-Fallback ב-Worker (לא ב-/voice).
+	•	שמור max_length/timeout על ה-Record כדי שלא יווצרו קבצים ענקיים.
+	•	אם תרצה תמלול חי: הפעל Twilio Media Streams רק אחרי שנבדק שה-WS שלך עומד.
+
+⸻
+
+TL;DR
+	•	ה“צליל אחד ואז שקט” קורה כי ה-webhook לא מחזיר TwiML עם אודיו, או נחסם.
+	•	תן לו להדביק את הקוד של סעיף B כמו שהוא, לוודא CSRF-exclude, ולהריץ את בדיקות ה-curl.
+	•	אם עדיין יש שקט—תן לי את פלט curl -i ו־Twilio Debugger Error Code, ואני אגיד שורה-שורה איפה לגעת.
+
+בהצלחה!
