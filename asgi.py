@@ -12,7 +12,9 @@ from starlette.applications import Starlette
 from starlette.routing import Mount, WebSocketRoute
 from starlette.websockets import WebSocket
 
-from wsgi import flask_app  # Flask WSGI app
+# Import Flask app directly from factory (no EventLet dependency)
+from server.app_factory import create_app
+flask_app = create_app()
 
 async def ws_twilio_media(websocket: WebSocket):
     """
