@@ -1,0 +1,106 @@
+Call Details
+Details
+Insights Summary
+Metrics
+Properties
+Call SID
+CA3b8ff3ae1ee432de16c9160c4287ab16
+Date
+23:31:54 IDT 2025-10-08
+Start Time
+23:31:54 IDT 2025-10-08
+End Time
+23:32:04 IDT 2025-10-08
+Duration
+10 sec
+Cost
+$0.00
+From
++972504294724
+To
+
++97233763805
+Direction
+Incoming
+Type
+Phone
+Status
+Completed
+Stir/Shaken Status 
+—
+Request Inspector
++ Expand All
+POST
+https://ai-crmd.replit.app/webhook/incoming_call
+2025-10-08 20:31:54 UTC146ms200
+Request
+URL
+https://ai-crmd.replit.app/webhook/incoming_call
+ParametersShow Raw
+Called	"+97233763805"
+ToState	"Yovel"
+CallerCountry	"IL"
+Direction	"inbound"
+CallerState	""
+ToZip	""
+CallSid	"CA3b8ff3ae1ee432de16c9160c4287ab16"
+To	"+97233763805"
+CallerZip	""
+ToCountry	"IL"
+CallToken	"%7B%22parentCallInfoToken%22%3A%22eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0EzYjhmZjNhZTFlZTQzMmRlMTZjOTE2MGM0Mjg3YWIxNiIsImZyb20iOiIrOTcyNTA0Mjk0NzI0IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzU5OTU1NTE0In0.s-uZr93MCI11yjz8Asl6ri_I9ECGVwVIo7GJKnytr3JIq3u-O6P8g7Hy95wo75DMEkja5Om0dbY0XhgK5Q5nDw%22%2C%22identityHeaderTokens%22%3A%5B%5D%7D"
+CalledZip	""
+ApiVersion	"2010-04-01"
+CalledCity	"Mayanei Hayeshua"
+CallStatus	"ringing"
+From	"+972504294724"
+AccountSid	"ACcd09431f076a309088b18ed1f286f32e"
+CalledCountry	"IL"
+CallerCity	""
+ToCity	"Mayanei Hayeshua"
+FromCountry	"IL"
+Caller	"+972504294724"
+FromCity	""
+CalledState	"Yovel"
+FromZip	""
+FromState	""
+Response
+Headers
+Content-Type application/xml; charset=utf-8
+BodyShow Raw
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect action="https://ai-crmd.replit.app/webhook/stream_ended">
+        <Stream url="wss://ai-crmd.replit.app/ws/twilio-media"            statusCallback="https://ai-crmd.replit.app/webhook/stream_status">
+            <Parameter name="CallSid" value="CA3b8ff3ae1ee432de16c9160c4287ab16"/>
+        </Stream>
+    </Connect>
+</Response>
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 20:31:54 UTC107ms204
+Request
+URL
+https://ai-crmd.replit.app/webhook/stream_status
+ParametersShow Raw
+StreamName	"MZbb5ce134950ca6fe0dd1c4fb8b165eb2"
+CallSid	"CA3b8ff3ae1ee432de16c9160c4287ab16"
+Timestamp	"2025-10-08T20:31:54.829376039Z"
+AccountSid	"ACcd09431f076a309088b18ed1f286f32e"
+StreamEvent	"stream-started"
+StreamSid	"MZbb5ce134950ca6fe0dd1c4fb8b165eb2"
+Response
+Headers
+Content-Type text/plain
+Body
+No body.
+POST
+https://ai-crmd.replit.app/webhook/stream_status
+2025-10-08 20:32:04 UTC73ms204
+POST
+https://ai-crmd.replit.app/webhook/stream_ended
+2025-10-08 20:32:04 UTC107ms204
+POST
+https://ai-crmd.replit.app/webhook/call_status
+2025-10-08 20:32:05 UTC138ms204
+
+Delete this call log

@@ -30,11 +30,11 @@ nohup node services/whatsapp/baileys_service.js > /tmp/baileys_prod.log 2>&1 &
 BAI=$!
 echo "✅ Baileys started (PID: $BAI)"
 
-# 2) Start Flask (external listener)
-echo "🟡 Starting Flask on port ${PORT}..."
-nohup gunicorn -w 1 -k eventlet -b 0.0.0.0:${PORT} wsgi:app > /tmp/flask_prod.log 2>&1 &
+# 2) Start Flask with Uvicorn (ASGI server with WebSocket support)
+echo "🟡 Starting Flask with Uvicorn on port ${PORT}..."
+nohup uvicorn asgi:app --host 0.0.0.0 --port ${PORT} > /tmp/flask_prod.log 2>&1 &
 FL=$!
-echo "✅ Flask started (PID: $FL)"
+echo "✅ Flask/Uvicorn started (PID: $FL)"
 
 echo "🎯 Both services running. System ready!"
 echo "📊 Access: http://0.0.0.0:${PORT}"
@@ -68,7 +68,7 @@ while true; do
     
     if ! kill -0 $FL 2>/dev/null; then
         echo "❌ Flask died (PID $FL) - restarting..."
-        nohup gunicorn -w 1 -k eventlet -b 0.0.0.0:${PORT} wsgi:app >> /tmp/flask_prod.log 2>&1 &
+        nohup uvicorn asgi:app --host 0.0.0.0 --port ${PORT} >> /tmp/flask_prod.log 2>&1 &
         FL=$!
     fi
     
