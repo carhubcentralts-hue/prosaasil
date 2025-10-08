@@ -152,9 +152,9 @@ def app(environ, start_response):
         ])
         return [b'']
 
-    # Fast TwiML response for incoming calls
-    if path in ('/webhook/incoming_call', '/webhook/incoming_call/'):
-        print(f"⚡ Fast TwiML for {path}", flush=True)
+    # Fast TwiML response for incoming calls (GET only for preview)
+    if path in ('/webhook/incoming_call_preview', '/webhook/incoming_call_preview/') and method == 'GET':
+        print(f"⚡ Fast TwiML preview for {path}", flush=True)
         scheme = (environ.get('HTTP_X_FORWARDED_PROTO') or 'https').split(',')[0].strip()
         host = (environ.get('HTTP_X_FORWARDED_HOST') or environ.get('HTTP_HOST')).split(',')[0].strip()
         base = f"{scheme}://{host}"
@@ -162,7 +162,7 @@ def app(environ, start_response):
 <Response>
   <Connect action="{base}/webhook/stream_ended">
     <Stream url="wss://{host}/ws/twilio-media" statusCallback="{base}/webhook/stream_status">
-      <Parameter name="CallSid" value="{{CALL_SID}}"/>
+      <Parameter name="CallSid" value="PREVIEW"/>
     </Stream>
   </Connect>
 </Response>'''
