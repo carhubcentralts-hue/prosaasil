@@ -29,8 +29,8 @@ class SyncWebSocketWrapper:
     Uses queues to bridge async/sync boundary
     """
     def __init__(self):
-        self.recv_queue = Queue()  # async → sync
-        self.send_queue = Queue()  # sync → async
+        self.recv_queue = Queue(maxsize=500)  # async → sync (max 500 frames ~10s of audio)
+        self.send_queue = Queue(maxsize=500)  # sync → async (max 500 frames)
         self.running = True
         
     def receive(self):

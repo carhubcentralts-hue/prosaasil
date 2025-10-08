@@ -177,11 +177,11 @@ def incoming_call_preview():
     call_sid = "CA_PREVIEW_" + str(int(time.time()))
     
     # תיקון קריטי: וידוא https:// ב-base URLs
-    # ✅ FIX: Use Replit domain as fallback, not localhost!
+    # ✅ FIX: Prefer PUBLIC_HOST in production, then dev domain for local testing
     scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
     # Clean PUBLIC_HOST from https:// and trailing slashes
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
-    replit_domain = os.environ.get('REPLIT_DEV_DOMAIN') or public_host or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+    replit_domain = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
     host   = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     base   = f"{scheme}://{host}"
     
@@ -218,11 +218,11 @@ def incoming_call():
     from_number = request.form.get("From", "")
     
     # תיקון קריטי: וידוא https:// ב-base URLs (לפי ההנחיות)
-    # ✅ FIX: Use Replit domain as fallback, not localhost!
+    # ✅ FIX: Prefer PUBLIC_HOST in production, then dev domain for local testing
     scheme = (request.headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
     # Clean PUBLIC_HOST from https:// and trailing slashes
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
-    replit_domain = os.environ.get('REPLIT_DEV_DOMAIN') or public_host or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+    replit_domain = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
     host   = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     base   = f"{scheme}://{host}"
     
@@ -308,7 +308,8 @@ def handle_recording():
     rec_status = request.form.get("RecordingStatus", "unknown")
     
     # Immediate response preparation (no blocking operations)
-    resp = make_response("", 204)
+    # ✅ FIX: Return 200 OK (not 204) as per Twilio webhook best practices
+    resp = make_response("", 200)
     resp.headers.update({
         "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
         "Pragma": "no-cache",
