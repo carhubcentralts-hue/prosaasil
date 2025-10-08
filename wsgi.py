@@ -29,6 +29,18 @@ from server.app_factory import create_app
 
 def ws_handler(ws):
     """EventLet WebSocket handler for Twilio media streams"""
+    import time
+    timestamp = int(time.time())
+    
+    # CRITICAL DEBUG: Write to file for guaranteed logging
+    try:
+        with open(f"/tmp/ws_handler_called_{timestamp}.txt", "w") as f:
+            f.write(f"WS_HANDLER_CALLED at {timestamp}\n")
+            f.write(f"WebSocket type: {type(ws)}\n")
+            f.flush()
+    except:
+        pass
+    
     print("📞 WebSocket handler called!", flush=True)
     
     try:
@@ -38,6 +50,15 @@ def ws_handler(ws):
     except Exception as e:
         print(f"❌ WebSocket error: {e}", flush=True)
         traceback.print_exc()
+        
+        # Log error to file
+        try:
+            with open(f"/tmp/ws_error_{timestamp}.txt", "w") as f:
+                f.write(f"ERROR: {e}\n")
+                f.write(traceback.format_exc())
+                f.flush()
+        except:
+            pass
 
 class WebSocketAppWithProtocol:
     """WebSocket WSGI app that handles Twilio subprotocol"""
@@ -185,6 +206,17 @@ def app(environ, start_response):
     
     # Route WebSocket requests to EventLet
     if path in ('/ws/twilio-media', '/ws/twilio-media/') and _is_websocket_request(environ):
+        # CRITICAL DEBUG: Write to file for guaranteed logging
+        try:
+            with open(f"/tmp/ws_route_{int(time.time())}.txt", "w") as f:
+                f.write(f"WS_ROUTE at {time.time()}\n")
+                f.write(f"Path: {path}\n")
+                f.write(f"Method: {method}\n")
+                f.write(f"Is WebSocket: {_is_websocket_request(environ)}\n")
+                f.flush()
+        except:
+            pass
+            
         print("📞 Routing WebSocket to EventLet", flush=True)
         return websocket_app_with_protocol(environ, start_response)
     
