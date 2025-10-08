@@ -58,8 +58,16 @@ async def ws_twilio_media(websocket: WebSocket):
     WebSocket handler for Twilio Media Streams
     Bridges async Starlette WS to sync MediaStreamHandler
     """
+    # Log connection attempt
+    log.info(f"📞 WebSocket connection attempt: headers={dict(websocket.headers)}")
+    
     # Accept with Twilio subprotocol
-    await websocket.accept(subprotocol="audio.twilio.com")
+    try:
+        await websocket.accept(subprotocol="audio.twilio.com")
+        log.info("✅ WebSocket accepted with subprotocol: audio.twilio.com")
+    except Exception as e:
+        log.error(f"❌ WebSocket accept failed: {e}")
+        raise
     
     log.info("📞 WebSocket connected: /ws/twilio-media")
     

@@ -1,0 +1,64 @@
+~/workspace$ curl -i -N \
+  -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" \
+  -H "Sec-WebSocket-Key: test" \
+  https://ai-crmd.replit.app/ws/twilio-media
+HTTP/2 200 
+access-control-allow-credentials: true
+access-control-allow-origin: http://localhost:5000
+cache-control: no-cache
+content-disposition: inline; filename=index.html
+content-length: 1188
+content-security-policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' wss: ws:; frame-ancestors 'none'; object-src 'none';
+content-type: text/html; charset=utf-8
+date: Wed, 08 Oct 2025 23:38:53 GMT
+etag: "1759965893.0-1188-1131418796"
+expires: Wed, 08 Oct 2025 23:38:53 GMT
+last-modified: Wed, 08 Oct 2025 23:24:53 GMT
+permissions-policy: camera=(), microphone=(), geolocation=()
+referrer-policy: strict-origin-when-cross-origin
+server: Google Frontend
+set-cookie: _csrf_token=21afff5a05c6c0d2bfd0d2095a7c36a8dde0bed823539c5a59999a8e63364b09; Expires=Mon, 13 Oct 2025 23:38:53 GMT; Max-Age=432000; Path=/; SameSite=Lax
+set-cookie: al_sess=.eJwNxMsNgDAIANBdOgEWweIyDeVzMdFEvRl313d4T-l2ndnvY4u9rKVOmpmkQMYGXkf6PwjpYsja3ANGeKtIKEZK8tMWjMjzACnvByooGC8.aOb2DQ.wGX-T1p7NfPleRZ9ODIAwZhvngs; Secure; HttpOnly; Path=/; SameSite=Lax
+strict-transport-security: max-age=63072000; includeSubDomains
+vary: Origin, Cookie
+x-cloud-trace-context: b0216ba468a784bbcb83e193557c59d1;o=1
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-xss-protection: 1; mode=block
+via: 1.1 google
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <base href="/" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="x-build" content="59">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>AI CRM — BUILD-59</title>
+    <style>
+      .build-version {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        background: rgba(0,0,0,0.1);
+        padding: 2px 6px;
+        font-size: 10px;
+        border-radius: 3px;
+        z-index: 9999;
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index-CjYFmzmk.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BYuwk5KP.css">
+  </head>
+  <body class="min-h-dvh bg-slate-50">
+    <div id="__BUILD" style="position:fixed;right:.5rem;bottom:.5rem;background:#0ea5e9;color:#fff;padding:.25rem .5rem;border-radius:.5rem;z-index:2147483647">
+      BUILD: 59
+    </div>
+    <div id="root"></div>
+    <!-- BUILD VERIFICATION BADGE -->
+  </body>
