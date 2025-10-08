@@ -1,0 +1,136 @@
+2025-10-08 22:17:40.82
+473d82c0
+User
+✅ All services confirmed running and ready!
+2025-10-08 22:17:40.82
+473d82c0
+User
+🔑 PIDs saved - Baileys: 33 | Flask: 34
+2025-10-08 22:17:40.82
+473d82c0
+User
+✅ Startup complete - keeping processes alive...
+2025-10-08 22:17:40.82
+473d82c0
+User
+💡 Press Ctrl+C to stop all services
+2025-10-08 22:51:18.50
+473d82c0
+System
+system: received signal terminated
+2025-10-08 22:51:52.37
+087e5d5d
+System
+starting up user application
+2025-10-08 22:51:52.38
+087e5d5d
+System
+forwarding local port 5000 to external port 80 (mapped as 1104)
+2025-10-08 22:51:52.57
+087e5d5d
+User
+🚀 Starting AgentLocator Production System - Build #61
+2025-10-08 22:51:52.57
+087e5d5d
+User
+📊 Flask: 0.0.0.0:5000 | Baileys: 127.0.0.1:3300
+2025-10-08 22:51:52.57
+087e5d5d
+User
+✅ Build 61: Admin cross-tenant lead deletion + AI memory fixes
+2025-10-08 22:51:52.57
+087e5d5d
+User
+✅ INTERNAL_SECRET found in environment
+2025-10-08 22:51:52.57
+087e5d5d
+User
+🟡 Installing Node dependencies for Baileys...
+2025-10-08 22:51:55.24
+087e5d5d
+User
+up to date, audited 183 packages in 2s
+2025-10-08 22:51:55.24
+087e5d5d
+User
+33 packages are looking for funding
+2025-10-08 22:51:55.24
+087e5d5d
+User
+run `npm fund` for details
+2025-10-08 22:51:55.25
+087e5d5d
+User
+found 0 vulnerabilities
+2025-10-08 22:51:55.25
+087e5d5d
+User
+npm notice
+2025-10-08 22:51:55.25
+087e5d5d
+User
+npm notice New major version of npm available! 10.8.2 -> 11.6.1
+2025-10-08 22:51:55.25
+087e5d5d
+User
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.6.1
+2025-10-08 22:51:55.25
+087e5d5d
+User
+npm notice To update run: npm install -g npm@11.6.1
+2025-10-08 22:51:55.25
+087e5d5d
+User
+npm notice
+2025-10-08 22:51:55.26
+087e5d5d
+User
+🟡 Starting Baileys on port 3300...
+2025-10-08 22:51:55.26
+087e5d5d
+User
+✅ Baileys started (PID: 34)
+2025-10-08 22:51:55.26
+087e5d5d
+User
+🟡 Starting Flask on port 5000...
+2025-10-08 22:51:55.26
+087e5d5d
+User
+✅ Flask started (PID: 35)
+2025-10-08 22:51:55.26
+087e5d5d
+User
+🎯 Both services running. System ready!
+2025-10-08 22:51:55.26
+087e5d5d
+User
+📊 Access: http://0.0.0.0:5000
+2025-10-08 22:51:55.26
+087e5d5d
+User
+📝 Logs: /tmp/baileys_prod.log | /tmp/flask_prod.log
+2025-10-08 22:52:00.26
+087e5d5d
+User
+🔍 Final status check...
+2025-10-08 22:52:00.26
+087e5d5d
+User
+✅ All services confirmed running and ready!
+2025-10-08 22:52:00.26
+087e5d5d
+User
+🔑 PIDs saved - Baileys: 34 | Flask: 35
+2025-10-08 22:52:00.26
+087e5d5d
+User
+✅ Startup complete - keeping processes alive...
+2025-10-08 22:52:00.26
+087e5d5d
+User
+💡 Press Ctrl+C to stop all services
+
+Wrap
+
+Colors
