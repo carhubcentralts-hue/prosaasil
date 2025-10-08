@@ -1,7 +1,14 @@
-61
+62
 ## Recent Changes (2025-10-08)
 
-### Recording Retention System
+### Build 62 - TwiML & WebSocket Stability Fixes
+- **Fixed TwiML whitespace issues** - Removed all leading spaces/indentation from XML responses to prevent Error 12100
+- **Improved error handling** - Added try/catch for race conditions in call updates
+- **WebSocket stability** - Fixed stream_status endpoint to always return 204
+- **Call recording cleanup** - Better handling of completed calls
+- **ASGI/Uvicorn ready** - Full support for Cloud Run native WebSockets
+
+### Recording Retention System (Build 61)
 - Changed recording retention from 7 days to **2 days (48 hours exactly)**
 - Added `auto_cleanup_old_recordings()` function for automated cleanup
 - Updated `POST /api/calls/cleanup` to delete both DB entries and disk files
