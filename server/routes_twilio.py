@@ -25,7 +25,9 @@ def _twiml(vr: VoiceResponse) -> Response:
     ✅ תיקון Error 12100: החזרת TwiML תקין עם Twilio SDK
     """
     xml = str(vr)
-    return Response(xml, status=200, headers={'Content-Type': 'text/xml; charset=utf-8'})
+    resp = Response(xml, status=200)
+    resp.headers['Content-Type'] = 'application/xml'
+    return resp
 
 def abs_url(path: str) -> str:
     """Generate absolute URL for TwiML - תיקון קריטי להסבת https://"""
