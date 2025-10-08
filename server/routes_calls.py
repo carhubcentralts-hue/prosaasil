@@ -69,10 +69,10 @@ def list_calls():
         # Format response
         calls_data = []
         for call in calls:
-            # Calculate expiry date (7 days from creation)
+            # Calculate expiry date (2 days from creation)
             expiry_date = None
             if call.recording_url and call.created_at:
-                expiry_date = (call.created_at + timedelta(days=7)).isoformat()
+                expiry_date = (call.created_at + timedelta(days=2)).isoformat()
             
             calls_data.append({
                 "sid": call.call_sid,
@@ -170,8 +170,8 @@ def download_recording(call_sid):
         if not call or not call.recording_url:
             return jsonify({"success": False, "error": "Recording not found"}), 404
         
-        # Check if recording is expired (7 days)
-        if call.created_at and (datetime.utcnow() - call.created_at).days > 7:
+        # Check if recording is expired (2 days)
+        if call.created_at and (datetime.utcnow() - call.created_at).days > 2:
             return jsonify({"success": False, "error": "Recording expired and deleted"}), 410
         
         # Security: Validate recording URL is from trusted Twilio domain
@@ -233,31 +233,18 @@ def download_recording(call_sid):
 @calls_bp.route("/api/calls/cleanup", methods=["POST"])
 @require_api_auth(["admin"])
 def cleanup_old_recordings():
-    """מחיקה ידנית של הקלטות ישנות (רק למנהלים)"""
+    """✨ מחיקה מלאה של הקלטות ישנות - DB + קבצים (יומיים+)"""
     try:
-        # Delete recordings older than 7 days
-        cutoff_date = datetime.utcnow() - timedelta(days=7)
+        from server.tasks_recording import auto_cleanup_old_recordings
         
-        old_calls = Call.query.filter(
-            Call.created_at < cutoff_date,
-            Call.recording_url.isnot(None)
-        ).all()
-        
-        deleted_count = 0
-        for call in old_calls:
-            # Clear recording URL and transcript to free space
-            call.recording_url = None
-            # Keep transcription for now as it's text and small
-            deleted_count += 1
-        
-        db.session.commit()
-        
-        log.info(f"Cleaned up {deleted_count} old recordings")
+        # הרץ ניקוי מלא
+        deleted_count, files_deleted = auto_cleanup_old_recordings()
         
         return jsonify({
             "success": True,
             "deleted_count": deleted_count,
-            "message": f"נמחקו {deleted_count} הקלטות ישנות"
+            "files_deleted": files_deleted,
+            "message": f"נמחקו {deleted_count} הקלטות ({files_deleted} קבצים מהדיסק)"
         })
         
     except Exception as e:

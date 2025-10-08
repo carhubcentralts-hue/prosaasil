@@ -268,3 +268,51 @@ def transcribe_with_whisper_api(audio_file):
         log.error("Whisper API transcription failed: %s", e)
         return "תמלול Whisper נכשל"
 
+def auto_cleanup_old_recordings():
+    """✨ מחיקה אוטומטית של הקלטות ישנות (יותר מיומיים) + קבצים מהדיסק"""
+    try:
+        from server.app_factory import create_app
+        from server.db import db
+        from server.models_sql import CallLog
+        from datetime import datetime, timedelta
+        import os
+        
+        app = create_app()
+        with app.app_context():
+            # מחק הקלטות מעל יומיים
+            cutoff_date = datetime.utcnow() - timedelta(days=2)
+            
+            old_calls = CallLog.query.filter(
+                CallLog.created_at < cutoff_date,
+                CallLog.recording_url.isnot(None)
+            ).all()
+            
+            deleted_count = 0
+            files_deleted = 0
+            
+            for call in old_calls:
+                # מחק קובץ מהדיסק אם קיים
+                if call.call_sid:
+                    recordings_dir = "server/recordings"
+                    file_path = f"{recordings_dir}/{call.call_sid}.mp3"
+                    
+                    if os.path.exists(file_path):
+                        try:
+                            os.remove(file_path)
+                            files_deleted += 1
+                            log.info(f"🗑️ Deleted recording file: {file_path}")
+                        except Exception as e:
+                            log.error(f"Failed to delete file {file_path}: {e}")
+                
+                # נקה URL מהDB (שמור transcription - זה טקסט קטן)
+                call.recording_url = None
+                deleted_count += 1
+            
+            db.session.commit()
+            
+            log.info(f"✅ Auto cleanup completed: {deleted_count} DB entries cleared, {files_deleted} files deleted")
+            return deleted_count, files_deleted
+            
+    except Exception as e:
+        log.error(f"❌ Auto cleanup failed: {e}")
+        return 0, 0
