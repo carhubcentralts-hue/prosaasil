@@ -14,14 +14,20 @@ import threading
 from queue import Queue, Empty
 from asgiref.wsgi import WsgiToAsgi
 from starlette.applications import Starlette
-from starlette.routing import Mount, WebSocketRoute
+from starlette.routing import Mount, WebSocketRoute, Route
 from starlette.websockets import WebSocket
+from starlette.responses import PlainTextResponse
+from starlette.requests import Request
 
 # Import Flask app directly from factory (no EventLet dependency)
 from server.app_factory import create_app
 
 log = logging.getLogger("twilio_ws")
 flask_app = create_app()
+
+async def ws_http_probe(request: Request):
+    """Return 426 Upgrade Required for non-WebSocket requests"""
+    return PlainTextResponse("Upgrade Required", status_code=426)
 
 class SyncWebSocketWrapper:
     """
@@ -101,6 +107,13 @@ async def ws_twilio_media(websocket: WebSocket):
                     try:
                         msg = await websocket.receive_json()
                         ws_wrapper.recv_queue.put(json.dumps(msg))
+                    except json.JSONDecodeError:
+                        # Non-JSON frames - consume text to keep loop alive
+                        try:
+                            _ = await websocket.receive_text()
+                        except Exception:
+                            pass
+                        continue
                     except Exception as e:
                         log.error(f"Receive error: {e}")
                         break
@@ -154,7 +167,14 @@ async def ws_twilio_media(websocket: WebSocket):
         log.info("📞 WebSocket closed")
 
 # ASGI Application with Starlette
+# Order matters: WS routes BEFORE Mount to prevent SPA from catching them
 asgi_app = Starlette(routes=[
+    # Block non-WebSocket GET requests (return 426 instead of HTML)
+    Route("/ws/twilio-media", ws_http_probe, methods=["GET"]),
+    Route("/ws/twilio-media/", ws_http_probe, methods=["GET"]),
+    # WebSocket routes (with and without trailing slash)
     WebSocketRoute("/ws/twilio-media", ws_twilio_media),
+    WebSocketRoute("/ws/twilio-media/", ws_twilio_media),
+    # Flask/SPA mount (fallback for everything else)
     Mount("/", app=WsgiToAsgi(flask_app)),
 ])
