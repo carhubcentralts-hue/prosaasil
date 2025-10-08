@@ -32,7 +32,7 @@ echo "✅ Baileys started (PID: $BAI)"
 
 # 2) Start Flask with Uvicorn (ASGI server with WebSocket support)
 echo "🟡 Starting Flask with Uvicorn on port ${PORT}..."
-nohup uvicorn asgi:app --host 0.0.0.0 --port ${PORT} > /tmp/flask_prod.log 2>&1 &
+nohup uvicorn asgi:asgi_app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 > /tmp/flask_prod.log 2>&1 &
 FL=$!
 echo "✅ Flask/Uvicorn started (PID: $FL)"
 
@@ -68,7 +68,7 @@ while true; do
     
     if ! kill -0 $FL 2>/dev/null; then
         echo "❌ Flask died (PID $FL) - restarting..."
-        nohup uvicorn asgi:app --host 0.0.0.0 --port ${PORT} >> /tmp/flask_prod.log 2>&1 &
+        nohup uvicorn asgi:asgi_app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 >> /tmp/flask_prod.log 2>&1 &
         FL=$!
     fi
     
