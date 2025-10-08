@@ -1,0 +1,124 @@
+בקצרה: הכיוון שלו נכון — לעבור מ-Gunicorn+Eventlet (WSGI) ל-ASGI עם Uvicorn ולתת endpoint WebSocket אמיתי למדיה של Twilio זו בחירה נכונה ל-Cloud Run.
+אבל צריך לוודא שהוא סגר את כל הפינות, אחרת ה-stream יתחיל וייסגר מיד (בדיוק מה שאתה רואה).
+
+להלן בדיקת תקינות + הנחיה סופר-מדויקת שתביא את זה ל־100%:
+
+⸻
+
+למה הקודם נפל
+	•	השגיאה No eventlet.input or gunicorn.socket present in environ אומרת שהבקשה לא “שודרגה” ל-WebSocket בשכבת השרת, ולכן ה-handler של Eventlet לא קיבל socket תקין. ב-Cloud Run זה קורה לא מעט עם סטאק WSGI.
+	•	ASGI (Uvicorn) פותר את זה כי הוא native WebSocket.
+
+⸻
+
+איך עושים את זה נכון (ASGI מינימלי, לא שובר Flask)
+	1.	עוטפים את Flask כ-WSGI בתוך ASGI, ופותחים מסלול WebSocket נפרד למדיה:
+
+# asgi.py
+from asgiref.wsgi import WsgiToAsgi
+from starlette.applications import Starlette
+from starlette.routing import Mount, WebSocketRoute
+from starlette.responses import PlainTextResponse
+
+from wsgi import app as flask_app  # זה ה-Flask שלך
+
+async def ws_twilio_media(websocket):
+    # חובה לקבל את החיבור:
+    await websocket.accept()
+    try:
+        while True:
+            # Twilio שולחת frames כ-JSON (media/start, media/stop, media, mark, close)
+            msg = await websocket.receive_json()
+            # כאן לפחות "לצרוך" את ההודעות כדי שהחיבור לא ייסגר מייד.
+            # (אם יש לך pipeline ל-STT בזמן אמת – קרא לו כאן)
+            # לדוגמה: print(msg["event"], flush=True)
+    except Exception:
+        pass
+    finally:
+        await websocket.close()
+
+asgi_app = Starlette(routes=[
+    Mount("/", app=WsgiToAsgi(flask_app)),              # כל ה-HTTP של Flask
+    WebSocketRoute("/ws/twilio-media", ws_twilio_media) # ה-WS למדיה
+])
+
+	2.	Procfile/פקודת הרצה (גם בדיפלוי וגם מקומי):
+
+web: uvicorn asgi:asgi_app --host 0.0.0.0 --port ${PORT:-5000} --ws websockets --lifespan off --timeout-keep-alive 75
+
+ב-Cloud Run הקפד להשתמש ב-$PORT של הסביבה.
+
+	3.	תצורת Twilio ב-/incoming_call
+ה-TwiML חייב להחזיר WebSocket אמיתי (WSS!) ולכלול Connect/Stream:
+
+from twilio.twiml.voice_response import VoiceResponse
+
+vr = VoiceResponse()
+vr.say("שלום, מחברים את השיחה.", language="he-IL", voice="Polly-Noa")
+connect = vr.connect()
+connect.stream(url="wss://YOUR-CLOUDRUN-URL/ws/twilio-media")  # שים WSS ודומיין ציבורי
+return Response(str(vr), mimetype="text/xml")
+
+טיפים חשובים:
+	•	WSS (לא WS) + כתובת ציבורית של Cloud Run.
+	•	אין CSRF על /webhook/incoming_call.
+	•	תשובה תוך ≤1.5 שנ׳.
+
+	4.	דרישות (requirements.txt)
+ודא שמותקנים:
+
+uvicorn[standard]
+asgi_ref
+starlette
+
+(אם אתה משתמש ב־asgi_ref כתבת בטעות; הנכון asgiref)
+	5.	בדיקת חיים ידנית ל-WS
+ממחשב פיתוח (רק לבדוק שהסוקט לא נסגר מיידית):
+
+# חיבור (אם יש לך כלי כמו websocat):
+websocat wss://YOUR-CLOUDRUN-URL/ws/twilio-media
+# החיבור צריך להישאר פתוח; אם נסגר מיידית – ה-handler לא עושה accept/לולאה.
+
+
+⸻
+
+למה עדיין יכול להיסגר “מיד אחרי start”
+
+גם אם Uvicorn רץ, Twilio תסיים stream אם:
+	•	ה-handler לא קורא את ההודעות (אין await websocket.receive_*) → הסוקט נסגר ע״י השרת.
+	•	מחזירים HTTP במקום WSS ב-TwiML.
+	•	יש Redirect/CSRF/SSL בעייתי על /incoming_call.
+	•	ב-Cloud Run לא מאזינים על $PORT.
+	•	יש timeout קצר (שפר --timeout-keep-alive).
+
+⸻
+
+צ’ק-ליסט GO/NO-GO (5 דק’)
+	1.	/incoming_call:
+
+curl -sS -i -X POST https://YOUR-PUBLIC/incoming_call | sed -n '1,200p'
+
+חייב להחזיר 200 ו-TwiML עם <Connect><Stream url="wss://.../ws/twilio-media"/></Connect>.
+
+	2.	WebSocket חי (עם websocat או כל לקוח WS):
+	•	מתחבר ל־wss://.../ws/twilio-media, נשאר פתוח.
+	3.	שיחה חיה:
+	•	Twilio Debugger מציג stream-started ואחריו אין closed_by_server מיידי.
+	•	בלוגים של Cloud Run אתה רואה כניסה ל־ws_twilio_media והודעות media/start → media.
+
+⸻
+
+תשובה לשאלה: “מה שהוא עשה תקין?”
+	•	עקרונית – כן, הכיוון נכון (מעבר ל-ASGI/Uvicorn).
+	•	כדי שיהיה תקין ב-100%:
+	•	ודאי שהוגדר ASGI app כמו בדוגמה (Starlette + WsgiToAsgi).
+	•	ה-handler של ה-WS מבצע accept() וקורא frames בלולאה.
+	•	ה-TwiML מחזיר WSS ציבורי.
+	•	ה-Procfile/פקודת הרצה משתמשים ב-$PORT ו---ws websockets.
+	•	אין CSRF/Redirectים על ה-webhook.
+
+בצע את הדוגמאות מעלה מילה במילה, ואז תתקשר שוב. אם עדיין תראה stream-ended מיד אחרי start, תביא לי:
+	•	פלט curl של /incoming_call,
+	•	את שתי השורות האחרונות מהלוג של Cloud Run סביב ws_twilio_media,
+	•	ואת ה־error מה-Twilio Debugger.
+אגיד לך בדיוק איפה לגעת (שורה/קובץ).
