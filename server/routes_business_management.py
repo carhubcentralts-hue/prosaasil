@@ -256,6 +256,46 @@ def update_business(business_id):
         logger.error(f"Error updating business {business_id}: {e}")
         return jsonify({"error": "שגיאה בעדכון העסק"}), 500
 
+@biz_mgmt_bp.route('/api/admin/business/<int:business_id>', methods=['DELETE'])
+@require_api_auth(['admin'])
+def delete_business(business_id):
+    """Delete business with name confirmation"""
+    try:
+        business = Business.query.get(business_id)
+        if not business:
+            return jsonify({"error": "עסק לא נמצא"}), 404
+        
+        data = request.get_json()
+        confirmation_name = data.get('confirmation_name', '').strip()
+        
+        # Check name confirmation
+        if confirmation_name != business.name:
+            return jsonify({
+                "error": "שם העסק שהוזן אינו תואם. אנא הזן את השם המדויק לאישור המחיקה.",
+                "expected": business.name,
+                "received": confirmation_name
+            }), 400
+        
+        business_name = business.name
+        
+        # Delete business (cascade will handle related records)
+        db.session.delete(business)
+        db.session.commit()
+        
+        logger.info(f"Deleted business {business_id}: {business_name}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"העסק '{business_name}' נמחק בהצלחה"
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting business {business_id}: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return jsonify({"error": "שגיאה במחיקת העסק"}), 500
+
 @biz_mgmt_bp.route('/api/admin/business/<int:business_id>/change-password', methods=['POST'])
 @require_api_auth(['admin'])
 def change_business_password(business_id):
