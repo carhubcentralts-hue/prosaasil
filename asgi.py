@@ -65,16 +65,20 @@ async def ws_twilio_media(websocket: WebSocket):
     Bridges async Starlette WS to sync MediaStreamHandler
     """
     # Log connection attempt
+    print(f"📞 WebSocket connection attempt: headers={dict(websocket.headers)}", flush=True)
     log.info(f"📞 WebSocket connection attempt: headers={dict(websocket.headers)}")
     
     # Accept with Twilio subprotocol
     try:
         await websocket.accept(subprotocol="audio.twilio.com")
+        print("✅ WebSocket accepted with subprotocol: audio.twilio.com", flush=True)
         log.info("✅ WebSocket accepted with subprotocol: audio.twilio.com")
     except Exception as e:
+        print(f"❌ WebSocket accept failed: {e}", flush=True)
         log.error(f"❌ WebSocket accept failed: {e}")
         raise
     
+    print("📞 WebSocket connected: /ws/twilio-media", flush=True)
     log.info("📞 WebSocket connected: /ws/twilio-media")
     
     # Create sync wrapper
@@ -88,10 +92,16 @@ async def ws_twilio_media(websocket: WebSocket):
         # Start MediaStreamHandler in background thread
         def run_handler():
             try:
+                print("🔧 Creating MediaStreamHandler...", flush=True)
                 handler = MediaStreamHandler(ws_wrapper)
+                print("🔧 Starting MediaStreamHandler.run()...", flush=True)
                 handler.run()
+                print("✅ MediaStreamHandler completed", flush=True)
                 log.info("✅ MediaStreamHandler completed")
             except Exception as e:
+                print(f"❌ MediaStreamHandler error: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
                 log.exception(f"❌ MediaStreamHandler error: {e}")
             finally:
                 ws_wrapper.stop()
