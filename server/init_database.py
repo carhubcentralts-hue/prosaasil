@@ -34,6 +34,7 @@ def initialize_production_database():
                 name="עסק ראשי",
                 business_type="real_estate",
                 phone_e164="+972500000000",  # Default placeholder phone
+                greeting_message="שלום! איך אפשר לעזור?",  # Default greeting
                 is_active=True,
                 calls_enabled=True,
                 crm_enabled=True,

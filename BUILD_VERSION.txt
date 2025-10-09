@@ -7,19 +7,21 @@ BUILD 78 - Production Database Auto-Initialization (COMPLETE!)
 2. ✅ תוקן שדה phone_number חובה
    - **BEFORE**: Business() ללא phone_number → NOT NULL error ❌
    - **AFTER**: Business(phone_e164="+972500000000") → Works! ✅
-   - הוסף מספר טלפון placeholder דיפולטי
-3. ✅ לוגים מפורשים לדיבוג
+3. ✅ תוקן שדה greeting_message חובה
+   - **BEFORE**: Business() ללא greeting_message → NOT NULL error ❌
+   - **AFTER**: Business(greeting_message="שלום! איך אפשר לעזור?") → Works! ✅
+4. ✅ לוגים מפורשים לדיבוג
    - הוספתי print() לכל שלב בנוסף ל-logger
    - traceback מלא אם יש שגיאה
-4. ✅ אתחול אוטומטי למסד נתונים בפרודקשן
+5. ✅ אתחול אוטומטי למסד נתונים בפרודקשן
    - מערכת initialize_production_database() רצה אחרי migrations
    - יצירה אוטומטית של עסק "עסק ראשי" אם לא קיים
    - יצירה אוטומטית של משתמש admin@admin.com עם business_id
    - יצירה אוטומטית של 7 סטטוסים בסיסיים עבריים
-5. ✅ Idempotent - בטוח להריץ מספר פעמים
+6. ✅ Idempotent - בטוח להריץ מספר פעמים
    - בודק אם כבר קיימים נתונים לפני יצירה
    - לוגים ברורים של כל שלב
-6. ✅ מוכן לפריסה מסחרית
+7. ✅ מוכן לפריסה מסחרית
    - בפריסה: RUN_MIGRATIONS_ON_START=1 (מוגדר ב-start_production.sh)
    - כל deployment חדש מאותחל אוטומטית
    - עובד out-of-the-box ללא הגדרות ידניות
