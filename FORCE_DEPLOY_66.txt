@@ -1,0 +1,5 @@
+BUILD 66 - FORCE DEPLOYMENT UPDATE
+This file forces Replit to deploy the updated code.
+Build: 66
+Timestamp: 2025-10-09 00:40 UTC
+Changes: Fixed WebSocket logging and build number consistency
