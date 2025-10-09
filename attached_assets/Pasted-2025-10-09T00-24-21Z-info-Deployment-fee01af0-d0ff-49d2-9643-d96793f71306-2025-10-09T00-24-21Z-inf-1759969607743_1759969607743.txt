@@ -1,0 +1,76 @@
+2025-10-09T00:24:21Z info: Deployment: fee01af0-d0ff-49d2-9643-d96793f71306
+2025-10-09T00:24:21Z info: Build: c9c8b3bf-6b9e-4119-82ab-059c684bd12f
+2025-10-09T00:24:21Z info: Connecting to builder
+2025-10-09T00:24:21Z info: Deployment: fee01af0-d0ff-49d2-9643-d96793f71306
+2025-10-09T00:24:21Z info: Build: c9c8b3bf-6b9e-4119-82ab-059c684bd12f
+2025-10-09T00:24:21Z info: Connecting to builder
+2025-10-09T00:24:23Z info: Builder connected
+2025-10-09T00:24:25Z info: Installing packages
+2025-10-09T00:24:26Z info: Starting Build
+
+up to date, audited 417 packages in 3s
+
+78 packages are looking for funding
+
+  run `npm fund` for details
+
+
+5 low severity vulnerabilities
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.6.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.6.2
+npm notice To update run: npm install -g npm@11.6.2
+npm notice
+
+2025-10-09T00:24:30Z info: Pushing pid1 binary layer...
+2025-10-09T00:24:32Z info: Created pid1 binary layer
+2025-10-09T00:24:35Z info: Pushing Repl layer...
+2025-10-09T00:24:35Z info: Pushing hosting layer...
+2025-10-09T00:24:36Z info: Retrieved cached nix layer
+2025-10-09T00:24:36Z info: Created hosting layer
+2025-10-09T00:25:27Z info: Created Repl layer
+2025-10-09T00:25:27Z info: Pushing Repl (cache) layer...
+2025-10-09T00:25:27Z info: Created Repl (cache) layer
+2025-10-09T00:25:29Z info: Pushed image manifest
+2025-10-09T00:25:30Z info: Pushed soci index manifest
+2025-10-09T00:25:31Z info: Pushed referrer manifest
+2025-10-09T00:25:34Z info: Creating Autoscale service
+npm notice
+🟡 Installing Node dependencies for Baileys...
+npm notice To update run: npm install -g npm@11.6.2
+✅ INTERNAL_SECRET found in environment
+📊 Flask: 0.0.0.0:5000 | Baileys: 127.0.0.1:3300
+🟡 Starting Flask with Uvicorn on port 5000...
+✅ Baileys started (PID: 33)
+up to date, audited 183 packages in 2s
+forwarding local port 5000 to external port 80 (mapped as 1104)
+✅ Startup complete - keeping processes alive...
+🚀 Starting AgentLocator Production System - Build #65
+starting up user application
+🔍 Final status check...
+33 packages are looking for funding
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.6.2
+📊 Access: http://0.0.0.0:5000
+found 0 vulnerabilities
+🔑 PIDs saved - Baileys: 33 | Flask: 34
+📝 Logs: /tmp/baileys_prod.log | /tmp/flask_prod.log
+npm notice
+✅ Flask/Uvicorn started (PID: 34)
+✅ Build 65: Race Condition Fix + Improved Logging
+🎯 Both services running. System ready!
+npm notice New major version of npm available! 10.8.2 -> 11.6.2
+✅ All services confirmed running and ready!
+  run `npm fund` for details
+💡 Press Ctrl+C to stop all services
+🟡 Starting Baileys on port 3300...
+2025-10-09T00:26:10Z info: Waiting for service to be ready
+2025-10-09T00:26:12Z info: Deployment successful
