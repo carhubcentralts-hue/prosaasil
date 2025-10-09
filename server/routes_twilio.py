@@ -142,8 +142,9 @@ def _trigger_recording_for_call(call_sid):
         print(f"❌ Failed to trigger recording for {call_sid}: {e}")
 
 def _create_lead_from_call(call_sid, from_number):
-    """שלב 4: יצירת ליד אוטומטי מכל שיחה נכנסת"""
+    """שלב 4: יצירת/עדכון ליד אוטומטי מכל שיחה נכנסת - ללא כפילויות!"""
     from server.app_factory import create_app
+    from server.services.customer_intelligence import CustomerIntelligenceService
     
     try:
         # יצירת app context לthread
@@ -152,24 +153,19 @@ def _create_lead_from_call(call_sid, from_number):
             # ברירת מחדל business_id=1 (ניתן לשנות לפי צרכים)
             business_id = 1
             
-            with db.session.begin():  # תמיד transaction
-                # בדוק אם כבר קיים customer למספר הזה
-                customer = Customer.query.filter_by(
-                    business_id=business_id,
-                    phone_e164=from_number
-                ).first()
-                
-                if not customer:
-                    # צור customer חדש
-                    customer = Customer()
-                    customer.business_id = business_id
-                    customer.name = f"Unknown Caller {from_number[-4:]}"
-                    customer.phone_e164 = from_number
-                    customer.status = "new"
-                    db.session.add(customer)
-                    db.session.flush()  # כדי לקבל ID
-                
-                # צור call_log מקושר לליד
+            # ✅ שימוש בשירות החכם שמונע כפילויות
+            ci_service = CustomerIntelligenceService(business_id=business_id)
+            
+            # מצא או צור customer + lead (ללא כפילויות!)
+            customer, lead, was_created = ci_service.find_or_create_customer_from_call(
+                phone_number=from_number,
+                call_sid=call_sid,
+                transcription="",  # ריק בשלב זה - יעודכן מאוחר יותר
+                conversation_data={}
+            )
+            
+            # צור call_log מקושר ללקוח
+            with db.session.begin():
                 call_log = CallLog()
                 call_log.business_id = business_id
                 call_log.customer_id = customer.id
@@ -178,11 +174,13 @@ def _create_lead_from_call(call_sid, from_number):
                 call_log.status = "in_progress"
                 db.session.add(call_log)
             
-            print(f"✅ Auto-created lead for {from_number}, customer_id={customer.id}")
+            action = "created" if was_created else "updated"
+            print(f"✅ {action} customer/lead for {from_number} - customer_id={customer.id}, lead_id={lead.id if lead else 'N/A'}")
         
     except Exception as e:
-        print(f"❌ Failed to create lead for {call_sid}: {e}")
-        db.session.rollback()
+        print(f"❌ Failed to process lead for {call_sid}: {e}")
+        import traceback
+        traceback.print_exc()
 
 # TwiML Preview endpoint
 @csrf.exempt
