@@ -40,7 +40,7 @@ Preferred communication style: Simple, everyday language.
 - **Conversation Memory**: Full conversation history stored in `conversation_turn` table with automatic persistence.
 - **Contextual AI Responses**: AI maintains conversation context across all turns using synchronized history (conversation_history).
 - **WhatsApp Integration**: Both Twilio and Baileys (direct WhatsApp Web API) support.
-- **Intelligent Lead Collection**: Automated capture of key lead information with real-time lead creation from calls (with app context for background threads).
+- **Intelligent Lead Collection**: Automated capture of key lead information with real-time lead creation from calls (with app context for background threads). One lead per phone number - all calls and interactions linked to the same lead.
 - **Calendar Integration**: AI checks real-time availability for 7 days ahead and suggests available appointment slots during conversations.
 - **Meeting Scheduling**: Automatic detection and coordination when lead data is complete, with calendar-aware suggestions.
 - **Hebrew Real Estate Agent**: "Leah" - specialized AI agent with context-aware responses, natural conversation flow, and calendar integration.
