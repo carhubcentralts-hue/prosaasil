@@ -2,6 +2,7 @@
 """
 ASGI Application for Cloud Run WebSocket Support
 Uses Starlette for WebSocket + Flask WSGI wrapper
+BUILD 66: Force cache bust and guaranteed logging
 """
 import os
 import sys
@@ -19,11 +20,20 @@ from starlette.websockets import WebSocket
 from starlette.responses import PlainTextResponse
 from starlette.requests import Request
 
+# STARTUP LOGGING - GUARANTEED TO SHOW
+print("=" * 80, flush=True)
+print("🚀 ASGI BUILD 66 LOADING", flush=True)
+print("=" * 80, flush=True)
+
 # Import Flask app directly from factory (no EventLet dependency)
 from server.app_factory import create_app
 
 log = logging.getLogger("twilio_ws")
 flask_app = create_app()
+
+print("=" * 80, flush=True)
+print("✅ ASGI BUILD 66 READY - WebSocket handlers active", flush=True)
+print("=" * 80, flush=True)
 
 async def ws_http_probe(request: Request):
     """Return 426 Upgrade Required for non-WebSocket requests"""
