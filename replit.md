@@ -4,14 +4,14 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
-## BUILD 78 (October 9, 2025) - Production Database Auto-Initialization (FINAL FIX)
-- **🔧 CRITICAL FIX**: Fixed invalid field error in Business model
-  - **Before**: `Business(active=True)` → Error: 'active' is invalid keyword ❌
-  - **After**: `Business(is_active=True)` → Works correctly ✅
-  - Removed non-existent 'active' field from initialization
+## BUILD 78 (October 9, 2025) - Production Database Auto-Initialization (COMPLETE!)
+- **🔧 CRITICAL FIXES**: Fixed multiple initialization errors
+  - **Fix 1**: Invalid 'active' field → Changed to 'is_active' ✅
+  - **Fix 2**: Missing phone_number (NOT NULL constraint) → Added default "+972500000000" ✅
+  - **Fix 3**: Silent logging → Added explicit print() statements for production visibility ✅
 - **🚀 Automatic Database Initialization**: System now auto-initializes on every deployment
   - `initialize_production_database()` runs automatically AFTER migrations
-  - Creates default business "עסק ראשי" if none exists
+  - Creates default business "עסק ראשי" if none exists (with required phone number)
   - Creates admin@admin.com user with proper business_id linkage
   - Creates 7 default Hebrew lead statuses automatically
   - **Idempotent**: Safe to run multiple times, checks for existing data
@@ -19,7 +19,7 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 - **Production & Preview Support**: Works in both environments
   - Production: RUN_MIGRATIONS_ON_START=1 (set in start_production.sh)
   - Preview: Migrations skipped, uses existing DB
-  - Full traceback logging for debugging
+  - Full traceback logging for debugging with print() statements
 
 ## BUILD 76 (October 9, 2025)
 - **Status Management Admin Access**: Admin users can now create/update/delete statuses without business_id requirement

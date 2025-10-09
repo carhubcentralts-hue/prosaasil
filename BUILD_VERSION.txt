@@ -1,23 +1,28 @@
-BUILD 78 - Production Database Auto-Initialization (FINAL FIX)
+BUILD 78 - Production Database Auto-Initialization (COMPLETE!)
 
-🔧 תיקון סופי BUILD 78:
-1. ✅ תוקן שגיאת שדה לא קיים
-   - **BEFORE**: Business(active=True) → 'active' is not valid ❌
+🔧 תיקונים קריטיים BUILD 78:
+1. ✅ תוקן שדה 'active' שלא קיים
+   - **BEFORE**: Business(active=True) → 'active' is invalid ❌
    - **AFTER**: Business(is_active=True) → Works! ✅
-   - הוסר שדה 'active' שלא קיים במודל Business
-2. ✅ אתחול אוטומטי למסד נתונים בפרודקשן
+2. ✅ תוקן שדה phone_number חובה
+   - **BEFORE**: Business() ללא phone_number → NOT NULL error ❌
+   - **AFTER**: Business(phone_e164="+972500000000") → Works! ✅
+   - הוסף מספר טלפון placeholder דיפולטי
+3. ✅ לוגים מפורשים לדיבוג
+   - הוספתי print() לכל שלב בנוסף ל-logger
+   - traceback מלא אם יש שגיאה
+4. ✅ אתחול אוטומטי למסד נתונים בפרודקשן
    - מערכת initialize_production_database() רצה אחרי migrations
    - יצירה אוטומטית של עסק "עסק ראשי" אם לא קיים
    - יצירה אוטומטית של משתמש admin@admin.com עם business_id
    - יצירה אוטומטית של 7 סטטוסים בסיסיים עבריים
-3. ✅ עובד בפריסה (Production) ו-Preview
-   - בפריסה: RUN_MIGRATIONS_ON_START=1 (מוגדר ב-start_production.sh)
-   - כל deployment חדש מאותחל אוטומטית
-   - מתאים לפריסה מסחרית מיידית
-4. ✅ Idempotent - בטוח להריץ מספר פעמים
+5. ✅ Idempotent - בטוח להריץ מספר פעמים
    - בודק אם כבר קיימים נתונים לפני יצירה
    - לוגים ברורים של כל שלב
-   - traceback מלא אם יש שגיאה
+6. ✅ מוכן לפריסה מסחרית
+   - בפריסה: RUN_MIGRATIONS_ON_START=1 (מוגדר ב-start_production.sh)
+   - כל deployment חדש מאותחל אוטומטית
+   - עובד out-of-the-box ללא הגדרות ידניות
 
 🔧 תוספות BUILD 76:
 1. ✅ Admin יכול לנהל סטטוסים (ללא business_id)
