@@ -89,7 +89,58 @@ async def ws_twilio_media(websocket: WebSocket):
         # Import MediaStreamHandler
         from server.media_ws_ai import MediaStreamHandler
         
-        # Start MediaStreamHandler in background thread
+        # Task 1: Receive from Starlette WS → put in queue for sync handler
+        async def receive_loop():
+            try:
+                print("🔧 receive_loop started", flush=True)
+                while ws_wrapper.running:
+                    try:
+                        msg = await websocket.receive_json()
+                        print(f"📨 Received: {msg.get('event', 'unknown')}", flush=True)
+                        ws_wrapper.recv_queue.put(json.dumps(msg))
+                    except json.JSONDecodeError:
+                        # Non-JSON frames - consume text to keep loop alive
+                        try:
+                            _ = await websocket.receive_text()
+                        except Exception:
+                            pass
+                        continue
+                    except Exception as e:
+                        print(f"❌ Receive error: {e}", flush=True)
+                        log.error(f"Receive error: {e}")
+                        break
+            finally:
+                print("🔧 receive_loop ended", flush=True)
+                ws_wrapper.stop()
+        
+        # Task 2: Get from queue → send to Starlette WS
+        async def send_loop():
+            try:
+                print("🔧 send_loop started", flush=True)
+                while ws_wrapper.running:
+                    # Non-blocking check for messages
+                    try:
+                        data = await asyncio.get_event_loop().run_in_executor(
+                            None, ws_wrapper.send_queue.get, True, 0.1  # 100ms timeout
+                        )
+                        if data is None:
+                            break
+                        if isinstance(data, str):
+                            await websocket.send_text(data)
+                        else:
+                            await websocket.send_bytes(data)
+                    except Empty:
+                        await asyncio.sleep(0.01)  # Yield to other tasks
+                    except Exception as e:
+                        print(f"❌ Send error: {e}", flush=True)
+                        log.error(f"Send error: {e}")
+                        break
+            except Exception:
+                pass
+            finally:
+                print("🔧 send_loop ended", flush=True)
+        
+        # Task 3: MediaStreamHandler in background thread (starts AFTER loops)
         def run_handler():
             try:
                 print("🔧 Creating MediaStreamHandler...", flush=True)
@@ -106,65 +157,33 @@ async def ws_twilio_media(websocket: WebSocket):
             finally:
                 ws_wrapper.stop()
         
-        handler_thread = threading.Thread(target=run_handler, daemon=True)
-        handler_thread.start()
-        log.info("✅ MediaStreamHandler thread started")
-        
-        # Task 1: Receive from Starlette WS → put in queue for sync handler
-        async def receive_loop():
-            try:
-                while ws_wrapper.running:
-                    try:
-                        msg = await websocket.receive_json()
-                        ws_wrapper.recv_queue.put(json.dumps(msg))
-                    except json.JSONDecodeError:
-                        # Non-JSON frames - consume text to keep loop alive
-                        try:
-                            _ = await websocket.receive_text()
-                        except Exception:
-                            pass
-                        continue
-                    except Exception as e:
-                        log.error(f"Receive error: {e}")
-                        break
-            finally:
-                ws_wrapper.stop()
-        
-        # Task 2: Get from queue → send to Starlette WS
-        async def send_loop():
-            try:
-                while ws_wrapper.running:
-                    # Non-blocking check for messages
-                    try:
-                        data = await asyncio.get_event_loop().run_in_executor(
-                            None, ws_wrapper.send_queue.get, True, 0.1  # 100ms timeout
-                        )
-                        if data is None:
-                            break
-                        if isinstance(data, str):
-                            await websocket.send_text(data)
-                        else:
-                            await websocket.send_bytes(data)
-                    except Empty:
-                        await asyncio.sleep(0.01)  # Yield to other tasks
-                    except Exception as e:
-                        log.error(f"Send error: {e}")
-                        break
-            except Exception:
-                pass
-        
-        # Run both tasks concurrently
-        await asyncio.gather(
-            receive_loop(),
-            send_loop(),
-            return_exceptions=True
-        )
-        
-        # Wait for handler thread to finish (with timeout)
-        if handler_thread:
+        # Start loops and handler together
+        async def run_all():
+            # Start async loops
+            loops_task = asyncio.gather(
+                receive_loop(),
+                send_loop(),
+                return_exceptions=True
+            )
+            
+            # Give loops time to start
+            await asyncio.sleep(0.1)
+            
+            # Now start handler thread
+            handler_thread = threading.Thread(target=run_handler, daemon=True)
+            handler_thread.start()
+            print("✅ MediaStreamHandler thread started", flush=True)
+            log.info("✅ MediaStreamHandler thread started")
+            
+            # Wait for loops to finish
+            await loops_task
+            
+            # Wait for handler thread to finish (with timeout)
             await asyncio.get_event_loop().run_in_executor(
                 None, handler_thread.join, 5  # 5s timeout
             )
+        
+        await run_all()
         
     except Exception as e:
         log.exception(f"WebSocket error: {e}")
