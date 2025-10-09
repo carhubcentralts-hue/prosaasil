@@ -2,7 +2,7 @@
 """
 ASGI Application for Cloud Run WebSocket Support
 Uses Starlette for WebSocket + Flask WSGI wrapper
-BUILD 66: Force cache bust and guaranteed logging
+BUILD 67: STDOUT logging for visibility
 """
 import os
 import sys
@@ -20,9 +20,9 @@ from starlette.websockets import WebSocket
 from starlette.responses import PlainTextResponse
 from starlette.requests import Request
 
-# STARTUP LOGGING - GUARANTEED TO SHOW
+# STARTUP LOGGING - TO STDOUT
 print("=" * 80, flush=True)
-print("🚀 ASGI BUILD 66 LOADING", flush=True)
+print("🚀 ASGI BUILD 67 LOADING - STDOUT ENABLED", flush=True)
 print("=" * 80, flush=True)
 
 # Import Flask app directly from factory (no EventLet dependency)
@@ -32,7 +32,7 @@ log = logging.getLogger("twilio_ws")
 flask_app = create_app()
 
 print("=" * 80, flush=True)
-print("✅ ASGI BUILD 66 READY - WebSocket handlers active", flush=True)
+print("✅ ASGI BUILD 67 READY - WebSocket on STDOUT", flush=True)
 print("=" * 80, flush=True)
 
 async def ws_http_probe(request: Request):

@@ -7,9 +7,9 @@ export FLASK_BASE_URL="${FLASK_BASE_URL:-http://127.0.0.1:5000}"
 export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 export RUN_MIGRATIONS_ON_START=1
 
-echo "🚀 Starting AgentLocator Production System - Build #66"
+echo "🚀 Starting AgentLocator Production System - Build #67"
 echo "📊 Flask: 0.0.0.0:${PORT} | Baileys: 127.0.0.1:${BAILEYS_PORT}"
-echo "✅ Build 66: GUARANTEED LOGGING - Cache Bust Fix"
+echo "✅ Build 67: STDOUT LOGGING - WebSocket visibility fix"
 
 # Ensure INTERNAL_SECRET is set (CRITICAL: Must come from environment!)
 if [ -z "${INTERNAL_SECRET:-}" ]; then
@@ -32,7 +32,7 @@ echo "✅ Baileys started (PID: $BAI)"
 
 # 2) Start Flask with Uvicorn (ASGI server with WebSocket support)
 echo "🟡 Starting Flask with Uvicorn on port ${PORT}..."
-nohup uvicorn asgi:asgi_app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 > /tmp/flask_prod.log 2>&1 &
+uvicorn asgi:asgi_app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 &
 FL=$!
 echo "✅ Flask/Uvicorn started (PID: $FL)"
 
@@ -68,7 +68,7 @@ while true; do
     
     if ! kill -0 $FL 2>/dev/null; then
         echo "❌ Flask died (PID $FL) - restarting..."
-        nohup uvicorn asgi:asgi_app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 >> /tmp/flask_prod.log 2>&1 &
+        uvicorn asgi:asgi_app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 &
         FL=$!
     fi
     
