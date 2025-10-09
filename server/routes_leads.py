@@ -430,7 +430,26 @@ def update_lead(lead_id):
     
     db.session.commit()
     
-    return jsonify({"message": "Lead updated successfully", "changes": changes})
+    # ✅ FIX: Return the updated lead object so frontend can update UI
+    return jsonify({
+        "message": "Lead updated successfully", 
+        "changes": changes,
+        "lead": {
+            "id": lead.id,
+            "first_name": lead.first_name,
+            "last_name": lead.last_name,
+            "phone_e164": lead.phone_e164,
+            "email": lead.email,
+            "status": lead.status,
+            "source": lead.source,
+            "owner_user_id": lead.owner_user_id,
+            "tags": lead.tags,
+            "notes": lead.notes,
+            "summary": lead.summary,
+            "created_at": lead.created_at.isoformat() if lead.created_at else None,
+            "updated_at": lead.updated_at.isoformat() if lead.updated_at else None
+        }
+    })
 
 @leads_bp.route("/api/leads/<int:lead_id>", methods=["DELETE"])
 def delete_lead(lead_id):
