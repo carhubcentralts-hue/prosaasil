@@ -3,6 +3,14 @@ WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
 import os, json, time, base64, audioop, math, threading, queue, random, zlib
+import builtins
+
+# Override print to always flush (CRITICAL for logs visibility)
+_original_print = builtins.print
+def print(*args, **kwargs):
+    kwargs.setdefault('flush', True)
+    _original_print(*args, **kwargs)
+builtins.print = print
 
 # WebSocket ConnectionClosed exception (works with both Flask-Sock and Starlette)
 class ConnectionClosed(Exception):

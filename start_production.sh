@@ -7,9 +7,9 @@ export FLASK_BASE_URL="${FLASK_BASE_URL:-http://127.0.0.1:5000}"
 export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 export RUN_MIGRATIONS_ON_START=1
 
-echo "🚀 Starting AgentLocator Production System - Build #68"
+echo "🚀 Starting AgentLocator Production System - Build #69"
 echo "📊 Flask: 0.0.0.0:${PORT} | Baileys: 127.0.0.1:${BAILEYS_PORT}"
-echo "✅ Build 68: TTS FIX - Google Cloud credentials multi-env support"
+echo "✅ Build 69: LOGS FIX - All prints auto-flush for real-time visibility"
 
 # Ensure INTERNAL_SECRET is set (CRITICAL: Must come from environment!)
 if [ -z "${INTERNAL_SECRET:-}" ]; then

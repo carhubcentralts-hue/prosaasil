@@ -2,7 +2,7 @@
 """
 ASGI Application for Cloud Run WebSocket Support
 Uses Starlette for WebSocket + Flask WSGI wrapper
-BUILD 68: TTS fix - Google Cloud credentials multi-env support
+BUILD 69: Logs fix - auto-flush all prints for real-time visibility
 """
 import os
 import sys
@@ -22,7 +22,7 @@ from starlette.requests import Request
 
 # STARTUP LOGGING - TO STDOUT
 print("=" * 80, flush=True)
-print("🚀 ASGI BUILD 68 LOADING - TTS FIX", flush=True)
+print("🚀 ASGI BUILD 69 LOADING - LOGS FIX", flush=True)
 print("=" * 80, flush=True)
 
 # Import Flask app directly from factory (no EventLet dependency)
@@ -32,7 +32,7 @@ log = logging.getLogger("twilio_ws")
 flask_app = create_app()
 
 print("=" * 80, flush=True)
-print("✅ ASGI BUILD 68 READY - TTS + WebSocket", flush=True)
+print("✅ ASGI BUILD 69 READY - ALL SYSTEMS GO", flush=True)
 print("=" * 80, flush=True)
 
 async def ws_http_probe(request: Request):
