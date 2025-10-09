@@ -60,10 +60,14 @@ def get_tts_client():
     try:
         from google.cloud import texttospeech
         
-        # Check if credentials configured
-        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+        # Check if credentials configured - try multiple env var names
+        sa_json = (
+            os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') or
+            os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or
+            os.getenv('GOOGLE_TTS_SA_JSON')
+        )
         if not sa_json:
-            log.warning("Google TTS credentials missing")
+            log.warning("Google TTS credentials missing - checked GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON, GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_TTS_SA_JSON")
             return None
             
         # Parse and create client  
@@ -71,11 +75,13 @@ def get_tts_client():
         client = texttospeech.TextToSpeechClient.from_service_account_info(credentials_info)
         
         # Just verify client creation worked
-        log.debug("TTS client created successfully")
+        log.info("✅ TTS client created successfully")
         
         return client
     except Exception as e:
         log.error(f"GCP TTS init failed: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 @lazy_singleton("gcp_stt_client")
@@ -84,10 +90,14 @@ def get_stt_client():
     try:
         from google.cloud import speech
         
-        # Check if credentials configured
-        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') 
+        # Check if credentials configured - try multiple env var names
+        sa_json = (
+            os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') or
+            os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or
+            os.getenv('GOOGLE_TTS_SA_JSON')
+        )
         if not sa_json:
-            log.warning("Google STT credentials missing")
+            log.warning("Google STT credentials missing - checked GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON, GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_TTS_SA_JSON")
             return None
             
         # Parse and create client
@@ -95,11 +105,13 @@ def get_stt_client():
         client = speech.SpeechClient.from_service_account_info(credentials_info)
         
         # Quick ping test - just verify client creation worked
-        log.debug("STT client created successfully")
+        log.info("✅ STT client created successfully")
         
         return client
     except Exception as e:
         log.error(f"GCP STT init failed: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def warmup_services_async():
