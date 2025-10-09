@@ -4,6 +4,22 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
+## BUILD 76 (October 9, 2025)
+- **Status Management Admin Access**: Admin users can now create/update/delete statuses without business_id requirement
+  - GET /api/statuses: Admin can access all statuses (fallback to business_id=1)
+  - POST /api/statuses: Admin can create statuses for any business
+  - PUT /api/statuses/:id: Admin can update any status
+  - DELETE /api/statuses/:id: Admin can delete any status
+- **Bulk Lead Operations**: Added bulk delete functionality
+  - New endpoint: POST /api/leads/bulk-delete with lead_ids array
+  - Admin can bulk delete leads across all tenants
+  - Proper access control and activity logging for bulk operations
+- **Lead Selection UI**: Added checkbox-based lead selection
+  - Select individual leads via checkbox
+  - Select all leads with header checkbox
+  - Bulk delete button appears when leads are selected
+  - Delete confirmation dialog before bulk action
+
 ## BUILD 75 (October 9, 2025)
 - **Admin Access Fixed**: Admin/Superadmin users can now view all leads across all tenants without business_id requirement
 - **Lead Management Optimized**: Removed redundant refreshLeads() calls from create/update/delete handlers - relying on optimistic UI updates

@@ -1,10 +1,26 @@
-BUILD 75 - Complete Lead Management & Admin Access Fix
+BUILD 76 - Status Management Admin Access & Bulk Delete
 
-🔧 תיקוני גישת Admin:
+🔧 תוספות BUILD 76:
+1. ✅ Admin יכול לנהל סטטוסים (ללא business_id)
+   - GET /api/statuses - גישה לכל הסטטוסים
+   - POST /api/statuses - יצירת סטטוסים לכל עסק
+   - PUT /api/statuses/:id - עדכון כל סטטוס
+   - DELETE /api/statuses/:id - מחיקת כל סטטוס
+2. ✅ מחיקה קבוצתית של לידים
+   - Endpoint חדש: POST /api/leads/bulk-delete
+   - Admin יכול למחוק לידים בכל הטננטים
+   - בקרת גישה ורישום פעילות
+3. ✅ בחירת לידים עם checkboxes
+   - Checkbox לכל ליד
+   - Checkbox לבחירת הכל
+   - כפתור מחיקה קבוצתית
+   - אישור מחיקה
+
+🔧 תיקוני גישת Admin (BUILD 75):
 1. ✅ Admin יכול לראות כל הלידים (ללא business_id)
 2. ✅ check_lead_access מאפשר גישה לאדמין/סופראדמין
 
-🎯 תיקוני ניהול לידים:
+🎯 תיקוני ניהול לידים (BUILD 75):
 1. ✅ מחיקת לידים - הסרת refreshLeads() מיותר
 2. ✅ עדכון לידים - הסרת refreshLeads() מיותר  
 3. ✅ יצירת לידים - הסרת refreshLeads() מיותר
