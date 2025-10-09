@@ -1,30 +1,22 @@
 BUILD 78 - Production Database Auto-Initialization (COMPLETE!)
 
-🔧 תיקונים קריטיים BUILD 78:
-1. ✅ תוקן שדה 'active' שלא קיים
-   - **BEFORE**: Business(active=True) → 'active' is invalid ❌
-   - **AFTER**: Business(is_active=True) → Works! ✅
-2. ✅ תוקן שדה phone_number חובה
-   - **BEFORE**: Business() ללא phone_number → NOT NULL error ❌
-   - **AFTER**: Business(phone_e164="+972500000000") → Works! ✅
-3. ✅ תוקן שדה greeting_message חובה
-   - **BEFORE**: Business() ללא greeting_message → NOT NULL error ❌
-   - **AFTER**: Business(greeting_message="שלום! איך אפשר לעזור?") → Works! ✅
-4. ✅ לוגים מפורשים לדיבוג
-   - הוספתי print() לכל שלב בנוסף ל-logger
-   - traceback מלא אם יש שגיאה
-5. ✅ אתחול אוטומטי למסד נתונים בפרודקשן
-   - מערכת initialize_production_database() רצה אחרי migrations
-   - יצירה אוטומטית של עסק "עסק ראשי" אם לא קיים
-   - יצירה אוטומטית של משתמש admin@admin.com עם business_id
-   - יצירה אוטומטית של 7 סטטוסים בסיסיים עבריים
-6. ✅ Idempotent - בטוח להריץ מספר פעמים
-   - בודק אם כבר קיימים נתונים לפני יצירה
-   - לוגים ברורים של כל שלב
-7. ✅ מוכן לפריסה מסחרית
-   - בפריסה: RUN_MIGRATIONS_ON_START=1 (מוגדר ב-start_production.sh)
-   - כל deployment חדש מאותחל אוטומטית
-   - עובד out-of-the-box ללא הגדרות ידניות
+🔧 תיקונים קריטיים BUILD 78 - Schema Drift Fix:
+1. ✅ תוקן שדה 'active' שלא קיים → is_active
+2. ✅ תוקן שדה phone_number חובה → phone_e164="+972500000000"
+3. ✅ תוקן שדה greeting_message חובה → "שלום! איך אפשר לעזור?"
+4. ✅ תוקן שדה system_prompt חובה → "את לאה, סוכנת נדל\"ן מקצועית..."
+5. ✅ הוספת כל שדות ה-Business הנדרשים:
+   - whatsapp_number, whatsapp_greeting, voice_message
+   - phone_permissions, whatsapp_permissions
+   - payments_enabled, default_provider, working_hours
+6. ✅ לוגים מפורשים עם print() + logger
+7. ✅ אתחול אוטומטי למסד נתונים בפרודקשן
+   - initialize_production_database() רץ אחרי migrations
+   - יצירת עסק "עסק ראשי" עם כל השדות הנדרשים
+   - יצירת admin@admin.com עם business_id
+   - יצירת 7 סטטוסים עבריים
+8. ✅ Idempotent - בטוח להריץ מספר פעמים
+9. ✅ מוכן לפריסה מסחרית - עובד out-of-the-box
 
 🔧 תוספות BUILD 76:
 1. ✅ Admin יכול לנהל סטטוסים (ללא business_id)

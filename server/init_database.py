@@ -34,11 +34,20 @@ def initialize_production_database():
                 name="עסק ראשי",
                 business_type="real_estate",
                 phone_e164="+972500000000",  # Default placeholder phone
+                whatsapp_number="+972500000000",  # Default WhatsApp number
                 greeting_message="שלום! איך אפשר לעזור?",  # Default greeting
+                whatsapp_greeting="שלום! איך אפשר לעזור?",  # Default WhatsApp greeting
+                system_prompt="את לאה, סוכנת נדל\"ן מקצועית. תפקידך לעזור ללקוחות למצוא נכסים.",  # Default AI prompt
+                voice_message="שלום, זו לאה מהעסק שלנו",  # Default voice message
                 is_active=True,
                 calls_enabled=True,
                 crm_enabled=True,
                 whatsapp_enabled=True,
+                phone_permissions=True,
+                whatsapp_permissions=True,
+                payments_enabled=False,
+                default_provider="paypal",
+                working_hours="08:00-18:00",
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
