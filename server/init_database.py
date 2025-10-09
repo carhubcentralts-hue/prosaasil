@@ -22,11 +22,13 @@ def initialize_production_database():
     This runs automatically on app startup and is idempotent (safe to run multiple times)
     """
     try:
+        print("🔧 Starting database initialization...")
         logger.info("🔧 Starting database initialization...")
         
         # 1. Ensure at least one business exists
         business = Business.query.first()
         if not business:
+            print("📊 No business found, creating default business...")
             logger.info("📊 No business found, creating default business...")
             business = Business(
                 name="עסק ראשי",
@@ -40,13 +42,16 @@ def initialize_production_database():
             )
             db.session.add(business)
             db.session.commit()
+            print(f"✅ Created default business: {business.name} (ID: {business.id})")
             logger.info(f"✅ Created default business: {business.name} (ID: {business.id})")
         else:
+            print(f"✅ Business exists: {business.name} (ID: {business.id})")
             logger.info(f"✅ Business exists: {business.name} (ID: {business.id})")
         
         # 2. Ensure admin user exists
         admin = User.query.filter_by(email='admin@admin.com').first()
         if not admin:
+            print("👤 No admin user found, creating admin...")
             logger.info("👤 No admin user found, creating admin...")
             # Password: admin123
             password_hash = generate_password_hash('admin123', method='scrypt')
@@ -61,20 +66,25 @@ def initialize_production_database():
             )
             db.session.add(admin)
             db.session.commit()
+            print(f"✅ Created admin user: admin@admin.com (ID: {admin.id})")
             logger.info(f"✅ Created admin user: admin@admin.com (ID: {admin.id})")
         else:
+            print(f"✅ Admin user exists: {admin.email} (ID: {admin.id})")
             logger.info(f"✅ Admin user exists: {admin.email} (ID: {admin.id})")
             
             # 3. Ensure admin has business_id
             if not admin.business_id:
+                print("🔗 Linking admin to business...")
                 logger.info("🔗 Linking admin to business...")
                 admin.business_id = business.id
                 db.session.commit()
+                print(f"✅ Admin linked to business ID: {business.id}")
                 logger.info(f"✅ Admin linked to business ID: {business.id}")
         
         # 4. Ensure default lead statuses exist for this business
         existing_statuses = LeadStatus.query.filter_by(business_id=business.id).count()
         if existing_statuses == 0:
+            print("📋 No lead statuses found, creating defaults...")
             logger.info("📋 No lead statuses found, creating defaults...")
             default_statuses = [
                 {'name': 'new', 'label': 'חדש', 'color': '#3b82f6', 'order_index': 0, 'is_default': True},
@@ -102,10 +112,15 @@ def initialize_production_database():
                 db.session.add(status)
             
             db.session.commit()
+            print(f"✅ Created {len(default_statuses)} default lead statuses")
             logger.info(f"✅ Created {len(default_statuses)} default lead statuses")
         else:
+            print(f"✅ Lead statuses exist: {existing_statuses} statuses found")
             logger.info(f"✅ Lead statuses exist: {existing_statuses} statuses found")
         
+        print("✅ Database initialization completed successfully!")
+        print(f"📧 Admin login: admin@admin.com / admin123")
+        print(f"🏢 Business ID: {business.id}")
         logger.info("✅ Database initialization completed successfully!")
         logger.info(f"📧 Admin login: admin@admin.com / admin123")
         logger.info(f"🏢 Business ID: {business.id}")
@@ -113,6 +128,10 @@ def initialize_production_database():
         return True
         
     except Exception as e:
+        print(f"❌ Database initialization failed: {e}")
+        import traceback
+        print(traceback.format_exc())
         logger.error(f"❌ Database initialization failed: {e}")
+        logger.error(traceback.format_exc())
         db.session.rollback()
         return False
