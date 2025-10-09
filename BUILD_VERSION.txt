@@ -1,10 +1,10 @@
-BUILD 77 - Production Database Auto-Initialization (FIXED)
+BUILD 78 - Production Database Auto-Initialization (FINAL FIX)
 
-🔧 תיקון קריטי BUILD 77:
-1. ✅ תוקן סדר הפעולות בהפעלה
-   - **BEFORE**: Initialization → Migrations (נכשל!)
-   - **AFTER**: Migrations → Initialization (עובד!)
-   - הטבלאות נוצרות לפני שממלאים אותן בנתונים
+🔧 תיקון סופי BUILD 78:
+1. ✅ תוקן שגיאת שדה לא קיים
+   - **BEFORE**: Business(active=True) → 'active' is not valid ❌
+   - **AFTER**: Business(is_active=True) → Works! ✅
+   - הוסר שדה 'active' שלא קיים במודל Business
 2. ✅ אתחול אוטומטי למסד נתונים בפרודקשן
    - מערכת initialize_production_database() רצה אחרי migrations
    - יצירה אוטומטית של עסק "עסק ראשי" אם לא קיים

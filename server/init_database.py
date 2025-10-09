@@ -32,7 +32,6 @@ def initialize_production_database():
                 name="עסק ראשי",
                 business_type="real_estate",
                 is_active=True,
-                active=True,
                 calls_enabled=True,
                 crm_enabled=True,
                 whatsapp_enabled=True,

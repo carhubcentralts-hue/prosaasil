@@ -1,0 +1,133 @@
+
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/billing/invoice/<invoice_id>/download -> receipts_contracts.download_invoice
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/billing/invoice/<invoice_id>/view -> receipts_contracts.view_invoice
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'POST', 'OPTIONS'} /api/biz/users -> ui.api_biz_users_create
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'POST', 'OPTIONS'} /api/business/<tenant>/prompts -> ai_prompt.save_prompt
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/business/current -> business_management.get_current_business
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/business/current/prompt -> ai_prompt.get_current_business_prompt
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'OPTIONS', 'PUT'} /api/business/current/prompt -> ai_prompt.update_current_business_prompt
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/business/current/prompt/history -> ai_prompt.get_current_prompt_history
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'OPTIONS', 'PUT'} /api/business/current/settings -> business_management.update_current_business_settings
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/calendar/appointments -> calendar.get_appointments
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'POST', 'OPTIONS'} /api/calendar/appointments -> calendar.create_appointment
+2025-10-09 21:35:05.06
+607a1a59
+User
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/calendar/appointments/<int:appointment_id> -> calendar.get_appointment
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id> -> calendar.update_appointment
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'DELETE', 'OPTIONS'} /api/calendar/appointments/<int:appointment_id> -> calendar.delete_appointment
+2025-10-09 21:35:05.06
+607a1a59
+User
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/calendar/stats -> calendar.get_calendar_stats
+2025-10-09 21:35:05.06
+607a1a59
+User
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/calls -> calls.list_calls
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/calls/<call_sid>/details -> calls.get_call_details
+2025-10-09 21:35:05.06
+607a1a59
+User
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/calls/<call_sid>/download -> calls.download_recording
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/calls/active -> crm_bp.api_active_calls
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'POST', 'OPTIONS'} /api/calls/cleanup -> calls.cleanup_old_recordings
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/calls/history -> crm_bp.api_call_history
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/calls/stats -> calls.get_calls_stats
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'POST', 'OPTIONS'} /api/contracts -> receipts_contracts.create_contract
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'POST', 'OPTIONS'} /api/crm/contacts -> ui.api_crm_contacts_create
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/crm/contracts -> crm_bp.get_contracts
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'POST', 'OPTIONS'} /api/crm/contracts -> crm_bp.create_contract
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'POST', 'OPTIONS'} /api/crm/contracts/sign -> crm_bp.contract_sign
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/crm/customers -> crm_bp.api_customers
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/crm/deals -> crm_bp.list_deals
+2025-10-09 21:35:05.06
+607a1a59
+User
+{'POST', 'OPTIONS'} /api/crm/deals -> crm_bp.create_deal

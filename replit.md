@@ -4,11 +4,11 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
-## BUILD 77 (October 9, 2025) - Production Database Auto-Initialization (FIXED)
-- **🔧 CRITICAL FIX**: Fixed initialization order bug
-  - **Before**: Initialization ran BEFORE migrations → Tables didn't exist → Failed
-  - **After**: Migrations run FIRST, then initialization → Works correctly
-  - Tables are created before being populated with data
+## BUILD 78 (October 9, 2025) - Production Database Auto-Initialization (FINAL FIX)
+- **🔧 CRITICAL FIX**: Fixed invalid field error in Business model
+  - **Before**: `Business(active=True)` → Error: 'active' is invalid keyword ❌
+  - **After**: `Business(is_active=True)` → Works correctly ✅
+  - Removed non-existent 'active' field from initialization
 - **🚀 Automatic Database Initialization**: System now auto-initializes on every deployment
   - `initialize_production_database()` runs automatically AFTER migrations
   - Creates default business "עסק ראשי" if none exists
