@@ -204,6 +204,16 @@ def incoming_call_preview():
     return _twiml(vr)
 
 @csrf.exempt
+@twilio_bp.route("/webhook/voice", methods=["POST"])
+@require_twilio_signature
+def voice_webhook():
+    """
+    ✅ BUILD 70: Main Twilio voice webhook - delegates to incoming_call
+    This is the primary webhook URL configured in Twilio console
+    """
+    return incoming_call()
+
+@csrf.exempt
 @twilio_bp.route("/webhook/incoming_call", methods=["POST"])
 @require_twilio_signature
 def incoming_call():
