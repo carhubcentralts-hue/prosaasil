@@ -233,27 +233,6 @@ class AIService:
         else:
             return "תודה על הפנייה! אחד הסוכנים שלנו יחזור אליך בהקדם עם מענה מפורט."
     
-    def invalidate_cache(self, business_id: int):
-        """מחיקת קאש עסק מסוים (לאחר עדכון פרומפט)"""
-        cache_key = f"business_{business_id}"
-        if cache_key in self._cache:
-            del self._cache[cache_key]
-            logger.info(f"Cache invalidated for business {business_id}")
-    
-    def save_conversation_history(self, business_id: int, phone_number: str, 
-                                 message: str, response: str, channel: str = "whatsapp"):
-        """שמירת היסטוריית שיחה למידע עתידי (אופציונלי)"""
-        try:
-            # כאן אפשר להוסיף לוגיקה לשמירת שיחות ארוכות
-            # לצרכי הקשר עתידי או אנליטיקה
-            pass
-        except Exception as e:
-            logger.error(f"Failed to save conversation history: {e}")
-
-def generate_ai_response(message: str, business_id: int = 1, 
-                        context: Optional[Dict[str, Any]] = None, channel: str = "calls") -> str:
-    """פונקציה עזר לקריאה מהירה לשירות AI - לפי ערוץ"""
-    return get_ai_service().generate_response(message, business_id, context, channel)
     def _get_calendar_availability(self, business_id: int) -> str:
         """בדיקת זמינות בלוח השנה ל-7 ימים הקרובים"""
         try:
@@ -271,12 +250,6 @@ def generate_ai_response(message: str, business_id: int = 1,
                 Appointment.start_time < week_end,
                 Appointment.status.in_(['confirmed', 'pending'])
             ).order_by(Appointment.start_time).all()
-            
-            # בניית רשימת זמנים תפוסים
-            busy_slots = []
-            for apt in appointments:
-                date_str = apt.start_time.strftime("%d/%m %H:%M")
-                busy_slots.append(date_str)
             
             # הצעת זמנים פנויים (9:00-17:00, כל יום, למעט שבת)
             available_slots = []
@@ -313,4 +286,26 @@ def generate_ai_response(message: str, business_id: int = 1,
         except Exception as e:
             logger.error(f"Calendar check failed: {e}")
             return "📅 לוח השנה: נא לתאם ישירות עם הסוכן"
+    
+    def invalidate_cache(self, business_id: int):
+        """מחיקת קאש עסק מסוים (לאחר עדכון פרומפט)"""
+        cache_key = f"business_{business_id}"
+        if cache_key in self._cache:
+            del self._cache[cache_key]
+            logger.info(f"Cache invalidated for business {business_id}")
+    
+    def save_conversation_history(self, business_id: int, phone_number: str, 
+                                 message: str, response: str, channel: str = "whatsapp"):
+        """שמירת היסטוריית שיחה למידע עתידי (אופציונלי)"""
+        try:
+            # כאן אפשר להוסיף לוגיקה לשמירת שיחות ארוכות
+            # לצרכי הקשר עתידי או אנליטיקה
+            pass
+        except Exception as e:
+            logger.error(f"Failed to save conversation history: {e}")
+
+def generate_ai_response(message: str, business_id: int = 1, 
+                        context: Optional[Dict[str, Any]] = None, channel: str = "calls") -> str:
+    """פונקציה עזר לקריאה מהירה לשירות AI - לפי ערוץ"""
+    return get_ai_service().generate_response(message, business_id, context, channel)
 
