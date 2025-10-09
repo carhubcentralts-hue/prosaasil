@@ -1,0 +1,128 @@
+
+2025-10-09 22:27:12.60
+da56140b
+User
+INFO: 34.132.193.8:0 - "GET / HTTP/1.1" 200 OK
+2025-10-09 22:27:12.81
+da56140b
+User
+INFO: 34.132.193.8:0 - "GET /assets/index-DzWagZDE.js HTTP/1.1" 304 Not Modified
+2025-10-09 22:27:12.82
+da56140b
+User
+INFO: 35.238.185.44:0 - "GET /assets/index-BYuwk5KP.css HTTP/1.1" 304 Not Modified
+2025-10-09 22:27:13.08
+da56140b
+User
+INFO: 34.132.193.8:0 - "GET /favicon.ico HTTP/1.1" 304 Not Modified
+2025-10-09 22:27:13.10
+da56140b
+User
+INFO: 34.30.242.206:0 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+2025-10-09 22:27:13.27
+da56140b
+User
+INFO: 34.132.193.8:0 - "GET /favicon.ico HTTP/1.1" 304 Not Modified
+2025-10-09 22:27:13.29
+da56140b
+User
+INFO: 34.132.193.8:0 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+2025-10-09 22:27:24.90
+da56140b
+User
+🔐 LOGIN ATTEMPT: email=admin@admin.com
+2025-10-09 22:27:27.47
+da56140b
+User
+✓ Found user: id=2, email=admin@admin.com, role=admin
+2025-10-09 22:27:27.47
+da56140b
+User
+✓ Password hash: scrypt:32768:8:1$koskoMhhIDDtxM66$0178f637cfc5aa87...
+2025-10-09 22:27:27.60
+da56140b
+User
+✓ Password verification result: True
+2025-10-09 22:27:27.90
+da56140b
+User
+INFO: 34.132.193.8:0 - "POST /api/auth/login HTTP/1.1" 200 OK
+2025-10-09 22:27:27.90
+da56140b
+User
+🔐 LOGIN ATTEMPT: email=Admin@shai-realestate.co.il
+2025-10-09 22:27:27.90
+da56140b
+User
+2025-10-09 22:27:28.07
+da56140b
+User
+❌ LOGIN: User not found for email=Admin@shai-realestate.co.il
+2025-10-09 22:27:28.09
+da56140b
+User
+INFO: 104.197.78.4:0 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+2025-10-09 22:27:28.09
+da56140b
+User
+INFO: 34.30.242.206:0 - "GET /api/auth/csrf HTTP/1.1" 500 Internal Server Error
+2025-10-09 22:27:28.13
+da56140b
+User
+ERROR: Exception in ASGI application
+2025-10-09 22:27:28.13
+da56140b
+User
+Traceback (most recent call last):
+2025-10-09 22:27:28.13
+da56140b
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
+2025-10-09 22:27:28.13
+da56140b
+User
+result = await app( # type: ignore[func-returns-value]
+2025-10-09 22:27:28.13
+da56140b
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-10-09 22:27:28.13
+da56140b
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+2025-10-09 22:27:28.13
+da56140b
+User
+return await self.app(scope, receive, send)
+2025-10-09 22:27:28.13
+da56140b
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-10-09 22:27:28.13
+da56140b
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/starlette/applications.py", line 113, in __call__
+2025-10-09 22:27:28.13
+da56140b
+User
+await self.middleware_stack(scope, receive, send)
+2025-10-09 22:27:28.13
+da56140b
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/starlette/middleware/errors.py", line 186, in __call__
+2025-10-09 22:27:28.13
+da56140b
+User
+raise exc
+2025-10-09 22:27:28.13
+da56140b
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/starlette/middleware/errors.py", line 164, in __call__
+2025-10-09 22:27:28.13
+da56140b
+User
+await self.app(scope, receive, _send)
+2025-10-09 22:27:28.13
+da56140b
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 63, in __call__

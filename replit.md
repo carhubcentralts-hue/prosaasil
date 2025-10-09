@@ -4,6 +4,26 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
+## BUILD 79 (October 9, 2025) - Business & Lead Creation Fix + Full CRUD Support
+- **🔧 CRITICAL FIX - Business Creation**: Fixed NOT NULL constraint violations in business creation
+  - Added ALL required fields: whatsapp_number, greeting_message, whatsapp_greeting, system_prompt, voice_message, working_hours
+  - Added permissions: phone_permissions, whatsapp_permissions
+  - Added feature flags: calls_enabled, crm_enabled, whatsapp_enabled, payments_enabled
+  - Default values auto-populated based on business name and phone
+- **✅ Business Update - Full CRUD Support**: Complete support for updating all business fields
+  - Update all new fields (greetings, prompts, voice messages, etc.)
+  - Auto-update of updated_at timestamp
+  - Support for both defaultPhoneE164 and phone_e164 field names
+- **✅ Consistent CRUD Responses**: All endpoints return complete, consistent data
+  - GET/POST/PUT return ALL stored fields
+  - is_active, timestamps, boolean flags included
+  - status derived from is_active (active/inactive)
+- **✅ Lead Creation Working**: Lead creation fully functional and connected to database
+  - Automatic status seeding if missing
+  - Proper tenant isolation
+  - Activity logging
+- **✅ Commercial Ready**: Full CRUD operations for businesses and leads
+
 ## BUILD 78 (October 9, 2025) - Production Database Auto-Initialization (COMPLETE!)
 - **🔧 CRITICAL FIXES - Schema Drift Resolution**: Fixed all missing NOT NULL constraint violations
   - **Fix 1**: Invalid 'active' field → Changed to 'is_active' ✅

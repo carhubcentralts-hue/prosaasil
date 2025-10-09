@@ -25,11 +25,24 @@ def get_business(business_id):
         if not business:
             return jsonify({"error": "עסק לא נמצא"}), 404
         
-        # JSON לפי ההנחיות המדויקות
+        # JSON לפי ההנחיות המדויקות + ALL fields
         return jsonify({
             "id": business.id,
             "name": business.name,
             "phone_e164": business.phone_e164 or "",
+            "whatsapp_number": business.whatsapp_number or "",
+            "greeting_message": business.greeting_message or "",
+            "whatsapp_greeting": business.whatsapp_greeting or "",
+            "system_prompt": business.system_prompt or "",
+            "voice_message": business.voice_message or "",
+            "working_hours": business.working_hours or "08:00-18:00",
+            "phone_permissions": business.phone_permissions,
+            "whatsapp_permissions": business.whatsapp_permissions,
+            "calls_enabled": business.calls_enabled,
+            "crm_enabled": business.crm_enabled,
+            "whatsapp_enabled": business.whatsapp_enabled,
+            "payments_enabled": business.payments_enabled,
+            "default_provider": business.default_provider or "paypal",
             "email": f"office@{business.name.lower().replace(' ', '-')}.co.il",
             "address": "",
             "status": "active" if business.is_active else "inactive",
@@ -64,31 +77,58 @@ def create_business():
         
         # הסרתי בדיקת admin email כי לא יוצרים משתמש אוטומטית
         
-        # Create business - לפי ההנחיות המדויקות
+        # Create business - לפי ההנחיות המדויקות + ALL required fields
         business = Business()
         business.name = data['name']
         business.phone_e164 = data['phone_e164']  # השם שהפרונטאנד שולח
         business.business_type = data.get('business_type', 'real_estate')  # ברירת מחדל
         business.is_active = True
-        # Set default values for new fields
-        business.working_hours = "08:00-18:00"
-        business.voice_message = None  # יהיה default כשמציגים
+        
+        # Set ALL required fields to prevent NOT NULL constraint violations
+        business.whatsapp_number = data.get('whatsapp_number', data['phone_e164'])  # Default to same phone
+        business.greeting_message = data.get('greeting_message', "שלום! איך אפשר לעזור?")
+        business.whatsapp_greeting = data.get('whatsapp_greeting', "שלום! איך אפשר לעזור?")
+        business.system_prompt = data.get('system_prompt', f"את לאה, סוכנת נדל\"ן מקצועית ב{data['name']}. תפקידך לעזור ללקוחות למצוא נכסים.")
+        business.voice_message = data.get('voice_message', f"שלום, זו לאה מ{data['name']}")
+        business.working_hours = data.get('working_hours', "08:00-18:00")
+        business.phone_permissions = True
+        business.whatsapp_permissions = True
+        business.calls_enabled = True
+        business.crm_enabled = True
+        business.whatsapp_enabled = True
+        business.payments_enabled = False
+        business.default_provider = "paypal"
+        
         db.session.add(business)
         db.session.commit()
         
         logger.info(f"Created business {business.id}: {business.name}")
         
-        # ✅ החזר JSON של העסק החדש עם id - לא HTML
+        # ✅ החזר JSON של העסק החדש עם id + ALL fields (consistent with DB)
         return jsonify({
             "id": business.id,
             "name": business.name,
             "phone_e164": business.phone_e164,
+            "whatsapp_number": business.whatsapp_number or "",
+            "greeting_message": business.greeting_message or "",
+            "whatsapp_greeting": business.whatsapp_greeting or "",
+            "system_prompt": business.system_prompt or "",
+            "voice_message": business.voice_message or "",
+            "working_hours": business.working_hours or "08:00-18:00",
+            "phone_permissions": business.phone_permissions,
+            "whatsapp_permissions": business.whatsapp_permissions,
+            "calls_enabled": business.calls_enabled,
+            "crm_enabled": business.crm_enabled,
+            "whatsapp_enabled": business.whatsapp_enabled,
+            "payments_enabled": business.payments_enabled,
+            "default_provider": business.default_provider or "paypal",
             "business_type": business.business_type,
-            "whatsapp_number": "",  # ברירת מחדל
+            "is_active": business.is_active,
+            "status": "active" if business.is_active else "inactive",
             "call_status": "ready",
             "whatsapp_status": "connected",
-            "status": "active",
-            "created_at": business.created_at.isoformat() if business.created_at else None
+            "created_at": business.created_at.isoformat() if business.created_at else None,
+            "updated_at": business.updated_at.isoformat() if business.updated_at else None
         }), 201
         
     except Exception as e:
@@ -122,6 +162,10 @@ def update_business(business_id):
         if 'defaultPhoneE164' in data and data['defaultPhoneE164']:
             business.phone_e164 = data['defaultPhoneE164']
         
+        # Update phone_e164 (alternative field name)
+        if 'phone_e164' in data and data['phone_e164']:
+            business.phone_e164 = data['phone_e164']
+        
         # Update business type if provided
         if 'business_type' in data and data['business_type']:
             business.business_type = data['business_type']
@@ -130,6 +174,53 @@ def update_business(business_id):
         if 'is_active' in data:
             business.is_active = bool(data['is_active'])
         
+        # Update WhatsApp number if provided
+        if 'whatsapp_number' in data:
+            business.whatsapp_number = data['whatsapp_number']
+        
+        # Update greeting messages if provided
+        if 'greeting_message' in data:
+            business.greeting_message = data['greeting_message']
+        
+        if 'whatsapp_greeting' in data:
+            business.whatsapp_greeting = data['whatsapp_greeting']
+        
+        # Update system prompt if provided
+        if 'system_prompt' in data:
+            business.system_prompt = data['system_prompt']
+        
+        # Update voice message if provided
+        if 'voice_message' in data:
+            business.voice_message = data['voice_message']
+        
+        # Update working hours if provided
+        if 'working_hours' in data:
+            business.working_hours = data['working_hours']
+        
+        # Update permissions if provided
+        if 'phone_permissions' in data:
+            business.phone_permissions = bool(data['phone_permissions'])
+        
+        if 'whatsapp_permissions' in data:
+            business.whatsapp_permissions = bool(data['whatsapp_permissions'])
+        
+        # Update feature flags if provided
+        if 'calls_enabled' in data:
+            business.calls_enabled = bool(data['calls_enabled'])
+        
+        if 'crm_enabled' in data:
+            business.crm_enabled = bool(data['crm_enabled'])
+        
+        if 'whatsapp_enabled' in data:
+            business.whatsapp_enabled = bool(data['whatsapp_enabled'])
+        
+        if 'payments_enabled' in data:
+            business.payments_enabled = bool(data['payments_enabled'])
+        
+        if 'default_provider' in data:
+            business.default_provider = data['default_provider']
+        
+        business.updated_at = datetime.utcnow()
         db.session.commit()
         
         logger.info(f"Updated business {business_id}")
@@ -138,13 +229,26 @@ def update_business(business_id):
             "id": business.id,
             "name": business.name,
             "phone_e164": business.phone_e164,
+            "whatsapp_number": business.whatsapp_number or "",
+            "greeting_message": business.greeting_message or "",
+            "whatsapp_greeting": business.whatsapp_greeting or "",
+            "system_prompt": business.system_prompt or "",
+            "voice_message": business.voice_message or "",
+            "working_hours": business.working_hours or "08:00-18:00",
+            "phone_permissions": business.phone_permissions,
+            "whatsapp_permissions": business.whatsapp_permissions,
+            "calls_enabled": business.calls_enabled,
+            "crm_enabled": business.crm_enabled,
+            "whatsapp_enabled": business.whatsapp_enabled,
+            "payments_enabled": business.payments_enabled,
+            "default_provider": business.default_provider or "paypal",
             "business_type": business.business_type,
-            "whatsapp_number": "",
+            "is_active": business.is_active,
+            "status": "active" if business.is_active else "inactive",
             "call_status": "ready",
             "whatsapp_status": "connected",
-            "status": "active",
-            "is_active": business.is_active,
-            "created_at": business.created_at.isoformat() if business.created_at else None
+            "created_at": business.created_at.isoformat() if business.created_at else None,
+            "updated_at": business.updated_at.isoformat() if business.updated_at else None
         })
         
     except Exception as e:
