@@ -60,18 +60,33 @@ def login():
     try:
         data = request.get_json()
         if not data:
+            print("❌ LOGIN: No JSON data received")
             return jsonify({'success': False, 'error': 'Missing request data'}), 400
         
         email = data.get('email')
         password = data.get('password')
         
+        print(f"🔐 LOGIN ATTEMPT: email={email}")
+        
         if not email or not password:
+            print("❌ LOGIN: Missing email or password")
             return jsonify({'success': False, 'error': 'Missing email or password'}), 400
         
         # Find user by email (fix field names to match DB schema)
         user = User.query.filter_by(email=email, is_active=True).first()
         
-        if not user or not verify_password(user.password_hash, password):
+        if not user:
+            print(f"❌ LOGIN: User not found for email={email}")
+            return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
+        
+        print(f"✓ Found user: id={user.id}, email={user.email}, role={user.role}")
+        print(f"✓ Password hash: {user.password_hash[:50]}...")
+        
+        password_valid = verify_password(user.password_hash, password)
+        print(f"✓ Password verification result: {password_valid}")
+        
+        if not password_valid:
+            print(f"❌ LOGIN: Invalid password for email={email}")
             return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
         
         # Update last login
