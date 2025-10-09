@@ -59,7 +59,7 @@ def create_app():
     print(f"🔧 APP_SHA={git_sha}")
     
     version_info = {
-        "build": 75,
+        "build": 77,
         "sha": git_sha,
         "fe": "client/dist",
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -581,6 +581,20 @@ def create_app():
     
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
+    
+    # 🚀 AUTO-INITIALIZATION for production deployments
+    # This ensures the system is ready to use out-of-the-box
+    try:
+        with app.app_context():
+            from server.init_database import initialize_production_database
+            initialization_success = initialize_production_database()
+            if initialization_success:
+                print("✅ Production database initialized successfully")
+            else:
+                print("⚠️ Database initialization had issues but continuing...")
+    except Exception as e:
+        print(f"⚠️ Database auto-initialization error: {e}")
+        # Continue startup - don't crash on initialization failures
     
     # STARTUP FIX: Guard DB operations to prevent import blocking 
     # Only run DB migrations if explicitly enabled to prevent wsgi.py import from hanging

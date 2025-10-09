@@ -4,6 +4,19 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
+## BUILD 77 (October 9, 2025) - Production-Ready Automatic Initialization
+- **🚀 Automatic Database Initialization**: System now auto-initializes on every deployment
+  - `initialize_production_database()` runs automatically during app startup
+  - Creates default business "עסק ראשי" if none exists
+  - Creates admin@admin.com user with proper business_id linkage
+  - Creates 7 default Hebrew lead statuses automatically
+  - **Idempotent**: Safe to run multiple times, checks for existing data
+  - **Commercial-Ready**: Works out-of-the-box for production deployments
+- **Zero Configuration Deployment**: No manual database setup required
+  - Eliminates "admin has no business_id" errors
+  - Ensures consistent initialization across Preview and Production environments
+  - Clear logging for every initialization step
+
 ## BUILD 76 (October 9, 2025)
 - **Status Management Admin Access**: Admin users can now create/update/delete statuses without business_id requirement
   - GET /api/statuses: Admin can access all statuses (fallback to business_id=1)
@@ -19,11 +32,6 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
   - Select all leads with header checkbox
   - Bulk delete button appears when leads are selected
   - Delete confirmation dialog before bulk action
-
-## BUILD 75 (October 9, 2025)
-- **Admin Access Fixed**: Admin/Superadmin users can now view all leads across all tenants without business_id requirement
-- **Lead Management Optimized**: Removed redundant refreshLeads() calls from create/update/delete handlers - relying on optimistic UI updates
-- **Access Control Enhanced**: Both `list_leads` and `check_lead_access` now properly handle admin role bypass
 
 # User Preferences
 

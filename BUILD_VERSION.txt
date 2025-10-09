@@ -1,4 +1,20 @@
-BUILD 76 - Status Management Admin Access & Bulk Delete
+BUILD 77 - Automatic Production Database Initialization
+
+🚀 תוספות BUILD 77:
+1. ✅ אתחול אוטומטי למסד נתונים בפרודקשן
+   - מערכת initialize_production_database() רצה אוטומטית בהפעלה
+   - יצירה אוטומטית של עסק ראשי אם לא קיים
+   - יצירה אוטומטית של משתמש admin@admin.com
+   - קישור אוטומטי של admin לעסק
+   - יצירה אוטומטית של 7 סטטוסים בסיסיים עבריים
+2. ✅ פתרון מסחרי מקצועי - עובד out-of-the-box
+   - כל deployment חדש מאותחל אוטומטית
+   - אין צורך בהגדרות ידניות
+   - מתאים לפריסה מסחרית מיידית
+3. ✅ Idempotent - בטוח להריץ מספר פעמים
+   - בודק אם כבר קיימים נתונים לפני יצירה
+   - לוגים ברורים של כל שלב
+   - לא קורס אם יש שגיאה
 
 🔧 תוספות BUILD 76:
 1. ✅ Admin יכול לנהל סטטוסים (ללא business_id)
@@ -15,21 +31,6 @@ BUILD 76 - Status Management Admin Access & Bulk Delete
    - Checkbox לבחירת הכל
    - כפתור מחיקה קבוצתית
    - אישור מחיקה
-
-🔧 תיקוני גישת Admin (BUILD 75):
-1. ✅ Admin יכול לראות כל הלידים (ללא business_id)
-2. ✅ check_lead_access מאפשר גישה לאדמין/סופראדמין
-
-🎯 תיקוני ניהול לידים (BUILD 75):
-1. ✅ מחיקת לידים - הסרת refreshLeads() מיותר
-2. ✅ עדכון לידים - הסרת refreshLeads() מיותר  
-3. ✅ יצירת לידים - הסרת refreshLeads() מיותר
-4. ✅ CustomerIntelligenceService פעיל ליצירת לידים אוטומטית
-
-🔐 תיקוני התחברות (BUILD 74):
-1. ✅ תיקון verify_password - werkzeug מטפל בכל הפורמטים
-2. ✅ תיקון asgi.py - שם app נכון ל-uvicorn
-3. ✅ יצירת משתמש admin במסד נתונים הנכון
 
 פרטי כניסה:
 📧 admin@admin.com
