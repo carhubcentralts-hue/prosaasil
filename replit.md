@@ -4,18 +4,22 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
-## BUILD 77 (October 9, 2025) - Production-Ready Automatic Initialization
+## BUILD 77 (October 9, 2025) - Production Database Auto-Initialization (FIXED)
+- **🔧 CRITICAL FIX**: Fixed initialization order bug
+  - **Before**: Initialization ran BEFORE migrations → Tables didn't exist → Failed
+  - **After**: Migrations run FIRST, then initialization → Works correctly
+  - Tables are created before being populated with data
 - **🚀 Automatic Database Initialization**: System now auto-initializes on every deployment
-  - `initialize_production_database()` runs automatically during app startup
+  - `initialize_production_database()` runs automatically AFTER migrations
   - Creates default business "עסק ראשי" if none exists
   - Creates admin@admin.com user with proper business_id linkage
   - Creates 7 default Hebrew lead statuses automatically
   - **Idempotent**: Safe to run multiple times, checks for existing data
   - **Commercial-Ready**: Works out-of-the-box for production deployments
-- **Zero Configuration Deployment**: No manual database setup required
-  - Eliminates "admin has no business_id" errors
-  - Ensures consistent initialization across Preview and Production environments
-  - Clear logging for every initialization step
+- **Production & Preview Support**: Works in both environments
+  - Production: RUN_MIGRATIONS_ON_START=1 (set in start_production.sh)
+  - Preview: Migrations skipped, uses existing DB
+  - Full traceback logging for debugging
 
 ## BUILD 76 (October 9, 2025)
 - **Status Management Admin Access**: Admin users can now create/update/delete statuses without business_id requirement

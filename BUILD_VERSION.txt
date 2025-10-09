@@ -1,20 +1,23 @@
-BUILD 77 - Automatic Production Database Initialization
+BUILD 77 - Production Database Auto-Initialization (FIXED)
 
-🚀 תוספות BUILD 77:
-1. ✅ אתחול אוטומטי למסד נתונים בפרודקשן
-   - מערכת initialize_production_database() רצה אוטומטית בהפעלה
-   - יצירה אוטומטית של עסק ראשי אם לא קיים
-   - יצירה אוטומטית של משתמש admin@admin.com
-   - קישור אוטומטי של admin לעסק
+🔧 תיקון קריטי BUILD 77:
+1. ✅ תוקן סדר הפעולות בהפעלה
+   - **BEFORE**: Initialization → Migrations (נכשל!)
+   - **AFTER**: Migrations → Initialization (עובד!)
+   - הטבלאות נוצרות לפני שממלאים אותן בנתונים
+2. ✅ אתחול אוטומטי למסד נתונים בפרודקשן
+   - מערכת initialize_production_database() רצה אחרי migrations
+   - יצירה אוטומטית של עסק "עסק ראשי" אם לא קיים
+   - יצירה אוטומטית של משתמש admin@admin.com עם business_id
    - יצירה אוטומטית של 7 סטטוסים בסיסיים עבריים
-2. ✅ פתרון מסחרי מקצועי - עובד out-of-the-box
+3. ✅ עובד בפריסה (Production) ו-Preview
+   - בפריסה: RUN_MIGRATIONS_ON_START=1 (מוגדר ב-start_production.sh)
    - כל deployment חדש מאותחל אוטומטית
-   - אין צורך בהגדרות ידניות
    - מתאים לפריסה מסחרית מיידית
-3. ✅ Idempotent - בטוח להריץ מספר פעמים
+4. ✅ Idempotent - בטוח להריץ מספר פעמים
    - בודק אם כבר קיימים נתונים לפני יצירה
    - לוגים ברורים של כל שלב
-   - לא קורס אם יש שגיאה
+   - traceback מלא אם יש שגיאה
 
 🔧 תוספות BUILD 76:
 1. ✅ Admin יכול לנהל סטטוסים (ללא business_id)
