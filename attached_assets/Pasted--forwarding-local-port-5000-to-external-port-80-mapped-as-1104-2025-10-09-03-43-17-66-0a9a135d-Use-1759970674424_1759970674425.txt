@@ -1,0 +1,110 @@
+
+forwarding local port 5000 to external port 80 (mapped as 1104)
+2025-10-09 03:43:17.66
+0a9a135d
+User
+🚀 Starting AgentLocator Production System - Build #66
+2025-10-09 03:43:17.66
+0a9a135d
+User
+📊 Flask: 0.0.0.0:5000 | Baileys: 127.0.0.1:3300
+2025-10-09 03:43:17.66
+0a9a135d
+User
+✅ Build 66: GUARANTEED LOGGING - Cache Bust Fix
+2025-10-09 03:43:17.66
+0a9a135d
+User
+✅ INTERNAL_SECRET found in environment
+2025-10-09 03:43:17.66
+0a9a135d
+User
+🟡 Installing Node dependencies for Baileys...
+2025-10-09 03:43:21.30
+0a9a135d
+User
+up to date, audited 183 packages in 2s
+2025-10-09 03:43:21.30
+0a9a135d
+User
+33 packages are looking for funding
+2025-10-09 03:43:21.30
+0a9a135d
+User
+run `npm fund` for details
+2025-10-09 03:43:21.30
+0a9a135d
+User
+found 0 vulnerabilities
+2025-10-09 03:43:21.30
+0a9a135d
+User
+npm notice
+2025-10-09 03:43:21.30
+0a9a135d
+User
+npm notice New major version of npm available! 10.8.2 -> 11.6.2
+2025-10-09 03:43:21.30
+0a9a135d
+User
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.6.2
+2025-10-09 03:43:21.30
+0a9a135d
+User
+npm notice To update run: npm install -g npm@11.6.2
+2025-10-09 03:43:21.30
+0a9a135d
+User
+npm notice
+2025-10-09 03:43:21.31
+0a9a135d
+User
+🟡 Starting Baileys on port 3300...
+2025-10-09 03:43:21.31
+0a9a135d
+User
+✅ Baileys started (PID: 33)
+2025-10-09 03:43:21.31
+0a9a135d
+User
+🟡 Starting Flask with Uvicorn on port 5000...
+2025-10-09 03:43:21.31
+0a9a135d
+User
+✅ Flask/Uvicorn started (PID: 34)
+2025-10-09 03:43:21.31
+0a9a135d
+User
+🎯 Both services running. System ready!
+2025-10-09 03:43:21.31
+0a9a135d
+User
+📊 Access: http://0.0.0.0:5000
+2025-10-09 03:43:21.31
+0a9a135d
+User
+📝 Logs: /tmp/baileys_prod.log | /tmp/flask_prod.log
+2025-10-09 03:43:26.34
+0a9a135d
+User
+🔍 Final status check...
+2025-10-09 03:43:26.34
+0a9a135d
+User
+✅ All services confirmed running and ready!
+2025-10-09 03:43:26.34
+0a9a135d
+User
+🔑 PIDs saved - Baileys: 33 | Flask: 34
+2025-10-09 03:43:26.34
+0a9a135d
+User
+✅ Startup complete - keeping processes alive...
+2025-10-09 03:43:26.34
+0a9a135d
+User
+💡 Press Ctrl+C to stop all services
+
+Wrap
+
+Colors
