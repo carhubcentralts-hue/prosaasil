@@ -40,6 +40,16 @@ def require_auth():
 
 def check_lead_access(lead_id):
     """Check if current user can access lead"""
+    user = get_current_user()
+    if not user:
+        return False
+    
+    # ✅ FIX: Admin/Superadmin can access ALL leads
+    if user.get('role') in ['admin', 'superadmin']:
+        lead = Lead.query.filter_by(id=lead_id).first()
+        return lead is not None
+    
+    # Regular users: check tenant
     tenant_id = get_current_tenant()
     if not tenant_id:
         return False
@@ -139,9 +149,19 @@ def list_leads():
     if auth_error:
         return auth_error
     
-    tenant_id = get_current_tenant()
-    if not tenant_id:
-        return jsonify({"error": "No tenant access"}), 403
+    user = get_current_user()
+    is_admin = user.get('role') in ['admin', 'superadmin']
+    
+    # ✅ FIX: Admin/Superadmin can see ALL leads
+    if is_admin:
+        # Admin sees all leads
+        query = Lead.query
+    else:
+        # Regular users see only their tenant's leads
+        tenant_id = get_current_tenant()
+        if not tenant_id:
+            return jsonify({"error": "No tenant access"}), 403
+        query = Lead.query.filter_by(tenant_id=tenant_id)
     
     # Parse query parameters
     status_filter = request.args.get('status', '')
@@ -152,9 +172,6 @@ def list_leads():
     to_date = request.args.get('to', '')
     page = int(request.args.get('page', 1))
     page_size = min(int(request.args.get('pageSize', 50)), 100)  # Max 100 per page
-    
-    # Build query
-    query = Lead.query.filter_by(tenant_id=tenant_id)
     
     # Apply filters
     if status_filter:

@@ -1,15 +1,20 @@
-BUILD 74 - Authentication & Lead Management Fix
+BUILD 75 - Complete Lead Management & Admin Access Fix
 
-תיקוני התחברות:
-1. ✅ תיקון verify_password - werkzeug מטפל בכל פורמטי hash
+🔧 תיקוני גישת Admin:
+1. ✅ Admin יכול לראות כל הלידים (ללא business_id)
+2. ✅ check_lead_access מאפשר גישה לאדמין/סופראדמין
+
+🎯 תיקוני ניהול לידים:
+1. ✅ מחיקת לידים - הסרת refreshLeads() מיותר
+2. ✅ עדכון לידים - הסרת refreshLeads() מיותר  
+3. ✅ יצירת לידים - הסרת refreshLeads() מיותר
+4. ✅ CustomerIntelligenceService פעיל ליצירת לידים אוטומטית
+
+🔐 תיקוני התחברות (BUILD 74):
+1. ✅ תיקון verify_password - werkzeug מטפל בכל הפורמטים
 2. ✅ תיקון asgi.py - שם app נכון ל-uvicorn
-3. ✅ עדכון סיסמאות במסד נתונים - hash תקין של admin123
-
-תיקוני לידים (BUILD 73):
-1. ✅ לידים כפולים - CustomerIntelligenceService מונע כפילויות
-2. ✅ עדכון שמות - PATCH מחזיר lead מעודכן 
-3. ✅ מחיקת לידים - הסרת refreshLeads() המיותר
+3. ✅ יצירת משתמש admin במסד נתונים הנכון
 
 פרטי כניסה:
-📧 admin@admin.com או admin@maximus.co.il
+📧 admin@admin.com
 🔑 admin123

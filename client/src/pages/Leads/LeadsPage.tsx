@@ -220,20 +220,22 @@ export default function LeadsPage() {
   const handleLeadUpdate = async (updatedLead: Lead) => {
     try {
       await updateLead(updatedLead.id, updatedLead);
-      await refreshLeads();
+      // ✅ FIX: updateLead already updates state with response
       setSelectedLead(null);
     } catch (error) {
       console.error('Failed to update lead:', error);
+      alert('שגיאה בעדכון הליד');
     }
   };
 
   const handleLeadCreate = async (leadData: Partial<Lead>) => {
     try {
       await createLead(leadData);
-      await refreshLeads();
+      // ✅ FIX: createLead already updates state
       setIsCreateModalOpen(false);
     } catch (error) {
       console.error('Failed to create lead:', error);
+      alert('שגיאה ביצירת הליד');
     }
   };
 
