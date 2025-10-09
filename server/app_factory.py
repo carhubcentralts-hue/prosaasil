@@ -582,22 +582,8 @@ def create_app():
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
     
-    # 🚀 AUTO-INITIALIZATION for production deployments
-    # This ensures the system is ready to use out-of-the-box
-    try:
-        with app.app_context():
-            from server.init_database import initialize_production_database
-            initialization_success = initialize_production_database()
-            if initialization_success:
-                print("✅ Production database initialized successfully")
-            else:
-                print("⚠️ Database initialization had issues but continuing...")
-    except Exception as e:
-        print(f"⚠️ Database auto-initialization error: {e}")
-        # Continue startup - don't crash on initialization failures
-    
-    # STARTUP FIX: Guard DB operations to prevent import blocking 
-    # Only run DB migrations if explicitly enabled to prevent wsgi.py import from hanging
+    # CRITICAL FIX: Run migrations FIRST, then initialization
+    # Order matters: tables must exist before we can initialize data
     if os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1':
         try:
             with app.app_context():
@@ -608,8 +594,19 @@ def create_app():
                 # Create default admin user if none exists
                 from server.auth_api import create_default_admin
                 create_default_admin()
+                
+                # 🚀 AUTO-INITIALIZATION for production deployments (runs AFTER migrations)
+                # This ensures the system is ready to use out-of-the-box
+                from server.init_database import initialize_production_database
+                initialization_success = initialize_production_database()
+                if initialization_success:
+                    print("✅ Production database initialized successfully")
+                else:
+                    print("⚠️ Database initialization had issues but continuing...")
         except Exception as e:
-            print(f"⚠️ Database migration error: {e}")
+            print(f"⚠️ Database migration/initialization error: {e}")
+            import traceback
+            traceback.print_exc()
             # Continue startup - don't crash on migration failures
     else:
         print("🔧 Database migrations skipped (set RUN_MIGRATIONS_ON_START=1 to enable)")
