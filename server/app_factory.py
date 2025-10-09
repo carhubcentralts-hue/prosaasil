@@ -412,32 +412,24 @@ def create_app():
             
         print("🔧 Flask-Sock WebSocket DISABLED - using EventLet Composite WSGI exclusively")
         
-    # EventLet Composite WSGI handles WebSocket exclusively  
-    print("🔧 WebSocket: EventLet Composite WSGI + Flask WebSocket fallback")
-    
-    # IMMEDIATE DEBUG: Test if routes register at all
-    print("🔧 REGISTERING TEST ROUTES...")
-    
-    # NO WebSocket routes in Flask - handled by Composite WSGI in wsgi.py
-    # WebSocket צריך להיות ברמת WSGI לפני Flask
-    print("🔧 WebSocket routes removed from Flask - handled by wsgi.py composite")
-    
-    print("🔧 TEST ROUTE REGISTERED")
-    
-    # WebSocket routes handled by EventLet WebSocketWSGI in wsgi.py
-    print("🔧 WebSocket routes handled by EventLet WebSocketWSGI in wsgi.py")
-    print("📞 /ws/twilio-media → EventLet WebSocketWSGI with audio.twilio.com")
+    # WebSocket routes handled by ASGI layer (asgi.py with Starlette)
+    # Flask app doesn't handle WebSocket - delegated to ASGI wrapper
+    print("🔧 WebSocket: Handled by ASGI layer (Starlette WebSocket)")
+    print("📞 /ws/twilio-media → ASGI WebSocket (asgi.py)")
     
     # DEBUG: Test route to verify which version is running
     @app.route('/test-websocket-version')
     def test_websocket_version():
         """Test route to verify WebSocket integration is active"""
+        # Check if running under ASGI or standalone
+        server_type = 'uvicorn_asgi' if os.getenv('ASGI_SERVER') else 'standalone'
+        
         return jsonify({
-            'websocket_integration': 'EventLet_WebSocketWSGI_composite + Flask-Sock_fallback',
+            'build': 70,
+            'websocket_integration': 'Starlette_ASGI_WebSocket',
             'route': '/ws/twilio-media',
-            'method': 'eventlet_websocket_wsgi + flask_sock_fallback',
-            'worker_type': 'eventlet',
-            'fallback_available': True,
+            'method': 'asgi_starlette_websocket',
+            'worker_type': server_type,
             'real_websocket': True,
             'timestamp': int(time.time())
         })

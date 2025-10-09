@@ -8,6 +8,9 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
+# Mark that we're running under ASGI
+os.environ['ASGI_SERVER'] = '1'
+
 import asyncio
 import json
 import logging
