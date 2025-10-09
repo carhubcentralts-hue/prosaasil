@@ -1,0 +1,71 @@
+כן—זה לגמרי הגיוני. אם Twilio קורא ל־/webhook/voice והקוד שלך מחכה ב־/webhook/incoming_call, Twilio יקבל 405 Method Not Allowed → לא מקבל TwiML → אין פתיחת WebSocket → אתה שומע רק צליל חיוג ואז שקט. זה תסריט קלאסי שגורם בדיוק למה שאתה מתאר.
+
+מה לעשות עכשיו (5 דקות, בלי לשבור כלום)
+
+1) תן “כינוי” לנתיב
+
+ב־routes_twilio.py הוסף פשוט alias שמפנה לאותה פונקציה:
+
+@twilio_bp.post("/webhook/voice")
+@csrf.exempt
+@require_twilio_signature
+def voice_webhook():
+    return incoming_call()   # קורא לפונקציה הקיימת שמחזירה את ה-TwiML
+
+לא מוחקים כלום. רק מוסיפים נתיב נוסף.
+
+2) אשר שבאמת מגיע TwiML
+
+(אחרי הדפלוי/הרצה)
+
+curl -sS -i -X POST https://<PUBLIC_HOST>/webhook/voice | sed -n '1,200p'
+
+תקין =
+	•	HTTP/1.1 200 OK
+	•	Content-Type: text/xml
+	•	גוף עם <Response>...<Connect><Stream url="wss://<PUBLIC_HOST>/ws/twilio-media" .../></Connect>...</Response>
+
+אם זה לא ככה → זו הסיבה ל־12100/ניתוק.
+
+3) ודא שטוויליו מכוון לנתיב הנכון
+
+ב־Twilio Console → Voice → Phone Numbers → ה־Number שלך → A CALL COMES IN
+שים URL ל־https://<PUBLIC_HOST>/webhook/voice (או אם אתה מעדיף, החזר ל־/webhook/incoming_call אבל אז שמור תאימות בשני הצדדים).
+
+4) בדיקת WebSocket (שלא נופל ל-SPA)
+
+בדיקה קצרה:
+
+# בלי Upgrade—צריך לקבל 426 (לא HTML)
+curl -i https://<PUBLIC_HOST>/ws/twilio-media | sed -n '1,10p'
+
+# עם Upgrade—החיבור נשאר פתוח
+websocat wss://<PUBLIC_HOST>/ws/twilio-media
+
+אם קיבלת HTML על /ws → ודא שב־asgi.py ה־WebSocketRoute מופיע לפני Mount("/"), ושיש גם וריאנט עם וללא סלאש + Guard 426 (כבר דיברנו על זה).
+
+5) מחיקת 11200 (אם עוד מופיע)
+
+ב־callback של ההקלטה (למשל /webhook/handle_recording) החזר 200 מהר:
+
+@twilio_bp.post("/webhook/handle_recording")
+@csrf.exempt
+@require_twilio_signature
+def handle_recording():
+    return ("", 200)   # כל העיבוד – בתור/Worker
+
+בדיקה:
+
+curl -sS -i -X POST https://<PUBLIC_HOST>/webhook/handle_recording -d "CallSid=CA_test&RecordingUrl=https://ex.com/r.mp3" | sed -n '1,60p'
+# מצופה: 200 OK
+
+
+⸻
+
+למה זה סוגר את הפינה
+	•	405 על /webhook/voice משבית את כל הזרימה. ה־alias פותר את זה מייד.
+	•	Twilio רואה TwiML תקין → פותחת WS → אין יותר “חיוג ושקט”.
+	•	Guard ל־WS מונע נפילה ל־SPA (HTML).
+	•	200 מהיר ל־recording מונע 11200.
+
+אם אחרי זה עדיין מתנתק: זרוק לי צילום מסך של Twilio Debugger (events סביב ה־call) + פלט curl -i של /webhook/voice, ואני אגיד לך בשורה אחת איפה זה נעצר.
