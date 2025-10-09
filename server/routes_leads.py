@@ -875,6 +875,70 @@ def get_due_reminders():
         "overdue_count": len([r for r in reminders_data if r["overdue_minutes"] > 0])
     })
 
+@leads_bp.route("/api/leads/bulk-delete", methods=["POST"])
+def bulk_delete_leads():
+    """Bulk delete multiple leads"""
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    user = get_current_user()
+    is_admin = user.get('role') in ['admin', 'superadmin']
+    
+    # Admin can delete any leads
+    if is_admin:
+        tenant_id = None
+    else:
+        tenant_id = get_current_tenant()
+        if not tenant_id:
+            return jsonify({"error": "No tenant access"}), 403
+    
+    data = request.get_json()
+    if not data or 'lead_ids' not in data:
+        return jsonify({"error": "lead_ids is required"}), 400
+    
+    lead_ids = data['lead_ids']
+    
+    if not isinstance(lead_ids, list) or len(lead_ids) == 0:
+        return jsonify({"error": "lead_ids must be a non-empty array"}), 400
+    
+    # Validate access to all leads
+    if is_admin:
+        leads = Lead.query.filter(Lead.id.in_(lead_ids)).all()
+    else:
+        leads = Lead.query.filter(
+            Lead.id.in_(lead_ids),
+            Lead.tenant_id == tenant_id
+        ).all()
+    
+    if len(leads) != len(lead_ids):
+        return jsonify({"error": "Some leads not found or access denied"}), 404
+    
+    # Delete leads
+    deleted_count = 0
+    for lead in leads:
+        db.session.delete(lead)
+        deleted_count += 1
+        
+        # Log deletion
+        create_activity(
+            lead.id,
+            "bulk_delete",
+            {
+                "deleted_by": user.get('email', 'unknown') if user else 'unknown',
+                "lead_name": lead.full_name
+            },
+            user.get('id') if user else None
+        )
+    
+    db.session.commit()
+    
+    return jsonify({
+        "message": f"Bulk delete completed: {deleted_count} leads deleted",
+        "deleted_count": deleted_count,
+        "total_requested": len(lead_ids)
+    })
+
 @leads_bp.route("/api/leads/bulk", methods=["PATCH"])
 def bulk_update_leads():
     """Bulk update multiple leads"""

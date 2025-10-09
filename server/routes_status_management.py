@@ -28,6 +28,18 @@ def get_business_statuses():
         if session.get('impersonating') and session.get('impersonated_tenant_id'):
             business_id = session.get('impersonated_tenant_id')
         
+        # ✅ FIX: Admin can get statuses from query param or default to first business
+        is_admin = user.get('role') in ['admin', 'superadmin']
+        if not business_id and is_admin:
+            # Try to get business_id from query parameter
+            business_id = request.args.get('business_id', type=int)
+            
+            # If still no business_id, use first available business
+            if not business_id:
+                first_business = Business.query.first()
+                if first_business:
+                    business_id = first_business.id
+        
         if not business_id:
             return jsonify({'error': 'Business context required'}), 400
             
@@ -102,6 +114,18 @@ def create_status():
         business_id = user.get('business_id') if user else None
         if session.get('impersonating') and session.get('impersonated_tenant_id'):
             business_id = session.get('impersonated_tenant_id')
+        
+        # ✅ FIX: Admin can create statuses with business_id from request body
+        is_admin = user.get('role') in ['admin', 'superadmin']
+        if not business_id and is_admin:
+            data = request.get_json()
+            business_id = data.get('business_id') if data else None
+            
+            # If still no business_id, use first available business
+            if not business_id:
+                first_business = Business.query.first()
+                if first_business:
+                    business_id = first_business.id
         
         if not business_id:
             return jsonify({'error': 'Business context required'}), 400
@@ -205,17 +229,28 @@ def update_status(status_id):
         if session.get('impersonating') and session.get('impersonated_tenant_id'):
             business_id = session.get('impersonated_tenant_id')
         
-        if not business_id:
+        # ✅ FIX: Admin can update statuses - skip business_id check for admin
+        is_admin = user.get('role') in ['admin', 'superadmin']
+        if not business_id and not is_admin:
             return jsonify({'error': 'Business context required'}), 400
             
-        # ✅ IDOR Protection: Verify status belongs to current business  
-        status = LeadStatus.query.filter_by(
-            id=status_id,
-            business_id=business_id
-        ).first()
+        # ✅ IDOR Protection: Verify status belongs to current business (or admin bypass)
+        if is_admin and not business_id:
+            # Admin without business_id can update any status
+            status = LeadStatus.query.filter_by(id=status_id).first()
+        else:
+            # Regular user or admin with business_id - check ownership
+            status = LeadStatus.query.filter_by(
+                id=status_id,
+                business_id=business_id
+            ).first()
         
         if not status:
             return jsonify({'error': 'Status not found'}), 404
+        
+        # Update business_id for later use if admin
+        if not business_id:
+            business_id = status.business_id
             
         # ✅ System status protection
         if status.is_system:
@@ -312,16 +347,26 @@ def delete_status(status_id):
         if session.get('impersonating') and session.get('impersonated_tenant_id'):
             business_id = session.get('impersonated_tenant_id')
         
-        if not business_id:
+        # ✅ FIX: Admin can delete statuses - skip business_id check for admin
+        is_admin = user.get('role') in ['admin', 'superadmin']
+        if not business_id and not is_admin:
             return jsonify({'error': 'Business context required'}), 400
             
-        status = LeadStatus.query.filter_by(
-            id=status_id,
-            business_id=business_id
-        ).first()
+        # ✅ IDOR Protection: Verify status belongs to current business (or admin bypass)
+        if is_admin and not business_id:
+            status = LeadStatus.query.filter_by(id=status_id).first()
+        else:
+            status = LeadStatus.query.filter_by(
+                id=status_id,
+                business_id=business_id
+            ).first()
         
         if not status:
             return jsonify({'error': 'Status not found'}), 404
+        
+        # Update business_id for later use if admin
+        if not business_id:
+            business_id = status.business_id
             
         # ✅ Enhanced system status protection
         if status.is_system:
