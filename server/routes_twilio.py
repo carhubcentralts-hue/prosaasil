@@ -145,17 +145,23 @@ def _create_lead_from_call(call_sid, from_number):
     """שלב 4: יצירת/עדכון ליד אוטומטי מכל שיחה נכנסת - ללא כפילויות!"""
     from server.app_factory import create_app
     from server.services.customer_intelligence import CustomerIntelligenceService
+    from server.models_sql import Lead
+    
+    print(f"🔵 CREATE_LEAD_FROM_CALL - Starting for {from_number}, call_sid={call_sid}")
     
     try:
         # יצירת app context לthread
         app = create_app()
         with app.app_context():
+            print(f"🔵 CREATE_LEAD_FROM_CALL - App context created")
             # ברירת מחדל business_id=1 (ניתן לשנות לפי צרכים)
             business_id = 1
             
+            print(f"🔵 CREATE_LEAD_FROM_CALL - Creating CustomerIntelligenceService")
             # ✅ שימוש בשירות החכם שמונע כפילויות
             ci_service = CustomerIntelligenceService(business_id=business_id)
             
+            print(f"🔵 CREATE_LEAD_FROM_CALL - Calling find_or_create_customer_from_call")
             # מצא או צור customer + lead (ללא כפילויות!)
             customer, lead, was_created = ci_service.find_or_create_customer_from_call(
                 phone_number=from_number,
@@ -164,7 +170,10 @@ def _create_lead_from_call(call_sid, from_number):
                 conversation_data={}
             )
             
+            print(f"🔵 CREATE_LEAD_FROM_CALL - Got customer={customer.id if customer else None}, lead={lead.id if lead else None}, was_created={was_created}")
+            
             # צור call_log מקושר ללקוח
+            print(f"🔵 CREATE_LEAD_FROM_CALL - Creating call_log")
             with db.session.begin():
                 call_log = CallLog()
                 call_log.business_id = business_id
@@ -176,6 +185,19 @@ def _create_lead_from_call(call_sid, from_number):
             
             action = "created" if was_created else "updated"
             print(f"✅ {action} customer/lead for {from_number} - customer_id={customer.id}, lead_id={lead.id if lead else 'N/A'}")
+            
+            # ✅ CRITICAL FIX: יצירת ליד גם אם CustomerIntelligence נכשל
+            if not lead:
+                print(f"⚠️ CREATE_LEAD_FROM_CALL - No lead returned, creating fallback lead")
+                lead = Lead()
+                lead.tenant_id = business_id
+                lead.phone_e164 = from_number
+                lead.source = "call"
+                lead.status = "new"
+                lead.notes = f"שיחה נכנסת - {call_sid}"
+                db.session.add(lead)
+                db.session.commit()
+                print(f"✅ Created fallback lead ID={lead.id}")
         
     except Exception as e:
         print(f"❌ Failed to process lead for {call_sid}: {e}")
