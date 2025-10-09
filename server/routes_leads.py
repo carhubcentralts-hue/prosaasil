@@ -249,88 +249,116 @@ def list_leads():
 @leads_bp.route("/api/leads", methods=["POST"])
 def create_lead():
     """Create new lead manually"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
-    
-    tenant_id = get_current_tenant()
-    if not tenant_id:
-        return jsonify({"error": "No tenant access"}), 403
-    
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "JSON data required"}), 400
-    
-    # Validate required fields
-    if not data.get('first_name') and not data.get('phone_e164'):
-        return jsonify({"error": "Either first_name or phone_e164 is required"}), 400
-    
-    # Check for duplicates if phone provided
-    if data.get('phone_e164'):
-        existing = Lead.query.filter_by(
-            tenant_id=tenant_id,
-            phone_e164=data['phone_e164']
-        ).first()
-        if existing:
-            return jsonify({"error": "Lead with this phone number already exists", "existing_id": existing.id}), 409
-    
-    # Create lead
-    user = get_current_user()
-    
-    # ✅ FIXED: Use actual default status from database, not hardcoded 'new'
-    valid_statuses = get_valid_statuses_for_business(tenant_id)
-    default_status = get_default_status_for_business(tenant_id)  # Get actual default from DB
-    
-    # Normalize provided status to canonical lowercase
-    provided_status = data.get('status')
-    if provided_status:
-        normalized_status = provided_status.lower().strip()
-        if normalized_status in valid_statuses:
-            default_status = normalized_status
-        else:
-            return jsonify({
-                "error": f"Invalid status '{provided_status}'. Valid options: {', '.join(valid_statuses)}"
-            }), 400
-    
-    lead = Lead()
-    lead.tenant_id = tenant_id
-    lead.first_name = data.get('first_name')
-    lead.last_name = data.get('last_name')
-    lead.phone_e164 = data.get('phone_e164')
-    lead.email = data.get('email')
-    lead.source = data.get('source', 'manual')
-    lead.status = default_status  # Always canonical lowercase
-    lead.owner_user_id = data.get('owner_user_id') or (user.get('id') if user else None)
-    lead.tags = data.get('tags', [])
-    lead.notes = data.get('notes')
-    
-    db.session.add(lead)
-    db.session.flush()  # Get ID
-    
-    # Create activity
-    create_activity(
-        lead.id,
-        "lead_created",
-        {
-            "method": "manual",
-            "created_by": user.get('email', 'unknown') if user else 'unknown'
-        },
-        user.get('id') if user else None
-    )
-    
-    db.session.commit()
-    
-    return jsonify({
-        "id": lead.id,
-        "first_name": lead.first_name,
-        "last_name": lead.last_name,
-        "full_name": lead.full_name,
-        "phone_e164": lead.phone_e164,
-        "email": lead.email,
-        "status": lead.status,
-        "source": lead.source,
-        "created_at": lead.created_at.isoformat()
-    }), 201
+    try:
+        log.info(f"🔵 CREATE LEAD - Starting request")
+        auth_error = require_auth()
+        if auth_error:
+            log.warning(f"🔴 CREATE LEAD - Auth failed")
+            return auth_error
+        
+        tenant_id = get_current_tenant()
+        log.info(f"🔵 CREATE LEAD - tenant_id: {tenant_id}")
+        if not tenant_id:
+            log.error(f"🔴 CREATE LEAD - No tenant access")
+            return jsonify({"error": "No tenant access"}), 403
+        
+        data = request.get_json()
+        log.info(f"🔵 CREATE LEAD - Received data: {data}")
+        if not data:
+            log.error(f"🔴 CREATE LEAD - No JSON data")
+            return jsonify({"error": "JSON data required"}), 400
+        
+        # Validate required fields
+        if not data.get('first_name') and not data.get('phone_e164'):
+            log.error(f"🔴 CREATE LEAD - Missing required fields")
+            return jsonify({"error": "Either first_name or phone_e164 is required"}), 400
+        
+        # Check for duplicates if phone provided
+        if data.get('phone_e164'):
+            existing = Lead.query.filter_by(
+                tenant_id=tenant_id,
+                phone_e164=data['phone_e164']
+            ).first()
+            if existing:
+                log.warning(f"🔴 CREATE LEAD - Duplicate phone: {data['phone_e164']}")
+                return jsonify({"error": "Lead with this phone number already exists", "existing_id": existing.id}), 409
+        
+        # Create lead
+        user = get_current_user()
+        log.info(f"🔵 CREATE LEAD - User: {user.get('email') if user else 'None'}")
+        
+        # ✅ FIXED: Use actual default status from database, not hardcoded 'new'
+        log.info(f"🔵 CREATE LEAD - Getting valid statuses for tenant {tenant_id}")
+        valid_statuses = get_valid_statuses_for_business(tenant_id)
+        log.info(f"🔵 CREATE LEAD - Valid statuses: {valid_statuses}")
+        
+        default_status = get_default_status_for_business(tenant_id)  # Get actual default from DB
+        log.info(f"🔵 CREATE LEAD - Default status: {default_status}")
+        
+        # Normalize provided status to canonical lowercase
+        provided_status = data.get('status')
+        if provided_status:
+            normalized_status = provided_status.lower().strip()
+            if normalized_status in valid_statuses:
+                default_status = normalized_status
+            else:
+                log.error(f"🔴 CREATE LEAD - Invalid status: {provided_status}")
+                return jsonify({
+                    "error": f"Invalid status '{provided_status}'. Valid options: {', '.join(valid_statuses)}"
+                }), 400
+        
+        log.info(f"🔵 CREATE LEAD - Creating lead object")
+        lead = Lead()
+        lead.tenant_id = tenant_id
+        lead.first_name = data.get('first_name')
+        lead.last_name = data.get('last_name')
+        lead.phone_e164 = data.get('phone_e164')
+        lead.email = data.get('email')
+        lead.source = data.get('source', 'manual')
+        lead.status = default_status  # Always canonical lowercase
+        lead.owner_user_id = data.get('owner_user_id') or (user.get('id') if user else None)
+        lead.tags = data.get('tags', [])
+        lead.notes = data.get('notes')
+        
+        log.info(f"🔵 CREATE LEAD - Adding to session")
+        db.session.add(lead)
+        db.session.flush()  # Get ID
+        log.info(f"🔵 CREATE LEAD - Lead ID: {lead.id}")
+        
+        # Create activity
+        log.info(f"🔵 CREATE LEAD - Creating activity")
+        create_activity(
+            lead.id,
+            "lead_created",
+            {
+                "method": "manual",
+                "created_by": user.get('email', 'unknown') if user else 'unknown'
+            },
+            user.get('id') if user else None
+        )
+        
+        log.info(f"🔵 CREATE LEAD - Committing to DB")
+        db.session.commit()
+        
+        log.info(f"✅ CREATE LEAD - Success! Lead ID: {lead.id}")
+        return jsonify({
+            "id": lead.id,
+            "first_name": lead.first_name,
+            "last_name": lead.last_name,
+            "full_name": lead.full_name,
+            "phone_e164": lead.phone_e164,
+            "email": lead.email,
+            "status": lead.status,
+            "source": lead.source,
+            "created_at": lead.created_at.isoformat()
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"🔴 CREATE LEAD - Exception: {e}")
+        import traceback
+        log.error(f"🔴 CREATE LEAD - Traceback: {traceback.format_exc()}")
+        return jsonify({"error": f"Failed to create lead: {str(e)}"}), 500
 
 @leads_bp.route("/api/leads/<int:lead_id>", methods=["GET"])
 def get_lead_detail(lead_id):
