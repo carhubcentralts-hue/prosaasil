@@ -7,9 +7,9 @@ export FLASK_BASE_URL="${FLASK_BASE_URL:-http://127.0.0.1:5000}"
 export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 export RUN_MIGRATIONS_ON_START=1
 
-echo "🚀 Starting AgentLocator Production System - Build #62"
+echo "🚀 Starting AgentLocator Production System - Build #65"
 echo "📊 Flask: 0.0.0.0:${PORT} | Baileys: 127.0.0.1:${BAILEYS_PORT}"
-echo "✅ Build 62: Twilio SDK + Stream Parameter (CallSid FIX)"
+echo "✅ Build 65: Race Condition Fix + Improved Logging"
 
 # Ensure INTERNAL_SECRET is set (CRITICAL: Must come from environment!)
 if [ -z "${INTERNAL_SECRET:-}" ]; then
