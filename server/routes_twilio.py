@@ -143,37 +143,42 @@ def _trigger_recording_for_call(call_sid):
 
 def _create_lead_from_call(call_sid, from_number):
     """שלב 4: יצירת ליד אוטומטי מכל שיחה נכנסת"""
+    from server.app_factory import create_app
+    
     try:
-        # ברירת מחדל business_id=1 (ניתן לשנות לפי צרכים)
-        business_id = 1
-        
-        with db.session.begin():  # תמיד transaction
-            # בדוק אם כבר קיים customer למספר הזה
-            customer = Customer.query.filter_by(
-                business_id=business_id,
-                phone_e164=from_number
-            ).first()
+        # יצירת app context לthread
+        app = create_app()
+        with app.app_context():
+            # ברירת מחדל business_id=1 (ניתן לשנות לפי צרכים)
+            business_id = 1
             
-            if not customer:
-                # צור customer חדש
-                customer = Customer()
-                customer.business_id = business_id
-                customer.name = f"Unknown Caller {from_number[-4:]}"
-                customer.phone_e164 = from_number
-                customer.status = "new"
-                db.session.add(customer)
-                db.session.flush()  # כדי לקבל ID
+            with db.session.begin():  # תמיד transaction
+                # בדוק אם כבר קיים customer למספר הזה
+                customer = Customer.query.filter_by(
+                    business_id=business_id,
+                    phone_e164=from_number
+                ).first()
                 
-            # צור call_log מקושר לליד
-            call_log = CallLog()
-            call_log.business_id = business_id
-            call_log.customer_id = customer.id
-            call_log.call_sid = call_sid
-            call_log.from_number = from_number
-            call_log.status = "in_progress"
-            db.session.add(call_log)
+                if not customer:
+                    # צור customer חדש
+                    customer = Customer()
+                    customer.business_id = business_id
+                    customer.name = f"Unknown Caller {from_number[-4:]}"
+                    customer.phone_e164 = from_number
+                    customer.status = "new"
+                    db.session.add(customer)
+                    db.session.flush()  # כדי לקבל ID
+                
+                # צור call_log מקושר לליד
+                call_log = CallLog()
+                call_log.business_id = business_id
+                call_log.customer_id = customer.id
+                call_log.call_sid = call_sid
+                call_log.from_number = from_number
+                call_log.status = "in_progress"
+                db.session.add(call_log)
             
-        print(f"✅ Auto-created lead for {from_number}, customer_id={customer.id}")
+            print(f"✅ Auto-created lead for {from_number}, customer_id={customer.id}")
         
     except Exception as e:
         print(f"❌ Failed to create lead for {call_sid}: {e}")

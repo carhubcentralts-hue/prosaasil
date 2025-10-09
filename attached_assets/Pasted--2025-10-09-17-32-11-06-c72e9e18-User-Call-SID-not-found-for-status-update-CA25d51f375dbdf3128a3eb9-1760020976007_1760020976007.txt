@@ -1,0 +1,95 @@
+
+2025-10-09 17:32:11.06
+c72e9e18
+User
+Call SID not found for status update: CA25d51f375dbdf3128a3eb9071dfcb147
+2025-10-09 17:42:22.87
+c72e9e18
+User
+❌ Failed to create lead for CA95e7de1a6149b255220d29866068071f: Working outside of application context.
+2025-10-09 17:42:22.87
+c72e9e18
+User
+2025-10-09 17:42:22.87
+c72e9e18
+User
+This typically means that you attempted to use functionality that needed
+2025-10-09 17:42:22.87
+c72e9e18
+User
+the current application. To solve this, set up an application context
+2025-10-09 17:42:22.87
+c72e9e18
+User
+with app.app_context(). See the documentation for more information.
+2025-10-09 17:42:22.87
+c72e9e18
+User
+Exception in thread Thread-27 (_create_lead_from_call):
+2025-10-09 17:42:22.87
+c72e9e18
+User
+Traceback (most recent call last):
+2025-10-09 17:42:22.87
+c72e9e18
+User
+File "/nix/store/7d088dip86hlzri9sk0h78b63yfmx0a0-python3-3.11.13/lib/python3.11/threading.py", line 1045, in _bootstrap_inner
+2025-10-09 17:42:22.87
+c72e9e18
+User
+✅ incoming_call: 2ms - CA95e7de1a6149b2
+2025-10-09 17:42:22.87
+c72e9e18
+User
+INFO: 34.134.129.97:0 - "POST /webhook/incoming_call HTTP/1.1" 200 OK
+2025-10-09 17:42:22.87
+c72e9e18
+User
+2025-10-09 17:42:22.87
+c72e9e18
+User
+self.run()
+2025-10-09 17:42:22.87
+c72e9e18
+User
+File "/nix/store/7d088dip86hlzri9sk0h78b63yfmx0a0-python3-3.11.13/lib/python3.11/threading.py", line 982, in run
+2025-10-09 17:42:22.87
+c72e9e18
+User
+self._target(*self._args, **self._kwargs)
+2025-10-09 17:42:22.87
+c72e9e18
+User
+File "/home/runner/workspace/server/routes_twilio.py", line 180, in _create_lead_from_call
+2025-10-09 17:42:22.87
+c72e9e18
+User
+db.session.rollback()
+2025-10-09 17:42:22.87
+c72e9e18
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/scoping.py", line 1793, in rollback
+2025-10-09 17:42:22.87
+c72e9e18
+User
+return self._proxied.rollback()
+2025-10-09 17:42:22.87
+c72e9e18
+User
+^
+2025-10-09 17:42:22.87
+c72e9e18
+User
+^^^^^
+2025-10-09 17:42:22.87
+c72e9e18
+User
+^^
+2025-10-09 17:42:22.87
+c72e9e18
+User
+^^^
+2025-10-09 17:42:22.87
+c72e9e18
+User
+^^
