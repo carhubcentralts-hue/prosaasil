@@ -31,10 +31,10 @@ BAI=$!
 echo "✅ Baileys started (PID: $BAI)"
 
 # 2) Start Flask/ASGI with Uvicorn (native WebSocket support - BUILD 70)
-echo "🟡 Starting BUILD 70 with Uvicorn ASGI on port ${PORT}..."
-uvicorn asgi:asgi_app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 --log-level info &
+echo "🟡 Starting BUILD 74 with Uvicorn ASGI on port ${PORT}..."
+uvicorn asgi:app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 --log-level info &
 FL=$!
-echo "✅ BUILD 70 Uvicorn/ASGI started (PID: $FL)"
+echo "✅ BUILD 74 Uvicorn/ASGI started (PID: $FL)"
 
 echo "🎯 Both services running. System ready!"
 echo "📊 Access: http://0.0.0.0:${PORT}"
@@ -68,7 +68,7 @@ while true; do
     
     if ! kill -0 $FL 2>/dev/null; then
         echo "❌ Flask died (PID $FL) - restarting..."
-        uvicorn asgi:asgi_app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 &
+        uvicorn asgi:app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 &
         FL=$!
     fi
     
