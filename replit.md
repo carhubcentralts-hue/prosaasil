@@ -2,6 +2,13 @@
 
 AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent named "Leah." It integrates with Twilio and WhatsApp to process real-time calls, collect lead information, and schedule meetings. The system uses Twilio's Media Streams for stable real-time audio, natural barge-in capabilities, and focused lead collection, aiming to automate lead management for real estate businesses.
 
+# Recent Changes
+
+## BUILD 75 (October 9, 2025)
+- **Admin Access Fixed**: Admin/Superadmin users can now view all leads across all tenants without business_id requirement
+- **Lead Management Optimized**: Removed redundant refreshLeads() calls from create/update/delete handlers - relying on optimistic UI updates
+- **Access Control Enhanced**: Both `list_leads` and `check_lead_access` now properly handle admin role bypass
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
