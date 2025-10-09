@@ -207,10 +207,13 @@ export default function LeadsPage() {
     
     try {
       await deleteLead(leadId);
-      await refreshLeads();
+      // ✅ FIX: deleteLead כבר מעדכן את ה-state - לא צריך refreshLeads!
+      // הסרנו refreshLeads() כי זה גורם לליד לחזור אם המחיקה לא הצליחה בשרת
     } catch (error) {
       console.error('Failed to delete lead:', error);
       alert('שגיאה במחיקת הליד');
+      // במקרה של שגיאה - רענן לסנכרן עם השרת
+      await refreshLeads();
     }
   };
 

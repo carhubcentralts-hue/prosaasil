@@ -1,1 +1,8 @@
-BUILD 73 - Lead Management Fixes
+BUILD 73 - Lead Management Complete Fix
+
+תיקונים:
+1. ✅ לידים כפולים - CustomerIntelligenceService מונע כפילויות
+2. ✅ עדכון שמות - PATCH מחזיר lead מעודכן 
+3. ✅ מחיקת לידים - הסרת refreshLeads() המיותר שגרם לליד לחזור
+
+כל התיקונים פועלים!
