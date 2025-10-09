@@ -1,0 +1,160 @@
+2025-10-09 20:12:21.97
+FE Error:
+400
+{error: "Business ID required", message: "Business ID required"}
+2025-10-09 20:12:21.97
+Error loading calls:
+{status: 400, error: "Business ID required"}
+2025-10-09 20:12:23.76
+FE Error:
+400
+{error: "Business ID required", message: "Business ID required"}
+2025-10-09 20:12:23.76
+Error loading calls:
+{status: 400, error: "Business ID required"}
+2025-10-09 20:12:23.98
+FE Error:
+400
+{error: "לא נמצא מזהה עסק", message: "לא נמצא מזהה עסק"}
+2025-10-09 20:12:23.98
+Error loading prompts:
+{status: 400, error: "לא נמצא מזהה עסק"}
+2025-10-09 20:12:29.39
+🔄 403 detected, refreshing CSRF and retrying...
+2025-10-09 20:12:29.57
+✅ CSRF token refreshed
+2025-10-09 20:12:30.46
+FE Error:
+400
+{error: "לא נמצא מזהה עסק", message: "לא נמצא מזהה עסק"}
+2025-10-09 20:12:30.46
+Error saving prompt:
+{status: 400, error: "לא נמצא מזהה עסק"}
+2025-10-09 20:12:38.95
+🔄 useLeads useEffect triggered, calling fetchLeads...
+2025-10-09 20:12:38.95
+🔄 fetchLeads starting with filters:
+{search: ""}
+2025-10-09 20:12:38.95
+🔄 fetchLeads user:
+{business_id: null, email: "admin@admin.com", id: 8, name: "Admin User", role: "admin"}
+2025-10-09 20:12:38.95
+🔄 fetchLeads calling URL:
+/api/admin/leads
+isAdmin:
+true
+2025-10-09 20:12:44.87
+🔄 403 detected, refreshing CSRF and retrying...
+2025-10-09 20:12:44.87
+🔄 403 detected, refreshing CSRF and retrying...
+2025-10-09 20:12:45.04
+✅ CSRF token refreshed
+2025-10-09 20:12:45.20
+🔄 DEBUG: מתחיל טעינת עסקים...
+2025-10-09 20:12:45.20
+🔄 GET /api/admin/businesses - REAL DATA ENDPOINT
+2025-10-09 20:12:45.20
+✅ CSRF token refreshed
+2025-10-09 20:12:45.20
+FE Error:
+403
+{error: "No business access", message: "No business access"}
+2025-10-09 20:12:45.20
+Error loading billing data:
+{status: 403, error: "No business access"}
+2025-10-09 20:12:45.56
+📊 תגובת API:
+{items: Array(1), page: 1, pageSize: 20, total: 1}
+2025-10-09 20:12:45.56
+🏢 עסקים אחרי עיבוד:
+(1) [Object]
+2025-10-09 20:12:45.56
+FE Error:
+403
+{error: "No business access", message: "No business access"}
+2025-10-09 20:12:48.37
+🔍 Admin View: Navigating to business 1 overview (read-only)
+2025-10-09 20:12:48.37
+🔍 Loading business overview for ID: 1
+2025-10-09 20:12:48.37
+🔄 GET /api/admin/businesses/1/overview - Admin View (קריא בלבד)
+2025-10-09 20:12:50.28
+🔄 DEBUG: מתחיל טעינת עסקים...
+2025-10-09 20:12:50.28
+🔄 GET /api/admin/businesses - REAL DATA ENDPOINT
+2025-10-09 20:12:50.70
+📊 תגובת API:
+{items: Array(1), page: 1, pageSize: 20, total: 1}
+2025-10-09 20:12:50.70
+🏢 עסקים אחרי עיבוד:
+(1) [Object]
+2025-10-09 20:13:18.52
+FE Error:
+500
+{error: "שגיאה ביצירת העסק", message: "שגיאה ביצירת העסק"}
+2025-10-09 20:13:18.52
+❌ Error:
+שגיאה ביצירת העסק
+2025-10-09 20:13:18.52
+🔄 DEBUG: מתחיל טעינת עסקים...
+2025-10-09 20:13:18.52
+🔄 GET /api/admin/businesses - REAL DATA ENDPOINT
+2025-10-09 20:13:18.92
+📊 תגובת API:
+{items: Array(1), page: 1, pageSize: 20, total: 1}
+2025-10-09 20:13:18.92
+🏢 עסקים אחרי עיבוד:
+(1) [Object]
+2025-10-09 20:13:36.10
+🔄 403 detected, refreshing CSRF and retrying...
+2025-10-09 20:13:36.10
+🔄 403 detected, refreshing CSRF and retrying...
+2025-10-09 20:13:36.28
+✅ CSRF token refreshed
+2025-10-09 20:13:36.44
+FE Error:
+403
+{error: "No business access", message: "No business access"}
+2025-10-09 20:13:36.44
+Error loading billing data:
+{status: 403, error: "No business access"}
+2025-10-09 20:13:36.44
+✅ CSRF token refreshed
+2025-10-09 20:13:36.62
+FE Error:
+403
+{error: "No business access", message: "No business access"}
+2025-10-09 20:13:40.37
+FE Error:
+400
+{error: "Business context required", message: "Business context required"}
+2025-10-09 20:13:40.37
+Failed to load intelligence data:
+{status: 400, error: "Business context required"}
+2025-10-09 20:13:42.79
+🔄 useLeads useEffect triggered, calling fetchLeads...
+2025-10-09 20:13:42.79
+🔄 fetchLeads starting with filters:
+{search: ""}
+2025-10-09 20:13:42.79
+🔄 fetchLeads user:
+{business_id: null, email: "admin@admin.com", id: 8, name: "Admin User", role: "admin"}
+2025-10-09 20:13:42.79
+🔄 fetchLeads calling URL:
+/api/admin/leads
+isAdmin:
+true
+2025-10-09 20:13:47.34
+FE Error:
+400
+{error: "לא נמצא מזהה עסק", message: "לא נמצא מזהה עסק"}
+2025-10-09 20:13:47.34
+Error loading prompts:
+{status: 400, error: "לא נמצא מזהה עסק"}
+2025-10-09 20:13:58.74
+FE Error:
+400
+{error: "לא נמצא מזהה עסק", message: "לא נמצא מזהה עסק"}
+2025-10-09 20:13:58.74
+Error saving prompt:
+{status: 400, error: "לא נמצא מזהה עסק"}
