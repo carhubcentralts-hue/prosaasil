@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User } from 'lucide-react';
+import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
+import { Checkbox } from '../../shared/components/ui/Checkbox';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../shared/components/ui/Table';
 import { Select, SelectOption } from '../../shared/components/ui/Select';
 import LeadCreateModal from './components/LeadCreateModal';
@@ -33,6 +34,8 @@ export default function LeadsPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [editingStatus, setEditingStatus] = useState<number | null>(null);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Load dynamic statuses
   const { statuses, refreshStatuses } = useStatuses();
@@ -239,6 +242,48 @@ export default function LeadsPage() {
     }
   };
 
+  const handleToggleSelect = (leadId: number) => {
+    setSelectedLeadIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(leadId)) {
+        newSet.delete(leadId);
+      } else {
+        newSet.add(leadId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedLeadIds.size === sortedLeads.length) {
+      setSelectedLeadIds(new Set());
+    } else {
+      setSelectedLeadIds(new Set(sortedLeads.map(l => l.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedLeadIds.size === 0) return;
+    
+    const confirmMessage = `האם אתה בטוח שברצונך למחוק ${selectedLeadIds.size} לידים?`;
+    if (!confirm(confirmMessage)) return;
+
+    setIsDeleting(true);
+    try {
+      await http.post('/api/leads/bulk-delete', {
+        lead_ids: Array.from(selectedLeadIds)
+      });
+      
+      setSelectedLeadIds(new Set());
+      refreshLeads();
+    } catch (error) {
+      console.error('Failed to bulk delete leads:', error);
+      alert('שגיאה במחיקת לידים');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <main className="container mx-auto px-2 sm:px-4 pb-24 pt-2 max-w-full" dir="rtl">
       {/* Header - sticky top */}
@@ -249,6 +294,19 @@ export default function LeadsPage() {
             <p className="text-gray-600 dark:text-gray-400 mt-1 text-sm sm:text-base">ניהול ומעקב אחרי לידים בטבלה מקצועית</p>
           </div>
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            {selectedLeadIds.size > 0 && (
+              <Button
+                onClick={handleBulkDelete}
+                variant="destructive"
+                size="sm"
+                disabled={isDeleting}
+                className="w-full sm:w-auto"
+                data-testid="button-bulk-delete"
+              >
+                <Trash2 className="w-4 h-4 ml-2" />
+                מחק {selectedLeadIds.size} נבחרים
+              </Button>
+            )}
             <Button
               onClick={() => setIsStatusModalOpen(true)}
               variant="secondary"
@@ -329,6 +387,13 @@ export default function LeadsPage() {
           <Table data-testid="table-leads">
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">
+                  <Checkbox
+                    checked={selectedLeadIds.size === sortedLeads.length && sortedLeads.length > 0}
+                    onCheckedChange={handleToggleSelectAll}
+                    data-testid="checkbox-select-all"
+                  />
+                </TableHead>
                 <TableHead 
                   sortable 
                   onClick={() => handleSort('name')}
@@ -378,6 +443,13 @@ export default function LeadsPage() {
                   className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer"
                   onClick={() => navigate(`/app/leads/${lead.id}`)}
                 >
+                  <TableCell className="w-12" onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={selectedLeadIds.has(lead.id)}
+                      onCheckedChange={() => handleToggleSelect(lead.id)}
+                      data-testid={`checkbox-lead-${lead.id}`}
+                    />
+                  </TableCell>
                   <TableCell data-testid={`text-name-${lead.id}`} className="min-w-[150px]">
                     <div className="font-medium text-gray-900 dark:text-white hover:text-blue-600 transition-colors">
                       {safe(lead.name) || safe(lead.full_name) || safe(`${lead.first_name || ''} ${lead.last_name || ''}`.trim()) || safe(lead.phone_e164)}
