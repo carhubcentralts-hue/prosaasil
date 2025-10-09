@@ -341,16 +341,19 @@ def create_lead():
         db.session.commit()
         
         log.info(f"✅ CREATE LEAD - Success! Lead ID: {lead.id}")
+        # ✅ FIX: Return lead wrapped in {lead: {...}} to match frontend expectations
         return jsonify({
-            "id": lead.id,
-            "first_name": lead.first_name,
-            "last_name": lead.last_name,
-            "full_name": lead.full_name,
-            "phone_e164": lead.phone_e164,
-            "email": lead.email,
-            "status": lead.status,
-            "source": lead.source,
-            "created_at": lead.created_at.isoformat()
+            "lead": {
+                "id": lead.id,
+                "first_name": lead.first_name,
+                "last_name": lead.last_name,
+                "full_name": lead.full_name,
+                "phone_e164": lead.phone_e164,
+                "email": lead.email,
+                "status": lead.status,
+                "source": lead.source,
+                "created_at": lead.created_at.isoformat()
+            }
         }), 201
         
     except Exception as e:
