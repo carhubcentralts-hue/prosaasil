@@ -17,7 +17,7 @@ auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
 
 def verify_password(stored_hash, password):
     """
-    Verify password against stored hash - supports both scrypt and pbkdf2 formats
+    Verify password against stored hash - werkzeug handles all formats
     
     Args:
         stored_hash: The stored password hash from database
@@ -27,48 +27,8 @@ def verify_password(stored_hash, password):
         bool: True if password matches, False otherwise
     """
     try:
-        if stored_hash.startswith('scrypt:'):
-            # Parse scrypt format: "scrypt:N:r:p$salt$hash"
-            # Example: "scrypt:32768:8:1$salt_hex$hash_hex"
-            parts = stored_hash.split('$')
-            if len(parts) != 3:
-                print(f"⚠️ Invalid scrypt format: {stored_hash[:50]}...")
-                return False
-                
-            params_str, salt_hex, expected_hash_hex = parts
-            
-            # Parse scrypt parameters
-            try:
-                _, n_str, r_str, p_str = params_str.split(':')
-                n, r, p = int(n_str), int(r_str), int(p_str)
-            except ValueError:
-                print(f"⚠️ Invalid scrypt parameters: {params_str}")
-                return False
-            
-            # Decode salt and expected hash
-            try:
-                salt = binascii.unhexlify(salt_hex)
-                expected_hash = binascii.unhexlify(expected_hash_hex)
-            except binascii.Error:
-                print(f"⚠️ Invalid hex encoding in scrypt hash")
-                return False
-            
-            # Compute scrypt hash of provided password
-            try:
-                computed_hash = hashlib.scrypt(
-                    password.encode('utf-8'), 
-                    salt=salt, 
-                    n=n, r=r, p=p, 
-                    dklen=len(expected_hash)
-                )
-                return computed_hash == expected_hash
-            except Exception as e:
-                print(f"⚠️ Scrypt computation error: {e}")
-                return False
-        else:
-            # Fallback to werkzeug for pbkdf2 and other formats
-            return check_password_hash(stored_hash, password)
-            
+        # ✅ FIX: werkzeug handles scrypt, pbkdf2, and all other formats natively
+        return check_password_hash(stored_hash, password)
     except Exception as e:
         print(f"⚠️ Password verification error: {e}")
         return False

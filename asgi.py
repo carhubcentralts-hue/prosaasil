@@ -210,7 +210,7 @@ async def ws_twilio_media(websocket: WebSocket):
 
 # ASGI Application with Starlette
 # Order matters: WS routes BEFORE Mount to prevent SPA from catching them
-asgi_app = Starlette(routes=[
+app = Starlette(routes=[
     # Block non-WebSocket GET requests (return 426 instead of HTML)
     Route("/ws/twilio-media", ws_http_probe, methods=["GET"]),
     Route("/ws/twilio-media/", ws_http_probe, methods=["GET"]),
@@ -220,3 +220,6 @@ asgi_app = Starlette(routes=[
     # Flask/SPA mount (fallback for everything else)
     Mount("/", app=WsgiToAsgi(flask_app)),
 ])
+
+# ✅ Alias for compatibility
+asgi_app = app
