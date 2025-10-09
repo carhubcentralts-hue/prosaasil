@@ -160,6 +160,14 @@ class AIService:
                 {"role": "system", "content": prompt_data["system_prompt"]}
             ]
             
+            # ✅ הוספת זמינות לוח שנה
+            calendar_info = self._get_calendar_availability(business_id)
+            if calendar_info:
+                messages.append({
+                    "role": "system",
+                    "content": f"📅 לוח שנה:\n{calendar_info}\nכשהלקוח מוכן לפגישה, הצע תאריכים פנויים מהרשימה למעלה."
+                })
+            
             # הוספת הקשר אם קיים
             if context:
                 # הוספת מידע בסיסי על הלקוח
@@ -246,3 +254,63 @@ def generate_ai_response(message: str, business_id: int = 1,
                         context: Optional[Dict[str, Any]] = None, channel: str = "calls") -> str:
     """פונקציה עזר לקריאה מהירה לשירות AI - לפי ערוץ"""
     return get_ai_service().generate_response(message, business_id, context, channel)
+    def _get_calendar_availability(self, business_id: int) -> str:
+        """בדיקת זמינות בלוח השנה ל-7 ימים הקרובים"""
+        try:
+            from server.models_sql import Appointment
+            from datetime import datetime, timedelta
+            
+            # טווח תאריכים: היום + 7 ימים
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            week_end = today + timedelta(days=7)
+            
+            # שליפת פגישות קיימות
+            appointments = Appointment.query.filter(
+                Appointment.business_id == business_id,
+                Appointment.start_time >= today,
+                Appointment.start_time < week_end,
+                Appointment.status.in_(['confirmed', 'pending'])
+            ).order_by(Appointment.start_time).all()
+            
+            # בניית רשימת זמנים תפוסים
+            busy_slots = []
+            for apt in appointments:
+                date_str = apt.start_time.strftime("%d/%m %H:%M")
+                busy_slots.append(date_str)
+            
+            # הצעת זמנים פנויים (9:00-17:00, כל יום, למעט שבת)
+            available_slots = []
+            for i in range(7):
+                day = today + timedelta(days=i)
+                # דלג על שבת (5 = שבת)
+                if day.weekday() == 5:
+                    continue
+                    
+                day_name = day.strftime("%A")
+                day_name_he = {"Monday": "שני", "Tuesday": "שלישי", "Wednesday": "רביעי", 
+                              "Thursday": "חמישי", "Friday": "שישי", "Sunday": "ראשון"}.get(day_name, day_name)
+                
+                # בדוק אם יש פגישות ביום הזה
+                day_start = day.replace(hour=9, minute=0)
+                day_end = day.replace(hour=17, minute=0)
+                
+                day_appointments = [apt for apt in appointments if day_start <= apt.start_time < day_end]
+                
+                if len(day_appointments) < 4:  # אם פחות מ-4 פגישות - עדיין יש מקום
+                    date_str = day.strftime("%d/%m")
+                    available_slots.append(f"יום {day_name_he} {date_str} (בוקר/אחה\"צ)")
+            
+            # בניית טקסט
+            result = []
+            if available_slots:
+                result.append("✅ זמינות השבוע:")
+                result.extend([f"  • {slot}" for slot in available_slots[:5]])  # רק 5 ראשונים
+            else:
+                result.append("⚠️ אין זמינות השבוע - הצע שבוע הבא")
+            
+            return "\n".join(result)
+            
+        except Exception as e:
+            logger.error(f"Calendar check failed: {e}")
+            return "📅 לוח השנה: נא לתאם ישירות עם הסוכן"
+
