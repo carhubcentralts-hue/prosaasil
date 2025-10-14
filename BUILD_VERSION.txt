@@ -1,3 +1,15 @@
+BUILD 85 - CRITICAL FIX: Google STT + Full Integration
+
+🔧 BUILD 85 - GOOGLE STT FIX:
+1. ✅ **תוקן Google STT** - credentials עכשיו בקובץ קבוע (/tmp/gcp_credentials.json)
+2. ✅ **Whisper fallback** - עובד אם Google נכשל
+3. ✅ **conversation_history** - נשמר נכון ב-ConversationTurn
+4. ✅ **יצירת לידים אוטומטית** - CustomerIntelligence פועל
+5. ✅ **סיכום בסיום** - _finalize_call_on_stop מייצר סיכום
+
+**קבצים**: server/app_factory.py (tempfile → קובץ קבוע)
+**פריסה**: הפעלה מחדש תטען את כל התיקונים
+
 BUILD 84 - Production Ready: Complete System Integration
 
 🚀 BUILD 84 - PRODUCTION READY:

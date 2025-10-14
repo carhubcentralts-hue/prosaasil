@@ -20,22 +20,23 @@ import hashlib
 def create_app():
     """Create Flask application with React frontend (לפי ההנחיות המדויקות)"""
     
-    # GOOGLE TTS CREDENTIALS SETUP
+    # GOOGLE TTS CREDENTIALS SETUP - FIXED: Use permanent file
     # Handle both file path and JSON string credentials
-    import json, tempfile
+    import json
     gcp_creds = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
     if gcp_creds and gcp_creds.startswith('{'):
-        # If it's a JSON string, create a temporary file
+        # If it's a JSON string, create a PERMANENT file
         try:
             creds_data = json.loads(gcp_creds)
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            credentials_path = '/tmp/gcp_credentials.json'
+            with open(credentials_path, 'w') as f:
                 json.dump(creds_data, f)
-                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = f.name
-            print("🔧 GCP credentials converted from JSON to file")
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+            print(f"🔧 GCP credentials converted from JSON to file: {credentials_path}")
         except Exception as e:
             print(f"⚠️ GCP credentials error: {e}")
     else:
-        print("🔧 GCP credentials loaded from file path")
+        print(f"🔧 GCP credentials loaded from file path: {gcp_creds[:50]}...")
     
     app = Flask(__name__, 
                 static_folder=os.path.join(os.path.dirname(__file__), "..", "client", "dist"),
