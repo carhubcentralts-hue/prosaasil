@@ -321,7 +321,7 @@ def baileys_webhook():
                 # Send response via Baileys
                 send_result = wa_service.send_message(
                     to=f"{from_number}@s.whatsapp.net",
-                    text=response_text
+                    message=response_text
                 )
                 
                 if send_result.get('status') == 'sent':
