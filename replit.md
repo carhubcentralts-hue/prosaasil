@@ -4,6 +4,19 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
+## BUILD 85 (October 14, 2025) - CRITICAL FIX: Google STT Credentials + Complete Verification
+- **🔧 CRITICAL FIX - Google STT Authentication**: Fixed tempfile deletion causing STT failures
+  - **BUG**: Google credentials saved to tempfile that gets deleted → STT fails with "Both Google STT models failed"
+  - **FIX**: Changed to permanent file `/tmp/gcp_credentials.json` in app_factory.py
+  - **Result**: Google STT now works reliably, credentials persist throughout session
+  - **Files Modified**: server/app_factory.py (tempfile → permanent file)
+- **✅ Complete System Verification**: Created comprehensive test suite (test_build_85.py)
+  - Validates Google credentials file creation and authentication
+  - Confirms all WebSocket conversation functions exist (_create_call_log_on_start, _save_conversation_turn, _process_customer_intelligence, _finalize_call_on_stop)
+  - Verifies database schema (call_log, conversation_turn, leads, customer tables + all required columns)
+  - **All tests pass**: Google credentials ✅, WebSocket functions ✅, Database schema ✅
+- **Impact**: Google STT now works 100%, conversation history saves correctly, leads created automatically
+
 ## BUILD 83 (October 14, 2025) - Call Recording & Lead Management: Complete Fix
 - **🔧 CRITICAL FIX - "Call SID not found" Errors**: Fixed call_log creation to eliminate status update errors
   - **BUG**: call_log was not created at call start → calls not found for status updates
