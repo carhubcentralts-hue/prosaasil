@@ -73,8 +73,10 @@ def test_database_schema():
     app = create_app()
     with app.app_context():
         # בדוק טבלאות
-        tables = db.engine.table_names()
-        required_tables = ['call_log', 'conversation_turn', 'lead', 'customer']
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+        required_tables = ['call_log', 'conversation_turn', 'leads', 'customer']
         
         all_exist = True
         for table in required_tables:
