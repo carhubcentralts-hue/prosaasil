@@ -4,6 +4,27 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
+## BUILD 83 (October 14, 2025) - Call Recording & Lead Management: Complete Fix
+- **🔧 CRITICAL FIX - "Call SID not found" Errors**: Fixed call_log creation to eliminate status update errors
+  - **BUG**: call_log was not created at call start → calls not found for status updates
+  - **FIX**: Create call_log immediately on WebSocket "start" event
+  - **Result**: Every call is saved with correct call_sid from the beginning
+- **🔧 CRITICAL FIX - Lead Updates from Recordings**: Fixed conversation_history variable reference
+  - **BUG**: customer_intelligence used non-existent response_history variable
+  - **FIX**: Changed to conversation_history (the correct variable)
+  - **Result**: Leads update in real-time based on conversation content
+- **✅ Automatic Call Summary on End**: Added comprehensive call finalization
+  - New function: _finalize_call_on_stop()
+  - Creates full AI summary of conversation
+  - Updates call_log: transcript, summary, ai_summary
+  - Displays: intent, next_action, detailed summary
+- **✅ Fixed Race Condition**: Eliminated duplicate call_log creation
+  - _save_conversation_turn no longer creates call_log
+  - Prevents duplicates and concurrent access errors
+  - call_log created only once at call start
+- **Files Modified**: server/media_ws_ai.py
+- **Impact**: Calls are saved, leads update automatically, summaries generated ✅
+
 ## BUILD 82 (October 14, 2025) - AI Response Fix: Flask App Context for Database Access
 - **🔧 CRITICAL FIX - Leah AI Silence During Calls**: Fixed database access errors causing delays and silence
   - **BUG**: AI Service tried to access database outside Flask app context

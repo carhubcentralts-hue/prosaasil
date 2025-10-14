@@ -1,3 +1,30 @@
+BUILD 83 - Call Recording & Lead Management: Complete Fix
+
+🔧 תיקונים קריטיים BUILD 83:
+1. ✅ **תוקנה בעיית "Call SID not found" - שיחות לא נשמרו**
+   - **BUG**: call_log לא נוצר בהתחלת שיחה → שיחות לא נמצאו לעדכון
+   - **FIX**: יצירת call_log מיד ב-event "start" של WebSocket
+   - **תוצאה**: כל שיחה נשמרת עם call_sid נכון מההתחלה
+
+2. ✅ **תוקן עדכון לידים ממוקלטים - conversation_history**
+   - **BUG**: customer_intelligence השתמש ב-response_history (לא קיים!)
+   - **FIX**: שינוי ל-conversation_history (המשתנה הנכון)
+   - **תוצאה**: לידים מתעדכנים בהתאם לשיחה בזמן אמת
+
+3. ✅ **נוסף סיכום שיחה אוטומטי בסיום**
+   - פונקציה חדשה: _finalize_call_on_stop()
+   - יוצרת סיכום AI מלא של השיחה
+   - מעדכנת call_log: transcript, summary, ai_summary
+   - מציגה: intent, next_action, detailed summary
+   
+4. ✅ **תוקנה race condition ביצירת call_log**
+   - _save_conversation_turn לא יוצר call_log יותר
+   - מניעת כפילויות ושגיאות concurrent access
+   - call_log נוצר פעם אחת בלבד בהתחלת שיחה
+
+**קבצים מתוקנים**: server/media_ws_ai.py
+**השפעה**: שיחות נשמרות, לידים מתעדכנים, סיכומים אוטומטיים ✅
+
 BUILD 82 - AI Response Fix: Flask App Context for Database Access
 
 🔧 תיקון קריטי BUILD 82:

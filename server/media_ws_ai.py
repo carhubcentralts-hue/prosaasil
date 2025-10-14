@@ -557,6 +557,8 @@ class MediaStreamHandler:
 
                 if et == "stop":
                     print(f"WS_STOP sid={self.stream_sid} rx={self.rx} tx={self.tx}")
+                    # ✅ CRITICAL: סיכום שיחה בסיום
+                    self._finalize_call_on_stop()
                     # Send close frame properly
                     try:
                         if hasattr(self.ws, 'close'):
@@ -1719,6 +1721,66 @@ class MediaStreamHandler:
             'summary': summary,
             'meeting_prompt': meeting_prompt
         }
+    
+    def _finalize_call_on_stop(self):
+        """✅ סיכום מלא של השיחה בסיום - עדכון call_log וליד"""
+        try:
+            from server.models_sql import CallLog
+            from server.services.customer_intelligence import CustomerIntelligence
+            from server.app_factory import create_app
+            from server.db import db
+            import threading
+            
+            def finalize_in_background():
+                try:
+                    app = create_app()
+                    with app.app_context():
+                        # מצא call_log
+                        call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                        if not call_log:
+                            print(f"⚠️ No call_log found for final summary: {self.call_sid}")
+                            return
+                        
+                        # בנה סיכום מלא
+                        full_conversation = ""
+                        if hasattr(self, 'conversation_history') and self.conversation_history:
+                            full_conversation = "\n".join([
+                                f"לקוח: {turn['user']}\nלאה: {turn['bot']}"
+                                for turn in self.conversation_history
+                            ])
+                        
+                        # צור סיכום AI
+                        business_id = getattr(self, 'business_id', 1)
+                        ci = CustomerIntelligence(business_id)
+                        summary_data = ci.generate_conversation_summary(
+                            full_conversation,
+                            {'conversation_history': self.conversation_history}
+                        )
+                        
+                        # עדכן call_log
+                        call_log.status = "completed"
+                        call_log.transcript = full_conversation
+                        call_log.summary = summary_data.get('summary', '')
+                        call_log.ai_summary = summary_data.get('detailed_summary', '')
+                        
+                        db.session.commit()
+                        
+                        print(f"✅ CALL FINALIZED: {self.call_sid}")
+                        print(f"📝 Summary: {summary_data.get('summary', 'N/A')}")
+                        print(f"🎯 Intent: {summary_data.get('intent', 'N/A')}")
+                        print(f"📊 Next Action: {summary_data.get('next_action', 'N/A')}")
+                        
+                except Exception as e:
+                    print(f"❌ Failed to finalize call: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # רוץ ברקע
+            thread = threading.Thread(target=finalize_in_background, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            print(f"❌ Call finalization setup failed: {e}")
     
     def _create_call_log_on_start(self):
         """✅ יצירת call_log מיד בהתחלת שיחה - למניעת 'Call SID not found' errors"""
