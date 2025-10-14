@@ -2,7 +2,7 @@
 """
 ASGI Application for Cloud Run WebSocket Support
 Uses Starlette for WebSocket + Flask WSGI wrapper
-BUILD 76: Status Management Admin Access + Bulk Delete
+BUILD 85: Google STT Fix + Conversation Memory + Auto Leads
 """
 import os
 import sys
@@ -25,7 +25,7 @@ from starlette.requests import Request
 
 # STARTUP LOGGING - TO STDOUT
 print("=" * 80, flush=True)
-print("🚀 ASGI BUILD 76 LOADING - STATUS ADMIN + BULK DELETE", flush=True)
+print("🚀 ASGI BUILD 85 LOADING - GOOGLE STT FIX + CONVERSATION MEMORY", flush=True)
 print("=" * 80, flush=True)
 
 # Import Flask app directly from factory (no EventLet dependency)
@@ -35,7 +35,7 @@ log = logging.getLogger("twilio_ws")
 flask_app = create_app()
 
 print("=" * 80, flush=True)
-print("✅ ASGI BUILD 76 READY - ALL SYSTEMS GO", flush=True)
+print("✅ ASGI BUILD 85 READY - ALL SYSTEMS GO", flush=True)
 print("=" * 80, flush=True)
 
 async def ws_http_probe(request: Request):
