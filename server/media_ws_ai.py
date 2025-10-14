@@ -1845,10 +1845,10 @@ class MediaStreamHandler:
                         
                         # יצירת טקסט מלא מההיסטוריה הנוכחית
                         full_conversation = ""
-                        if hasattr(self, 'response_history') and self.response_history:
+                        if hasattr(self, 'conversation_history') and self.conversation_history:
                             full_conversation = " ".join([
                                 f"{turn['user']} {turn['bot']}" 
-                                for turn in self.response_history[-5:]  # רק 5 אחרונות
+                                for turn in self.conversation_history[-5:]  # רק 5 אחרונות
                             ])
                         
                         # זיהוי/יצירת לקוח וליד עם התמלול הנוכחי
@@ -1856,13 +1856,13 @@ class MediaStreamHandler:
                             str(self.phone_number or ""),
                             self.call_sid or f"live_{int(time.time())}",
                             full_conversation,
-                            conversation_data={'conversation_history': self.response_history}
+                            conversation_data={'conversation_history': self.conversation_history}
                         )
                         
                         # סיכום חכם של השיחה
                         conversation_summary = ci.generate_conversation_summary(
                             full_conversation,
-                            {'conversation_history': self.response_history}
+                            {'conversation_history': self.conversation_history}
                         )
                         
                         # עדכון סטטוס אוטומטי
