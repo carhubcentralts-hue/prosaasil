@@ -25,7 +25,7 @@ from starlette.requests import Request
 
 # STARTUP LOGGING - TO STDOUT
 print("=" * 80, flush=True)
-print("🚀 ASGI BUILD 85 LOADING - GOOGLE STT FIX + CONVERSATION MEMORY", flush=True)
+print("🚀 ASGI BUILD 86 LOADING - DATABASE CONNECTION DEBUG", flush=True)
 print("=" * 80, flush=True)
 
 # Import Flask app directly from factory (no EventLet dependency)
@@ -35,7 +35,7 @@ log = logging.getLogger("twilio_ws")
 flask_app = create_app()
 
 print("=" * 80, flush=True)
-print("✅ ASGI BUILD 85 READY - ALL SYSTEMS GO", flush=True)
+print("✅ ASGI BUILD 86 READY - ALL SYSTEMS GO", flush=True)
 print("=" * 80, flush=True)
 
 async def ws_http_probe(request: Request):

@@ -92,3 +92,34 @@ def livez():
         "status": "alive",
         "timestamp": datetime.now().isoformat()
     }), 200
+
+@health_bp.route('/db-check', methods=['GET'])
+def db_check():
+    """🔧 Database connection check - shows DB driver WITHOUT password"""
+    db_url = os.getenv('DATABASE_URL', 'NOT_SET')
+    
+    # Extract driver without exposing password
+    if db_url == 'NOT_SET':
+        driver = 'NOT_SET'
+        status = 'missing'
+    else:
+        driver = db_url.split(':')[0] if db_url else 'unknown'
+        status = 'configured'
+    
+    # Try to connect
+    connection_test = 'not_tested'
+    try:
+        from server.db import db
+        from sqlalchemy import text
+        db.session.execute(text('SELECT 1'))
+        connection_test = 'success'
+    except Exception as e:
+        connection_test = f'failed: {str(e)[:50]}'
+    
+    return jsonify({
+        "database_url_status": status,
+        "driver": driver,
+        "connection_test": connection_test,
+        "is_production": os.getenv('REPLIT_DEPLOYMENT') == '1',
+        "timestamp": datetime.now().isoformat()
+    }), 200

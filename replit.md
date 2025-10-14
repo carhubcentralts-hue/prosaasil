@@ -4,6 +4,18 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
+## BUILD 86 (October 14, 2025) - DATABASE_URL Debug & Production Safety
+- **🔧 CRITICAL: DATABASE_URL Production Debugging**: Added tools to diagnose Production database connection issues
+  - **NEW ENDPOINT**: `/db-check` - Shows DB driver and connection status WITHOUT exposing passwords
+  - **SQLite Protection**: Production will crash with clear error if DATABASE_URL is missing (prevents silent data loss)
+  - **Enhanced Logging**: DB_DRIVER logged on startup + DB_URL_AT_WRITE logged during call creation
+  - **Files Modified**: server/health_endpoints.py (new /db-check), server/app_factory.py (safety check), server/media_ws_ai.py (logging)
+  - **Purpose**: Helps diagnose why Production may use SQLite instead of PostgreSQL
+- **⚠️ DEPLOYMENT REQUIREMENT**: DATABASE_URL must be in **Deployment Secrets**, not just Workspace Secrets
+  - Replit has separate secrets for workspace vs Cloud Run deployment
+  - Without DATABASE_URL in deployment: Production falls back to SQLite → data lost after container restart
+- **Impact**: Can now diagnose and fix Production database connection issues immediately
+
 ## BUILD 85 (October 14, 2025) - DEPLOYED: Google STT Fix + Full Conversation Pipeline
 - **🚀 DEPLOYED TO PRODUCTION**: All BUILD 85 features now live
   - Frontend displays BUILD: 85 in UI
