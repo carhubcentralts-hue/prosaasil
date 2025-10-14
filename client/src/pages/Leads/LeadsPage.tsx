@@ -233,12 +233,15 @@ export default function LeadsPage() {
 
   const handleLeadCreate = async (leadData: Partial<Lead>) => {
     try {
-      await createLead(leadData);
-      // ✅ FIX: createLead already updates state
+      console.log('🔵 handleLeadCreate - Starting with data:', leadData);
+      const newLead = await createLead(leadData);
+      console.log('✅ handleLeadCreate - Success! Lead created:', newLead);
       setIsCreateModalOpen(false);
     } catch (error) {
-      console.error('Failed to create lead:', error);
-      alert('שגיאה ביצירת הליד');
+      console.error('❌ handleLeadCreate - Failed to create lead:', error);
+      const errorMessage = error instanceof Error ? error.message : 'שגיאה ביצירת הליד';
+      alert(errorMessage);
+      throw error; // Re-throw so modal shows error
     }
   };
 
