@@ -4,7 +4,14 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
-## BUILD 85 (October 14, 2025) - CRITICAL FIX: Google STT Credentials + Complete Verification
+## BUILD 85 (October 14, 2025) - DEPLOYED: Google STT Fix + Full Conversation Pipeline
+- **🚀 DEPLOYED TO PRODUCTION**: All BUILD 85 features now live
+  - Frontend displays BUILD: 85 in UI
+  - Backend app_factory.py version_info: build=85
+  - Production script start_production.sh updated to BUILD 85
+  - All components synchronized and deployed
+
+## BUILD 85 Technical Details - CRITICAL FIX: Google STT Credentials + Complete Verification
 - **🔧 CRITICAL FIX - Google STT Authentication**: Fixed tempfile deletion causing STT failures
   - **BUG**: Google credentials saved to tempfile that gets deleted → STT fails with "Both Google STT models failed"
   - **FIX**: Changed to permanent file `/tmp/gcp_credentials.json` in app_factory.py
