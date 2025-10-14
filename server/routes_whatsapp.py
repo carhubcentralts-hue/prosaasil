@@ -274,7 +274,7 @@ def baileys_webhook():
             return jsonify({"ok": True, "processed": 0}), 200
         
         # Process each incoming message
-        from server.services.customer_intelligence import CustomerIntelligenceService
+        from server.services.customer_intelligence import CustomerIntelligence
         from server.whatsapp_provider import get_whatsapp_service
         
         wa_service = get_whatsapp_service()
@@ -293,11 +293,11 @@ def baileys_webhook():
                 
                 log.info(f"📱 Processing message from {from_number}: {message_text[:50]}...")
                 
-                # Create/update lead using CustomerIntelligence
-                ci_service = CustomerIntelligenceService(business_id=business_id)
+                # ✅ FIX: Use correct CustomerIntelligence class
+                ci_service = CustomerIntelligence(business_id=business_id)
                 customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
                     phone_number=from_number,
-                    message_body=message_text
+                    message_text=message_text
                 )
                 
                 action = "created" if was_created else "updated"

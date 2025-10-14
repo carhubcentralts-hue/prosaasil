@@ -4,11 +4,16 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
-## BUILD 81 (October 14, 2025) - Zero Duplicates: Call Processing & Lead Intelligence
-- **🔧 CRITICAL FIX - Lead Deduplication**: Eliminated duplicate lead creation from calls
+## BUILD 81 (October 14, 2025) - Zero Duplicates: Complete Deduplication Fix (Calls + WhatsApp)
+- **🔧 CRITICAL FIX - Lead Deduplication (Calls)**: Eliminated duplicate lead creation from calls
   - Two code paths created duplicates: _create_lead_from_call + save_call_to_db
   - **FIX**: Fallback lead creation now sets external_id=call_sid
   - Deduplication works: One lead per call_sid (lookup by external_id)
+- **🔧 CRITICAL FIX - Customer Deduplication (WhatsApp)**: Eliminated duplicate customer creation
+  - **BUG**: routes_whatsapp.py used non-existent CustomerIntelligenceService
+  - **FIX**: Changed to CustomerIntelligence + corrected parameter (message_text)
+  - **DB Cleanup**: Safely deleted 2 duplicate customers (ID 3,6) with no foreign keys
+  - **Verified**: 0 customer duplicates, 0 lead duplicates in production DB
 - **✅ Verified Call Processing Flow**: Complete async pipeline working reliably
   - handle_recording → enqueue_recording → process_recording_async
   - Hebrew transcription (Google STT v2 primary + Whisper fallback)
