@@ -254,6 +254,11 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
+                    # ✅ CRITICAL FIX: יצירת call_log מיד בהתחלת שיחה
+                    if self.call_sid and not hasattr(self, '_call_log_created'):
+                        self._create_call_log_on_start()
+                        self._call_log_created = True
+                    
                     # ✅ ברכה מיידית - בלי השהיה!
                     if not self.tx_running:
                         self.tx_running = True
@@ -1715,6 +1720,48 @@ class MediaStreamHandler:
             'meeting_prompt': meeting_prompt
         }
     
+    def _create_call_log_on_start(self):
+        """✅ יצירת call_log מיד בהתחלת שיחה - למניעת 'Call SID not found' errors"""
+        try:
+            from server.models_sql import CallLog
+            from server.app_factory import create_app
+            from server.db import db
+            import threading
+            
+            def create_in_background():
+                try:
+                    app = create_app()
+                    with app.app_context():
+                        # בדוק אם כבר קיים
+                        existing = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                        if existing:
+                            print(f"✅ Call log already exists for {self.call_sid}")
+                            return
+                        
+                        # צור call_log חדש
+                        call_log = CallLog(
+                            business_id=getattr(self, 'business_id', 1),
+                            call_sid=self.call_sid,
+                            from_number=str(self.phone_number or ""),
+                            to_number="+97233763805",  # מספר העסק
+                            status="in_progress"
+                        )
+                        db.session.add(call_log)
+                        db.session.commit()
+                        print(f"✅ Created call_log on start: call_sid={self.call_sid}, phone={self.phone_number}")
+                        
+                except Exception as e:
+                    print(f"❌ Failed to create call_log on start: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # רוץ ברקע
+            thread = threading.Thread(target=create_in_background, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            print(f"❌ Call log creation setup failed: {e}")
+    
     def _save_conversation_turn(self, user_text: str, bot_reply: str):
         """✅ שמירת תור שיחה במסד נתונים לזיכרון קבוע"""
         try:
@@ -1727,21 +1774,14 @@ class MediaStreamHandler:
                 try:
                     app = create_app()
                     with app.app_context():
-                        # מצא או צור call_log
+                        # מצא call_log קיים (אמור להיות כבר נוצר ב-_create_call_log_on_start)
                         call_log = None
                         if hasattr(self, 'call_sid') and self.call_sid:
                             call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
                         
                         if not call_log:
-                            # צור call_log חדש
-                            call_log = CallLog(
-                                business_id=getattr(self, 'business_id', 1),
-                                call_sid=self.call_sid or f"live_{int(time.time())}",
-                                from_number=str(self.phone_number or ""),
-                                status="in_progress"
-                            )
-                            db.session.add(call_log)
-                            db.session.flush()  # כדי לקבל ID
+                            print(f"⚠️ Call log not found for {self.call_sid} - conversation turn not saved")
+                            return
                         
                         # שמור תור משתמש
                         user_turn = ConversationTurn(
