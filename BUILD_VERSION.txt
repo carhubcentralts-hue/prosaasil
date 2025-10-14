@@ -1,3 +1,13 @@
+BUILD 82 - AI Response Fix: Flask App Context for Database Access
+
+🔧 תיקון קריטי BUILD 82:
+1. ✅ **תוקנה בעיית השקט של לאה במהלך שיחות**
+   - **BUG**: AI Service ניסה לגשת למסד הנתונים מחוץ ל-Flask app context
+   - **שגיאות**: "Error loading business prompt" + "Calendar check failed"
+   - **FIX**: עטיפת generate_ai_response ב-app.app_context()
+   - **תוצאה**: לאה עכשיו טוענת prompts ובודקת לוח שנה בהצלחה
+   - **קבצים מתוקנים**: server/media_ws_ai.py (_ai_response function)
+
 BUILD 81 - Zero Duplicates: Complete Deduplication Fix (Calls + WhatsApp)
 
 🔧 תיקונים קריטיים BUILD 81:

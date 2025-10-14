@@ -1410,11 +1410,14 @@ class MediaStreamHandler:
         try:
             # ✅ UNIFIED: Use AIService for ALL prompt management (auto-updates!)
             from server.services.ai_service import generate_ai_response
+            from server.app_factory import create_app
             
             # וידוא שיש business_id
             if not hasattr(self, 'business_id') or not self.business_id:
-                # זיהוי business_id אם חסר
-                self._identify_business_from_phone()
+                # זיהוי business_id אם חסר - WITH APP CONTEXT
+                app = create_app()
+                with app.app_context():
+                    self._identify_business_from_phone()
             
             # Build context for the AI
             context = {
@@ -1430,14 +1433,16 @@ class MediaStreamHandler:
                     for item in self.conversation_history[-6:]  # עד 6 תורות אחרונים לזיכרון מלא
                 ]
             
-            # ✅ CRITICAL: Generate AI response using unified AIService (auto-updates!)
+            # ✅ CRITICAL FIX: Generate AI response WITH APP CONTEXT (for DB access)
             business_id = getattr(self, 'business_id', 1)
-            ai_response = generate_ai_response(
-                message=hebrew_text,
-                business_id=business_id,
-                context=context,
-                channel='calls'  # ✅ Use 'calls' prompt for phone calls
-            )
+            app = create_app()
+            with app.app_context():
+                ai_response = generate_ai_response(
+                    message=hebrew_text,
+                    business_id=business_id,
+                    context=context,
+                    channel='calls'  # ✅ Use 'calls' prompt for phone calls
+                )
             
             print(f"✅ AI_SERVICE_RESPONSE: Generated {len(ai_response)} chars for business {business_id}")
             return ai_response

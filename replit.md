@@ -4,6 +4,15 @@ AgentLocator is a Hebrew CRM system featuring an AI-powered real estate agent na
 
 # Recent Changes
 
+## BUILD 82 (October 14, 2025) - AI Response Fix: Flask App Context for Database Access
+- **🔧 CRITICAL FIX - Leah AI Silence During Calls**: Fixed database access errors causing delays and silence
+  - **BUG**: AI Service tried to access database outside Flask app context
+  - **Errors**: "Error loading business prompt 1" + "Calendar check failed: Working outside of application"
+  - **FIX**: Wrapped generate_ai_response with app.app_context() in media_ws_ai.py
+  - **Result**: Leah now successfully loads business prompts and checks calendar availability
+  - **Impact**: Eliminated response delays and silence during conversations
+- **Files Modified**: server/media_ws_ai.py (_ai_response function)
+
 ## BUILD 81 (October 14, 2025) - Zero Duplicates: Complete Deduplication Fix (Calls + WhatsApp)
 - **🔧 CRITICAL FIX - Lead Deduplication (Calls)**: Eliminated duplicate lead creation from calls
   - Two code paths created duplicates: _create_lead_from_call + save_call_to_db
