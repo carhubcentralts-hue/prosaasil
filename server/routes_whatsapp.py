@@ -250,6 +250,110 @@ def save_whatsapp_prompt(business_id):
     
     return {"ok": True, "id": business_id, "prompt_length": len(settings.ai_prompt)}
 
+@whatsapp_bp.route('/webhook/incoming', methods=['POST'])
+@csrf.exempt
+def baileys_webhook():
+    """🔴 CRITICAL: Webhook from Baileys for incoming WhatsApp messages"""
+    import logging
+    log = logging.getLogger(__name__)
+    
+    try:
+        # Verify internal secret
+        if request.headers.get('X-Internal-Secret') != INT_SECRET:
+            log.warning("Baileys webhook: Unauthorized request")
+            return jsonify({"error": "unauthorized"}), 401
+        
+        data = request.get_json()
+        tenant_id = data.get('tenantId', 'business_1')
+        payload = data.get('payload', {})
+        messages = payload.get('messages', [])
+        
+        log.info(f"📨 Baileys webhook: {len(messages)} message(s) from tenant {tenant_id}")
+        
+        if not messages:
+            return jsonify({"ok": True, "processed": 0}), 200
+        
+        # Process each incoming message
+        from server.services.customer_intelligence import CustomerIntelligenceService
+        from server.whatsapp_provider import get_whatsapp_service
+        
+        wa_service = get_whatsapp_service()
+        business_id = 1  # Default to business_1
+        processed = 0
+        
+        for msg in messages:
+            try:
+                # Extract message details
+                from_number = msg.get('key', {}).get('remoteJid', '').replace('@s.whatsapp.net', '')
+                message_text = msg.get('message', {}).get('conversation', '') or \
+                              msg.get('message', {}).get('extendedTextMessage', {}).get('text', '')
+                
+                if not from_number or not message_text:
+                    continue
+                
+                log.info(f"📱 Processing message from {from_number}: {message_text[:50]}...")
+                
+                # Create/update lead using CustomerIntelligence
+                ci_service = CustomerIntelligenceService(business_id=business_id)
+                customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
+                    phone_number=from_number,
+                    message_body=message_text
+                )
+                
+                action = "created" if was_created else "updated"
+                log.info(f"✅ {action} customer/lead for {from_number}")
+                
+                # Save incoming message to DB
+                wa_msg = WhatsAppMessage()
+                wa_msg.business_id = business_id
+                wa_msg.to_number = from_number
+                wa_msg.body = message_text
+                wa_msg.message_type = 'text'
+                wa_msg.direction = 'inbound'
+                wa_msg.provider = 'baileys'
+                wa_msg.status = 'received'
+                db.session.add(wa_msg)
+                db.session.commit()
+                
+                # Generate AI response (simple for now - can be enhanced)
+                response_text = f"שלום! קיבלתי את ההודעה שלך. נציג יחזור אליך בהקדם."
+                
+                # Send response via Baileys
+                send_result = wa_service.send_message(
+                    to=f"{from_number}@s.whatsapp.net",
+                    text=response_text
+                )
+                
+                if send_result.get('status') == 'sent':
+                    # Save outgoing message
+                    out_msg = WhatsAppMessage()
+                    out_msg.business_id = business_id
+                    out_msg.to_number = from_number
+                    out_msg.body = response_text
+                    out_msg.message_type = 'text'
+                    out_msg.direction = 'outbound'
+                    out_msg.provider = 'baileys'
+                    out_msg.status = 'sent'
+                    db.session.add(out_msg)
+                    db.session.commit()
+                    log.info(f"✅ Sent auto-response to {from_number}")
+                
+                processed += 1
+                
+            except Exception as e:
+                log.error(f"❌ Error processing message: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+        
+        return jsonify({"ok": True, "processed": processed}), 200
+        
+    except Exception as e:
+        log.error(f"❌ Baileys webhook error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 @whatsapp_bp.route('/send', methods=['POST'])
 @api_handler
 def send_manual_message():

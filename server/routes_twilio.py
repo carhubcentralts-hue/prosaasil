@@ -270,11 +270,16 @@ def incoming_call():
     
     # === יצירה אוטומטית של ליד ===
     if from_number:
+        print(f"🟢 INCOMING_CALL - Starting thread to create lead for {from_number}, call_sid={call_sid}")
         threading.Thread(
             target=_create_lead_from_call,
             args=(call_sid, from_number),
-            daemon=True
+            daemon=True,
+            name=f"LeadCreation-{call_sid[:8]}"
         ).start()
+        print(f"🟢 INCOMING_CALL - Thread started successfully")
+    else:
+        print(f"⚠️ INCOMING_CALL - No from_number, skipping lead creation")
     
     # ⏱️ מדידה
     response_time_ms = int((time.time() - start_time) * 1000)

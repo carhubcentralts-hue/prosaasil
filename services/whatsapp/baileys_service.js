@@ -271,7 +271,7 @@ async function startSession(tenantId) {
         messages: incomingMessages
       };
       
-      const response = await axios.post(`${FLASK_BASE_URL}/webhook/whatsapp/incoming`,
+      const response = await axios.post(`${FLASK_BASE_URL}/api/whatsapp/webhook/incoming`,
         { tenantId, payload: filteredPayload },
         { headers: { 'X-Internal-Secret': INTERNAL_SECRET } }
       );

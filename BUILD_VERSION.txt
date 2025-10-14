@@ -1,3 +1,20 @@
+BUILD 80 - Critical Stability Fixes: Call Lead Creation & WhatsApp Auto-Response
+
+🔧 תיקונים קריטיים BUILD 80:
+1. ✅ תוקן יצירת לידים אוטומטית משיחות
+   - הוספת לוגים מפורטים לכל שלב ב-_create_lead_from_call
+   - fallback lead creation אם CustomerIntelligence נכשל
+   - logging ברמת thread לאיתור בעיות
+2. ✅ תוקן WhatsApp Auto-Response
+   - **🔴 CRITICAL FIX**: נוסף webhook חסר `/api/whatsapp/webhook/incoming`
+   - Baileys עכשיו מתחבר ל-Flask בהצלחה
+   - יצירת לידים אוטומטית מהודעות WhatsApp
+   - תגובה אוטומטית: "שלום! קיבלתי את ההודעה שלך. נציג יחזור אליך בהקדם."
+3. ✅ שיפור debugging - לוגים מקיפים
+   - לוגים ב-incoming_call thread
+   - לוגים ב-Baileys → Flask webhook
+   - לוגים ביצירת לידים מכל מקור
+
 BUILD 79 - Business & Lead Creation Fix + Full CRUD Support
 
 🔧 תיקונים קריטיים BUILD 79:
