@@ -187,12 +187,14 @@ def _create_lead_from_call(call_sid, from_number):
             print(f"✅ {action} customer/lead for {from_number} - customer_id={customer.id}, lead_id={lead.id if lead else 'N/A'}")
             
             # ✅ CRITICAL FIX: יצירת ליד גם אם CustomerIntelligence נכשל
+            # ⚠️ NOTE: external_id=call_sid למניעת כפילויות!
             if not lead:
                 print(f"⚠️ CREATE_LEAD_FROM_CALL - No lead returned, creating fallback lead")
                 lead = Lead()
                 lead.tenant_id = business_id
                 lead.phone_e164 = from_number
                 lead.source = "call"
+                lead.external_id = call_sid  # 🔴 CRITICAL: למניעת כפילויות
                 lead.status = "new"
                 lead.notes = f"שיחה נכנסת - {call_sid}"
                 db.session.add(lead)

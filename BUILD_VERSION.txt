@@ -1,3 +1,24 @@
+BUILD 81 - Zero Duplicates: Call Processing & Lead Intelligence
+
+🔧 תיקונים קריטיים BUILD 81:
+1. ✅ **תוקנה בעיית הכפילויות בלידים**
+   - שני מקומות יצרו לידים: _create_lead_from_call + save_call_to_db
+   - **FIX**: fallback lead creation עכשיו משתמש ב-external_id=call_sid
+   - מניעת כפילויות: ליד אחד לכל שיחה (חיפוש לפי external_id)
+   
+2. ✅ **זרימת עיבוד שיחות מלאה**
+   - handle_recording → enqueue_recording → process_recording_async
+   - תמלול עברית (Google STT v2 + Whisper fallback)
+   - סיכום חכם GPT (10-30 מילים)
+   - שמירה ב-DB עם יצירת ליד אוטומטית
+   - עדכון סטטוס ליד אוטומטי
+   
+3. ✅ **Customer Intelligence - אין כפילויות**
+   - חיפוש לקוח קיים לפי phone_e164
+   - חיפוש ליד קיים לפי external_id=call_sid
+   - יצירה רק אם לא קיים
+   - deduplication מלא לכל המקורות (call/whatsapp/manual)
+
 BUILD 80 - Critical Stability Fixes: Call Lead Creation & WhatsApp Auto-Response
 
 🔧 תיקונים קריטיים BUILD 80:
