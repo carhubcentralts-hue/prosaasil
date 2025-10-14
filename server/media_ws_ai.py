@@ -1794,6 +1794,11 @@ class MediaStreamHandler:
                 try:
                     app = create_app()
                     with app.app_context():
+                        # ✅ LOG DATABASE CONNECTION (per הנחיות)
+                        db_url = os.getenv('DATABASE_URL', 'NOT_SET')
+                        db_driver = db_url.split(':')[0] if db_url else 'none'
+                        print(f"🔧 DB_URL_AT_WRITE: driver={db_driver}, BIZ={getattr(self, 'business_id', 1)}, SID={self.call_sid}", flush=True)
+                        
                         # בדוק אם כבר קיים
                         existing = CallLog.query.filter_by(call_sid=self.call_sid).first()
                         if existing:

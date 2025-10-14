@@ -72,6 +72,16 @@ def create_app():
     
     # Database configuration with SSL fix
     DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///default.db')
+    
+    # ✅ PRODUCTION SAFETY CHECK - No SQLite in production!
+    IS_PRODUCTION = os.getenv('REPLIT_DEPLOYMENT') == '1' or os.getenv('RAILWAY_ENVIRONMENT') == 'production'
+    if IS_PRODUCTION and DATABASE_URL.startswith('sqlite'):
+        raise RuntimeError("❌ FATAL: SQLite is not allowed in production! Set DATABASE_URL secret.")
+    
+    # Log database driver (without password)
+    db_driver = DATABASE_URL.split(':')[0] if DATABASE_URL else 'none'
+    print(f"🔧 DB_DRIVER: {db_driver}", flush=True)
+    
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
     
