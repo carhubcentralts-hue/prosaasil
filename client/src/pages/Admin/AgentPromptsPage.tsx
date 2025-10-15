@@ -134,8 +134,9 @@ export function AgentPromptsPage() {
       );
       
       if (result.success) {
-        // Update version
-        setPrompts(prev => ({ ...prev, version: result.version, last_updated: new Date().toISOString() }));
+        // Update version and timestamp
+        const timestamp = result.updated_at || new Date().toISOString();
+        setPrompts(prev => ({ ...prev, version: result.version, last_updated: timestamp }));
         alert(`✅ פרומפט ${channel === 'calls' ? 'שיחות' : 'WhatsApp'} נשמר בהצלחה`);
       } else {
         alert(`❌ שגיאה בשמירת פרומפט: ${result.message}`);
