@@ -345,6 +345,15 @@ def incoming_call():
     # ✅ CRITICAL: הוסף Parameter עם CallSid (חובה!)
     stream.parameter(name="CallSid", value=call_sid)
     
+    # ✅ BUILD 90: Add Record fallback (if stream fails, recording still works!)
+    vr.record(
+        play_beep=False,
+        timeout=4,
+        max_length=300,
+        transcribe=False,
+        action=f"https://{host}/webhook/handle_recording"
+    )
+    
     # === יצירה אוטומטית של ליד (ברקע) ===
     if from_number:
         print(f"🟢 INCOMING_CALL - Starting thread to create lead for {from_number}, call_sid={call_sid}")

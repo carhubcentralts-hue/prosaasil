@@ -80,7 +80,13 @@ Preferred communication style: Simple, everyday language.
   - **FIX 2**: Clarified port architecture - only Flask on 0.0.0.0:PORT (external), Baileys on 127.0.0.1:3300 (internal only)
   - **FIX 3**: Updated start_production.sh with clear external/internal port documentation
   - **Files**: start_production.sh
-- **Impact**: Production deployment works + auto-creates business if needed + all calls/WhatsApp save successfully + WhatsApp replies with intelligent AI responses
+- **🔧 CRITICAL FIX 5**: Fixed missing transcription/recording (TwiML incomplete)
+  - **ROOT CAUSE**: TwiML only had <Stream> but no <Record> fallback → if WebSocket fails, no recording!
+  - **SYMPTOM**: Calls save but transcription=NULL, recording_url=NULL, ai_summary=NULL
+  - **FIX 1**: Added <Record> tag after <Stream> as fallback (max_length=300s, timeout=4s)
+  - **FIX 2**: Record sends to handle_recording webhook for processing
+  - **Files**: server/routes_twilio.py
+- **Impact**: Production deployment works + auto-creates business if needed + all calls/WhatsApp save successfully + WhatsApp replies with intelligent AI responses + calls now have transcription/recording even if WebSocket fails
 
 ## BUILD 89 (October 15, 2025) - CRITICAL FIX: Complete Call Processing Chain
 - **🔧 CRITICAL FIX**: Fixed entire call processing chain from ImportError to call_log creation
