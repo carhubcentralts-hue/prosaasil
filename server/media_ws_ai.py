@@ -1814,8 +1814,18 @@ class MediaStreamHandler:
                             status="in_progress"
                         )
                         db.session.add(call_log)
-                        db.session.commit()
-                        print(f"✅ Created call_log on start: call_sid={self.call_sid}, phone={self.phone_number}")
+                        
+                        try:
+                            db.session.commit()
+                            print(f"✅ Created call_log on start: call_sid={self.call_sid}, phone={self.phone_number}")
+                        except Exception as commit_error:
+                            # Handle duplicate key error (race condition)
+                            db.session.rollback()
+                            error_msg = str(commit_error).lower()
+                            if 'unique' in error_msg or 'duplicate' in error_msg:
+                                print(f"⚠️ Call log already exists (race condition): {self.call_sid}")
+                            else:
+                                raise
                         
                 except Exception as e:
                     print(f"❌ Failed to create call_log on start: {e}")

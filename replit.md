@@ -47,6 +47,17 @@ Preferred communication style: Simple, everyday language.
 - **Billing and Contracts**: Integrated payment processing (PayPal, Tranzilla) and contract generation.
 - **Automatic Recording Cleanup**: 2-day retention policy for recordings.
 
+# Recent Changes
+
+## BUILD 87 (October 14, 2025) - CRITICAL FIX: Duplicate call_sid Race Condition
+- **🔧 CRITICAL FIX**: Fixed race condition causing duplicate call_log records and "Failing row contains" errors
+  - **ROOT CAUSE**: Multiple threads created call_log simultaneously → duplicate call_sid → database errors → "Call SID not found"
+  - **FIX 1 - Database Level**: Added unique constraint on call_log.call_sid (prevents duplicates at DB level)
+  - **FIX 2 - Code Level**: Added duplicate error handling with rollback in _create_call_log_on_start
+  - **Migration 15**: Removes existing duplicates then creates unique index on call_sid
+  - **Files**: server/db_migrate.py, server/media_ws_ai.py
+- **Impact**: Eliminates production errors - calls now save correctly without duplicates
+
 # External Dependencies
 
 - **Twilio**: Telephony services for voice calls and WhatsApp Business API.

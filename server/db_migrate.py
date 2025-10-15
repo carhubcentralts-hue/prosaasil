@@ -278,6 +278,33 @@ def apply_migrations():
             migrations_applied.append(f"add_business_{col_name}")
             log.info(f"Applied migration: add_business_{col_name}")
     
+    # Migration 15: Add unique constraint on call_log.call_sid to prevent duplicates
+    if check_table_exists('call_log') and not check_index_exists('uniq_call_log_call_sid'):
+        from sqlalchemy import text
+        try:
+            # First remove any existing duplicates (keep the earliest)
+            db.session.execute(text("""
+                DELETE FROM call_log 
+                WHERE id NOT IN (
+                    SELECT MIN(id) 
+                    FROM call_log 
+                    WHERE call_sid IS NOT NULL AND call_sid != ''
+                    GROUP BY call_sid
+                )
+                AND call_sid IS NOT NULL AND call_sid != ''
+            """))
+            
+            # Create unique index on call_sid
+            db.session.execute(text("""
+                CREATE UNIQUE INDEX uniq_call_log_call_sid 
+                ON call_log(call_sid) 
+                WHERE call_sid IS NOT NULL AND call_sid != ''
+            """))
+            migrations_applied.append("add_unique_call_sid")
+            log.info("Applied migration: add_unique_call_sid")
+        except Exception as e:
+            log.warning(f"Could not create unique index on call_sid (may already exist): {e}")
+    
     # Migration 13: Create business_settings table for AI prompt management
     if not check_table_exists('business_settings'):
         from sqlalchemy import text

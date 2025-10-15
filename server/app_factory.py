@@ -60,7 +60,7 @@ def create_app():
     print(f"🔧 APP_SHA={git_sha}")
     
     version_info = {
-        "build": 86,
+        "build": 87,
         "sha": git_sha,
         "fe": "client/dist",
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),

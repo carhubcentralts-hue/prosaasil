@@ -7,9 +7,9 @@ export FLASK_BASE_URL="${FLASK_BASE_URL:-http://127.0.0.1:5000}"
 export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 export RUN_MIGRATIONS_ON_START=1
 
-echo "🚀 Starting AgentLocator Production System - Build #86"
+echo "🚀 Starting AgentLocator Production System - Build #87"
 echo "📊 Flask: 0.0.0.0:${PORT} | Baileys: 127.0.0.1:${BAILEYS_PORT}"
-echo "✅ Build 86: DATABASE_URL Debug + Production Safety Check"
+echo "✅ Build 87: Duplicate call_sid Fix + Unique Constraint"
 
 # Ensure INTERNAL_SECRET is set (CRITICAL: Must come from environment!)
 if [ -z "${INTERNAL_SECRET:-}" ]; then
@@ -30,11 +30,11 @@ nohup node services/whatsapp/baileys_service.js > /tmp/baileys_prod.log 2>&1 &
 BAI=$!
 echo "✅ Baileys started (PID: $BAI)"
 
-# 2) Start Flask/ASGI with Uvicorn (native WebSocket support - BUILD 86)
-echo "🟡 Starting BUILD 86 with Uvicorn ASGI on port ${PORT}..."
+# 2) Start Flask/ASGI with Uvicorn (native WebSocket support - BUILD 87)
+echo "🟡 Starting BUILD 87 with Uvicorn ASGI on port ${PORT}..."
 uvicorn asgi:app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 --log-level info &
 FL=$!
-echo "✅ BUILD 86 Uvicorn/ASGI started (PID: $FL)"
+echo "✅ BUILD 87 Uvicorn/ASGI started (PID: $FL)"
 
 echo "🎯 Both services running. System ready!"
 echo "📊 Access: http://0.0.0.0:${PORT}"
