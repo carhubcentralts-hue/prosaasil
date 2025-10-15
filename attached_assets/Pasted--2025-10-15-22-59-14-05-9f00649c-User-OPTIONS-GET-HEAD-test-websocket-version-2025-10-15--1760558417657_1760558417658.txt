@@ -1,0 +1,111 @@
+
+2025-10-15 22:59:14.05
+9f00649c
+User
+{'OPTIONS', 'GET', 'HEAD'} /test-websocket-version
+2025-10-15 22:59:14.05
+9f00649c
+User
+🔍 Route registration complete
+2025-10-15 22:59:14.05
+9f00649c
+User
+🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+2025-10-15 22:59:14.05
+9f00649c
+User
+✅ Health routes handled by health_endpoints.py blueprint
+2025-10-15 22:59:14.05
+9f00649c
+User
+✅ Factory debug route registered: /debug-factory-http
+2025-10-15 22:59:14.05
+9f00649c
+User
+✅ /healthz route added directly to app_factory
+2025-10-15 22:59:14.05
+9f00649c
+User
+🆘 Emergency healthz-direct route added
+2025-10-15 22:59:14.05
+9f00649c
+User
+✅ WhatsApp routes removed - using unified only
+2025-10-15 22:59:14.05
+9f00649c
+User
+✅ Baileys proxy routes: 0 /wa/* endpoints
+2025-10-15 22:59:14.05
+9f00649c
+User
+✅ Legacy proxy routes: 0 /api/wa-proxy/* endpoints
+2025-10-15 22:59:20.05
+9f00649c
+User
+⚠️ Baileys returned 500, retrying...
+2025-10-15 22:59:24.85
+9f00649c
+User
+FE_DIST = /home/runner/workspace/client/dist mtime = 1760484490.0
+2025-10-15 22:59:29.15
+9f00649c
+User
+🔧 APP_SHA=dev
+2025-10-15 22:59:29.15
+9f00649c
+User
+🚩 APP_START {'build': 87, 'sha': 'dev', 'fe': 'client/dist', 'time': '2025-10-15 19:59:29', 'app': 'AgentLocator-Complete', 'commit': 'dev', 'startup_ts': 1760558369}
+2025-10-15 22:59:29.15
+9f00649c
+User
+🔧 DB_DRIVER: postgresql
+2025-10-15 22:59:40.05
+9f00649c
+User
+✅ Auth blueprints registered
+2025-10-15 22:59:42.35
+9f00649c
+User
+🔧 GCP credentials loaded from file path: /tmp/gcp_credentials.json...
+2025-10-15 22:59:42.75
+9f00649c
+User
+🔧 FE_DIST=/home/runner/workspace/server/../client/dist
+2025-10-15 22:59:43.85
+9f00649c
+User
+⚠️ Baileys returned 500, retrying...
+2025-10-15 22:59:43.85
+9f00649c
+User
+2025-10-15 22:59:47.15
+9f00649c
+User
+❌ All 2 attempts failed. Last error: HTTP 500
+2025-10-15 22:59:48.05
+9f00649c
+User
+INFO: 127.0.0.1:49316 - "POST /api/whatsapp/webhook/incoming HTTP/1.1" 200 OK
+2025-10-15 22:59:48.05
+9f00649c
+User
+✅ Database migrations applied successfully
+2025-10-15 22:59:49.15
+9f00649c
+User
+🔧 Starting database initialization...
+2025-10-15 22:59:49.25
+9f00649c
+User
+2025-10-15 22:59:52.45
+9f00649c
+User
+🔧 APP_SHA=dev
+2025-10-15 22:59:52.45
+9f00649c
+User
+🚩 APP_START {'build': 87, 'sha': 'dev', 'fe': 'client/dist', 'time': '2025-10-15 19:59:51', 'app': 'AgentLocator-Complete', 'commit': 'dev', 'startup_ts': 1760558391}
+2025-10-15 22:59:52.45
+9f00649c
+User
+🔧 DB_DRIVER: postgresql
