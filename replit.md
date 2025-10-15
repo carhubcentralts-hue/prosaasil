@@ -34,8 +34,11 @@ Preferred communication style: Simple, everyday language.
 ## CRM Features
 - **Multi-tenant Architecture**: Business-based data isolation with intelligent business resolution.
 - **Call Logging**: Comprehensive call tracking with transcription and status management.
-- **Conversation Memory**: Full conversation history for contextual AI responses.
-- **WhatsApp Integration**: Both Twilio and Baileys (direct WhatsApp Web API) support.
+- **Conversation Memory**: Full conversation history for contextual AI responses (10 messages, unlimited length).
+- **WhatsApp Integration**: Both Twilio and Baileys (direct WhatsApp Web API) support with optimized response times.
+  - **Performance Optimizations**: App instance caching (saves 1-2s per message), 15s timeout with retry logic, connection pooling.
+  - **Message Storage**: Full messages stored without truncation (removed 80-char limit), 50-message retention per lead.
+  - **Context Management**: Loads last 10 messages (5 exchanges) for AI context with full content.
 - **Intelligent Lead Collection**: Automated capture of key lead information with real-time creation and deduplication.
 - **Calendar Integration**: AI checks real-time availability and suggests appointment slots.
 - **Meeting Scheduling**: Automatic detection and coordination with calendar-aware suggestions.

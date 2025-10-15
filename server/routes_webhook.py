@@ -14,6 +14,24 @@ logger = logging.getLogger(__name__)
 webhook_bp = Blueprint('webhook', __name__, url_prefix='/webhook')
 INTERNAL_SECRET = os.getenv('INTERNAL_SECRET')
 
+# ⚡ CRITICAL FIX: Reuse app instance across threads - massive speed boost
+from threading import Lock
+_cached_app = None
+_cached_app_lock = Lock()  # ⚡ Initialize at module load to prevent race condition
+
+def get_or_create_app():
+    """Get cached app or create new one - thread-safe"""
+    global _cached_app
+    
+    if _cached_app is None:
+        with _cached_app_lock:
+            if _cached_app is None:  # Double-check pattern
+                from server.app_factory import create_app
+                _cached_app = create_app()
+                logger.info("✅ Created cached app instance")
+    
+    return _cached_app
+
 def validate_internal_secret():
     """Validate that request has correct internal secret"""
     received_secret = request.headers.get('X-Internal-Secret')
@@ -53,7 +71,6 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
     """⚡ FAST background processor - typing first, then response"""
     process_start = time.time()
     try:
-        from server.app_factory import create_app
         from server.services.business_resolver import resolve_business_with_fallback
         from server.whatsapp_provider import get_whatsapp_service
         from server.services.ai_service import generate_ai_response
@@ -62,9 +79,10 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
         from server.db import db
         import re
         
+        # ⚡ CRITICAL FIX: Reuse cached app - saves 1-2 seconds per message!
         app_start = time.time()
-        app = create_app()
-        logger.info(f"⏱️ create_app took: {time.time() - app_start:.2f}s")
+        app = get_or_create_app()
+        logger.info(f"⏱️ get_or_create_app took: {time.time() - app_start:.3f}s")
         
         with app.app_context():
             business_id, _ = resolve_business_with_fallback('whatsapp', tenant_id)
@@ -184,10 +202,10 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
 def _async_conversation_analysis(ci, lead, message_text, phone_number):
     """⚡ Run conversation analysis in parallel - doesn't block response"""
     try:
-        from server.app_factory import create_app
         from server.db import db
         
-        app = create_app()
+        # ⚡ Reuse cached app
+        app = get_or_create_app()
         with app.app_context():
             conversation_summary = ci.generate_conversation_summary(
                 message_text,
