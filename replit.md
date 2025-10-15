@@ -1,6 +1,6 @@
 # Overview
 
-AgentLocator is a Hebrew CRM system featuring "Leah," an AI-powered real estate agent. It automates lead management for real estate businesses by integrating with Twilio and WhatsApp to process real-time calls, collect lead information, and schedule meetings. The system uses advanced audio processing for natural conversations, aiming to streamline the sales pipeline for real estate professionals.
+AgentLocator is a Hebrew CRM system featuring a customizable AI-powered real estate assistant. It automates lead management for real estate businesses by integrating with Twilio and WhatsApp to process real-time calls, collect lead information, and schedule meetings. The system uses advanced audio processing for natural conversations, aiming to streamline the sales pipeline for real estate professionals. The AI assistant name and business name are fully customizable per business using dynamic placeholders.
 
 # User Preferences
 
@@ -30,6 +30,7 @@ Preferred communication style: Simple, everyday language.
 - **WebSocket Protocol**: Starlette WebSocketRoute with Twilio's `audio.twilio.com` subprotocol.
 - **Call Management**: TwiML generation for call routing and recording with WSS.
 - **Natural Conversation Flow**: Immediate TTS interruption and seamless turn-taking.
+- **Custom Greetings (BUILD 95)**: Initial phone greeting loads from `greeting_message` field in Business table with {{business_name}} placeholder support for personalized introductions.
 
 ## CRM Features
 - **Multi-tenant Architecture**: Business-based data isolation with intelligent business resolution.
@@ -45,7 +46,7 @@ Preferred communication style: Simple, everyday language.
 - **Intelligent Lead Collection**: Automated capture of key lead information with real-time creation and deduplication.
 - **Calendar Integration**: AI checks real-time availability and suggests appointment slots.
 - **Meeting Scheduling**: Automatic detection and coordination with calendar-aware suggestions.
-- **Hebrew Real Estate Agent**: "Leah" - specialized AI agent with context-aware responses.
+- **Customizable AI Assistant (BUILD 95)**: No hardcoded names - fully customizable per business using {{business_name}} placeholder in prompts and greetings. Assistant introduces herself only once in initial greeting, then focuses on conversation without repeating her name.
 - **Customizable Status Management**: Per-business custom lead statuses.
 - **Billing and Contracts**: Integrated payment processing and contract generation.
 - **Automatic Recording Cleanup**: 2-day retention policy for recordings.

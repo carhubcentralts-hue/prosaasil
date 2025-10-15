@@ -266,8 +266,8 @@ class MediaStreamHandler:
                     
                     if not self.greeting_sent:
                         print("🎯 SENDING IMMEDIATE GREETING!")
-                        # ✅ ברכה כללית - לא חושפת שם עסק שגוי לפני זיהוי
-                        greet = "שלום! איך אני יכולה לעזור?"  # קצר וכללי - העסק יזוהה אחר כך
+                        # ✅ טעינת ברכה מותאמת אישית מהעסק
+                        greet = self._get_business_greeting()
                         self._speak_simple(greet)
                         self.greeting_sent = True
                     continue
@@ -1405,6 +1405,40 @@ class MediaStreamHandler:
             from server.services.business_resolver import resolve_business_with_fallback
             self.business_id, status = resolve_business_with_fallback('twilio_voice', '+97233763805')
             print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
+
+    def _get_business_greeting(self) -> str:
+        """טעינת ברכה מותאמת אישית מהעסק עם {{business_name}} placeholder"""
+        try:
+            from server.app_factory import create_app
+            from server.models_sql import Business
+            
+            # זיהוי עסק אם עדיין לא זוהה
+            if not hasattr(self, 'business_id') or not self.business_id:
+                app = create_app()
+                with app.app_context():
+                    self._identify_business_from_phone()
+            
+            # טעינת ברכה מה-DB
+            app = create_app()
+            with app.app_context():
+                business = Business.query.get(self.business_id)
+                if business:
+                    # קבלת הברכה המותאמת
+                    greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
+                    business_name = business.name or "העסק שלנו"
+                    
+                    # החלפת placeholder בשם האמיתי
+                    greeting = greeting.replace("{{business_name}}", business_name)
+                    greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                    
+                    print(f"✅ Loaded custom greeting for business {self.business_id} ({business_name}): {greeting[:50]}...")
+                    return greeting
+                else:
+                    print(f"⚠️ Business {self.business_id} not found - using default greeting")
+                    return "שלום! איך אפשר לעזור?"
+        except Exception as e:
+            print(f"❌ Error loading business greeting: {e} - using fallback")
+            return "שלום! איך אפשר לעזור?"
 
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response using unified AIService - UPDATED for prompt auto-sync"""
