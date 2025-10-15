@@ -1,8 +1,16 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Deployment Build - Installing only Node.js packages"
+echo "🚀 Deployment Build - Building Frontend & Backend"
 cd /home/runner/workspace
+
+echo "📦 Installing root dependencies..."
 npm install
 
-echo "✅ Build completed successfully"
+echo "🎨 Building Frontend (Client)..."
+cd client
+npm ci
+npm run build
+cd ..
+
+echo "✅ Build completed successfully - Frontend ready in client/dist/"
