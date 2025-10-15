@@ -129,6 +129,28 @@ def api_threads():
                 
                 customer_name = customer.name if customer else thread.to_number
                 
+                # Check if conversation is closed (customer said goodbye)
+                is_closed = False
+                if last_msg and last_msg.direction == "inbound" and last_msg.body:
+                    import re
+                    
+                    msg_lower = last_msg.body.lower().strip()
+                    # Remove trailing punctuation for checking
+                    msg_clean = re.sub(r'[!.,?]+$', '', msg_lower).strip()
+                    
+                    # Multi-word goodbye phrases (must end with these exact phrases)
+                    multi_word_goodbyes = ["תודה ביי", "תודה רבה ביי", "תודה להתראות", "טוב תודה", "יאללה ביי", "thanks bye"]
+                    multi_word_match = any(msg_clean.endswith(phrase) for phrase in multi_word_goodbyes)
+                    
+                    # Single-word goodbyes (must be standalone word - exact match or after space)
+                    single_word_goodbyes = ["ביי", "להתראות", "bye"]
+                    single_word_match = any(
+                        msg_clean == word or msg_clean.endswith(" " + word)
+                        for word in single_word_goodbyes
+                    )
+                    
+                    is_closed = multi_word_match or single_word_match
+                
                 threads_list.append({
                     "id": thread.to_number,
                     "name": customer_name,
@@ -136,7 +158,8 @@ def api_threads():
                     "phone_e164": thread.to_number,
                     "lastMessage": last_msg.body[:50] + "..." if last_msg and last_msg.body and len(last_msg.body) > 50 else (last_msg.body if last_msg else ""),
                     "unread": 0,  # TODO: Implement unread count
-                    "time": thread.last_message_time.strftime('%d/%m %H:%M') if thread.last_message_time else ''
+                    "time": thread.last_message_time.strftime('%d/%m %H:%M') if thread.last_message_time else '',
+                    "is_closed": is_closed
                 })
                 
             return jsonify({"threads": threads_list})

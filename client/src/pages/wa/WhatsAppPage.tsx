@@ -73,6 +73,7 @@ interface WhatsAppThread {
   unread: number;
   time: string;
   summary?: string;
+  is_closed?: boolean;
 }
 
 interface QRCodeData {
@@ -168,8 +169,13 @@ export function WhatsAppPage() {
   };
 
   const loadThreadSummary = async (threadId: string) => {
-    // Check if already loaded
+    // Check if thread is closed
     const thread = threads.find(t => t.id === threadId);
+    if (!thread?.is_closed) {
+      return; // Don't load summary for active conversations
+    }
+    
+    // Check if already loaded
     if (thread?.summary && thread.summary !== 'לחץ לצפייה בסיכום') {
       return; // Already loaded
     }
@@ -214,7 +220,8 @@ export function WhatsAppPage() {
         lastMessage: thread.lastMessage || thread.last_message || '',
         unread: thread.unread_count || thread.unread || 0,
         time: thread.time || (thread.last_activity ? new Date(thread.last_activity).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : ''),
-        summary: 'לחץ לצפייה בסיכום'  // Lazy load - only when clicked
+        is_closed: thread.is_closed || false,
+        summary: thread.is_closed ? 'לחץ לצפייה בסיכום' : undefined  // Only for closed conversations
       }));
       
       setThreads(transformedThreads);
@@ -576,7 +583,14 @@ export function WhatsAppPage() {
                 >
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex-1">
-                      <h3 className="font-semibold text-slate-900 text-base">{thread.name}</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-slate-900 text-base">{thread.name}</h3>
+                        {thread.is_closed && (
+                          <Badge variant="success" className="text-xs">
+                            נסגרה
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-500 mt-0.5">{thread.phone}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
@@ -589,8 +603,8 @@ export function WhatsAppPage() {
                     </div>
                   </div>
                   
-                  {/* AI Summary - Professional display */}
-                  {thread.summary && (
+                  {/* AI Summary - Only for closed conversations */}
+                  {thread.is_closed && thread.summary && (
                     <div className="mt-2 pt-2 border-t border-slate-100">
                       <div className="flex items-start gap-2">
                         <MessageSquare className="h-3.5 w-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
