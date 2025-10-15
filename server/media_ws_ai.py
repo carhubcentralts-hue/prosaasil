@@ -1058,55 +1058,52 @@ class MediaStreamHandler:
             print(f"🎵 STT_PROCEED: Processing {len(pcm16_8k)} bytes with Google STT (audio validated)")
             
             # ✅ FIXED: בדיקת איכות אודיו מתקדמת - מניעת עיבוד של רעש/שקט
+            import audioop
+            max_amplitude = audioop.max(pcm16_8k, 2)
+            rms = audioop.rms(pcm16_8k, 2)
+            duration = len(pcm16_8k) / (2 * 8000)
+            print(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
+            
+            # ✅ בדיקות מרובות לזיהוי דיבור אמיתי
+            
+            # 1. בדיקת עוצמה בסיסית
+            if max_amplitude < 100:  # ✅ חמור יותר מ-50
+                print("🚫 STT_BLOCKED: Audio too quiet (max_amplitude < 100)")
+                return ""
+            
+            # 2. בדיקת RMS לזיהוי אנרגיה שמעותית
+            if rms < 80:  # ✅ בדיקת אנרגיה מינימלית
+                print("🚫 STT_BLOCKED: Audio energy too low (rms < 80)")
+                return ""
+            
+            # 3. בדיקת אורך מינימלי
+            if duration < 0.2:  # פחות מ-200ms
+                print("🚫 STT_BLOCKED: Audio too short (< 200ms)")
+                return ""
+            
+            # 4. ✅ בדיקת שינוי אנרגיה - האם יש דיבור אמיתי? (numpy אופציונלי)
             try:
-                import audioop
                 import numpy as np
+                pcm_array = np.frombuffer(pcm16_8k, dtype=np.int16)
+                energy_variance = np.var(pcm_array.astype(np.float32))
                 
-                max_amplitude = audioop.max(pcm16_8k, 2)
-                rms = audioop.rms(pcm16_8k, 2)
-                duration = len(pcm16_8k) / (2 * 8000)
-                print(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
-                
-                # ✅ בדיקות מרובות לזיהוי דיבור אמיתי
-                
-                # 1. בדיקת עוצמה בסיסית
-                if max_amplitude < 100:  # ✅ חמור יותר מ-50
-                    print("🚫 STT_BLOCKED: Audio too quiet (max_amplitude < 100)")
+                if energy_variance < 500000:  # אנרגיה מונוטונית = רעש
+                    print(f"🚫 STT_BLOCKED: Monotonic audio (variance={energy_variance}) - likely noise")
                     return ""
                 
-                # 2. בדיקת RMS לזיהוי אנרגיה שמעותית
-                if rms < 80:  # ✅ בדיקת אנרגיה מינימלית
-                    print("🚫 STT_BLOCKED: Audio energy too low (rms < 80)")
+                # 5. בדיקת Zero Crossing Rate - דיבור יש לו מעברי אפס
+                zero_crossings = np.sum(np.diff(np.sign(pcm_array)) != 0) / len(pcm_array)
+                if zero_crossings < 0.01:  # שיעור נמוך מאוד = לא דיבור
+                    print(f"🚫 STT_BLOCKED: Low ZCR ({zero_crossings:.3f}) - not speech")
                     return ""
                 
-                # 3. בדיקת אורך מינימלי
-                if duration < 0.2:  # פחות מ-200ms
-                    print("🚫 STT_BLOCKED: Audio too short (< 200ms)")
-                    return ""
+                print(f"✅ AUDIO_VALIDATED: variance={energy_variance}, zcr={zero_crossings:.3f} - proceeding to STT")
                 
-                # 4. ✅ בדיקת שינוי אנרגיה - האם יש דיבור אמיתי?
-                try:
-                    pcm_array = np.frombuffer(pcm16_8k, dtype=np.int16)
-                    energy_variance = np.var(pcm_array.astype(np.float32))
-                    
-                    if energy_variance < 500000:  # אנרגיה מונוטונית = רעש
-                        print(f"🚫 STT_BLOCKED: Monotonic audio (variance={energy_variance}) - likely noise")
-                        return ""
-                    
-                    # 5. בדיקת Zero Crossing Rate - דיבור יש לו מעברי אפס
-                    zero_crossings = np.sum(np.diff(np.sign(pcm_array)) != 0) / len(pcm_array)
-                    if zero_crossings < 0.01:  # שיעור נמוך מאוד = לא דיבור
-                        print(f"🚫 STT_BLOCKED: Low ZCR ({zero_crossings:.3f}) - not speech")
-                        return ""
-                    
-                    print(f"✅ AUDIO_VALIDATED: variance={energy_variance}, zcr={zero_crossings:.3f} - proceeding to STT")
-                    
-                except Exception as numpy_error:
-                    print(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
-                    # אם נכשלנו בבדיקות מתקדמות - המשך עם בסיסיות
-                    
-            except Exception as e:
-                print(f"⚠️ Audio quality check failed: {e} - proceeding anyway")
+            except ImportError:
+                print("⚠️ numpy not available - skipping advanced audio validation")
+            except Exception as numpy_error:
+                print(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
+                # אם נכשלנו בבדיקות מתקדמות - המשך עם בסיסיות
             
             try:
                 from server.services.lazy_services import get_stt_client
