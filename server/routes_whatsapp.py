@@ -311,6 +311,9 @@ def baileys_webhook():
         
         def process_messages_async():
             """Process WhatsApp messages in background - FAST!"""
+            import time
+            overall_start = time.time()
+            
             from server.app_factory import create_app
             
             app = create_app()
@@ -318,6 +321,7 @@ def baileys_webhook():
                 wa_service = get_whatsapp_service()
                 
                 for msg in messages:
+                    msg_start = time.time()
                     try:
                         # Extract message details
                         from_number = msg.get('key', {}).get('remoteJid', '').replace('@s.whatsapp.net', '')
@@ -353,6 +357,9 @@ def baileys_webhook():
                         
                         # ✅ BUILD 90: Generate AI response using business prompt
                         try:
+                            import time
+                            ai_start = time.time()
+                            
                             from server.services.ai_service import generate_ai_response
                             response_text = generate_ai_response(
                                 message=message_text,
@@ -364,16 +371,24 @@ def baileys_webhook():
                                 },
                                 channel='whatsapp'
                             )
-                            log.info(f"✅ Generated AI response: {response_text[:50]}...")
+                            
+                            ai_duration = time.time() - ai_start
+                            log.info(f"✅ AI response ({ai_duration:.2f}s): {response_text[:50]}...")
                         except Exception as e:
                             log.error(f"⚠️ AI response failed, using fallback: {e}")
                             response_text = "שלום! קיבלתי את ההודעה שלך. נציג יחזור אליך בהקדם."
                         
                         # Send response via Baileys
+                        import time
+                        send_start = time.time()
+                        
                         send_result = wa_service.send_message(
                             to=f"{from_number}@s.whatsapp.net",
                             message=response_text
                         )
+                        
+                        send_duration = time.time() - send_start
+                        log.info(f"📤 Send duration: {send_duration:.2f}s")
                         
                         if send_result.get('status') == 'sent':
                             # Save outgoing message
@@ -393,6 +408,12 @@ def baileys_webhook():
                         log.error(f"❌ Error processing message: {e}")
                         import traceback
                         traceback.print_exc()
+                    finally:
+                        msg_duration = time.time() - msg_start
+                        log.info(f"⏱️ Message processed in {msg_duration:.2f}s")
+                
+                overall_duration = time.time() - overall_start
+                log.info(f"🏁 Total background processing: {overall_duration:.2f}s for {len(messages)} message(s)")
         
         # Start processing in background thread
         thread = threading.Thread(target=process_messages_async, daemon=True)
