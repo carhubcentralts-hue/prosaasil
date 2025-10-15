@@ -11,12 +11,12 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLat
 const keepAliveAgent = new http.Agent({ 
   keepAlive: true, 
   maxSockets: 100,
-  timeout: 3000  // ⚡ Fast timeout
+  timeout: 10000  // ⚡ FIXED: 10s timeout for WhatsApp operations
 });
 
 // ⚡ PERFORMANCE: Configure axios globally with keep-alive
 axios.defaults.httpAgent = keepAliveAgent;
-axios.defaults.timeout = 3000;  // ⚡ Fast timeout for all requests
+axios.defaults.timeout = 10000;  // ⚡ FIXED: 10s timeout for Flask webhooks
 
 const PORT = Number(process.env.BAILEYS_PORT || 3300);
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
@@ -129,6 +129,7 @@ app.post('/sendTyping', async (req, res) => {
 });
 
 app.post('/send', async (req, res) => {
+  const startTime = Date.now();
   try {
     const { to, text, type = 'text' } = req.body;
     
@@ -141,21 +142,38 @@ app.post('/send', async (req, res) => {
     const s = sessions.get(tenantId);
     
     if (!s || !s.sock || !s.connected) {
+      console.error(`[send] ❌ WhatsApp not connected for ${tenantId}`);
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
     
-    // ⚡ Send message (fast - no verbose logging in production)
-    const result = await s.sock.sendMessage(to, { text: text });
+    console.log(`[send] ⚡ Sending to ${to.substring(0, 15)}...`);
+    
+    // ⚡ Send message with timeout protection
+    const result = await Promise.race([
+      s.sock.sendMessage(to, { text: text }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Baileys sendMessage timeout after 10s')), 10000)
+      )
+    ]);
+    
+    const duration = Date.now() - startTime;
+    console.log(`[send] ✅ Message sent in ${duration}ms, messageId: ${result.key.id}`);
     
     return res.json({ 
       ok: true, 
       messageId: result.key.id,
-      status: 'sent'
+      status: 'sent',
+      duration_ms: duration
     });
     
   } catch (e) {
-    console.error('[send] error:', e.message);
-    return res.status(500).json({ error: 'send_failed', message: e.message });
+    const duration = Date.now() - startTime;
+    console.error(`[send] ❌ Failed after ${duration}ms:`, e.message);
+    return res.status(500).json({ 
+      error: 'send_failed', 
+      message: e.message,
+      duration_ms: duration
+    });
   }
 });
 

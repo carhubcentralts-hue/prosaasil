@@ -31,7 +31,7 @@ class BaileysProvider(Provider):
     def __init__(self):
         self.outbound_url = os.getenv("BAILEYS_BASE_URL", "http://127.0.0.1:3300")
         self.webhook_secret = os.getenv("BAILEYS_WEBHOOK_SECRET", "")
-        self.timeout = 3.0  # ⚡ Fast timeout for speed
+        self.timeout = 15.0  # ⚡ FIXED: 15s timeout for WhatsApp message sending
         self._last_health_check = 0
         self._health_status = False
         self._health_cache_duration = 30  # 30 seconds cache
@@ -41,7 +41,7 @@ class BaileysProvider(Provider):
         adapter = requests.adapters.HTTPAdapter(
             pool_connections=10,
             pool_maxsize=20,
-            max_retries=0  # No retries - fail fast
+            max_retries=1  # ⚡ FIXED: 1 retry for reliability
         )
         self._session.mount('http://', adapter)
         self._session.mount('https://', adapter)
@@ -89,53 +89,72 @@ class BaileysProvider(Provider):
             return {"status": "error", "error": str(e)}
     
     def send_text(self, to: str, text: str) -> Dict[str, Any]:
-        """⚡ Send text message via Baileys HTTP API - FAST"""
-        try:
-            if not self._check_health():
-                return {
-                    "provider": "baileys",
-                    "status": "error",
-                    "error": "Baileys service unavailable"
-                }
-            
-            # Generate idempotency key
-            idempotency_key = str(uuid.uuid4())
-            
-            payload = {
-                "to": to.replace("whatsapp:", "").replace("+", ""),
-                "type": "text",
-                "text": text,
-                "idempotencyKey": idempotency_key
-            }
-            
-            response = self._session.post(
-                f"{self.outbound_url}/send",
-                json=payload,
-                timeout=self.timeout  # ⚡ Fast timeout
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                return {
-                    "provider": "baileys",
-                    "status": "sent",
-                    "sid": result.get("messageId", idempotency_key),
-                    "message_id": result.get("messageId", idempotency_key)
-                }
-            else:
-                return {
-                    "provider": "baileys",
-                    "status": "error",
-                    "error": f"HTTP {response.status_code}"
+        """⚡ Send text message via Baileys HTTP API with retry logic"""
+        max_attempts = 2
+        last_error = None
+        
+        for attempt in range(max_attempts):
+            try:
+                if not self._check_health():
+                    return {
+                        "provider": "baileys",
+                        "status": "error",
+                        "error": "Baileys service unavailable"
+                    }
+                
+                # Generate idempotency key
+                idempotency_key = str(uuid.uuid4())
+                
+                payload = {
+                    "to": to.replace("whatsapp:", "").replace("+", ""),
+                    "type": "text",
+                    "text": text,
+                    "idempotencyKey": idempotency_key
                 }
                 
-        except Exception as e:
-            logger.error(f"Baileys send exception: {e}")
-            return {
-                "provider": "baileys",
-                "status": "error",
-                "error": str(e)
-            }
+                logger.info(f"⚡ Sending WhatsApp to {to[:15]}... (attempt {attempt+1}/{max_attempts})")
+                
+                response = self._session.post(
+                    f"{self.outbound_url}/send",
+                    json=payload,
+                    timeout=self.timeout  # 15s timeout
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    logger.info(f"✅ WhatsApp sent successfully to {to[:15]}...")
+                    return {
+                        "provider": "baileys",
+                        "status": "sent",
+                        "sid": result.get("messageId", idempotency_key),
+                        "message_id": result.get("messageId", idempotency_key)
+                    }
+                else:
+                    last_error = f"HTTP {response.status_code}"
+                    logger.warning(f"⚠️ Baileys returned {response.status_code}, retrying...")
+                    time.sleep(0.5)  # Short delay before retry
+                    continue
+                    
+            except requests.exceptions.Timeout as e:
+                last_error = f"Timeout after {self.timeout}s"
+                logger.warning(f"⚠️ Timeout on attempt {attempt+1}/{max_attempts}: {e}")
+                if attempt < max_attempts - 1:
+                    time.sleep(1)  # Wait before retry
+                    continue
+            except Exception as e:
+                last_error = str(e)
+                logger.error(f"❌ Baileys send error on attempt {attempt+1}/{max_attempts}: {e}")
+                if attempt < max_attempts - 1:
+                    time.sleep(0.5)
+                    continue
+        
+        # All attempts failed
+        logger.error(f"❌ All {max_attempts} attempts failed. Last error: {last_error}")
+        return {
+            "provider": "baileys",
+            "status": "error",
+            "error": last_error
+        }
     
     def send_media(self, to: str, media_url: str, caption: str = "") -> Dict[str, Any]:
         """Send media message via Baileys HTTP API"""
