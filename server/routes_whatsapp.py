@@ -355,6 +355,21 @@ def baileys_webhook():
                 db.session.add(wa_msg)
                 db.session.commit()
                 
+                # ✅ BUILD 93: Check for appointment request FIRST
+                appointment_created = False
+                try:
+                    from server.whatsapp_appointment_handler import process_whatsapp_message_for_appointment
+                    appointment_result = process_whatsapp_message_for_appointment(
+                        message_id=wa_msg.id,
+                        phone_number=from_number,
+                        message_text=message_text
+                    )
+                    if appointment_result.get('appointment_created'):
+                        appointment_created = True
+                        log.info(f"📅 Appointment created for {from_number}: {appointment_result.get('appointment_id')}")
+                except Exception as e:
+                    log.warning(f"⚠️ Appointment check failed: {e}")
+                
                 # ✅ BUILD 92: Load conversation history for AI context (10 messages)
                 previous_messages = []
                 try:
@@ -386,7 +401,8 @@ def baileys_webhook():
                             'phone': from_number,
                             'customer_name': customer.name if customer else None,
                             'lead_status': lead.status if lead else None,
-                            'previous_messages': previous_messages  # ✅ זיכרון שיחה - 10 הודעות!
+                            'previous_messages': previous_messages,  # ✅ זיכרון שיחה - 10 הודעות!
+                            'appointment_created': appointment_created  # ✅ BUILD 93: הפגישה נקבעה!
                         },
                         channel='whatsapp'
                     )
