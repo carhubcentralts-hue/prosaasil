@@ -290,7 +290,7 @@ class MediaStreamHandler:
                         self.calibration_frames += 1
                         if self.calibration_frames >= 60:
                             # ✅ HEBREW-OPTIMIZED: Balanced threshold for Hebrew speech
-                            self.vad_threshold = max(120, self.noise_floor * 4.0 + 80)  # מותאם לעברית - לא גבוה מדי
+                            self.vad_threshold = max(150, self.noise_floor * 5.0 + 100)  # מותאם לעברית - מאזין עד הסוף
                             self.is_calibrated = True
                             print(f"🎛️ VAD CALIBRATED for HEBREW (threshold: {self.vad_threshold:.1f})")
                             
@@ -357,8 +357,8 @@ class MediaStreamHandler:
 
                     # ⚡ FIXED BARGE-IN: Prevent false interruptions
                     if self.speaking and BARGE_IN:
-                        # ✅ Grace period מאוזן - לא יותר מדי
-                        grace_period = 1.5  # 1.5 שניות - מאפשר הפרעה טבעית יותר
+                        # ✅ Grace period ארוך - לאה תסיים משפטים
+                        grace_period = 2.5  # 2.5 שניות - לאה תסיים לדבר בשלמות
                         time_since_tts_start = current_time - self.speaking_start_ts
                         
                         if time_since_tts_start < grace_period:
@@ -366,13 +366,13 @@ class MediaStreamHandler:
                             continue
                         
                         # ✅ HEBREW BARGE-IN: Higher threshold to prevent interruptions
-                        barge_in_threshold = max(800, self.noise_floor * 10.0 + 300) if self.is_calibrated else 900
+                        barge_in_threshold = max(900, self.noise_floor * 12.0 + 400) if self.is_calibrated else 1000
                         is_barge_in_voice = rms > barge_in_threshold
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                                # ✅ HEBREW SPEECH: Require 800ms continuous voice to prevent false interrupts  
-                            if self.voice_in_row >= BARGE_IN_VOICE_FRAMES:  # 800ms קול רציף - מפחית קטיעות שגויות
+                                # ✅ HEBREW SPEECH: Require 1000ms continuous voice to prevent false interrupts  
+                            if self.voice_in_row >= 50:  # 1000ms קול רציף - לא נקטע בטעות
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
