@@ -49,6 +49,15 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
+## BUILD 88 (October 15, 2025) - CRITICAL FIX: Missing to_number in Lead Creation
+- **🔧 CRITICAL FIX**: Fixed "null value in column to_number" error in lead creation thread
+  - **ROOT CAUSE**: `_create_lead_from_call` created call_log without to_number → NOT NULL constraint violation
+  - **FIX 1**: Added `to_number` parameter to `_create_lead_from_call` function
+  - **FIX 2**: Extract `to_number` from Twilio webhook in `incoming_call`
+  - **FIX 3**: Pass `to_number` to lead creation thread with default fallback
+  - **Files**: server/routes_twilio.py (lines 147, 194, 276, 301)
+- **Impact**: Lead creation now works without errors - all calls save with complete data
+
 ## BUILD 87 (October 14, 2025) - CRITICAL FIX: Duplicate call_sid Race Condition
 - **🔧 CRITICAL FIX**: Fixed race condition causing duplicate call_log records and "Failing row contains" errors
   - **ROOT CAUSE**: Multiple threads created call_log simultaneously → duplicate call_sid → database errors → "Call SID not found"

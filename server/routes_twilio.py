@@ -141,11 +141,15 @@ def _trigger_recording_for_call(call_sid):
     except Exception as e:
         print(f"❌ Failed to trigger recording for {call_sid}: {e}")
 
-def _create_lead_from_call(call_sid, from_number):
+def _create_lead_from_call(call_sid, from_number, to_number=None):
     """שלב 4: יצירת/עדכון ליד אוטומטי מכל שיחה נכנסת - ללא כפילויות!"""
     from server.app_factory import create_app
     from server.services.customer_intelligence import CustomerIntelligenceService
     from server.models_sql import Lead
+    
+    # ✅ ברירת מחדל ל-to_number
+    if not to_number:
+        to_number = "+97233763805"  # מספר העסק הדיפולטיבי
     
     print(f"🔵 CREATE_LEAD_FROM_CALL - Starting for {from_number}, call_sid={call_sid}")
     
@@ -184,6 +188,7 @@ def _create_lead_from_call(call_sid, from_number):
                         call_log.customer_id = customer.id
                         call_log.call_sid = call_sid
                         call_log.from_number = from_number
+                        call_log.to_number = to_number  # ✅ FIX: הוסף to_number (NOT NULL)
                         call_log.status = "in_progress"
                         db.session.add(call_log)
                 except Exception as e:
@@ -265,6 +270,7 @@ def incoming_call():
     
     call_sid = request.form.get("CallSid", "")
     from_number = request.form.get("From", "")
+    to_number = request.form.get("To", "")  # ✅ FIX: קבל גם to_number
     
     # בנה host נכון (בלי https://)
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
@@ -289,7 +295,7 @@ def incoming_call():
         print(f"🟢 INCOMING_CALL - Starting thread to create lead for {from_number}, call_sid={call_sid}")
         threading.Thread(
             target=_create_lead_from_call,
-            args=(call_sid, from_number),
+            args=(call_sid, from_number, to_number),  # ✅ FIX: העבר גם to_number
             daemon=True,
             name=f"LeadCreation-{call_sid[:8]}"
         ).start()
