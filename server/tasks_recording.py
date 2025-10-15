@@ -150,7 +150,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             db.session.commit()
             
             # 2. ✨ יצירת לקוח/ליד אוטומטית עם Customer Intelligence
-            if from_number and call_log.business_id:
+            if from_number and call_log and call_log.business_id:
                 ci = CustomerIntelligence(call_log.business_id)
                 
                 # זיהוי/יצירת לקוח וליד
@@ -159,7 +159,8 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 )
                 
                 # עדכון CallLog עם customer_id
-                call_log.customer_id = customer.id
+                if customer:
+                    call_log.customer_id = customer.id
                 
                 # 3. ✨ סיכום חכם של השיחה (שימוש בסיכום שכבר יצרנו!)
                 conversation_summary = ci.generate_conversation_summary(transcription)
