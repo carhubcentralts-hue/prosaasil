@@ -1,0 +1,149 @@
+
+2025-10-15 22:38:57.58
+9f00649c
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/crm/threads -> crm_bp.api_threads
+2025-10-15 22:38:57.58
+9f00649c
+User
+{'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming -> whatsapp.baileys_webhook
+2025-10-15 22:38:57.58
+9f00649c
+User
+================
+2025-10-15 22:38:57.58
+9f00649c
+User
+✅ Simple SPA routes registered (no blueprint)
+2025-10-15 22:38:57.58
+9f00649c
+User
+================================================================================
+2025-10-15 22:38:57.58
+9f00649c
+User
+✅ ASGI BUILD 87 READY - ALL SYSTEMS GO
+2025-10-15 22:38:57.58
+9f00649c
+User
+================================================================================
+2025-10-15 22:38:57.58
+9f00649c
+User
+INFO: Started server process [35]
+2025-10-15 22:38:57.58
+9f00649c
+User
+INFO: Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+2025-10-15 22:38:58.57
+9f00649c
+User
+INFO: 127.0.0.1:41772 - "GET / HTTP/1.1" 200 OK
+2025-10-15 22:46:00.46
+9f00649c
+User
+INFO: 34.56.82.75:0 - "GET /app/whatsapp HTTP/1.1" 200 OK
+2025-10-15 22:46:00.71
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /assets/index-RMy8jJnb.js HTTP/1.1" 304 Not Modified
+2025-10-15 22:46:00.71
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /assets/index-BYuwk5KP.css HTTP/1.1" 304 Not Modified
+2025-10-15 22:46:00.92
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+2025-10-15 22:46:00.97
+9f00649c
+User
+INFO: 34.71.155.201:0 - "GET /favicon.ico HTTP/1.1" 304 Not Modified
+2025-10-15 22:46:01.11
+9f00649c
+User
+INFO: 34.71.155.201:0 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+2025-10-15 22:46:01.31
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /favicon.ico HTTP/1.1" 304 Not Modified
+2025-10-15 22:46:11.56
+9f00649c
+User
+🔐 LOGIN ATTEMPT: email=admin@admin.com
+2025-10-15 22:46:12.16
+9f00649c
+User
+✓ Found user: id=2, email=admin@admin.com, role=admin
+2025-10-15 22:46:12.16
+9f00649c
+User
+✓ Password hash: scrypt:32768:8:1$koskoMhhIDDtxM66$0178f637cfc5aa87...
+2025-10-15 22:46:12.29
+9f00649c
+User
+✓ Password verification result: True
+2025-10-15 22:46:12.63
+9f00649c
+User
+INFO: 34.56.82.75:0 - "POST /api/auth/login HTTP/1.1" 200 OK
+2025-10-15 22:46:12.81
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+2025-10-15 22:46:13.12
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /favicon.ico HTTP/1.1" 304 Not Modified
+2025-10-15 22:46:13.44
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 OK
+2025-10-15 22:46:13.65
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /api/admin/leads/stats HTTP/1.1" 200 OK
+2025-10-15 22:46:13.86
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /api/admin/phone-numbers HTTP/1.1" 200 OK
+2025-10-15 22:46:14.10
+9f00649c
+User
+INFO: 34.71.155.201:0 - "GET /api/admin/businesses?pageSize=1 HTTP/1.1" 200 OK
+2025-10-15 22:46:14.49
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /api/admin/overview?time_filter=today&start_date=2025-10-15&end_date=2025-10-15 HTTP/1.1" 200 OK
+2025-10-15 22:46:23.05
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /favicon.ico HTTP/1.1" 304 Not Modified
+2025-10-15 22:46:23.05
+9f00649c
+User
+CSRF-DBG cookie= None header= None
+2025-10-15 22:46:23.05
+9f00649c
+User
+ct= None
+2025-10-15 22:46:23.31
+9f00649c
+User
+INFO: 34.71.155.201:0 - "GET /api/business/current/prompt HTTP/1.1" 200 OK
+2025-10-15 22:46:23.63
+9f00649c
+User
+INFO: 34.71.155.201:0 - "GET /api/crm/threads HTTP/1.1" 200 OK
+2025-10-15 22:46:23.63
+9f00649c
+User
+INFO: 34.71.155.201:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-10-15 22:46:27.36
+9f00649c
+User
+INFO: 104.154.74.102:0 - "POST /api/whatsapp/start HTTP/1.1" 200 OK
+2025-10-15 22:46:28.05
+9f00649c
+User
+INFO: 104.154.74.102:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
