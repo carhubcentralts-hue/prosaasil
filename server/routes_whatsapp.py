@@ -134,12 +134,12 @@ def api_wa_messages():
     if not contact_id:
         return jsonify({"error":"missing contact_id"}), 400
     
-    # ✅ BUILD 90: Dynamic business detection with request fallback
+    # ✅ BUILD 91: Multi-tenant - require business_id from user context
     business_id = request.args.get('business_id', type=int)
     if not business_id:
-        from server.models_sql import Business
-        business = Business.query.filter_by(is_active=True).first() or Business.query.first()
-        business_id = business.id if business else 1
+        # Fallback to first active business (should be from auth context in production)
+        from server.services.business_resolver import resolve_business_with_fallback
+        business_id, _ = resolve_business_with_fallback('whatsapp', 'business_1')
     
     msgs = WhatsAppMessage.query.filter_by(
         business_id=business_id,
@@ -163,12 +163,12 @@ def get_conversation(phone_number):
     Returns messages in format expected by WhatsAppChat component
     """
     try:
-        # ✅ BUILD 90: Dynamic business detection with fallback
+        # ✅ BUILD 91: Multi-tenant - require business_id from user context
         business_id = request.args.get('business_id', type=int)
         if not business_id:
-            from server.models_sql import Business
-            business = Business.query.filter_by(is_active=True).first() or Business.query.first()
-            business_id = business.id if business else 1
+            # Fallback (should be from auth context in production)
+            from server.services.business_resolver import resolve_business_with_fallback
+            business_id, _ = resolve_business_with_fallback('whatsapp', 'business_1')
         
         # Clean phone number (remove + and @s.whatsapp.net)
         clean_phone = phone_number.replace('+', '').replace('@s.whatsapp.net', '')
@@ -284,26 +284,15 @@ def baileys_webhook():
         # Process each incoming message
         from server.services.customer_intelligence import CustomerIntelligence
         from server.whatsapp_provider import get_whatsapp_service
-        from server.models_sql import Business
         
-        # ✅ BUILD 90: Dynamic business detection for WhatsApp
-        business = Business.query.filter_by(is_active=True).first()
-        if not business:
-            business = Business.query.first()
+        # ✅ BUILD 91: Multi-tenant - חכם! זיהוי business לפי tenantId
+        from server.services.business_resolver import resolve_business_with_fallback
+        business_id, status = resolve_business_with_fallback('whatsapp', tenant_id)
         
-        if not business:
-            log.warning("⚠️ No business found for WhatsApp - creating default")
-            business = Business()
-            business.name = "Default Business"
-            business.business_type = "real_estate"
-            business.phone_e164 = "+972500000000"
-            business.is_active = True
-            db.session.add(business)
-            db.session.commit()
-            log.info(f"✅ Created default business for WhatsApp: ID={business.id}")
-        
-        business_id = business.id
-        log.info(f"📊 WhatsApp using business_id={business_id}")
+        if status == 'found':
+            log.info(f"✅ Resolved business_id={business_id} from tenantId={tenant_id}")
+        else:
+            log.warning(f"⚠️ Using fallback business_id={business_id} ({status}) for tenantId={tenant_id}")
         
         # ✅ BUILD 90: Process messages in background for FAST webhook response
         import threading
@@ -438,12 +427,12 @@ def send_manual_message():
     to_number = data.get('to')
     message = data.get('message')
     
-    # ✅ BUILD 90: Dynamic business detection
+    # ✅ BUILD 91: Multi-tenant - require business_id from user context
     business_id = data.get('business_id')
     if not business_id:
-        from server.models_sql import Business
-        business = Business.query.filter_by(is_active=True).first() or Business.query.first()
-        business_id = business.id if business else 1
+        # Fallback (should be from auth context in production)
+        from server.services.business_resolver import resolve_business_with_fallback
+        business_id, _ = resolve_business_with_fallback('whatsapp', 'business_1')
     
     if not to_number or not message:
         return {"ok": False, "error": "missing_required_fields"}, 400
