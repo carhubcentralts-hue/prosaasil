@@ -3,7 +3,8 @@ set -euo pipefail
 
 export PYTHONUNBUFFERED=1
 export PORT="${PORT:-5000}"
-export FLASK_BASE_URL="${FLASK_BASE_URL:-http://127.0.0.1:5000}"
+# ✅ BUILD 92: Fix FLASK_BASE_URL for production - Baileys needs to reach Flask
+export FLASK_BASE_URL="${FLASK_BASE_URL:-http://localhost:5000}"
 export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 export RUN_MIGRATIONS_ON_START=1
 
