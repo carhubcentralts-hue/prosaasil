@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Save, Building2, Phone, MessageCircle, Lock } from 'lucide-react';
+import { X, Save, Building2, Phone, Lock, MessageSquare } from 'lucide-react';
 
 interface Business {
   id: number;
@@ -27,7 +27,6 @@ export function BusinessEditModal({ isOpen, onClose, business, onSave }: Busines
     domain: business?.domain || '',
     defaultPhoneE164: business?.defaultPhoneE164 || '',
     whatsappJid: business?.whatsappJid || '',
-    prompt: business?.prompt || 'אני ליאה, הסוכנת הדיגיטלית של שי דירות ומשרדים. אני כאן לעזור לכם למצוא את הנכס המושלם. איך אוכל לעזור לכם היום?',
     permissions: business?.permissions || ['calls', 'whatsapp', 'crm']
   });
 
@@ -38,7 +37,6 @@ export function BusinessEditModal({ isOpen, onClose, business, onSave }: Busines
         domain: business.domain,
         defaultPhoneE164: business.defaultPhoneE164,
         whatsappJid: business.whatsappJid,
-        prompt: business.prompt || 'אני ליאה, הסוכנת הדיגיטלית של שי דירות ומשרדים. אני כאן לעזור לכם למצוא את הנכס המושלם. איך אוכל לעזור לכם היום?',
         permissions: business.permissions || ['calls', 'whatsapp', 'crm']
       });
     }
@@ -168,28 +166,6 @@ export function BusinessEditModal({ isOpen, onClose, business, onSave }: Busines
               </div>
             </div>
 
-            {/* AI Prompt */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium text-slate-900 flex items-center gap-2">
-                <MessageCircle className="h-5 w-5" />
-                פרומפט AI
-              </h3>
-              
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  הודעת פתיחה של הסוכן הדיגיטלי
-                </label>
-                <textarea
-                  value={formData.prompt}
-                  onChange={(e) => setFormData(prev => ({ ...prev, prompt: e.target.value }))}
-                  rows={4}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="הכנס את הפרומפט עבור הסוכן הדיגיטלי..."
-                  data-testid="textarea-ai-prompt"
-                />
-              </div>
-            </div>
-
             {/* Permissions */}
             <div className="space-y-4">
               <h3 className="text-lg font-medium text-slate-900 flex items-center gap-2">
@@ -200,7 +176,7 @@ export function BusinessEditModal({ isOpen, onClose, business, onSave }: Busines
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {[
                   { id: 'calls', label: 'שיחות טלפון', icon: Phone },
-                  { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
+                  { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
                   { id: 'crm', label: 'CRM', icon: Building2 }
                 ].map(({ id, label, icon: Icon }) => (
                   <label key={id} className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
