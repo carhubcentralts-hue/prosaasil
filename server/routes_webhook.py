@@ -51,6 +51,7 @@ def whatsapp_incoming():
 
 def _process_whatsapp_fast(tenant_id: str, messages: list):
     """⚡ FAST background processor - typing first, then response"""
+    process_start = time.time()
     try:
         from server.app_factory import create_app
         from server.services.business_resolver import resolve_business_with_fallback
@@ -61,7 +62,10 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
         from server.db import db
         import re
         
+        app_start = time.time()
         app = create_app()
+        logger.info(f"⏱️ create_app took: {time.time() - app_start:.2f}s")
+        
         with app.app_context():
             business_id, _ = resolve_business_with_fallback('whatsapp', tenant_id)
             wa_service = get_whatsapp_service()
@@ -85,10 +89,14 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                     jid = f"{phone_number}@s.whatsapp.net"
                     
                     # ⚡ STEP 1: Send typing indicator immediately (creates instant feel)
+                    typing_start = time.time()
                     wa_service.send_typing(jid, True)
+                    logger.info(f"⏱️ typing took: {time.time() - typing_start:.2f}s")
                     
                     # ⚡ STEP 2: Quick customer/lead lookup (no heavy processing)
+                    lookup_start = time.time()
                     customer, lead, _ = ci.find_or_create_customer_from_whatsapp(phone_number, message_text)
+                    logger.info(f"⏱️ customer lookup took: {time.time() - lookup_start:.2f}s")
                     
                     # ⚡ STEP 3: Extract last 10 messages for better context (FIXED from 4)
                     previous_messages = []
@@ -103,6 +111,7 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                                 previous_messages.append(f"{'לקוח' if sender == 'WhatsApp' else 'לאה'}: {content}")
                     
                     # ⚡ STEP 4: Fast AI response with SHORT timeout
+                    ai_start = time.time()
                     ai_response = generate_ai_response(
                         message=message_text,
                         business_id=business_id,
@@ -113,9 +122,13 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         },
                         channel='whatsapp'
                     )
+                    logger.info(f"⏱️ AI response took: {time.time() - ai_start:.2f}s")
                     
                     # ⚡ STEP 5: Send response
+                    send_start = time.time()
                     send_result = wa_service.send_message(jid, ai_response)
+                    logger.info(f"⏱️ send_message took: {time.time() - send_start:.2f}s")
+                    logger.info(f"⏱️ TOTAL processing: {time.time() - process_start:.2f}s")
                     
                     # ⚡ STEP 6: Save to DB AFTER response sent (async logging)
                     timestamp = time.strftime('%H:%M:%S')
