@@ -270,6 +270,15 @@ def save_whatsapp_prompt(business_id):
     settings.ai_prompt = data.get('whatsapp_prompt', '')
     db.session.commit()  # api_handler יעשה rollback אם נכשל
     
+    # ✅ CRITICAL: Invalidate AI service cache after prompt update
+    import logging
+    try:
+        from server.services.ai_service import invalidate_business_cache
+        invalidate_business_cache(business_id)
+        logging.info(f"🔥 AI cache invalidated for business {business_id} after WhatsApp prompt update")
+    except Exception as cache_error:
+        logging.error(f"❌ Failed to invalidate AI cache: {cache_error}")
+    
     return {"ok": True, "id": business_id, "prompt_length": len(settings.ai_prompt)}
 
 @whatsapp_bp.route('/webhook/incoming', methods=['POST'])
