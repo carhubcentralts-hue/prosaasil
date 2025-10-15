@@ -166,27 +166,11 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
             
             print(f"🔵 CREATE_LEAD_FROM_CALL - App context created")
             
-            # ✅ BUILD 90: Dynamic business detection with fallback
+            # ✅ BUILD 91: Multi-tenant - חכם! זיהוי business לפי to_number
             if not business_id:
-                business = Business.query.filter_by(is_active=True).first()
-                if not business:
-                    business = Business.query.first()
-                
-                if business:
-                    business_id = business.id
-                    print(f"📊 Thread using existing business_id={business_id}")
-                else:
-                    print("⚠️ No business found in thread - creating default")
-                    business = Business(
-                        name="Default Business",
-                        business_type="real_estate",
-                        phone_e164="+972500000000",
-                        is_active=True
-                    )
-                    db.session.add(business)
-                    db.session.commit()
-                    business_id = business.id
-                    print(f"✅ Created default business in thread: ID={business_id}")
+                from server.services.business_resolver import resolve_business_with_fallback
+                business_id, status = resolve_business_with_fallback('twilio_voice', to_number)
+                print(f"📊 Thread resolved business_id={business_id} ({status}) from to_number={to_number}")
             
             # ✅ שלב 1: עדכן call_log (אם כבר נוצר ב-incoming_call) עם customer_id
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
@@ -283,27 +267,14 @@ def incoming_call():
     from_number = request.form.get("From", "")
     to_number = request.form.get("To", "")
     
-    # ✅ BUILD 90: מצא business קיים (dynamic)
-    from server.models_sql import Business
-    business = Business.query.filter_by(is_active=True).first()
-    if not business:
-        business = Business.query.first()
+    # ✅ BUILD 91: Multi-tenant - חכם! זיהוי business לפי to_number
+    from server.services.business_resolver import resolve_business_with_fallback
+    business_id, status = resolve_business_with_fallback('twilio_voice', to_number)
     
-    # Fallback: צור business אם לא קיים (auto-healing)
-    if not business:
-        print("⚠️ No business found - creating default business")
-        business = Business(
-            name="Default Business",
-            business_type="real_estate",
-            phone_e164="+972500000000",
-            is_active=True
-        )
-        db.session.add(business)
-        db.session.commit()
-        print(f"✅ Created default business: ID={business.id}")
-    
-    business_id = business.id
-    print(f"📊 Using business_id={business_id}")
+    if status == 'found':
+        print(f"✅ Resolved business_id={business_id} from to_number={to_number}")
+    else:
+        print(f"⚠️ Using fallback business_id={business_id} ({status}) for to_number={to_number}")
     
     if call_sid and from_number:
         try:
@@ -427,10 +398,10 @@ def handle_recording():
             if not call_log:
                 # Self-heal: צור fallback call_log
                 print(f"⚠️ handle_recording: Creating fallback call_log for {call_sid}")
-                # ✅ BUILD 90: Dynamic business detection
-                from server.models_sql import Business
-                biz = Business.query.filter_by(is_active=True).first() or Business.query.first()
-                biz_id = biz.id if biz else 1
+                # ✅ BUILD 91: Multi-tenant fallback (no to_number available)
+                from server.services.business_resolver import resolve_business_with_fallback
+                biz_id, status = resolve_business_with_fallback('twilio_voice', '+97233763805')  # Default fallback
+                print(f"📊 handle_recording fallback: business_id={biz_id} ({status})")
                 
                 call_log = CallLog(
                     call_sid=call_sid,
@@ -531,10 +502,10 @@ def stream_status():
                 if not call_log:
                     # Self-heal: צור fallback call_log
                     print(f"⚠️ stream_status: Creating fallback call_log for {call_sid}")
-                    # ✅ BUILD 90: Dynamic business detection
-                    from server.models_sql import Business
-                    biz = Business.query.filter_by(is_active=True).first() or Business.query.first()
-                    biz_id = biz.id if biz else 1
+                    # ✅ BUILD 91: Multi-tenant fallback (no to_number available)
+                    from server.services.business_resolver import resolve_business_with_fallback
+                    biz_id, status = resolve_business_with_fallback('twilio_voice', '+97233763805')  # Default fallback
+                    print(f"📊 stream_status fallback: business_id={biz_id} ({status})")
                     
                     call_log = CallLog(
                         call_sid=call_sid,
