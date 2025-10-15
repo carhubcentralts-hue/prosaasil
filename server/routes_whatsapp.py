@@ -293,12 +293,11 @@ def baileys_webhook():
         
         if not business:
             log.warning("⚠️ No business found for WhatsApp - creating default")
-            business = Business(
-                name="Default Business",
-                business_type="real_estate",
-                phone_e164="+972500000000",
-                is_active=True
-            )
+            business = Business()
+            business.name = "Default Business"
+            business.business_type = "real_estate"
+            business.phone_e164 = "+972500000000"
+            business.is_active = True
             db.session.add(business)
             db.session.commit()
             log.info(f"✅ Created default business for WhatsApp: ID={business.id}")
