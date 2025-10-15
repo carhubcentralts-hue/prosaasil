@@ -306,88 +306,100 @@ def baileys_webhook():
         business_id = business.id
         log.info(f"📊 WhatsApp using business_id={business_id}")
         
-        wa_service = get_whatsapp_service()
-        processed = 0
+        # ✅ BUILD 90: Process messages in background for FAST webhook response
+        import threading
         
-        for msg in messages:
-            try:
-                # Extract message details
-                from_number = msg.get('key', {}).get('remoteJid', '').replace('@s.whatsapp.net', '')
-                message_text = msg.get('message', {}).get('conversation', '') or \
-                              msg.get('message', {}).get('extendedTextMessage', {}).get('text', '')
+        def process_messages_async():
+            """Process WhatsApp messages in background - FAST!"""
+            from server.app_factory import create_app
+            
+            app = create_app()
+            with app.app_context():
+                wa_service = get_whatsapp_service()
                 
-                if not from_number or not message_text:
-                    continue
-                
-                log.info(f"📱 Processing message from {from_number}: {message_text[:50]}...")
-                
-                # ✅ FIX: Use correct CustomerIntelligence class
-                ci_service = CustomerIntelligence(business_id=business_id)
-                customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
-                    phone_number=from_number,
-                    message_text=message_text
-                )
-                
-                action = "created" if was_created else "updated"
-                log.info(f"✅ {action} customer/lead for {from_number}")
-                
-                # Save incoming message to DB
-                wa_msg = WhatsAppMessage()
-                wa_msg.business_id = business_id
-                wa_msg.to_number = from_number
-                wa_msg.body = message_text
-                wa_msg.message_type = 'text'
-                wa_msg.direction = 'inbound'
-                wa_msg.provider = 'baileys'
-                wa_msg.status = 'received'
-                db.session.add(wa_msg)
-                db.session.commit()
-                
-                # ✅ BUILD 90: Generate AI response using business prompt
-                try:
-                    from server.services.ai_service import generate_ai_response
-                    response_text = generate_ai_response(
-                        message=message_text,
-                        business_id=business_id,
-                        context={
-                            'phone': from_number,
-                            'customer_name': customer.name if customer else None,
-                            'lead_status': lead.status if lead else None
-                        },
-                        channel='whatsapp'
-                    )
-                    log.info(f"✅ Generated AI response: {response_text[:50]}...")
-                except Exception as e:
-                    log.error(f"⚠️ AI response failed, using fallback: {e}")
-                    response_text = "שלום! קיבלתי את ההודעה שלך. נציג יחזור אליך בהקדם."
-                
-                # Send response via Baileys
-                send_result = wa_service.send_message(
-                    to=f"{from_number}@s.whatsapp.net",
-                    message=response_text
-                )
-                
-                if send_result.get('status') == 'sent':
-                    # Save outgoing message
-                    out_msg = WhatsAppMessage()
-                    out_msg.business_id = business_id
-                    out_msg.to_number = from_number
-                    out_msg.body = response_text
-                    out_msg.message_type = 'text'
-                    out_msg.direction = 'outbound'
-                    out_msg.provider = 'baileys'
-                    out_msg.status = 'sent'
-                    db.session.add(out_msg)
-                    db.session.commit()
-                    log.info(f"✅ Sent auto-response to {from_number}")
-                
-                processed += 1
-                
-            except Exception as e:
-                log.error(f"❌ Error processing message: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
+                for msg in messages:
+                    try:
+                        # Extract message details
+                        from_number = msg.get('key', {}).get('remoteJid', '').replace('@s.whatsapp.net', '')
+                        message_text = msg.get('message', {}).get('conversation', '') or \
+                                      msg.get('message', {}).get('extendedTextMessage', {}).get('text', '')
+                        
+                        if not from_number or not message_text:
+                            continue
+                        
+                        log.info(f"📱 Processing message from {from_number}: {message_text[:50]}...")
+                        
+                        # ✅ FIX: Use correct CustomerIntelligence class
+                        ci_service = CustomerIntelligence(business_id=business_id)
+                        customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
+                            phone_number=from_number,
+                            message_text=message_text
+                        )
+                        
+                        action = "created" if was_created else "updated"
+                        log.info(f"✅ {action} customer/lead for {from_number}")
+                        
+                        # Save incoming message to DB
+                        wa_msg = WhatsAppMessage()
+                        wa_msg.business_id = business_id
+                        wa_msg.to_number = from_number
+                        wa_msg.body = message_text
+                        wa_msg.message_type = 'text'
+                        wa_msg.direction = 'inbound'
+                        wa_msg.provider = 'baileys'
+                        wa_msg.status = 'received'
+                        db.session.add(wa_msg)
+                        db.session.commit()
+                        
+                        # ✅ BUILD 90: Generate AI response using business prompt
+                        try:
+                            from server.services.ai_service import generate_ai_response
+                            response_text = generate_ai_response(
+                                message=message_text,
+                                business_id=business_id,
+                                context={
+                                    'phone': from_number,
+                                    'customer_name': customer.name if customer else None,
+                                    'lead_status': lead.status if lead else None
+                                },
+                                channel='whatsapp'
+                            )
+                            log.info(f"✅ Generated AI response: {response_text[:50]}...")
+                        except Exception as e:
+                            log.error(f"⚠️ AI response failed, using fallback: {e}")
+                            response_text = "שלום! קיבלתי את ההודעה שלך. נציג יחזור אליך בהקדם."
+                        
+                        # Send response via Baileys
+                        send_result = wa_service.send_message(
+                            to=f"{from_number}@s.whatsapp.net",
+                            message=response_text
+                        )
+                        
+                        if send_result.get('status') == 'sent':
+                            # Save outgoing message
+                            out_msg = WhatsAppMessage()
+                            out_msg.business_id = business_id
+                            out_msg.to_number = from_number
+                            out_msg.body = response_text
+                            out_msg.message_type = 'text'
+                            out_msg.direction = 'outbound'
+                            out_msg.provider = 'baileys'
+                            out_msg.status = 'sent'
+                            db.session.add(out_msg)
+                            db.session.commit()
+                            log.info(f"✅ Sent auto-response to {from_number}")
+                        
+                    except Exception as e:
+                        log.error(f"❌ Error processing message: {e}")
+                        import traceback
+                        traceback.print_exc()
+        
+        # Start processing in background thread
+        thread = threading.Thread(target=process_messages_async, daemon=True)
+        thread.start()
+        log.info(f"🚀 Started background processing for {len(messages)} message(s)")
+        
+        processed = len(messages)
         
         return jsonify({"ok": True, "processed": processed}), 200
         
