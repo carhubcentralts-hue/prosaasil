@@ -217,7 +217,7 @@ def api_thread_summary(thread_id):
         # Build conversation for AI
         conversation = []
         for msg in reversed(messages):
-            speaker = "לקוח" if msg.direction == "inbound" else "לאה"
+            speaker = "לקוח" if msg.direction == "inbound" else "עוזרת"  # ✅ עוזרת!
             conversation.append(f"{speaker}: {msg.body}")
         
         # Call AI to summarize (fast!)

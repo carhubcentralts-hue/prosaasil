@@ -239,9 +239,7 @@ def send_appointment_confirmation(customer_phone: str, appointment_data: Dict) -
 📞 ליצירת קשר: 050-1234567
 
 נשמח לראותכם! אם יש צורך בשינוי, אנא הודיעו מראש.
-
-_לאה, שי דירות ומשרדים_
-        """.strip()
+        """.strip()  # ✅ הסרת חתימה hardcoded
         
         # שליחה דרך API המאוחד
         response = requests.post("http://localhost:5000/api/whatsapp/send", json={
@@ -290,9 +288,7 @@ def send_appointment_reminder(appointment_id: int) -> Dict:
 🏠 נושא: {appointment.title}
 
 האם הזמן עדיין מתאים לכם?
-
-_לאה, שי דירות ומשרדים_
-        """.strip()
+        """.strip()  # ✅ הסרת חתימה hardcoded
         
         # שליחה
         response = requests.post("http://localhost:5000/api/whatsapp/send", json={
@@ -339,9 +335,7 @@ def process_incoming_whatsapp_message(phone_number: str, message_text: str, mess
 {chr(10).join(f"• {info}" for info in missing_info)}
 
 זה יעזור לי להכין עבורכם את האפשרויות הטובות ביותר!
-
-_לאה, שי דירות ומשרדים_
-            """.strip()
+            """.strip()  # ✅ הסרת חתימה hardcoded
             
             requests.post("http://localhost:5000/api/whatsapp/send", json={
                 'to': phone_number,
