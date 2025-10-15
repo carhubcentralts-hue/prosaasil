@@ -1,0 +1,184 @@
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/crm/contracts -> crm_bp.create_contract
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/crm/customers -> crm_bp.api_customers
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/crm/deals -> crm_bp.list_deals
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/crm/deals -> crm_bp.create_deal
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/crm/payments -> crm_bp.get_payments
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/crm/payments/create -> crm_bp.payments_create
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/cancel -> crm_bp.paypal_cancel
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/success -> crm_bp.paypal_success
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/crm/threads/<thread_id>/messages -> crm_bp.api_thread_messages
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/dashboard/stats -> api_adapter.dashboard_stats
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/intelligence/customers -> intelligence.get_intelligent_customers
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/intelligence/stats -> intelligence.get_intelligence_stats
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/leads -> leads_bp.list_leads
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/leads -> leads_bp.create_lead
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'PATCH'} /api/leads/<int:lead_id> -> leads_bp.update_lead
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp -> leads_bp.send_whatsapp_message
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/move -> leads_bp.move_lead_in_kanban
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders -> leads_bp.create_reminder
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.get_reminder
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.update_reminder
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status -> leads_bp.update_lead_status
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'PATCH'} /api/leads/bulk -> leads_bp.bulk_update_leads
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/leads/bulk-delete -> leads_bp.bulk_delete_leads
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/receipts -> receipts_contracts.create_receipt
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/statuses -> status_management.get_business_statuses
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/statuses -> status_management.create_status
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'PUT'} /api/statuses/<int:status_id> -> status_management.update_status
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'DELETE'} /api/statuses/<int:status_id> -> status_management.delete_status
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/statuses/reorder -> status_management.reorder_statuses
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/ui/login -> ui.api_login
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'GET', 'OPTIONS', 'HEAD', 'POST'} /api/ui/logout -> ui.api_logout
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/whatsapp/disconnect -> whatsapp.disconnect
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/messages -> whatsapp.api_wa_messages
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id> -> whatsapp.save_whatsapp_prompt
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/qr -> whatsapp.qr
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/whatsapp/reset -> whatsapp.reset
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/whatsapp/send -> whatsapp.send_manual_message
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'POST'} /api/whatsapp/start -> whatsapp.start
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/stats -> whatsapp.api_wa_stats
+2025-10-16 00:16:44.74
+2cbf28ba
+User
+✅ Simple SPA routes registered (no blueprint)
+2025-10-16 00:16:47.23
+2cbf28ba
+User
+🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CAe70160133179842aa178116f920c0749
+2025-10-16 00:16:47.24
+2cbf28ba
+User
+🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CAe70160133179842aa178116f920c0749
+2025-10-16 00:16:47.24
+2cbf28ba
+User
+🟢 INCOMING_CALL - Thread started successfully
+2025-10-16 00:16:47.24
+2cbf28ba
+User
+INFO: 34.59.40.34:0 - "POST /webhook/incoming_call HTTP/1.1" 200 OK
+2025-10-16 00:16:47.24
+2cbf28ba
+User
+🔧 GCP credentials loaded from file path: /tmp/gcp_credentials.json...
+
+Wrap
+
+Colors
