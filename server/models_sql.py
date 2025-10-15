@@ -54,7 +54,7 @@ class BusinessContactChannel(db.Model):
     channel_type = db.Column(db.String(32), nullable=False, index=True)  # 'twilio_voice', 'twilio_sms', 'whatsapp'
     identifier = db.Column(db.String(255), nullable=False, index=True)  # E.164 phone or tenant slug (business_1)
     is_primary = db.Column(db.Boolean, default=False)
-    metadata = db.Column(db.Text)  # JSON for extra config
+    config_json = db.Column(db.Text)  # JSON for extra config
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

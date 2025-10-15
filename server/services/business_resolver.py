@@ -89,7 +89,7 @@ def resolve_business_with_fallback(channel_type: str, identifier: str) -> Tuple[
     return business.id, 'fallback_any'
 
 
-def add_business_channel(business_id: int, channel_type: str, identifier: str, is_primary: bool = False, metadata: str = None) -> BusinessContactChannel:
+def add_business_channel(business_id: int, channel_type: str, identifier: str, is_primary: bool = False, config_json: Optional[str] = None) -> BusinessContactChannel:
     """
     Add a new business contact channel mapping
     
@@ -98,7 +98,7 @@ def add_business_channel(business_id: int, channel_type: str, identifier: str, i
         channel_type: 'twilio_voice', 'twilio_sms', 'whatsapp'
         identifier: E.164 phone or tenant slug
         is_primary: Mark as primary channel
-        metadata: Optional JSON metadata
+        config_json: Optional JSON configuration
     
     Returns:
         Created BusinessContactChannel
@@ -119,7 +119,7 @@ def add_business_channel(business_id: int, channel_type: str, identifier: str, i
     channel.channel_type = channel_type
     channel.identifier = identifier
     channel.is_primary = is_primary
-    channel.metadata = metadata
+    channel.config_json = config_json
     
     db.session.add(channel)
     db.session.commit()

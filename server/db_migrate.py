@@ -351,7 +351,7 @@ def apply_migrations():
                 channel_type VARCHAR(32) NOT NULL,
                 identifier VARCHAR(255) NOT NULL,
                 is_primary BOOLEAN DEFAULT false,
-                metadata TEXT,
+                config_json TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
