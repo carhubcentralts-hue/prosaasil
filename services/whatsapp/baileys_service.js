@@ -2,9 +2,21 @@ const express = require('express');
 const cors = require('cors');
 const QRCode = require('qrcode');
 const axios = require('axios');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+
+// ⚡ PERFORMANCE: Connection pooling with keep-alive
+const keepAliveAgent = new http.Agent({ 
+  keepAlive: true, 
+  maxSockets: 100,
+  timeout: 3000  // ⚡ Fast timeout
+});
+
+// ⚡ PERFORMANCE: Configure axios globally with keep-alive
+axios.defaults.httpAgent = keepAliveAgent;
+axios.defaults.timeout = 3000;  // ⚡ Fast timeout for all requests
 
 const PORT = Number(process.env.BAILEYS_PORT || 3300);
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
@@ -91,6 +103,31 @@ app.post('/whatsapp/:tenantId/disconnect', requireSecret, async (req, res) => {
   }
 });
 
+// ⚡ FAST typing indicator endpoint
+app.post('/sendTyping', async (req, res) => {
+  try {
+    const { jid, typing = true } = req.body;
+    
+    if (!jid) {
+      return res.status(400).json({ error: 'Missing jid' });
+    }
+    
+    const tenantId = 'business_1';
+    const s = sessions.get(tenantId);
+    
+    if (!s || !s.sock || !s.connected) {
+      return res.status(503).json({ error: 'WhatsApp not connected' });
+    }
+    
+    // Send typing indicator (fire and forget - don't wait)
+    s.sock.sendPresenceUpdate(typing ? 'composing' : 'paused', jid).catch(() => {});
+    
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: 'typing_failed' });
+  }
+});
+
 app.post('/send', async (req, res) => {
   try {
     const { to, text, type = 'text' } = req.body;
@@ -104,15 +141,12 @@ app.post('/send', async (req, res) => {
     const s = sessions.get(tenantId);
     
     if (!s || !s.sock || !s.connected) {
-      console.error(`[${tenantId}] Cannot send - not connected`);
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
     
-    // Send message
-    console.log(`[${tenantId}] 📤 Sending message to ${to}: ${text.substring(0, 50)}...`);
+    // ⚡ Send message (fast - no verbose logging in production)
     const result = await s.sock.sendMessage(to, { text: text });
     
-    console.log(`[${tenantId}] ✅ Message sent successfully:`, result.key.id);
     return res.json({ 
       ok: true, 
       messageId: result.key.id,
@@ -120,7 +154,7 @@ app.post('/send', async (req, res) => {
     });
     
   } catch (e) {
-    console.error('[send] error:', e);
+    console.error('[send] error:', e.message);
     return res.status(500).json({ error: 'send_failed', message: e.message });
   }
 });
@@ -140,13 +174,18 @@ async function startSession(tenantId) {
   const { version } = await fetchLatestBaileysVersion();
   console.log(`[${tenantId}] 🔧 Using Baileys version:`, version);
   
+  // ⚡ OPTIMIZED Baileys socket for maximum speed
   const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false,
     browser: ['AgentLocator', 'Chrome', '10.0'],
-    defaultQueryTimeoutMs: 60000,
-    connectTimeoutMs: 30000
+    markOnlineOnConnect: false,  // ⚡ Don't mark online - saves bandwidth
+    syncFullHistory: false,  // ⚡ Don't sync history - CRITICAL for speed
+    shouldSyncHistoryMessage: false,  // ⚡ No message history sync
+    getMessage: async () => undefined,  // ⚡ Don't fetch old messages - saves time
+    defaultQueryTimeoutMs: 7000,  // ⚡ Fast timeout
+    connectTimeoutMs: 7000  // ⚡ Fast connection timeout
   });
 
   const s = { sock, saveCreds, qrDataUrl: '', connected: false, pushName: '', starting: false };
