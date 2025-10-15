@@ -266,7 +266,8 @@ class MediaStreamHandler:
                     
                     if not self.greeting_sent:
                         print("🎯 SENDING IMMEDIATE GREETING!")
-                        greet = "שלום! אני לאה משי דירות ומשרדים. איך אני יכולה לעזור?"  # קצר וישר
+                        # ✅ ברכה כללית - לא חושפת שם עסק שגוי לפני זיהוי
+                        greet = "שלום! איך אני יכולה לעזור?"  # קצר וכללי - העסק יזוהה אחר כך
                         self._speak_simple(greet)
                         self.greeting_sent = True
                     continue
@@ -1461,11 +1462,11 @@ class MediaStreamHandler:
     def _fallback_response(self, hebrew_text: str) -> str:
         """Simple fallback response when AI service fails"""
         if "שלום" in hebrew_text or "היי" in hebrew_text:
-            return "שלום! אני לאה משי דירות ומשרדים. איך אני יכולה לעזור?"
+            return "שלום! איך אני יכולה לעזור?"  # ✅ כללי - לא חושף שם עסק
         elif "תודה" in hebrew_text or "ביי" in hebrew_text:
             return "תודה רבה! אני כאן לכל שאלה."
         else:
-            return "איזה אזור מעניין אותך? יש לי דירות במרכז הארץ."
+            return "איזה אזור מעניין אותך?"  # ✅ כללי - לא מדבר על דירות
     
     
     def _hebrew_tts(self, text: str) -> bytes | None:

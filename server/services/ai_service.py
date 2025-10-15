@@ -97,14 +97,14 @@ class AIService:
                 prompt_data = {
                     "system_prompt": system_prompt,
                     "model": "gpt-4o-mini",  # Fast model
-                    "max_tokens": 220,  # ⚡ Optimized for speed
+                    "max_tokens": 350,  # ✅ Enough for complete sentences
                     "temperature": 0.2  # ⚡ Low temperature for faster, more deterministic responses
                 }
             else:
                 prompt_data = {
                     "system_prompt": system_prompt,
                     "model": settings.model,
-                    "max_tokens": min(settings.max_tokens, 220),  # ⚡ Cap at 220 for speed
+                    "max_tokens": min(settings.max_tokens, 350),  # ✅ Cap at 350 for complete sentences
                     "temperature": min(settings.temperature, 0.3)  # ⚡ Cap temperature for speed
                 }
             
@@ -114,35 +114,45 @@ class AIService:
             
         except Exception as e:
             logger.error(f"Error loading business prompt {business_id}: {e}")
-            # ⚡ FAST fallback
+            # ⚡ FAST fallback - טעינת שם עסק מה-DB
+            try:
+                business = Business.query.get(business_id)
+                business_name = business.name if business else "העסק שלנו"
+            except:
+                business_name = "העסק שלנו"
+            
             return {
-                "system_prompt": self._get_default_hebrew_prompt("שי דירות", channel),
+                "system_prompt": self._get_default_hebrew_prompt(business_name, channel),
                 "model": "gpt-4o-mini",
-                "max_tokens": 220,  # ⚡ Optimized
+                "max_tokens": 350,  # ✅ Enough for complete sentences
                 "temperature": 0.2  # ⚡ Fast and deterministic
             }
     
-    def _get_default_hebrew_prompt(self, business_name: str = "שי דירות", channel: str = "calls") -> str:
+    def _get_default_hebrew_prompt(self, business_name: str = "העסק שלנו", channel: str = "calls") -> str:
         """פרומפט ברירת מחדל בעברית לנדל"ן - מותאם לערוץ"""
         if channel == "whatsapp":
             return f"""אתה "לאה", סוכנת WhatsApp של {business_name}.
 
-כללים:
-- תענה בעברית, תשובות קצרות (עד 100 מילים)
+כללים חשובים:
+- תענה בעברית, תשובות קצרות (עד 150 מילים)
 - תהיי חמה וידידותית בסגנון WhatsApp
 - תבקשי פרטים: אזור, סוג נכס, תקציב
 - תציעי לקבוע פגישה כשיש מידע מספיק
+- ⚠️ אל תחזרי על שמך בכל משפט! זה מעצבן ולא טבעי
+- דברי ישר לעניין בלי להציג את עצמך כל פעם מחדש
 
 תפקידך: לעזור למצוא נכס ולהוביל לפגישה."""
         else:
-            # ✨ Calls - פרומפט מפורט 200 מילים לשיחות זורמות וטבעיות
+            # ✨ Calls - פרומפט מפורט לשיחות זורמות וטבעיות
             return f"""אתה "לאה", סוכנת הנדל"ן הדיגיטלית החכמה והמקצועית של {business_name}. אני כאן כדי לעזור ללקוחות למצוא את הנכס המושלם - דירות למכירה, דירות להשכרה, בתים, ומשרדים.
 
 התנהלות בשיחה:
 • דברי בעברית בלבד, בצורה טבעית וזורמת כמו שיחה רגילה בטלפון
 • היי חמה, ידידותית, אבל מקצועית - כמו סוכנת נדל"ן מנוסה
-• תשובות קצרות - 2-3 משפטים בכל תגובה (עד 150 מילים)
+• תשובות קצרות - 2-3 משפטים בכל תגובה (עד 200 מילים)
 • דברי ישירות לעניין, בלי מילוי או סיפורים ארוכים
+• ⚠️ חשוב מאוד: אל תחזרי על שמך "לאה" בכל משפט! זה לא טבעי ומעצבן
+• הציגי את עצמך רק בברכה הראשונה, אחר כך דברי ישר לעניין
 
 איסוף מידע חכם:
 שאלי שאלה אחת בכל פעם, בסדר הזה:
@@ -235,11 +245,11 @@ class AIService:
         message_lower = message.lower().strip()
         
         if any(word in message_lower for word in ["שלום", "היי", "הלו"]):
-            return "שלום! אני לאה מצוות שי דירות ומשרדים. איך אוכל לעזור לך למצוא נכס?"
+            return "שלום! איך אוכל לעזור לך?"  # ✅ כללי - לא חושף שם עסק שגוי
         elif any(word in message_lower for word in ["דירה", "בית", "נכס"]):
             return "אשמח לעזור לך! אתה מחפש לקניה או השכרה? באיזה אזור?"
         else:
-            return "תודה על הפנייה! אחד הסוכנים שלנו יחזור אליך בהקדם עם מענה מפורט."
+            return "תודה על הפנייה! אחזור אליך בהקדם עם מענה מפורט."
     
     def _get_calendar_availability(self, business_id: int) -> str:
         """בדיקת זמינות בלוח השנה ל-7 ימים הקרובים"""
