@@ -1,0 +1,184 @@
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'PUT', 'OPTIONS'} /api/admin/businesses/<int:business_id>/prompt
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/business/current/prompt
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'PUT', 'OPTIONS'} /api/business/current/prompt
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/businesses/<int:business_id>/prompt/history
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/business/current/prompt/history
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/statuses
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'POST', 'OPTIONS'} /api/statuses
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'PUT', 'OPTIONS'} /api/statuses/<int:status_id>
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'DELETE', 'OPTIONS'} /api/statuses/<int:status_id>
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'POST', 'OPTIONS'} /api/statuses/reorder
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'POST', 'OPTIONS'} /api/admin/statuses/initialize/<int:business_id>
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/auth/csrf
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'POST', 'OPTIONS'} /api/auth/login
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'POST', 'OPTIONS'} /api/auth/forgot
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'POST', 'OPTIONS'} /api/auth/reset
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'POST', 'OPTIONS'} /api/auth/logout
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/auth/me
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/auth/current
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/overview
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/calls
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/whatsapp
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/businesses
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/revenue
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/businesses
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/businesses/<int:business_id>/overview
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/overview
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/calls
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/kpis/whatsapp
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/tenants
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/calls
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/leads
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/leads/stats
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/phone-numbers
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/businesses/prompts
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/admin/support/profile
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'PUT', 'GET', 'HEAD', 'OPTIONS'} /api/admin/support/prompt
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'PUT', 'GET', 'HEAD', 'OPTIONS'} /api/admin/support/phones
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/crm/threads
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/crm/threads/<thread_id>/messages
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/crm/customers
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/calls/active
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/calls/history
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/crm/payments
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'GET', 'HEAD', 'OPTIONS'} /api/crm/contracts
+2025-10-15 13:51:01.48
+53c329b8
+User
+{'POST', 'OPTIONS'} /api/crm/contracts
+
+Wrap
+
+Colors
