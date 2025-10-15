@@ -60,8 +60,8 @@ class AIService:
             
             # בחירת פרומפט חכמה - עם fallback ל-business.system_prompt
             system_prompt = ""
-            if settings and settings.ai_prompt and len(settings.ai_prompt.strip()) > 20:
-                # יש פרומפט ב-settings - צריך לבדוק אם זה JSON או טקסט
+            if settings and settings.ai_prompt and settings.ai_prompt.strip():
+                # יש פרומפט ב-settings - תמיד תשתמש בו! (ללא בדיקת אורך)
                 import json
                 try:
                     # נסיון לפרוס כ-JSON (פורמט חדש עם calls/whatsapp)
@@ -69,20 +69,23 @@ class AIService:
                         prompt_obj = json.loads(settings.ai_prompt)
                         # בחירת הפרומפט הנכון לפי channel
                         system_prompt = prompt_obj.get(channel, prompt_obj.get('calls', settings.ai_prompt))
-                        logger.info(f"✅ Using {channel} prompt for business {business_id}")
+                        logger.info(f"✅ Using {channel} prompt for business {business_id} from settings")
                     else:
                         # פרומפט טקסט פשוט (legacy)
                         system_prompt = settings.ai_prompt
+                        logger.info(f"✅ Using legacy text prompt for business {business_id}")
                 except json.JSONDecodeError:
                     # אם זה לא JSON תקין, השתמש בזה כטקסט
                     system_prompt = settings.ai_prompt
-            elif business and business.system_prompt and len(business.system_prompt.strip()) > 20:
+                    logger.info(f"✅ Using non-JSON prompt for business {business_id}")
+            elif business and business.system_prompt and business.system_prompt.strip():
                 # fallback לפרומפט המלא מטבלת business
                 system_prompt = business.system_prompt
                 logger.info(f"✅ Using fallback prompt from business.system_prompt for {business_id}")
             else:
                 # fallback אחרון לפרומפט ברירת מחדל
                 system_prompt = self._get_default_hebrew_prompt(business.name if business else "שי דירות", channel)
+                logger.info(f"⚠️ Using default prompt for business {business_id} - no custom prompt found")
             
             if not settings:
                 # ברירת מחדל אם אין הגדרות
