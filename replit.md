@@ -49,7 +49,7 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
-## BUILD 90 (October 15, 2025) - CRITICAL FIXES: call_status + business_id + WhatsApp AI + Deployment
+## BUILD 90 (October 15, 2025) - CRITICAL FIXES: call_status + business_id + WhatsApp AI + Transcription Save + Deployment
 - **🔧 CRITICAL FIX 1**: Fixed "null value in column call_status violates not-null constraint" error
   - **ROOT CAUSE**: Production DB has NOT NULL `call_status` field but models_sql.py missing it → fallback call_log creation fails
   - **SYMPTOM**: `stream_status` and `handle_recording` creating fallback → DB rejects with NOT NULL violation → no call_log saved
@@ -93,7 +93,12 @@ Preferred communication style: Simple, everyday language.
   - **FIX 2**: Checks if Baileys already running, starts if not
   - **FIX 3**: Background process with subprocess.Popen (PID tracked)
   - **Files**: wsgi.py
-- **Impact**: Production deployment works + auto-creates business if needed + all calls/WhatsApp save successfully + WhatsApp replies with intelligent AI responses + calls now have transcription/recording even if WebSocket fails + Baileys starts automatically with Flask
+- **🔧 CRITICAL FIX 7**: Fixed transcription not saving to database
+  - **ROOT CAUSE**: WebSocket flow saved to `call_log.transcript` but field is `transcription`!
+  - **SYMPTOM**: Calls complete but transcription=NULL in database (schema mismatch)
+  - **FIX**: Changed `call_log.transcript = ...` to `call_log.transcription = ...`
+  - **Files**: server/media_ws_ai.py
+- **Impact**: Production deployment works + auto-creates business if needed + all calls/WhatsApp save successfully + WhatsApp replies with intelligent AI responses + calls now have transcription/recording even if WebSocket fails + Baileys starts automatically with Flask + transcription saves correctly to database
 
 ## BUILD 89 (October 15, 2025) - CRITICAL FIX: Complete Call Processing Chain
 - **🔧 CRITICAL FIX**: Fixed entire call processing chain from ImportError to call_log creation

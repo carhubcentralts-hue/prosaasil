@@ -1759,7 +1759,7 @@ class MediaStreamHandler:
                         
                         # עדכן call_log
                         call_log.status = "completed"
-                        call_log.transcript = full_conversation
+                        call_log.transcription = full_conversation  # ✅ FIX: transcription not transcript!
                         call_log.summary = summary_data.get('summary', '')
                         call_log.ai_summary = summary_data.get('detailed_summary', '')
                         
