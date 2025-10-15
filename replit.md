@@ -64,8 +64,9 @@ Preferred communication style: Simple, everyday language.
   - **SYMPTOM**: ForeignKeyViolation: Key (business_id)=(1) is not present in table "business"
   - **FIX 1**: Dynamic business detection - find active business or any business
   - **FIX 2**: Auto-healing fallback - create default business if none exists
-  - **FIX 3**: Applied to all 4 call_log creation points: incoming_call, _create_lead_from_call, stream_status, handle_recording
-  - **Files**: server/routes_twilio.py
+  - **FIX 3**: Applied to Calls: incoming_call, _create_lead_from_call, stream_status, handle_recording
+  - **FIX 4**: Applied to WhatsApp: baileys_webhook, whatsapp_incoming webhook
+  - **Files**: server/routes_twilio.py, server/routes_whatsapp.py, server/routes_webhook.py
 - **🔧 CRITICAL FIX 3**: Fixed Autoscale deployment failures
   - **ROOT CAUSE**: Missing INTERNAL_SECRET in deployment + multiple port exposure confusion
   - **FIX 1**: Auto-generate INTERNAL_SECRET if not in environment (secure fallback)

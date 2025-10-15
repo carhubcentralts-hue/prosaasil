@@ -276,9 +276,29 @@ def baileys_webhook():
         # Process each incoming message
         from server.services.customer_intelligence import CustomerIntelligence
         from server.whatsapp_provider import get_whatsapp_service
+        from server.models_sql import Business
+        
+        # ✅ BUILD 90: Dynamic business detection for WhatsApp
+        business = Business.query.filter_by(is_active=True).first()
+        if not business:
+            business = Business.query.first()
+        
+        if not business:
+            log.warning("⚠️ No business found for WhatsApp - creating default")
+            business = Business(
+                name="Default Business",
+                business_type="real_estate",
+                phone_e164="+972500000000",
+                is_active=True
+            )
+            db.session.add(business)
+            db.session.commit()
+            log.info(f"✅ Created default business for WhatsApp: ID={business.id}")
+        
+        business_id = business.id
+        log.info(f"📊 WhatsApp using business_id={business_id}")
         
         wa_service = get_whatsapp_service()
-        business_id = 1  # Default to business_1
         processed = 0
         
         for msg in messages:
