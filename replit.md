@@ -49,7 +49,7 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
-## BUILD 90 (October 15, 2025) - CRITICAL FIXES: call_status + business_id + Deployment
+## BUILD 90 (October 15, 2025) - CRITICAL FIXES: call_status + business_id + WhatsApp AI + Deployment
 - **🔧 CRITICAL FIX 1**: Fixed "null value in column call_status violates not-null constraint" error
   - **ROOT CAUSE**: Production DB has NOT NULL `call_status` field but models_sql.py missing it → fallback call_log creation fails
   - **SYMPTOM**: `stream_status` and `handle_recording` creating fallback → DB rejects with NOT NULL violation → no call_log saved
@@ -65,15 +65,22 @@ Preferred communication style: Simple, everyday language.
   - **FIX 1**: Dynamic business detection - find active business or any business
   - **FIX 2**: Auto-healing fallback - create default business if none exists
   - **FIX 3**: Applied to Calls: incoming_call, _create_lead_from_call, stream_status, handle_recording
-  - **FIX 4**: Applied to WhatsApp: baileys_webhook, whatsapp_incoming webhook
+  - **FIX 4**: Applied to WhatsApp: baileys_webhook, whatsapp_incoming webhook, api_wa_messages, get_conversation, send_manual_message
   - **Files**: server/routes_twilio.py, server/routes_whatsapp.py, server/routes_webhook.py
+- **🔧 CRITICAL FIX 4**: Fixed WhatsApp AI responses (was hardcoded text)
+  - **ROOT CAUSE**: WhatsApp responses used hardcoded Hebrew text instead of AI
+  - **SYMPTOM**: "שלום! קיבלתי את ההודעה שלך" - not intelligent, no context awareness
+  - **FIX 1**: Replaced hardcoded text with generate_ai_response() call
+  - **FIX 2**: Added customer context (name, lead status) to AI prompt
+  - **FIX 3**: Added fallback handling if AI fails
+  - **Files**: server/routes_whatsapp.py
 - **🔧 CRITICAL FIX 3**: Fixed Autoscale deployment failures
   - **ROOT CAUSE**: Missing INTERNAL_SECRET in deployment + multiple port exposure confusion
   - **FIX 1**: Auto-generate INTERNAL_SECRET if not in environment (secure fallback)
   - **FIX 2**: Clarified port architecture - only Flask on 0.0.0.0:PORT (external), Baileys on 127.0.0.1:3300 (internal only)
   - **FIX 3**: Updated start_production.sh with clear external/internal port documentation
   - **Files**: start_production.sh
-- **Impact**: Production deployment works + auto-creates business if needed + all calls save successfully
+- **Impact**: Production deployment works + auto-creates business if needed + all calls/WhatsApp save successfully + WhatsApp replies with intelligent AI responses
 
 ## BUILD 89 (October 15, 2025) - CRITICAL FIX: Complete Call Processing Chain
 - **🔧 CRITICAL FIX**: Fixed entire call processing chain from ImportError to call_log creation

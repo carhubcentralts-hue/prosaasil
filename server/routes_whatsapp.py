@@ -134,8 +134,12 @@ def api_wa_messages():
     if not contact_id:
         return jsonify({"error":"missing contact_id"}), 400
     
-    # Get business_id from session or assume business_1 for now
-    business_id = 1  # TODO: Get from session/auth context
+    # ✅ BUILD 90: Dynamic business detection with request fallback
+    business_id = request.args.get('business_id', type=int)
+    if not business_id:
+        from server.models_sql import Business
+        business = Business.query.filter_by(is_active=True).first() or Business.query.first()
+        business_id = business.id if business else 1
     
     msgs = WhatsAppMessage.query.filter_by(
         business_id=business_id,
@@ -159,8 +163,12 @@ def get_conversation(phone_number):
     Returns messages in format expected by WhatsAppChat component
     """
     try:
-        # Get business_id from request or default to 1
-        business_id = request.args.get('business_id', 1, type=int)
+        # ✅ BUILD 90: Dynamic business detection with fallback
+        business_id = request.args.get('business_id', type=int)
+        if not business_id:
+            from server.models_sql import Business
+            business = Business.query.filter_by(is_active=True).first() or Business.query.first()
+            business_id = business.id if business else 1
         
         # Clean phone number (remove + and @s.whatsapp.net)
         clean_phone = phone_number.replace('+', '').replace('@s.whatsapp.net', '')
@@ -335,8 +343,23 @@ def baileys_webhook():
                 db.session.add(wa_msg)
                 db.session.commit()
                 
-                # Generate AI response (simple for now - can be enhanced)
-                response_text = f"שלום! קיבלתי את ההודעה שלך. נציג יחזור אליך בהקדם."
+                # ✅ BUILD 90: Generate AI response using business prompt
+                try:
+                    from server.services.ai_service import generate_ai_response
+                    response_text = generate_ai_response(
+                        message=message_text,
+                        business_id=business_id,
+                        context={
+                            'phone': from_number,
+                            'customer_name': customer.name if customer else None,
+                            'lead_status': lead.status if lead else None
+                        },
+                        channel='whatsapp'
+                    )
+                    log.info(f"✅ Generated AI response: {response_text[:50]}...")
+                except Exception as e:
+                    log.error(f"⚠️ AI response failed, using fallback: {e}")
+                    response_text = "שלום! קיבלתי את ההודעה שלך. נציג יחזור אליך בהקדם."
                 
                 # Send response via Baileys
                 send_result = wa_service.send_message(
@@ -382,7 +405,13 @@ def send_manual_message():
     
     to_number = data.get('to')
     message = data.get('message')
-    business_id = data.get('business_id', 1)
+    
+    # ✅ BUILD 90: Dynamic business detection
+    business_id = data.get('business_id')
+    if not business_id:
+        from server.models_sql import Business
+        business = Business.query.filter_by(is_active=True).first() or Business.query.first()
+        business_id = business.id if business else 1
     
     if not to_number or not message:
         return {"ok": False, "error": "missing_required_fields"}, 400
