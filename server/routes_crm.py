@@ -129,27 +129,29 @@ def api_threads():
                 
                 customer_name = customer.name if customer else thread.to_number
                 
-                # Check if conversation is closed (customer said goodbye)
+                # Check if conversation is closed - based on LEAH's last response (outbound)
                 is_closed = False
-                if last_msg and last_msg.direction == "inbound" and last_msg.body:
+                if last_msg and last_msg.direction == "outbound" and last_msg.body:
                     import re
                     
+                    # Check if Leah closed the conversation with closing phrases
+                    closing_phrases = [
+                        "תודה שמחתי לעזור",
+                        "תודה קבעתי פגישה",
+                        "נהיה בקשר",
+                        "להתראות",
+                        "שמחתי לעזור",
+                        "נעים היה לדבר",
+                        "צוות שי",
+                        "בהצלחה"
+                    ]
+                    
+                    # Remove punctuation and extra spaces for matching
                     msg_lower = last_msg.body.lower().strip()
-                    # Remove trailing punctuation for checking
-                    msg_clean = re.sub(r'[!.,?]+$', '', msg_lower).strip()
+                    msg_clean = re.sub(r'[!.,?:;]+', ' ', msg_lower)  # Replace punctuation with space
+                    msg_clean = re.sub(r'\s+', ' ', msg_clean).strip()  # Normalize spaces
                     
-                    # Multi-word goodbye phrases (must end with these exact phrases)
-                    multi_word_goodbyes = ["תודה ביי", "תודה רבה ביי", "תודה להתראות", "טוב תודה", "יאללה ביי", "thanks bye"]
-                    multi_word_match = any(msg_clean.endswith(phrase) for phrase in multi_word_goodbyes)
-                    
-                    # Single-word goodbyes (must be standalone word - exact match or after space)
-                    single_word_goodbyes = ["ביי", "להתראות", "bye"]
-                    single_word_match = any(
-                        msg_clean == word or msg_clean.endswith(" " + word)
-                        for word in single_word_goodbyes
-                    )
-                    
-                    is_closed = multi_word_match or single_word_match
+                    is_closed = any(phrase in msg_clean for phrase in closing_phrases)
                 
                 threads_list.append({
                     "id": thread.to_number,
