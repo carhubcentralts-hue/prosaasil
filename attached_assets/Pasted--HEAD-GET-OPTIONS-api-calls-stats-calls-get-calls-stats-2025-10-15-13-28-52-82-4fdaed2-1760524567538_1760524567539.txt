@@ -1,0 +1,98 @@
+
+{'HEAD', 'GET', 'OPTIONS'} /api/calls/stats -> calls.get_calls_stats
+2025-10-15 13:28:52.82
+4fdaed2e
+User
+⚠️ No call_log found for final summary: CA51235e8dba758707526f9437ac3147f7
+2025-10-15 13:32:54.86
+4fdaed2e
+User
+INFO: 34.71.155.201:0 - "GET /api/calls?search=&status=all&direction=all&limit=50 HTTP/1.1" 200 OK
+2025-10-15 13:33:05.29
+4fdaed2e
+User
+{'OPTIONS', 'POST'} /webhook/incoming_call
+2025-10-15 13:33:05.29
+4fdaed2e
+User
+{'OPTIONS', 'POST'} /webhook/call_status
+2025-10-15 13:33:05.29
+4fdaed2e
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/calls
+2025-10-15 13:33:05.29
+4fdaed2e
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/calls/<call_sid>/details
+2025-10-15 13:33:05.29
+4fdaed2e
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/calls/<call_sid>/download
+2025-10-15 13:33:05.29
+4fdaed2e
+User
+{'OPTIONS', 'POST'} /api/calls/cleanup
+2025-10-15 13:33:05.29
+4fdaed2e
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/calls/stats
+2025-10-15 13:33:05.29
+4fdaed2e
+User
+{'HEAD', 'GET', 'OPTIONS'} /ui/calls/active
+2025-10-15 13:33:05.29
+4fdaed2e
+User
+{'HEAD', 'GET', 'OPTIONS'} /ui/calls/history
+2025-10-15 13:33:05.33
+4fdaed2e
+User
+STREAM_STATUS call=CAd1585fe210db9db04e64811f77a10cd4 stream=MZ50ad4d7a6d7cca6957a7ae5653bbe8a8 event=N/A
+2025-10-15 13:33:05.49
+4fdaed2e
+User
+✅ Debug written to /tmp/handler_called.txt
+2025-10-15 13:33:05.49
+4fdaed2e
+User
+WS_START sid=None mode=AI call_sid=None
+2025-10-15 13:33:05.49
+4fdaed2e
+User
+🎯 WS_START sid=MZ50ad4d7a6d7cca6957a7ae5653bbe8a8 call_sid=CAd1585fe210db9db04e64811f77a10cd4 phone=None mode=AI
+2025-10-15 13:33:05.50
+4fdaed2e
+User
+⚠️ stream_status: Creating fallback call_log for CAd1585fe210db9db04e64811f77a10cd4
+2025-10-15 13:33:05.57
+4fdaed2e
+User
+⚠️ stream_status DB error: (psycopg2.errors.NotNullViolation) null value in column "call_status" of relation "call_log" violates not-null constraint
+2025-10-15 13:33:05.57
+4fdaed2e
+User
+[SQL: INSERT INTO call_log (business_id, customer_id, call_sid, from_number, to_number, recording_url, transcription, summary, status, created_at, updated_at) VALUES (%(business_id)s, %(customer_id)s, %(call_sid)s, %(from_number)s, %(to_number)s, %(recording_url)s, %(transcription)s, %(summary)s, %(status)s, %(created_at)s, %(updated_at)s) RETURNING call_log.id]
+2025-10-15 13:33:05.57
+4fdaed2e
+User
+[parameters: {'business_id': 1, 'customer_id': None, 'call_sid': 'CAd1585fe210db9db04e64811f77a10cd4', 'from_number': 'unknown', 'to_number': '+97233763805', 'recording_url': None, 'transcription': None, 'summary': None, 'status': 'streaming', 'created_at': datetime.datetime(2025, 10, 15, 10, 33, 5, 508965), 'updated_at': datetime.datetime(2025, 10, 15, 10, 33, 5, 508969)}]
+2025-10-15 13:33:05.58
+4fdaed2e
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/calls
+2025-10-15 13:33:05.58
+4fdaed2e
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/calls
+2025-10-15 13:33:05.58
+4fdaed2e
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/calls
+2025-10-15 13:33:05.58
+4fdaed2e
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/calls/active
+2025-10-15 13:33:05.58
+4fdaed2e
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/calls/history

@@ -49,6 +49,18 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
+## BUILD 90 (October 15, 2025) - CRITICAL FIX: call_status NOT NULL Constraint
+- **🔧 CRITICAL FIX**: Fixed "null value in column call_status violates not-null constraint" error
+  - **ROOT CAUSE**: Production DB has NOT NULL `call_status` field but models_sql.py missing it → fallback call_log creation fails
+  - **SYMPTOM**: `stream_status` and `handle_recording` creating fallback → DB rejects with NOT NULL violation → no call_log saved
+  - **FIX 1**: Added `call_status` field to CallLog model with default="in-progress"
+  - **FIX 2**: Updated all fallback call_log creations to include `call_status`
+  - **FIX 3**: `incoming_call` → `call_status="initiated"`
+  - **FIX 4**: `stream_status` → `call_status="in-progress"`
+  - **FIX 5**: `handle_recording` → `call_status="completed"`
+  - **Files**: server/models_sql.py, server/routes_twilio.py
+- **Impact**: All calls now save successfully - no more NOT NULL violations
+
 ## BUILD 89 (October 15, 2025) - CRITICAL FIX: Complete Call Processing Chain
 - **🔧 CRITICAL FIX**: Fixed entire call processing chain from ImportError to call_log creation
   - **ROOT CAUSE**: Chain of failures starting with ImportError → no call_log → "No call_log found for final summary"

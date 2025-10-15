@@ -64,6 +64,7 @@ class CallLog(db.Model):
     call_sid = db.Column(db.String(64), unique=True, index=True)  # ✅ Unique constraint to prevent duplicates
     from_number = db.Column(db.String(64), index=True)
     to_number = db.Column(db.String(64))  # ✅ BUILD 88: Added to_number field
+    call_status = db.Column(db.String(32), default="in-progress")  # ✅ BUILD 90: Legacy field for production DB compatibility
     recording_url = db.Column(db.String(512))
     transcription = db.Column(db.Text)
     summary = db.Column(db.Text)  # ✨ סיכום חכם קצר של השיחה (10-30 מילים)

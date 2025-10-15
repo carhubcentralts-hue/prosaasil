@@ -269,6 +269,7 @@ def incoming_call():
                     from_number=from_number,
                     to_number=to_number or "+97233763805",
                     business_id=business_id,
+                    call_status="initiated",  # ✅ BUILD 90: Legacy field
                     status="initiated"
                 )
                 db.session.add(call_log)
@@ -376,6 +377,7 @@ def handle_recording():
                     from_number="unknown",
                     to_number="+97233763805",
                     business_id=1,
+                    call_status="completed",  # ✅ BUILD 90: Legacy field
                     status="recorded"
                 )
                 db.session.add(call_log)
@@ -474,6 +476,7 @@ def stream_status():
                         from_number="unknown",
                         to_number="+97233763805",
                         business_id=1,
+                        call_status="in-progress",  # ✅ BUILD 90: Legacy field
                         status="streaming"
                     )
                     db.session.add(call_log)
