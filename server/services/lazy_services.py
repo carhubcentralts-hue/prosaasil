@@ -38,7 +38,7 @@ def lazy_singleton(service_name):
 
 @lazy_singleton("openai_client")
 def get_openai_client():
-    """Lazy OpenAI client with timeout"""
+    """⚡ FAST OpenAI client with short timeout"""
     import openai
     
     if not os.getenv("OPENAI_API_KEY"):
@@ -46,9 +46,8 @@ def get_openai_client():
         return None
         
     try:
-        client = openai.OpenAI(timeout=12.0)  # 12s timeout for Hebrew processing
-        # Quick ping test
-        client.models.list(timeout=3.0)
+        client = openai.OpenAI(timeout=3.5)  # ⚡ 3.5s timeout for speed
+        # Skip ping test - don't slow down startup
         return client
     except Exception as e:
         log.error(f"OpenAI init failed: {e}")

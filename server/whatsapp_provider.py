@@ -26,29 +26,39 @@ class Provider:
         raise NotImplementedError
 
 class BaileysProvider(Provider):
-    """Baileys HTTP API provider with health checks and failover"""
+    """⚡ OPTIMIZED Baileys HTTP API provider with health checks and failover"""
     
     def __init__(self):
         self.outbound_url = os.getenv("BAILEYS_BASE_URL", "http://127.0.0.1:3300")
         self.webhook_secret = os.getenv("BAILEYS_WEBHOOK_SECRET", "")
-        self.timeout = 15.0  # ✅ Increased for WhatsApp message sending
+        self.timeout = 3.0  # ⚡ Fast timeout for speed
         self._last_health_check = 0
         self._health_status = False
         self._health_cache_duration = 30  # 30 seconds cache
+        
+        # ⚡ Connection pooling for speed
+        self._session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=20,
+            max_retries=0  # No retries - fail fast
+        )
+        self._session.mount('http://', adapter)
+        self._session.mount('https://', adapter)
         
         if not self.webhook_secret:
             logger.warning("BAILEYS_WEBHOOK_SECRET not set - security risk!")
 
     def _check_health(self) -> bool:
-        """Check Baileys service health with caching"""
+        """⚡ Check Baileys service health with caching"""
         now = time.time()
         if now - self._last_health_check < self._health_cache_duration:
             return self._health_status
             
         try:
-            response = requests.get(
+            response = self._session.get(
                 f"{self.outbound_url}/health", 
-                timeout=self.timeout
+                timeout=1.0  # ⚡ Fast health check
             )
             self._health_status = response.status_code == 200
             self._last_health_check = now
@@ -59,8 +69,27 @@ class BaileysProvider(Provider):
             self._last_health_check = now
             return False
     
+    def send_typing(self, jid: str, is_typing: bool = True) -> Dict[str, Any]:
+        """⚡ Send typing indicator - instant user feedback"""
+        try:
+            payload = {
+                "jid": jid,
+                "typing": is_typing
+            }
+            
+            response = self._session.post(
+                f"{self.outbound_url}/sendTyping",
+                json=payload,
+                timeout=0.5  # ⚡ Super fast - don't wait
+            )
+            
+            return {"status": "sent" if response.status_code == 200 else "error"}
+        except Exception as e:
+            # Don't log - typing is optional
+            return {"status": "error", "error": str(e)}
+    
     def send_text(self, to: str, text: str) -> Dict[str, Any]:
-        """Send text message via Baileys HTTP API"""
+        """⚡ Send text message via Baileys HTTP API - FAST"""
         try:
             if not self._check_health():
                 return {
@@ -79,22 +108,21 @@ class BaileysProvider(Provider):
                 "idempotencyKey": idempotency_key
             }
             
-            response = requests.post(
+            response = self._session.post(
                 f"{self.outbound_url}/send",
                 json=payload,
-                timeout=self.timeout
+                timeout=self.timeout  # ⚡ Fast timeout
             )
             
             if response.status_code == 200:
                 result = response.json()
-                logger.info(f"Baileys message sent: {to}")
                 return {
                     "provider": "baileys",
                     "status": "sent",
-                    "sid": result.get("messageId", idempotency_key)
+                    "sid": result.get("messageId", idempotency_key),
+                    "message_id": result.get("messageId", idempotency_key)
                 }
             else:
-                logger.error(f"Baileys send failed: {response.status_code} {response.text}")
                 return {
                     "provider": "baileys",
                     "status": "error",
@@ -365,10 +393,16 @@ def _resolve_smart_provider(thread_data: Dict[str, Any]) -> str:
         return "twilio"  # Safe fallback
 
 class WhatsAppService:
-    """Unified WhatsApp service interface"""
+    """⚡ OPTIMIZED Unified WhatsApp service interface"""
     
     def __init__(self, provider: Provider):
         self.provider = provider
+    
+    def send_typing(self, jid: str, is_typing: bool = True) -> Dict[str, Any]:
+        """⚡ Send typing indicator - creates instant UX feel"""
+        if hasattr(self.provider, 'send_typing'):
+            return self.provider.send_typing(jid, is_typing)
+        return {"status": "unsupported"}
         
     def send_message(self, to: str, message: str) -> Dict[str, Any]:
         """Send text message via provider"""

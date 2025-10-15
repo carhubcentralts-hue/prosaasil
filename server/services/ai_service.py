@@ -38,7 +38,11 @@ class AIService:
     """מנגנון AI מרכזי שטוען פרומפטים מהמסד נתונים ומחבר עם OpenAI"""
     
     def __init__(self):
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # ⚡ FAST OpenAI client with short timeout
+        self.client = OpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            timeout=3.5  # ⚡ Fast timeout - 3.5 seconds max
+        )
         self._cache = {}  # קאש פרומפטים לביצועים
         self._cache_timeout = 300  # 5 דקות
         
@@ -88,19 +92,19 @@ class AIService:
                 logger.info(f"⚠️ Using default prompt for business {business_id} - no custom prompt found")
             
             if not settings:
-                # ברירת מחדל אם אין הגדרות
+                # ⚡ FAST defaults - optimized for speed
                 prompt_data = {
                     "system_prompt": system_prompt,
-                    "model": "gpt-4o-mini",  # המודל הנוכחי במערכת
-                    "max_tokens": 200,  # ✨ הגדלנו ל-200 כדי לתמוך בפרומפט המפורט
-                    "temperature": 0.7
+                    "model": "gpt-4o-mini",  # Fast model
+                    "max_tokens": 220,  # ⚡ Optimized for speed
+                    "temperature": 0.2  # ⚡ Low temperature for faster, more deterministic responses
                 }
             else:
                 prompt_data = {
                     "system_prompt": system_prompt,
                     "model": settings.model,
-                    "max_tokens": settings.max_tokens,
-                    "temperature": settings.temperature
+                    "max_tokens": min(settings.max_tokens, 220),  # ⚡ Cap at 220 for speed
+                    "temperature": min(settings.temperature, 0.3)  # ⚡ Cap temperature for speed
                 }
             
             # שמירה בקאש
@@ -109,12 +113,12 @@ class AIService:
             
         except Exception as e:
             logger.error(f"Error loading business prompt {business_id}: {e}")
-            # Fallback לפרומפט ברירת מחדל
+            # ⚡ FAST fallback
             return {
                 "system_prompt": self._get_default_hebrew_prompt("שי דירות", channel),
                 "model": "gpt-4o-mini",
-                "max_tokens": 200,  # ✨ הגדלנו ל-200 כדי לתמוך בפרומפט המפורט
-                "temperature": 0.7
+                "max_tokens": 220,  # ⚡ Optimized
+                "temperature": 0.2  # ⚡ Fast and deterministic
             }
     
     def _get_default_hebrew_prompt(self, business_name: str = "שי דירות", channel: str = "calls") -> str:

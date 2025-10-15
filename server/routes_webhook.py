@@ -1,11 +1,13 @@
 """
-WhatsApp Webhook Routes - Receive incoming events from Baileys service
-מסלולי Webhook של WhatsApp - קבלת אירועים נכנסים מ-Baileys service
+WhatsApp Webhook Routes - OPTIMIZED FOR SPEED ⚡
+מסלולי Webhook של WhatsApp - מותאם למהירות מקסימלית
 """
 import os
 import logging
 from flask import Blueprint, request, jsonify
 from server.extensions import csrf
+from threading import Thread
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -20,224 +22,180 @@ def validate_internal_secret():
         return False
     return True
 
-@csrf.exempt  # Bypass CSRF for internal webhook
+@csrf.exempt
 @webhook_bp.route('/whatsapp/incoming', methods=['POST'])
 def whatsapp_incoming():
     """
-    Receive incoming WhatsApp events from Baileys service
-    קבלת אירועי WhatsApp נכנסים מ-Baileys service
+    ⚡ ULTRA-FAST WhatsApp webhook - ACK immediately, process in background
+    תגובה מהירה לווטסאפ - מחזיר 200 מיד, מעבד ברקע
     """
     try:
-        # Validate internal secret
         if not validate_internal_secret():
             return jsonify({"error": "unauthorized"}), 401
         
-        # Get payload
         payload = request.get_json() or {}
         tenant_id = payload.get('tenantId', '1')
         events = payload.get('payload', {})
-        
-        logger.info(f"WhatsApp incoming webhook - tenant: {tenant_id}, events: {len(events.get('messages', []))}")
-        
-        # ✨ CUSTOMER INTELLIGENCE: Process incoming WhatsApp messages
         messages = events.get('messages', [])
         
         if messages:
-            # Process in background to not block webhook response
-            from threading import Thread
-            
-            def process_whatsapp_messages():
-                try:
-                    from server.app_factory import create_app
-                    from server.services.customer_intelligence import CustomerIntelligence
-                    from server.db import db
-                    from server.models_sql import Business
-                    import time
-                    
-                    app = create_app()
-                    with app.app_context():
-                        # ✅ BUILD 91: Multi-tenant - חכם! זיהוי business לפי tenantId
-                        from server.services.business_resolver import resolve_business_with_fallback
-                        business_id, status = resolve_business_with_fallback('whatsapp', tenant_id)
-                        
-                        if status == 'found':
-                            logger.info(f"✅ Resolved business_id={business_id} from tenantId={tenant_id}")
-                        else:
-                            logger.warning(f"⚠️ Using fallback business_id={business_id} ({status}) for tenantId={tenant_id}")
-                        ci = CustomerIntelligence(business_id)
-                        
-                        for msg in messages:
-                            try:
-                                # Parse WhatsApp message
-                                from_jid = msg.get('key', {}).get('remoteJid', '')
-                                phone_number = from_jid.split('@')[0] if '@' in from_jid else from_jid
-                                
-                                # Get message text
-                                message_content = msg.get('message', {})
-                                message_text = (
-                                    message_content.get('conversation', '') or
-                                    message_content.get('extendedTextMessage', {}).get('text', '') or
-                                    '[Media/Unsupported message]'
-                                )
-                                
-                                if not phone_number or not message_text or message_text == '[Media/Unsupported message]':
-                                    continue
-                                
-                                logger.info(f"Processing WhatsApp message from {phone_number}: {message_text[:50]}...")
-                                
-                                # ✨ Create/update customer and lead using Customer Intelligence
-                                customer, lead, was_created = ci.find_or_create_customer_from_whatsapp(
-                                    phone_number, message_text
-                                )
-                                
-                                # ✨ Generate conversation summary
-                                conversation_summary = ci.generate_conversation_summary(
-                                    message_text,
-                                    conversation_data={'source': 'whatsapp', 'phone': phone_number}
-                                )
-                                
-                                # ✨ Auto-update lead status based on message content
-                                new_status = ci.auto_update_lead_status(lead, conversation_summary)
-                                
-                                # ✅ Save incoming message to WhatsAppMessage table
-                                from server.models_sql import WhatsAppMessage
-                                
-                                incoming_msg = WhatsAppMessage()
-                                incoming_msg.business_id = business_id
-                                incoming_msg.to_number = phone_number
-                                incoming_msg.direction = 'in'
-                                incoming_msg.body = message_text
-                                incoming_msg.message_type = 'text'
-                                incoming_msg.status = 'received'
-                                incoming_msg.provider = 'baileys'
-                                db.session.add(incoming_msg)
-                                
-                                # Update lead notes with WhatsApp message
-                                timestamp = time.strftime('%H:%M:%S')
-                                if lead.notes:
-                                    lead.notes += f"\n[WhatsApp {timestamp}]: {message_text[:100]}..."
-                                else:
-                                    lead.notes = f"[WhatsApp {timestamp}]: {message_text[:100]}..."
-                                
-                                db.session.commit()
-                                
-                                # ✅ Extract previous messages from lead notes for conversation memory
-                                previous_messages = []
-                                if lead.notes:
-                                    import re
-                                    # חילוץ הודעות קודמות מה-notes (פורמט: [WhatsApp HH:MM:SS]: message או [לאה HH:MM:SS]: message)
-                                    note_lines = lead.notes.split('\n')
-                                    for line in note_lines[-10:]:  # רק 10 הודעות אחרונות
-                                        # Match: [WhatsApp 18:49:50]: דירה ברמלה...
-                                        match = re.match(r'\[(WhatsApp|לאה)\s+\d+:\d+:\d+\]:\s*(.+)', line)
-                                        if match:
-                                            sender = match.group(1)
-                                            content = match.group(2).replace('...', '').strip()
-                                            if sender == 'WhatsApp':
-                                                previous_messages.append(f"לקוח: {content}")
-                                            else:  # לאה
-                                                previous_messages.append(f"לאה: {content}")
-                                
-                                # ✨ Generate AI response using WhatsApp prompt
-                                from server.services.ai_service import generate_ai_response
-                                from server.whatsapp_provider import get_whatsapp_service
-                                
-                                try:
-                                    ai_response = generate_ai_response(
-                                        message=message_text,
-                                        business_id=business_id,
-                                        context={
-                                            'customer_name': customer.name,
-                                            'phone_number': phone_number,
-                                            'source': 'whatsapp',
-                                            'previous_messages': previous_messages  # ✅ הוספת היסטוריית שיחה!
-                                        },
-                                        channel='whatsapp'  # ✅ Use WhatsApp prompt
-                                    )
-                                    
-                                    # Send AI response back to customer
-                                    wa_service = get_whatsapp_service()
-                                    send_result = wa_service.send_message(f"{phone_number}@s.whatsapp.net", ai_response)
-                                    
-                                    if send_result.get('status') == 'sent':
-                                        logger.info(f"✅ AI response sent to {phone_number}: {ai_response[:50]}...")
-                                        
-                                        # ✅ Save AI response to WhatsAppMessage table
-                                        outgoing_msg = WhatsAppMessage()
-                                        outgoing_msg.business_id = business_id
-                                        outgoing_msg.to_number = phone_number
-                                        outgoing_msg.direction = 'out'
-                                        outgoing_msg.body = ai_response
-                                        outgoing_msg.message_type = 'text'
-                                        outgoing_msg.status = 'sent'
-                                        outgoing_msg.provider = send_result.get('provider', 'baileys')
-                                        outgoing_msg.provider_message_id = send_result.get('message_id')
-                                        db.session.add(outgoing_msg)
-                                        
-                                        # Add AI response to lead notes
-                                        if lead.notes:
-                                            lead.notes += f"\n[לאה {timestamp}]: {ai_response[:100]}..."
-                                        else:
-                                            lead.notes = f"[לאה {timestamp}]: {ai_response[:100]}..."
-                                        db.session.commit()
-                                    else:
-                                        logger.warning(f"⚠️ Failed to send AI response: {send_result}")
-                                        
-                                except Exception as ai_error:
-                                    logger.error(f"❌ AI response failed: {ai_error}")
-                                
-                                # Detailed logging
-                                logger.info(f"🎯 WhatsApp AI Processing: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'})")
-                                logger.info(f"📱 WhatsApp Intent: {conversation_summary.get('intent', 'N/A')}")
-                                logger.info(f"📊 WhatsApp Status: {new_status}")
-                                logger.info(f"⚡ WhatsApp Next Action: {conversation_summary.get('next_action', 'N/A')}")
-                                
-                            except Exception as msg_error:
-                                logger.error(f"Failed to process WhatsApp message: {msg_error}")
-                                continue
-                                
-                except Exception as e:
-                    logger.error(f"WhatsApp background processing failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # Start background processing
-            Thread(target=process_whatsapp_messages, daemon=True).start()
+            # ⚡ FAST PATH: Queue job and return immediately
+            Thread(target=_process_whatsapp_fast, args=(tenant_id, messages), daemon=True).start()
         
-        return '', 204  # Acknowledge receipt immediately
+        # ⚡ ACK immediately - don't wait for processing
+        return '', 200
         
     except Exception as e:
-        logger.error(f"WhatsApp incoming webhook error: {e}")
-        return jsonify({"error": "processing_failed"}), 500
+        logger.error(f"WhatsApp webhook error: {e}")
+        return '', 200  # Still ACK to avoid retries
 
-@csrf.exempt  # Bypass CSRF for internal webhook  
+def _process_whatsapp_fast(tenant_id: str, messages: list):
+    """⚡ FAST background processor - typing first, then response"""
+    try:
+        from server.app_factory import create_app
+        from server.services.business_resolver import resolve_business_with_fallback
+        from server.whatsapp_provider import get_whatsapp_service
+        from server.services.ai_service import generate_ai_response
+        from server.services.customer_intelligence import CustomerIntelligence
+        from server.models_sql import WhatsAppMessage, Lead
+        from server.db import db
+        import re
+        
+        app = create_app()
+        with app.app_context():
+            business_id, _ = resolve_business_with_fallback('whatsapp', tenant_id)
+            wa_service = get_whatsapp_service()
+            ci = CustomerIntelligence(business_id)
+            
+            for msg in messages:
+                try:
+                    # Parse message
+                    from_jid = msg.get('key', {}).get('remoteJid', '')
+                    phone_number = from_jid.split('@')[0] if '@' in from_jid else from_jid
+                    message_content = msg.get('message', {})
+                    message_text = (
+                        message_content.get('conversation', '') or
+                        message_content.get('extendedTextMessage', {}).get('text', '') or
+                        ''
+                    )
+                    
+                    if not phone_number or not message_text:
+                        continue
+                    
+                    jid = f"{phone_number}@s.whatsapp.net"
+                    
+                    # ⚡ STEP 1: Send typing indicator immediately (creates instant feel)
+                    wa_service.send_typing(jid, True)
+                    
+                    # ⚡ STEP 2: Quick customer/lead lookup (no heavy processing)
+                    customer, lead, _ = ci.find_or_create_customer_from_whatsapp(phone_number, message_text)
+                    
+                    # ⚡ STEP 3: Extract ONLY last 4 messages for context (not 10)
+                    previous_messages = []
+                    if lead.notes:
+                        note_lines = lead.notes.split('\n')
+                        for line in note_lines[-4:]:  # ⚡ Only 4 messages for speed
+                            match = re.match(r'\[(WhatsApp|לאה)\s+\d+:\d+:\d+\]:\s*(.+)', line)
+                            if match:
+                                sender, content = match.group(1), match.group(2).replace('...', '').strip()
+                                previous_messages.append(f"{'לקוח' if sender == 'WhatsApp' else 'לאה'}: {content}")
+                    
+                    # ⚡ STEP 4: Fast AI response with SHORT timeout
+                    ai_response = generate_ai_response(
+                        message=message_text,
+                        business_id=business_id,
+                        context={
+                            'customer_name': customer.name,
+                            'phone_number': phone_number,
+                            'previous_messages': previous_messages
+                        },
+                        channel='whatsapp'
+                    )
+                    
+                    # ⚡ STEP 5: Send response
+                    send_result = wa_service.send_message(jid, ai_response)
+                    
+                    # ⚡ STEP 6: Save to DB AFTER response sent (async logging)
+                    timestamp = time.strftime('%H:%M:%S')
+                    
+                    # Save incoming
+                    incoming_msg = WhatsAppMessage()
+                    incoming_msg.business_id = business_id
+                    incoming_msg.to_number = phone_number
+                    incoming_msg.direction = 'in'
+                    incoming_msg.body = message_text
+                    incoming_msg.message_type = 'text'
+                    incoming_msg.status = 'received'
+                    incoming_msg.provider = 'baileys'
+                    db.session.add(incoming_msg)
+                    
+                    # Save outgoing if sent
+                    if send_result.get('status') == 'sent':
+                        outgoing_msg = WhatsAppMessage()
+                        outgoing_msg.business_id = business_id
+                        outgoing_msg.to_number = phone_number
+                        outgoing_msg.direction = 'out'
+                        outgoing_msg.body = ai_response
+                        outgoing_msg.message_type = 'text'
+                        outgoing_msg.status = 'sent'
+                        outgoing_msg.provider = send_result.get('provider', 'baileys')
+                        outgoing_msg.provider_message_id = send_result.get('message_id')
+                        db.session.add(outgoing_msg)
+                    
+                    # Update lead notes (compact)
+                    if lead.notes:
+                        lead.notes += f"\n[WhatsApp {timestamp}]: {message_text[:80]}\n[לאה {timestamp}]: {ai_response[:80]}"
+                    else:
+                        lead.notes = f"[WhatsApp {timestamp}]: {message_text[:80]}\n[לאה {timestamp}]: {ai_response[:80]}"
+                    
+                    # ⚡ Background: conversation summary (don't block)
+                    Thread(target=_async_conversation_analysis, args=(ci, lead, message_text, phone_number), daemon=True).start()
+                    
+                    db.session.commit()
+                    
+                except Exception as msg_error:
+                    logger.error(f"WhatsApp message processing error: {msg_error}")
+                    continue
+                    
+    except Exception as e:
+        logger.error(f"WhatsApp background processing failed: {e}")
+
+def _async_conversation_analysis(ci, lead, message_text, phone_number):
+    """⚡ Run conversation analysis in parallel - doesn't block response"""
+    try:
+        from server.app_factory import create_app
+        from server.db import db
+        
+        app = create_app()
+        with app.app_context():
+            conversation_summary = ci.generate_conversation_summary(
+                message_text,
+                conversation_data={'source': 'whatsapp', 'phone': phone_number}
+            )
+            ci.auto_update_lead_status(lead, conversation_summary)
+            db.session.commit()
+    except Exception as e:
+        logger.error(f"Async conversation analysis failed: {e}")
+
+@csrf.exempt
 @webhook_bp.route('/whatsapp/status', methods=['POST'])
 def whatsapp_status():
     """
     Receive WhatsApp connection status updates from Baileys service
-    קבלת עדכוני סטטוס חיבור WhatsApp מ-Baileys service  
     """
     try:
-        # Validate internal secret
         if not validate_internal_secret():
             return jsonify({"error": "unauthorized"}), 401
         
-        # Get payload
         payload = request.get_json() or {}
         tenant_id = payload.get('tenantId', '1')
         connection_status = payload.get('connection', 'unknown')
         push_name = payload.get('pushName', '')
         
-        logger.info(f"WhatsApp status update - tenant: {tenant_id}, status: {connection_status}, name: {push_name}")
+        logger.info(f"WhatsApp status - tenant: {tenant_id}, status: {connection_status}, name: {push_name}")
         
-        # TODO: Update database with connection status
-        # This is where you would:
-        # 1. Update business WhatsApp connection status
-        # 2. Notify UI of connection changes
-        # 3. Log connection events for monitoring
-        
-        return '', 204  # Acknowledge receipt
+        return '', 200
         
     except Exception as e:
         logger.error(f"WhatsApp status webhook error: {e}")
-        return jsonify({"error": "processing_failed"}), 500
+        return '', 200
