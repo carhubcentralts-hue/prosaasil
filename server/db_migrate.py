@@ -368,8 +368,34 @@ def apply_migrations():
             ON business_contact_channels(channel_type, identifier)
         """))
         
+        # Seed data: Add contact channels for existing businesses
+        # For each business with a phone_number, create twilio_voice + whatsapp channels
+        db.session.execute(text("""
+            INSERT INTO business_contact_channels (business_id, channel_type, identifier, is_primary)
+            SELECT 
+                id as business_id,
+                'twilio_voice' as channel_type,
+                phone_number as identifier,
+                true as is_primary
+            FROM business
+            WHERE phone_number IS NOT NULL AND phone_number != ''
+            ON CONFLICT (channel_type, identifier) DO NOTHING
+        """))
+        
+        # Add WhatsApp channels with business_X format
+        db.session.execute(text("""
+            INSERT INTO business_contact_channels (business_id, channel_type, identifier, is_primary)
+            SELECT 
+                id as business_id,
+                'whatsapp' as channel_type,
+                'business_' || id as identifier,
+                true as is_primary
+            FROM business
+            ON CONFLICT (channel_type, identifier) DO NOTHING
+        """))
+        
         migrations_applied.append("create_business_contact_channels_table")
-        log.info("Applied migration: create_business_contact_channels_table")
+        log.info("Applied migration: create_business_contact_channels_table with seed data")
     
     if migrations_applied:
         db.session.commit()

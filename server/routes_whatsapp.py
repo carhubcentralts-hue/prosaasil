@@ -14,10 +14,24 @@ CREDS    = os.path.join(AUTH_DIR, "creds.json")
 os.makedirs(AUTH_DIR, exist_ok=True)  # וודא שהתיקייה קיימת
 
 def tenant_id_from_ctx():
-    # B1) CRITICAL FIX: Always return 'business_1' for unified storage
-    # This ensures Flask and Baileys use the same tenant path
-    # בדיוק לפי ההוראות - tenant אחיד!
-    return 'business_1'
+    """Get tenant_id from request context (business selection or auth)"""
+    # ✅ BUILD 91: Multi-tenant - get from request or auth context
+    from flask import request
+    
+    # Try to get business_id from query params
+    business_id = request.args.get('business_id', type=int)
+    
+    # Try to get from session/auth (if logged in)
+    if not business_id:
+        from flask import session
+        business_id = session.get('business_id')
+    
+    # Fallback to business_1 for legacy/single-tenant mode
+    if not business_id:
+        business_id = 1
+    
+    # Return in business_X format (as expected by Baileys)
+    return f'business_{business_id}'
 
 def _headers():
     return {'X-Internal-Secret': INT_SECRET, 'Content-Type': 'application/json'}

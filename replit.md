@@ -49,6 +49,34 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
+## BUILD 91 (October 15, 2025) - MULTI-TENANT ROUTING: Intelligent Business Resolution System  
+- **🎯 MULTI-TENANT ARCHITECTURE**: Complete multi-tenant routing system prevents lead cross-contamination
+  - **NEW TABLE**: `business_contact_channels` - maps phone numbers and WhatsApp tenants to businesses
+  - **RESOLVER SERVICE**: `resolve_business_by_channel()` with LRU caching (auto-cleared on channel updates)
+  - **CHANNEL TYPES**: `twilio_voice`, `twilio_sms`, `whatsapp` with unique identifier constraint
+  - **TENANT CONTEXT**: Dynamic `tenant_id_from_ctx()` reads business_id from request/session (no more hardcoded business_1)
+  - **Files**: server/models_sql.py, server/services/business_resolver.py, server/db_migrate.py (Migration 16)
+- **🔄 UPDATED ALL ENDPOINTS**: Every endpoint now uses intelligent business resolution
+  - **Twilio Routes**: `incoming_call`, `handle_recording`, `stream_status`, `_create_lead_from_call` → resolve by to_number
+  - **WhatsApp Routes**: `baileys_webhook`, `api_wa_messages`, `get_conversation`, `send_manual_message` → resolve by tenantId
+  - **Webhook Routes**: `whatsapp_incoming` → resolve by tenantId
+  - **WebSocket**: `media_ws_ai.py` → resolve by to_number in `_identify_business_from_phone`
+  - **Files**: server/routes_twilio.py, server/routes_whatsapp.py, server/routes_webhook.py, server/media_ws_ai.py
+- **🛡️ FALLBACK STRATEGY**: Safe fallback prevents errors while alerting admins
+  - **Status Types**: `found` (exact match), `fallback_active` (first active business), `fallback_any` (any business), `none` (auto-create)
+  - **Auto-healing**: Creates default business if none exists
+  - **Logging**: Clear warnings when fallback is used
+- **🔧 ADMIN API**: Complete API for managing business contact channels
+  - **Endpoints**: GET /api/admin/channels (all), GET /api/admin/channels/business/:id (by business)
+  - **CRUD**: POST /api/admin/channels (create), DELETE /api/admin/channels/:id (remove)
+  - **Utilities**: GET /api/admin/channels/businesses (list for dropdown)
+  - **Files**: server/routes_admin_channels.py, server/app_factory.py
+- **📊 AUTO-SEED**: Migration automatically seeds channels for existing businesses
+  - **Twilio Voice**: Maps business phone_number → twilio_voice channel
+  - **WhatsApp**: Maps business_X (business_1, business_2, etc.) → whatsapp channel
+  - **Conflict Handling**: ON CONFLICT DO NOTHING for safe re-runs
+- **Impact**: Zero lead cross-contamination - each business gets only its own leads, scales to unlimited businesses
+
 ## BUILD 90 (October 15, 2025) - CRITICAL FIXES: call_status + business_id + WhatsApp AI + Transcription Save + Deployment
 - **🔧 CRITICAL FIX 1**: Fixed "null value in column call_status violates not-null constraint" error
   - **ROOT CAUSE**: Production DB has NOT NULL `call_status` field but models_sql.py missing it → fallback call_log creation fails
