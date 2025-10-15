@@ -128,7 +128,7 @@ class MediaStreamHandler:
         print("🎯 AI CONVERSATION STARTED")
         
         # מאפיינים לזיהוי עסק
-        self.business_id = 1  # ברירת מחדל לעסק ראשי
+        self.business_id = None  # ✅ יזוהה דינמית לפי to_number
         self.phone_number = None
         
         # היסטוריית שיחה למעקב אחר הקשר
@@ -1434,12 +1434,19 @@ class MediaStreamHandler:
                 ]
             
             # ✅ CRITICAL FIX: Generate AI response WITH APP CONTEXT (for DB access)
-            business_id = getattr(self, 'business_id', 1)
+            business_id = getattr(self, 'business_id', None)
+            if not business_id:
+                # ✅ זיהוי business_id אם חסר
+                app = create_app()
+                with app.app_context():
+                    self._identify_business_from_phone()
+                business_id = self.business_id or 11  # Fallback to business 11
+            
             app = create_app()
             with app.app_context():
                 ai_response = generate_ai_response(
                     message=hebrew_text,
-                    business_id=business_id,
+                    business_id=int(business_id),  # Ensure it's an int
                     context=context,
                     channel='calls'  # ✅ Use 'calls' prompt for phone calls
                 )
