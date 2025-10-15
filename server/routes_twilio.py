@@ -172,16 +172,30 @@ def _create_lead_from_call(call_sid, from_number):
             
             print(f"🔵 CREATE_LEAD_FROM_CALL - Got customer={customer.id if customer else None}, lead={lead.id if lead else None}, was_created={was_created}")
             
-            # צור call_log מקושר ללקוח
-            print(f"🔵 CREATE_LEAD_FROM_CALL - Creating call_log")
-            with db.session.begin():
-                call_log = CallLog()
-                call_log.business_id = business_id
-                call_log.customer_id = customer.id
-                call_log.call_sid = call_sid
-                call_log.from_number = from_number
-                call_log.status = "in_progress"
-                db.session.add(call_log)
+            # צור call_log מקושר ללקוח (אם לא קיים כבר)
+            print(f"🔵 CREATE_LEAD_FROM_CALL - Checking for existing call_log")
+            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+            if not call_log:
+                print(f"🔵 CREATE_LEAD_FROM_CALL - Creating call_log")
+                try:
+                    with db.session.begin():
+                        call_log = CallLog()
+                        call_log.business_id = business_id
+                        call_log.customer_id = customer.id
+                        call_log.call_sid = call_sid
+                        call_log.from_number = from_number
+                        call_log.status = "in_progress"
+                        db.session.add(call_log)
+                except Exception as e:
+                    # Handle duplicate key error (race condition)
+                    error_msg = str(e).lower()
+                    if 'unique' in error_msg or 'duplicate' in error_msg:
+                        print(f"⚠️ Call log already exists (race condition): {call_sid}")
+                        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                    else:
+                        raise
+            else:
+                print(f"✅ Call log already exists for {call_sid}")
             
             action = "created" if was_created else "updated"
             print(f"✅ {action} customer/lead for {from_number} - customer_id={customer.id}, lead_id={lead.id if lead else 'N/A'}")

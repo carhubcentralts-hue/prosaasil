@@ -118,17 +118,28 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     log.error("No business found for call processing")
                     return
                 
-                call_log = CallLog()
-                call_log.business_id = business.id
-                call_log.call_sid = call_sid
-                call_log.from_number = from_number
-                call_log.recording_url = recording_url
-                call_log.transcription = transcription
-                call_log.summary = summary  # ✨ סיכום חכם
-                call_log.status = "processed"
-                call_log.created_at = datetime.utcnow()
-                
-                db.session.add(call_log)
+                try:
+                    call_log = CallLog()
+                    call_log.business_id = business.id
+                    call_log.call_sid = call_sid
+                    call_log.from_number = from_number
+                    call_log.recording_url = recording_url
+                    call_log.transcription = transcription
+                    call_log.summary = summary  # ✨ סיכום חכם
+                    call_log.status = "processed"
+                    call_log.created_at = datetime.utcnow()
+                    
+                    db.session.add(call_log)
+                    db.session.flush()  # Get ID before commit
+                except Exception as e:
+                    # Handle duplicate key error (race condition)
+                    error_msg = str(e).lower()
+                    if 'unique' in error_msg or 'duplicate' in error_msg:
+                        db.session.rollback()
+                        log.warning(f"Call log already exists (race condition): {call_sid}")
+                        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                    else:
+                        raise
             else:
                 # עדכן תמלול וסיכום לCall קיים
                 call_log.transcription = transcription

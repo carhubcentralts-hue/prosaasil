@@ -61,7 +61,7 @@ class CallLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"))
-    call_sid = db.Column(db.String(64), index=True)
+    call_sid = db.Column(db.String(64), unique=True, index=True)  # ✅ Unique constraint to prevent duplicates
     from_number = db.Column(db.String(64), index=True)
     recording_url = db.Column(db.String(512))
     transcription = db.Column(db.Text)
