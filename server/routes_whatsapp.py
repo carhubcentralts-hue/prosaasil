@@ -308,6 +308,11 @@ def baileys_webhook():
         else:
             log.warning(f"⚠️ Using fallback business_id={business_id} ({status}) for tenantId={tenant_id}")
         
+        # ✅ Ensure business_id is valid
+        if not business_id:
+            log.error(f"❌ No valid business_id found for tenantId={tenant_id}")
+            return jsonify({"ok": False, "error": "no_business"}), 400
+        
         # ✅ BUILD 90: Process messages in background for FAST webhook response
         import threading
         
@@ -335,7 +340,7 @@ def baileys_webhook():
                         
                         log.info(f"📱 Processing message from {from_number}: {message_text[:50]}...")
                         
-                        # ✅ FIX: Use correct CustomerIntelligence class
+                        # ✅ FIX: Use correct CustomerIntelligence class with validated business_id
                         ci_service = CustomerIntelligence(business_id=business_id)
                         customer, lead, was_created = ci_service.find_or_create_customer_from_whatsapp(
                             phone_number=from_number,
