@@ -68,7 +68,7 @@ def get_business_prompt(business_id):
             
             # הפרד לשיחות ווואטסאפ - לפי ההנחיות המדויקות
             # ✅ תיקון: העדפה לפרומפט מטבלת businesses אם קיים
-            prompt_data = settings.ai_prompt or business.system_prompt or "You are Leah, a helpful Hebrew real-estate AI assistant..."
+            prompt_data = settings.ai_prompt or business.system_prompt or f"את עוזרת נדל\"ן דיגיטלית של {{{{business_name}}}}. תפקידך לעזור ללקוחות למצוא נכסים."  # ✅ בלי שם hardcoded!
             try:
                 import json
                 if prompt_data.startswith('{'):
