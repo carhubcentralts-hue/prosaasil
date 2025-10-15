@@ -42,11 +42,12 @@ Preferred communication style: Simple, everyday language.
   - **Conversation Memory (BUILD 92)**: AI loads last 10 messages for full context - no more forgetting or repetition!
   - **Context Management**: Full conversation history passed to AI with customer name, lead status, and all previous messages.
   - **Automatic Appointment Creation (BUILD 93)**: Detects appointment requests and creates calendar entries with customer details and preferred times.
-  - **Professional UI with AI Summaries (BUILD 94)**: WhatsApp page displays AI-generated conversation summaries only for closed conversations (when Leah ends the chat) with lazy loading for optimal performance.
+  - **Professional UI with AI Summaries (BUILD 94)**: WhatsApp page displays AI-generated conversation summaries only for closed conversations (when AI assistant ends the chat) with lazy loading for optimal performance.
 - **Intelligent Lead Collection**: Automated capture of key lead information with real-time creation and deduplication.
 - **Calendar Integration**: AI checks real-time availability and suggests appointment slots.
 - **Meeting Scheduling**: Automatic detection and coordination with calendar-aware suggestions.
 - **Customizable AI Assistant (BUILD 95)**: No hardcoded names - fully customizable per business using {{business_name}} placeholder in prompts and greetings. Assistant introduces herself only once in initial greeting, then focuses on conversation without repeating her name.
+- **Greeting Management UI (BUILD 96)**: Agent Prompts page now includes dedicated fields for initial greetings (phone calls and WhatsApp). Greetings support {{business_name}} placeholders and load from Business table with real-time cache invalidation for immediate updates.
 - **Customizable Status Management**: Per-business custom lead statuses.
 - **Billing and Contracts**: Integrated payment processing and contract generation.
 - **Automatic Recording Cleanup**: 2-day retention policy for recordings.
