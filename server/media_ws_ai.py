@@ -1345,13 +1345,11 @@ class MediaStreamHandler:
                     self.business_id = business.id
                     print(f"✅ זיהוי עסק לפי טלפון {self.phone_number}: {business.name}")
             
-            # אם אין עדיין business_id, קח את העסק הראשון (default)
+            # אם אין עדיין business_id, השתמש בfallback
             if not self.business_id:
-                from server.models_sql import Business
-                business = Business.query.first()
-                if business:
-                    self.business_id = business.id
-                    print(f"✅ שימוש בעסק ברירת מחדל: {business.name}")
+                from server.services.business_resolver import resolve_business_with_fallback
+                self.business_id, status = resolve_business_with_fallback('twilio_voice', '+97233763805')
+                print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
             
             if not self.business_id:
                 print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל")
@@ -1394,23 +1392,18 @@ class MediaStreamHandler:
             return "את ליאה, עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."
 
     def _identify_business_from_phone(self):
-        """זיהוי business_id לפי מספר הטלפון אם חסר"""
-        if self.phone_number:
-            from server.models_sql import Business
-            business = Business.query.filter(
-                Business.phone_number == self.phone_number
-            ).first()
-            if business:
-                self.business_id = business.id
-                print(f"✅ זיהוי עסק לפי טלפון {self.phone_number}: {business.name}")
-                return
-        
-        # fallback לעסק ראשון
-        from server.models_sql import Business
-        business = Business.query.first()
-        if business:
-            self.business_id = business.id
-            print(f"✅ שימוש בעסק ברירת מחדל: {business.name}")
+        """זיהוי business_id לפי to_number (המספר שאליו התקשרו) אם חסר"""
+        # ✅ BUILD 91: Multi-tenant - זיהוי לפי to_number
+        to_number = getattr(self, 'to_number', None) or getattr(self, 'phone_number', None)
+        if to_number:
+            from server.services.business_resolver import resolve_business_with_fallback
+            self.business_id, status = resolve_business_with_fallback('twilio_voice', to_number)
+            print(f"✅ זיהוי עסק לפי to_number {to_number}: business_id={self.business_id} ({status})")
+        else:
+            # fallback לעסק ראשון
+            from server.services.business_resolver import resolve_business_with_fallback
+            self.business_id, status = resolve_business_with_fallback('twilio_voice', '+97233763805')
+            print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
 
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response using unified AIService - UPDATED for prompt auto-sync"""

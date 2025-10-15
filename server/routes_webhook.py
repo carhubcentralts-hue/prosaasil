@@ -56,32 +56,14 @@ def whatsapp_incoming():
                     
                     app = create_app()
                     with app.app_context():
-                        # ✅ BUILD 90: Dynamic business detection for WhatsApp webhook
-                        # Find business by tenant_id (convert from business_X format)
-                        business_id = int(tenant_id.replace('business_', '')) if 'business_' in tenant_id else int(tenant_id)
-                        business = Business.query.get(business_id)
+                        # ✅ BUILD 91: Multi-tenant - חכם! זיהוי business לפי tenantId
+                        from server.services.business_resolver import resolve_business_with_fallback
+                        business_id, status = resolve_business_with_fallback('whatsapp', tenant_id)
                         
-                        if not business:
-                            # Fallback: find any active business
-                            business = Business.query.filter_by(is_active=True).first()
-                            if not business:
-                                business = Business.query.first()
-                            
-                            if not business:
-                                logger.warning(f"⚠️ No business found for tenant {tenant_id} - creating default")
-                                business = Business(
-                                    name="Default Business",
-                                    business_type="real_estate",
-                                    phone_e164="+972500000000",
-                                    is_active=True
-                                )
-                                db.session.add(business)
-                                db.session.commit()
-                                logger.info(f"✅ Created default business: ID={business.id}")
-                            
-                            business_id = business.id
-                        
-                        logger.info(f"📊 WhatsApp webhook using business_id={business_id}")
+                        if status == 'found':
+                            logger.info(f"✅ Resolved business_id={business_id} from tenantId={tenant_id}")
+                        else:
+                            logger.warning(f"⚠️ Using fallback business_id={business_id} ({status}) for tenantId={tenant_id}")
                         ci = CustomerIntelligence(business_id)
                         
                         for msg in messages:
