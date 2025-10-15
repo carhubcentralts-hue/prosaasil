@@ -213,16 +213,17 @@ class AIService:
                 if context.get("previous_messages"):
                     prev_msgs = context["previous_messages"][-10:]  # ✅ 10 הודעות אחרונות (לא 6!)
                     for msg in prev_msgs:
-                        # המבנה הוא "לקוח: ..." או "לאה: ..."
+                        # ✅ המבנה הוא "לקוח: ..." או "עוזרת: ..." (או "לאה:" legacy)
                         if msg.startswith("לקוח:"):
                             messages.append({
                                 "role": "user",
                                 "content": msg.replace("לקוח:", "").strip()
                             })
-                        elif msg.startswith("לאה:"):
+                        elif msg.startswith("עוזרת:") or msg.startswith("לאה:"):  # ✅ תמיכה בשניהם!
+                            content = msg.replace("עוזרת:", "").replace("לאה:", "").strip()
                             messages.append({
                                 "role": "assistant",
-                                "content": msg.replace("לאה:", "").strip()
+                                "content": content
                             })
             
             # הוספת הודעת המשתמש הנוכחית

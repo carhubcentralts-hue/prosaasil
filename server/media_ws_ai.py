@@ -1746,7 +1746,7 @@ class MediaStreamHandler:
                         full_conversation = ""
                         if hasattr(self, 'conversation_history') and self.conversation_history:
                             full_conversation = "\n".join([
-                                f"לקוח: {turn['user']}\nלאה: {turn['bot']}"
+                                f"לקוח: {turn['user']}\nעוזרת: {turn['bot']}"  # ✅ כללי - לא hardcoded!
                                 for turn in self.conversation_history
                             ])
                         

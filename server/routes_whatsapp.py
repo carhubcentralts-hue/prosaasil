@@ -392,7 +392,7 @@ def baileys_webhook():
                         if msg_hist.direction == 'inbound':
                             previous_messages.append(f"לקוח: {msg_hist.body}")
                         else:
-                            previous_messages.append(f"לאה: {msg_hist.body}")
+                            previous_messages.append(f"עוזרת: {msg_hist.body}")  # ✅ כללי - לא hardcoded!
                     
                     log.info(f"📚 Loaded {len(previous_messages)} previous messages for context")
                 except Exception as e:

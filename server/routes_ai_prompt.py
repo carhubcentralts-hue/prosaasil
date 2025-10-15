@@ -93,7 +93,7 @@ def get_business_prompt(business_id):
             })
         else:
             # Return default prompts - ✅ תיקון: השתמש בפרומפט מטבלת businesses אם זמין
-            default_prompt = business.system_prompt or "את ליאה, עוזרת נדל\"ן ישראלית. תפקידך לסייע ללקוחות במציאת דירות ומשרדים."
+            default_prompt = business.system_prompt or "את עוזרת נדל\"ן ישראלית. תפקידך לסייע ללקוחות במציאת דירות ומשרדים."  # ✅ בלי שם hardcoded
             return jsonify({
                 "calls_prompt": default_prompt,
                 "whatsapp_prompt": default_prompt,
