@@ -72,6 +72,7 @@ interface WhatsAppThread {
   lastMessage: string;
   unread: number;
   time: string;
+  summary?: string;
 }
 
 interface QRCodeData {
@@ -166,6 +167,39 @@ export function WhatsAppPage() {
     }
   };
 
+  const loadThreadSummary = async (threadId: string) => {
+    // Check if already loaded
+    const thread = threads.find(t => t.id === threadId);
+    if (thread?.summary && thread.summary !== 'לחץ לצפייה בסיכום') {
+      return; // Already loaded
+    }
+    
+    try {
+      // Update to loading state
+      setThreads(prevThreads => 
+        prevThreads.map(t => 
+          t.id === threadId ? { ...t, summary: 'טוען...' } : t
+        )
+      );
+      
+      const response = await http.get<{summary: string}>(`/api/crm/threads/${threadId}/summary`);
+      
+      // Update thread with summary
+      setThreads(prevThreads => 
+        prevThreads.map(t => 
+          t.id === threadId ? { ...t, summary: response.summary } : t
+        )
+      );
+    } catch (error) {
+      console.error('Error loading summary for thread:', threadId, error);
+      setThreads(prevThreads => 
+        prevThreads.map(t => 
+          t.id === threadId ? { ...t, summary: 'שגיאה בטעינת סיכום' } : t
+        )
+      );
+    }
+  };
+
   const loadThreads = async () => {
     try {
       setLoading(true);
@@ -175,11 +209,12 @@ export function WhatsAppPage() {
       // Transform API response to match UI interface
       const transformedThreads = (response.threads || []).map((thread: any) => ({
         id: thread.id?.toString() || '',
-        name: thread.peer_name || thread.phone_e164 || 'לא ידוע',
-        phone: thread.phone_e164 || '',
-        lastMessage: thread.last_message || '',
-        unread: thread.unread_count || 0,
-        time: thread.last_activity ? new Date(thread.last_activity).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : ''
+        name: thread.name || thread.peer_name || thread.phone_e164 || 'לא ידוע',
+        phone: thread.phone_e164 || thread.phone || '',
+        lastMessage: thread.lastMessage || thread.last_message || '',
+        unread: thread.unread_count || thread.unread || 0,
+        time: thread.time || (thread.last_activity ? new Date(thread.last_activity).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : ''),
+        summary: 'לחץ לצפייה בסיכום'  // Lazy load - only when clicked
       }));
       
       setThreads(transformedThreads);
@@ -524,33 +559,47 @@ export function WhatsAppPage() {
               <Badge variant="secondary">{threads.length}</Badge>
             </div>
             
-            <div className="space-y-2">
+            <div className="space-y-3">
               {threads.map((thread) => (
                 <div
                   key={thread.id}
-                  className={`p-3 rounded-lg cursor-pointer transition-colors ${
+                  className={`p-4 rounded-lg cursor-pointer transition-all border ${
                     selectedThread?.id === thread.id
-                      ? 'bg-blue-50 border border-blue-200'
-                      : 'hover:bg-slate-50'
+                      ? 'bg-blue-50 border-blue-300 shadow-sm'
+                      : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
                   }`}
-                  onClick={() => setSelectedThread(thread)}
+                  onClick={() => {
+                    setSelectedThread(thread);
+                    loadThreadSummary(thread.id);  // Load summary on click
+                  }}
                   data-testid={`thread-${thread.id}`}
                 >
-                  <div className="flex justify-between items-start mb-1">
-                    <h3 className="font-medium text-slate-900">{thread.name}</h3>
-                    <span className="text-xs text-slate-500">{thread.time}</span>
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-slate-900 text-base">{thread.name}</h3>
+                      <p className="text-xs text-slate-500 mt-0.5">{thread.phone}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-xs text-slate-500">{thread.time}</span>
+                      {thread.unread > 0 && (
+                        <Badge variant="destructive" className="ml-2">
+                          {thread.unread}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-sm text-slate-600 mb-2">{thread.phone}</p>
-                  <div className="flex justify-between items-center">
-                    <p className="text-sm text-slate-700 truncate flex-1">
-                      {thread.lastMessage}
-                    </p>
-                    {thread.unread > 0 && (
-                      <Badge variant="destructive" className="ml-2">
-                        {thread.unread}
-                      </Badge>
-                    )}
-                  </div>
+                  
+                  {/* AI Summary - Professional display */}
+                  {thread.summary && (
+                    <div className="mt-2 pt-2 border-t border-slate-100">
+                      <div className="flex items-start gap-2">
+                        <MessageSquare className="h-3.5 w-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                        <p className="text-sm text-slate-700 leading-snug flex-1">
+                          {thread.summary}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
               

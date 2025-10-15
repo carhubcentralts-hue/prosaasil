@@ -121,10 +121,19 @@ def api_threads():
                     to_number=thread.to_number
                 ).order_by(WhatsAppMessage.created_at.desc()).first()
                 
+                # Try to get customer name
+                customer = Customer.query.filter_by(
+                    business_id=business_id,
+                    phone_e164=thread.to_number
+                ).first()
+                
+                customer_name = customer.name if customer else thread.to_number
+                
                 threads_list.append({
                     "id": thread.to_number,
-                    "name": thread.to_number,  # TODO: Get name from leads/customer
+                    "name": customer_name,
                     "phone": thread.to_number,
+                    "phone_e164": thread.to_number,
                     "lastMessage": last_msg.body[:50] + "..." if last_msg and last_msg.body and len(last_msg.body) > 50 else (last_msg.body if last_msg else ""),
                     "unread": 0,  # TODO: Implement unread count
                     "time": thread.last_message_time.strftime('%d/%m %H:%M') if thread.last_message_time else ''
@@ -163,6 +172,48 @@ def api_thread_messages(thread_id):
         return jsonify({"messages": messages_list})
     except Exception as e:
         return jsonify({"error": str(e), "messages": []}), 500
+
+@crm_bp.get("/api/crm/threads/<thread_id>/summary")
+@require_api_auth(["admin", "superadmin", "business", "agent"])
+def api_thread_summary(thread_id):
+    """Get AI summary of conversation thread"""
+    try:
+        business_id = get_business_id()
+        
+        # Get last 15 messages for context
+        messages = WhatsAppMessage.query.filter_by(
+            business_id=business_id,
+            to_number=thread_id
+        ).order_by(WhatsAppMessage.created_at.desc()).limit(15).all()
+        
+        if not messages:
+            return jsonify({"summary": "אין הודעות בשיחה"})
+        
+        # Build conversation for AI
+        conversation = []
+        for msg in reversed(messages):
+            speaker = "לקוח" if msg.direction == "inbound" else "לאה"
+            conversation.append(f"{speaker}: {msg.body}")
+        
+        # Call AI to summarize (fast!)
+        from server.services.ai_service import generate_ai_response
+        
+        summary_prompt = f"""סכם את השיחה הבאה ב-1-2 משפטים קצרים:
+
+{chr(10).join(conversation)}
+
+תן סיכום קצר ומדויק של מה הלקוח רוצה ומה הסטטוס:"""
+        
+        summary = generate_ai_response(
+            message=summary_prompt,
+            business_id=int(business_id),
+            context={'phone': thread_id},
+            channel='whatsapp'
+        )
+        
+        return jsonify({"summary": summary[:200]})  # Limit to 200 chars
+    except Exception as e:
+        return jsonify({"summary": "לא ניתן לסכם", "error": str(e)}), 500
 
 @crm_bp.get("/api/crm/customers")
 @require_api_auth(["admin", "superadmin", "business", "agent"])
