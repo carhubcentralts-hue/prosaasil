@@ -41,6 +41,7 @@ Preferred communication style: Simple, everyday language.
   - **Conversation Memory (BUILD 92)**: AI loads last 10 messages for full context - no more forgetting or repetition!
   - **Context Management**: Full conversation history passed to AI with customer name, lead status, and all previous messages.
   - **Automatic Appointment Creation (BUILD 93)**: Detects appointment requests and creates calendar entries with customer details and preferred times.
+  - **Professional UI with AI Summaries (BUILD 94)**: WhatsApp page displays AI-generated conversation summaries with lazy loading for optimal performance.
 - **Intelligent Lead Collection**: Automated capture of key lead information with real-time creation and deduplication.
 - **Calendar Integration**: AI checks real-time availability and suggests appointment slots.
 - **Meeting Scheduling**: Automatic detection and coordination with calendar-aware suggestions.
