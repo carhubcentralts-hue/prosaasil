@@ -99,13 +99,16 @@ Preferred communication style: Simple, everyday language.
   - **FIX**: Changed `call_log.transcript = ...` to `call_log.transcription = ...`
   - **Files**: server/media_ws_ai.py
 - **🔧 CRITICAL FIX 8**: Fixed WhatsApp slow response (4-7 seconds delay)
-  - **ROOT CAUSE**: Webhook processed everything synchronously → waited for AI response → delayed webhook return
-  - **SYMPTOM**: WhatsApp connects but takes 4-7 seconds to respond (OpenAI API call blocks webhook)
-  - **FIX 1**: Moved all processing to background thread
-  - **FIX 2**: Webhook returns 200 immediately (< 50ms)
-  - **FIX 3**: AI response + DB saves happen in background
-  - **Files**: server/routes_whatsapp.py
-- **Impact**: Production deployment works + auto-creates business if needed + all calls/WhatsApp save successfully + WhatsApp replies INSTANTLY (<50ms webhook) with intelligent AI responses + calls now have transcription/recording even if WebSocket fails + Baileys starts automatically with Flask + transcription saves correctly to database
+  - **ROOT CAUSE 1**: Webhook processed everything synchronously → waited for AI response → delayed webhook return
+  - **ROOT CAUSE 2**: Baileys service not starting (server.js exited immediately after start())
+  - **ROOT CAUSE 3**: wsgi.py didn't pass INTERNAL_SECRET to Baileys subprocess
+  - **SYMPTOM**: WhatsApp connects but takes 4-7 seconds to respond or timeouts
+  - **FIX 1**: Moved all WhatsApp processing to background thread (webhook returns 200 immediately)
+  - **FIX 2**: Fixed server.js to keep process alive (added signal handlers + server reference)
+  - **FIX 3**: wsgi.py now passes environment variables to Baileys (auto-generates INTERNAL_SECRET if missing)
+  - **FIX 4**: Baileys logs to /tmp/baileys.log for debugging
+  - **Files**: server/routes_whatsapp.py, services/baileys/server.js, wsgi.py
+- **Impact**: Production deployment works + auto-creates business if needed + all calls/WhatsApp save successfully + Baileys auto-starts and stays alive + WhatsApp replies INSTANTLY (<50ms webhook) with intelligent AI responses + calls now have transcription/recording even if WebSocket fails + transcription saves correctly to database
 
 ## BUILD 89 (October 15, 2025) - CRITICAL FIX: Complete Call Processing Chain
 - **🔧 CRITICAL FIX**: Fixed entire call processing chain from ImportError to call_log creation

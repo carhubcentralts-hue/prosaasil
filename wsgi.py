@@ -113,16 +113,35 @@ def _start_baileys_service():
         except:
             pass
         
-        # Start Baileys in background
+        # ✅ BUILD 90: Pass environment variables to Baileys (especially INTERNAL_SECRET!)
+        baileys_env = os.environ.copy()
+        
+        # Auto-generate INTERNAL_SECRET if not set (for development)
+        if not baileys_env.get('INTERNAL_SECRET'):
+            import secrets
+            baileys_env['INTERNAL_SECRET'] = secrets.token_urlsafe(32)
+            print(f"⚠️ Auto-generated INTERNAL_SECRET for Baileys (dev mode)")
+        
+        # Start Baileys in background with proper environment
         baileys_process = subprocess.Popen(
             ["node", "services/baileys/server.js"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True
+            stdout=open('/tmp/baileys.log', 'w'),  # ✅ Log to file
+            stderr=subprocess.STDOUT,               # ✅ Combine stderr to stdout
+            start_new_session=True,
+            env=baileys_env,  # ✅ Pass environment with INTERNAL_SECRET
+            cwd=os.getcwd()   # ✅ Ensure correct working directory
         )
         print(f"✅ Baileys WhatsApp service started (PID: {baileys_process.pid})")
+        print(f"📋 Baileys logs: /tmp/baileys.log")
+        
+        # Give it a moment to start
+        import time
+        time.sleep(1)
+        
     except Exception as e:
         print(f"⚠️ Failed to start Baileys: {e}")
+        import traceback
+        traceback.print_exc()
         # Continue anyway - WhatsApp won't work but calls will
 
 def _init_app_context():
