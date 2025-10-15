@@ -1863,7 +1863,7 @@ class MediaStreamHandler:
                             business_id=getattr(self, 'business_id', 1),
                             call_sid=self.call_sid,
                             from_number=str(self.phone_number or ""),
-                            to_number="+97233763805",  # מספר העסק
+                            to_number=str(getattr(self, 'to_number', '') or ''),  # ✅ המספר שאליו התקשרו
                             status="in_progress"
                         )
                         db.session.add(call_log)
