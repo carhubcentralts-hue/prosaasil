@@ -234,7 +234,7 @@ class MediaStreamHandler:
                             or (evt["start"].get("customParameters") or {}).get("call_sid")
                         )
                         
-                        # ✅ זיהוי מספר טלפון מ-customParameters
+                        # ✅ זיהוי מספרי טלפון מ-customParameters
                         custom_params = evt["start"].get("customParameters", {})
                         self.phone_number = (
                             custom_params.get("From") or
@@ -242,15 +242,23 @@ class MediaStreamHandler:
                             custom_params.get("from") or
                             custom_params.get("phone_number")
                         )
+                        # ✅ CRITICAL FIX: שמירת to_number למזהה עסק
+                        self.to_number = (
+                            custom_params.get("To") or
+                            custom_params.get("Called") or
+                            custom_params.get("to") or
+                            custom_params.get("called")
+                        )
                     else:
                         # Direct format: {"event": "start", "streamSid": "...", "callSid": "..."}
                         self.stream_sid = evt.get("streamSid")
                         self.call_sid = evt.get("callSid")
                         self.phone_number = evt.get("from") or evt.get("phone_number")
+                        self.to_number = evt.get("to") or evt.get("called")
                         
                     self.last_rx_ts = time.time()
                     self.last_keepalive_ts = time.time()  # ✅ התחל keepalive
-                    print(f"🎯 WS_START sid={self.stream_sid} call_sid={self.call_sid} phone={self.phone_number} mode={self.mode}")
+                    print(f"🎯 WS_START sid={self.stream_sid} call_sid={self.call_sid} from={self.phone_number} to={getattr(self, 'to_number', 'N/A')} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
