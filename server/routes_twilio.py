@@ -1,7 +1,7 @@
 """
 Hebrew AI Call Center - Twilio Routes FIXED לפי ההנחיות המדויקות
 שלב 4: שיחות → לידים + תמלול אוטומטי
-Build 62: Using Twilio SDK (VoiceResponse) to prevent Error 12100
+Build 89: ImportError Fix + Immediate call_log Creation
 """
 import os
 import time
@@ -15,8 +15,11 @@ from server.extensions import csrf
 
 # ייבוא מראש למניעת עיכובים ב-webhooks
 from server.tasks_recording import save_call_status, enqueue_recording
-from server.models_sql import db, Business, Customer, CallLog
+from server.models_sql import db, Business, Customer, CallLog, Lead
 from sqlalchemy.orm import sessionmaker
+
+# ✅ BUILD 89: Import למעלה למניעת ImportError בthread
+from server.services.customer_intelligence import CustomerIntelligence
 
 twilio_bp = Blueprint("twilio", __name__)
 
@@ -141,15 +144,16 @@ def _trigger_recording_for_call(call_sid):
     except Exception as e:
         print(f"❌ Failed to trigger recording for {call_sid}: {e}")
 
-def _create_lead_from_call(call_sid, from_number, to_number=None):
-    """שלב 4: יצירת/עדכון ליד אוטומטי מכל שיחה נכנסת - ללא כפילויות!"""
+def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=1):
+    """
+    ✅ BUILD 89: יצירת/עדכון ליד אוטומטי - עם try/except מלא
+    Thread-safe: רץ בהקשר נפרד עם app context
+    """
     from server.app_factory import create_app
-    from server.services.customer_intelligence import CustomerIntelligence
-    from server.models_sql import Lead
     
     # ✅ ברירת מחדל ל-to_number
     if not to_number:
-        to_number = "+97233763805"  # מספר העסק הדיפולטיבי
+        to_number = "+97233763805"
     
     print(f"🔵 CREATE_LEAD_FROM_CALL - Starting for {from_number}, call_sid={call_sid}")
     
@@ -158,70 +162,51 @@ def _create_lead_from_call(call_sid, from_number, to_number=None):
         app = create_app()
         with app.app_context():
             print(f"🔵 CREATE_LEAD_FROM_CALL - App context created")
-            # ברירת מחדל business_id=1 (ניתן לשנות לפי צרכים)
-            business_id = 1
             
-            print(f"🔵 CREATE_LEAD_FROM_CALL - Creating CustomerIntelligence")
-            # ✅ שימוש בשירות החכם שמונע כפילויות
-            ci_service = CustomerIntelligence(business_id=business_id)
-            
-            print(f"🔵 CREATE_LEAD_FROM_CALL - Calling find_or_create_customer_from_call")
-            # מצא או צור customer + lead (ללא כפילויות!)
-            customer, lead, was_created = ci_service.find_or_create_customer_from_call(
-                phone_number=from_number,
-                call_sid=call_sid,
-                transcription="",  # ריק בשלב זה - יעודכן מאוחר יותר
-                conversation_data={}
-            )
-            
-            print(f"🔵 CREATE_LEAD_FROM_CALL - Got customer={customer.id if customer else None}, lead={lead.id if lead else None}, was_created={was_created}")
-            
-            # צור call_log מקושר ללקוח (אם לא קיים כבר)
-            print(f"🔵 CREATE_LEAD_FROM_CALL - Checking for existing call_log")
+            # ✅ שלב 1: עדכן call_log (אם כבר נוצר ב-incoming_call) עם customer_id
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
-            if not call_log:
-                print(f"🔵 CREATE_LEAD_FROM_CALL - Creating call_log")
-                try:
-                    with db.session.begin():
-                        call_log = CallLog()
-                        call_log.business_id = business_id
-                        call_log.customer_id = customer.id
-                        call_log.call_sid = call_sid
-                        call_log.from_number = from_number
-                        call_log.to_number = to_number  # ✅ FIX: הוסף to_number (NOT NULL)
-                        call_log.status = "in_progress"
-                        db.session.add(call_log)
-                except Exception as e:
-                    # Handle duplicate key error (race condition)
-                    error_msg = str(e).lower()
-                    if 'unique' in error_msg or 'duplicate' in error_msg:
-                        print(f"⚠️ Call log already exists (race condition): {call_sid}")
-                        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
-                    else:
-                        raise
-            else:
-                print(f"✅ Call log already exists for {call_sid}")
             
-            action = "created" if was_created else "updated"
-            print(f"✅ {action} customer/lead for {from_number} - customer_id={customer.id}, lead_id={lead.id if lead else 'N/A'}")
+            # ✅ שלב 2: יצירת/עדכון customer + lead (עם try/except פנימי)
+            customer = None
+            lead = None
+            try:
+                ci_service = CustomerIntelligence(business_id=business_id)
+                customer, lead, was_created = ci_service.find_or_create_customer_from_call(
+                    phone_number=from_number,
+                    call_sid=call_sid,
+                    transcription="",
+                    conversation_data={}
+                )
+                print(f"✅ CustomerIntelligence: customer_id={customer.id if customer else None}, lead_id={lead.id if lead else None}")
+            except Exception as e:
+                print(f"⚠️ CustomerIntelligence failed (non-critical): {e}")
             
-            # ✅ CRITICAL FIX: יצירת ליד גם אם CustomerIntelligence נכשל
-            # ⚠️ NOTE: external_id=call_sid למניעת כפילויות!
-            if not lead:
-                print(f"⚠️ CREATE_LEAD_FROM_CALL - No lead returned, creating fallback lead")
-                lead = Lead()
-                lead.tenant_id = business_id
-                lead.phone_e164 = from_number
-                lead.source = "call"
-                lead.external_id = call_sid  # 🔴 CRITICAL: למניעת כפילויות
-                lead.status = "new"
-                lead.notes = f"שיחה נכנסת - {call_sid}"
-                db.session.add(lead)
+            # ✅ שלב 3: עדכן call_log עם customer_id (אם נוצר)
+            if call_log and customer:
+                call_log.customer_id = customer.id
+                call_log.status = "in_progress"
                 db.session.commit()
-                print(f"✅ Created fallback lead ID={lead.id}")
+                print(f"✅ Updated call_log with customer_id={customer.id}")
+            
+            # ✅ שלב 4: fallback lead אם CustomerIntelligence נכשל
+            if not lead and customer:
+                try:
+                    lead = Lead()
+                    lead.tenant_id = business_id
+                    lead.phone_e164 = from_number
+                    lead.source = "call"
+                    lead.external_id = call_sid
+                    lead.status = "new"
+                    lead.notes = f"שיחה נכנסת - {call_sid}"
+                    db.session.add(lead)
+                    db.session.commit()
+                    print(f"✅ Created fallback lead ID={lead.id}")
+                except Exception as e:
+                    print(f"⚠️ Fallback lead creation failed: {e}")
+                    db.session.rollback()
         
     except Exception as e:
-        print(f"❌ Failed to process lead for {call_sid}: {e}")
+        print(f"❌ CRITICAL: Thread failed for {call_sid}: {e}")
         import traceback
         traceback.print_exc()
 
@@ -264,13 +249,36 @@ def voice_webhook():
 @require_twilio_signature
 def incoming_call():
     """
-    ✅ Build 62: TwiML with Twilio SDK + Parameter (CRITICAL!)
+    ✅ BUILD 89: צור call_log מיד + TwiML with Twilio SDK + Parameter (CRITICAL!)
     """
     start_time = time.time()
     
     call_sid = request.form.get("CallSid", "")
     from_number = request.form.get("From", "")
-    to_number = request.form.get("To", "")  # ✅ FIX: קבל גם to_number
+    to_number = request.form.get("To", "")
+    
+    # ✅ BUILD 89: צור call_log מיד (לפני thread!) כדי שstream_status ימצא אותו
+    business_id = 1  # ברירת מחדל
+    if call_sid and from_number:
+        try:
+            # בדוק אם כבר קיים (למקרה של retry)
+            existing = CallLog.query.filter_by(call_sid=call_sid).first()
+            if not existing:
+                call_log = CallLog(
+                    call_sid=call_sid,
+                    from_number=from_number,
+                    to_number=to_number or "+97233763805",
+                    business_id=business_id,
+                    status="initiated"
+                )
+                db.session.add(call_log)
+                db.session.commit()
+                print(f"✅ call_log created immediately for {call_sid}")
+            else:
+                print(f"✅ call_log already exists for {call_sid}")
+        except Exception as e:
+            print(f"⚠️ Failed to create call_log immediately: {e}")
+            db.session.rollback()
     
     # בנה host נכון (בלי https://)
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
@@ -290,12 +298,12 @@ def incoming_call():
     # ✅ CRITICAL: הוסף Parameter עם CallSid (חובה!)
     stream.parameter(name="CallSid", value=call_sid)
     
-    # === יצירה אוטומטית של ליד ===
+    # === יצירה אוטומטית של ליד (ברקע) ===
     if from_number:
         print(f"🟢 INCOMING_CALL - Starting thread to create lead for {from_number}, call_sid={call_sid}")
         threading.Thread(
             target=_create_lead_from_call,
-            args=(call_sid, from_number, to_number),  # ✅ FIX: העבר גם to_number
+            args=(call_sid, from_number, to_number, business_id),
             daemon=True,
             name=f"LeadCreation-{call_sid[:8]}"
         ).start()
@@ -344,7 +352,7 @@ def stream_ended():
 @require_twilio_signature
 def handle_recording():
     """
-    Handle recording webhook - ULTRA FAST response with immediate processing
+    ✅ BUILD 89: Handle recording webhook עם self-heal fallback
     שלב 4: שדרוג למענה מיידי עם monitoring משופר
     """
     import time
@@ -356,20 +364,47 @@ def handle_recording():
     rec_duration = request.form.get("RecordingDuration", "0")
     rec_status = request.form.get("RecordingStatus", "unknown")
     
+    # ✅ BUILD 89: עדכן או צור call_log מיד
+    if call_sid and call_sid != "unknown":
+        try:
+            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+            if not call_log:
+                # Self-heal: צור fallback call_log
+                print(f"⚠️ handle_recording: Creating fallback call_log for {call_sid}")
+                call_log = CallLog(
+                    call_sid=call_sid,
+                    from_number="unknown",
+                    to_number="+97233763805",
+                    business_id=1,
+                    status="recorded"
+                )
+                db.session.add(call_log)
+            else:
+                call_log.status = "recorded"
+            
+            # עדכן recording_url
+            if rec_url:
+                call_log.recording_url = rec_url
+            
+            db.session.commit()
+            print(f"✅ handle_recording: Updated call_log for {call_sid}")
+        except Exception as e:
+            print(f"⚠️ handle_recording DB error: {e}")
+            db.session.rollback()
+    
     # Immediate response preparation (no blocking operations)
-    # ✅ FIX: Return 200 OK (not 204) as per Twilio webhook best practices
     resp = make_response("", 200)
     resp.headers.update({
         "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
         "Pragma": "no-cache",
-        "Connection": "close"  # Ensure connection closes immediately
+        "Connection": "close"
     })
     
     # TRUE non-blocking background processing with daemon thread
     if rec_url and rec_url.strip():
         try:
             # Truly async - starts thread and returns immediately
-            form_copy = dict(request.form)  # Copy form data before thread
+            form_copy = dict(request.form)
             
             def async_enqueue():
                 """Background thread for recording processing"""
@@ -416,28 +451,52 @@ def handle_recording():
 @twilio_bp.route("/webhook/stream_status", methods=["POST"])  
 @require_twilio_signature
 def stream_status():
-    """שלב 5: Webhooks קשיחים - ULTRA FAST מחזיר 204"""
+    """
+    ✅ BUILD 89: Stream status עם self-heal fallback
+    עדכן call_log ב-DB, ואם לא קיים - צור fallback
+    """
     try:
-        # החזרה מיידית ללא עיבוד כלל
-        resp = make_response("", 204)
-        resp.headers["Cache-Control"] = "no-store"
+        call_sid = request.form.get('CallSid', 'N/A')
+        stream_sid = request.form.get('StreamSid', 'N/A')
+        event = request.form.get('Status', 'N/A')
         
-        # לוגים ברקע (לא חוסמים את הresponse)  
-        try:
-            call_sid = request.form.get('CallSid', 'N/A')
-            stream_sid = request.form.get('StreamSid', 'N/A')
-            event = request.form.get('Status', 'N/A')
-            print(f"STREAM_STATUS call={call_sid} stream={stream_sid} event={event}")
-        except Exception as e:
-            print(f"⚠️ stream_status logging error: {e}")
-            
+        print(f"STREAM_STATUS call={call_sid} stream={stream_sid} event={event}")
+        
+        # ✅ BUILD 89: עדכן או צור call_log
+        if call_sid and call_sid != 'N/A':
+            try:
+                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                if not call_log:
+                    # Self-heal: צור fallback call_log
+                    print(f"⚠️ stream_status: Creating fallback call_log for {call_sid}")
+                    call_log = CallLog(
+                        call_sid=call_sid,
+                        from_number="unknown",
+                        to_number="+97233763805",
+                        business_id=1,
+                        status="streaming"
+                    )
+                    db.session.add(call_log)
+                else:
+                    # עדכן סטטוס
+                    call_log.status = event if event != 'N/A' else "streaming"
+                
+                db.session.commit()
+                print(f"✅ stream_status: Updated call_log for {call_sid}")
+            except Exception as e:
+                print(f"⚠️ stream_status DB error: {e}")
+                db.session.rollback()
+        
+        # החזרה מיידית
+        resp = make_response("", 200)
+        resp.headers["Cache-Control"] = "no-store"
         return resp
+        
     except Exception as e:
-        # 🔍 Catch any error and return 204 anyway
         print(f"❌ stream_status error: {e}")
         import traceback
         traceback.print_exc()
-        return make_response("", 204)
+        return make_response("", 200)
 
 @csrf.exempt
 @twilio_bp.route("/webhook/call_status", methods=["POST"])

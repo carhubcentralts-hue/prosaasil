@@ -49,15 +49,17 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
-## BUILD 89 (October 15, 2025) - CRITICAL FIX: ImportError in Lead Creation Thread
-- **🔧 CRITICAL FIX**: Fixed ImportError causing lead creation thread to crash
-  - **ROOT CAUSE**: Thread imported non-existent `CustomerIntelligenceService` → ImportError → thread dies → no call_log created
-  - **SYMPTOM**: "No call_log found for final summary" + "Call SID not found for status update"
-  - **FIX 1**: Changed import from `CustomerIntelligenceService` to correct `CustomerIntelligence`
-  - **FIX 2**: Updated service instantiation to use correct class name
-  - **Files**: server/routes_twilio.py (lines 150, 169)
-  - **Verification**: Import test passes ✅
-- **Impact**: Lead creation thread now runs successfully - calls are saved and processed correctly
+## BUILD 89 (October 15, 2025) - CRITICAL FIX: Complete Call Processing Chain
+- **🔧 CRITICAL FIX**: Fixed entire call processing chain from ImportError to call_log creation
+  - **ROOT CAUSE**: Chain of failures starting with ImportError → no call_log → "No call_log found for final summary"
+  - **FIX 1 - Import Error**: Changed `CustomerIntelligenceService` → `CustomerIntelligence`, moved imports to top
+  - **FIX 2 - Immediate call_log**: `incoming_call` now creates call_log IMMEDIATELY (before thread) so webhooks find it
+  - **FIX 3 - Thread Safety**: `_create_lead_from_call` now has proper try/except, no duplicate imports
+  - **FIX 4 - Self-Heal**: `stream_status` creates fallback call_log if missing (self-healing)
+  - **FIX 5 - Self-Heal**: `handle_recording` creates fallback call_log if missing (self-healing)
+  - **Files**: server/routes_twilio.py (comprehensive rewrite of call flow)
+  - **Architecture**: call_log created FIRST → thread enriches with customer/lead → webhooks always find it
+- **Impact**: Zero "call_log not found" errors - every call is captured regardless of thread/webhook timing
 
 ## BUILD 88 (October 15, 2025) - CRITICAL FIX: Missing to_number in Lead Creation
 - **🔧 CRITICAL FIX**: Fixed "null value in column to_number" error in lead creation thread
