@@ -265,17 +265,6 @@ export function SettingsPage() {
             אינטגרציות
           </button>
           <button
-            onClick={() => setActiveTab('ai')}
-            className={`${
-              activeTab === 'ai'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-          >
-            <Bot className="w-4 h-4 mr-2" />
-            בינה מלאכותית
-          </button>
-          <button
             onClick={() => setActiveTab('security')}
             className={`${
               activeTab === 'security'
@@ -499,76 +488,6 @@ export function SettingsPage() {
                   </div>
                 </div>
               )}
-            </Card>
-          </div>
-        )}
-
-        {activeTab === 'ai' && (
-          <div className="max-w-2xl space-y-6">
-            <Card className="p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">הגדרות AI</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">מודל</label>
-                  <select
-                    value={aiSettings.model}
-                    onChange={(e) => setAISettings({...aiSettings, model: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="gpt-4o-mini">GPT-4o Mini</option>
-                    <option value="gpt-4o">GPT-4o</option>
-                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">מקסימום טוקנים</label>
-                  <input
-                    type="number"
-                    value={aiSettings.max_tokens}
-                    onChange={(e) => setAISettings({...aiSettings, max_tokens: parseInt(e.target.value)})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    min="50"
-                    max="1000"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">טמפרטורה (0-1)</label>
-                  <input
-                    type="number"
-                    value={aiSettings.temperature}
-                    onChange={(e) => setAISettings({...aiSettings, temperature: parseFloat(e.target.value)})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">מגבלת מילים בתגובה</label>
-                  <input
-                    type="number"
-                    value={aiSettings.response_limit}
-                    onChange={(e) => setAISettings({...aiSettings, response_limit: parseInt(e.target.value)})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    min="5"
-                    max="50"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">הוראות מערכת</label>
-                  <textarea
-                    value={aiSettings.system_prompt}
-                    onChange={(e) => setAISettings({...aiSettings, system_prompt: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    rows={6}
-                    placeholder="הזן את ההוראות למערכת AI..."
-                  />
-                </div>
-              </div>
             </Card>
           </div>
         )}

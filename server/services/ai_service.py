@@ -62,6 +62,9 @@ class AIService:
             settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
             business = Business.query.get(business_id)
             
+            # ✅ שם עסק לשימוש ב-placeholders
+            business_name = business.name if business else "העסק שלנו"
+            
             # בחירת פרומפט חכמה - עם fallback ל-business.system_prompt
             system_prompt = ""
             if settings and settings.ai_prompt and settings.ai_prompt.strip():
@@ -89,8 +92,13 @@ class AIService:
                 logger.info(f"✅ Using fallback prompt from business.system_prompt for {business_id}")
             else:
                 # fallback אחרון לפרומפט ברירת מחדל
-                system_prompt = self._get_default_hebrew_prompt(business.name if business else "שי דירות", channel)
+                system_prompt = self._get_default_hebrew_prompt(business_name, channel)
                 logger.info(f"⚠️ Using default prompt for business {business_id} - no custom prompt found")
+            
+            # ✅ החלפת placeholders דינמיים בפרומפט
+            system_prompt = system_prompt.replace("{{business_name}}", business_name)
+            system_prompt = system_prompt.replace("{{BUSINESS_NAME}}", business_name)
+            logger.info(f"✅ Replaced {{{{business_name}}}} with '{business_name}'")
             
             if not settings:
                 # ⚡ FAST defaults - optimized for speed

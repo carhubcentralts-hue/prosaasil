@@ -195,16 +195,35 @@ export function AgentPromptsPage() {
         </div>
       </div>
 
-      {/* Alert */}
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-          <div className="text-amber-800">
-            <p className="font-medium">הערה חשובה</p>
-            <p className="text-sm mt-1">
-              שינויים בפרומפטים יחולו מיידית על כל השיחות וההודעות החדשות. 
-              וודא שהטקסט ברור ומדויק לפני השמירה.
-            </p>
+      {/* Alerts */}
+      <div className="space-y-4 mb-6">
+        {/* Info Alert - Placeholders */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="text-blue-800">
+              <p className="font-medium">💡 שימוש ב-Placeholders דינמיים</p>
+              <p className="text-sm mt-1">
+                אתה יכול להשתמש ב-<code className="px-1.5 py-0.5 bg-blue-100 rounded">{'{{business_name}}'}</code> בפרומפט - המערכת תחליף אותו אוטומטית בשם העסק האמיתי!
+              </p>
+              <p className="text-xs mt-2 text-blue-700">
+                דוגמה: "אתה סוכן נדל״ן מ-{'{{business_name}}'}" → "אתה סוכן נדל״ן מ-{businessName}"
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Warning Alert */}
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="text-amber-800">
+              <p className="font-medium">הערה חשובה</p>
+              <p className="text-sm mt-1">
+                שינויים בפרומפטים יחולו מיידית על כל השיחות וההודעות החדשות. 
+                וודא שהטקסט ברור ומדויק לפני השמירה.
+              </p>
+            </div>
           </div>
         </div>
       </div>
