@@ -7,13 +7,13 @@ export FLASK_BASE_URL="${FLASK_BASE_URL:-http://127.0.0.1:5000}"
 export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 export RUN_MIGRATIONS_ON_START=1
 
-echo "🚀 Starting AgentLocator Production System - Build #90"
+echo "🚀 Starting AgentLocator Production System - Build #92"
 echo "📊 EXTERNAL: Flask on 0.0.0.0:${PORT}"
 echo "📊 INTERNAL: Baileys on 127.0.0.1:${BAILEYS_PORT}"
+echo "✅ Build 92: WhatsApp Conversation Memory Fix - 10 Messages Full Context!"
+echo "✅ Build 91: Multi-tenant WhatsApp - Business Routing"
 echo "✅ Build 90: call_status NOT NULL Fix - All Calls Save"
 echo "✅ Build 89: ImportError Fix - Lead Creation Thread"
-echo "✅ Build 88: to_number Fix in Lead Creation"
-echo "✅ Build 87: Duplicate call_sid Fix + Unique Constraint"
 
 # Auto-generate INTERNAL_SECRET if not set (for production deployment)
 if [ -z "${INTERNAL_SECRET:-}" ]; then

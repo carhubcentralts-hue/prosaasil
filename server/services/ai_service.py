@@ -190,9 +190,9 @@ class AIService:
                         "content": "מידע על הלקוח:\n" + "\n".join(context_info)
                     })
                 
-                # ✨ שיפור: שליחת previous_messages כשיחה אמיתית (לא כטקסט)
+                # ✅ BUILD 92: שליחת previous_messages כשיחה אמיתית - 10 הודעות לזיכרון מלא!
                 if context.get("previous_messages"):
-                    prev_msgs = context["previous_messages"][-6:]  # עד 6 הודעות אחרונות
+                    prev_msgs = context["previous_messages"][-10:]  # ✅ 10 הודעות אחרונות (לא 6!)
                     for msg in prev_msgs:
                         # המבנה הוא "לקוח: ..." או "לאה: ..."
                         if msg.startswith("לקוח:"):
