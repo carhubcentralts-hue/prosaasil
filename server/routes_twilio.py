@@ -144,7 +144,7 @@ def _trigger_recording_for_call(call_sid):
     except Exception as e:
         print(f"❌ Failed to trigger recording for {call_sid}: {e}")
 
-def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=1):
+def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=None):
     """
     ✅ BUILD 89: יצירת/עדכון ליד אוטומטי - עם try/except מלא
     Thread-safe: רץ בהקשר נפרד עם app context
@@ -161,7 +161,32 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=1)
         # יצירת app context לthread
         app = create_app()
         with app.app_context():
+            from server.models_sql import CallLog, Business, Lead
+            from server.db import db
+            
             print(f"🔵 CREATE_LEAD_FROM_CALL - App context created")
+            
+            # ✅ BUILD 90: Dynamic business detection with fallback
+            if not business_id:
+                business = Business.query.filter_by(is_active=True).first()
+                if not business:
+                    business = Business.query.first()
+                
+                if business:
+                    business_id = business.id
+                    print(f"📊 Thread using existing business_id={business_id}")
+                else:
+                    print("⚠️ No business found in thread - creating default")
+                    business = Business(
+                        name="Default Business",
+                        business_type="real_estate",
+                        phone_e164="+972500000000",
+                        is_active=True
+                    )
+                    db.session.add(business)
+                    db.session.commit()
+                    business_id = business.id
+                    print(f"✅ Created default business in thread: ID={business_id}")
             
             # ✅ שלב 1: עדכן call_log (אם כבר נוצר ב-incoming_call) עם customer_id
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
@@ -170,6 +195,7 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=1)
             customer = None
             lead = None
             try:
+                from server.services.customer_intelligence import CustomerIntelligence
                 ci_service = CustomerIntelligence(business_id=business_id)
                 customer, lead, was_created = ci_service.find_or_create_customer_from_call(
                     phone_number=from_number,
@@ -257,8 +283,28 @@ def incoming_call():
     from_number = request.form.get("From", "")
     to_number = request.form.get("To", "")
     
-    # ✅ BUILD 89: צור call_log מיד (לפני thread!) כדי שstream_status ימצא אותו
-    business_id = 1  # ברירת מחדל
+    # ✅ BUILD 90: מצא business קיים (dynamic)
+    from server.models_sql import Business
+    business = Business.query.filter_by(is_active=True).first()
+    if not business:
+        business = Business.query.first()
+    
+    # Fallback: צור business אם לא קיים (auto-healing)
+    if not business:
+        print("⚠️ No business found - creating default business")
+        business = Business(
+            name="Default Business",
+            business_type="real_estate",
+            phone_e164="+972500000000",
+            is_active=True
+        )
+        db.session.add(business)
+        db.session.commit()
+        print(f"✅ Created default business: ID={business.id}")
+    
+    business_id = business.id
+    print(f"📊 Using business_id={business_id}")
+    
     if call_sid and from_number:
         try:
             # בדוק אם כבר קיים (למקרה של retry)
@@ -372,11 +418,16 @@ def handle_recording():
             if not call_log:
                 # Self-heal: צור fallback call_log
                 print(f"⚠️ handle_recording: Creating fallback call_log for {call_sid}")
+                # ✅ BUILD 90: Dynamic business detection
+                from server.models_sql import Business
+                biz = Business.query.filter_by(is_active=True).first() or Business.query.first()
+                biz_id = biz.id if biz else 1
+                
                 call_log = CallLog(
                     call_sid=call_sid,
                     from_number="unknown",
                     to_number="+97233763805",
-                    business_id=1,
+                    business_id=biz_id,
                     call_status="completed",  # ✅ BUILD 90: Legacy field
                     status="recorded"
                 )
@@ -471,11 +522,16 @@ def stream_status():
                 if not call_log:
                     # Self-heal: צור fallback call_log
                     print(f"⚠️ stream_status: Creating fallback call_log for {call_sid}")
+                    # ✅ BUILD 90: Dynamic business detection
+                    from server.models_sql import Business
+                    biz = Business.query.filter_by(is_active=True).first() or Business.query.first()
+                    biz_id = biz.id if biz else 1
+                    
                     call_log = CallLog(
                         call_sid=call_sid,
                         from_number="unknown",
                         to_number="+97233763805",
-                        business_id=1,
+                        business_id=biz_id,
                         call_status="in-progress",  # ✅ BUILD 90: Legacy field
                         status="streaming"
                     )
