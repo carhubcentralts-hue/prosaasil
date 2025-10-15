@@ -44,7 +44,7 @@ class AIService:
             timeout=3.5  # ⚡ Fast timeout - 3.5 seconds max
         )
         self._cache = {}  # קאש פרומפטים לביצועים
-        self._cache_timeout = 300  # 5 דקות
+        self._cache_timeout = 30  # ⚡ 30 שניות - קצר יותר למניעת בעיות multi-worker
         
     def get_business_prompt(self, business_id: int, channel: str = "calls") -> Dict[str, Any]:
         """טעינת פרומפט עסק מהמסד נתונים עם קאש - לפי ערוץ (calls/whatsapp)"""
@@ -74,6 +74,7 @@ class AIService:
                         # בחירת הפרומפט הנכון לפי channel
                         system_prompt = prompt_obj.get(channel, prompt_obj.get('calls', settings.ai_prompt))
                         logger.info(f"✅ Using {channel} prompt for business {business_id} from settings")
+                        logger.info(f"🔍 DEBUG: Loaded prompt starts with: {system_prompt[:100]}...")
                     else:
                         # פרומפט טקסט פשוט (legacy)
                         system_prompt = settings.ai_prompt
