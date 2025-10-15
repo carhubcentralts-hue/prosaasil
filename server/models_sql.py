@@ -46,6 +46,23 @@ class Business(db.Model):
     def phone_number(self, value):
         self.phone_e164 = value
 
+class BusinessContactChannel(db.Model):
+    """Multi-tenant channel routing - maps contact identifiers to businesses"""
+    __tablename__ = "business_contact_channels"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    channel_type = db.Column(db.String(32), nullable=False, index=True)  # 'twilio_voice', 'twilio_sms', 'whatsapp'
+    identifier = db.Column(db.String(255), nullable=False, index=True)  # E.164 phone or tenant slug (business_1)
+    is_primary = db.Column(db.Boolean, default=False)
+    metadata = db.Column(db.Text)  # JSON for extra config
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Unique constraint: one identifier per channel type
+    __table_args__ = (
+        db.UniqueConstraint('channel_type', 'identifier', name='uq_channel_identifier'),
+    )
+
 class Customer(db.Model):
     __tablename__ = "customer"
     id = db.Column(db.Integer, primary_key=True)

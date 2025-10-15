@@ -341,6 +341,36 @@ def apply_migrations():
         migrations_applied.append("create_prompt_revisions_table")
         log.info("Applied migration: create_prompt_revisions_table")
     
+    # Migration 16: Create business_contact_channels table for multi-tenant routing
+    if not check_table_exists('business_contact_channels'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE business_contact_channels (
+                id SERIAL PRIMARY KEY,
+                business_id INTEGER NOT NULL REFERENCES business(id),
+                channel_type VARCHAR(32) NOT NULL,
+                identifier VARCHAR(255) NOT NULL,
+                is_primary BOOLEAN DEFAULT false,
+                metadata TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        
+        # Create indexes
+        db.session.execute(text("CREATE INDEX idx_bcc_business ON business_contact_channels(business_id)"))
+        db.session.execute(text("CREATE INDEX idx_bcc_channel ON business_contact_channels(channel_type)"))
+        db.session.execute(text("CREATE INDEX idx_bcc_identifier ON business_contact_channels(identifier)"))
+        
+        # Unique constraint: one identifier per channel type
+        db.session.execute(text("""
+            CREATE UNIQUE INDEX uq_channel_identifier 
+            ON business_contact_channels(channel_type, identifier)
+        """))
+        
+        migrations_applied.append("create_business_contact_channels_table")
+        log.info("Applied migration: create_business_contact_channels_table")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
