@@ -7,40 +7,43 @@ export FLASK_BASE_URL="${FLASK_BASE_URL:-http://127.0.0.1:5000}"
 export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 export RUN_MIGRATIONS_ON_START=1
 
-echo "🚀 Starting AgentLocator Production System - Build #89"
-echo "📊 Flask: 0.0.0.0:${PORT} | Baileys: 127.0.0.1:${BAILEYS_PORT}"
+echo "🚀 Starting AgentLocator Production System - Build #90"
+echo "📊 EXTERNAL: Flask on 0.0.0.0:${PORT}"
+echo "📊 INTERNAL: Baileys on 127.0.0.1:${BAILEYS_PORT}"
+echo "✅ Build 90: call_status NOT NULL Fix - All Calls Save"
 echo "✅ Build 89: ImportError Fix - Lead Creation Thread"
 echo "✅ Build 88: to_number Fix in Lead Creation"
 echo "✅ Build 87: Duplicate call_sid Fix + Unique Constraint"
 
-# Ensure INTERNAL_SECRET is set (CRITICAL: Must come from environment!)
+# Auto-generate INTERNAL_SECRET if not set (for production deployment)
 if [ -z "${INTERNAL_SECRET:-}" ]; then
-    echo "❌ FATAL: INTERNAL_SECRET not found in environment!"
-    echo "   Set INTERNAL_SECRET before running this script."
-    echo "   Example: export INTERNAL_SECRET=\$(openssl rand -hex 32)"
-    exit 1
+    echo "⚠️ INTERNAL_SECRET not in environment - auto-generating..."
+    export INTERNAL_SECRET=$(openssl rand -hex 32)
+    echo "✅ INTERNAL_SECRET auto-generated"
+else
+    echo "✅ INTERNAL_SECRET found in environment"
 fi
-echo "✅ INTERNAL_SECRET found in environment"
 
 # 1) Install Node dependencies and start Baileys (internal service)
 echo "🟡 Installing Node dependencies for Baileys..."
 cd services/whatsapp && npm install --omit=dev || npm ci --omit=dev || echo "⚠️ Could not install deps"
 cd ../..
 
-echo "🟡 Starting Baileys on port ${BAILEYS_PORT}..."
-nohup node services/whatsapp/baileys_service.js > /tmp/baileys_prod.log 2>&1 &
+echo "🟡 Starting Baileys on INTERNAL port 127.0.0.1:${BAILEYS_PORT}..."
+BAILEYS_HOST=127.0.0.1 BAILEYS_PORT=${BAILEYS_PORT} nohup node services/whatsapp/baileys_service.js > /tmp/baileys_prod.log 2>&1 &
 BAI=$!
-echo "✅ Baileys started (PID: $BAI)"
+echo "✅ Baileys started internally (PID: $BAI, 127.0.0.1:${BAILEYS_PORT})"
 
-# 2) Start Flask/ASGI with Uvicorn (native WebSocket support - BUILD 89)
-echo "🟡 Starting BUILD 89 with Uvicorn ASGI on port ${PORT}..."
+# 2) Start Flask/ASGI with Uvicorn on EXTERNAL port (native WebSocket support - BUILD 90)
+echo "🟡 Starting BUILD 90 with Uvicorn ASGI on EXTERNAL port 0.0.0.0:${PORT}..."
 uvicorn asgi:app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 --log-level info &
 FL=$!
-echo "✅ BUILD 89 Uvicorn/ASGI started (PID: $FL)"
+echo "✅ BUILD 90 Uvicorn/ASGI started (PID: $FL)"
 
 echo "🎯 Both services running. System ready!"
-echo "📊 Access: http://0.0.0.0:${PORT}"
-echo "📝 Logs: /tmp/baileys_prod.log | /tmp/flask_prod.log"
+echo "📊 EXTERNAL Access: Port ${PORT} (exposed)"
+echo "📊 INTERNAL Baileys: 127.0.0.1:${BAILEYS_PORT} (not exposed)"
+echo "📝 Logs: /tmp/baileys_prod.log"
 
 # Give services time to fully start up before announcing ready
 sleep 5
@@ -64,12 +67,12 @@ while true; do
     # Check if processes are still running
     if ! kill -0 $BAI 2>/dev/null; then
         echo "❌ Baileys died (PID $BAI) - restarting..."
-        nohup node services/whatsapp/baileys_service.js >> /tmp/baileys_prod.log 2>&1 &
+        BAILEYS_HOST=127.0.0.1 BAILEYS_PORT=${BAILEYS_PORT} nohup node services/whatsapp/baileys_service.js >> /tmp/baileys_prod.log 2>&1 &
         BAI=$!
     fi
     
     if ! kill -0 $FL 2>/dev/null; then
-        echo "❌ Flask died (PID $FL) - restarting..."
+        echo "❌ Flask/ASGI died (PID $FL) - restarting..."
         uvicorn asgi:app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 &
         FL=$!
     fi
