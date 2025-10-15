@@ -99,6 +99,32 @@ websocket_app_with_protocol = WebSocketAppWithProtocol(ws_handler)
 # Create Flask app once with proper application context
 flask_app = create_app()
 
+def _start_baileys_service():
+    """✅ START BAILEYS: Auto-start Baileys WhatsApp service in background"""
+    import subprocess
+    try:
+        # Check if Baileys is already running
+        import requests
+        try:
+            response = requests.get("http://127.0.0.1:3300/health", timeout=1)
+            if response.status_code == 200:
+                print("✅ Baileys already running on port 3300")
+                return
+        except:
+            pass
+        
+        # Start Baileys in background
+        baileys_process = subprocess.Popen(
+            ["node", "services/baileys/server.js"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+        print(f"✅ Baileys WhatsApp service started (PID: {baileys_process.pid})")
+    except Exception as e:
+        print(f"⚠️ Failed to start Baileys: {e}")
+        # Continue anyway - WhatsApp won't work but calls will
+
 def _init_app_context():
     """Initialize Flask app context for eventlet compatibility"""
     try:
@@ -110,6 +136,8 @@ def _init_app_context():
         print(f"⚠️ App context init warning: {e}")
         # Continue anyway, context will be created on first request
 
+# ✅ START BAILEYS AUTOMATICALLY
+_start_baileys_service()
 _init_app_context()
 
 def _is_websocket_request(environ):

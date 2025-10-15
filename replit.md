@@ -86,7 +86,14 @@ Preferred communication style: Simple, everyday language.
   - **FIX 1**: Added <Record> tag after <Stream> as fallback (max_length=300s, timeout=4s)
   - **FIX 2**: Record sends to handle_recording webhook for processing
   - **Files**: server/routes_twilio.py
-- **Impact**: Production deployment works + auto-creates business if needed + all calls/WhatsApp save successfully + WhatsApp replies with intelligent AI responses + calls now have transcription/recording even if WebSocket fails
+- **🔧 CRITICAL FIX 6**: Fixed Baileys WhatsApp not starting automatically
+  - **ROOT CAUSE**: Baileys service not started in development/production → WhatsApp doesn't work
+  - **SYMPTOM**: WhatsApp QR code connects but no responses, no webhook processing
+  - **FIX 1**: Added auto-start function in wsgi.py (_start_baileys_service)
+  - **FIX 2**: Checks if Baileys already running, starts if not
+  - **FIX 3**: Background process with subprocess.Popen (PID tracked)
+  - **Files**: wsgi.py
+- **Impact**: Production deployment works + auto-creates business if needed + all calls/WhatsApp save successfully + WhatsApp replies with intelligent AI responses + calls now have transcription/recording even if WebSocket fails + Baileys starts automatically with Flask
 
 ## BUILD 89 (October 15, 2025) - CRITICAL FIX: Complete Call Processing Chain
 - **🔧 CRITICAL FIX**: Fixed entire call processing chain from ImportError to call_log creation

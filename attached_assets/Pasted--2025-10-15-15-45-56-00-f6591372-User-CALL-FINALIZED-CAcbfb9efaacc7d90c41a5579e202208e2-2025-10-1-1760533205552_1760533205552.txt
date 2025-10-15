@@ -1,0 +1,89 @@
+
+2025-10-15 15:45:56.00
+f6591372
+User
+✅ CALL FINALIZED: CAcbfb9efaacc7d90c41a5579e202208e2
+2025-10-15 15:45:56.00
+f6591372
+User
+📝 Summary: שיחה כללית (784 תווים)
+2025-10-15 15:45:56.00
+f6591372
+User
+🎯 Intent: interested
+2025-10-15 15:45:56.00
+f6591372
+User
+📊 Next Action: שליחת פרטים נוספים
+2025-10-15 15:52:52.32
+f6591372
+User
+INFO: 34.135.168.171:0 - "GET / HTTP/1.1" 200 OK
+2025-10-15 15:52:52.55
+f6591372
+User
+INFO: 34.59.40.34:0 - "GET /assets/index-BYuwk5KP.css HTTP/1.1" 304 Not Modified
+2025-10-15 15:52:52.55
+f6591372
+User
+INFO: 34.135.168.171:0 - "GET /assets/index-RMy8jJnb.js HTTP/1.1" 304 Not Modified
+2025-10-15 15:52:52.81
+f6591372
+User
+INFO: 34.59.40.34:0 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+2025-10-15 15:52:52.81
+f6591372
+User
+INFO: 34.59.40.34:0 - "GET /favicon.ico HTTP/1.1" 304 Not Modified
+2025-10-15 15:52:52.99
+f6591372
+User
+INFO: 34.135.168.171:0 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+2025-10-15 15:52:53.00
+f6591372
+User
+INFO: 34.135.168.171:0 - "GET /favicon.ico HTTP/1.1" 304 Not Modified
+2025-10-15 15:53:01.72
+f6591372
+User
+🔐 LOGIN ATTEMPT: email=admin@admin.com
+2025-10-15 15:53:01.98
+f6591372
+User
+✓ Found user: id=2, email=admin@admin.com, role=admin
+2025-10-15 15:53:01.98
+f6591372
+User
+✓ Password hash: scrypt:32768:8:1$koskoMhhIDDtxM66$0178f637cfc5aa87...
+2025-10-15 15:53:02.10
+f6591372
+User
+✓ Password verification result: True
+2025-10-15 15:53:02.40
+f6591372
+User
+INFO: 34.135.168.171:0 - "POST /api/auth/login HTTP/1.1" 200 OK
+2025-10-15 15:53:02.58
+f6591372
+User
+INFO: 34.59.40.34:0 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+2025-10-15 15:53:02.89
+f6591372
+User
+INFO: 34.135.168.171:0 - "GET /favicon.ico HTTP/1.1" 304 Not Modified
+2025-10-15 15:53:03.27
+f6591372
+User
+INFO: 34.135.168.171:0 - "GET /api/admin/businesses?pageSize=1 HTTP/1.1" 200 OK
+2025-10-15 15:53:03.47
+f6591372
+User
+INFO: 34.135.168.171:0 - "GET /api/admin/phone-numbers HTTP/1.1" 200 OK
+2025-10-15 15:53:03.75
+f6591372
+User
+INFO: 34.135.168.171:0 - "GET /api/admin/leads?pageSize=5 HTTP/1.1" 200 OK
+2025-10-15 15:53:04.11
+f6591372
+User
+INFO: 34.135.168.171:0 - "GET /api/admin/overview?time_filter=today&start_date=2025-10-15&end_date=2025-10-15 HTTP/1.1" 200 OK
