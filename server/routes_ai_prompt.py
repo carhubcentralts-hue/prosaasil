@@ -138,10 +138,8 @@ def update_business_prompt(business_id):
         if whatsapp_prompt and len(whatsapp_prompt) > 10000:
             return jsonify({"error": "פרומפט וואטסאפ ארוך מדי (מקסימום 10,000 תווים)"}), 400
         
-        # Sanitization בסיסי
-        for prompt_text in [calls_prompt, whatsapp_prompt]:
-            if prompt_text and ('{{' in prompt_text or '}}' in prompt_text):
-                return jsonify({"error": "הפרומפט מכיל תווים לא חוקיים"}), 400
+        # Sanitization בסיסי - ✅ מאפשר placeholders כמו {{business_name}}
+        # (removed validation - placeholders are now allowed)
         
         business = Business.query.filter_by(id=business_id).first()
         if not business:

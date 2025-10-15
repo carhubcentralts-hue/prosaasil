@@ -368,16 +368,20 @@ export function WhatsAppPage() {
     }
   };
 
-  // Function to save prompt
+  // Function to save prompt - ✅ עכשיו שומר גם calls_prompt כדי לא לדרוס אותו!
   const savePrompt = async () => {
     if (!editingPrompt.trim()) return;
     
     try {
       setSavingPrompt(true);
       
-      // Call backend API to save prompt
+      // ✅ קודם טוען את הפרומפט הנוכחי של calls
+      const currentPrompt = await http.get<{calls_prompt: string, whatsapp_prompt: string}>('/api/business/current/prompt');
+      
+      // ✅ שולח גם calls וגם whatsapp כדי לא לדרוס!
       const response = await http.put<{success: boolean; error?: string}>('/api/business/current/prompt', {
-        whatsapp_prompt: editingPrompt.trim()
+        calls_prompt: currentPrompt.calls_prompt,  // ✅ שומר את ה-calls prompt
+        whatsapp_prompt: editingPrompt.trim()      // ✅ מעדכן רק את ה-whatsapp
       });
       
       if (response.success) {

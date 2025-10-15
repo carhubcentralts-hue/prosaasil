@@ -765,7 +765,7 @@ class MediaStreamHandler:
             # ✅ תגובת חירום מפורטת ומועילה
             try:
                 self.state = STATE_SPEAK
-                emergency_response = "מצטערת, לא שמעתי טוב בגלל החיבור. אני לאה מ'שי דירות ומשרדים' ויש לי דירות מדהימות במרכז. בואו נתחיל מחדש - איזה סוג נכס אתה מחפש ובאיזה אזור?"
+                emergency_response = "מצטערת, לא שמעתי טוב בגלל החיבור. בואו נתחיל מחדש - איזה סוג נכס אתה מחפש ובאיזה אזור?"
                 self._speak_with_breath(emergency_response)
                 self.state = STATE_LISTEN
                 print(f"✅ RETURNED TO LISTEN STATE after error in conversation #{conversation_id}")

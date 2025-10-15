@@ -34,13 +34,13 @@ def select_template(template_name: str, **params) -> Dict[str, Any] | None:
 
 logger = logging.getLogger(__name__)
 
-# Template definitions for Hebrew real estate agent "Leah"
+# ✅ Template definitions - עכשיו עם תמיכה בשם עסק דינמי!
 APPROVED_TEMPLATES = {
     "welcome_first": {
         "name": "welcome_first_time",
         "category": "MARKETING",
         "language": "he",
-        "text": "שלום {{1}}! אני לאה מ*שי דירות ומשרדים*. ראיתי שפניתם אלינו - איך אוכל לעזור לכם למצוא את הנכס המושלם? 🏠",
+        "text": "שלום {{1}}! ראיתי שפניתם אלינו - איך אוכל לעזור לכם למצוא את הנכס המושלם? 🏠",  # ✅ הסרתי שם עסק hardcoded
         "components": [
             {
                 "type": "BODY",
