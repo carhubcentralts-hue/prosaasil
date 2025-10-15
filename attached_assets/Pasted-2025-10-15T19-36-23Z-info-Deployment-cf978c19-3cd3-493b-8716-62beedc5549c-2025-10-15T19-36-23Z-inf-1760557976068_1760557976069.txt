@@ -1,0 +1,662 @@
+2025-10-15T19:36:23Z info: Deployment: cf978c19-3cd3-493b-8716-62beedc5549c
+2025-10-15T19:36:23Z info: Build: 9f00649c-f006-4fba-9a67-6718315a3642
+2025-10-15T19:36:23Z info: Connecting to builder
+2025-10-15T19:36:26Z info: Builder connected
+2025-10-15T19:36:27Z info: Installing packages
+--> uv lock
+
+--> uv lock
+
+Resolved 
+Resolved 
+79 packages in 1.94s
+
+79 packages in 1.94s
+
+--> uv sync
+
+--> uv sync
+
+Resolved 79 packages in 1ms
+
+Resolved 79 packages in 1ms
+
+Prepared 1 package in 43.98s
+
+Prepared 1 package in 43.98s
+
+Installed 1 package in 1ms
+ + repl-nix-workspace==0.1.0 (from file:///home/runner/workspace)
+
+Installed 1 package in 1ms
+ + repl-nix-workspace==0.1.0 (from file:///home/runner/workspace)
+
+2025-10-15T19:37:16Z info: Starting Build
+Processing /home/runner/workspace
+
+  Installing build dependencies: started
+
+  Installing build dependencies: finished with status 'done'
+
+  Getting requirements to build wheel: started
+
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+
+  Preparing metadata (pyproject.toml): finished with status 'done'
+
+Requirement already satisfied: asgiref>=3.10.0 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (3.10.0)
+
+Requirement already satisfied: eventlet>=0.40.3 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (0.40.3)
+
+Requirement already satisfied: flask>=3.1.2 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (3.1.2)
+
+Requirement already satisfied: flask-bcrypt>=1.0.1 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (1.0.1)
+
+Requirement already satisfied: flask-cors>=6.0.1 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (6.0.1)
+
+Requirement already satisfied: flask-login>=0.6.3 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (0.6.3)
+
+Requirement already satisfied: flask-seasurf>=2.0.0 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (2.0.0)
+
+Requirement already satisfied: flask-sqlalchemy>=3.1.1 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (3.1.1)
+
+Requirement already satisfied: google-cloud-speech>=2.33.0 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (2.33.0)
+
+Requirement already satisfied: google-cloud-texttospeech>=2.31.0 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (2.31.0)
+
+Requirement already satisfied: honcho>=2.0.0 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (2.0.0)
+
+Requirement already satisfied: hypercorn>=0.17.3 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (0.17.3)
+
+Requirement already satisfied: openai>=2.2.0 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (2.2.0)
+
+Requirement already satisfied: psycopg2-binary>=2.9.10 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (2.9.10)
+
+Requirement already satisfied: pyjwt>=2.10.1 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (2.10.1)
+
+Requirement already satisfied: requests>=2.32.5 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (2.32.5)
+
+Requirement already satisfied: sqlalchemy>=2.0.43 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (2.0.43)
+
+Requirement already satisfied: starlette>=0.48.0 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (0.48.0)
+
+Requirement already satisfied: twilio>=9.8.3 in ./.pythonlibs/lib/python3.11/site-packages (from repl-nix-workspace==0.1.0) (9.8.3)
+
+Requirement already satisfied: uvicorn>=0.37.0 in ./.pythonlibs/lib/python3.11/site-packages (from uvicorn[standard]>=0.37.0->repl-nix-workspace==0.1.0) (0.37.0)
+
+Requirement already satisfied: dnspython>=1.15.0 in ./.pythonlibs/lib/python3.11/site-packages (from eventlet>=0.40.3->repl-nix-workspace==0.1.0) (2.8.0)
+
+Requirement already satisfied: greenlet>=1.0 in ./.pythonlibs/lib/python3.11/site-packages (from eventlet>=0.40.3->repl-nix-workspace==0.1.0) (3.2.4)
+
+Requirement already satisfied: blinker>=1.9.0 in ./.pythonlibs/lib/python3.11/site-packages (from flask>=3.1.2->repl-nix-workspace==0.1.0) (1.9.0)
+
+Requirement already satisfied: click>=8.1.3 in ./.pythonlibs/lib/python3.11/site-packages (from flask>=3.1.2->repl-nix-workspace==0.1.0) (8.3.0)
+
+Requirement already satisfied: itsdangerous>=2.2.0 in ./.pythonlibs/lib/python3.11/site-packages (from flask>=3.1.2->repl-nix-workspace==0.1.0) (2.2.0)
+
+Requirement already satisfied: jinja2>=3.1.2 in ./.pythonlibs/lib/python3.11/site-packages (from flask>=3.1.2->repl-nix-workspace==0.1.0) (3.1.6)
+
+Requirement already satisfied: markupsafe>=2.1.1 in ./.pythonlibs/lib/python3.11/site-packages (from flask>=3.1.2->repl-nix-workspace==0.1.0) (3.0.3)
+
+Requirement already satisfied: werkzeug>=3.1.0 in ./.pythonlibs/lib/python3.11/site-packages (from flask>=3.1.2->repl-nix-workspace==0.1.0) (3.1.3)
+
+Requirement already satisfied: bcrypt>=3.1.1 in ./.pythonlibs/lib/python3.11/site-packages (from flask-bcrypt>=1.0.1->repl-nix-workspace==0.1.0) (5.0.0)
+
+Requirement already satisfied: google-api-core!=2.0.*,!=2.1.*,!=2.10.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,!=2.8.*,!=2.9.*,<3.0.0,>=1.34.1 in ./.pythonlibs/lib/python3.11/site-packages (from google-api-core[grpc]!=2.0.*,!=2.1.*,!=2.10.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,!=2.8.*,!=2.9.*,<3.0.0,>=1.34.1->google-cloud-speech>=2.33.0->repl-nix-workspace==0.1.0) (2.25.2)
+
+Requirement already satisfied: google-auth!=2.24.0,!=2.25.0,<3.0.0,>=2.14.1 in ./.pythonlibs/lib/python3.11/site-packages (from google-cloud-speech>=2.33.0->repl-nix-workspace==0.1.0) (2.41.1)
+
+Requirement already satisfied: proto-plus<2.0.0,>=1.22.3 in ./.pythonlibs/lib/python3.11/site-packages (from google-cloud-speech>=2.33.0->repl-nix-workspace==0.1.0) (1.26.1)
+
+Requirement already satisfied: protobuf!=4.21.0,!=4.21.1,!=4.21.2,!=4.21.3,!=4.21.4,!=4.21.5,<7.0.0,>=3.20.2 in ./.pythonlibs/lib/python3.11/site-packages (from google-cloud-speech>=2.33.0->repl-nix-workspace==0.1.0) (6.32.1)
+
+Requirement already satisfied: h11 in ./.pythonlibs/lib/python3.11/site-packages (from hypercorn>=0.17.3->repl-nix-workspace==0.1.0) (0.16.0)
+
+Requirement already satisfied: h2>=3.1.0 in ./.pythonlibs/lib/python3.11/site-packages (from hypercorn>=0.17.3->repl-nix-workspace==0.1.0) (4.3.0)
+
+Requirement already satisfied: priority in ./.pythonlibs/lib/python3.11/site-packages (from hypercorn>=0.17.3->repl-nix-workspace==0.1.0) (2.0.0)
+
+Requirement already satisfied: wsproto>=0.14.0 in ./.pythonlibs/lib/python3.11/site-packages (from hypercorn>=0.17.3->repl-nix-workspace==0.1.0) (1.2.0)
+
+Requirement already satisfied: anyio<5,>=3.5.0 in ./.pythonlibs/lib/python3.11/site-packages (from openai>=2.2.0->repl-nix-workspace==0.1.0) (4.11.0)
+
+Requirement already satisfied: distro<2,>=1.7.0 in ./.pythonlibs/lib/python3.11/site-packages (from openai>=2.2.0->repl-nix-workspace==0.1.0) (1.9.0)
+
+Requirement already satisfied: httpx<1,>=0.23.0 in ./.pythonlibs/lib/python3.11/site-packages (from openai>=2.2.0->repl-nix-workspace==0.1.0) (0.28.1)
+
+Requirement already satisfied: jiter<1,>=0.4.0 in ./.pythonlibs/lib/python3.11/site-packages (from openai>=2.2.0->repl-nix-workspace==0.1.0) (0.11.0)
+
+Requirement already satisfied: pydantic<3,>=1.9.0 in ./.pythonlibs/lib/python3.11/site-packages (from openai>=2.2.0->repl-nix-workspace==0.1.0) (2.12.0)
+
+Requirement already satisfied: sniffio in ./.pythonlibs/lib/python3.11/site-packages (from openai>=2.2.0->repl-nix-workspace==0.1.0) (1.3.1)
+
+Requirement already satisfied: tqdm>4 in ./.pythonlibs/lib/python3.11/site-packages (from openai>=2.2.0->repl-nix-workspace==0.1.0) (4.67.1)
+
+Requirement already satisfied: typing-extensions<5,>=4.11 in ./.pythonlibs/lib/python3.11/site-packages (from openai>=2.2.0->repl-nix-workspace==0.1.0) (4.15.0)
+
+Requirement already satisfied: charset_normalizer<4,>=2 in ./.pythonlibs/lib/python3.11/site-packages (from requests>=2.32.5->repl-nix-workspace==0.1.0) (3.4.3)
+
+Requirement already satisfied: idna<4,>=2.5 in ./.pythonlibs/lib/python3.11/site-packages (from requests>=2.32.5->repl-nix-workspace==0.1.0) (3.10)
+
+Requirement already satisfied: urllib3<3,>=1.21.1 in ./.pythonlibs/lib/python3.11/site-packages (from requests>=2.32.5->repl-nix-workspace==0.1.0) (2.5.0)
+
+Requirement already satisfied: certifi>=2017.4.17 in ./.pythonlibs/lib/python3.11/site-packages (from requests>=2.32.5->repl-nix-workspace==0.1.0) (2025.10.5)
+
+Requirement already satisfied: aiohttp>=3.8.4 in ./.pythonlibs/lib/python3.11/site-packages (from twilio>=9.8.3->repl-nix-workspace==0.1.0) (3.13.0)
+Requirement already satisfied: aiohttp-retry>=2.8.3 in ./.pythonlibs/lib/python3.11/site-packages (from twilio>=9.8.3->repl-nix-workspace==0.1.0) (2.9.1)
+
+Requirement already satisfied: httptools>=0.6.3 in ./.pythonlibs/lib/python3.11/site-packages (from uvicorn[standard]>=0.37.0->repl-nix-workspace==0.1.0) (0.6.4)
+
+Requirement already satisfied: python-dotenv>=0.13 in ./.pythonlibs/lib/python3.11/site-packages (from uvicorn[standard]>=0.37.0->repl-nix-workspace==0.1.0) (1.1.1)
+
+Requirement already satisfied: pyyaml>=5.1 in ./.pythonlibs/lib/python3.11/site-packages (from uvicorn[standard]>=0.37.0->repl-nix-workspace==0.1.0) (6.0.3)
+
+Requirement already satisfied: uvloop>=0.15.1 in ./.pythonlibs/lib/python3.11/site-packages (from uvicorn[standard]>=0.37.0->repl-nix-workspace==0.1.0) (0.21.0)
+
+Requirement already satisfied: watchfiles>=0.13 in ./.pythonlibs/lib/python3.11/site-packages (from uvicorn[standard]>=0.37.0->repl-nix-workspace==0.1.0) (1.1.0)
+
+Requirement already satisfied: websockets>=10.4 in ./.pythonlibs/lib/python3.11/site-packages (from uvicorn[standard]>=0.37.0->repl-nix-workspace==0.1.0) (15.0.1)
+
+Requirement already satisfied: aiohappyeyeballs>=2.5.0 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio>=9.8.3->repl-nix-workspace==0.1.0) (2.6.1)
+
+Requirement already satisfied: aiosignal>=1.4.0 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio>=9.8.3->repl-nix-workspace==0.1.0) (1.4.0)
+Requirement already satisfied: attrs>=17.3.0 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio>=9.8.3->repl-nix-workspace==0.1.0) (25.4.0)
+Requirement already satisfied: frozenlist>=1.1.1 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio>=9.8.3->repl-nix-workspace==0.1.0) (1.8.0)
+
+Requirement already satisfied: multidict<7.0,>=4.5 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio>=9.8.3->repl-nix-workspace==0.1.0) (6.7.0)
+
+Requirement already satisfied: propcache>=0.2.0 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio>=9.8.3->repl-nix-workspace==0.1.0) (0.4.1)
+
+Requirement already satisfied: yarl<2.0,>=1.17.0 in ./.pythonlibs/lib/python3.11/site-packages (from aiohttp>=3.8.4->twilio>=9.8.3->repl-nix-workspace==0.1.0) (1.22.0)
+
+Requirement already satisfied: googleapis-common-protos<2.0.0,>=1.56.2 in ./.pythonlibs/lib/python3.11/site-packages (from google-api-core!=2.0.*,!=2.1.*,!=2.10.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,!=2.8.*,!=2.9.*,<3.0.0,>=1.34.1->google-api-core[grpc]!=2.0.*,!=2.1.*,!=2.10.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,!=2.8.*,!=2.9.*,<3.0.0,>=1.34.1->google-cloud-speech>=2.33.0->repl-nix-workspace==0.1.0) (1.70.0)
+
+Requirement already satisfied: grpcio<2.0.0,>=1.33.2 in ./.pythonlibs/lib/python3.11/site-packages (from google-api-core[grpc]!=2.0.*,!=2.1.*,!=2.10.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,!=2.8.*,!=2.9.*,<3.0.0,>=1.34.1->google-cloud-speech>=2.33.0->repl-nix-workspace==0.1.0) (1.75.1)
+
+Requirement already satisfied: grpcio-status<2.0.0,>=1.33.2 in ./.pythonlibs/lib/python3.11/site-packages (from google-api-core[grpc]!=2.0.*,!=2.1.*,!=2.10.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,!=2.8.*,!=2.9.*,<3.0.0,>=1.34.1->google-cloud-speech>=2.33.0->repl-nix-workspace==0.1.0) (1.75.1)
+
+Requirement already satisfied: cachetools<7.0,>=2.0.0 in ./.pythonlibs/lib/python3.11/site-packages (from google-auth!=2.24.0,!=2.25.0,<3.0.0,>=2.14.1->google-cloud-speech>=2.33.0->repl-nix-workspace==0.1.0) (6.2.0)
+
+Requirement already satisfied: pyasn1-modules>=0.2.1 in ./.pythonlibs/lib/python3.11/site-packages (from google-auth!=2.24.0,!=2.25.0,<3.0.0,>=2.14.1->google-cloud-speech>=2.33.0->repl-nix-workspace==0.1.0) (0.4.2)
+
+Requirement already satisfied: rsa<5,>=3.1.4 in ./.pythonlibs/lib/python3.11/site-packages (from google-auth!=2.24.0,!=2.25.0,<3.0.0,>=2.14.1->google-cloud-speech>=2.33.0->repl-nix-workspace==0.1.0) (4.9.1)
+
+Requirement already satisfied: hyperframe<7,>=6.1 in ./.pythonlibs/lib/python3.11/site-packages (from h2>=3.1.0->hypercorn>=0.17.3->repl-nix-workspace==0.1.0) (6.1.0)
+
+Requirement already satisfied: hpack<5,>=4.1 in ./.pythonlibs/lib/python3.11/site-packages (from h2>=3.1.0->hypercorn>=0.17.3->repl-nix-workspace==0.1.0) (4.1.0)
+
+Requirement already satisfied: httpcore==1.* in ./.pythonlibs/lib/python3.11/site-packages (from httpx<1,>=0.23.0->openai>=2.2.0->repl-nix-workspace==0.1.0) (1.0.9)
+
+Requirement already satisfied: annotated-types>=0.6.0 in ./.pythonlibs/lib/python3.11/site-packages (from pydantic<3,>=1.9.0->openai>=2.2.0->repl-nix-workspace==0.1.0) (0.7.0)
+
+Requirement already satisfied: pydantic-core==2.41.1 in ./.pythonlibs/lib/python3.11/site-packages (from pydantic<3,>=1.9.0->openai>=2.2.0->repl-nix-workspace==0.1.0) (2.41.1)
+
+Requirement already satisfied: typing-inspection>=0.4.2 in ./.pythonlibs/lib/python3.11/site-packages (from pydantic<3,>=1.9.0->openai>=2.2.0->repl-nix-workspace==0.1.0) (0.4.2)
+
+Requirement already satisfied: pyasn1<0.7.0,>=0.6.1 in ./.pythonlibs/lib/python3.11/site-packages (from pyasn1-modules>=0.2.1->google-auth!=2.24.0,!=2.25.0,<3.0.0,>=2.14.1->google-cloud-speech>=2.33.0->repl-nix-workspace==0.1.0) (0.6.1)
+
+Building wheels for collected packages: repl-nix-workspace
+
+  Building wheel for repl-nix-workspace (pyproject.toml): started
+
+  Building wheel for repl-nix-workspace (pyproject.toml): finished with status 'done'
+
+  Created wheel for repl-nix-workspace: filename=repl_nix_workspace-0.1.0-py3-none-any.whl size=208689 sha256=509cbb0bb38a800c49d139ef922ebd17c6585c32fa184e5837f64a0d34725613
+
+  Stored in directory: /tmp/pip-ephem-wheel-cache-i3h0s08s/wheels/04/05/6d/6289e959a92f3fb9b01ed64d788583b61a8281676ba07f42bc
+
+Successfully built repl-nix-workspace
+
+Installing collected packages: repl-nix-workspace
+
+Successfully installed repl-nix-workspace-0.1.0
+
+2025-10-15T19:37:27Z info: Pushing pid1 binary layer...
+2025-10-15T19:37:29Z info: Created pid1 binary layer
+2025-10-15T19:37:33Z info: Pushing Repl layer...
+2025-10-15T19:37:33Z info: Pushing hosting layer...
+2025-10-15T19:37:33Z info: Retrieved cached nix layer
+2025-10-15T19:37:34Z info: Created hosting layer
+2025-10-15T19:38:19Z info: Created Repl layer
+2025-10-15T19:38:19Z info: Pushing Repl (cache) layer...
+2025-10-15T19:38:19Z info: Created Repl (cache) layer
+2025-10-15T19:38:21Z info: Pushed image manifest
+2025-10-15T19:38:22Z info: Pushed soci index manifest
+2025-10-15T19:38:25Z info: Creating Autoscale service
+🟡 Installing Node dependencies for Baileys...
+📊 EXTERNAL: Flask on 0.0.0.0:5000
+🟡 Starting Baileys on INTERNAL port 127.0.0.1:3300...
+✅ BUILD 90 Uvicorn/ASGI started (PID: 35)
+🚀 Starting AgentLocator Production System - Build #90
+✅ Build 89: ImportError Fix - Lead Creation Thread
+🎯 Both services running. System ready!
+✅ Build 90: call_status NOT NULL Fix - All Calls Save
+found 0 vulnerabilities
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.6.2
+🟡 Starting BUILD 90 with Uvicorn ASGI on EXTERNAL port 0.0.0.0:5000...
+33 packages are looking for funding
+✅ INTERNAL_SECRET found in environment
+up to date, audited 183 packages in 2s
+✅ Build 87: Duplicate call_sid Fix + Unique Constraint
+starting up user application
+📊 INTERNAL: Baileys on 127.0.0.1:3300
+✅ Build 88: to_number Fix in Lead Creation
+npm notice To update run: npm install -g npm@11.6.2
+npm notice New major version of npm available! 10.8.2 -> 11.6.2
+forwarding local port 5000 to external port 80 (mapped as 1104)
+npm notice
+📊 EXTERNAL Access: Port 5000 (exposed)
+✅ Baileys started internally (PID: 34, 127.0.0.1:3300)
+npm notice
+📊 INTERNAL Baileys: 127.0.0.1:3300 (not exposed)
+  run `npm fund` for details
+📝 Logs: /tmp/baileys_prod.log
+
+🔑 PIDs saved - Baileys: 34 | Flask: 35
+  {'OPTIONS', 'GET', 'HEAD'} /api/auth/csrf
+================================================================================
+🚀 ASGI BUILD 87 LOADING - DUPLICATE CALL_SID FIX
+🔧 GCP credentials converted from JSON to file: /tmp/gcp_credentials.json
+📞 /ws/twilio-media → ASGI WebSocket (asgi.py)
+  {'OPTIONS', 'PUT'} /api/business/current/prompt
+🚩 APP_START {'build': 87, 'sha': 'dev', 'fe': 'client/dist', 'time': '2025-10-15 19:38:50', 'app': 'AgentLocator-Complete', 'commit': 'dev', 'startup_ts': 1760557130}
+🔍 ALL REGISTERED ROUTES:
+  {'OPTIONS', 'POST'} /api/business/<tenant>/prompts
+  {'OPTIONS', 'GET', 'HEAD'} /api/business/current/prompt
+🔧 FE_DIST=/home/runner/workspace/server/../client/dist
+✅ Auth blueprints registered
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/overview
+✅ Startup complete - keeping processes alive...
+✅ All services confirmed running and ready!
+  {'OPTIONS', 'POST'} /api/statuses
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/tenants
+🔍 Final status check...
+  {'OPTIONS', 'POST'} /api/auth/logout
+🔧 DB_DRIVER: postgresql
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt
+✅ WebSocket test route added: /test-websocket-version
+================================================================================
+  {'OPTIONS', 'GET', 'HEAD'} /api/auth/current
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/invoices/<invoice_number>
+💡 Press Ctrl+C to stop all services
+  {'OPTIONS', 'POST'} /api/auth/login
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt/history
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/leads/stats
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/tranzila/return/fail
+  {'OPTIONS', 'GET', 'HEAD'} /<path:filename>
+  {'OPTIONS', 'GET', 'HEAD'} /api/calendar/appointments/<int:appointment_id>
+  {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id>
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/support/profile
+  {'OPTIONS', 'POST'} /api/admin/business/<int:business_id>/change-password
+  {'OPTIONS', 'GET', 'HEAD'} /api/statuses
+  {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id>
+🔧 WebSocket: Handled by ASGI layer (Starlette WebSocket)
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/business/current/prompt/history
+  {'OPTIONS', 'POST'} /api/admin/impersonate/exit
+  {'OPTIONS', 'PATCH'} /api/leads/bulk
+  {'OPTIONS', 'POST'} /api/crm/contracts
+  {'OPTIONS', 'POST'} /api/auth/reset
+  {'OPTIONS', 'GET', 'HEAD'} /api/calendar/appointments
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders
+  {'OPTIONS', 'POST'} /api/admin/businesses/<int:business_id>/impersonate
+  {'OPTIONS', 'PUT'} /api/statuses/<int:status_id>
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/businesses
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/revenue
+  {'OPTIONS', 'GET', 'HEAD'} /api/billing/invoice/<invoice_id>/view
+  {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id>
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/change-password
+  {'OPTIONS', 'POST'} /api/crm/contracts/sign
+  {'OPTIONS', 'POST'} /api/admin/statuses/initialize/<int:business_id>
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/threads
+  {'OPTIONS', 'POST'} /api/auth/forgot
+
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/calls
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>
+
+
+  {'OPTIONS', 'DELETE'} /api/admin/business/<int:business_id>
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/paypal/return/cancel
+  {'OPTIONS', 'GET', 'HEAD', 'PUT'} /api/admin/support/prompt
+
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/whatsapp
+  {'OPTIONS', 'POST'} /api/leads/bulk-delete
+  {'OPTIONS', 'POST'} /api/admin/channels/
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/users/new
+
+  {'OPTIONS', 'POST'} /webhook/stream_status
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses/prompts
+  {'OPTIONS', 'POST'} /api/receipts
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/overview
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/contacts
+  {'OPTIONS', 'POST'} /webhook/voice
+
+  {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/qr
+🔧 APP_SHA=dev
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/businesses
+  {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id>
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/calls
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/deals
+  {'OPTIONS', 'GET', 'HEAD'} /ui/biz/contacts/new
+  {'OPTIONS', 'POST'} /api/admin/user
+  {'OPTIONS', 'GET', 'HEAD'} /api/dashboard/stats
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/history
+  {'OPTIONS', 'GET', 'HEAD'} /livez
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses/<int:business_id>/overview
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments
+
+  {'OPTIONS', 'POST'} /api/contracts
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/auth/me
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>/activities
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/calls
+  {'OPTIONS', 'POST'} /api/crm/payments/create
+  {'OPTIONS', 'POST'} /api/statuses/reorder
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/contracts
+
+✅ Baileys proxy routes: 0 /wa/* endpoints
+  {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id>
+  {'OPTIONS', 'GET', 'HEAD'} /api/business/current
+  {'OPTIONS', 'GET', 'HEAD'} /ui/calls/active
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads
+  {'OPTIONS', 'GET', 'HEAD', 'POST'} /api/ui/logout
+
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/toggle-status
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/switch_business
+  {'OPTIONS', 'PUT'} /api/business/current/settings
+  {'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id>
+  {'OPTIONS', 'GET', 'HEAD'} /ui/biz/contacts
+  {'OPTIONS', 'GET', 'HEAD'} /api/billing/invoice/<invoice_id>/download
+  {'OPTIONS', 'GET', 'HEAD'} /biz/contracts
+
+  {'OPTIONS', 'GET', 'HEAD', 'PUT'} /api/admin/support/phones
+  {'OPTIONS', 'POST'} /api/whatsapp/send
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/user/<int:user_id>
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/move
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/tenants/new
+🔍 Route registration complete
+  {'OPTIONS', 'GET', 'HEAD'} /api/dashboard/activity
+
+  {'OPTIONS', 'POST'} /webhook/call_status
+✅ Health routes handled by health_endpoints.py blueprint
+  {'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id>
+  {'OPTIONS', 'GET', 'HEAD'} /webhook/incoming_call_preview
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/users
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/customers
+
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/billing/contract/<contract_id>/download
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/leads
+🆘 Emergency healthz-direct route added
+  {'OPTIONS', 'DELETE'} /api/leads/<int:lead_id>
+  {'OPTIONS', 'POST'} /api/calls/cleanup
+FE_DIST = /home/runner/workspace/client/dist mtime = 1760484490.0
+  {'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/phone-numbers
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/stats
+
+  {'OPTIONS', 'GET', 'HEAD'} /ui/whatsapp/messages
+  {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id>
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/paypal/return/success
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/tenants
+  {'OPTIONS', 'GET', 'HEAD'} /version
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/whatsapp
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/tranzila/return/success
+  {'OPTIONS', 'POST'} /webhook/stream_ended
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/<call_sid>/download
+  {'OPTIONS', 'POST'} /webhook/whatsapp/incoming
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+  {'OPTIONS', 'POST'} /api/ui/login
+
+  {'OPTIONS', 'POST'} /api/admin/tenants
+  {'OPTIONS', 'GET', 'HEAD'} /app/admin
+  {'OPTIONS', 'POST'} /api/whatsapp/start
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses
+  {'OPTIONS', 'POST'} /ui/whatsapp/send
+  {'OPTIONS', 'POST'} /api/crm/deals
+  {'OPTIONS', 'GET', 'HEAD', 'POST'} /webhook/test
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/business/<int:business_id>
+  {'OPTIONS', 'POST'} /api/biz/users
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/business/<int:business_id>
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/active
+✅ Factory debug route registered: /debug-factory-http
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status
+  {'OPTIONS', 'GET', 'HEAD'} /ui/whatsapp/threads
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/stats
+  {'OPTIONS', 'GET', 'HEAD'} /api/reminders/due
+  {'OPTIONS', 'POST'} /webhook/handle_recording
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/<call_sid>/details
+
+  {'OPTIONS', 'GET', 'HEAD'} /unauthorized
+  {'OPTIONS', 'POST'} /api/crm/contacts
+  {'OPTIONS', 'GET', 'HEAD'} /ui/admin/overview
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>/reminders
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/billing/contract/<contract_id>/view
+
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls
+
+✅ Legacy proxy routes: 0 /api/wa-proxy/* endpoints
+  {'OPTIONS', 'GET', 'HEAD'} /api/intelligence/stats
+
+  {'OPTIONS', 'POST'} /api/leads
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/threads/<thread_id>/messages
+  {'OPTIONS', 'GET', 'HEAD'} /app/biz
+  {'OPTIONS', 'POST'} /api/admin/business
+  {'OPTIONS', 'GET', 'HEAD'} /api/calendar/stats
+🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+  {'OPTIONS', 'GET', 'HEAD'} /api/intelligence/customers
+  {'OPTIONS', 'GET', 'HEAD'} /ui/biz/users
+  {'OPTIONS', 'POST'} /admin/stop-impersonate
+  {'OPTIONS', 'POST'} /api/whatsapp/disconnect
+  {'OPTIONS', 'POST'} /webhook/whatsapp/status
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/conversation/<phone_number>
+  {'OPTIONS', 'POST'} /webhook/incoming_call
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/status
+  {'OPTIONS', 'GET', 'HEAD'} /logout
+  {'OPTIONS', 'POST'} /api/whatsapp/reset
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>
+  {'OPTIONS', 'GET', 'HEAD'} /test-websocket-version
+  {'OPTIONS', 'GET', 'HEAD'} /biz/invoices
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/stats
+  {'OPTIONS', 'GET', 'HEAD'} /ui/calls/history
+
+✅ WhatsApp routes removed - using unified only
+
+  {'OPTIONS', 'GET', 'HEAD'} /healthz
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/messages
+  {'OPTIONS', 'GET', 'HEAD'} /ui/biz/users/new
+  {'OPTIONS', 'GET', 'HEAD'} /webhook/test_media_streams_1756667590
+
+  {'OPTIONS', 'GET', 'HEAD'} /readyz
+✅ /healthz route added directly to app_factory
+  {'OPTIONS', 'POST'} /api/calendar/appointments
+  {'OPTIONS', 'GET', 'HEAD'} /db-check
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp
+
+  {'OPTIONS', 'POST'} /api/admin/users
+✅ Lead statuses exist: 7 statuses found
+✅ Business exists: עסק ראשי (ID: 11)
+  {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.update_business_prompt
+  {'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id> -> admin_channels.remove_channel
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/overview -> admin_bp.api_admin_kpis_overview
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/ -> admin_channels.get_all_channels
+✅ Admin user exists: admin@admin.com (ID: 2)
+✅ Database migrations applied successfully
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/calls -> admin_bp.api_kpis_calls
+  {'OPTIONS', 'DELETE'} /api/admin/business/<int:business_id> -> business_management.delete_business
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses/<int:business_id>/overview -> admin_bp.get_business_overview
+  {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id> -> ui.admin_impersonate_business
+🔧 Starting database initialization...
+  {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id> -> business_management.update_business
+📧 Admin login: admin@admin.com / admin123
+🔧 Warmup disabled for debugging
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/businesses -> admin_channels.get_businesses
+  {'OPTIONS', 'POST'} /api/admin/channels/ -> admin_channels.create_channel
+
+=== URL MAP ===
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/businesses -> admin_bp.api_kpis_businesses
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/overview -> admin_bp.api_overview
+  {'OPTIONS', 'POST'} /api/admin/business/<int:business_id>/change-password -> business_management.change_business_password
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/whatsapp -> admin_bp.api_kpis_whatsapp
+  {'OPTIONS', 'POST'} /api/admin/statuses/initialize/<int:business_id> -> status_management.initialize_default_statuses
+  {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id> -> calendar.delete_appointment
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/stats -> api_adapter.admin_stats
+✅ Production database initialized successfully
+  {'OPTIONS', 'GET', 'HEAD'} /api/billing/contract/<contract_id>/download -> receipts_contracts.download_contract
+  {'OPTIONS', 'GET', 'HEAD'} /api/auth/current -> auth_api.get_current_user_legacy
+  {'OPTIONS', 'POST'} /api/auth/logout -> auth_api.logout
+  {'OPTIONS', 'GET', 'HEAD'} /api/business/current/prompt -> ai_prompt.get_current_business_prompt
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/toggle-status -> business_management.toggle_user_status
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses -> admin_bp.api_admin_businesses
+✅ Database initialization completed successfully!
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/revenue -> admin_bp.api_kpis_revenue
+  {'OPTIONS', 'POST'} /api/admin/tenants -> ui.api_admin_tenants_create
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses/prompts -> admin_bp.admin_businesses_prompts
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt/history -> ai_prompt.get_prompt_history
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/contracts -> crm_bp.get_contracts
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/<call_sid>/download -> calls.download_recording
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/phone-numbers -> admin_bp.admin_phone_numbers
+
+  {'OPTIONS', 'POST'} /api/admin/business -> business_management.create_business
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/business/<int:business_id> -> business_management.get_business
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.get_business_prompt
+  {'OPTIONS', 'POST'} /api/admin/user -> business_management.create_user
+🏢 Business ID: 11
+  {'OPTIONS', 'POST'} /api/admin/run-migrations -> run_migrations_endpoint
+  {'OPTIONS', 'POST'} /api/calendar/appointments -> calendar.create_appointment
+  {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id> -> business_management.update_user
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/change-password -> business_management.change_user_password
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses -> api_adapter.admin_businesses
+
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/auth/csrf -> auth_api.get_csrf
+  {'OPTIONS', 'POST'} /api/crm/deals -> crm_bp.create_deal
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/tranzila/return/success -> crm_bp.tranzila_success
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp -> leads_bp.send_whatsapp_message
+  {'OPTIONS', 'POST'} /api/crm/payments/create -> crm_bp.payments_create
+  {'OPTIONS', 'POST'} /api/leads -> leads_bp.create_lead
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/whatsapp -> admin_bp.api_admin_kpis_whatsapp
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments -> crm_bp.get_payments
+  {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id> -> calendar.update_appointment
+  {'OPTIONS', 'POST'} /api/auth/login -> auth_api.login
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/paypal/return/success -> crm_bp.paypal_success
+  {'OPTIONS', 'POST'} /api/admin/impersonate/exit -> business_management.exit_impersonation
+  {'OPTIONS', 'GET', 'HEAD'} /api/intelligence/stats -> intelligence.get_intelligence_stats
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/billing/contract/<contract_id>/view -> receipts_contracts.view_contract
+  {'OPTIONS', 'POST'} /api/biz/users -> ui.api_biz_users_create
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/billing/invoice/<invoice_id>/view -> receipts_contracts.view_invoice
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/invoices/<invoice_number> -> crm_bp.get_invoice
+  {'OPTIONS', 'POST'} /api/admin/businesses/<int:business_id>/impersonate -> business_management.impersonate_business
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/tenants -> admin_bp.api_tenants
+  {'OPTIONS', 'GET', 'HEAD'} /api/dashboard/stats -> api_adapter.dashboard_stats
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/customers -> crm_bp.api_customers
+  {'OPTIONS', 'POST'} /api/auth/reset -> auth_api.reset_password
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/leads/stats -> admin_bp.admin_leads_stats
+  {'OPTIONS', 'PUT'} /api/business/current/settings -> business_management.update_current_business_settings
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads -> leads_bp.list_leads
+  {'OPTIONS', 'POST'} /api/auth/forgot -> auth_api.forgot_password
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/paypal/return/cancel -> crm_bp.paypal_cancel
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/user/<int:user_id> -> business_management.get_user
+  {'OPTIONS', 'GET', 'HEAD'} /api/auth/me -> auth_api.get_current_user
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/business/<int:business_id> -> admin_channels.get_business_channels
+  {'OPTIONS', 'POST'} /api/business/<tenant>/prompts -> ai_prompt.save_prompt
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/calendar/appointments -> calendar.get_appointments
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/calls -> admin_bp.api_admin_calls
+  {'OPTIONS', 'POST'} /api/admin/users -> ui.api_admin_users_create
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/conversation/<phone_number> -> whatsapp.get_conversation
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.get_reminder
+
+  {'OPTIONS', 'GET', 'HEAD'} /api/business/current/prompt/history -> ai_prompt.get_current_prompt_history
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/threads/<thread_id>/messages -> crm_bp.api_thread_messages
+  {'OPTIONS', 'POST'} /api/whatsapp/start -> whatsapp.start
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/history -> crm_bp.api_call_history
+  {'OPTIONS', 'GET', 'HEAD'} /api/calendar/appointments/<int:appointment_id> -> calendar.get_appointment
+  {'OPTIONS', 'POST'} /api/crm/contacts -> ui.api_crm_contacts_create
+  {'OPTIONS', 'POST'} /api/receipts -> receipts_contracts.create_receipt
+  {'OPTIONS', 'GET', 'HEAD'} /api/reminders/due -> leads_bp.get_due_reminders
+================
+  {'OPTIONS', 'GET', 'HEAD'} /api/dashboard/activity -> api_adapter.dashboard_activity
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id> -> leads_bp.update_lead
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/calls -> admin_bp.api_admin_kpis_calls
+  {'OPTIONS', 'PUT'} /api/business/current/prompt -> ai_prompt.update_current_business_prompt
+  {'OPTIONS', 'GET', 'HEAD'} /api/intelligence/customers -> intelligence.get_intelligent_customers
+  {'OPTIONS', 'GET', 'HEAD', 'PUT'} /api/admin/support/phones -> admin_bp.admin_support_phones
+  {'OPTIONS', 'POST'} /api/crm/contracts -> crm_bp.create_contract
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>/activities -> leads_bp.get_lead_activities
+  {'OPTIONS', 'POST'} /api/crm/contracts/sign -> crm_bp.contract_sign
+  {'OPTIONS', 'GET', 'HEAD'} /api/calendar/stats -> calendar.get_calendar_stats
+  {'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id> -> whatsapp.save_whatsapp_prompt
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/<call_sid>/details -> calls.get_call_details
+  {'OPTIONS', 'GET', 'HEAD'} /api/statuses -> status_management.get_business_statuses
+✅ ASGI BUILD 87 READY - ALL SYSTEMS GO
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.update_reminder
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/active -> crm_bp.api_active_calls
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/deals -> crm_bp.list_deals
+  {'OPTIONS', 'GET', 'HEAD'} /api/billing/invoice/<invoice_id>/download -> receipts_contracts.download_invoice
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status -> leads_bp.update_lead_status
+
+  {'OPTIONS', 'POST'} /api/contracts -> receipts_contracts.create_contract
+  {'OPTIONS', 'POST'} /api/whatsapp/send -> whatsapp.send_manual_message
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/support/profile -> admin_bp.admin_support_profile
+================================================================================
+================================================================================
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/stats -> whatsapp.api_wa_stats
+  {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/move -> leads_bp.move_lead_in_kanban
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/tranzila/return/fail -> crm_bp.tranzila_fail
+  {'OPTIONS', 'POST'} /api/statuses -> status_management.create_status
+  {'OPTIONS', 'GET', 'HEAD'} /api/admin/leads -> admin_bp.admin_leads
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id> -> leads_bp.get_lead_detail
+  {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>/reminders -> leads_bp.get_lead_reminders
+  {'OPTIONS', 'DELETE'} /api/leads/<int:lead_id> -> leads_bp.delete_lead
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/status -> whatsapp.status
+  {'OPTIONS', 'POST'} /api/whatsapp/disconnect -> whatsapp.disconnect
+INFO:     Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls/stats -> calls.get_calls_stats
+  {'OPTIONS', 'POST'} /api/statuses/reorder -> status_management.reorder_statuses
+  {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id> -> status_management.delete_status
+✅ Simple SPA routes registered (no blueprint)
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/messages -> whatsapp.api_wa_messages
+INFO:     Started server process [35]
+  {'OPTIONS', 'POST'} /api/leads/bulk-delete -> leads_bp.bulk_delete_leads
+  {'OPTIONS', 'GET', 'HEAD', 'PUT'} /api/admin/support/prompt -> admin_bp.admin_support_prompt
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/qr -> whatsapp.qr
+  {'OPTIONS', 'POST'} /api/calls/cleanup -> calls.cleanup_old_recordings
+  {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/contacts -> whatsapp.api_wa_contacts
+  {'OPTIONS', 'PUT'} /api/statuses/<int:status_id> -> status_management.update_status
+  {'OPTIONS', 'GET', 'HEAD', 'POST'} /api/ui/logout -> ui.api_logout
+  {'OPTIONS', 'POST'} /api/whatsapp/reset -> whatsapp.reset
+  {'OPTIONS', 'POST'} /api/ui/login -> ui.api_login
+INFO:     127.0.0.1:41772 - "GET / HTTP/1.1" 200 OK
+  {'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming -> whatsapp.baileys_webhook
+  {'OPTIONS', 'PATCH'} /api/leads/bulk -> leads_bp.bulk_update_leads
+  {'OPTIONS', 'GET', 'HEAD'} /api/business/current -> business_management.get_current_business
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders -> leads_bp.create_reminder
+  {'OPTIONS', 'GET', 'HEAD'} /api/calls -> calls.list_calls
+  {'OPTIONS', 'GET', 'HEAD'} /api/crm/threads -> crm_bp.api_threads
+2025-10-15T19:39:00Z info: Waiting for service to be ready
+2025-10-15T19:39:03Z info: Deployment successful
