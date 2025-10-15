@@ -348,6 +348,10 @@ def create_app():
         from server.routes_intelligence import intelligence_bp
         app.register_blueprint(intelligence_bp)
         
+        # Admin Channels API - Multi-tenant routing management
+        from server.routes_admin_channels import admin_channels_bp
+        app.register_blueprint(admin_channels_bp)
+        
         # CSRF exemptions לroutes WhatsApp - only GET routes for security
         try:
             csrf.exempt(app.view_functions.get('whatsapp.status'))  # GET - safe
