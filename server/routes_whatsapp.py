@@ -367,11 +367,11 @@ def baileys_webhook():
                 # ✅ BUILD 93: Check for appointment request FIRST
                 appointment_created = False
                 try:
-                    from server.whatsapp_appointment_handler import process_whatsapp_message_for_appointment
-                    appointment_result = process_whatsapp_message_for_appointment(
-                        message_id=wa_msg.id,
+                    from server.whatsapp_appointment_handler import process_incoming_whatsapp_message
+                    appointment_result = process_incoming_whatsapp_message(
                         phone_number=from_number,
-                        message_text=message_text
+                        message_text=message_text,
+                        message_id=wa_msg.id
                     )
                     if appointment_result.get('appointment_created'):
                         appointment_created = True
