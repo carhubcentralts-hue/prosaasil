@@ -90,14 +90,16 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                     # ⚡ STEP 2: Quick customer/lead lookup (no heavy processing)
                     customer, lead, _ = ci.find_or_create_customer_from_whatsapp(phone_number, message_text)
                     
-                    # ⚡ STEP 3: Extract ONLY last 4 messages for context (not 10)
+                    # ⚡ STEP 3: Extract last 10 messages for better context (FIXED from 4)
                     previous_messages = []
                     if lead.notes:
                         note_lines = lead.notes.split('\n')
-                        for line in note_lines[-4:]:  # ⚡ Only 4 messages for speed
+                        # ⚡ FIXED: Get more context - last 10 messages (5 exchanges)
+                        for line in note_lines[-10:]:
                             match = re.match(r'\[(WhatsApp|לאה)\s+\d+:\d+:\d+\]:\s*(.+)', line)
                             if match:
-                                sender, content = match.group(1), match.group(2).replace('...', '').strip()
+                                sender, content = match.group(1), match.group(2).strip()
+                                # Don't truncate - keep full message
                                 previous_messages.append(f"{'לקוח' if sender == 'WhatsApp' else 'לאה'}: {content}")
                     
                     # ⚡ STEP 4: Fast AI response with SHORT timeout
@@ -142,11 +144,17 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         outgoing_msg.provider_message_id = send_result.get('message_id')
                         db.session.add(outgoing_msg)
                     
-                    # Update lead notes (compact)
+                    # Update lead notes (FIXED: store full messages, not truncated)
+                    new_note = f"[WhatsApp {timestamp}]: {message_text}\n[לאה {timestamp}]: {ai_response}"
                     if lead.notes:
-                        lead.notes += f"\n[WhatsApp {timestamp}]: {message_text[:80]}\n[לאה {timestamp}]: {ai_response[:80]}"
+                        # Keep only last 50 messages (25 exchanges) to prevent bloat
+                        note_lines = lead.notes.split('\n')
+                        if len(note_lines) > 50:
+                            lead.notes = '\n'.join(note_lines[-50:]) + f"\n{new_note}"
+                        else:
+                            lead.notes += f"\n{new_note}"
                     else:
-                        lead.notes = f"[WhatsApp {timestamp}]: {message_text[:80]}\n[לאה {timestamp}]: {ai_response[:80]}"
+                        lead.notes = new_note
                     
                     # ⚡ Background: conversation summary (don't block)
                     Thread(target=_async_conversation_analysis, args=(ci, lead, message_text, phone_number), daemon=True).start()
