@@ -1354,7 +1354,7 @@ class MediaStreamHandler:
             
             if not self.business_id:
                 print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל")
-                return "את ליאה, עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."
+                return "את עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
             
             # טען פרומפט מ-BusinessSettings
             from server.models_sql import BusinessSettings, Business
@@ -1386,11 +1386,11 @@ class MediaStreamHandler:
                 return business.system_prompt
                 
             print(f"⚠️ לא נמצא פרומפט לעסק {self.business_id} - שימוש בברירת מחדל")
-            return "את ליאה, עוזרת נדלן מקצועית מ'שי דירות ומשרדים'. עזרי ללקוח למצוא את הנכס המתאים."
+            return "את עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם/עסק hardcoded
             
         except Exception as e:
             print(f"❌ שגיאה בטעינת פרומפט מדאטאבייס: {e}")
-            return "את ליאה, עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."
+            return "את עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
 
     def _identify_business_from_phone(self):
         """זיהוי business_id לפי to_number (המספר שאליו התקשרו) אם חסר"""
@@ -1430,7 +1430,7 @@ class MediaStreamHandler:
             # Add conversation history for context - ✅ FIXED FORMAT
             if hasattr(self, 'conversation_history') and self.conversation_history:
                 context["previous_messages"] = [
-                    f"לקוח: {item['user']}\nלאה: {item['bot']}" 
+                    f"לקוח: {item['user']}\nעוזרת: {item['bot']}"  # ✅ "עוזרת" במקום "לאה" - כללי!
                     for item in self.conversation_history[-6:]  # עד 6 תורות אחרונים לזיכרון מלא
                 ]
             
