@@ -49,7 +49,7 @@ def status():
     # אם אין קבצים, ננסה את המערכת הנוכחית
     try:
         t = tenant_id_from_ctx()
-        r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=5)
+        r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=15)
         return jsonify(r.json()), r.status_code
     except:
         return jsonify({"connected": False, "hasQR": False}), 200

@@ -31,7 +31,7 @@ class BaileysProvider(Provider):
     def __init__(self):
         self.outbound_url = os.getenv("BAILEYS_BASE_URL", "http://127.0.0.1:3300")
         self.webhook_secret = os.getenv("BAILEYS_WEBHOOK_SECRET", "")
-        self.timeout = 5.0
+        self.timeout = 15.0  # ✅ Increased for WhatsApp message sending
         self._last_health_check = 0
         self._health_status = False
         self._health_cache_duration = 30  # 30 seconds cache
