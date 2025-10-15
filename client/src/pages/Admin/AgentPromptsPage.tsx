@@ -16,6 +16,8 @@ import { useAuth } from '../../features/auth/hooks';
 interface PromptData {
   calls_prompt: string;
   whatsapp_prompt: string;
+  greeting_message: string;
+  whatsapp_greeting: string;
   last_updated: string;
   version: number;
 }
@@ -44,6 +46,8 @@ export function AgentPromptsPage() {
   const [prompts, setPrompts] = useState<PromptData>({
     calls_prompt: '',
     whatsapp_prompt: '',
+    greeting_message: '',
+    whatsapp_greeting: '',
     last_updated: '',
     version: 1
   });
@@ -108,7 +112,6 @@ export function AgentPromptsPage() {
     setSaving(prev => ({ ...prev, [channel]: true }));
     
     try {
-      const promptContent = channel === 'calls' ? prompts.calls_prompt : prompts.whatsapp_prompt;
       const isBusinessRole = user?.role === 'business';
       
       const result = await http.put<{ success: boolean; version: number; message?: string }>(
@@ -116,8 +119,18 @@ export function AgentPromptsPage() {
           ? `/api/business/current/prompt` 
           : `/api/admin/businesses/${businessId}/prompt`, 
         channel === 'calls' 
-          ? { calls_prompt: promptContent, whatsapp_prompt: prompts.whatsapp_prompt }
-          : { calls_prompt: prompts.calls_prompt, whatsapp_prompt: promptContent }
+          ? { 
+              calls_prompt: prompts.calls_prompt, 
+              whatsapp_prompt: prompts.whatsapp_prompt,
+              greeting_message: prompts.greeting_message,
+              whatsapp_greeting: prompts.whatsapp_greeting
+            }
+          : { 
+              calls_prompt: prompts.calls_prompt, 
+              whatsapp_prompt: prompts.whatsapp_prompt,
+              greeting_message: prompts.greeting_message,
+              whatsapp_greeting: prompts.whatsapp_greeting
+            }
       );
       
       if (result.success) {
@@ -241,12 +254,32 @@ export function AgentPromptsPage() {
             </div>
           </div>
           
+          {/* Greeting Message for Calls */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              💬 הודעת פתיחה (ברכה ראשונית)
+            </label>
+            <input
+              type="text"
+              value={prompts.greeting_message}
+              onChange={(e) => setPrompts(prev => ({ ...prev, greeting_message: e.target.value }))}
+              placeholder='שלום! שמי שרה ואני העוזרת של {{business_name}}. במה אוכל לעזור?'
+              className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              dir="rtl"
+              data-testid="input-greeting-calls"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              זה מה שהלקוח ישמע ברגע שהשיחה מתחילה. השתמש ב-{'{{business_name}}'} לשם העסק
+            </p>
+          </div>
+          
           <textarea
             value={prompts.calls_prompt}
             onChange={(e) => setPrompts(prev => ({ ...prev, calls_prompt: e.target.value }))}
             placeholder="הכנס הנחיות עבור AI Agent בשיחות טלפון..."
-            className="w-full h-80 p-4 border border-slate-300 rounded-lg resize-none text-sm leading-relaxed focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full h-64 p-4 border border-slate-300 rounded-lg resize-none text-sm leading-relaxed focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             dir="rtl"
+            data-testid="textarea-prompt-calls"
           />
           
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
@@ -280,12 +313,32 @@ export function AgentPromptsPage() {
             </div>
           </div>
           
+          {/* Greeting Message for WhatsApp */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              💬 הודעת פתיחה (ברכה ראשונית)
+            </label>
+            <input
+              type="text"
+              value={prompts.whatsapp_greeting}
+              onChange={(e) => setPrompts(prev => ({ ...prev, whatsapp_greeting: e.target.value }))}
+              placeholder='שלום! אני העוזרת של {{business_name}} ב-WhatsApp. איך אפשר לעזור?'
+              className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              dir="rtl"
+              data-testid="input-greeting-whatsapp"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              זו ההודעה הראשונה שהלקוח יקבל ב-WhatsApp. השתמש ב-{'{{business_name}}'} לשם העסק
+            </p>
+          </div>
+          
           <textarea
             value={prompts.whatsapp_prompt}
             onChange={(e) => setPrompts(prev => ({ ...prev, whatsapp_prompt: e.target.value }))}
             placeholder="הכנס הנחיות עבור AI Agent בהודעות WhatsApp..."
-            className="w-full h-80 p-4 border border-slate-300 rounded-lg resize-none text-sm leading-relaxed focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            className="w-full h-64 p-4 border border-slate-300 rounded-lg resize-none text-sm leading-relaxed focus:ring-2 focus:ring-green-500 focus:border-green-500"
             dir="rtl"
+            data-testid="textarea-prompt-whatsapp"
           />
           
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
