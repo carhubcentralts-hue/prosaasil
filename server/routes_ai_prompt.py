@@ -87,6 +87,8 @@ def get_business_prompt(business_id):
             return jsonify({
                 "calls_prompt": calls_prompt,
                 "whatsapp_prompt": whatsapp_prompt,
+                "greeting_message": business.greeting_message or "",
+                "whatsapp_greeting": business.whatsapp_greeting or "",
                 "version": version,
                 "updated_at": settings.updated_at.isoformat() if settings.updated_at else None,
                 "updated_by": settings.updated_by
@@ -97,6 +99,8 @@ def get_business_prompt(business_id):
             return jsonify({
                 "calls_prompt": default_prompt,
                 "whatsapp_prompt": default_prompt,
+                "greeting_message": business.greeting_message or "",
+                "whatsapp_greeting": business.whatsapp_greeting or "",
                 "version": 1,
                 "updated_at": None,
                 "updated_by": None
@@ -120,9 +124,11 @@ def update_business_prompt(business_id):
         if not data:
             return jsonify({"error": "חסרים נתונים"}), 400
         
-        # שדות אופציונליים: calls_prompt, whatsapp_prompt + backward compatibility
+        # שדות אופציונליים: calls_prompt, whatsapp_prompt, greeting_message, whatsapp_greeting
         calls_prompt = data.get('calls_prompt')
-        whatsapp_prompt = data.get('whatsapp_prompt') 
+        whatsapp_prompt = data.get('whatsapp_prompt')
+        greeting_message = data.get('greeting_message')
+        whatsapp_greeting = data.get('whatsapp_greeting')
         
         # תמיכה לאחור - אם נשלח רק 'prompt', השתמש בו לשניהם
         if not calls_prompt and not whatsapp_prompt and data.get('prompt'):
@@ -144,6 +150,12 @@ def update_business_prompt(business_id):
         business = Business.query.filter_by(id=business_id).first()
         if not business:
             return jsonify({"error": "עסק לא נמצא"}), 404
+        
+        # ✅ שמירת הודעות ברכה בטבלת Business
+        if greeting_message is not None:
+            business.greeting_message = greeting_message
+        if whatsapp_greeting is not None:
+            business.whatsapp_greeting = whatsapp_greeting
         
         current_user = session.get('user', {})
         user_id = current_user.get('email', 'unknown')
