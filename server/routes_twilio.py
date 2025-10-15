@@ -144,7 +144,7 @@ def _trigger_recording_for_call(call_sid):
 def _create_lead_from_call(call_sid, from_number, to_number=None):
     """שלב 4: יצירת/עדכון ליד אוטומטי מכל שיחה נכנסת - ללא כפילויות!"""
     from server.app_factory import create_app
-    from server.services.customer_intelligence import CustomerIntelligenceService
+    from server.services.customer_intelligence import CustomerIntelligence
     from server.models_sql import Lead
     
     # ✅ ברירת מחדל ל-to_number
@@ -161,9 +161,9 @@ def _create_lead_from_call(call_sid, from_number, to_number=None):
             # ברירת מחדל business_id=1 (ניתן לשנות לפי צרכים)
             business_id = 1
             
-            print(f"🔵 CREATE_LEAD_FROM_CALL - Creating CustomerIntelligenceService")
+            print(f"🔵 CREATE_LEAD_FROM_CALL - Creating CustomerIntelligence")
             # ✅ שימוש בשירות החכם שמונע כפילויות
-            ci_service = CustomerIntelligenceService(business_id=business_id)
+            ci_service = CustomerIntelligence(business_id=business_id)
             
             print(f"🔵 CREATE_LEAD_FROM_CALL - Calling find_or_create_customer_from_call")
             # מצא או צור customer + lead (ללא כפילויות!)

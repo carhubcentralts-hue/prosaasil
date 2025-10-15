@@ -49,13 +49,24 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
+## BUILD 89 (October 15, 2025) - CRITICAL FIX: ImportError in Lead Creation Thread
+- **🔧 CRITICAL FIX**: Fixed ImportError causing lead creation thread to crash
+  - **ROOT CAUSE**: Thread imported non-existent `CustomerIntelligenceService` → ImportError → thread dies → no call_log created
+  - **SYMPTOM**: "No call_log found for final summary" + "Call SID not found for status update"
+  - **FIX 1**: Changed import from `CustomerIntelligenceService` to correct `CustomerIntelligence`
+  - **FIX 2**: Updated service instantiation to use correct class name
+  - **Files**: server/routes_twilio.py (lines 150, 169)
+  - **Verification**: Import test passes ✅
+- **Impact**: Lead creation thread now runs successfully - calls are saved and processed correctly
+
 ## BUILD 88 (October 15, 2025) - CRITICAL FIX: Missing to_number in Lead Creation
 - **🔧 CRITICAL FIX**: Fixed "null value in column to_number" error in lead creation thread
   - **ROOT CAUSE**: `_create_lead_from_call` created call_log without to_number → NOT NULL constraint violation
   - **FIX 1**: Added `to_number` parameter to `_create_lead_from_call` function
-  - **FIX 2**: Extract `to_number` from Twilio webhook in `incoming_call`
-  - **FIX 3**: Pass `to_number` to lead creation thread with default fallback
-  - **Files**: server/routes_twilio.py (lines 147, 194, 276, 301)
+  - **FIX 2**: Added `to_number` field to CallLog model in models_sql.py
+  - **FIX 3**: Extract `to_number` from Twilio webhook in `incoming_call`
+  - **FIX 4**: Pass `to_number` to lead creation thread with default fallback
+  - **Files**: server/routes_twilio.py, server/models_sql.py
 - **Impact**: Lead creation now works without errors - all calls save with complete data
 
 ## BUILD 87 (October 14, 2025) - CRITICAL FIX: Duplicate call_sid Race Condition
