@@ -212,9 +212,11 @@ def update_business_prompt(business_id):
         try:
             from server.services.ai_service import invalidate_business_cache
             invalidate_business_cache(business_id)
-            logger.info(f"AI cache invalidated for business {business_id} - prompt changes will apply immediately")
+            logger.info(f"🔥 AI cache invalidated for business {business_id} - prompt changes will apply immediately")
+            print(f"🔥 CACHE CLEARED for business {business_id} - next call will use new prompt!")
         except Exception as cache_error:
-            logger.error(f"Failed to invalidate AI cache: {cache_error}")
+            logger.error(f"❌ Failed to invalidate AI cache: {cache_error}")
+            print(f"❌ CACHE CLEAR FAILED: {cache_error}")
         
         # Runtime Apply - לוג הוכחה לפי ההנחיות המדויקות
         logger.info(f"AI_PROMPT loaded tenant={business_id} v={next_version}")
