@@ -312,10 +312,14 @@ class MediaStreamHandler:
                     # 📊 זיהוי קול משופר עם היסטרזיס ו-Zero-Crossing Rate
                     if self.is_calibrated:
                         # חישוב Zero-Crossing Rate למדידת דיבור רך
-                        import numpy as np
+                        zero_crossings = 0
                         try:
+                            import numpy as np
                             pcm_np = np.frombuffer(pcm16, dtype=np.int16)
                             zero_crossings = np.sum(np.diff(np.sign(pcm_np)) != 0) / len(pcm_np) if len(pcm_np) > 0 else 0
+                        except ImportError:
+                            # numpy לא מותקן - נשתמש בVAD בסיסי בלבד
+                            zero_crossings = 0
                         except:
                             zero_crossings = 0
                         
@@ -988,6 +992,12 @@ class MediaStreamHandler:
         try:
             import numpy as np
             from scipy import signal
+        except ImportError:
+            # numpy/scipy לא מותקנים - החזר כמו שזה
+            print("⚠️ numpy/scipy not available - using raw audio")
+            return pcm16_8k
+        
+        try:
             
             # המר ל-numpy array
             audio_int16 = np.frombuffer(pcm16_8k, dtype=np.int16)
@@ -1023,9 +1033,12 @@ class MediaStreamHandler:
             
             return audio_16k_int16.tobytes()
             
+        except ImportError:
+            print(f"⚠️ numpy/scipy not available - using raw audio")
+            return pcm16_8k
         except Exception as e:
-            print(f"⚠️ Audio processing failed, using simple resample: {e}")
-            # Fallback: resample פשוט ל-16kHz
+            print(f"⚠️ Audio processing failed, using raw audio: {e}")
+            # Fallback: החזר אודיו כמו שזה
             try:
                 import numpy as np
                 from scipy import signal

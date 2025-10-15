@@ -31,6 +31,7 @@ Preferred communication style: Simple, everyday language.
 - **Call Management**: TwiML generation for call routing and recording with WSS.
 - **Natural Conversation Flow**: Immediate TTS interruption and seamless turn-taking.
 - **Custom Greetings (BUILD 95)**: Initial phone greeting loads from `greeting_message` field in Business table with {{business_name}} placeholder support for personalized introductions.
+- **Business Identification Fix (BUILD 97)**: Critical fix for `to_number` extraction from Twilio WebSocket - now correctly identifies business by the phone number called, enabling proper greeting and prompt loading. Added robust numpy/scipy fallback handling to prevent crashes when packages unavailable.
 
 ## CRM Features
 - **Multi-tenant Architecture**: Business-based data isolation with intelligent business resolution.
