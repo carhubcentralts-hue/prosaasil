@@ -32,6 +32,7 @@ Preferred communication style: Simple, everyday language.
 - **Natural Conversation Flow**: Immediate TTS interruption and seamless turn-taking.
 - **Custom Greetings (BUILD 95)**: Initial phone greeting loads from `greeting_message` field in Business table with {{business_name}} placeholder support for personalized introductions.
 - **Business Identification Fix (BUILD 97)**: Critical fix for `to_number` extraction from Twilio WebSocket - now correctly identifies business by the phone number called, enabling proper greeting and prompt loading. Added robust numpy/scipy fallback handling to prevent crashes when packages unavailable.
+- **Natural TTS Upgrade (BUILD 98)**: Production-grade Hebrew TTS with WaveNet-D voice, telephony optimization @ 8kHz, SSML smart pronunciation (domain lexicon for acronyms/locations/terms), punctuation enhancement, name pronunciation helper (confidence-based hyphenation), and TTS caching for common phrases. Fully configurable via ENV flags (TTS_VOICE, TTS_RATE, TTS_PITCH, ENABLE_TTS_SSML_BUILDER, ENABLE_HEBREW_GRAMMAR_POLISH, TTS_CACHE_ENABLED).
 
 ## CRM Features
 - **Multi-tenant Architecture**: Business-based data isolation with intelligent business resolution.
@@ -57,6 +58,32 @@ Preferred communication style: Simple, everyday language.
 
 - **Twilio**: Telephony services for voice calls and WhatsApp Business API.
 - **OpenAI**: GPT-4o-mini for Hebrew real estate conversations.
-- **Google Cloud Platform**: STT Streaming for Hebrew and TTS Wavenet for natural Hebrew voice.
+- **Google Cloud Platform**: 
+  - **STT**: Streaming API v1 for Hebrew speech recognition with real estate vocabulary.
+  - **TTS**: WaveNet-D voice with telephony profile, SSML support, and smart Hebrew pronunciation.
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
+
+# Recent Changes (BUILD 98)
+
+## Natural Voice TTS Upgrade
+**Files Added:**
+- `server/services/hebrew_ssml_builder.py` - Smart SSML builder with domain lexicon and pronunciation fixes
+- `server/services/punctuation_polish.py` - Automatic punctuation enhancement for STT output
+- `.env.tts.example` - Complete TTS configuration template
+- `TTS_UPGRADE_SUMMARY.md` - Full feature documentation
+
+**Files Modified:**
+- `server/services/gcp_tts_live.py` - Core TTS with WaveNet-D, SSML, caching, and ENV configuration
+- `server/media_ws_ai.py` - Integrated upgraded TTS with punctuation polish and fallback handling
+
+**Features Delivered:**
+1. **Natural Voice**: WaveNet-D with telephony profile (8kHz) - no more "plastic" sound
+2. **Smart Pronunciation**: SSML builder with Hebrew lexicon for acronyms (CRM→"סי-אר-אם"), locations (ראשל"צ→"ראשון לציון"), phone prefixes
+3. **Punctuation Enhancement**: Automatic grammar fixes, transition word commas, cleaned speech patterns
+4. **Name Helper**: Confidence-based pronunciation (hyphenation for difficult names, letter-by-letter spelling for very low confidence)
+5. **TTS Caching**: Hash-based caching for common phrases (faster responses)
+6. **Full ENV Control**: TTS_VOICE, TTS_RATE (0.96), TTS_PITCH (-2.0), feature flags for SSML/polish/cache
+
+**Configuration:**
+See `.env.tts.example` for complete setup guide with A/B testing combinations.
