@@ -1492,7 +1492,7 @@ class MediaStreamHandler:
                 
                 if not self.business_id:
                     print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל")
-                    return "את עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
+                    return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
                 
                 # טען פרומפט מ-BusinessSettings
                 settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
@@ -1523,11 +1523,11 @@ class MediaStreamHandler:
                 return business.system_prompt
                 
             print(f"⚠️ לא נמצא פרומפט לעסק {self.business_id} - שימוש בברירת מחדל")
-            return "את עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם/עסק hardcoded
+            return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם/עסק hardcoded
             
         except Exception as e:
             print(f"❌ שגיאה בטעינת פרומפט מדאטאבייס: {e}")
-            return "את עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
+            return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
 
     def _identify_business_from_phone(self):
         """זיהוי business_id לפי to_number (המספר שאליו התקשרו) אם חסר"""
@@ -1691,7 +1691,7 @@ class MediaStreamHandler:
             # Add conversation history for context - ✅ FIXED FORMAT
             if hasattr(self, 'conversation_history') and self.conversation_history:
                 context["previous_messages"] = [
-                    f"לקוח: {item['user']}\nעוזרת: {item['bot']}"  # ✅ "עוזרת" במקום "לאה" - כללי!
+                    f"לקוח: {item['user']}\nעוזר: {item['bot']}"  # ✅ "עוזר" - כללי!
                     for item in self.conversation_history[-6:]  # עד 6 תורות אחרונים לזיכרון מלא
                 ]
             
@@ -2035,7 +2035,7 @@ class MediaStreamHandler:
                         full_conversation = ""
                         if hasattr(self, 'conversation_history') and self.conversation_history:
                             full_conversation = "\n".join([
-                                f"לקוח: {turn['user']}\nעוזרת: {turn['bot']}"  # ✅ כללי - לא hardcoded!
+                                f"לקוח: {turn['user']}\nעוזר: {turn['bot']}"  # ✅ כללי - לא hardcoded!
                                 for turn in self.conversation_history
                             ])
                         
