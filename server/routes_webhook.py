@@ -122,11 +122,11 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         note_lines = lead.notes.split('\n')
                         # ⚡ FIXED: Get more context - last 10 messages (5 exchanges)
                         for line in note_lines[-10:]:
-                            match = re.match(r'\[(WhatsApp|לאה|עוזרת)\s+\d+:\d+:\d+\]:\s*(.+)', line)  # ✅ תמיכה גם בעוזרת
+                            match = re.match(r'\[(WhatsApp|לאה|עוזרת|עוזר)\s+\d+:\d+:\d+\]:\s*(.+)', line)  # ✅ תמיכה בכולם
                             if match:
                                 sender, content = match.group(1), match.group(2).strip()
                                 # Don't truncate - keep full message
-                                previous_messages.append(f"{'לקוח' if sender == 'WhatsApp' else 'עוזרת'}: {content}")  # ✅ עוזרת!
+                                previous_messages.append(f"{'לקוח' if sender == 'WhatsApp' else 'עוזר'}: {content}")  # ✅ עוזר!
                     
                     # ⚡ STEP 4: Fast AI response with SHORT timeout
                     ai_start = time.time()
@@ -176,7 +176,7 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         db.session.add(outgoing_msg)
                     
                     # Update lead notes (FIXED: store full messages, not truncated)
-                    new_note = f"[WhatsApp {timestamp}]: {message_text}\n[עוזרת {timestamp}]: {ai_response}"  # ✅ עוזרת!
+                    new_note = f"[WhatsApp {timestamp}]: {message_text}\n[עוזר {timestamp}]: {ai_response}"  # ✅ עוזר!
                     if lead.notes:
                         # Keep only last 50 messages (25 exchanges) to prevent bloat
                         note_lines = lead.notes.split('\n')

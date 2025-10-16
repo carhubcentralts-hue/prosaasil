@@ -37,7 +37,7 @@ def initialize_production_database():
                 whatsapp_number="+972500000000",  # Default WhatsApp number
                 greeting_message="שלום! איך אפשר לעזור?",  # Default greeting
                 whatsapp_greeting="שלום! איך אפשר לעזור?",  # Default WhatsApp greeting
-                system_prompt="את עוזרת נדל\"ן מקצועית ב{{business_name}}. תפקידך לעזור ללקוחות למצוא נכסים.",  # ✅ עם placeholder!
+                system_prompt="אתה עוזר נדל\"ן מקצועי ב{{business_name}}. תפקידך לעזור ללקוחות למצוא נכסים.",  # ✅ עם placeholder!
                 voice_message="שלום מ{{business_name}}",  # ✅ עם placeholder!
                 is_active=True,
                 calls_enabled=True,

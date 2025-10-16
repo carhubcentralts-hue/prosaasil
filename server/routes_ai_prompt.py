@@ -68,7 +68,7 @@ def get_business_prompt(business_id):
             
             # הפרד לשיחות ווואטסאפ - לפי ההנחיות המדויקות
             # ✅ תיקון: העדפה לפרומפט מטבלת businesses אם קיים
-            prompt_data = settings.ai_prompt or business.system_prompt or f"את עוזרת נדל\"ן דיגיטלית של {{{{business_name}}}}. תפקידך לעזור ללקוחות למצוא נכסים."  # ✅ בלי שם hardcoded!
+            prompt_data = settings.ai_prompt or business.system_prompt or f"אתה עוזר נדל\"ן דיגיטלי של {{{{business_name}}}}. תפקידך לעזור ללקוחות למצוא נכסים."  # ✅ בלי שם hardcoded!
             try:
                 import json
                 if prompt_data.startswith('{'):
@@ -95,7 +95,7 @@ def get_business_prompt(business_id):
             })
         else:
             # Return default prompts - ✅ תיקון: השתמש בפרומפט מטבלת businesses אם זמין
-            default_prompt = business.system_prompt or "את עוזרת נדל\"ן ישראלית. תפקידך לסייע ללקוחות במציאת דירות ומשרדים."  # ✅ בלי שם hardcoded
+            default_prompt = business.system_prompt or "אתה עוזר נדל\"ן ישראלי. תפקידך לסייע ללקוחות במציאת דירות ומשרדים."  # ✅ בלי שם hardcoded
             return jsonify({
                 "calls_prompt": default_prompt,
                 "whatsapp_prompt": default_prompt,
