@@ -175,3 +175,29 @@ Voice Duration Required = 1500ms  # Was 1000ms - deliberate interruption only
 ```
 
 **Result**: Production-ready system with instant greeting, fast responses, natural conversation flow, and bulletproof stability.
+
+## Critical Business Identification Fix (BUILD 100.1)
+**Problem**: Multi-tenant routing completely broken - phone number +97233763805 not being matched to business, system falling back to business_id=1 for ALL calls!
+
+**Root Cause**: 
+Business model uses `phone_e164` as the actual DB column (mapped from `phone_number` column in DB), but exposes it as a `@property` called `phone_number`. SQLAlchemy **cannot query on properties** - only on actual columns!
+
+**Broken Code:**
+```python
+# ❌ DOES NOT WORK - phone_number is a property!
+Business.query.filter(Business.phone_number == to_number).first()
+```
+
+**Fixed Code:**
+```python
+# ✅ WORKS - phone_e164 is the actual DB column!
+Business.query.filter(Business.phone_e164 == to_number).first()
+```
+
+**Files Fixed:**
+- `server/routes_twilio.py` - incoming_call() and _create_lead_from_call()
+- `server/media_ws_ai.py` - _identify_business_by_to_number() and _load_business_prompts()
+
+**Impact**: All 3 locations where business identification by phone number happens now work correctly. Multi-tenant routing restored - each business gets correct prompts, greetings, and lead filtering!
+
+**Result**: Business identification by phone number now works perfectly - critical for multi-tenant CRM system. ✅

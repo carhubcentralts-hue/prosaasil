@@ -1,0 +1,158 @@
+
+
+
+AgentLocator
+Files
+Commands
+Search
+Packager files
+Your app is not running
+
+Run
+to preview your app.
+Search
+Time
+Deployment
+Source
+Log
+2025-10-16 12:43:08.49
+34089505
+User
+{'POST', 'OPTIONS'} /api/admin/impersonate/exit -> business_management.exit_impersonation
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/businesses
+2025-10-16 12:46:01.45
+34089505
+User
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/businesses/<int:business_id>/overview
+2025-10-16 12:46:01.45
+34089505
+User
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/overview
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/calls
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/whatsapp
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/tenants
+2025-10-16 12:46:01.45
+34089505
+User
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/calls
+2025-10-16 12:46:01.45
+34089505
+User
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/leads
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/leads/stats
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/phone-numbers
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/businesses/prompts
+2025-10-16 12:46:01.45
+34089505
+User
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/support/profile
+2025-10-16 12:46:01.45
+34089505
+User
+{'PUT', 'HEAD', 'GET', 'OPTIONS'} /api/admin/support/prompt
+2025-10-16 12:46:01.45
+34089505
+User
+{'PUT', 'HEAD', 'GET', 'OPTIONS'} /api/admin/support/phones
+2025-10-16 12:46:01.45
+34089505
+User
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/crm/threads
+2025-10-16 12:46:01.45
+34089505
+User
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/crm/threads/<thread_id>/messages
+2025-10-16 12:46:01.45
+34089505
+User
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/crm/threads/<thread_id>/summary
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/crm/customers
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/calls/active
+2025-10-16 12:46:01.45
+34089505
+User
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/calls/history
+2025-10-16 12:46:01.45
+34089505
+User
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/crm/payments
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/crm/contracts
+2025-10-16 12:46:01.45
+34089505
+User
+{'POST', 'OPTIONS'} /api/crm/contracts
+2025-10-16 12:46:01.45
+34089505
+User
+{'POST', 'OPTIONS'} /api/crm/payments/create
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/crm/payments/paypal/return/success
+2025-10-16 12:46:01.45
+34089505
+User
+2025-10-16 12:46:01.45
+34089505
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/crm/payments/paypal/return/cancel

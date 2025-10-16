@@ -166,20 +166,20 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
             
             print(f"🔵 CREATE_LEAD_FROM_CALL - App context created")
             
-            # ✅ BUILD 98: זיהוי business לפי to_number
+            # ✅ BUILD 100 FIX: זיהוי business לפי to_number - שימוש ב-phone_e164
             if not business_id:
                 from sqlalchemy import or_
                 if to_number:
                     normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
                     biz = Business.query.filter(
                         or_(
-                            Business.phone_number == to_number,
-                            Business.phone_number == normalized_phone
+                            Business.phone_e164 == to_number,
+                            Business.phone_e164 == normalized_phone
                         )
                     ).first()
                     if biz:
                         business_id = biz.id
-                        print(f"✅ Thread resolved business_id={business_id} from to_number={to_number}")
+                        print(f"✅ Thread resolved business_id={business_id} from to_number={to_number} (Business: {biz.name})")
                 
                 if not business_id:
                     biz = Business.query.filter_by(is_active=True).first()
@@ -287,7 +287,7 @@ def incoming_call():
     from_number = request.form.get("From", "")
     to_number = request.form.get("To", "")
     
-    # ✅ BUILD 98: זיהוי business לפי to_number - חיפוש ישיר ב-Business.phone_number
+    # ✅ BUILD 100: זיהוי business לפי to_number - חיפוש ישיר ב-Business.phone_e164 (העמודה האמיתית!)
     from server.models_sql import Business
     from sqlalchemy import or_
     
@@ -296,16 +296,19 @@ def incoming_call():
         normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
         business = Business.query.filter(
             or_(
-                Business.phone_number == to_number,
-                Business.phone_number == normalized_phone
+                Business.phone_e164 == to_number,
+                Business.phone_e164 == normalized_phone
             )
         ).first()
         
         if business:
             business_id = business.id
-            print(f"✅ Resolved business_id={business_id} from to_number={to_number}")
+            print(f"✅ Resolved business_id={business_id} from to_number={to_number} (Business: {business.name})")
         else:
             print(f"⚠️ No business found for to_number={to_number}")
+            # Debug: show what we have
+            all_businesses = Business.query.filter_by(is_active=True).all()
+            print(f"📋 Active businesses: {[(b.id, b.name, b.phone_e164) for b in all_businesses]}")
     
     # Fallback: עסק פעיל ראשון
     if not business_id:

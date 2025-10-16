@@ -1421,12 +1421,12 @@ class MediaStreamHandler:
     def _load_business_prompts(self, channel: str = 'calls') -> str:
         """טוען פרומפטים מהדאטאבייס לפי עסק - לפי ההנחיות המדויקות"""
         try:
-            # ✅ זיהוי business_id לפי מספר טלפון או default לעסק הראשון
+            # ✅ BUILD 100 FIX: זיהוי business_id לפי מספר טלפון - שימוש ב-phone_e164
             if not self.business_id and self.phone_number:
-                # חפש עסק לפי מספר הטלפון
+                # חפש עסק לפי מספר הטלפון (phone_e164 = העמודה האמיתית)
                 from server.models_sql import Business
                 business = Business.query.filter(
-                    Business.phone_number == self.phone_number
+                    Business.phone_e164 == self.phone_number
                 ).first()
                 if business:
                     self.business_id = business.id
@@ -1493,12 +1493,12 @@ class MediaStreamHandler:
             
             print(f"🔍 מחפש עסק: to_number={to_number}, normalized={normalized_phone}")
             
-            # חפש business לפי מספר טלפון (רק phone_number קיים!)
+            # ✅ BUILD 100 FIX: חפש business לפי phone_e164 (העמודה האמיתית ב-DB, לא property!)
             from sqlalchemy import or_
             business = Business.query.filter(
                 or_(
-                    Business.phone_number == to_number,
-                    Business.phone_number == normalized_phone
+                    Business.phone_e164 == to_number,
+                    Business.phone_e164 == normalized_phone
                 )
             ).first()
             
@@ -1507,10 +1507,10 @@ class MediaStreamHandler:
                 print(f"✅ זיהוי עסק לפי to_number {to_number}: business_id={self.business_id} (מצא: {business.name})")
                 return
             else:
-                # הדפס את כל העסקים כדי לראות מה יש
-                all_businesses = Business.query.all()
+                # Debug: הדפס את כל העסקים כדי לראות מה יש
+                all_businesses = Business.query.filter_by(is_active=True).all()
                 print(f"⚠️ לא נמצא עסק עם מספר {to_number}")
-                print(f"📋 עסקים קיימים: {[(b.id, b.name, b.phone_number) for b in all_businesses]}")
+                print(f"📋 עסקים פעילים: {[(b.id, b.name, b.phone_e164) for b in all_businesses]}")
         
         # Fallback: עסק פעיל ראשון
         from server.models_sql import Business
