@@ -66,6 +66,28 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
+## Appointment Creation Fix (BUILD 100.16)
+**Problem:** Appointments were not being created after phone calls:
+- `meeting_ready` threshold was too high (4/5 fields required)
+- Most calls only collected area + property_type + phone = 3/5
+- VAD settings caused interruptions during long speech
+
+**Solution:**
+- Lowered `meeting_ready` threshold from 4/5 to 3/5 fields (both in `_analyze_lead_completeness` and `check_and_create_appointment`)
+- Balanced VAD parameters:
+  - MIN_UTT_SEC: 0.8s (allows short replies like "yes")
+  - Adaptive silence detection: 1.0s for short utterances (<2s), 3.0s for long speech (>2s)
+  - VAD_HANGOVER: 800ms (tolerates breaths/pauses)
+  - EMERGENCY EOU: 6.0s/2.0s (no mid-sentence cuts)
+
+**Result:**
+✅ Appointments created automatically when client mentions area + property type
+✅ AI responds quickly to short answers ("כן", "תודה")
+✅ AI waits 3+ seconds of silence during long descriptions (no interruptions)
+
+**Files Modified:**
+- `server/media_ws_ai.py` - VAD parameters and meeting_ready threshold
+
 ## Cloud Run Deployment Fix (BUILD 100.15.1)
 **Problem:** Cloud Run deployment failed with multiple errors:
 - Multiple ports exposed (Cloud Run supports only one)

@@ -20,12 +20,12 @@ class ConnectionClosed(Exception):
 from server.stream_state import stream_registry
 
 SR = 8000
-# ✅ FIXED: פרמטרים מותאמים לדיבור רציף ארוך - לא קוטע באמצע!
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "3.0"))        # ✅ FIX: 3.0s - מאפשר דיבור רציף ארוך!
+# ✅ BUILD 100.16: VAD מותאם - תגובות קצרות OK, אבל ממתין לשקט אמיתי!
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.8"))        # ✅ 0.8s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
 VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "800"))  # ✅ FIX: 800ms - סובלנות יותר לנשימות/הפסקות קצרות
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "800"))  # ✅ 800ms - סובלנות לנשימות/הפסקות קצרות
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1500")) # ✅ 1500ms - יותר "קירור" אחרי תגובה
@@ -466,11 +466,17 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ✅ FIX: זיהוי שקט אמיתי - 2.0 שניות (לא קוטע באמצע משפט!)
-                            min_silence = 2.0  # ✅ 2.0s שקט - מזהה סוף דיבור אמיתי
+                            # ✅ BUILD 100.16: Balance - SHORT utterances with LONG silence detection
+                            # תגובות קצרות: min_silence קצר (1.0s)
+                            # משפטים ארוכים: min_silence ארוך (3.0s) למנוע קטיעה
+                            if dur < 2.0:
+                                min_silence = 1.0  # תגובה קצרה - מהר
+                            else:
+                                min_silence = 3.0  # משפט ארוך - ממתין לשקט אמיתי!
+                            
                             silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
-                            min_duration = 1.5  # ✅ FIX: מינימום 1.5s לתמלול איכותי (לא חתיכות קצרות)
+                            min_duration = 0.7  # ✅ מינימום נמוך לתגובות קצרות
                             
                             # ✅ EOU איכותי: באפר מספיק גדול לתמלול משמעותי
                             buffer_big_enough = len(self.buf) > 12800  # לפחות 0.8s של אודיו איכותי

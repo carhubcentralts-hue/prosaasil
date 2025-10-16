@@ -174,6 +174,7 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
 def check_and_create_appointment(call_sid: str, lead_info: dict, conversation_history: list, phone_number: str = ""):
     """
     בדיקה ויצירת פגישה אם נדרש - נקרא מתוך עיבוד השיחה
+    ✅ BUILD 100.16: Threshold lowered to 3/5 fields for easier appointment creation
     """
     # בדוק שלא נוצרה כבר פגישה לשיחה הזו
     call_log = CallLog.query.filter_by(call_sid=call_sid).first()
@@ -185,7 +186,8 @@ def check_and_create_appointment(call_sid: str, lead_info: dict, conversation_hi
     if existing_appointment:
         return {'success': False, 'reason': 'כבר קיימת פגישה לשיחה זו'}
     
-    if lead_info.get('meeting_ready', False) and lead_info.get('completed_count', 0) >= 4:
+    # ✅ BUILD 100.16: Lowered threshold from >=4 to >=3 (area + property_type + phone)
+    if lead_info.get('meeting_ready', False) and lead_info.get('completed_count', 0) >= 3:
         result = create_auto_appointment_from_call(call_sid, lead_info, conversation_history, phone_number)
         if result['success']:
             print(f"✅ Auto appointment created: {result['appointment_id']} for call {call_sid}")
