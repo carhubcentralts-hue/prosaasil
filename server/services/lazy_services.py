@@ -124,9 +124,9 @@ def get_stt_client():
         return None
 
 def warmup_services_async():
-    """Non-blocking warmup after server is listening"""
+    """⚡ Non-blocking warmup - starts immediately after app init"""
     def _warmup():
-        time.sleep(2)  # Let server stabilize first
+        time.sleep(0.5)  # ⚡ Minimal delay - just let Flask finish binding
         log.info("🔥 Starting service warmup...")
         
         # Warmup OpenAI

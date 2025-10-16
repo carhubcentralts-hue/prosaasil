@@ -93,6 +93,55 @@ def livez():
         "timestamp": datetime.now().isoformat()
     }), 200
 
+@health_bp.route('/warmup', methods=['GET', 'POST'])
+def warmup():
+    """
+    ⚡ WARMUP endpoint - Preloads all services to avoid cold start
+    Cloud Run calls this on instance startup
+    """
+    try:
+        from server.services.lazy_services import get_openai_client, get_tts_client, get_stt_client
+        
+        start = time.time()
+        results = {}
+        
+        # Warmup OpenAI
+        client = get_openai_client()
+        results['openai'] = 'ok' if client else 'unavailable'
+        
+        # Warmup TTS
+        client = get_tts_client()
+        results['tts'] = 'ok' if client else 'unavailable'
+        
+        # Warmup STT
+        client = get_stt_client()
+        results['stt'] = 'ok' if client else 'unavailable'
+        
+        # Warmup DB
+        from server.db import db
+        from sqlalchemy import text
+        try:
+            db.session.execute(text('SELECT 1'))
+            db.session.close()  # ✅ Clean up NullPool connection
+            results['database'] = 'ok'
+        except Exception as e:
+            results['database'] = f'error: {str(e)[:30]}'
+        
+        duration = int((time.time() - start) * 1000)
+        
+        return jsonify({
+            "status": "warmed",
+            "services": results,
+            "duration_ms": duration,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "status": "warmup_failed",
+            "error": str(e)[:100]
+        }), 500
+
 @health_bp.route('/db-check', methods=['GET'])
 def db_check():
     """🔧 Database connection check - shows DB driver WITHOUT password"""

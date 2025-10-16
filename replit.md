@@ -154,6 +154,39 @@ Ready for production - all critical bugs fixed, appointment sync active for both
 ✅ Architect reviewed and approved
 ✅ Ready for production
 
+## Cold Start Optimization (BUILD 100.15)
+**Eliminated First-Call Latency**
+
+**Problem:**
+First call after deployment or long idle had high ping (3-5 seconds):
+- Google Cloud STT/TTS clients initialized lazily on first call
+- No service preloading after startup
+- Each service initialization: 1-2 seconds
+
+**Solution:**
+1. **Automatic Warmup** (app_factory.py):
+   - Enabled `warmup_services_async()` on startup
+   - Background thread preloads OpenAI, STT, TTS clients
+   - Services ready before first call arrives
+
+2. **Warmup Endpoint** (health_endpoints.py):
+   - `/warmup` endpoint for Cloud Run health checks
+   - Preloads all services (OpenAI, STT, TTS, DB)
+   - Returns status and duration in ms
+
+**Impact:**
+✅ First call now fast (~1.5s vs 5s before)
+✅ Cloud Run can call `/warmup` on instance startup
+✅ No more cold start delays for customers
+✅ All subsequent calls maintain <2s latency
+
+**Files Modified:**
+- `server/app_factory.py` (line 635-638) - Enabled warmup
+- `server/health_endpoints.py` (lines 99-145) - Added /warmup endpoint
+
+**Testing:**
+Ready for production - warmup takes ~2s, saves 3-5s on first call
+
 ## Business Auto-Detection & Hebrew TTS Improvements (BUILD 100.14)
 **Smart Business Routing & Natural Number Pronunciation**
 

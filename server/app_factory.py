@@ -629,10 +629,10 @@ def create_app():
     
     # Health endpoints removed - using health_endpoints.py blueprint only
     
-    # DISABLE warmup temporarily to isolate boot issue
-    # from server.services.lazy_services import warmup_services_async
-    # warmup_services_async()
-    print("🔧 Warmup disabled for debugging")
+    # ✅ WARMUP: Preload services after startup to avoid cold start
+    from server.services.lazy_services import warmup_services_async
+    warmup_services_async()
+    print("🔥 Service warmup initiated")
     
     # דיבוג זמני CSRF (מוחקים אחרי שזה עובד) 
     @app.before_request
