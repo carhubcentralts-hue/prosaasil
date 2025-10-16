@@ -236,11 +236,11 @@ Verified syntax for all modified files. Ready for production testing.
 - **STT timeout**: 3.0s (full coverage for Hebrew multi-word phrases 2.2-2.8s)
 - **OpenAI timeout**: 3.5s (allows Hebrew responses 2.6-3.0s + network margin)
 - **Confidence check**: ≥0.5 (prevents nonsense transcriptions)
-- **Voice**: Wavenet-D (male, natural Hebrew)
+- **Voice & Language**: Wavenet-D (male voice) + male Hebrew prompts
 
 **Files Changed:**
-- `server/media_ws_ai.py`: STT timeout 3.0s (lines 1245, 1305)
-- `server/services/ai_service.py`: OpenAI timeout 3.5s (line 47)
+- `server/media_ws_ai.py`: STT timeout 3.0s (lines 1245, 1305), male conversation history (lines 1697, 2041), male fallback prompts (lines 1498, 1529, 1533)
+- `server/services/ai_service.py`: OpenAI timeout 3.5s (line 47), male prompts for calls & WhatsApp (lines 145-179)
 - `server/services/gcp_tts_live.py`: Voice D (male) default (lines 33, 88)
 
 **Expected Latency Breakdown:**
@@ -256,7 +256,8 @@ Total:        1.4-2.8s (typical: ~1.5-1.8s)
 ✅ Zero-failure AI responses (3.5s covers 2.6-3.0s + network spikes)
 ✅ Shorter, more natural responses (200 tokens vs 350)
 ✅ Production-stable with confidence checks
-✅ Male voice (Wavenet-D) as default
+✅ Male voice (Wavenet-D) + male Hebrew language throughout (prompts, conversation history)
+✅ Consistent male personality: "אתה עוזר נדלן מקצועי" (You are a professional real estate assistant - male)
 
 **Testing:**
 Production-ready settings validated for Hebrew language processing.
