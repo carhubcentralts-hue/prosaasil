@@ -1479,51 +1479,60 @@ class MediaStreamHandler:
 
     def _identify_business_from_phone(self):
         """זיהוי business_id לפי to_number (המספר שאליו התקשרו) אם חסר"""
-        # ✅ CRITICAL: All DB queries need app_context in Cloud Run/ASGI!
-        from server.app_factory import create_app
-        from server.models_sql import Business
-        from sqlalchemy import or_
-        
-        to_number = getattr(self, 'to_number', None)
-        
-        print(f"🔍 _identify_business_from_phone: to_number={to_number}")
-        
-        app = create_app()
-        with app.app_context():
-            if to_number:
-                # נרמל מספר טלפון (הסר רווחים, מקפים)
-                normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
+        try:
+            # ✅ CRITICAL: All DB queries need app_context in Cloud Run/ASGI!
+            from server.app_factory import create_app
+            from server.models_sql import Business
+            from sqlalchemy import or_
+            
+            to_number = getattr(self, 'to_number', None)
+            
+            print(f"🔍 _identify_business_from_phone: to_number={to_number}")
+            
+            app = create_app()
+            with app.app_context():
+                if to_number:
+                    # נרמל מספר טלפון (הסר רווחים, מקפים)
+                    normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
+                    
+                    print(f"🔍 מחפש עסק: to_number={to_number}, normalized={normalized_phone}")
+                    
+                    # ✅ BUILD 100 FIX: חפש business לפי phone_e164 (העמודה האמיתית ב-DB, לא property!)
+                    business = Business.query.filter(
+                        or_(
+                            Business.phone_e164 == to_number,
+                            Business.phone_e164 == normalized_phone
+                        )
+                    ).first()
+                    
+                    if business:
+                        self.business_id = business.id
+                        print(f"✅ זיהוי עסק לפי to_number {to_number}: business_id={self.business_id} (מצא: {business.name})")
+                        return
+                    else:
+                        # Debug: הדפס את כל העסקים כדי לראות מה יש
+                        all_businesses = Business.query.filter_by(is_active=True).all()
+                        print(f"⚠️ לא נמצא עסק עם מספר {to_number}")
+                        print(f"📋 עסקים פעילים: {[(b.id, b.name, b.phone_e164) for b in all_businesses]}")
                 
-                print(f"🔍 מחפש עסק: to_number={to_number}, normalized={normalized_phone}")
-                
-                # ✅ BUILD 100 FIX: חפש business לפי phone_e164 (העמודה האמיתית ב-DB, לא property!)
-                business = Business.query.filter(
-                    or_(
-                        Business.phone_e164 == to_number,
-                        Business.phone_e164 == normalized_phone
-                    )
-                ).first()
-                
+                # Fallback: עסק פעיל ראשון
+                business = Business.query.filter_by(is_active=True).first()
                 if business:
                     self.business_id = business.id
-                    print(f"✅ זיהוי עסק לפי to_number {to_number}: business_id={self.business_id} (מצא: {business.name})")
-                    return
+                    print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({business.name})")
                 else:
-                    # Debug: הדפס את כל העסקים כדי לראות מה יש
-                    all_businesses = Business.query.filter_by(is_active=True).all()
-                    print(f"⚠️ לא נמצא עסק עם מספר {to_number}")
-                    print(f"📋 עסקים פעילים: {[(b.id, b.name, b.phone_e164) for b in all_businesses]}")
-            
-            # Fallback: עסק פעיל ראשון
-            business = Business.query.filter_by(is_active=True).first()
-            if business:
-                self.business_id = business.id
-                print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({business.name})")
-            else:
-                # Ultimate fallback
-                business = Business.query.first()
-                self.business_id = business.id if business else 1
-                print(f"⚠️ שימוש בעסק ראשון: business_id={self.business_id}")
+                    # Ultimate fallback
+                    business = Business.query.first()
+                    self.business_id = business.id if business else 1
+                    print(f"⚠️ שימוש בעסק ראשון: business_id={self.business_id}")
+        
+        except Exception as e:
+            # ✅ CRITICAL: Never crash - always set fallback business_id
+            print(f"❌ Business identification failed: {e}")
+            import traceback
+            traceback.print_exc()
+            self.business_id = 1  # Ultimate fallback
+            print(f"✅ Using fallback business_id=1")
 
     def _get_business_greeting_cached(self) -> str:
         """⚡ טעינת ברכה עם cache - במיוחד מהיר לברכה הראשונה!"""
