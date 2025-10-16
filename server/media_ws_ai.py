@@ -266,7 +266,14 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
-                    # ✅ CRITICAL FIX: יצירת call_log מיד בהתחלת שיחה
+                    # ✅ CRITICAL: זיהוי עסק קודם כל - לפני call_log וברכה!
+                    from server.app_factory import create_app
+                    app = create_app()
+                    with app.app_context():
+                        self._identify_business_from_phone()
+                    print(f"✅ זוהה עסק: business_id={getattr(self, 'business_id', 'NOT SET')}")
+                    
+                    # ✅ יצירת call_log מיד בהתחלת שיחה (אחרי זיהוי עסק!)
                     if self.call_sid and not hasattr(self, '_call_log_created'):
                         self._create_call_log_on_start()
                         self._call_log_created = True
