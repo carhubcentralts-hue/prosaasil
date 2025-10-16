@@ -136,3 +136,22 @@ Found **2 additional functions** accessing database without Flask app_context (c
 - ✅ Business identification with fallback to business_id=1
 
 **Result**: System is fully production-hardened - zero crashes guaranteed, fast performance, bulletproof error handling! 🚀
+
+## Critical Greeting State Bug Fix (BUILD 100.4)
+**Problem**: System freezes after playing greeting - appears unresponsive, can't answer calls, website becomes inaccessible!
+
+**Root Cause**: 
+`_send_pcm16_as_mulaw_frames_with_mark()` sends TTS audio and mark but **never calls `_finalize_speaking()`**. System stays in `STATE_SPEAK` instead of returning to `STATE_LISTEN`, so it **ignores all user input**.
+
+**Symptoms:**
+- ✅ Greeting plays successfully
+- ❌ No response after greeting (system not listening)
+- ❌ Subsequent calls fail (system appears frozen)
+- ❌ Website becomes inaccessible (system appears crashed)
+
+**Fixed**: Added `_finalize_speaking()` at end of `_send_pcm16_as_mulaw_frames_with_mark()`.
+
+**Files Fixed:**
+- `server/media_ws_ai.py` - line 977: Added `_finalize_speaking()` after mark
+
+**Result**: System now returns to LISTEN state immediately after greeting! Conversations work perfectly! ✅

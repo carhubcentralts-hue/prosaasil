@@ -1,0 +1,137 @@
+2025-10-16 13:18:15.60
+ea3b0117
+User
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'POST', 'OPTIONS'} /api/admin/channels/ -> admin_channels.create_channel
+2025-10-16 13:18:15.60
+ea3b0117
+User
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'DELETE', 'OPTIONS'} /api/admin/channels/<int:channel_id> -> admin_channels.remove_channel
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/channels/business/<int:business_id> -> admin_channels.get_business_channels
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/channels/businesses -> admin_channels.get_businesses
+2025-10-16 13:18:15.60
+ea3b0117
+User
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'POST', 'OPTIONS'} /api/admin/impersonate/exit -> business_management.exit_impersonation
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/businesses -> admin_bp.api_kpis_businesses
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/calls -> admin_bp.api_kpis_calls
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/calls -> admin_bp.api_admin_kpis_calls
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/overview -> admin_bp.api_admin_kpis_overview
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/revenue -> admin_bp.api_kpis_revenue
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/whatsapp -> admin_bp.api_kpis_whatsapp
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/kpis/whatsapp -> admin_bp.api_admin_kpis_whatsapp
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/leads -> admin_bp.admin_leads
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/leads/stats -> admin_bp.admin_leads_stats
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/overview -> admin_bp.api_overview
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/phone-numbers -> admin_bp.admin_phone_numbers
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'POST', 'OPTIONS'} /api/admin/run-migrations -> run_migrations_endpoint
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/stats -> api_adapter.admin_stats
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'POST', 'OPTIONS'} /api/admin/statuses/initialize/<int:business_id> -> status_management.initialize_default_statuses
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'PUT', 'OPTIONS'} /api/admin/support/phones -> admin_bp.admin_support_phones
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/support/profile -> admin_bp.admin_support_profile
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'PUT', 'OPTIONS'} /api/admin/support/prompt -> admin_bp.admin_support_prompt
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/tenants -> admin_bp.api_tenants
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'POST', 'OPTIONS'} /api/admin/tenants -> ui.api_admin_tenants_create
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'POST', 'OPTIONS'} /api/admin/user -> business_management.create_user
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/admin/user/<int:user_id> -> business_management.get_user
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'PUT', 'OPTIONS'} /api/admin/user/<int:user_id> -> business_management.update_user
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'POST', 'OPTIONS'} /api/admin/user/<int:user_id>/change-password -> business_management.change_user_password
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'POST', 'OPTIONS'} /api/admin/user/<int:user_id>/toggle-status -> business_management.toggle_user_status
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/auth/csrf -> auth_api.get_csrf
+2025-10-16 13:18:15.60
+ea3b0117
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/auth/current -> auth_api.get_current_user_legacy
+
+Wrap
+
+Colors

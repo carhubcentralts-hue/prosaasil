@@ -969,15 +969,10 @@ class MediaStreamHandler:
         self._ws_send(mark_msg)
         print("🎯 TTS_MARK_SENT: assistant_tts_end")
         
-        # ✅ LONGER timeout to prevent premature cutoff
-        def mark_timeout():
-            time.sleep(0.5)  # 500ms timeout (longer)
-            if self.mark_pending and (time.time() - self.mark_sent_ts) > 0.45:
-                print("⚠️ TTS_MARK_TIMEOUT -> LISTENING") 
-                self._finalize_speaking()
-        
-        import threading
-        threading.Thread(target=mark_timeout, daemon=True).start()
+        # ✅ BUILD 100.4 FIX: סיים דיבור מיד וחזור להאזנה!
+        # הבעיה: המערכת נשארה ב-STATE_SPEAK אחרי ברכה ולא חזרה להאזנה
+        self._finalize_speaking()
+        print("✅ GREETING_COMPLETE -> LISTEN STATE")
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
         """שליחת אודיו עם יכולת עצירה באמצע (BARGE-IN) - גרסה ישנה"""
