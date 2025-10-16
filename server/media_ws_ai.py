@@ -1216,12 +1216,12 @@ class MediaStreamHandler:
             # Single request recognition (לא streaming למבע קצר)
             audio = speech.RecognitionAudio(content=pcm16_8k)
             
-            # ⚡ SPEED BOOST: Timeout אגרסיבי - 1.5s במקום 2.5s!
+            # ⚡ RELIABLE STT: Timeout מספיק לעברית - 3s
             try:
                 response = client.recognize(
                     config=recognition_config,
                     audio=audio,
-                    timeout=1.5  # ⚡ מהיר יותר - 1.5s timeout!
+                    timeout=3.0  # ✅ 3s timeout - מספיק לעברית
                 )
             except Exception as timeout_error:
                 # אם timeout - נסה basic model מיידית
@@ -1233,6 +1233,13 @@ class MediaStreamHandler:
             if response.results and response.results[0].alternatives:
                 hebrew_text = response.results[0].alternatives[0].transcript.strip()
                 confidence = response.results[0].alternatives[0].confidence
+                print(f"📊 GOOGLE_STT_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
+                
+                # ✅ CRITICAL: בדיקת confidence - לא לקבל תוצאות אקראיות!
+                if confidence < 0.5:  # confidence נמוך = לא אמין
+                    print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.5 - rejecting result")
+                    return ""  # ✅ החזר ריק במקום nonsense!
+                
                 print(f"✅ GOOGLE_STT_SUCCESS: '{hebrew_text}' (confidence: {confidence:.2f})")
                 return hebrew_text
             else:
@@ -1274,7 +1281,7 @@ class MediaStreamHandler:
             response = client.recognize(
                 config=recognition_config,
                 audio=audio,
-                timeout=2.0  # קצר יותר ל-basic
+                timeout=3.0  # ✅ 3s timeout - מספיק לעברית
             )
             
             print(f"📊 GOOGLE_STT_BASIC: Processed {len(pcm16_8k)} bytes")
@@ -1282,6 +1289,13 @@ class MediaStreamHandler:
             if response.results and response.results[0].alternatives:
                 hebrew_text = response.results[0].alternatives[0].transcript.strip()
                 confidence = response.results[0].alternatives[0].confidence
+                print(f"📊 GOOGLE_STT_BASIC_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
+                
+                # ✅ CRITICAL: בדיקת confidence - לא לקבל תוצאות אקראיות!
+                if confidence < 0.5:  # confidence נמוך = לא אמין
+                    print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.5 - rejecting result")
+                    return ""  # ✅ החזר ריק במקום nonsense!
+                
                 print(f"✅ GOOGLE_STT_BASIC_SUCCESS: '{hebrew_text}' (confidence: {confidence:.2f})")
                 return hebrew_text
             else:
