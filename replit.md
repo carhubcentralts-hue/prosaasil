@@ -63,3 +63,29 @@ Preferred communication style: Simple, everyday language.
   - **TTS**: WaveNet-D voice with telephony profile, SSML support, and smart Hebrew pronunciation.
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
+
+# Recent Changes
+
+## Cloud Run Deployment Fix (BUILD 100.15.1)
+**Problem:** Cloud Run deployment failed with multiple errors:
+- Multiple ports exposed (Cloud Run supports only one)
+- Multiple services (Baileys + Flask) in one container
+- localhost/127.0.0.1 usage for Baileys
+
+**Solution:**
+- Modified `start_production.sh` to skip Baileys if `BAILEYS_BASE_URL` is set
+- Single-service deployment (Flask only) for Cloud Run compatibility
+- External Baileys service support via environment variable
+- Automatic detection and adaptation
+
+**Required for Cloud Run:**
+Set environment variable: `BAILEYS_BASE_URL=https://your-baileys-service.com`
+
+**Files Modified:**
+- `start_production.sh` - Added BAILEYS_BASE_URL detection and conditional Baileys startup
+- `DEPLOYMENT.md` - Created comprehensive deployment guide
+
+**Testing:**
+✅ Cloud Run compatible - single service deployment
+✅ Automatic service selection based on environment
+✅ Backward compatible with development mode
