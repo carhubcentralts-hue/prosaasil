@@ -1,33 +1,72 @@
 """
 Google Cloud Text-to-Speech for Live Hebrew Response
-Real-time Hebrew TTS for Twilio calls
+✅ UPGRADED: Natural Hebrew voice with SSML, telephony profile, and smart pronunciation
 """
 from google.cloud import texttospeech
 import os
 import logging
-import tempfile
 import time
+import hashlib
+from typing import Optional, Dict
 
 log = logging.getLogger("gcp_tts_live")
 
+# ✅ Import SSML Builder
+try:
+    from server.services.hebrew_ssml_builder import get_ssml_builder, NamePronunciationHelper
+    SSML_AVAILABLE = True
+except ImportError:
+    SSML_AVAILABLE = False
+    log.warning("SSML Builder not available - using plain text")
+
+
 class HebrewTTSLive:
-    """Real-time Hebrew TTS for live call responses"""
+    """Real-time Hebrew TTS with natural voice and smart pronunciation"""
     
     def __init__(self):
         self.client = None
+        
+        # ✅ 1. קול טבעי - WaveNet-D (או C) לפי ENV
+        voice_name = os.getenv("TTS_VOICE", "he-IL-Wavenet-D")  # ✅ D = נשית טבעית
+        speaking_rate = float(os.getenv("TTS_RATE", "0.96"))     # ✅ 0.96 = קצב נעים
+        pitch = float(os.getenv("TTS_PITCH", "-2.0"))            # ✅ -2.0 = גובה טבעי
+        
+        log.info(f"TTS Config: voice={voice_name}, rate={speaking_rate}, pitch={pitch}")
+        
         self.voice = texttospeech.VoiceSelectionParams(
             language_code="he-IL",
-            name="he-IL-Wavenet-A"  # High quality Hebrew voice
+            name=voice_name
         )
-        self.audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3,
-            speaking_rate=1.1,  # Slightly faster for real-time feel
-        )
-        self.audio_config_pcm16_8k = texttospeech.AudioConfig(
+        
+        # ✅ 2. טלפוניה - effects profile + 8kHz
+        self.audio_config_telephony = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-            speaking_rate=1.1,
-            sample_rate_hertz=8000,   # ← PCM16 8kHz מונו
+            speaking_rate=speaking_rate,
+            pitch=pitch,
+            sample_rate_hertz=8000,
+            effects_profile_id=["telephony-class-application"]  # ✅ מנקה "פלסטיקיות"
         )
+        
+        # MP3 config (for UI/downloads)
+        self.audio_config_mp3 = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+            speaking_rate=speaking_rate,
+            pitch=pitch,
+            effects_profile_id=["telephony-class-application"]
+        )
+        
+        # ✅ 3. SSML Builder
+        self.enable_ssml = os.getenv("ENABLE_TTS_SSML_BUILDER", "true").lower() == "true"
+        if SSML_AVAILABLE and self.enable_ssml:
+            self.ssml_builder = get_ssml_builder(enable_ssml=True)
+            log.info("✅ SSML Builder enabled - smart pronunciation active")
+        else:
+            self.ssml_builder = None
+            log.info("ℹ️ SSML Builder disabled - using plain text")
+        
+        # ✅ 4. Cache לפתיחים נפוצים
+        self.cache_enabled = os.getenv("TTS_CACHE_ENABLED", "true").lower() == "true"
+        self.tts_cache: Dict[str, bytes] = {}
         
     def _ensure_client(self):
         """Lazy initialization of TTS client"""
@@ -37,9 +76,41 @@ class HebrewTTSLive:
                 log.info("Google Cloud TTS client initialized")
             except Exception as e:
                 log.error(f"Failed to initialize TTS client: {e}")
-                self.client = None  # Keep as None if failed
+                self.client = None
                 return False
         return True
+    
+    def _get_cache_key(self, text: str, config_name: str) -> str:
+        """יצירת מפתח cache"""
+        voice_name = os.getenv("TTS_VOICE", "he-IL-Wavenet-D")
+        rate = os.getenv("TTS_RATE", "0.96")
+        pitch = os.getenv("TTS_PITCH", "-2.0")
+        
+        # Hash של הטקסט + תצורה
+        content = f"{text}_{voice_name}_{rate}_{pitch}_{config_name}"
+        return hashlib.md5(content.encode()).hexdigest()[:16]
+    
+    def _prepare_synthesis_input(self, text: str) -> texttospeech.SynthesisInput:
+        """
+        הכנת input לסינתזה - עם SSML או טקסט רגיל
+        
+        ✅ זה הקסם - כאן קורה התיקון האוטומטי!
+        """
+        if not text.strip():
+            return texttospeech.SynthesisInput(text="")
+        
+        # אם SSML מופעל - בנה SSML חכם
+        if self.ssml_builder and self.enable_ssml:
+            try:
+                ssml_text = self.ssml_builder.build_ssml(text)
+                log.debug(f"SSML built: {len(text)} chars → {len(ssml_text)} SSML chars")
+                return texttospeech.SynthesisInput(ssml=ssml_text)
+            except Exception as e:
+                log.warning(f"SSML build failed, using plain text: {e}")
+                return texttospeech.SynthesisInput(text=text)
+        
+        # ברירת מחדל - טקסט רגיל
+        return texttospeech.SynthesisInput(text=text)
         
     def synthesize_hebrew(self, text, output_path=None):
         """סינתזה ל-MP3 (נשאר לצורכי UI/הורדה)"""
@@ -59,8 +130,8 @@ class HebrewTTSLive:
             # Ensure directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-            # Create synthesis input
-            synthesis_input = texttospeech.SynthesisInput(text=text)
+            # ✅ Create synthesis input (with SSML if enabled)
+            synthesis_input = self._prepare_synthesis_input(text)
             
             # Call TTS API
             if not self.client:
@@ -70,7 +141,7 @@ class HebrewTTSLive:
             response = self.client.synthesize_speech(
                 input=synthesis_input,
                 voice=self.voice, 
-                audio_config=self.audio_config
+                audio_config=self.audio_config_mp3
             )
             
             # Save audio file
@@ -114,24 +185,50 @@ class HebrewTTSLive:
             log.error(f"Quick Hebrew response failed: {e}")
             return None
 
-    def synthesize_hebrew_pcm16_8k(self, text: str) -> bytes | None:
-        """סינתזה ישירה ל-PCM16 8kHz (ל־Media Streams)"""
+    def synthesize_hebrew_pcm16_8k(self, text: str) -> Optional[bytes]:
+        """
+        ✅ סינתזה ישירה ל-PCM16 8kHz (ל־Media Streams) 
+        עם SSML חכם, פרופיל טלפוניה, וקול טבעי!
+        """
         try:
             if not text.strip():
                 return None
+            
+            # בדיקת cache
+            if self.cache_enabled:
+                cache_key = self._get_cache_key(text, "pcm16_8k")
+                if cache_key in self.tts_cache:
+                    log.debug(f"✅ TTS Cache hit: {text[:40]}...")
+                    return self.tts_cache[cache_key]
+            
             if not self._ensure_client():
                 log.error("TTS client not available")
                 return None
+            
             if self.client is None:
                 log.error("TTS client is None after ensure")
                 return None
-            synthesis_input = texttospeech.SynthesisInput(text=text)
+            
+            # ✅ הכנת input עם SSML חכם
+            synthesis_input = self._prepare_synthesis_input(text)
+            
+            # ✅ סינתזה עם פרופיל טלפוניה + קול טבעי
             response = self.client.synthesize_speech(
                 input=synthesis_input,
                 voice=self.voice,
-                audio_config=self.audio_config_pcm16_8k,
+                audio_config=self.audio_config_telephony,  # ✅ טלפוניה!
             )
-            return response.audio_content  # LINEAR16 bytes
+            
+            audio_bytes = response.audio_content
+            
+            # שמירה ב-cache
+            if self.cache_enabled and audio_bytes:
+                cache_key = self._get_cache_key(text, "pcm16_8k")
+                self.tts_cache[cache_key] = audio_bytes
+                log.debug(f"💾 TTS cached: {cache_key}")
+            
+            return audio_bytes
+            
         except Exception as e:
             log.error(f"TTS_PCM16_ERROR: {e}")
             return None
