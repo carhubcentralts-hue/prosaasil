@@ -20,12 +20,12 @@ class ConnectionClosed(Exception):
 from server.stream_state import stream_registry
 
 SR = 8000
-# ✅ FIXED: פרמטרים לפי ההנחיות המקצועיות
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "1.2"))        # ⚡ SPEED: 1.2s במקום 1.5s - תמלול מהיר יותר
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "8.0"))        # ✅ 8.0s - זמן מספיק לתיאור נכסים מפורט
+# ✅ FIXED: פרמטרים מותאמים לדיבור רציף ארוך - לא קוטע באמצע!
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "3.0"))        # ✅ FIX: 3.0s - מאפשר דיבור רציף ארוך!
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
 VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "250"))  # ⚡ SPEED: 250ms - תגובה מהירה יותר
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "800"))  # ✅ FIX: 800ms - סובלנות יותר לנשימות/הפסקות קצרות
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1500")) # ✅ 1500ms - יותר "קירור" אחרי תגובה
@@ -466,11 +466,11 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ⚡ FAST: זיהוי מהיר - 650ms שקט (במקום 1s)
-                            min_silence = 0.65  # ⚡ 650ms שקט - מאזן בין מהירות ואמינות
+                            # ✅ FIX: זיהוי שקט אמיתי - 2.0 שניות (לא קוטע באמצע משפט!)
+                            min_silence = 2.0  # ✅ 2.0s שקט - מזהה סוף דיבור אמיתי
                             silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
-                            min_duration = 0.8  # מינימום לתמלול איכותי
+                            min_duration = 1.5  # ✅ FIX: מינימום 1.5s לתמלול איכותי (לא חתיכות קצרות)
                             
                             # ✅ EOU איכותי: באפר מספיק גדול לתמלול משמעותי
                             buffer_big_enough = len(self.buf) > 12800  # לפחות 0.8s של אודיו איכותי
@@ -545,8 +545,8 @@ class MediaStreamHandler:
                     
                     # ✅ EOU חירום: מכריח עיבוד אם הבאפר גדול מדי
                     if (not self.processing and self.state == STATE_LISTEN and 
-                        len(self.buf) > 32000 and  # 2.0s של אודיו (סביר!)
-                        silence_time > 0.5):      # ⚡ 500ms שקט לחירום (היה 200ms)
+                        len(self.buf) > 96000 and  # ✅ FIX: 6.0s של אודיו (לא קוטע משפטים ארוכים!)
+                        silence_time > 2.0):      # ✅ FIX: 2.0s שקט לחירום - שקט אמיתי!
                         print(f"🚨 EMERGENCY EOU: {len(self.buf)/(2*SR):.1f}s audio, silence={silence_time:.2f}s")
                         # כפה EOU
                         self.processing = True
