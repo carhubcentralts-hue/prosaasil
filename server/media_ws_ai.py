@@ -1977,8 +1977,9 @@ class MediaStreamHandler:
         # ספירת מידע שנאסף
         completed_fields = sum(collected_info.values())
         
-        # תיאום פגישה אם יש לפחות 4 שדות (יותר מידע לשיחה טבעית)
-        meeting_ready = completed_fields >= 4
+        # ✅ FIX: תיאום פגישה אם יש לפחות 3 שדות (אזור + סוג נכס + טלפון)
+        # לא צריך תקציב ו-timing בהכרח!
+        meeting_ready = completed_fields >= 3
         
         # יצירת סיכום
         summary_parts = []
