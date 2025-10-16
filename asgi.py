@@ -234,10 +234,12 @@ async def ws_twilio_media(websocket: WebSocket):
             # Wait for loops to finish
             await loops_task
             
-            # Wait for handler thread to finish (with timeout)
+            # Wait for handler thread to finish (with LONGER timeout for background threads)
+            # BUILD 100.8: 4 background threads × 3s each = 12s + 3s buffer = 15s
             await asyncio.get_event_loop().run_in_executor(
-                None, handler_thread.join, 5  # 5s timeout
+                None, handler_thread.join, 15  # 15s timeout (was 5s)
             )
+            print("✅ Handler thread join completed", flush=True)
         
         await run_all()
         

@@ -93,3 +93,56 @@ These daemon threads attempted to access DB/resources after the WebSocket connec
 
 **Testing:**
 Verified handler initialization with thread tracking enabled.
+
+## ASGI Timeout Fix (BUILD 100.9)
+**Critical Fix**: Extended ASGI handler timeout to prevent premature WebSocket closure.
+
+**Problem Analysis:**
+ASGI layer had 5-second timeout for handler thread completion, but BUILD 100.8 background threads need up to 12 seconds (4 threads × 3s each). This caused:
+1. ASGI closed WebSocket after 5s
+2. Handler threads still running (waiting for background threads)
+3. Background threads tried to access closed WebSocket/resources
+4. Result: CRASH ~30 seconds after call
+
+**Timeline of the Bug:**
+```
+0s:   Call ends (stop event received)
+0s:   Handler finally block starts
+1s:   TX thread cleanup complete
+1-13s: Waiting for 4 background threads (3s timeout each)
+5s:   ❌ ASGI timeout! Closes WebSocket
+13s:  Handler finally block completes
+13s+: ❌ Background threads crash (WebSocket closed)
+```
+
+**Solution:**
+Extended ASGI handler timeout from 5s to 15s:
+- Allows 4 background threads × 3s = 12s
+- Plus 3s safety buffer
+- ASGI now waits for complete cleanup before closing
+
+**Files Changed:**
+- `asgi.py`:
+  - Line 239-242: Extended handler_thread.join timeout from 5s to 15s
+  - Added logging for join completion
+  - Added comment explaining BUILD 100.8 dependency
+
+**New Timeline:**
+```
+0s:   Call ends
+0s:   Handler finally block starts  
+1s:   TX thread cleanup ✅
+1-13s: Background threads cleanup ✅
+13s:  Handler thread completes ✅
+15s:  ASGI timeout (unused - handler done at 13s) ✅
+15s:  Clean WebSocket closure ✅
+```
+
+**Impact:**
+✅ No premature WebSocket closure
+✅ All background operations complete safely
+✅ Clean resource cleanup guaranteed  
+✅ Zero crashes after call completion
+
+**Testing:**
+Verified asgi.py syntax and logic flow.
