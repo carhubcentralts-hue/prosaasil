@@ -722,12 +722,30 @@ class MediaStreamHandler:
                 print(f"❌ STT ERROR: {e}")
                 text = ""
             
-            # ✅ FIXED: אל תגיב על טקסט ריק - פשוט חזור להאזנה!
+            # ✅ SMART HANDLING: כשלא מבין - בשקט או "לא הבנתי" אחרי כמה ניסיונות
             if not text.strip():
-                print("🚫 NO_SPEECH_DETECTED: Returning to listen mode without response")
+                # ספירת כישלונות רצופים
+                if not hasattr(self, 'consecutive_empty_stt'):
+                    self.consecutive_empty_stt = 0
+                self.consecutive_empty_stt += 1
+                
+                # אם 2 כישלונות ברצף - תגיד "לא הבנתי"
+                if self.consecutive_empty_stt >= 2:
+                    print("🚫 MULTIPLE_EMPTY_STT: Saying 'didn't understand'")
+                    self.consecutive_empty_stt = 0  # איפוס
+                    try:
+                        self._speak_simple("לא הבנתי, אפשר לחזור?")
+                    except:
+                        pass
+                else:
+                    print("🚫 NO_SPEECH_DETECTED: Staying silent (attempt 1)")
+                
                 self.state = STATE_LISTEN
                 self.processing = False
-                return  # ✅ אל תגיב בכלל - פשוט המשך להאזין
+                return
+            # ✅ איפוס מונה כישלונות - STT הצליח!
+            if hasattr(self, 'consecutive_empty_stt'):
+                self.consecutive_empty_stt = 0
             # STT result processed")
             
             # PATCH 6: Anti-duplication on user text (14s window) - WITH DEBUG
