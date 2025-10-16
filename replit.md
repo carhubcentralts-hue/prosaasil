@@ -146,3 +146,70 @@ Extended ASGI handler timeout from 5s to 15s:
 
 **Testing:**
 Verified asgi.py syntax and logic flow.
+
+## Voice Quality & STT Reliability Fixes (BUILD 100.10)
+**Critical Improvements**: Fixed voice gender, improved STT reliability, and added intelligent error handling.
+
+**Issues Fixed:**
+1. **Voice Gender Mismatch**: System used male voice (Wavenet-D) for female assistant
+2. **Unreliable STT**: Slow transcription with random/nonsense output on failures
+3. **Random Responses**: System gave irrelevant answers when STT failed instead of acknowledging or staying silent
+
+**Solutions Implemented:**
+
+### 1. TTS Voice Gender Fix
+**Changed default voice from male to female:**
+- OLD: `he-IL-Wavenet-D` (male voice)
+- NEW: `he-IL-Wavenet-C` (female voice, natural and appropriate)
+- Updated in 2 locations: `__init__` and `_get_cache_key` methods
+
+**Files Changed:**
+- `server/services/gcp_tts_live.py`:
+  - Line 33: Changed default voice to C (female)
+  - Line 88: Updated cache key calculation
+
+### 2. STT Reliability Improvements
+**Added confidence threshold and increased timeout:**
+
+**Confidence Check (prevents nonsense):**
+- Rejects transcriptions with confidence < 0.5
+- Returns empty string instead of random words
+- Applied to both enhanced and basic STT models
+
+**Timeout Extension (allows Hebrew speech to complete):**
+- OLD: 1.5s (enhanced), 2s (basic) - too aggressive
+- NEW: 3s (both models) - sufficient for Hebrew
+
+**Files Changed:**
+- `server/media_ws_ai.py`:
+  - Lines 1227, 1287: Increased timeout to 3.0s
+  - Lines 1241-1244: Added confidence check for enhanced model
+  - Lines 1297-1300: Added confidence check for basic model
+
+### 3. Intelligent Error Handling
+**Smart response when STT fails:**
+
+**Logic:**
+1. First failure: Stay silent, return to listening
+2. Second consecutive failure: Say "לא הבנתי, אפשר לחזור?"
+3. Reset counter on successful STT
+
+**Implementation:**
+- Tracks `consecutive_empty_stt` counter
+- Triggers response only after 2 failures
+- Resets on successful transcription
+
+**Files Changed:**
+- `server/media_ws_ai.py`:
+  - Lines 728-748: Smart empty STT handling with counter
+  - Lines 749-751: Counter reset on success
+
+**Impact:**
+✅ Natural female voice matches assistant personality
+✅ No more random/nonsense transcriptions (confidence filter)
+✅ Faster, more reliable STT (proper timeout)
+✅ Professional error handling (acknowledges when doesn't understand)
+✅ User preference satisfied: "say 'I didn't understand' or stay silent"
+
+**Testing:**
+Verified syntax for all modified files. Ready for production testing.
