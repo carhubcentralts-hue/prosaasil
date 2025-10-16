@@ -1234,12 +1234,12 @@ class MediaStreamHandler:
             # Single request recognition (לא streaming למבע קצר)
             audio = speech.RecognitionAudio(content=pcm16_8k)
             
-            # ⚡ FAST & RELIABLE STT: Balanced timeout with confidence check
+            # ⚡ FAST & RELIABLE STT: Optimized timeout for Hebrew multi-word phrases
             try:
                 response = client.recognize(
                     config=recognition_config,
                     audio=audio,
-                    timeout=2.0  # ✅ 2s timeout - מאוזן: מהיר אבל מספיק לעברית
+                    timeout=2.5  # ✅ 2.5s timeout - מאפשר עברית רב-מילים (2.2-2.8s טיפוסי)
                 )
             except Exception as timeout_error:
                 # אם timeout - נסה basic model מיידית
@@ -1299,7 +1299,7 @@ class MediaStreamHandler:
             response = client.recognize(
                 config=recognition_config,
                 audio=audio,
-                timeout=2.0  # ✅ 2s timeout - מאוזן: מהיר אבל מספיק לעברית
+                timeout=2.5  # ✅ 2.5s timeout - מאפשר עברית רב-מילים
             )
             
             print(f"📊 GOOGLE_STT_BASIC: Processed {len(pcm16_8k)} bytes")

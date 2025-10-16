@@ -38,10 +38,10 @@ class AIService:
     """מנגנון AI מרכזי שטוען פרומפטים מהמסד נתונים ומחבר עם OpenAI"""
     
     def __init__(self):
-        # ⚡ FAST OpenAI client with aggressive timeout
+        # ⚡ FAST OpenAI client with reliable timeout
         self.client = OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
-            timeout=2.5  # ⚡ Very fast timeout - 2.5 seconds max
+            timeout=3.0  # ⚡ Fast but reliable - allows Hebrew responses (2.6-3.0s typical)
         )
         self._cache = {}  # קאש פרומפטים לביצועים
         self._cache_timeout = 30  # ⚡ 30 שניות - קצר יותר למניעת בעיות multi-worker
