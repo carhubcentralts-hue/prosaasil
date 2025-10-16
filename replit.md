@@ -87,6 +87,12 @@ Preferred communication style: Simple, everyday language.
 
 **Files Modified:**
 - `server/media_ws_ai.py` - VAD parameters and meeting_ready threshold
+- `server/auto_meeting.py` - Aligned appointment threshold to 3 fields
+- `server/services/ai_service.py` - Added instructions to always mention magnitude (million/thousand) when discussing prices
+
+**Additional Fix - Price Magnitude:**
+- Added explicit instruction in AI prompt to always mention "מיליון", "אלף", "מיליארד" when discussing prices
+- Prevents AI from saying just numbers (e.g., "1000000" → "מיליון שקל")
 
 ## Cloud Run Deployment Fix (BUILD 100.15.1)
 **Problem:** Cloud Run deployment failed with multiple errors:
