@@ -241,6 +241,7 @@ def incoming_call_preview():
         status_callback=f"https://{host}/webhook/stream_status"
     )
     stream.parameter(name="CallSid", value=call_sid)
+    stream.parameter(name="To", value="+97237638055")  # ✅ For preview - default number
     
     return _twiml(vr)
 
@@ -313,8 +314,9 @@ def incoming_call():
         status_callback=f"https://{host}/webhook/stream_status"
     )
     
-    # ✅ CRITICAL: הוסף Parameter עם CallSid (חובה!)
+    # ✅ CRITICAL: הוסף Parameters עם CallSid + To (חובה!)
     stream.parameter(name="CallSid", value=call_sid)
+    stream.parameter(name="To", value=to_number)  # ✅ CRITICAL: שלח To ל-WebSocket!
     
     # ✅ BUILD 90: Add Record fallback (if stream fails, recording still works!)
     vr.record(
