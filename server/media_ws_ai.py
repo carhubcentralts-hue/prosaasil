@@ -21,13 +21,13 @@ from server.stream_state import stream_registry
 
 SR = 8000
 # ✅ FIXED: פרמטרים לפי ההנחיות המקצועיות
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "1.5"))        # ✅ 1.5s - יותר זמן לעברית, מפחית קטיעות
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "1.2"))        # ⚡ SPEED: 1.2s במקום 1.5s - תמלול מהיר יותר
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "8.0"))        # ✅ 8.0s - זמן מספיק לתיאור נכסים מפורט
 VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "400"))  # ✅ 400ms - זנב ארוך יותר למילים אחרונות
-RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "80")) # ✅ יותר מתון - נותן זמן לסיים
-RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "200")) # ✅ יותר מתון - פחות חיפזון
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "300"))  # ⚡ SPEED: 300ms במקום 400ms - תגובה מהירה יותר
+RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
+RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1500")) # ✅ 1500ms - יותר "קירור" אחרי תגובה
 BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","40"))  # ✅ 40 frames = ≈800ms קול רציף נדרש לקטיעה
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
@@ -265,17 +265,29 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
-                    # ✅ CRITICAL: זיהוי עסק קודם כל - לפני call_log וברכה!
-                    from server.app_factory import create_app
-                    app = create_app()
-                    with app.app_context():
-                        self._identify_business_from_phone()
-                    print(f"✅ זוהה עסק: business_id={getattr(self, 'business_id', 'NOT SET')}")
+                    # ✅ CRITICAL: זיהוי עסק וברכה - במקביל לחיסכון זמן!
+                    try:
+                        from server.app_factory import create_app
+                        app = create_app()
+                        with app.app_context():
+                            self._identify_business_from_phone()
+                            # ✅ טעינת ברכה בו-זמנית - חוסך שאילתת DB נוספת!
+                            greet = self._get_business_greeting_cached()
+                        print(f"✅ עסק וברכה זוהו: business_id={getattr(self, 'business_id', 'NOT SET')}")
+                    except Exception as e:
+                        print(f"❌ CRITICAL ERROR in business identification: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        self.business_id = 1  # fallback
+                        greet = "שלום! איך אפשר לעזור?"
                     
                     # ✅ יצירת call_log מיד בהתחלת שיחה (אחרי זיהוי עסק!)
-                    if self.call_sid and not hasattr(self, '_call_log_created'):
-                        self._create_call_log_on_start()
-                        self._call_log_created = True
+                    try:
+                        if self.call_sid and not hasattr(self, '_call_log_created'):
+                            self._create_call_log_on_start()
+                            self._call_log_created = True
+                    except Exception as e:
+                        print(f"⚠️ Call log creation failed (non-critical): {e}")
                     
                     # ✅ ברכה מיידית - בלי השהיה!
                     if not self.tx_running:
@@ -284,10 +296,13 @@ class MediaStreamHandler:
                     
                     if not self.greeting_sent:
                         print("🎯 SENDING IMMEDIATE GREETING!")
-                        # ✅ טעינת ברכה מותאמת אישית מהעסק
-                        greet = self._get_business_greeting()
-                        self._speak_simple(greet)
-                        self.greeting_sent = True
+                        try:
+                            self._speak_greeting(greet)  # ✅ פונקציה מיוחדת לברכה ללא sleep!
+                            self.greeting_sent = True
+                        except Exception as e:
+                            print(f"❌ CRITICAL ERROR sending greeting: {e}")
+                            import traceback
+                            traceback.print_exc()
                     continue
 
                 if et == "media":
@@ -378,24 +393,24 @@ class MediaStreamHandler:
                     else:
                         self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
 
-                    # ⚡ FIXED BARGE-IN: Prevent false interruptions
+                    # ⚡ FIXED BARGE-IN: Prevent false interruptions - EXTRA LONG GRACE PERIOD
                     if self.speaking and BARGE_IN:
-                        # ✅ Grace period ארוך - לאה תסיים משפטים
-                        grace_period = 2.5  # 2.5 שניות - לאה תסיים לדבר בשלמות
+                        # ✅ CRITICAL: Grace period מאוד ארוך - 4 שניות! היא חייבת לסיים משפטים!
+                        grace_period = 4.0  # 4.0 שניות - כמעט כל המשפטים נגמרים תוך 4 שניות
                         time_since_tts_start = current_time - self.speaking_start_ts
                         
                         if time_since_tts_start < grace_period:
-                            # Inside grace period - NO barge-in allowed
+                            # Inside grace period - NO barge-in allowed AT ALL
                             continue
                         
-                        # ✅ HEBREW BARGE-IN: Higher threshold to prevent interruptions
-                        barge_in_threshold = max(900, self.noise_floor * 12.0 + 400) if self.is_calibrated else 1000
+                        # ✅ HEBREW BARGE-IN: Very high threshold + longer duration required
+                        barge_in_threshold = max(1200, self.noise_floor * 15.0 + 500) if self.is_calibrated else 1500
                         is_barge_in_voice = rms > barge_in_threshold
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                                # ✅ HEBREW SPEECH: Require 1000ms continuous voice to prevent false interrupts  
-                            if self.voice_in_row >= 50:  # 1000ms קול רציף - לא נקטע בטעות
+                            # ✅ HEBREW SPEECH: Require 1500ms continuous LOUD voice to prevent false interrupts  
+                            if self.voice_in_row >= 75:  # 1500ms קול רציף חזק - ממש בטוח שזה הפרעה מכוונת
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
@@ -798,6 +813,36 @@ class MediaStreamHandler:
 
 
     # ✅ דיבור מתקדם עם סימונים לטוויליו
+    def _speak_greeting(self, text: str):
+        """⚡ TTS מהיר לברכה - ללא sleep!"""
+        if not text:
+            return
+            
+        self.speaking = True
+        self.speaking_start_ts = time.time()
+        self.state = STATE_SPEAK
+        print(f"🔊 GREETING_TTS_START: '{text}'")
+        
+        try:
+            # ⚡ בלי sleep - ברכה מיידית!
+            tts_audio = self._hebrew_tts(text)
+            if tts_audio and len(tts_audio) > 1000:
+                print(f"✅ GREETING_TTS_SUCCESS: {len(tts_audio)} bytes")
+                self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
+            else:
+                print("❌ GREETING_TTS_FAILED - sending beep")
+                self._send_beep(800)
+                self._finalize_speaking()
+        except Exception as e:
+            print(f"❌ GREETING_TTS_ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                self._send_beep(800)
+            except:
+                pass
+            self._finalize_speaking()
+    
     def _speak_simple(self, text: str):
         """TTS עם מעקב מצבים וסימונים"""
         if not text:
@@ -805,9 +850,12 @@ class MediaStreamHandler:
             
         if self.speaking:
             print("🚫 Already speaking - stopping current and starting new")
-            # ✅ FIXED: בצע interrupt מלא לפני התחלת TTS חדש
-            self._interrupt_speaking()
-            time.sleep(0.05)  # המתנה קצרה
+            try:
+                # ✅ FIXED: בצע interrupt מלא לפני התחלת TTS חדש
+                self._interrupt_speaking()
+                time.sleep(0.05)  # המתנה קצרה
+            except Exception as e:
+                print(f"⚠️ Interrupt error (non-critical): {e}")
             
         self.speaking = True
         self.speaking_start_ts = time.time()
@@ -821,8 +869,8 @@ class MediaStreamHandler:
             delattr(self, 'eou_timestamp')  # נקה למדידה הבאה
         
         try:
-            # המתנה קצרה לתחושת טבעיות
-            time.sleep(random.uniform(0.2, 0.4))
+            # ⚡ SPEED BOOST: המתנה קצרה יותר (100ms במקום 200-400ms)
+            time.sleep(0.1)
                 
             # קיצור טקסט ארוך
             if len(text) > 150:
@@ -838,8 +886,13 @@ class MediaStreamHandler:
                 self._send_beep(800)
                 self._finalize_speaking()
         except Exception as e:
-            print(f"🔊 TTS ERROR: {e} - sending beep")
-            self._send_beep(800)
+            print(f"❌ TTS_ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                self._send_beep(800)
+            except:
+                pass
             self._finalize_speaking()
     
     def _finalize_speaking(self):
@@ -1127,33 +1180,38 @@ class MediaStreamHandler:
                 print("❌ Google STT client not available - fallback to Whisper")
                 return self._whisper_fallback(pcm16_8k)
             
-            # ✅ FIXED: Google STT גמיש ופתוח לכל עברית - לא רק מילים מסוימות!
+            # ⚡ SPEED BOOST: Google STT עם timeout אגרסיבי ל-enhanced model
             recognition_config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=8000,  
                 language_code="he-IL",   # עברית ישראל
-                use_enhanced=True,       # ✅ FIXED: Enhanced model לאיכות טובה יותר
+                use_enhanced=True,       # Enhanced model לאיכות טובה יותר
                 enable_automatic_punctuation=False,  # מניעת הפרעות
-                # ✅ FIXED: רק קונטקסט עדין עם boost נמוך - לא חוסם כלום!
+                # קונטקסט קל - רק לרמז
                 speech_contexts=[
                     speech.SpeechContext(phrases=[
                         "שלום", "תודה", "כן", "לא", "בסדר", "נהדר", "ביי",
                         "דירה", "בית", "נדלן", "משרד", "חדרים", "שכירות", "קניה",
                         "תל אביב", "רמת גן", "רמלה", "לוד", "מודיעין",
                         "אלף", "מיליון", "שקל", "תקציב", "מחיר"
-                    ], boost=2.0)  # ✅ FIXED: boost נמוך מאוד - רק רמז קל לא חסימה!
+                    ], boost=2.0)
                 ]
             )
             
             # Single request recognition (לא streaming למבע קצר)
             audio = speech.RecognitionAudio(content=pcm16_8k)
             
-            # ✅ FIXED: נסה ראשון עם enhanced model, אם נכשל - נסה basic
-            response = client.recognize(
-                config=recognition_config,
-                audio=audio,
-                timeout=2.5  # ✅ קצת יותר מהיר ל-enhanced model
-            )
+            # ⚡ SPEED BOOST: Timeout אגרסיבי - 1.5s במקום 2.5s!
+            try:
+                response = client.recognize(
+                    config=recognition_config,
+                    audio=audio,
+                    timeout=1.5  # ⚡ מהיר יותר - 1.5s timeout!
+                )
+            except Exception as timeout_error:
+                # אם timeout - נסה basic model מיידית
+                print(f"⚠️ ENHANCED_MODEL_TIMEOUT ({timeout_error}) - switching to basic")
+                return self._google_stt_basic_fallback(pcm16_8k)
             
             print(f"📊 GOOGLE_STT_ENHANCED: Processed {len(pcm16_8k)} bytes")
             
@@ -1466,6 +1524,39 @@ class MediaStreamHandler:
             self.business_id = business.id if business else 1
             print(f"⚠️ שימוש בעסק ראשון: business_id={self.business_id}")
 
+    def _get_business_greeting_cached(self) -> str:
+        """⚡ טעינת ברכה עם cache - במיוחד מהיר לברכה הראשונה!"""
+        # קודם כל - בדוק אם יש business_id
+        if not hasattr(self, 'business_id') or not self.business_id:
+            print(f"⚠️ business_id חסר בקריאה ל-_get_business_greeting_cached!")
+            return "שלום! איך אפשר לעזור?"
+        
+        try:
+            from server.models_sql import Business
+            
+            # ⚡ שאילתה בודדת - קל ומהיר
+            business = Business.query.get(self.business_id)
+            
+            if business:
+                # קבלת הברכה המותאמת
+                greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
+                business_name = business.name or "העסק שלנו"
+                
+                # החלפת placeholder בשם האמיתי
+                greeting = greeting.replace("{{business_name}}", business_name)
+                greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                
+                print(f"✅ ברכה נטענה במהירות: business_id={self.business_id}, name={business_name}")
+                return greeting
+            else:
+                print(f"⚠️ Business {self.business_id} לא נמצא - ברכה ברירת מחדל")
+                return "שלום! איך אפשר לעזור?"
+        except Exception as e:
+            print(f"❌ שגיאה בטעינת ברכה: {e}")
+            import traceback
+            traceback.print_exc()
+            return "שלום! איך אפשר לעזור?"
+    
     def _get_business_greeting(self) -> str:
         """טעינת ברכה מותאמת אישית מהעסק עם {{business_name}} placeholder"""
         print(f"🔍 _get_business_greeting CALLED! business_id={getattr(self, 'business_id', 'NOT SET')}")
