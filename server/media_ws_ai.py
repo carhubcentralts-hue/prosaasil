@@ -1575,47 +1575,70 @@ class MediaStreamHandler:
     
     
     def _hebrew_tts(self, text: str) -> bytes | None:
-        """Hebrew Text-to-Speech using Google Cloud TTS with Wavenet voice"""
+        """
+        ✅ UPGRADED Hebrew TTS with natural voice, SSML, and smart pronunciation
+        Uses gcp_tts_live.py with all professional enhancements
+        """
         try:
-            print(f"🔊 TTS_START: Generating Hebrew TTS with Google Wavenet for '{text[:50]}...' (length: {len(text)} chars)")
-            from server.services.lazy_services import get_tts_client
-            from google.cloud import texttospeech
+            print(f"🔊 TTS_START: Generating Natural Hebrew TTS for '{text[:50]}...' ({len(text)} chars)")
             
-            client = get_tts_client()
-            if not client:
-                print("❌ Google TTS client not available")
-                return None
+            # ✅ OPTION 1: Use punctuation polish if enabled
+            try:
+                from server.services.punctuation_polish import polish_hebrew_text
+                text = polish_hebrew_text(text)
+                print(f"✅ Punctuation polished: '{text[:40]}...'")
+            except Exception as e:
+                print(f"⚠️ Punctuation polish unavailable: {e}")
             
-            synthesis_input = texttospeech.SynthesisInput(text=text)
-            voice = texttospeech.VoiceSelectionParams(
-                language_code="he-IL",
-                name="he-IL-Wavenet-A"  # ✅ Wavenet - הקול הטוב ביותר לעברית
-            )
-            audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-                sample_rate_hertz=8000,
-                speaking_rate=TTS_SPEAKING_RATE,   # ✅ קצב דיבור מותאם מסביבה
-                pitch=0.0,
-                effects_profile_id=["telephony-class-application"],  # אופטימיזציה לטלפון
-                volume_gain_db=2.0   # ✅ עוצמה קצת יותר נגישה
-            )
-            
-            response = client.synthesize_speech(
-                input=synthesis_input,
-                voice=voice,
-                audio_config=audio_config
-            )
-            
-            # ✅ תיקון חישוב זמן נכון: 8000Hz, 2 bytes per sample
-            duration_seconds = len(response.audio_content) / (8000 * 2)
-            print(f"✅ TTS_SUCCESS: Generated {len(response.audio_content)} bytes of Wavenet audio ({duration_seconds:.1f}s actual)")
-            return response.audio_content
+            # ✅ OPTION 2: Use upgraded TTS with SSML, natural voice, telephony profile
+            try:
+                from server.services.gcp_tts_live import get_hebrew_tts
+                tts_service = get_hebrew_tts()
+                audio_bytes = tts_service.synthesize_hebrew_pcm16_8k(text)
+                
+                if audio_bytes and len(audio_bytes) > 1000:
+                    duration_seconds = len(audio_bytes) / (8000 * 2)
+                    print(f"✅ TTS_SUCCESS: {len(audio_bytes)} bytes Natural Wavenet ({duration_seconds:.1f}s)")
+                    return audio_bytes
+                else:
+                    print("⚠️ TTS returned empty or too short")
+                    return None
+                    
+            except ImportError as ie:
+                print(f"⚠️ Upgraded TTS unavailable ({ie}), using fallback...")
+                
+                # ✅ FALLBACK: Basic Google TTS (if upgraded version fails)
+                from server.services.lazy_services import get_tts_client
+                from google.cloud import texttospeech
+                
+                client = get_tts_client()
+                if not client:
+                    print("❌ Google TTS client not available")
+                    return None
+                
+                synthesis_input = texttospeech.SynthesisInput(text=text)
+                voice = texttospeech.VoiceSelectionParams(language_code="he-IL", name="he-IL-Wavenet-D")
+                audio_config = texttospeech.AudioConfig(
+                    audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+                    sample_rate_hertz=8000,
+                    speaking_rate=float(os.getenv("TTS_RATE", "0.96")),
+                    pitch=float(os.getenv("TTS_PITCH", "-2.0")),
+                    effects_profile_id=["telephony-class-application"]
+                )
+                
+                response = client.synthesize_speech(
+                    input=synthesis_input,
+                    voice=voice,
+                    audio_config=audio_config
+                )
+                
+                duration_seconds = len(response.audio_content) / (8000 * 2)
+                print(f"✅ TTS_FALLBACK_SUCCESS: {len(response.audio_content)} bytes ({duration_seconds:.1f}s)")
+                return response.audio_content
             
         except Exception as e:
             print(f"❌ TTS_CRITICAL_ERROR: {e}")
             print(f"   Text was: '{text}'")
-            print(f"   Check Google Cloud credentials!")
-            # ✅ תיקון קריטי: אל תקריס - המשך לעבוד
             import traceback
             traceback.print_exc()
             return None
