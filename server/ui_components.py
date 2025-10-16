@@ -105,6 +105,9 @@ def render_toast_message(message_type, title, description="", action_url="", act
     color_class = colors.get(message_type, colors['info'])
     icon = icons.get(message_type, icons['info'])
     
+    desc_html = f'<p class="text-sm mt-1">{description}</p>' if description else ''
+    action_html = f'<a href="{action_url}" class="text-sm underline mt-2 block">{action_text}</a>' if action_url else ''
+    
     html = f'''
     <div class="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full" id="toast-message">
         <div class="border rounded-lg p-4 {color_class} shadow-lg">
@@ -112,8 +115,8 @@ def render_toast_message(message_type, title, description="", action_url="", act
                 <span class="flex-shrink-0 ml-3">{icon}</span>
                 <div class="flex-grow">
                     <h4 class="font-medium">{title}</h4>
-                    {'<p class="text-sm mt-1">' + description + '</p>' if description else ''}
-                    {'<a href="' + action_url + '" class="text-sm underline mt-2 block">' + action_text + '</a>' if action_url else ''}
+                    {desc_html}
+                    {action_html}
                 </div>
                 <button onclick="document.getElementById('toast-message').remove()" class="flex-shrink-0 mr-3 text-gray-400 hover:text-gray-600">
                     ✕
@@ -122,13 +125,13 @@ def render_toast_message(message_type, title, description="", action_url="", act
         </div>
     </div>
     <script>
-        setTimeout(function() {
+        setTimeout(function() {{
             var toast = document.getElementById('toast-message');
-            if (toast) {
+            if (toast) {{
                 toast.style.opacity = '0';
-                setTimeout(function() { toast.remove(); }, 300);
-            }
-        }, 5000);
+                setTimeout(function() {{ toast.remove(); }}, 300);
+            }}
+        }}, 5000);
     </script>
     '''
     
@@ -137,12 +140,14 @@ def render_toast_message(message_type, title, description="", action_url="", act
 def render_error_state(error_message, retry_url="", retry_text="נסה שוב"):
     """Professional error states with retry options"""
     
+    retry_button = f'<button hx-get="{retry_url}" hx-target="#main-content" class="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700">{retry_text}</button>' if retry_url else ''
+    
     return f'''
     <div class="text-center p-8 bg-red-50 rounded-lg border border-red-200">
         <div class="text-red-600 text-4xl mb-4">⚠️</div>
         <h3 class="text-lg font-medium text-red-800 mb-2">משהו השתבש</h3>
         <p class="text-red-700 mb-4">{error_message}</p>
-        f'<button hx-get="{retry_url}" hx-target="#main-content" class="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700">{retry_text}</button>' if retry_url else ''
+        {retry_button}
         <p class="text-sm text-red-600 mt-4">אם הבעיה נמשכת, פנה לתמיכה טכנית</p>
     </div>
     '''
@@ -150,12 +155,14 @@ def render_error_state(error_message, retry_url="", retry_text="נסה שוב"):
 def render_empty_state(title, description, action_url="", action_text=""):
     """Professional empty states with call-to-action"""
     
+    action_button = f'<button hx-get="{action_url}" hx-target="#main-content" class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700">{action_text}</button>' if action_url else ''
+    
     return f'''
     <div class="text-center p-12 bg-gray-50 rounded-lg border border-gray-200">
         <div class="text-gray-400 text-6xl mb-4">📋</div>
         <h3 class="text-lg font-medium text-gray-900 mb-2">{title}</h3>
         <p class="text-gray-600 mb-6">{description}</p>
-        f'<button hx-get="{action_url}" hx-target="#main-content" class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700">{action_text}</button>' if action_url else ''
+        {action_button}
     </div>
     '''
 
