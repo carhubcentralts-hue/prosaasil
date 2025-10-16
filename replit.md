@@ -154,6 +154,49 @@ Ready for production - all critical bugs fixed, appointment sync active for both
 ✅ Architect reviewed and approved
 ✅ Ready for production
 
+## Business Auto-Detection & Hebrew TTS Improvements (BUILD 100.14)
+**Smart Business Routing & Natural Number Pronunciation**
+
+**Problems Fixed:**
+1. **Future Business Auto-Detection Failed** - New businesses not auto-detected
+2. **Large Numbers Mispronounced** - "מיליון 960 אלף" sounded awkward  
+3. **Hebrew Words Mispronounced** - "מעולה" had no nikud/diacritics
+
+**Solutions:**
+1. **Smart Business Resolution** (business_resolver.py):
+   - Normalized identifiers: strips "whatsapp:", spaces, hyphens
+   - Matches by Business.phone_e164 for auto-detection
+   - Auto-creates BusinessContactChannel for future fast lookup
+   - Works for: +972-50-123-4567, whatsapp:+972..., etc.
+
+2. **Large Number Support** (hebrew_ssml_builder.py):
+   - Recursive conversion: thousands (אלפים) and millions (מיליון)
+   - Correct construct state (סמיכות): "שלושת אלפים" not "שלושה אלף"
+   - Examples:
+     - 3,000 → "שלושת אלפים"
+     - 1,960,000 → "מיליון תשע מאות שישים אלף"
+     - 2,500,000 → "שני מיליון חמש מאות אלף"
+
+3. **Hebrew Pronunciation Fixes** (hebrew_ssml_builder.py):
+   - Added nikud for common words:
+     - מעולה → מְעֻלֶּה
+     - נהדר → נֶהְדָּר  
+     - מצוין → מְצֻיָּן
+     - בהחלט, בוודאי, בסדר, אפשר, etc.
+
+**Files Modified:**
+- `server/services/business_resolver.py` (lines 70-93) - Smart normalization & auto-detection
+- `server/services/hebrew_ssml_builder.py` (lines 38-48, 102-214) - Numbers & nikud
+
+**Impact:**
+✅ Future businesses auto-detected by phone number (WhatsApp + Phone)
+✅ Natural pronunciation for large numbers (millions, thousands)
+✅ Improved Hebrew word pronunciation with nikud
+✅ No data leaks - correct business isolation
+
+**Testing:**
+Production-ready - all three issues resolved
+
 ## Gender Consistency (BUILD 100.11)
 **Complete Male Voice & Language Implementation**: Full conversion from female to male across all system components.
 

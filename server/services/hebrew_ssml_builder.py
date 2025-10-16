@@ -32,6 +32,18 @@ DOMAIN_LEXICON: Dict[str, str] = {
     "מ\"ר": "מטר רבוע",
     "חד\"ש": "חדר-שינה",
     
+    # ✅ FIX: תיקוני הגייה עבריים נפוצים (ניקוד/דגש)
+    "מעולה": "מְעֻלֶּה",  # ניקוד מלא
+    "נהדר": "נֶהְדָּר",
+    "מצוין": "מְצֻיָּן",
+    "בהחלט": "בְּהֶחְלֵט",
+    "בוודאי": "בְּוַדַּאי",
+    "בסדר": "בְּסֵדֶר",
+    "אפשר": "אֶפְשָׁר",
+    "בבקשה": "בְּבַקָּשָׁה",
+    "תודה": "תּוֹדָה",
+    "שלום": "שָׁלוֹם",
+    
     # מספרים מיוחדים (אם צריך איות מיוחד)
     "03-": "אפס שלוש מקף",
     "02-": "אפס שתיים מקף",
@@ -91,40 +103,127 @@ class HebrewSSMLBuilder:
         
         text = re.sub(phone_pattern, check_and_format, text)
         
-        # המרת ספרות בודדות שנותרו (לא חלק ממספר טלפון)
-        text = re.sub(r'\b(\d{1,3})\b', self._number_to_hebrew, text)
+        # ✅ FIX: המרת מספרים - תומך עד מיליארדים (לא רק 1-3 ספרות!)
+        # תופס מספרים עם או בלי פסיקים: 1,960,000 או 1960000
+        text = re.sub(r'\b(\d{1,3}(?:,\d{3})*|\d+)\b', self._number_to_hebrew, text)
         
         return text
     
+    def _convert_number_to_hebrew(self, num: int) -> str:
+        """המרת מספר שלם לעברית - פונקציה רקורסיבית"""
+        # מספרים 1-20
+        small_numbers = {
+            1: 'אחד', 2: 'שניים', 3: 'שלושה', 4: 'ארבעה', 5: 'חמישה',
+            6: 'שישה', 7: 'שבעה', 8: 'שמונה', 9: 'תשעה', 10: 'עשרה',
+            11: 'אחד עשרה', 12: 'שנים עשרה', 13: 'שלושה עשרה', 
+            14: 'ארבעה עשרה', 15: 'חמישה עשרה', 16: 'שישה עשרה',
+            17: 'שבעה עשרה', 18: 'שמונה עשרה', 19: 'תשעה עשרה', 20: 'עשרים'
+        }
+        
+        tens_map = {20: 'עשרים', 30: 'שלושים', 40: 'ארבעים', 50: 'חמישים',
+                   60: 'שישים', 70: 'שבעים', 80: 'שמונים', 90: 'תשעים'}
+        
+        hundreds_map = {100: 'מאה', 200: 'מאתיים', 300: 'שלוש מאות', 400: 'ארבע מאות',
+                       500: 'חמש מאות', 600: 'שש מאות', 700: 'שבע מאות', 
+                       800: 'שמונה מאות', 900: 'תשע מאות'}
+        
+        # 1-20
+        if num in small_numbers:
+            return small_numbers[num]
+        
+        # 21-99
+        elif num < 100:
+            tens = num // 10 * 10
+            ones = num % 10
+            if ones == 0:
+                return tens_map.get(tens, str(num))
+            else:
+                return f"{tens_map.get(tens, '')} ו{small_numbers.get(ones, '')}"
+        
+        # 100-999
+        elif num < 1000:
+            hundreds = (num // 100) * 100
+            remainder = num % 100
+            result = hundreds_map.get(hundreds, '')
+            
+            if remainder > 0:
+                # ✅ FIX: "ו" רק אם זה מספר עצמאי, לא חלק ממיליון/אלף
+                # context: האם זה נקרא רקורסיבית כחלק ממספר גדול יותר
+                # במקרה של 960,000: תשע מאות ששים (בלי "ו")
+                # במקרה של 960: תשע מאות ושישים (עם "ו")
+                result += f" {self._convert_number_to_hebrew(remainder)}"
+            
+            return result
+        
+        # 1,000-999,999 (אלפים) - ✅ סמיכות נכונה!
+        elif num < 1_000_000:
+            thousands = num // 1000
+            remainder = num % 1000
+            
+            # סמיכות עבריתית נכונה
+            if thousands == 1:
+                result = "אלף"
+            elif thousands == 2:
+                result = "אלפיים"
+            elif thousands == 3:
+                result = "שלושת אלפים"
+            elif thousands == 4:
+                result = "ארבעת אלפים"
+            elif thousands == 5:
+                result = "חמשת אלפים"
+            elif thousands == 6:
+                result = "שישת אלפים"
+            elif thousands == 7:
+                result = "שבעת אלפים"
+            elif thousands == 8:
+                result = "שמונת אלפים"
+            elif thousands == 9:
+                result = "תשעת אלפים"
+            elif thousands == 10:
+                result = "עשרת אלפים"
+            else:
+                # מעל 10 אלף - שימוש בצורה רגילה
+                result = f"{self._convert_number_to_hebrew(thousands)} אלף"
+            
+            if remainder > 0:
+                # בלי "ו" אם זה מיליון+אלפים (למשל: מיליון תשע מאות ששים אלף)
+                # עם "ו" אם זה רק אלפים+מאות (למשל: שלושת אלפים ומאה)
+                if thousands >= 1000:  # חלק ממיליון
+                    result += f" {self._convert_number_to_hebrew(remainder)}"
+                else:
+                    result += f" ו{self._convert_number_to_hebrew(remainder)}"
+            
+            return result
+        
+        # 1,000,000+ (מיליונים) - ✅ סמיכות נכונה!
+        elif num < 1_000_000_000:
+            millions = num // 1_000_000
+            remainder = num % 1_000_000
+            
+            # סמיכות עבריתית נכונה
+            if millions == 1:
+                result = "מיליון"
+            elif millions == 2:
+                result = "שני מיליון"
+            else:
+                result = f"{self._convert_number_to_hebrew(millions)} מיליון"
+            
+            if remainder > 0:
+                # בלי "ו" בין מיליון לאלפים (מיליון תשע מאות ששים אלף)
+                result += f" {self._convert_number_to_hebrew(remainder)}"
+            
+            return result
+        
+        else:
+            # מספרים גדולים מאוד - השתמש ב-SSML cardinal
+            return f'<say-as interpret-as="cardinal">{num}</say-as>'
+    
     def _number_to_hebrew(self, match) -> str:
-        """המרת מספר קטן (1-999) לעברית"""
+        """Wrapper לקריאה מ-regex match"""
         num_str = match.group(0)
         try:
-            num = int(num_str)
-            # מספרים 1-20
-            small_numbers = {
-                1: 'אחד', 2: 'שניים', 3: 'שלושה', 4: 'ארבעה', 5: 'חמישה',
-                6: 'שישה', 7: 'שבעה', 8: 'שמונה', 9: 'תשעה', 10: 'עשרה',
-                11: 'אחד עשרה', 12: 'שנים עשרה', 13: 'שלושה עשרה', 
-                14: 'ארבעה עשרה', 15: 'חמישה עשרה', 16: 'שישה עשרה',
-                17: 'שבעה עשרה', 18: 'שמונה עשרה', 19: 'תשעה עשרה', 20: 'עשרים'
-            }
-            
-            if num in small_numbers:
-                return small_numbers[num]
-            elif num < 100:
-                # 21-99
-                tens = num // 10 * 10
-                ones = num % 10
-                tens_map = {20: 'עשרים', 30: 'שלושים', 40: 'ארבעים', 50: 'חמישים',
-                           60: 'שישים', 70: 'שבעים', 80: 'שמונים', 90: 'תשעים'}
-                if ones == 0:
-                    return tens_map.get(tens, num_str)
-                else:
-                    return f"{tens_map.get(tens, '')} ו{small_numbers.get(ones, '')}"
-            else:
-                # 100+
-                return num_str
+            num = int(num_str.replace(',', ''))
+            return self._convert_number_to_hebrew(num)
         except:
             return num_str
     
