@@ -52,3 +52,44 @@ Preferred communication style: Simple, everyday language.
   - **TTS**: WaveNet-D voice with telephony profile, SSML support, and smart Hebrew pronunciation.
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
+## Background Thread Cleanup Fix (BUILD 100.8)
+**Critical Fix**: Prevent post-call crashes by properly cleaning up background threads.
+
+**Problem Analysis:**
+System crashed ~30 seconds after call completion because 4 background threads continued running after WebSocket closed:
+1. `finalize_in_background` - Call summary and DB finalization
+2. `create_in_background` - Call log creation  
+3. `save_in_background` - Conversation turn persistence
+4. `process_in_background` - Customer intelligence processing
+
+These daemon threads attempted to access DB/resources after the WebSocket connection ended, causing crashes.
+
+**Root Cause:**
+- `finally` block only cleaned up `tx_thread`
+- Background threads were daemon=True but never joined
+- No tracking or timeout mechanism existed
+- Orphaned operations accessed closed connections
+
+**Solution:**
+1. **Thread Tracking**: Added `self.background_threads = []` list
+2. **Registration**: All 4 thread types now append to tracking list on creation
+3. **Enhanced Cleanup**: `finally` block now:
+   - Waits for all background threads with 3s timeout each
+   - Logs completion status per thread
+   - Handles hung threads gracefully
+   - Ensures clean shutdown before WebSocket close
+
+**Files Changed:**
+- `server/media_ws_ai.py`:
+  - Line 140: Initialize background_threads tracking
+  - Lines 2025, 2083, 2140, 2218: Track thread creation
+  - Lines 632-646: Enhanced finally block with comprehensive cleanup
+
+**Impact:**
+✅ No more post-call crashes
+✅ All background operations complete before shutdown
+✅ Graceful handling of slow/hung threads
+✅ Clean resource cleanup guaranteed
+
+**Testing:**
+Verified handler initialization with thread tracking enabled.

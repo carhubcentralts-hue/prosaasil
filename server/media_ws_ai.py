@@ -132,6 +132,9 @@ class MediaStreamHandler:
         
         # היסטוריית שיחה למעקב אחר הקשר
         self.conversation_history = []  # רשימה של הודעות {'user': str, 'bot': str}
+        
+        # ✅ CRITICAL: Track background threads for proper cleanup
+        self.background_threads = []
 
     def run(self):
         # Media stream handler initialized")
@@ -622,6 +625,23 @@ class MediaStreamHandler:
                     self.tx_thread.join(timeout=1.0)
                 except:
                     pass
+            
+            # ✅ CRITICAL: Wait for all background threads to complete
+            # This prevents crashes when threads access DB after WebSocket closes
+            if hasattr(self, 'background_threads') and self.background_threads:
+                print(f"🧹 Waiting for {len(self.background_threads)} background threads...")
+                for i, thread in enumerate(self.background_threads):
+                    if thread.is_alive():
+                        try:
+                            thread.join(timeout=3.0)  # Max 3 seconds per thread
+                            if thread.is_alive():
+                                print(f"⚠️ Background thread {i} still running after timeout")
+                            else:
+                                print(f"✅ Background thread {i} completed")
+                        except Exception as e:
+                            print(f"❌ Error joining thread {i}: {e}")
+                print(f"✅ All background threads cleanup complete")
+            
             try: 
                 self.ws.close()
             except: 
@@ -2016,6 +2036,7 @@ class MediaStreamHandler:
             # רוץ ברקע
             thread = threading.Thread(target=finalize_in_background, daemon=True)
             thread.start()
+            self.background_threads.append(thread)  # ✅ Track for cleanup
             
         except Exception as e:
             print(f"❌ Call finalization setup failed: {e}")
@@ -2073,6 +2094,7 @@ class MediaStreamHandler:
             # רוץ ברקע
             thread = threading.Thread(target=create_in_background, daemon=True)
             thread.start()
+            self.background_threads.append(thread)  # ✅ Track for cleanup
             
         except Exception as e:
             print(f"❌ Call log creation setup failed: {e}")
@@ -2129,6 +2151,7 @@ class MediaStreamHandler:
             # רוץ ברקע כדי לא לחסום
             thread = threading.Thread(target=save_in_background, daemon=True)
             thread.start()
+            self.background_threads.append(thread)  # ✅ Track for cleanup
             
         except Exception as e:
             print(f"❌ Conversation turn save setup failed: {e}")
@@ -2206,6 +2229,7 @@ class MediaStreamHandler:
             # הרץ ברקע כדי לא לחסום את השיחה
             thread = threading.Thread(target=process_in_background, daemon=True)
             thread.start()
+            self.background_threads.append(thread)  # ✅ Track for cleanup
             
         except Exception as e:
             print(f"❌ Customer Intelligence setup failed: {e}")
