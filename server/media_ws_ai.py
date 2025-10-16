@@ -1532,25 +1532,29 @@ class MediaStreamHandler:
             return "שלום! איך אפשר לעזור?"
         
         try:
+            # ✅ CRITICAL FIX: Must have app_context for DB query in Cloud Run/ASGI!
+            from server.app_factory import create_app
             from server.models_sql import Business
             
-            # ⚡ שאילתה בודדת - קל ומהיר
-            business = Business.query.get(self.business_id)
-            
-            if business:
-                # קבלת הברכה המותאמת
-                greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
-                business_name = business.name or "העסק שלנו"
+            app = create_app()
+            with app.app_context():
+                # ⚡ שאילתה בודדת - קל ומהיר
+                business = Business.query.get(self.business_id)
                 
-                # החלפת placeholder בשם האמיתי
-                greeting = greeting.replace("{{business_name}}", business_name)
-                greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
-                
-                print(f"✅ ברכה נטענה במהירות: business_id={self.business_id}, name={business_name}")
-                return greeting
-            else:
-                print(f"⚠️ Business {self.business_id} לא נמצא - ברכה ברירת מחדל")
-                return "שלום! איך אפשר לעזור?"
+                if business:
+                    # קבלת הברכה המותאמת
+                    greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
+                    business_name = business.name or "העסק שלנו"
+                    
+                    # החלפת placeholder בשם האמיתי
+                    greeting = greeting.replace("{{business_name}}", business_name)
+                    greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                    
+                    print(f"✅ ברכה נטענה במהירות: business_id={self.business_id}, name={business_name}")
+                    return greeting
+                else:
+                    print(f"⚠️ Business {self.business_id} לא נמצא - ברכה ברירת מחדל")
+                    return "שלום! איך אפשר לעזור?"
         except Exception as e:
             print(f"❌ שגיאה בטעינת ברכה: {e}")
             import traceback
