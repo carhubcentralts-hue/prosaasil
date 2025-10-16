@@ -103,9 +103,15 @@ def extract_appointment_info_from_whatsapp(message_text: str, customer_phone: st
     
     return info
 
-def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp_message_id: Optional[int] = None) -> Dict:
+def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp_message_id: Optional[int] = None, business_id: Optional[int] = None) -> Dict:
     """
     יוצר פגישה מתוך הודעת ווצאפ
+    
+    Args:
+        customer_phone: מספר טלפון של הלקוח
+        message_text: תוכן ההודעה
+        whatsapp_message_id: מזהה ההודעה ב-DB
+        business_id: מזהה העסק (אם ידוע)
     """
     try:
         # חילוץ מידע מההודעה
@@ -118,19 +124,21 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
                 'score': appointment_info['criteria_score']
             }
         
+        # ✅ FIX: Use provided business_id or fallback
+        if not business_id:
+            business = Business.query.first()
+            business_id = business.id if business else 1
+        
         # חיפוש או יצירת לקוח
-        customer = Customer.query.filter_by(phone_e164=customer_phone).first()
+        # ✅ FIX: Filter by both phone AND business_id for multi-tenant safety
+        customer = Customer.query.filter_by(phone_e164=customer_phone, business_id=business_id).first()
         if not customer:
             # יצירת לקוח חדש
             customer = Customer()
             customer.name = f"לקוח מווצאפ {customer_phone[-4:]}"
             customer.phone_e164 = customer_phone
             customer.status = "lead"
-            
-            # קישור לעסק ראשון כברירת מחדל
-            business = Business.query.first()
-            if business:
-                customer.business_id = business.id
+            customer.business_id = business_id  # ✅ FIX: Use correct business_id
             
             db.session.add(customer)
             db.session.flush()
@@ -309,15 +317,25 @@ def send_appointment_reminder(appointment_id: int) -> Dict:
         print(f"❌ Error sending appointment reminder: {e}")
         return {'success': False, 'error': str(e)}
 
-def process_incoming_whatsapp_message(phone_number: str, message_text: str, message_id: Optional[int] = None) -> Dict:
+def process_incoming_whatsapp_message(phone_number: str, message_text: str, message_id: Optional[int] = None, business_id: Optional[int] = None) -> Dict:
     """
     מעבד הודעת ווצאפ נכנסת ובודק האם יש צורך ביצירת פגישה
+    
+    Args:
+        phone_number: מספר טלפון של הלקוח
+        message_text: תוכן ההודעה
+        message_id: מזהה ההודעה ב-DB
+        business_id: מזהה העסק (לשימוש multi-tenant)
     """
     try:
         # חילוץ מידע מההודעה
         appointment_info = extract_appointment_info_from_whatsapp(message_text, phone_number)
         
         result: Dict = {'processed': False, 'appointment_created': False}
+        
+        # ✅ FIX: Use provided business_id or fallback
+        if not business_id:
+            business_id = 1
         
         # אם יש בקשה לפגישה אבל לא מספיק מידע
         if appointment_info['has_request'] and not appointment_info['meeting_ready']:
@@ -340,7 +358,7 @@ def process_incoming_whatsapp_message(phone_number: str, message_text: str, mess
             requests.post("http://localhost:5000/api/whatsapp/send", json={
                 'to': phone_number,
                 'message': follow_up_message,
-                'business_id': 1
+                'business_id': business_id  # ✅ FIX: Use correct business_id
             })
             
             result['processed'] = True
@@ -348,7 +366,7 @@ def process_incoming_whatsapp_message(phone_number: str, message_text: str, mess
         
         # אם יש מספיק מידע - צור פגישה
         elif appointment_info['meeting_ready']:
-            appointment_result = create_whatsapp_appointment(phone_number, message_text, message_id)
+            appointment_result = create_whatsapp_appointment(phone_number, message_text, message_id, business_id)  # ✅ FIX: Pass business_id
             
             if appointment_result['success']:
                 # שלח אישור

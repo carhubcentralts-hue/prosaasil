@@ -368,10 +368,12 @@ def baileys_webhook():
                 appointment_created = False
                 try:
                     from server.whatsapp_appointment_handler import process_incoming_whatsapp_message
+                    # ✅ BUILD 100.13: Pass business_id to appointment handler
                     appointment_result = process_incoming_whatsapp_message(
                         phone_number=from_number,
                         message_text=message_text,
-                        message_id=wa_msg.id
+                        message_id=wa_msg.id,
+                        business_id=business_id  # ✅ FIX: Pass correct business_id
                     )
                     if appointment_result.get('appointment_created'):
                         appointment_created = True

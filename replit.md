@@ -63,6 +63,37 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
+## Appointment Auto-Sync (BUILD 100.13)
+**Calendar Integration**: Auto-create appointments from phone calls and WhatsApp conversations.
+
+**Problem**: Bot discusses meetings but doesn't save them to calendar.
+
+**Solution**:
+1. **Phone Calls**: Added `check_and_create_appointment` to call finalization
+   - Triggers when call ends with enough lead info (4/5 fields)
+   - Creates appointment with customer details, area, property type
+   - Links to call_log for full context
+   
+2. **WhatsApp**: Already integrated via `process_incoming_whatsapp_message`
+   - Detects meeting requests in messages
+   - Auto-creates appointments when criteria met (3+ fields)
+   - Sends confirmation message to customer
+
+**Files Modified:**
+- `server/media_ws_ai.py` (lines 2071-2097) - Phone call appointment creation
+- `server/routes_whatsapp.py` (lines 370-380) - WhatsApp appointment integration
+- `server/auto_meeting.py` - Appointment creation logic for calls
+- `server/whatsapp_appointment_handler.py` - WhatsApp appointment logic
+
+**Impact:**
+✅ Appointments auto-created from phone conversations
+✅ Appointments auto-created from WhatsApp messages
+✅ Full customer/lead tracking with appointments
+✅ Appointment linked to source (call_log_id or whatsapp_message_id)
+
+**Testing:**
+Ready for production - appointment sync active for both channels
+
 ## Performance Optimization (BUILD 100.12)
 **Critical Performance Fixes**: Number pronunciation, greeting speed, and STT responsiveness improvements.
 

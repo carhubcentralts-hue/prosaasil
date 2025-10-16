@@ -2018,7 +2018,7 @@ class MediaStreamHandler:
         }
     
     def _finalize_call_on_stop(self):
-        """✅ סיכום מלא של השיחה בסיום - עדכון call_log וליד"""
+        """✅ סיכום מלא של השיחה בסיום - עדכון call_log וליד + יצירת פגישות"""
         try:
             from server.models_sql import CallLog
             from server.services.customer_intelligence import CustomerIntelligence
@@ -2064,6 +2064,34 @@ class MediaStreamHandler:
                         print(f"📝 Summary: {summary_data.get('summary', 'N/A')}")
                         print(f"🎯 Intent: {summary_data.get('intent', 'N/A')}")
                         print(f"📊 Next Action: {summary_data.get('next_action', 'N/A')}")
+                        
+                        # ✅ AUTO-CREATE APPOINTMENT if meeting was discussed
+                        try:
+                            from server.auto_meeting import check_and_create_appointment
+                            
+                            # בדוק אם נאסף מספיק מידע לפגישה
+                            lead_info = getattr(self, '_last_lead_analysis', None)
+                            if not lead_info and hasattr(self, 'conversation_history'):
+                                # נסה לנתח את השיחה עכשיו
+                                lead_info = self._analyze_lead_completeness()
+                            
+                            if lead_info and lead_info.get('meeting_ready'):
+                                phone_number = getattr(self, 'phone_number', '')
+                                conversation = getattr(self, 'conversation_history', [])
+                                
+                                result = check_and_create_appointment(
+                                    self.call_sid,
+                                    lead_info,
+                                    conversation,
+                                    phone_number
+                                )
+                                
+                                if result.get('success'):
+                                    print(f"📅 AUTO-APPOINTMENT CREATED: {result.get('appointment_id')} at {result.get('meeting_time')}")
+                                else:
+                                    print(f"⚠️ No appointment created: {result.get('reason', 'Unknown')}")
+                        except Exception as appt_error:
+                            print(f"⚠️ Appointment creation failed (non-critical): {appt_error}")
                         
                 except Exception as e:
                     print(f"❌ Failed to finalize call: {e}")

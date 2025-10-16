@@ -52,19 +52,23 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
                 break
         
         # חיפוש לקוח קיים או יצירת חדש
+        # ✅ קבלת business_id מה-call_log
+        business_id = call_log.business_id if call_log else None
+        if not business_id:
+            # Fallback: עסק ראשון
+            business = Business.query.first()
+            business_id = business.id if business else 1
+        
         if phone_number:
-            customer = Customer.query.filter_by(phone=phone_number).first()
+            # ✅ FIX: Query by phone_e164 not phone (correct column name)
+            customer = Customer.query.filter_by(phone_e164=phone_number, business_id=business_id).first()
             if not customer:
                 # יצירת לקוח חדש
                 customer = Customer()
                 customer.name = customer_name or f"לקוח מטלפון {phone_number[-4:]}"
                 customer.phone_e164 = phone_number
                 customer.status = "lead"
-                
-                # קישור לעסק (ברירת מחדל עסק ראשון)
-                business = Business.query.first()
-                if business:
-                    customer.business_id = business.id
+                customer.business_id = business_id  # ✅ FIX: Use correct business_id from call
                 
                 db.session.add(customer)
                 db.session.flush()  # כדי לקבל ID
@@ -161,8 +165,8 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         
         # יצירת הפגישה
         appointment = Appointment()
-        default_business = Business.query.first()
-        appointment.business_id = customer.business_id if customer else (default_business.id if default_business else None)
+        # ✅ FIX: Use business_id from call, not default
+        appointment.business_id = business_id
         appointment.customer_id = customer.id if customer else None
         appointment.call_log_id = call_log.id if call_log else None
         appointment.title = appointment_title
