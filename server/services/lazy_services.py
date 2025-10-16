@@ -59,19 +59,24 @@ def get_tts_client():
     try:
         from google.cloud import texttospeech
         
-        # Check if credentials configured - try multiple env var names
-        sa_json = (
-            os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') or
-            os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or
-            os.getenv('GOOGLE_TTS_SA_JSON')
-        )
-        if not sa_json:
-            log.warning("Google TTS credentials missing - checked GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON, GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_TTS_SA_JSON")
-            return None
-            
-        # Parse and create client  
-        credentials_info = json.loads(sa_json)
-        client = texttospeech.TextToSpeechClient.from_service_account_info(credentials_info)
+        # ✅ CRITICAL FIX: Try JSON string first, then check for file path
+        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+        if sa_json and sa_json.startswith('{'):
+            # It's a JSON string
+            credentials_info = json.loads(sa_json)
+            client = texttospeech.TextToSpeechClient.from_service_account_info(credentials_info)
+        else:
+            # Try file path from GOOGLE_APPLICATION_CREDENTIALS
+            creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+            if creds_path and os.path.exists(creds_path):
+                # It's a file path
+                client = texttospeech.TextToSpeechClient.from_service_account_json(creds_path)
+            elif not sa_json and not creds_path:
+                log.warning("Google TTS credentials missing - no GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS")
+                return None
+            else:
+                # Default to using environment (will use GOOGLE_APPLICATION_CREDENTIALS automatically)
+                client = texttospeech.TextToSpeechClient()
         
         # Just verify client creation worked
         log.info("✅ TTS client created successfully")
@@ -89,19 +94,24 @@ def get_stt_client():
     try:
         from google.cloud import speech
         
-        # Check if credentials configured - try multiple env var names
-        sa_json = (
-            os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') or
-            os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or
-            os.getenv('GOOGLE_TTS_SA_JSON')
-        )
-        if not sa_json:
-            log.warning("Google STT credentials missing - checked GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON, GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_TTS_SA_JSON")
-            return None
-            
-        # Parse and create client
-        credentials_info = json.loads(sa_json)
-        client = speech.SpeechClient.from_service_account_info(credentials_info)
+        # ✅ CRITICAL FIX: Try JSON string first, then check for file path
+        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+        if sa_json and sa_json.startswith('{'):
+            # It's a JSON string
+            credentials_info = json.loads(sa_json)
+            client = speech.SpeechClient.from_service_account_info(credentials_info)
+        else:
+            # Try file path from GOOGLE_APPLICATION_CREDENTIALS
+            creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+            if creds_path and os.path.exists(creds_path):
+                # It's a file path
+                client = speech.SpeechClient.from_service_account_json(creds_path)
+            elif not sa_json and not creds_path:
+                log.warning("Google STT credentials missing - no GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS")
+                return None
+            else:
+                # Default to using environment (will use GOOGLE_APPLICATION_CREDENTIALS automatically)
+                client = speech.SpeechClient()
         
         # Quick ping test - just verify client creation worked
         log.info("✅ STT client created successfully")

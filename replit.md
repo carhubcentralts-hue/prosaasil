@@ -64,7 +64,7 @@ Preferred communication style: Simple, everyday language.
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
 
-# Recent Changes (BUILD 98 + Cleanup)
+# Recent Changes (BUILD 98 + Critical Fixes)
 
 ## Natural Voice TTS Upgrade
 **Files Added:**
@@ -96,3 +96,21 @@ Preferred communication style: Simple, everyday language.
 
 **Configuration:**
 See `.env.tts.example` for complete setup guide with A/B testing combinations.
+
+## Critical Production Fix (BUILD 99)
+**Problem**: Application crashed in production deployment after playing greeting - Google Cloud TTS/STT clients failed to initialize due to credentials path mismatch.
+
+**Root Cause**: 
+- `lazy_services.py` tried to parse `GOOGLE_APPLICATION_CREDENTIALS` as JSON string, but it was a file path (`/tmp/gcp_credentials.json`)
+- ASGI WebSocket initialization happened before Flask app initialization, credentials not set early enough
+
+**Files Fixed:**
+- `asgi.py` - Added GCP credentials setup BEFORE any imports (lines 34-50)
+- `server/services/lazy_services.py` - Smart credentials handler: JSON string OR file path support
+
+**Solution:**
+1. ASGI now creates `/tmp/gcp_credentials.json` immediately on startup
+2. Lazy services now handle both JSON strings and file paths gracefully
+3. Fallback to default Google SDK credential discovery if needed
+
+**Result**: Production deployment now works - TTS/STT services initialize correctly after greeting.

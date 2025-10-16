@@ -28,6 +28,24 @@ print("=" * 80, flush=True)
 print("🚀 ASGI BUILD 87 LOADING - DUPLICATE CALL_SID FIX", flush=True)
 print("=" * 80, flush=True)
 
+# ✅ CRITICAL FIX: Ensure Google Cloud credentials are set BEFORE any imports
+gcp_creds = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') or os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
+if gcp_creds and gcp_creds.startswith('{'):
+    # If it's JSON string, create permanent file
+    try:
+        creds_data = json.loads(gcp_creds)
+        credentials_path = '/tmp/gcp_credentials.json'
+        with open(credentials_path, 'w') as f:
+            json.dump(creds_data, f)
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+        print(f"✅ GCP credentials file created in ASGI: {credentials_path}", flush=True)
+    except Exception as e:
+        print(f"❌ ASGI GCP credentials setup failed: {e}", flush=True)
+elif gcp_creds:
+    print(f"✅ GCP credentials already configured: {gcp_creds[:50]}...", flush=True)
+else:
+    print("⚠️  No GCP credentials found in ASGI startup!", flush=True)
+
 # Import Flask app directly from factory (no EventLet dependency)
 from server.app_factory import create_app
 
