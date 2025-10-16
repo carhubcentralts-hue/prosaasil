@@ -47,72 +47,101 @@ def resolve_business_by_channel(channel_type: str, identifier: str) -> Optional[
     return None
 
 
+def _normalize_identifier(identifier: str) -> str:
+    """נרמול מזהה - הסרת קידומות וסימנים מיוחדים"""
+    if not identifier:
+        return ""
+    
+    # הסר WhatsApp prefix, spaces, hyphens
+    normalized = identifier.replace('whatsapp:', '').replace(' ', '').replace('-', '').strip()
+    
+    # וודא E.164 format
+    if normalized and (normalized[0] == '+' or normalized[0].isdigit()):
+        if not normalized.startswith('+'):
+            normalized = f'+{normalized}'
+        return normalized
+    
+    return identifier  # Return original if not a phone
+
 def resolve_business_with_fallback(channel_type: str, identifier: str) -> Tuple[Optional[int], str]:
     """
-    Resolve business with smart fallback logic
+    ✅ FIXED: Smart business resolution with proper caching and transactions
     
     Returns:
         (business_id, status) where status is:
         - 'found': Successfully resolved via BusinessContactChannel
         - 'phone_match': Matched by Business.phone_e164
         - 'fallback_active': Used first active business
-        - 'fallback_any': Used any business
-        - 'none': No business exists
     """
-    # Try exact match first (BusinessContactChannel)
-    business_id = resolve_business_by_channel(channel_type, identifier)
-    if business_id:
-        return business_id, 'found'
+    from sqlalchemy import or_
     
-    # ✅ FIX: Smart fallback - try to match by phone number (for future businesses)
-    # This allows automatic detection of new businesses added with phone_e164
-    if identifier:
-        # Normalize identifier - remove WhatsApp prefix, spaces, hyphens
-        normalized = identifier.replace('whatsapp:', '').replace(' ', '').replace('-', '').strip()
-        
-        # Check if it looks like a phone number (starts with + or digits)
-        if normalized and (normalized[0] == '+' or normalized[0].isdigit()):
-            # Normalize to E.164 format
-            normalized_phone = normalized if normalized.startswith('+') else f'+{normalized}'
-        
-            # Try to find business by its phone_e164
-            business = Business.query.filter_by(phone_e164=normalized_phone, is_active=True).first()
-            if business:
-                log.info(f"✅ AUTO-DETECTED business_id={business.id} by phone_e164={normalized_phone}")
+    # Normalize identifier
+    normalized = _normalize_identifier(identifier)
+    
+    # ✅ FIX: Query for BOTH normalized AND original identifier (supports legacy data)
+    channel_match = BusinessContactChannel.query.filter(
+        BusinessContactChannel.channel_type == channel_type
+    ).filter(
+        or_(
+            BusinessContactChannel.identifier == normalized,
+            BusinessContactChannel.identifier == identifier  # Legacy format
+        )
+    ).first()
+    
+    if channel_match:
+        log.info(f"✅ Channel match: {channel_type}:{identifier} → business_id={channel_match.business_id}")
+        return channel_match.business_id, 'found'
+    
+    # Try phone match (if it's a valid phone number)
+    if normalized.startswith('+'):
+        business = Business.query.filter_by(phone_e164=normalized, is_active=True).first()
+        if business:
+            log.info(f"✅ AUTO-DETECTED business_id={business.id} by phone_e164={normalized}")
+            
+            # ✅ FIX: Atomic get-or-create with proper transaction handling
+            try:
+                from sqlalchemy.exc import IntegrityError
                 
-                # Auto-create BusinessContactChannel for future fast lookup
+                # Try to create (will fail if exists due to unique constraint)
+                channel = BusinessContactChannel()
+                channel.business_id = business.id
+                channel.channel_type = channel_type
+                channel.identifier = normalized  # Always use normalized
+                channel.is_primary = True
+                db.session.add(channel)
+                
                 try:
-                    add_business_channel(business.id, channel_type, identifier, is_primary=True)
-                    log.info(f"📝 Auto-registered {channel_type}:{identifier} → business_id={business.id}")
-                except Exception as e:
-                    log.warning(f"⚠️ Could not auto-register channel: {e}")
-                
-                return business.id, 'phone_match'
+                    db.session.commit()
+                    log.info(f"📝 Auto-registered {channel_type}:{normalized} → business_id={business.id}")
+                except IntegrityError:
+                    # Already exists - safe to ignore
+                    db.session.rollback()
+                    log.debug(f"Channel already exists: {channel_type}:{normalized}")
+                    
+            except Exception as e:
+                db.session.rollback()
+                log.warning(f"⚠️ Auto-registration failed (non-critical): {e}")
+            
+            # Clear cache
+            resolve_business_by_channel.cache_clear()
+            
+            return business.id, 'phone_match'
     
-    # Fallback 1: First active business (only if no phone match)
+    # Fallback: active business (only if really needed)
     business = Business.query.filter_by(is_active=True).first()
     if business:
         log.warning(f"⚠️ Using fallback active business_id={business.id} for {channel_type}:{identifier}")
         return business.id, 'fallback_active'
     
-    # Fallback 2: Any business
+    # Last resort
     business = Business.query.first()
     if business:
-        log.warning(f"⚠️ Using fallback any business_id={business.id} for {channel_type}:{identifier}")
+        log.error(f"❌ No active business - using any business_id={business.id}")
         return business.id, 'fallback_any'
     
-    # Fallback 3: Create default business
-    log.error(f"❌ No business exists for {channel_type}:{identifier} - creating default")
-    business = Business()
-    business.name = "Default Business"
-    business.business_type = "real_estate"
-    business.phone_e164 = "+972500000000"
-    business.is_active = True
-    db.session.add(business)
-    db.session.commit()
-    
-    log.info(f"✅ Created default business_id={business.id}")
-    return business.id, 'fallback_any'
+    # No business exists - critical error
+    log.error(f"❌ No business exists in database!")
+    return None, 'none'
 
 
 def add_business_channel(business_id: int, channel_type: str, identifier: str, is_primary: bool = False, config_json: Optional[str] = None) -> BusinessContactChannel:

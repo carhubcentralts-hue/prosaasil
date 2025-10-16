@@ -35,41 +35,12 @@ def extract_appointment_info_from_whatsapp(message_text: str, customer_phone: st
     if any(keyword in text for keyword in meeting_keywords):
         info['has_request'] = True
     
-    # זיהוי אזור
-    area_patterns = {
-        'תל אביב': ['תל אביב', 'ת״א', 'דיזנגוף', 'פלורנטין', 'נווה צדק'],
-        'רמת גן': ['רמת גן', 'רמ״ג', 'גבעתיים', 'הבורסה'],
-        'הרצליה': ['הרצליה', 'פיתוח'],
-        'פתח תקווה': ['פתח תקווה', 'פ״ת'],
-        'רחובות': ['רחובות'],
-        'מודיעין': ['מודיעין'],
-        'בית שמש': ['בית שמש'],
-        'לוד': ['לוד'],
-        'רמלה': ['רמלה'],
-        'ירושלים': ['ירושלים', 'יר״ן']
-    }
+    # ✅ UNIFIED: Use shared parser (no duplication!)
+    from server.services.appointment_parser import parse_appointment_info
     
-    for area, keywords in area_patterns.items():
-        if any(keyword in text for keyword in keywords):
-            info['area'] = area
-            break
-    
-    # זיהוי סוג נכס
-    if re.search(r'\d+\s*חדרים?', text):
-        match = re.search(r'(\d+)\s*חדרים?', text)
-        if match:
-            info['property_type'] = f"דירת {match.group(1)} חדרים"
-    elif any(word in text for word in ['דירה', 'בית']):
-        info['property_type'] = 'דירה'
-    elif 'משרד' in text:
-        info['property_type'] = 'משרד'
-    
-    # זיהוי תקציב
-    budget_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:מיליון|אלף|k)', text)
-    if budget_match:
-        amount = budget_match.group(1)
-        unit = 'מיליון' if 'מיליון' in budget_match.group(0) else 'אלף'
-        info['budget'] = f"{amount} {unit} ש״ח"
+    # Parse all info at once
+    parsed_info = parse_appointment_info(text)
+    info.update(parsed_info)  # Update with parsed values
     
     # זיהוי דחיפות
     if any(word in text for word in ['דחוף', 'מיידי', 'היום', 'מחר']):

@@ -73,52 +73,19 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
                 db.session.add(customer)
                 db.session.flush()  # כדי לקבל ID
                 
+        # ✅ UNIFIED: Use shared parser (no duplication!)
+        from server.services.appointment_parser import parse_appointment_info
+        
         # איסוף מידע מהשיחה
         collected = lead_info.get('collected', {})
         
-        # זיהוי אזור מהשיחה
-        area = ""
-        area_keywords = {
-            'תל אביב': ['תל אביב', 'דיזנגוף', 'פלורנטין', 'נווה צדק'],
-            'רמת גן': ['רמת גן', 'גבעתיים', 'הבורסה'],
-            'הרצליה': ['הרצליה', 'פיתוח'],
-            'רמלה': ['רמלה'],
-            'לוד': ['לוד'],
-            'פתח תקווה': ['פתח תקווה', 'פתח תקוה'],
-            'מודיעין': ['מודיעין'],
-            'רחובות': ['רחובות'],
-            'בית שמש': ['בית שמש'],
-            'מעלה אדומים': ['מעלה אדומים'],
-            'ירושלים': ['ירושלים']
-        }
+        # Parse all info at once
+        parsed_info = parse_appointment_info(full_conversation)
         
-        for area_name, keywords in area_keywords.items():
-            if any(keyword in full_conversation for keyword in keywords):
-                area = area_name
-                break
-        
-        # זיהוי סוג נכס
-        property_type = ""
-        if any(word in full_conversation for word in ['דירה', 'חדרים']):
-            # זיהוי מספר חדרים
-            room_match = re.search(r'(\d+)\s*חדרים?', full_conversation)
-            if room_match:
-                property_type = f"דירת {room_match.group(1)} חדרים"
-            else:
-                property_type = "דירה"
-        elif 'משרד' in full_conversation:
-            property_type = "משרד"
-        elif 'דופלקס' in full_conversation:
-            property_type = "דופלקס"
-        
-        # זיהוי תקציב (מעמד)
-        budget_info = ""
-        if any(word in full_conversation for word in ['מיליון', 'אלפים', '₪']):
-            budget_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:מיליון|אלף)', full_conversation)
-            if budget_match:
-                amount = budget_match.group(1)
-                unit = 'מיליון' if 'מיליון' in budget_match.group(0) else 'אלף'
-                budget_info = f"{amount} {unit} ש״ח"
+        # ✅ FIX: Merge with collected data (don't lose existing info!)
+        area = parsed_info.get('area') or collected.get('area', '')
+        property_type = parsed_info.get('property_type') or collected.get('property_type', '')
+        budget_info = parsed_info.get('budget') or collected.get('budget', '')
         
         # יצירת כותרת מפורטת לפגישה
         title_parts = []
