@@ -38,10 +38,10 @@ class AIService:
     """מנגנון AI מרכזי שטוען פרומפטים מהמסד נתונים ומחבר עם OpenAI"""
     
     def __init__(self):
-        # ⚡ FAST OpenAI client with short timeout
+        # ⚡ FAST OpenAI client with aggressive timeout
         self.client = OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
-            timeout=3.5  # ⚡ Fast timeout - 3.5 seconds max
+            timeout=2.5  # ⚡ Very fast timeout - 2.5 seconds max
         )
         self._cache = {}  # קאש פרומפטים לביצועים
         self._cache_timeout = 30  # ⚡ 30 שניות - קצר יותר למניעת בעיות multi-worker
@@ -105,14 +105,14 @@ class AIService:
                 prompt_data = {
                     "system_prompt": system_prompt,
                     "model": "gpt-4o-mini",  # Fast model
-                    "max_tokens": 350,  # ✅ Enough for complete sentences
+                    "max_tokens": 200,  # ⚡ Shorter for faster responses (2-3 sentences)
                     "temperature": 0.2  # ⚡ Low temperature for faster, more deterministic responses
                 }
             else:
                 prompt_data = {
                     "system_prompt": system_prompt,
                     "model": settings.model,
-                    "max_tokens": min(settings.max_tokens, 350),  # ✅ Cap at 350 for complete sentences
+                    "max_tokens": min(settings.max_tokens, 200),  # ⚡ Cap at 200 for faster responses
                     "temperature": min(settings.temperature, 0.3)  # ⚡ Cap temperature for speed
                 }
             
@@ -132,7 +132,7 @@ class AIService:
             return {
                 "system_prompt": self._get_default_hebrew_prompt(business_name, channel),
                 "model": "gpt-4o-mini",
-                "max_tokens": 350,  # ✅ Enough for complete sentences
+                "max_tokens": 200,  # ⚡ Shorter for faster responses
                 "temperature": 0.2  # ⚡ Fast and deterministic
             }
     
