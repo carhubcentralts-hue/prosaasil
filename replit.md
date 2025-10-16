@@ -64,7 +64,7 @@ Preferred communication style: Simple, everyday language.
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
 
-# Recent Changes (BUILD 98)
+# Recent Changes (BUILD 98 + Cleanup)
 
 ## Natural Voice TTS Upgrade
 **Files Added:**
@@ -76,6 +76,8 @@ Preferred communication style: Simple, everyday language.
 **Files Modified:**
 - `server/services/gcp_tts_live.py` - Core TTS with WaveNet-D, SSML, caching, and ENV configuration
 - `server/media_ws_ai.py` - Integrated upgraded TTS with punctuation polish and fallback handling
+  - **Cleanup**: Removed deprecated `TTS_SPEAKING_RATE` variable (dead code)
+  - **Cleanup**: Fallback TTS now reads all settings from ENV (voice, rate, pitch) - no hardcoded values
 
 **Features Delivered:**
 1. **Natural Voice**: WaveNet-D with telephony profile (8kHz) - no more "plastic" sound
@@ -84,6 +86,13 @@ Preferred communication style: Simple, everyday language.
 4. **Name Helper**: Confidence-based pronunciation (hyphenation for difficult names, letter-by-letter spelling for very low confidence)
 5. **TTS Caching**: Hash-based caching for common phrases (faster responses)
 6. **Full ENV Control**: TTS_VOICE, TTS_RATE (0.96), TTS_PITCH (-2.0), feature flags for SSML/polish/cache
+7. **Zero Hardcoded Values**: All TTS configuration controlled via ENV - primary service and fallback use same variables
+
+**Architecture:**
+- **Primary TTS**: `gcp_tts_live.py` with full feature set (SSML, caching, pronunciation)
+- **Fallback TTS**: `media_ws_ai.py` basic synthesis (if primary fails) - uses same ENV variables
+- **Legacy Code**: `server/services/tts_gcp.py` (not in use, kept for reference)
+- **Single Source of Truth**: All TTS parameters read from ENV variables - no code changes needed for voice tuning
 
 **Configuration:**
 See `.env.tts.example` for complete setup guide with A/B testing combinations.

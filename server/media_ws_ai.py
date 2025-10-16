@@ -33,7 +33,6 @@ BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","40"))  # ✅ 40 f
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
-TTS_SPEAKING_RATE = float(os.getenv("TTS_SPEAKING_RATE", "1.1"))  # ✅ 1.1x מהירות - דיבור קצב מהיר לטלפון
 LLM_NATURAL_STYLE = True  # תגובות טבעיות לפי השיחה
 
 # מכונת מצבים
@@ -1616,13 +1615,18 @@ class MediaStreamHandler:
                     print("❌ Google TTS client not available")
                     return None
                 
+                # ✅ קבלת הגדרות מ-ENV - לא מקודד!
+                voice_name = os.getenv("TTS_VOICE", "he-IL-Wavenet-D")
+                speaking_rate = float(os.getenv("TTS_RATE", "0.96"))
+                pitch = float(os.getenv("TTS_PITCH", "-2.0"))
+                
                 synthesis_input = texttospeech.SynthesisInput(text=text)
-                voice = texttospeech.VoiceSelectionParams(language_code="he-IL", name="he-IL-Wavenet-D")
+                voice = texttospeech.VoiceSelectionParams(language_code="he-IL", name=voice_name)
                 audio_config = texttospeech.AudioConfig(
                     audio_encoding=texttospeech.AudioEncoding.LINEAR16,
                     sample_rate_hertz=8000,
-                    speaking_rate=float(os.getenv("TTS_RATE", "0.96")),
-                    pitch=float(os.getenv("TTS_PITCH", "-2.0")),
+                    speaking_rate=speaking_rate,
+                    pitch=pitch,
                     effects_profile_id=["telephony-class-application"]
                 )
                 
@@ -1633,7 +1637,7 @@ class MediaStreamHandler:
                 )
                 
                 duration_seconds = len(response.audio_content) / (8000 * 2)
-                print(f"✅ TTS_FALLBACK_SUCCESS: {len(response.audio_content)} bytes ({duration_seconds:.1f}s)")
+                print(f"✅ TTS_FALLBACK_SUCCESS: {len(response.audio_content)} bytes (voice={voice_name}, rate={speaking_rate}, pitch={pitch}, {duration_seconds:.1f}s)")
                 return response.audio_content
             
         except Exception as e:
