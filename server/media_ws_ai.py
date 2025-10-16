@@ -1436,12 +1436,10 @@ class MediaStreamHandler:
             
             print(f"🔍 מחפש עסק: to_number={to_number}, normalized={normalized_phone}")
             
-            # חפש business לפי מספר טלפון
+            # חפש business לפי מספר טלפון (רק phone_number קיים!)
             from sqlalchemy import or_
             business = Business.query.filter(
                 or_(
-                    Business.phone_e164 == to_number,
-                    Business.phone_e164 == normalized_phone,
                     Business.phone_number == to_number,
                     Business.phone_number == normalized_phone
                 )
@@ -1919,7 +1917,7 @@ class MediaStreamHandler:
                             call_sid=self.call_sid,
                             from_number=str(self.phone_number or ""),
                             to_number=str(getattr(self, 'to_number', '') or ''),  # ✅ המספר שאליו התקשרו
-                            status="in_progress"
+                            call_status="in_progress"  # ✅ תוקן: call_status במקום status
                         )
                         db.session.add(call_log)
                         
