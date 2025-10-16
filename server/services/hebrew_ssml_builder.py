@@ -70,15 +70,26 @@ class HebrewSSMLBuilder:
         if not text:
             return ""
         
-        # ✅ זיהוי מספרי טלפון (7+ ספרות רצופות או עם מקפים)
-        # 03-1234567, 0501234567, 1234567
+        # ✅ זיהוי מספרי טלפון - כולל +, (), מקפים, רווחים
+        # תומך: +972-50-123-4567, (03)1234567, 03-1234567, 0501234567
         def format_phone_number(match):
-            number = match.group(0)
+            number = match.group(0).strip()
             # השתמש ב-say-as telephone לביטוי נכון
             return f'<say-as interpret-as="telephone">{number}</say-as>'
         
-        # מספרי טלפון: 7+ ספרות (עם או בלי מקפים/רווחים)
-        text = re.sub(r'\b[\d\-\s]{7,}\b', format_phone_number, text)
+        # מספרי טלפון: 7+ תווים מספריים (עם או בלי +, (), -, רווחים)
+        # חייב להיות לפחות 7 ספרות בפועל
+        phone_pattern = r'(?:[\+\(])?[\d\-\s\(\)]{7,}(?:\))?'
+        
+        # בדוק שיש לפחות 7 ספרות בפועל
+        def check_and_format(match):
+            text = match.group(0)
+            digit_count = sum(c.isdigit() for c in text)
+            if digit_count >= 7:
+                return format_phone_number(match)
+            return text  # לא מספיק ספרות - השאר כמו שזה
+        
+        text = re.sub(phone_pattern, check_and_format, text)
         
         # המרת ספרות בודדות שנותרו (לא חלק ממספר טלפון)
         text = re.sub(r'\b(\d{1,3})\b', self._number_to_hebrew, text)
