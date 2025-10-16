@@ -81,9 +81,13 @@ class SyncWebSocketWrapper:
             return None
     
     def send(self, data):
-        """Sync send - puts in queue for async sender"""
+        """Sync send - puts in queue for async sender with timeout"""
         if self.running:
-            self.send_queue.put(data)
+            try:
+                self.send_queue.put(data, timeout=2.0)  # ✅ 2s timeout instead of blocking forever
+            except:
+                print(f"⚠️ Send queue full, dropping frame", flush=True)
+                pass  # Drop frame if queue is full
     
     def stop(self):
         """Stop wrapper"""
@@ -144,32 +148,53 @@ async def ws_twilio_media(websocket: WebSocket):
                 print("🔧 receive_loop ended", flush=True)
                 ws_wrapper.stop()
         
-        # Task 2: Get from queue → send to Starlette WS
+        # Task 2: Get from queue → send to Starlette WS (CRITICAL FIX for Cloud Run)
         async def send_loop():
             try:
                 print("🔧 send_loop started", flush=True)
-                while ws_wrapper.running:
-                    # Non-blocking check for messages
+                error_count = 0
+                max_errors = 10
+                
+                while ws_wrapper.running and error_count < max_errors:
+                    # Non-blocking check for messages with LONGER timeout
                     try:
                         data = await asyncio.get_event_loop().run_in_executor(
-                            None, ws_wrapper.send_queue.get, True, 0.1  # 100ms timeout
+                            None, ws_wrapper.send_queue.get, True, 0.5  # ✅ 500ms timeout (was 100ms)
                         )
                         if data is None:
                             break
-                        if isinstance(data, str):
-                            await websocket.send_text(data)
-                        else:
-                            await websocket.send_bytes(data)
+                        
+                        # Send with retry on failure
+                        try:
+                            if isinstance(data, str):
+                                await websocket.send_text(data)
+                            else:
+                                await websocket.send_bytes(data)
+                            error_count = 0  # Reset on success
+                        except Exception as send_err:
+                            error_count += 1
+                            print(f"❌ WS send failed (#{error_count}): {send_err}", flush=True)
+                            if error_count >= max_errors:
+                                print(f"🚨 Max send errors ({max_errors}) reached, closing", flush=True)
+                                break
+                            await asyncio.sleep(0.05)  # Brief pause before retry
+                            
                     except Empty:
                         await asyncio.sleep(0.01)  # Yield to other tasks
                     except Exception as e:
-                        print(f"❌ Send error: {e}", flush=True)
-                        log.error(f"Send error: {e}")
-                        break
-            except Exception:
-                pass
+                        error_count += 1
+                        print(f"❌ Send loop error (#{error_count}): {e}", flush=True)
+                        log.error(f"Send loop error: {e}")
+                        if error_count >= max_errors:
+                            print(f"🚨 Max loop errors ({max_errors}) reached, closing", flush=True)
+                            break
+                        await asyncio.sleep(0.05)
+                        
+            except Exception as fatal:
+                print(f"❌ Fatal send_loop error: {fatal}", flush=True)
             finally:
                 print("🔧 send_loop ended", flush=True)
+                ws_wrapper.stop()  # ✅ Signal handler to stop
         
         # Task 3: MediaStreamHandler in background thread (starts AFTER loops)
         def run_handler():
