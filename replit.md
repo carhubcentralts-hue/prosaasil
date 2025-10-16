@@ -74,25 +74,32 @@ Preferred communication style: Simple, everyday language.
    - Creates appointment with customer details, area, property type
    - Links to call_log for full context
    
-2. **WhatsApp**: Already integrated via `process_incoming_whatsapp_message`
+2. **WhatsApp**: Integrated via `process_incoming_whatsapp_message`
    - Detects meeting requests in messages
    - Auto-creates appointments when criteria met (3+ fields)
    - Sends confirmation message to customer
 
+**Critical Bug Fixes:**
+- ✅ **Customer Lookup**: Fixed `Customer.query.filter_by(phone=...)` → `phone_e164` (correct column)
+- ✅ **Multi-tenant Isolation**: Fixed business_id assignment - appointments now created with correct business context (from call_log/message), not default Business.query.first()
+- ✅ **WhatsApp business_id**: Now passed from routes_whatsapp.py to appointment handler
+
 **Files Modified:**
 - `server/media_ws_ai.py` (lines 2071-2097) - Phone call appointment creation
-- `server/routes_whatsapp.py` (lines 370-380) - WhatsApp appointment integration
-- `server/auto_meeting.py` - Appointment creation logic for calls
-- `server/whatsapp_appointment_handler.py` - WhatsApp appointment logic
+- `server/routes_whatsapp.py` (lines 375-379) - Pass business_id to WhatsApp handler
+- `server/auto_meeting.py` (lines 58-74, 171-172) - Fixed customer lookup and business_id handling
+- `server/whatsapp_appointment_handler.py` (lines 109-144, 323-372) - Added business_id parameter throughout
 
 **Impact:**
 ✅ Appointments auto-created from phone conversations
 ✅ Appointments auto-created from WhatsApp messages
 ✅ Full customer/lead tracking with appointments
 ✅ Appointment linked to source (call_log_id or whatsapp_message_id)
+✅ **Multi-tenant data isolation** - each appointment correctly assigned to business
+✅ **Production-ready** - no more InvalidRequestError crashes
 
 **Testing:**
-Ready for production - appointment sync active for both channels
+Ready for production - all critical bugs fixed, appointment sync active for both channels
 
 ## Performance Optimization (BUILD 100.12)
 **Critical Performance Fixes**: Number pronunciation, greeting speed, and STT responsiveness improvements.
