@@ -1412,17 +1412,44 @@ class MediaStreamHandler:
 
     def _identify_business_from_phone(self):
         """זיהוי business_id לפי to_number (המספר שאליו התקשרו) אם חסר"""
-        # ✅ BUILD 91: Multi-tenant - זיהוי לפי to_number
-        to_number = getattr(self, 'to_number', None) or getattr(self, 'phone_number', None)
+        to_number = getattr(self, 'to_number', None)
+        
         if to_number:
-            from server.services.business_resolver import resolve_business_with_fallback
-            self.business_id, status = resolve_business_with_fallback('twilio_voice', to_number)
-            print(f"✅ זיהוי עסק לפי to_number {to_number}: business_id={self.business_id} ({status})")
+            # ✅ FIXED: חיפוש ישירות בטבלת Business לפי phone_number
+            from server.models_sql import Business
+            
+            # נרמל מספר טלפון (הסר רווחים, מקפים)
+            normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
+            
+            # חפש business לפי מספר טלפון
+            from sqlalchemy import or_
+            business = Business.query.filter(
+                or_(
+                    Business.phone_e164 == to_number,
+                    Business.phone_e164 == normalized_phone,
+                    Business.phone_number == to_number,
+                    Business.phone_number == normalized_phone
+                )
+            ).first()
+            
+            if business:
+                self.business_id = business.id
+                print(f"✅ זיהוי עסק לפי to_number {to_number}: business_id={self.business_id} (מצא: {business.name})")
+                return
+            else:
+                print(f"⚠️ לא נמצא עסק עם מספר {to_number} - שימוש ב-fallback")
+        
+        # Fallback: עסק פעיל ראשון
+        from server.models_sql import Business
+        business = Business.query.filter_by(is_active=True).first()
+        if business:
+            self.business_id = business.id
+            print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({business.name})")
         else:
-            # fallback לעסק ראשון
-            from server.services.business_resolver import resolve_business_with_fallback
-            self.business_id, status = resolve_business_with_fallback('twilio_voice', '+97233763805')
-            print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
+            # Ultimate fallback
+            business = Business.query.first()
+            self.business_id = business.id if business else 1
+            print(f"⚠️ שימוש בעסק ראשון: business_id={self.business_id}")
 
     def _get_business_greeting(self) -> str:
         """טעינת ברכה מותאמת אישית מהעסק עם {{business_name}} placeholder"""
