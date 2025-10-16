@@ -260,7 +260,7 @@ def incoming_call_preview():
         status_callback=f"https://{host}/webhook/stream_status"
     )
     stream.parameter(name="CallSid", value=call_sid)
-    stream.parameter(name="To", value="+97237638055")  # ✅ For preview - default number
+    stream.parameter(name="To", value="+97233763805")  # ✅ Fixed: correct number for business 1
     
     return _twiml(vr)
 

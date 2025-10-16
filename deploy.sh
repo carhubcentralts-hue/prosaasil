@@ -9,7 +9,7 @@ npm install
 
 echo "🎨 Building Frontend (Client)..."
 cd client
-npm ci
+npm install
 npm run build
 cd ..
 
