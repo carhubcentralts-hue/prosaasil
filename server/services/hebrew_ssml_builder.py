@@ -70,11 +70,52 @@ class HebrewSSMLBuilder:
         if not text:
             return ""
         
-        # המרת מספרי טלפון ל-ספרות מופרדות
-        # 03-1234567 → "אפס שלוש - אחד שתיים שלוש ארבע..."
-        text = re.sub(r'(\d)', self._digit_to_hebrew, text)
+        # ✅ זיהוי מספרי טלפון (7+ ספרות רצופות או עם מקפים)
+        # 03-1234567, 0501234567, 1234567
+        def format_phone_number(match):
+            number = match.group(0)
+            # השתמש ב-say-as telephone לביטוי נכון
+            return f'<say-as interpret-as="telephone">{number}</say-as>'
+        
+        # מספרי טלפון: 7+ ספרות (עם או בלי מקפים/רווחים)
+        text = re.sub(r'\b[\d\-\s]{7,}\b', format_phone_number, text)
+        
+        # המרת ספרות בודדות שנותרו (לא חלק ממספר טלפון)
+        text = re.sub(r'\b(\d{1,3})\b', self._number_to_hebrew, text)
         
         return text
+    
+    def _number_to_hebrew(self, match) -> str:
+        """המרת מספר קטן (1-999) לעברית"""
+        num_str = match.group(0)
+        try:
+            num = int(num_str)
+            # מספרים 1-20
+            small_numbers = {
+                1: 'אחד', 2: 'שניים', 3: 'שלושה', 4: 'ארבעה', 5: 'חמישה',
+                6: 'שישה', 7: 'שבעה', 8: 'שמונה', 9: 'תשעה', 10: 'עשרה',
+                11: 'אחד עשרה', 12: 'שנים עשרה', 13: 'שלושה עשרה', 
+                14: 'ארבעה עשרה', 15: 'חמישה עשרה', 16: 'שישה עשרה',
+                17: 'שבעה עשרה', 18: 'שמונה עשרה', 19: 'תשעה עשרה', 20: 'עשרים'
+            }
+            
+            if num in small_numbers:
+                return small_numbers[num]
+            elif num < 100:
+                # 21-99
+                tens = num // 10 * 10
+                ones = num % 10
+                tens_map = {20: 'עשרים', 30: 'שלושים', 40: 'ארבעים', 50: 'חמישים',
+                           60: 'שישים', 70: 'שבעים', 80: 'שמונים', 90: 'תשעים'}
+                if ones == 0:
+                    return tens_map.get(tens, num_str)
+                else:
+                    return f"{tens_map.get(tens, '')} ו{small_numbers.get(ones, '')}"
+            else:
+                # 100+
+                return num_str
+        except:
+            return num_str
     
     def _digit_to_hebrew(self, match) -> str:
         """המרת ספרה בודדת לעברית"""

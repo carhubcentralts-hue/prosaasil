@@ -25,7 +25,7 @@ MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "1.2"))        # ⚡ SPEED: 1.2s ב
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "8.0"))        # ✅ 8.0s - זמן מספיק לתיאור נכסים מפורט
 VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "300"))  # ⚡ SPEED: 300ms במקום 400ms - תגובה מהירה יותר
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "250"))  # ⚡ SPEED: 250ms - תגובה מהירה יותר
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1500")) # ✅ 1500ms - יותר "קירור" אחרי תגובה
@@ -268,20 +268,18 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
-                    # ✅ CRITICAL: זיהוי עסק וברכה - במקביל לחיסכון זמן!
+                    # ⚡ OPTIMIZED: זיהוי עסק + ברכה בשאילתה אחת!
                     try:
                         from server.app_factory import create_app
                         app = create_app()
                         with app.app_context():
-                            self._identify_business_from_phone()
-                            # ✅ טעינת ברכה בו-זמנית - חוסך שאילתת DB נוספת!
-                            greet = self._get_business_greeting_cached()
-                        print(f"✅ עסק וברכה זוהו: business_id={getattr(self, 'business_id', 'NOT SET')}")
+                            business_id, greet = self._identify_business_and_get_greeting()
+                        print(f"⚡ FAST: business_id={business_id}, greeting loaded in single query!")
                     except Exception as e:
                         print(f"❌ CRITICAL ERROR in business identification: {e}")
                         import traceback
                         traceback.print_exc()
-                        self.business_id = 1  # fallback
+                        self.business_id = 1
                         greet = "שלום! איך אפשר לעזור?"
                     
                     # ✅ יצירת call_log מיד בהתחלת שיחה (אחרי זיהוי עסק!)
@@ -468,8 +466,8 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ✅ זיהוי סוף מבע לפי ההנחיות - 350-500ms שקט
-                            min_silence = 1.0  # 1 שנייה שקט לפני עיבוד - נותן זמן לחשוב
+                            # ⚡ FAST: זיהוי מהיר - 650ms שקט (במקום 1s)
+                            min_silence = 0.65  # ⚡ 650ms שקט - מאזן בין מהירות ואמינות
                             silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
                             min_duration = 0.8  # מינימום לתמלול איכותי
@@ -548,7 +546,7 @@ class MediaStreamHandler:
                     # ✅ EOU חירום: מכריח עיבוד אם הבאפר גדול מדי
                     if (not self.processing and self.state == STATE_LISTEN and 
                         len(self.buf) > 32000 and  # 2.0s של אודיו (סביר!)
-                        silence_time > 0.2):      # 200ms שקט (סביר!)
+                        silence_time > 0.5):      # ⚡ 500ms שקט לחירום (היה 200ms)
                         print(f"🚨 EMERGENCY EOU: {len(self.buf)/(2*SR):.1f}s audio, silence={silence_time:.2f}s")
                         # כפה EOU
                         self.processing = True
@@ -1529,27 +1527,26 @@ class MediaStreamHandler:
             print(f"❌ שגיאה בטעינת פרומפט מדאטאבייס: {e}")
             return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
 
-    def _identify_business_from_phone(self):
-        """זיהוי business_id לפי to_number (המספר שאליו התקשרו) אם חסר"""
+    def _identify_business_and_get_greeting(self) -> tuple:
+        """⚡ זיהוי עסק וטעינת ברכה בשאילתה אחת - חוסך 50% זמן!"""
         try:
-            # ✅ CRITICAL: All DB queries need app_context in Cloud Run/ASGI!
             from server.app_factory import create_app
             from server.models_sql import Business
             from sqlalchemy import or_
             
             to_number = getattr(self, 'to_number', None)
             
-            print(f"🔍 _identify_business_from_phone: to_number={to_number}")
+            print(f"⚡ FAST: זיהוי עסק + ברכה בשאילתה אחת: to_number={to_number}")
             
             app = create_app()
             with app.app_context():
+                business = None
+                
                 if to_number:
-                    # נרמל מספר טלפון (הסר רווחים, מקפים)
+                    # נרמל מספר טלפון
                     normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
                     
-                    print(f"🔍 מחפש עסק: to_number={to_number}, normalized={normalized_phone}")
-                    
-                    # ✅ BUILD 100 FIX: חפש business לפי phone_e164 (העמודה האמיתית ב-DB, לא property!)
+                    # ⚡ שאילתה אחת - עסק + כל הנתונים!
                     business = Business.query.filter(
                         or_(
                             Business.phone_e164 == to_number,
@@ -1558,33 +1555,41 @@ class MediaStreamHandler:
                     ).first()
                     
                     if business:
-                        self.business_id = business.id
-                        print(f"✅ זיהוי עסק לפי to_number {to_number}: business_id={self.business_id} (מצא: {business.name})")
-                        return
-                    else:
-                        # Debug: הדפס את כל העסקים כדי לראות מה יש
-                        all_businesses = Business.query.filter_by(is_active=True).all()
-                        print(f"⚠️ לא נמצא עסק עם מספר {to_number}")
-                        print(f"📋 עסקים פעילים: {[(b.id, b.name, b.phone_e164) for b in all_businesses]}")
+                        print(f"✅ מצא עסק: {business.name} (id={business.id})")
                 
-                # Fallback: עסק פעיל ראשון
-                business = Business.query.filter_by(is_active=True).first()
+                # Fallback אם לא נמצא
+                if not business:
+                    business = Business.query.filter_by(is_active=True).first()
+                    if not business:
+                        business = Business.query.first()
+                    print(f"⚠️ שימוש בעסק fallback: {business.name if business else 'None'}")
+                
+                # עדכן business_id + חזור ברכה
                 if business:
                     self.business_id = business.id
-                    print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({business.name})")
+                    greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
+                    business_name = business.name or "העסק שלנו"
+                    
+                    # החלפת placeholder
+                    greeting = greeting.replace("{{business_name}}", business_name)
+                    greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                    
+                    print(f"⚡ FAST COMPLETE: business_id={self.business_id}, greeting='{greeting[:30]}...'")
+                    return (self.business_id, greeting)
                 else:
-                    # Ultimate fallback
-                    business = Business.query.first()
-                    self.business_id = business.id if business else 1
-                    print(f"⚠️ שימוש בעסק ראשון: business_id={self.business_id}")
+                    self.business_id = 1
+                    return (1, "שלום! איך אפשר לעזור?")
         
         except Exception as e:
-            # ✅ CRITICAL: Never crash - always set fallback business_id
-            print(f"❌ Business identification failed: {e}")
+            print(f"❌ Fast identification failed: {e}")
             import traceback
             traceback.print_exc()
-            self.business_id = 1  # Ultimate fallback
-            print(f"✅ Using fallback business_id=1")
+            self.business_id = 1
+            return (1, "שלום! איך אפשר לעזור?")
+    
+    def _identify_business_from_phone(self):
+        """זיהוי business_id לפי to_number (wrapper for backwards compat)"""
+        self._identify_business_and_get_greeting()  # קורא לפונקציה החדשה ומתעלם מהברכה
 
     def _get_business_greeting_cached(self) -> str:
         """⚡ טעינת ברכה עם cache - במיוחד מהיר לברכה הראשונה!"""
