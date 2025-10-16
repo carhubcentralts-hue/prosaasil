@@ -244,11 +244,15 @@ class MediaStreamHandler:
                         )
                         # ✅ CRITICAL FIX: שמירת to_number למזהה עסק
                         self.to_number = (
+                            evt["start"].get("to") or  # ✅ Twilio sends 'to' at start level
                             custom_params.get("To") or
                             custom_params.get("Called") or
                             custom_params.get("to") or
                             custom_params.get("called")
                         )
+                        
+                        # ✅ DEBUG: הדפסת המידע שמגיע מ-Twilio
+                        print(f"🔍 DEBUG TO_NUMBER: evt[start].get('to')={evt['start'].get('to')}, customParams={custom_params}, final to_number={self.to_number}")
                     else:
                         # Direct format: {"event": "start", "streamSid": "...", "callSid": "..."}
                         self.stream_sid = evt.get("streamSid")
@@ -1414,12 +1418,16 @@ class MediaStreamHandler:
         """זיהוי business_id לפי to_number (המספר שאליו התקשרו) אם חסר"""
         to_number = getattr(self, 'to_number', None)
         
+        print(f"🔍 _identify_business_from_phone: to_number={to_number}")
+        
         if to_number:
             # ✅ FIXED: חיפוש ישירות בטבלת Business לפי phone_number
             from server.models_sql import Business
             
             # נרמל מספר טלפון (הסר רווחים, מקפים)
             normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
+            
+            print(f"🔍 מחפש עסק: to_number={to_number}, normalized={normalized_phone}")
             
             # חפש business לפי מספר טלפון
             from sqlalchemy import or_
@@ -1437,7 +1445,10 @@ class MediaStreamHandler:
                 print(f"✅ זיהוי עסק לפי to_number {to_number}: business_id={self.business_id} (מצא: {business.name})")
                 return
             else:
-                print(f"⚠️ לא נמצא עסק עם מספר {to_number} - שימוש ב-fallback")
+                # הדפס את כל העסקים כדי לראות מה יש
+                all_businesses = Business.query.all()
+                print(f"⚠️ לא נמצא עסק עם מספר {to_number}")
+                print(f"📋 עסקים קיימים: {[(b.id, b.name, b.phone_number) for b in all_businesses]}")
         
         # Fallback: עסק פעיל ראשון
         from server.models_sql import Business
@@ -1453,36 +1464,46 @@ class MediaStreamHandler:
 
     def _get_business_greeting(self) -> str:
         """טעינת ברכה מותאמת אישית מהעסק עם {{business_name}} placeholder"""
+        print(f"🔍 _get_business_greeting CALLED! business_id={getattr(self, 'business_id', 'NOT SET')}")
+        
         try:
             from server.app_factory import create_app
             from server.models_sql import Business
             
             # זיהוי עסק אם עדיין לא זוהה
             if not hasattr(self, 'business_id') or not self.business_id:
+                print(f"⚠️ business_id לא מוגדר - מזהה עסק עכשיו...")
                 app = create_app()
                 with app.app_context():
                     self._identify_business_from_phone()
+                print(f"🔍 אחרי זיהוי: business_id={getattr(self, 'business_id', 'STILL NOT SET')}")
             
             # טעינת ברכה מה-DB
             app = create_app()
             with app.app_context():
                 business = Business.query.get(self.business_id)
+                print(f"🔍 שאילתת business: id={self.business_id}, נמצא: {business is not None}")
+                
                 if business:
                     # קבלת הברכה המותאמת
                     greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
                     business_name = business.name or "העסק שלנו"
                     
+                    print(f"🔍 פרטי עסק: name={business_name}, greeting_message={business.greeting_message}")
+                    
                     # החלפת placeholder בשם האמיתי
                     greeting = greeting.replace("{{business_name}}", business_name)
                     greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
                     
-                    print(f"✅ Loaded custom greeting for business {self.business_id} ({business_name}): {greeting[:50]}...")
+                    print(f"✅ Loaded custom greeting for business {self.business_id} ({business_name}): '{greeting}'")
                     return greeting
                 else:
                     print(f"⚠️ Business {self.business_id} not found - using default greeting")
                     return "שלום! איך אפשר לעזור?"
         except Exception as e:
-            print(f"❌ Error loading business greeting: {e} - using fallback")
+            import traceback
+            print(f"❌ Error loading business greeting: {e}")
+            print(f"❌ Traceback: {traceback.format_exc()}")
             return "שלום! איך אפשר לעזור?"
 
     def _ai_response(self, hebrew_text: str) -> str:
