@@ -26,8 +26,8 @@ class HebrewTTSLive:
     def __init__(self):
         self.client = None
         
-        # ✅ 1. קול טבעי - WaveNet-D (או C) לפי ENV
-        voice_name = os.getenv("TTS_VOICE", "he-IL-Wavenet-D")  # ✅ D = נשית טבעית
+        # ✅ 1. קול טבעי - WaveNet-C (נשי) או לפי ENV
+        voice_name = os.getenv("TTS_VOICE", "he-IL-Wavenet-C")  # ✅ C = קול נשי טבעי
         speaking_rate = float(os.getenv("TTS_RATE", "0.96"))     # ✅ 0.96 = קצב נעים
         pitch = float(os.getenv("TTS_PITCH", "-2.0"))            # ✅ -2.0 = גובה טבעי
         
@@ -82,7 +82,7 @@ class HebrewTTSLive:
     
     def _get_cache_key(self, text: str, config_name: str) -> str:
         """יצירת מפתח cache"""
-        voice_name = os.getenv("TTS_VOICE", "he-IL-Wavenet-D")
+        voice_name = os.getenv("TTS_VOICE", "he-IL-Wavenet-C")
         rate = os.getenv("TTS_RATE", "0.96")
         pitch = os.getenv("TTS_PITCH", "-2.0")
         
