@@ -1421,31 +1421,35 @@ class MediaStreamHandler:
     def _load_business_prompts(self, channel: str = 'calls') -> str:
         """טוען פרומפטים מהדאטאבייס לפי עסק - לפי ההנחיות המדויקות"""
         try:
-            # ✅ BUILD 100 FIX: זיהוי business_id לפי מספר טלפון - שימוש ב-phone_e164
-            if not self.business_id and self.phone_number:
-                # חפש עסק לפי מספר הטלפון (phone_e164 = העמודה האמיתית)
-                from server.models_sql import Business
-                business = Business.query.filter(
-                    Business.phone_e164 == self.phone_number
-                ).first()
-                if business:
-                    self.business_id = business.id
-                    print(f"✅ זיהוי עסק לפי טלפון {self.phone_number}: {business.name}")
+            # ✅ CRITICAL: All DB queries need app_context in Cloud Run/ASGI!
+            from server.app_factory import create_app
+            from server.models_sql import Business, BusinessSettings
             
-            # אם אין עדיין business_id, השתמש בfallback
-            if not self.business_id:
-                from server.services.business_resolver import resolve_business_with_fallback
-                self.business_id, status = resolve_business_with_fallback('twilio_voice', '+97233763805')
-                print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
-            
-            if not self.business_id:
-                print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל")
-                return "את עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
-            
-            # טען פרומפט מ-BusinessSettings
-            from server.models_sql import BusinessSettings, Business
-            settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
-            business = Business.query.get(self.business_id)
+            app = create_app()
+            with app.app_context():
+                # ✅ BUILD 100 FIX: זיהוי business_id לפי מספר טלפון - שימוש ב-phone_e164
+                if not self.business_id and self.phone_number:
+                    # חפש עסק לפי מספר הטלפון (phone_e164 = העמודה האמיתית)
+                    business = Business.query.filter(
+                        Business.phone_e164 == self.phone_number
+                    ).first()
+                    if business:
+                        self.business_id = business.id
+                        print(f"✅ זיהוי עסק לפי טלפון {self.phone_number}: {business.name}")
+                
+                # אם אין עדיין business_id, השתמש בfallback
+                if not self.business_id:
+                    from server.services.business_resolver import resolve_business_with_fallback
+                    self.business_id, status = resolve_business_with_fallback('twilio_voice', '+97233763805')
+                    print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
+                
+                if not self.business_id:
+                    print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל")
+                    return "את עוזרת נדלן מקצועית. עזרי ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
+                
+                # טען פרומפט מ-BusinessSettings
+                settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
+                business = Business.query.get(self.business_id)
             
             if settings and settings.ai_prompt:
                 try:
@@ -1480,49 +1484,51 @@ class MediaStreamHandler:
 
     def _identify_business_from_phone(self):
         """זיהוי business_id לפי to_number (המספר שאליו התקשרו) אם חסר"""
+        # ✅ CRITICAL: All DB queries need app_context in Cloud Run/ASGI!
+        from server.app_factory import create_app
+        from server.models_sql import Business
+        from sqlalchemy import or_
+        
         to_number = getattr(self, 'to_number', None)
         
         print(f"🔍 _identify_business_from_phone: to_number={to_number}")
         
-        if to_number:
-            # ✅ FIXED: חיפוש ישירות בטבלת Business לפי phone_number
-            from server.models_sql import Business
+        app = create_app()
+        with app.app_context():
+            if to_number:
+                # נרמל מספר טלפון (הסר רווחים, מקפים)
+                normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
+                
+                print(f"🔍 מחפש עסק: to_number={to_number}, normalized={normalized_phone}")
+                
+                # ✅ BUILD 100 FIX: חפש business לפי phone_e164 (העמודה האמיתית ב-DB, לא property!)
+                business = Business.query.filter(
+                    or_(
+                        Business.phone_e164 == to_number,
+                        Business.phone_e164 == normalized_phone
+                    )
+                ).first()
+                
+                if business:
+                    self.business_id = business.id
+                    print(f"✅ זיהוי עסק לפי to_number {to_number}: business_id={self.business_id} (מצא: {business.name})")
+                    return
+                else:
+                    # Debug: הדפס את כל העסקים כדי לראות מה יש
+                    all_businesses = Business.query.filter_by(is_active=True).all()
+                    print(f"⚠️ לא נמצא עסק עם מספר {to_number}")
+                    print(f"📋 עסקים פעילים: {[(b.id, b.name, b.phone_e164) for b in all_businesses]}")
             
-            # נרמל מספר טלפון (הסר רווחים, מקפים)
-            normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
-            
-            print(f"🔍 מחפש עסק: to_number={to_number}, normalized={normalized_phone}")
-            
-            # ✅ BUILD 100 FIX: חפש business לפי phone_e164 (העמודה האמיתית ב-DB, לא property!)
-            from sqlalchemy import or_
-            business = Business.query.filter(
-                or_(
-                    Business.phone_e164 == to_number,
-                    Business.phone_e164 == normalized_phone
-                )
-            ).first()
-            
+            # Fallback: עסק פעיל ראשון
+            business = Business.query.filter_by(is_active=True).first()
             if business:
                 self.business_id = business.id
-                print(f"✅ זיהוי עסק לפי to_number {to_number}: business_id={self.business_id} (מצא: {business.name})")
-                return
+                print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({business.name})")
             else:
-                # Debug: הדפס את כל העסקים כדי לראות מה יש
-                all_businesses = Business.query.filter_by(is_active=True).all()
-                print(f"⚠️ לא נמצא עסק עם מספר {to_number}")
-                print(f"📋 עסקים פעילים: {[(b.id, b.name, b.phone_e164) for b in all_businesses]}")
-        
-        # Fallback: עסק פעיל ראשון
-        from server.models_sql import Business
-        business = Business.query.filter_by(is_active=True).first()
-        if business:
-            self.business_id = business.id
-            print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({business.name})")
-        else:
-            # Ultimate fallback
-            business = Business.query.first()
-            self.business_id = business.id if business else 1
-            print(f"⚠️ שימוש בעסק ראשון: business_id={self.business_id}")
+                # Ultimate fallback
+                business = Business.query.first()
+                self.business_id = business.id if business else 1
+                print(f"⚠️ שימוש בעסק ראשון: business_id={self.business_id}")
 
     def _get_business_greeting_cached(self) -> str:
         """⚡ טעינת ברכה עם cache - במיוחד מהיר לברכה הראשונה!"""
