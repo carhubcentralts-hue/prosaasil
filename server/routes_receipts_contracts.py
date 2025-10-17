@@ -192,7 +192,7 @@ def create_contract():
 def view_invoice(invoice_id):
     """הצגת חשבונית בפורמט PDF"""
     try:
-        from server.models_sql import Payment, Business, db
+        from server.models_sql import Invoice, Payment, Business, Deal, db
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfbase import pdfmetrics
@@ -200,10 +200,15 @@ def view_invoice(invoice_id):
         from io import BytesIO
         import os
         
-        # שליפת נתוני התשלום מהדאטבייס
-        payment = Payment.query.get(int(invoice_id))
-        if not payment:
+        # שליפת החשבונית מהדאטבייס
+        invoice = Invoice.query.get(int(invoice_id))
+        if not invoice:
             return jsonify({'success': False, 'message': 'חשבונית לא נמצאה'}), 404
+        
+        # שליפת התשלום המקושר
+        payment = Payment.query.filter_by(deal_id=invoice.deal_id).first() if invoice.deal_id else None
+        if not payment:
+            return jsonify({'success': False, 'message': 'תשלום לא נמצא'}), 404
         
         # שליפת פרטי העסק
         business = Business.query.get(payment.business_id) if payment.business_id else None
@@ -227,7 +232,7 @@ def view_invoice(invoice_id):
         
         # כותרת החשבונית
         p.setFont(font_name, 24)
-        p.drawString(100, height - 100, f"Invoice #{payment.id}")
+        p.drawString(100, height - 100, f"Invoice #{invoice.invoice_number}")
         
         # פרטי החשבונית - נתונים אמיתיים מה-DB
         p.setFont(font_name, 12)
@@ -235,13 +240,15 @@ def view_invoice(invoice_id):
         
         invoice_details = [
             f"Company: {business_name}",
-            f"Invoice ID: {payment.id}",
-            f"Date: {payment.created_at.strftime('%Y-%m-%d %H:%M') if payment.created_at else 'N/A'}",
-            f"Amount: ₪{payment.amount / 100:,.2f}",
+            f"Invoice Number: {invoice.invoice_number}",
+            f"Date: {invoice.issued_at.strftime('%Y-%m-%d %H:%M') if invoice.issued_at else 'N/A'}",
+            f"Subtotal: ₪{invoice.subtotal / 100:,.2f}",
+            f"Tax (17%): ₪{invoice.tax / 100:,.2f}",
+            f"Total: ₪{invoice.total / 100:,.2f}",
             f"Description: {payment.description or 'עמלת תיווך נדל״ן'}",
             f"Customer: {payment.customer_name or 'לא צוין'}",
             f"Status: {payment.status or 'created'}",
-            f"Payment Method: {payment.provider or 'N/A'}"
+            f"Payment Method: {payment.provider or 'manual'}"
         ]
         
         for detail in invoice_details:
@@ -258,7 +265,7 @@ def view_invoice(invoice_id):
             buffer.getvalue(),
             mimetype='application/pdf',
             headers={
-                'Content-Disposition': f'inline; filename=invoice-{payment.id}.pdf',
+                'Content-Disposition': f'inline; filename=invoice-{invoice.invoice_number}.pdf',
                 'Content-Type': 'application/pdf'
             }
         )
@@ -272,7 +279,7 @@ def view_invoice(invoice_id):
 def download_invoice(invoice_id):
     """הורדת חשבונית בפורמט PDF"""
     try:
-        from server.models_sql import Payment, Business, db
+        from server.models_sql import Invoice, Payment, Business, Deal, db
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfbase import pdfmetrics
@@ -280,10 +287,15 @@ def download_invoice(invoice_id):
         from io import BytesIO
         import os
         
-        # שליפת נתוני התשלום מהדאטבייס
-        payment = Payment.query.get(int(invoice_id))
-        if not payment:
+        # שליפת החשבונית מהדאטבייס
+        invoice = Invoice.query.get(int(invoice_id))
+        if not invoice:
             return jsonify({'success': False, 'message': 'חשבונית לא נמצאה'}), 404
+        
+        # שליפת התשלום המקושר
+        payment = Payment.query.filter_by(deal_id=invoice.deal_id).first() if invoice.deal_id else None
+        if not payment:
+            return jsonify({'success': False, 'message': 'תשלום לא נמצא'}), 404
         
         # שליפת פרטי העסק
         business = Business.query.get(payment.business_id) if payment.business_id else None
@@ -304,20 +316,22 @@ def download_invoice(invoice_id):
             font_name = 'Helvetica'
         
         p.setFont(font_name, 24)
-        p.drawString(100, height - 100, f"Invoice #{payment.id}")
+        p.drawString(100, height - 100, f"Invoice #{invoice.invoice_number}")
         
         p.setFont(font_name, 12)
         y_position = height - 150
         
         invoice_details = [
             f"Company: {business_name}",
-            f"Invoice ID: {payment.id}",
-            f"Date: {payment.created_at.strftime('%Y-%m-%d %H:%M') if payment.created_at else 'N/A'}",
-            f"Amount: ₪{payment.amount / 100:,.2f}",
+            f"Invoice Number: {invoice.invoice_number}",
+            f"Date: {invoice.issued_at.strftime('%Y-%m-%d %H:%M') if invoice.issued_at else 'N/A'}",
+            f"Subtotal: ₪{invoice.subtotal / 100:,.2f}",
+            f"Tax (17%): ₪{invoice.tax / 100:,.2f}",
+            f"Total: ₪{invoice.total / 100:,.2f}",
             f"Description: {payment.description or 'עמלת תיווך נדל״ן'}",
             f"Customer: {payment.customer_name or 'לא צוין'}",
             f"Status: {payment.status or 'created'}",
-            f"Payment Method: {payment.provider or 'N/A'}"
+            f"Payment Method: {payment.provider or 'manual'}"
         ]
         
         for detail in invoice_details:
@@ -332,7 +346,7 @@ def download_invoice(invoice_id):
             buffer.getvalue(),
             mimetype='application/pdf',
             headers={
-                'Content-Disposition': f'attachment; filename=invoice-{payment.id}.pdf',
+                'Content-Disposition': f'attachment; filename=invoice-{invoice.invoice_number}.pdf',
                 'Content-Type': 'application/pdf'
             }
         )
