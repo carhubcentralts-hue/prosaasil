@@ -1,0 +1,157 @@
+סגור—ממקדים על “Latency של תמלול” ומביאים אותה לזמן אמת, בלי לשבור כלום אצלך (Flask/ASGI + Twilio Media Streams + Google STT, ו-Whisper כ-fallback). זה הפלייבוק המדויק, עם בחירות וקוד איפה שזה רלוונטי.
+
+⸻
+
+מה גורם לאיטיות, ואיך פותרים
+	1.	הצינור החם (WS → דקוד μ-law → STT): אסור שיהיו בו פעולות כבדות, ריסמפלים מיותרים, או await איטיים.
+	2.	הגדרות STT: חייבים Streaming אמיתי עם interimResults (partials), מודל/פרופיל נכון לטלפוניה (8kHz), וסשן יחיד לכל שיחה.
+	3.	בקרה על “מתי שולחים”: שולחים חלקיים (“partials”) בבאפר קצר (למשל 150–250ms) ולא מחכים ל-final; את ה-final תנעלו מאוחר יותר.
+
+להלן הצעדים אחד-לאחד.
+
+⸻
+
+A) Twilio Media Streams — קליטה נכונה, ללא ריסמפל
+	•	Twilio שולחת PCMU (G.711 μ-law) ב-8kHz בפריימים של ~20ms ב-WebSocket. אל תבצע המרות מיותרות ל-16k/48k—תשמרו 8kHz LINEAR16 כל הדרך לשירות ה-STT.  ￼
+
+ASGI ws handler (עקרונות):
+	•	לולאת הקריאה מה-WS רק דוחפת ל-Queue (ללא עיבוד כבד/כתיבה לדיסק).
+	•	דקוד μ-law → PCM בטבלה/וקטוריזציה (lookup table) כדי להיות O(1).
+	•	אוגרים 100–200ms לפני שליחה ל-STT (פחות מדי = overhead; יותר מדי = latency).
+
+פסאודו:
+
+incoming_q = asyncio.Queue(maxsize=100)
+
+async def ws_handler(websocket):
+    await websocket.accept(subprotocol="audio.twilio.com")
+    asyncio.create_task(_producer(websocket))   # קורא WS ודוחף מסגרות
+    asyncio.create_task(_stt_pump())            # קורא מהתור ושולח ל-STT
+    await asyncio.Future()                      # keep alive
+
+async def _producer(ws):
+    while True:
+        msg = await ws.receive_json()
+        if "media" in msg:
+            b64 = msg["media"]["payload"]         # 20ms μ-law
+            incoming_q.put_nowait(b64)            # לא לדקוד כאן
+
+
+⸻
+
+B) Google STT Streaming — פרופיל מהיר לטלפוניה
+
+בחירת מודל/קונפיג:
+	•	שפת זיהוי: he-IL
+	•	Streaming עם interimResults=True (partials רציפים).
+	•	ללא ריסמפל: שלחו sampleRateHertz=8000, encoding=LINEAR16 (אחרי דקוד μ-law).
+	•	מודל: ל-PSTN/טלפון השתמשו בפרופיל/מודל לטלפוניה (ב-V2: “phone_call”/או “latest_long” לפי זמינות לשפה; בדקו זמינות לעברית בממשק—אם “phone_call” לא תומך ב-he-IL אצלכם, עברו ל-“latest_long” עם 8kHz).  ￼
+
+טיפים לקונפיג שמשפיעים על latency:
+	•	interimResults=True – חובה כדי לקבל טקסט תוך ~0.5–1.2s.  ￼
+	•	שקלו לכבות enableAutomaticPunctuation בפרופיל “אולטרה-מהיר” (חוסך טיפה latency בחלקיים), ולהפעילו רק ב-post-process ל-final. (זו החלפה ביזנסית: פחות “יפה” בחלקיים, הרבה יותר מהיר.)  ￼
+	•	Speech Contexts / phrase hints לשמות לקוח/מותגים שחוזרים—משפר דיוק מיידי (פחות תיקונים חוזרים).  ￼
+	•	שלחו זרם יחיד לכל שיחה; אל תפתחו/תסגרו סטרימים כל חצי שנייה—כל פתיחה מוסיפה הקמה/לאטנסי.  ￼
+
+⸻
+
+C) משגר STT “דק” (ממיר μ-law ומקבץ)
+
+רעיון: Worker אסינכרוני שממיר μ-law→PCM, מצמיד בלוקים של ~100ms, ומאכיל את ה-STT. הוא גם חושף callback ל-partials כל 150–250ms.
+
+פסאודו:
+
+stt = GoogleStreaming(
+    language="he-IL",
+    sample_rate=8000, encoding="LINEAR16",
+    interim=True,  # partials
+    model=os.getenv("GCP_STT_MODEL","phone_call")  # או latest_long לפי זמינות
+)
+
+async def _stt_pump():
+    buf = bytearray()
+    last_emit = time.monotonic()
+    while True:
+        b64 = await incoming_q.get()
+        ulaw = base64.b64decode(b64)
+        pcm  = mulaw_decode_fast(ulaw)   # וקטורי, לא לולאה איטית
+        buf.extend(pcm)
+        # כל ~80–120ms שלח ל-STT
+        if len(buf) >= BYTES_PER_100MS:
+            stt.feed(bytes(buf)); buf.clear()
+        # שלח partial ל-NLP/סוכן כל ~150–250ms (debounce)
+        if time.monotonic() - last_emit > 0.18:
+            partial = stt.read_partial()        # non-blocking
+            if partial:
+                on_partial_text(partial)        # זורם לסוכן/לוגיקה
+                last_emit = time.monotonic()
+
+הערה: גוגל מציינת ש-interim ראשון סביב ~1 שנ׳ תקין—זה “המחיר” של קונטקסט אקוסטי ראשוני. אל תנעצו עליו מדדים של 300ms. החלקים הבאים יזרמו מהר יותר.  ￼
+
+⸻
+
+D) אלטרנטיבה/נפילה: Faster-Whisper בזמן-אמת
+
+אם יש לכם GPU (או אפילו CPU חזק) ורוצים “אולטרה-לואו-לטנסי” מקומי:
+faster-whisper (CTranslate2) מהיר פי 3–6 מה-Whisper המקורי, עם INT8/FP16.  ￼
+
+הנחיה:
+	•	הריצו faster-whisper כ-fallback ל-final בלבד (אחרי הקלטה), או כ-primary אם ה-GCP איטי/לא זמין.
+	•	פרמטרים מהירים: beam_size=1, compute_type=int8 (CPU) או float16 (GPU), vad_filter=True.
+	•	VAD Silero לפני השליחה חוסך bytes ולטנסי (30ms צ׳אנק <1ms CPU).  ￼
+
+בפועל: שמרו את Google Streaming ל-partials בזמן אמת (דיבור חי), ו-faster-whisper לסגירת פערי דיוק/סיכום ב-final.
+
+⸻
+
+E) שליחת partials לסוכן – “מהר, אבל לא להציף”
+	•	החזירו partial כל 150–250ms (debounce), מיזוג פרגמנטים קצרים (“שלום אני”→“שלום, אני”).
+	•	אל תעצרו TTS באמצע כל partial; תעדכנו כוונה רק כשה-partial “משמעותי” (≥ 8–12 תווים/מילה שלישית).
+	•	final מגיע? עשו פוליש פיסוק קצר ואז עברו ל-NLP ארוך/סיכום.
+
+⸻
+
+F) תצורה/סביבה כדי לא “להיתקע”
+	•	WebSocket/ASGI: אל תעשו await כבד בלולאת ה-WS; כל IO (DB/LLM) ב-queue/worker.
+	•	חיבורים ממוחזרים: requests.Session() / Axios keep-alive.
+	•	לוגים: בפרודקשן WARNING ומטה; אין print בכל פריים.
+	•	Instance חם: אל תריצו את זה על דיפלוי שמתעורר בקור—זה מוסיף שניות.
+	•	ודאו ש-DATABASE_URL מצביע ל-DB קבוע (לא SQLite זמני), אחרת הסטטוסים/תמלולים “נעלמים”.
+
+⸻
+
+G) בדיקות GO (2 דקות)
+	1.	חייג ושמע: פתיח ≤ 500–800ms.
+	2.	דבר משפט קצר – partial ראשון ~0.7–1.2s (זה נורמלי), אחריו partials רצים כל ~200ms.
+	3.	בדקו לוגים:
+	•	“WS in → Queue” < 2ms/פריים
+	•	“feed to STT” כל 100ms
+	•	“partial out” ~200ms מחזור
+	4.	אם איטי—בדקו שלושת צווארי הבקבוק:
+	•	דקוד μ-law (חייב להיות בטבלת lookup / NumPy, לא לולאה פייתונית איטית).
+	•	באפרינג גדול מדי (>250ms).
+	•	enableAutomaticPunctuation דלוק בזמן חלקיים (אפשר לכבות בפרופיל מהיר).
+
+⸻
+
+למה זה מבוסס
+	•	Twilio Media Streams: פורמט ו-WS messages; 8kHz וזרימה בפריימים קצרים.  ￼
+	•	Google STT Streaming + best-practices (interim, sample rate, התאמה לטלפון).  ￼
+	•	Latency ראשוני ~1s ל-interim – התנהגות ידועה.  ￼
+	•	Faster-whisper/CTranslate2 – האצות 3–6× ו-INT8/FP16.  ￼
+	•	VAD Silero – <1ms לצ’אנק, חוסך רוחב/זמן.  ￼
+
+⸻
+
+“מה להגיד למפתח” (קופי-פייסט קשיח)
+	1.	ב-ASGI ws: הקריאה מה-WS דוחפת Base64 ל-Queue בלבד; אין דקוד/IO שם.
+	2.	Worker _stt_pump:
+	•	דקוד μ-law→PCM ב-lookup (וקטורי/NumPy).
+	•	קיבוץ 100–200ms ושליחה ל-Google STT Streaming אחד פר שיחה.
+	•	interimResults=True, sampleRateHertz=8000, encoding=LINEAR16, language=he-IL, מודל טלפוניה (phone_call אם נתמך, אחרת latest_long).
+	•	enableAutomaticPunctuation=False בפרופיל “מהיר”; תעשה פיסוק ב-post-process ל-final.
+	•	partials יוצאים החוצה כל ~180ms (debounce).
+	3.	שמור Whisper רק ל-final (או fallback) עם faster-whisper (beam_size=1, compute_type=int8/float16, vad_filter=True).
+	4.	ודא חיבורים ממוחזרים, לוגים דלים, ו-DB קבוע.
+
+תיישם ככה—והתמלול “יזרום” בזמן אמת, עם partials מהירים ושדרוג דיוק ב-final, בלי לגעת בשאר המערכת.

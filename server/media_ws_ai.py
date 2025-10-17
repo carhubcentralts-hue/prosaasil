@@ -4,6 +4,7 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
 import os, json, time, base64, audioop, math, threading, queue, random, zlib
 import builtins
+from server.services.mulaw_fast import mulaw_to_pcm16_fast
 
 # Override print to always flush (CRITICAL for logs visibility)
 _original_print = builtins.print
@@ -310,7 +311,8 @@ class MediaStreamHandler:
                     self.rx += 1
                     b64 = evt["media"]["payload"]
                     mulaw = base64.b64decode(b64)
-                    pcm16 = audioop.ulaw2lin(mulaw, 2)
+                    # ⚡ SPEED: Fast μ-law decode using lookup table (~10-20x faster)
+                    pcm16 = mulaw_to_pcm16_fast(mulaw)
                     self.last_rx_ts = time.time()
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
@@ -911,8 +913,8 @@ class MediaStreamHandler:
             delattr(self, 'eou_timestamp')  # נקה למדידה הבאה
         
         try:
-            # ⚡ SPEED BOOST: המתנה קצרה יותר (100ms במקום 200-400ms)
-            time.sleep(0.1)
+            # ⚡ ULTRA-SPEED: No delay before TTS - immediately start speaking
+            # time.sleep removed for minimum latency
                 
             # קיצור טקסט ארוך
             if len(text) > 150:
