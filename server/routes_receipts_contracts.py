@@ -127,7 +127,7 @@ def create_receipt():
         invoice.payment_id = payment.id  # Link directly to payment
         invoice.invoice_number = f'INV-{datetime.now().year}-{payment.id:05d}'
         invoice.subtotal = amount_agorot
-        invoice.tax = int(amount_agorot * 0.17)  # 17% VAT
+        invoice.tax = int(amount_agorot * 0.18)  # 18% VAT (Israel)
         invoice.total = amount_agorot + invoice.tax
         invoice.issued_at = datetime.utcnow()
         
@@ -284,7 +284,7 @@ def view_invoice(invoice_id):
             f"Invoice Number: {invoice.invoice_number}",
             f"Date: {invoice.issued_at.strftime('%Y-%m-%d %H:%M') if invoice.issued_at else 'N/A'}",
             f"Subtotal: ₪{invoice.subtotal / 100:,.2f}",
-            f"Tax (17%): ₪{invoice.tax / 100:,.2f}",
+            f"Tax (18%): ₪{invoice.tax / 100:,.2f}",
             f"Total: ₪{invoice.total / 100:,.2f}",
             f"Description: {payment.description or 'עמלת תיווך נדל״ן'}",
             f"Customer: {payment.customer_name or 'לא צוין'}",
@@ -373,7 +373,7 @@ def download_invoice(invoice_id):
             f"Invoice Number: {invoice.invoice_number}",
             f"Date: {invoice.issued_at.strftime('%Y-%m-%d %H:%M') if invoice.issued_at else 'N/A'}",
             f"Subtotal: ₪{invoice.subtotal / 100:,.2f}",
-            f"Tax (17%): ₪{invoice.tax / 100:,.2f}",
+            f"Tax (18%): ₪{invoice.tax / 100:,.2f}",
             f"Total: ₪{invoice.total / 100:,.2f}",
             f"Description: {payment.description or 'עמלת תיווך נדל״ן'}",
             f"Customer: {payment.customer_name or 'לא צוין'}",
