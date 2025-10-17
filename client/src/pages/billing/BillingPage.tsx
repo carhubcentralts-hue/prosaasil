@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { CreditCard, FileText, Download, Eye, Plus, DollarSign, Calendar, AlertCircle, Clock, X } from 'lucide-react';
+import { CreditCard, FileText, Download, Eye, Plus, DollarSign, Calendar, AlertCircle, Clock, X, PenTool } from 'lucide-react';
 import { http } from '../../services/http';
+import { SignatureCanvas } from '../../components/SignatureCanvas';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -87,6 +88,9 @@ export function BillingPage() {
   const [activeTab, setActiveTab] = useState<'payments' | 'contracts'>('payments');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showContractModal, setShowContractModal] = useState(false);
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
+  const [signatureName, setSignatureName] = useState('');
   
   // Form states
   const [paymentForm, setPaymentForm] = useState({
@@ -375,6 +379,42 @@ export function BillingPage() {
     }
   };
 
+  const handleOpenSignatureModal = (contract: Contract) => {
+    setSelectedContract(contract);
+    setSignatureName('');
+    setShowSignatureModal(true);
+  };
+
+  const handleSignContract = async (signatureData: string) => {
+    if (!selectedContract) return;
+    
+    if (!signatureName.trim()) {
+      alert('אנא הזן שם מלא');
+      return;
+    }
+
+    try {
+      const response = await http.post(`/api/contracts/${selectedContract.id}/sign`, {
+        signature_data: signatureData,
+        signed_name: signatureName.trim()
+      });
+
+      if (response.success) {
+        alert('החוזה נחתם בהצלחה! ✓');
+        setShowSignatureModal(false);
+        setSelectedContract(null);
+        setSignatureName('');
+        // Reload contracts to get updated data
+        loadData();
+      } else {
+        alert(response.message || 'שגיאה בחתימה');
+      }
+    } catch (error) {
+      console.error('Error signing contract:', error);
+      alert('שגיאה בחתימת החוזה');
+    }
+  };
+
   // Calculate summary stats
   const totalRevenue = payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
   const pendingPayments = payments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
@@ -658,6 +698,16 @@ export function BillingPage() {
                     <Download className="w-4 h-4 mr-2" />
                     הורד
                   </Button>
+                  <Button 
+                    size="sm" 
+                    className="flex-1"
+                    onClick={() => handleOpenSignatureModal(contract)}
+                    title="חתימה דיגיטלית"
+                    data-testid={`button-sign-contract-${contract.id}`}
+                  >
+                    <PenTool className="w-4 h-4 mr-2" />
+                    חתום
+                  </Button>
                 </div>
               </Card>
             ))}
@@ -895,6 +945,56 @@ export function BillingPage() {
                     צור חוזה
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Signature Modal */}
+      {showSignatureModal && selectedContract && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
+          <div className="bg-white rounded-lg w-full max-w-2xl shadow-xl">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  חתימה דיגיטלית על חוזה
+                </h3>
+                <button
+                  onClick={() => setShowSignatureModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                  data-testid="button-close-signature-modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-900 mb-1">{selectedContract.title}</h4>
+                <p className="text-sm text-gray-600">{selectedContract.client_name}</p>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    שם מלא של החותם *
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="הזן שם מלא"
+                    value={signatureName}
+                    onChange={(e) => setSignatureName(e.target.value)}
+                    data-testid="input-signer-name"
+                  />
+                </div>
+
+                <SignatureCanvas
+                  onSave={handleSignContract}
+                  onClear={() => console.log('Signature cleared')}
+                  width={600}
+                  height={200}
+                />
               </div>
             </div>
           </div>

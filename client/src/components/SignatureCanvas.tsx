@@ -1,7 +1,4 @@
 import { useRef, useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Pen, Eraser, Download } from 'lucide-react';
 
 interface SignatureCanvasProps {
   onSave: (signatureData: string) => void;
@@ -114,9 +111,9 @@ export function SignatureCanvas({
   };
 
   return (
-    <Card className="p-4 space-y-4">
+    <div className="p-4 space-y-4 border rounded-lg bg-white shadow-sm">
       <div className="space-y-2">
-        <label className="text-sm font-medium">חתימה דיגיטלית</label>
+        <label className="text-sm font-medium block">חתימה דיגיטלית</label>
         <div className="border-2 border-dashed border-gray-300 rounded-lg overflow-hidden bg-white">
           <canvas
             ref={canvasRef}
@@ -134,27 +131,25 @@ export function SignatureCanvas({
       </div>
 
       <div className="flex gap-2 justify-end">
-        <Button
+        <button
           type="button"
-          variant="outline"
-          size="sm"
           onClick={clearCanvas}
           disabled={isEmpty}
+          className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           data-testid="button-clear-signature"
         >
-          <Eraser className="w-4 h-4 ml-2" />
           נקה
-        </Button>
-        <Button
+        </button>
+        <button
           type="button"
           onClick={saveSignature}
           disabled={isEmpty}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           data-testid="button-save-signature"
         >
-          <Download className="w-4 h-4 ml-2" />
           שמור חתימה
-        </Button>
+        </button>
       </div>
-    </Card>
+    </div>
   );
 }
