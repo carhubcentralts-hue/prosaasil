@@ -115,13 +115,25 @@ export function BillingPage() {
     try {
       setLoading(true);
       
-      const [paymentsResponse, contractsResponse] = await Promise.all([
-        http.get('/api/crm/payments'),
-        http.get('/api/crm/contracts')
-      ]);
+      // Load invoices/receipts from the real API
+      const receiptsResponse = await http.get('/api/receipts') as any;
+      const invoices = receiptsResponse?.invoices || [];
       
-      setPayments(Array.isArray(paymentsResponse) ? paymentsResponse : []);
-      setContracts(Array.isArray(contractsResponse) ? contractsResponse : []);
+      // Transform to match Payment interface
+      const paymentsData = invoices.map((inv: any) => ({
+        id: inv.id,
+        amount: inv.total || inv.amount,
+        status: inv.status === 'created' ? 'pending' : inv.status === 'paid' ? 'paid' : 'pending',
+        description: inv.description || 'חשבונית',
+        client_name: inv.customer_name || 'לקוח',
+        due_date: inv.created_at,
+        paid_date: inv.paid_at,
+        invoice_number: inv.invoice_number,
+        payment_method: 'ידני'
+      }));
+      
+      setPayments(paymentsData);
+      setContracts([]); // Contracts will be loaded separately when needed
     } catch (error) {
       console.error('Error loading billing data:', error);
       setPayments([]);
@@ -190,20 +202,20 @@ export function BillingPage() {
   // Create new payment/receipt
   const handleCreatePayment = async () => {
     try {
-      if (!paymentForm.amount || !paymentForm.description) {
-        alert('נא למלא את כל השדות הנדרשים');
+      if (!paymentForm.amount || !paymentForm.description || !paymentForm.lead_id) {
+        alert('נא למלא את כל השדות הנדרשים (כולל Lead ID)');
         return;
       }
 
-      const response = await http.post('/api/crm/payments/create', {
-        amount: Math.round(parseFloat(paymentForm.amount) * 100), // Convert to cents
+      const response = await http.post('/api/receipts', {
+        lead_id: parseInt(paymentForm.lead_id),
+        amount: parseFloat(paymentForm.amount), // Send as float, backend converts
         description: paymentForm.description,
-        customer_name: paymentForm.client_name || "לקוח",
-        provider: paymentForm.payment_provider || null
+        customer_name: paymentForm.client_name || "לקוח"
       }) as any;
 
       if (response.success) {
-        alert(`חשבונית נוצרה בהצלחה! מספר: ${response.receipt_id}`);
+        alert(`חשבונית ${response.invoice_number} נוצרה בהצלחה! סכום: ${response.total_with_tax} ₪ (כולל מע״מ)`);
         setShowPaymentModal(false);
         setPaymentForm({ lead_id: '', amount: '', description: '', client_name: '', payment_provider: '' });
         loadData(); // Reload the data
@@ -219,17 +231,15 @@ export function BillingPage() {
   // Create new contract
   const handleCreateContract = async () => {
     try {
-      if (!contractForm.title || !contractForm.type) {
-        alert('נא למלא את כל השדות הנדרשים');
+      if (!contractForm.title || !contractForm.type || !contractForm.lead_id) {
+        alert('נא למלא את כל השדות הנדרשים (כולל Lead ID)');
         return;
       }
 
-      const response = await http.post('/api/crm/contracts', {
-        contract_type: contractForm.type,
-        title: contractForm.title,
-        client_name: contractForm.client_name || "לקוח",
-        property_address: contractForm.property_address || "",
-        amount: contractForm.amount || 0
+      const response = await http.post('/api/contracts', {
+        lead_id: parseInt(contractForm.lead_id),
+        type: contractForm.type,
+        title: contractForm.title || contractForm.custom_title
       }) as any;
 
       if (response.success) {

@@ -153,16 +153,41 @@ def create_receipt():
 @receipts_contracts_bp.route('/api/contracts', methods=['POST'])
 @require_api_auth()
 def create_contract():
-    """יצירת חוזה ללקוח"""
+    """יצירת חוזה אמיתי ושמירה ב-DB"""
     try:
+        from server.models_sql import Contract, Deal, db, Lead
+        from server.routes_crm import get_business_id
+        
         data = request.get_json()
         lead_id = data.get('lead_id')
-        contract_type = data.get('type', 'sale')  # sale, rent, mediation, custom
+        contract_type = data.get('type', 'mediation')  # sale, rent, mediation, custom
         custom_title = data.get('title', '')
         
         if not lead_id:
             return jsonify({'success': False, 'message': 'Lead ID נדרש'}), 400
-            
+        
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'success': False, 'message': 'Business ID נדרש'}), 400
+        
+        # Get lead details
+        lead = Lead.query.get(lead_id)
+        if not lead:
+            return jsonify({'success': False, 'message': 'ליד לא נמצא'}), 404
+        
+        customer_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip() or "לקוח"
+        
+        # Create deal if doesn't exist
+        deal = Deal.query.filter_by(customer_id=lead_id).first()
+        if not deal:
+            deal = Deal()
+            deal.customer_id = lead_id
+            deal.title = f"עסקה - {customer_name}"
+            deal.stage = "new"
+            deal.created_at = datetime.utcnow()
+            db.session.add(deal)
+            db.session.flush()
+        
         # סוגי חוזים
         contract_types = {
             'sale': 'חוזה מכירה',
@@ -172,27 +197,29 @@ def create_contract():
         }
         
         contract_name = contract_types.get(contract_type, custom_title or 'חוזה כללי')
-        contract_id = str(uuid.uuid4())
         
-        contract_data = {
-            'id': contract_id,
-            'lead_id': lead_id,
-            'type': contract_type,
-            'name': contract_name,
-            'created_at': datetime.now().isoformat(),
-            'status': 'draft'
-        }
+        # Create contract record
+        contract = Contract()
+        contract.deal_id = deal.id
+        contract.template_name = contract_name
+        contract.version = 'v1'
+        contract.created_at = datetime.utcnow()
         
-        # TODO: שמירה בדאטבייס כשנוסיף טבלת חוזים
+        db.session.add(contract)
+        db.session.commit()
         
         return jsonify({
             'success': True,
             'message': f'{contract_name} נוצר בהצלחה',
-            'contract_id': contract_id,
-            'type': contract_type
+            'contract_id': contract.id,
+            'type': contract_type,
+            'deal_id': deal.id
         })
         
     except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'message': f'שגיאה ביצירת חוזה: {str(e)}'}), 500
 
 @receipts_contracts_bp.route('/api/billing/invoice/<invoice_id>/view', methods=['GET'])
