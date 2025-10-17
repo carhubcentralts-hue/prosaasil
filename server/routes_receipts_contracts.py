@@ -18,25 +18,32 @@ def list_receipts():
         if not business_id:
             return jsonify({'success': False, 'message': 'Business ID נדרש'}), 400
         
-        # Get all payments for this business
-        payments = Payment.query.filter_by(business_id=business_id).order_by(Payment.created_at.desc()).all()
+        # Get all invoices (prefer payment_id, fallback to deal_id for legacy)
+        from sqlalchemy import or_
+        invoices = db.session.query(Invoice, Payment).join(
+            Payment,
+            or_(
+                Invoice.payment_id == Payment.id,
+                (Invoice.payment_id.is_(None) & (Invoice.deal_id == Payment.deal_id))
+            )
+        ).filter(
+            Payment.business_id == business_id
+        ).order_by(Invoice.issued_at.desc()).all()
         
         invoices_list = []
-        for payment in payments:
-            # Get invoice if exists
-            invoice = None
-            if payment.deal_id:
-                invoice = Invoice.query.filter_by(deal_id=payment.deal_id).first()
-            
+        for invoice, payment in invoices:
             invoices_list.append({
-                'id': payment.id,
-                'invoice_id': invoice.id if invoice else None,
-                'invoice_number': invoice.invoice_number if invoice else f'PAY-{payment.id}',
-                'amount': payment.amount / 100,
+                'id': invoice.id,  # Always use invoice ID for PDF endpoints
+                'payment_id': payment.id,
+                'invoice_id': invoice.id,
+                'invoice_number': invoice.invoice_number,
+                'amount': invoice.subtotal / 100,
+                'tax': invoice.tax / 100,
+                'total': invoice.total / 100,
                 'description': payment.description,
                 'customer_name': payment.customer_name,
                 'status': payment.status,
-                'created_at': payment.created_at.isoformat() if payment.created_at else None,
+                'created_at': invoice.issued_at.isoformat() if invoice.issued_at else None,
                 'paid_at': payment.paid_at.isoformat() if payment.paid_at else None
             })
         
@@ -117,6 +124,7 @@ def create_receipt():
         # Create invoice record
         invoice = Invoice()
         invoice.deal_id = deal.id
+        invoice.payment_id = payment.id  # Link directly to payment
         invoice.invoice_number = f'INV-{datetime.now().year}-{payment.id:05d}'
         invoice.subtotal = amount_agorot
         invoice.tax = int(amount_agorot * 0.17)  # 17% VAT
@@ -205,8 +213,14 @@ def view_invoice(invoice_id):
         if not invoice:
             return jsonify({'success': False, 'message': 'חשבונית לא נמצאה'}), 404
         
-        # שליפת התשלום המקושר
-        payment = Payment.query.filter_by(deal_id=invoice.deal_id).first() if invoice.deal_id else None
+        # שליפת התשלום המקושר (prefer payment_id, fallback to deal_id)
+        if invoice.payment_id:
+            payment = Payment.query.get(invoice.payment_id)
+        elif invoice.deal_id:
+            payment = Payment.query.filter_by(deal_id=invoice.deal_id).first()
+        else:
+            payment = None
+        
         if not payment:
             return jsonify({'success': False, 'message': 'תשלום לא נמצא'}), 404
         
@@ -292,8 +306,14 @@ def download_invoice(invoice_id):
         if not invoice:
             return jsonify({'success': False, 'message': 'חשבונית לא נמצאה'}), 404
         
-        # שליפת התשלום המקושר
-        payment = Payment.query.filter_by(deal_id=invoice.deal_id).first() if invoice.deal_id else None
+        # שליפת התשלום המקושר (prefer payment_id, fallback to deal_id)
+        if invoice.payment_id:
+            payment = Payment.query.get(invoice.payment_id)
+        elif invoice.deal_id:
+            payment = Payment.query.filter_by(deal_id=invoice.deal_id).first()
+        else:
+            payment = None
+        
         if not payment:
             return jsonify({'success': False, 'message': 'תשלום לא נמצא'}), 404
         

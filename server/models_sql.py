@@ -330,6 +330,7 @@ class Invoice(db.Model):
     __tablename__ = "invoice"
     id = db.Column(db.Integer, primary_key=True)
     deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=False, index=True)
+    payment_id = db.Column(db.Integer, db.ForeignKey("payment.id"), nullable=True, index=True)  # Direct link to payment
     invoice_number = db.Column(db.String(40), unique=True, index=True)
     subtotal = db.Column(db.Integer)
     tax = db.Column(db.Integer)
