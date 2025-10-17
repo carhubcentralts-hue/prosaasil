@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from server.auth_api import require_api_auth
 import uuid
 from datetime import datetime
+import base64
 
 # Blueprint for receipts and contracts
 receipts_contracts_bp = Blueprint('receipts_contracts', __name__)
@@ -221,6 +222,94 @@ def create_contract():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'שגיאה ביצירת חוזה: {str(e)}'}), 500
+
+@receipts_contracts_bp.route('/api/contracts/<int:contract_id>', methods=['GET'])
+@require_api_auth()
+def get_contract(contract_id):
+    """שליפת פרטי חוזה"""
+    try:
+        from server.models_sql import Contract, Deal, Lead, db
+        from server.routes_crm import get_business_id
+        
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'success': False, 'message': 'Business ID נדרש'}), 400
+        
+        contract = Contract.query.get(contract_id)
+        if not contract:
+            return jsonify({'success': False, 'message': 'חוזה לא נמצא'}), 404
+        
+        # Get deal and lead info
+        deal = Deal.query.get(contract.deal_id) if contract.deal_id else None
+        lead = Lead.query.get(deal.customer_id) if deal and deal.customer_id else None
+        
+        return jsonify({
+            'success': True,
+            'contract': {
+                'id': contract.id,
+                'template_name': contract.template_name,
+                'version': contract.version,
+                'signed_name': contract.signed_name,
+                'signed_at': contract.signed_at.isoformat() if contract.signed_at else None,
+                'signature_data': contract.signature_data,
+                'created_at': contract.created_at.isoformat() if contract.created_at else None,
+                'customer_name': lead.full_name if lead else None,
+                'deal_title': deal.title if deal else None
+            }
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'שגיאה בשליפת חוזה: {str(e)}'}), 500
+
+@receipts_contracts_bp.route('/api/contracts/<int:contract_id>/sign', methods=['POST'])
+@require_api_auth()
+def sign_contract(contract_id):
+    """חתימה דיגיטלית על חוזה"""
+    try:
+        from server.models_sql import Contract, db
+        from server.routes_crm import get_business_id
+        
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'success': False, 'message': 'Business ID נדרש'}), 400
+        
+        data = request.get_json()
+        signature_data = data.get('signature_data')  # Base64 image
+        signed_name = data.get('signed_name', '')
+        
+        if not signature_data:
+            return jsonify({'success': False, 'message': 'חתימה נדרשת'}), 400
+        
+        contract = Contract.query.get(contract_id)
+        if not contract:
+            return jsonify({'success': False, 'message': 'חוזה לא נמצא'}), 404
+        
+        # Validate base64
+        if not signature_data.startswith('data:image/'):
+            return jsonify({'success': False, 'message': 'פורמט חתימה לא תקין'}), 400
+        
+        # Save signature
+        contract.signature_data = signature_data
+        contract.signed_name = signed_name
+        contract.signed_at = datetime.utcnow()
+        contract.signed_ip = request.remote_addr
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'חוזה נחתם בהצלחה על ידי {signed_name}',
+            'contract_id': contract.id,
+            'signed_at': contract.signed_at.isoformat()
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'שגיאה בחתימת חוזה: {str(e)}'}), 500
 
 @receipts_contracts_bp.route('/api/billing/invoice/<invoice_id>/view', methods=['GET'])
 @require_api_auth()

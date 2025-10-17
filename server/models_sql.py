@@ -349,6 +349,7 @@ class Contract(db.Model):
     signed_name = db.Column(db.String(160))
     signed_at = db.Column(db.DateTime)
     signed_ip = db.Column(db.String(64))
+    signature_data = db.Column(db.Text)  # Base64 encoded signature image
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # === CALENDAR & APPOINTMENTS ===
