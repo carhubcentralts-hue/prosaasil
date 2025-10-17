@@ -300,10 +300,10 @@ export default function LeadsPage() {
             {selectedLeadIds.size > 0 && (
               <Button
                 onClick={handleBulkDelete}
-                variant="destructive"
+                variant="primary"
                 size="sm"
                 disabled={isDeleting}
-                className="w-full sm:w-auto"
+                className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white"
                 data-testid="button-bulk-delete"
               >
                 <Trash2 className="w-4 h-4 ml-2" />
@@ -446,12 +446,14 @@ export default function LeadsPage() {
                   className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer"
                   onClick={() => navigate(`/app/leads/${lead.id}`)}
                 >
-                  <TableCell className="w-12" onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={selectedLeadIds.has(lead.id)}
-                      onCheckedChange={() => handleToggleSelect(lead.id)}
-                      data-testid={`checkbox-lead-${lead.id}`}
-                    />
+                  <TableCell className="w-12">
+                    <div onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedLeadIds.has(lead.id)}
+                        onCheckedChange={() => handleToggleSelect(lead.id)}
+                        data-testid={`checkbox-lead-${lead.id}`}
+                      />
+                    </div>
                   </TableCell>
                   <TableCell data-testid={`text-name-${lead.id}`} className="min-w-[150px]">
                     <div className="font-medium text-gray-900 dark:text-white hover:text-blue-600 transition-colors">

@@ -314,7 +314,7 @@ def get_calls_stats():
 @calls_bp.route("/api/calls/<call_sid>/transcript", methods=["PUT"])
 @require_api_auth()
 def update_transcript(call_sid):
-    """עדכון תמליל שיחה"""
+    """עדכון תמליל שיחה - לפי call_sid או מספר טלפון"""
     try:
         business_id = get_business_id()
         if not business_id:
@@ -326,11 +326,22 @@ def update_transcript(call_sid):
         if not new_transcript:
             return jsonify({"success": False, "error": "Transcript text required"}), 400
         
-        # Find call
+        # Try to find call by call_sid first
         call = Call.query.filter(
             Call.call_sid == call_sid,
             Call.business_id == business_id
         ).first()
+        
+        # If not found, try by phone number (E.164 format)
+        if not call:
+            call = Call.query.filter(
+                Call.business_id == business_id
+            ).filter(
+                or_(
+                    Call.from_number == call_sid,
+                    Call.to_number == call_sid
+                )
+            ).order_by(Call.created_at.desc()).first()
         
         if not call:
             return jsonify({"success": False, "error": "Call not found"}), 404
@@ -339,12 +350,13 @@ def update_transcript(call_sid):
         call.transcription = new_transcript
         db.session.commit()
         
-        log.info(f"Updated transcript for call {call_sid}")
+        log.info(f"Updated transcript for call {call.call_sid} (phone: {call.from_number})")
         
         return jsonify({
             "success": True,
             "message": "Transcript updated successfully",
-            "transcript": new_transcript
+            "transcript": new_transcript,
+            "call_sid": call.call_sid
         })
         
     except Exception as e:

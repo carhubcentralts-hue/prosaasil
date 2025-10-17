@@ -6,43 +6,140 @@ from datetime import datetime
 # Blueprint for receipts and contracts
 receipts_contracts_bp = Blueprint('receipts_contracts', __name__)
 
+@receipts_contracts_bp.route('/api/receipts', methods=['GET'])
+@require_api_auth()
+def list_receipts():
+    """רשימת כל החשבוניות"""
+    try:
+        from server.models_sql import Invoice, Deal, Payment, db, Lead
+        from server.routes_crm import get_business_id
+        
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'success': False, 'message': 'Business ID נדרש'}), 400
+        
+        # Get all payments for this business
+        payments = Payment.query.filter_by(business_id=business_id).order_by(Payment.created_at.desc()).all()
+        
+        invoices_list = []
+        for payment in payments:
+            # Get invoice if exists
+            invoice = None
+            if payment.deal_id:
+                invoice = Invoice.query.filter_by(deal_id=payment.deal_id).first()
+            
+            invoices_list.append({
+                'id': payment.id,
+                'invoice_id': invoice.id if invoice else None,
+                'invoice_number': invoice.invoice_number if invoice else f'PAY-{payment.id}',
+                'amount': payment.amount / 100,
+                'description': payment.description,
+                'customer_name': payment.customer_name,
+                'status': payment.status,
+                'created_at': payment.created_at.isoformat() if payment.created_at else None,
+                'paid_at': payment.paid_at.isoformat() if payment.paid_at else None
+            })
+        
+        return jsonify({
+            'success': True,
+            'invoices': invoices_list,
+            'total': len(invoices_list)
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'שגיאה בשליפת חשבוניות: {str(e)}'}), 500
+
 @receipts_contracts_bp.route('/api/receipts', methods=['POST'])
 @require_api_auth()
 def create_receipt():
-    """יצירת חשבונית ללקוח"""
+    """יצירת חשבונית אמיתית ושמירה ב-DB"""
     try:
+        from server.models_sql import Invoice, Deal, Payment, db, Lead
+        from server.routes_crm import get_business_id
+        
         data = request.get_json()
         lead_id = data.get('lead_id')
         amount = data.get('amount', 0)
         description = data.get('description', 'שירותי תיווך')
+        customer_name = data.get('customer_name', '')
         
         if not lead_id:
             return jsonify({'success': False, 'message': 'Lead ID נדרש'}), 400
             
         if not isinstance(amount, (int, float)) or amount <= 0:
             return jsonify({'success': False, 'message': 'סכום חייב להיות מספר חיובי'}), 400
-            
-        # יצירת חשבונית פשוטה
-        receipt_id = str(uuid.uuid4())
-        receipt_data = {
-            'id': receipt_id,
-            'lead_id': lead_id,
-            'amount': amount,
-            'description': description,
-            'created_at': datetime.now().isoformat(),
-            'status': 'created'
-        }
         
-        # TODO: שמירה בדאטבייס כשנוסיף טבלת חשבוניות
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'success': False, 'message': 'Business ID נדרש'}), 400
+        
+        # Get lead details
+        lead = Lead.query.get(lead_id)
+        if not lead:
+            return jsonify({'success': False, 'message': 'ליד לא נמצא'}), 404
+        
+        if not customer_name:
+            customer_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip() or "לקוח"
+        
+        # Create deal if doesn't exist
+        deal = Deal.query.filter_by(customer_id=lead_id).first()
+        if not deal:
+            deal = Deal()
+            deal.customer_id = lead_id
+            deal.title = f"עסקה - {customer_name}"
+            deal.stage = "new"
+            deal.amount = int(amount)
+            deal.created_at = datetime.utcnow()
+            db.session.add(deal)
+            db.session.flush()
+        
+        # Convert amount to agorot (cents)
+        amount_agorot = int(float(amount) * 100)
+        
+        # Create payment record
+        payment = Payment()
+        payment.business_id = business_id
+        payment.deal_id = deal.id
+        payment.provider = 'manual'  # Manual invoice
+        payment.provider_ref = f'INV-{datetime.now().strftime("%Y%m%d")}-{uuid.uuid4().hex[:6].upper()}'
+        payment.amount = amount_agorot
+        payment.currency = 'ils'
+        payment.status = 'created'
+        payment.customer_name = customer_name
+        payment.description = description
+        payment.created_at = datetime.utcnow()
+        
+        db.session.add(payment)
+        db.session.flush()
+        
+        # Create invoice record
+        invoice = Invoice()
+        invoice.deal_id = deal.id
+        invoice.invoice_number = f'INV-{datetime.now().year}-{payment.id:05d}'
+        invoice.subtotal = amount_agorot
+        invoice.tax = int(amount_agorot * 0.17)  # 17% VAT
+        invoice.total = amount_agorot + invoice.tax
+        invoice.issued_at = datetime.utcnow()
+        
+        db.session.add(invoice)
+        db.session.commit()
         
         return jsonify({
-            'success': True, 
-            'message': f'חשבונית נוצרה בסכום {amount:,} ₪',
-            'receipt_id': receipt_id,
-            'amount': amount
+            'success': True,
+            'message': f'חשבונית {invoice.invoice_number} נוצרה בסכום {amount:,.2f} ₪',
+            'invoice_id': invoice.id,
+            'invoice_number': invoice.invoice_number,
+            'payment_id': payment.id,
+            'amount': amount,
+            'total_with_tax': invoice.total / 100
         })
         
     except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'message': f'שגיאה ביצירת חשבונית: {str(e)}'}), 500
 
 @receipts_contracts_bp.route('/api/contracts', methods=['POST'])
