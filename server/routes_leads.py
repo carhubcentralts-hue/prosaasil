@@ -273,17 +273,75 @@ def create_lead():
             log.error(f"🔴 CREATE LEAD - Missing required fields")
             return jsonify({"error": "Either first_name or phone_e164 is required"}), 400
         
-        # Check for duplicates if phone provided
+        # Check for duplicates if phone provided - UPDATE instead of error
         if data.get('phone_e164'):
             existing = Lead.query.filter_by(
                 tenant_id=tenant_id,
                 phone_e164=data['phone_e164']
             ).first()
             if existing:
-                log.warning(f"🔴 CREATE LEAD - Duplicate phone: {data['phone_e164']}")
-                return jsonify({"error": "Lead with this phone number already exists", "existing_id": existing.id}), 409
+                log.info(f"🟡 CREATE LEAD - Found existing lead with phone {data['phone_e164']}, updating instead")
+                
+                # Update existing lead with new data
+                if data.get('first_name'):
+                    existing.first_name = data['first_name']
+                if data.get('last_name'):
+                    existing.last_name = data['last_name']
+                if data.get('email'):
+                    existing.email = data['email']
+                if data.get('notes'):
+                    # Append new notes to existing ones
+                    if existing.notes:
+                        existing.notes = existing.notes + "\n\n---\n\n" + data['notes']
+                    else:
+                        existing.notes = data['notes']
+                
+                # Update status if provided and valid
+                if data.get('status'):
+                    valid_statuses = get_valid_statuses_for_business(tenant_id)
+                    normalized_status = data['status'].lower().strip()
+                    if normalized_status in valid_statuses:
+                        existing.status = normalized_status
+                
+                # Update tags if provided
+                if data.get('tags'):
+                    existing.tags = list(set((existing.tags or []) + data['tags']))
+                
+                existing.updated_at = datetime.utcnow()
+                
+                # Create activity for update
+                user = get_current_user()
+                create_activity(
+                    existing.id,
+                    "lead_updated",
+                    {
+                        "method": "duplicate_prevention",
+                        "updated_by": user.get('email', 'unknown') if user else 'unknown',
+                        "fields_updated": [k for k in ['first_name', 'last_name', 'email', 'notes', 'status', 'tags'] if data.get(k)]
+                    },
+                    user.get('id') if user else None
+                )
+                
+                db.session.commit()
+                log.info(f"✅ CREATE LEAD - Updated existing lead ID: {existing.id}")
+                
+                return jsonify({
+                    "lead": {
+                        "id": existing.id,
+                        "first_name": existing.first_name,
+                        "last_name": existing.last_name,
+                        "full_name": existing.full_name,
+                        "phone_e164": existing.phone_e164,
+                        "email": existing.email,
+                        "status": existing.status,
+                        "source": existing.source,
+                        "created_at": existing.created_at.isoformat(),
+                        "updated_at": existing.updated_at.isoformat() if existing.updated_at else None
+                    },
+                    "updated": True
+                }), 200
         
-        # Create lead
+        # Create new lead
         user = get_current_user()
         log.info(f"🔵 CREATE LEAD - User: {user.get('email') if user else 'None'}")
         
