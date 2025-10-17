@@ -401,11 +401,12 @@ export function MainLayout() {
               {/* Right side - Action buttons + User */}
               <div className="flex items-center space-x-reverse space-x-2">
                 {/* Quick Search */}
-                <button
+                {/* Temporarily hidden - Search API needs to be implemented */}
+                {/* <button
                   className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative"
                   onClick={() => setSearchModalOpen(true)}
                   data-testid="button-search"
-                  title="חיפוש מהיר"
+                  title="חיפוש מהיר" */}
                 >
                   <Search className="h-5 w-5" />
                 </button>
@@ -556,11 +557,11 @@ export function MainLayout() {
         onUnreadCountChange={handleUnreadCountChange}
       />
 
-      {/* Search Modal */}
-      <SearchModal
+      {/* Search Modal - Temporarily disabled until API is implemented */}
+      {/* <SearchModal
         isOpen={searchModalOpen}
         onClose={() => setSearchModalOpen(false)}
-      />
+      /> */}
       </div>
     </div>
   );
