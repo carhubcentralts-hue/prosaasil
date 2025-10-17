@@ -95,13 +95,22 @@ def create_contract():
 def view_invoice(invoice_id):
     """הצגת חשבונית בפורמט PDF"""
     try:
-        # TODO: במציאות נקרא מהדאטבייס
+        from server.models_sql import Payment, Business, db
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from io import BytesIO
         import os
+        
+        # שליפת נתוני התשלום מהדאטבייס
+        payment = Payment.query.get(int(invoice_id))
+        if not payment:
+            return jsonify({'success': False, 'message': 'חשבונית לא נמצאה'}), 404
+        
+        # שליפת פרטי העסק
+        business = Business.query.get(payment.business_id) if payment.business_id else None
+        business_name = business.name if business else "שי דירות ומשרדים בע״מ"
         
         # יצירת PDF בזיכרון
         buffer = BytesIO()
@@ -110,7 +119,6 @@ def view_invoice(invoice_id):
         
         # הוספת פונט עברי (אם קיים)
         try:
-            # ניסיון לטעון פונט עברי
             hebrew_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
             if os.path.exists(hebrew_font_path):
                 pdfmetrics.registerFont(TTFont('Hebrew', hebrew_font_path))
@@ -122,19 +130,21 @@ def view_invoice(invoice_id):
         
         # כותרת החשבונית
         p.setFont(font_name, 24)
-        p.drawString(100, height - 100, f"Invoice #{invoice_id}")
+        p.drawString(100, height - 100, f"Invoice #{payment.id}")
         
-        # פרטי החשבונית
+        # פרטי החשבונית - נתונים אמיתיים מה-DB
         p.setFont(font_name, 12)
         y_position = height - 150
         
         invoice_details = [
-            "Company: שי דירות ומשרדים בע״מ",
-            f"Invoice ID: {invoice_id}",
-            f"Date: {datetime.now().strftime('%Y-%m-%d')}",
-            "Amount: ₪25,000",
-            "Description: עמלת תיווך נדל״ן",
-            "Status: Generated"
+            f"Company: {business_name}",
+            f"Invoice ID: {payment.id}",
+            f"Date: {payment.created_at.strftime('%Y-%m-%d %H:%M') if payment.created_at else 'N/A'}",
+            f"Amount: ₪{payment.amount / 100:,.2f}",
+            f"Description: {payment.description or 'עמלת תיווך נדל״ן'}",
+            f"Customer: {payment.customer_name or 'לא צוין'}",
+            f"Status: {payment.status or 'created'}",
+            f"Payment Method: {payment.provider or 'N/A'}"
         ]
         
         for detail in invoice_details:
@@ -151,12 +161,13 @@ def view_invoice(invoice_id):
             buffer.getvalue(),
             mimetype='application/pdf',
             headers={
-                'Content-Disposition': f'inline; filename=invoice-{invoice_id}.pdf',
+                'Content-Disposition': f'inline; filename=invoice-{payment.id}.pdf',
                 'Content-Type': 'application/pdf'
             }
         )
         
     except Exception as e:
+        print(f"Error generating invoice PDF: {e}")
         return jsonify({'success': False, 'message': f'שגיאה ביצירת PDF: {str(e)}'}), 500
 
 @receipts_contracts_bp.route('/api/billing/invoice/<invoice_id>/download', methods=['GET'])
@@ -164,13 +175,22 @@ def view_invoice(invoice_id):
 def download_invoice(invoice_id):
     """הורדת חשבונית בפורמט PDF"""
     try:
-        # בדיוק אותו קוד כמו view אבל עם attachment
+        from server.models_sql import Payment, Business, db
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from io import BytesIO
         import os
+        
+        # שליפת נתוני התשלום מהדאטבייס
+        payment = Payment.query.get(int(invoice_id))
+        if not payment:
+            return jsonify({'success': False, 'message': 'חשבונית לא נמצאה'}), 404
+        
+        # שליפת פרטי העסק
+        business = Business.query.get(payment.business_id) if payment.business_id else None
+        business_name = business.name if business else "שי דירות ומשרדים בע״מ"
         
         buffer = BytesIO()
         p = canvas.Canvas(buffer, pagesize=A4)
@@ -187,18 +207,20 @@ def download_invoice(invoice_id):
             font_name = 'Helvetica'
         
         p.setFont(font_name, 24)
-        p.drawString(100, height - 100, f"Invoice #{invoice_id}")
+        p.drawString(100, height - 100, f"Invoice #{payment.id}")
         
         p.setFont(font_name, 12)
         y_position = height - 150
         
         invoice_details = [
-            "Company: שי דירות ומשרדים בע״מ",
-            f"Invoice ID: {invoice_id}",
-            f"Date: {datetime.now().strftime('%Y-%m-%d')}",
-            "Amount: ₪25,000",
-            "Description: עמלת תיווך נדל״ן",
-            "Status: Generated"
+            f"Company: {business_name}",
+            f"Invoice ID: {payment.id}",
+            f"Date: {payment.created_at.strftime('%Y-%m-%d %H:%M') if payment.created_at else 'N/A'}",
+            f"Amount: ₪{payment.amount / 100:,.2f}",
+            f"Description: {payment.description or 'עמלת תיווך נדל״ן'}",
+            f"Customer: {payment.customer_name or 'לא צוין'}",
+            f"Status: {payment.status or 'created'}",
+            f"Payment Method: {payment.provider or 'N/A'}"
         ]
         
         for detail in invoice_details:
@@ -213,12 +235,13 @@ def download_invoice(invoice_id):
             buffer.getvalue(),
             mimetype='application/pdf',
             headers={
-                'Content-Disposition': f'attachment; filename=invoice-{invoice_id}.pdf',
+                'Content-Disposition': f'attachment; filename=invoice-{payment.id}.pdf',
                 'Content-Type': 'application/pdf'
             }
         )
         
     except Exception as e:
+        print(f"Error downloading invoice PDF: {e}")
         return jsonify({'success': False, 'message': f'שגיאה ביצירת PDF: {str(e)}'}), 500
 
 @receipts_contracts_bp.route('/api/billing/contract/<contract_id>/view', methods=['GET'])
@@ -226,12 +249,25 @@ def download_invoice(invoice_id):
 def view_contract(contract_id):
     """הצגת חוזה בפורמט PDF"""
     try:
+        from server.models_sql import Contract, Deal, Customer, Business, db
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from io import BytesIO
         import os
+        
+        # שליפת נתוני החוזה מהדאטבייס
+        contract = Contract.query.get(int(contract_id))
+        if not contract:
+            return jsonify({'success': False, 'message': 'חוזה לא נמצא'}), 404
+        
+        # שליפת Deal וCustomer
+        deal = Deal.query.get(contract.deal_id) if contract.deal_id else None
+        customer = Customer.query.get(deal.customer_id) if deal and deal.customer_id else None
+        business = Business.query.get(customer.business_id) if customer and customer.business_id else None
+        
+        business_name = business.name if business else "שי דירות ומשרדים בע״מ"
         
         buffer = BytesIO()
         p = canvas.Canvas(buffer, pagesize=A4)
@@ -249,20 +285,22 @@ def view_contract(contract_id):
         
         # כותרת החוזה
         p.setFont(font_name, 24)
-        p.drawString(100, height - 100, f"Contract #{contract_id}")
+        p.drawString(100, height - 100, f"Contract #{contract.id}")
         
-        # פרטי החוזה
+        # פרטי החוזה - נתונים אמיתיים מה-DB
         p.setFont(font_name, 12)
         y_position = height - 150
         
         contract_details = [
-            "שי דירות ומשרדים בע״מ",
-            f"Contract ID: {contract_id}",
-            f"Date: {datetime.now().strftime('%Y-%m-%d')}",
-            "Contract Type: Real Estate Agreement",
-            "Property: דירת 4 חדרים",
-            "Commission: 2.5%",
-            "Status: Active"
+            f"Company: {business_name}",
+            f"Contract ID: {contract.id}",
+            f"Template: {contract.template_name or 'Standard Agreement'}",
+            f"Created: {contract.created_at.strftime('%Y-%m-%d %H:%M') if contract.created_at else 'N/A'}",
+            f"Customer: {customer.name if customer else 'לא צוין'}",
+            f"Property: {deal.title if deal else 'לא צוין'}",
+            f"Amount: ₪{deal.amount / 100:,.2f}" if deal and deal.amount else "Amount: N/A",
+            f"Signed By: {contract.signed_name if contract.signed_name else 'Not Signed'}",
+            f"Signed At: {contract.signed_at.strftime('%Y-%m-%d %H:%M') if contract.signed_at else 'N/A'}"
         ]
         
         for detail in contract_details:
@@ -277,12 +315,13 @@ def view_contract(contract_id):
             buffer.getvalue(),
             mimetype='application/pdf',
             headers={
-                'Content-Disposition': f'inline; filename=contract-{contract_id}.pdf',
+                'Content-Disposition': f'inline; filename=contract-{contract.id}.pdf',
                 'Content-Type': 'application/pdf'
             }
         )
         
     except Exception as e:
+        print(f"Error generating contract PDF: {e}")
         return jsonify({'success': False, 'message': f'שגיאה ביצירת PDF: {str(e)}'}), 500
 
 @receipts_contracts_bp.route('/api/billing/contract/<contract_id>/download', methods=['GET'])
@@ -290,12 +329,25 @@ def view_contract(contract_id):
 def download_contract(contract_id):
     """הורדת חוזה בפורמט PDF"""
     try:
+        from server.models_sql import Contract, Deal, Customer, Business, db
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from io import BytesIO
         import os
+        
+        # שליפת נתוני החוזה מהדאטבייס
+        contract = Contract.query.get(int(contract_id))
+        if not contract:
+            return jsonify({'success': False, 'message': 'חוזה לא נמצא'}), 404
+        
+        # שליפת Deal וCustomer
+        deal = Deal.query.get(contract.deal_id) if contract.deal_id else None
+        customer = Customer.query.get(deal.customer_id) if deal and deal.customer_id else None
+        business = Business.query.get(customer.business_id) if customer and customer.business_id else None
+        
+        business_name = business.name if business else "שי דירות ומשרדים בע״מ"
         
         buffer = BytesIO()
         p = canvas.Canvas(buffer, pagesize=A4)
@@ -312,19 +364,21 @@ def download_contract(contract_id):
             font_name = 'Helvetica'
         
         p.setFont(font_name, 24)
-        p.drawString(100, height - 100, f"Contract #{contract_id}")
+        p.drawString(100, height - 100, f"Contract #{contract.id}")
         
         p.setFont(font_name, 12)
         y_position = height - 150
         
         contract_details = [
-            "שי דירות ומשרדים בע״מ",
-            f"Contract ID: {contract_id}",
-            f"Date: {datetime.now().strftime('%Y-%m-%d')}",
-            "Contract Type: Real Estate Agreement",
-            "Property: דירת 4 חדרים",
-            "Commission: 2.5%",
-            "Status: Active"
+            f"Company: {business_name}",
+            f"Contract ID: {contract.id}",
+            f"Template: {contract.template_name or 'Standard Agreement'}",
+            f"Created: {contract.created_at.strftime('%Y-%m-%d %H:%M') if contract.created_at else 'N/A'}",
+            f"Customer: {customer.name if customer else 'לא צוין'}",
+            f"Property: {deal.title if deal else 'לא צוין'}",
+            f"Amount: ₪{deal.amount / 100:,.2f}" if deal and deal.amount else "Amount: N/A",
+            f"Signed By: {contract.signed_name if contract.signed_name else 'Not Signed'}",
+            f"Signed At: {contract.signed_at.strftime('%Y-%m-%d %H:%M') if contract.signed_at else 'N/A'}"
         ]
         
         for detail in contract_details:
@@ -339,10 +393,11 @@ def download_contract(contract_id):
             buffer.getvalue(),
             mimetype='application/pdf',
             headers={
-                'Content-Disposition': f'attachment; filename=contract-{contract_id}.pdf',
+                'Content-Disposition': f'attachment; filename=contract-{contract.id}.pdf',
                 'Content-Type': 'application/pdf'
             }
         )
         
     except Exception as e:
+        print(f"Error downloading contract PDF: {e}")
         return jsonify({'success': False, 'message': f'שגיאה ביצירת PDF: {str(e)}'}), 500
