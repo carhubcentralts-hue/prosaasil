@@ -753,6 +753,118 @@ def create_deal():
         print(f"Deal creation failed: {e}")
         return jsonify({"error": "Deal creation failed"}), 500
 
+# === SEARCH API ===
+
+@crm_bp.get("/api/search")
+@require_api_auth(["admin", "superadmin", "business", "agent"])
+def global_search():
+    """חיפוש גלובלי במערכת - לידים, שיחות, פגישות, לקוחות"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({"error": "No business access"}), 403
+        
+        query = request.args.get('q', '').strip()
+        if not query or len(query) < 2:
+            return jsonify({"results": []})
+        
+        results = {
+            "leads": [],
+            "calls": [],
+            "appointments": [],
+            "customers": []
+        }
+        
+        # Search leads
+        from server.models_sql import Lead, Appointment
+        leads = Lead.query.filter(
+            Lead.tenant_id == business_id,
+            or_(
+                Lead.first_name.ilike(f'%{query}%'),
+                Lead.last_name.ilike(f'%{query}%'),
+                Lead.phone_e164.ilike(f'%{query}%'),
+                Lead.email.ilike(f'%{query}%')
+            )
+        ).limit(10).all()
+        
+        for lead in leads:
+            results["leads"].append({
+                "id": lead.id,
+                "name": lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip(),
+                "phone": lead.phone_e164,
+                "email": lead.email,
+                "status": lead.status,
+                "type": "lead"
+            })
+        
+        # Search calls
+        calls = CallLog.query.filter(
+            CallLog.business_id == business_id,
+            or_(
+                CallLog.from_number.ilike(f'%{query}%'),
+                CallLog.to_number.ilike(f'%{query}%'),
+                CallLog.transcription.ilike(f'%{query}%')
+            )
+        ).limit(10).all()
+        
+        for call in calls:
+            results["calls"].append({
+                "id": call.id,
+                "call_sid": call.call_sid,
+                "from_number": call.from_number,
+                "to_number": call.to_number,
+                "created_at": call.created_at.isoformat() if call.created_at else None,
+                "type": "call"
+            })
+        
+        # Search appointments
+        appointments = Appointment.query.filter(
+            Appointment.business_id == business_id,
+            or_(
+                Appointment.title.ilike(f'%{query}%'),
+                Appointment.contact_name.ilike(f'%{query}%'),
+                Appointment.contact_phone.ilike(f'%{query}%'),
+                Appointment.location.ilike(f'%{query}%')
+            )
+        ).limit(10).all()
+        
+        for apt in appointments:
+            results["appointments"].append({
+                "id": apt.id,
+                "title": apt.title,
+                "contact_name": apt.contact_name,
+                "start_time": apt.start_time.isoformat() if apt.start_time else None,
+                "status": apt.status,
+                "type": "appointment"
+            })
+        
+        # Search customers
+        customers = Customer.query.filter(
+            Customer.business_id == business_id,
+            or_(
+                Customer.name.ilike(f'%{query}%'),
+                Customer.phone_e164.ilike(f'%{query}%'),
+                Customer.email.ilike(f'%{query}%')
+            )
+        ).limit(10).all()
+        
+        for customer in customers:
+            results["customers"].append({
+                "id": customer.id,
+                "name": customer.name,
+                "phone": customer.phone_e164,
+                "email": customer.email,
+                "type": "customer"
+            })
+        
+        return jsonify({"success": True, "query": query, "results": results})
+        
+    except Exception as e:
+        print(f"Search failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Search failed"}), 500
+
 # === CRM TASKS API ===
 
 @crm_bp.get("/api/crm/tasks")

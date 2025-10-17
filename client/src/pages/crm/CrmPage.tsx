@@ -78,86 +78,30 @@ export function CrmPage() {
 
   const loadData = async () => {
     setLoading(true);
-    // Simulate API calls
-    setTimeout(() => {
-      const mockTasks: CRMTask[] = [
-        {
-          id: '1',
-          title: 'התקשר ליוסי כהן',
-          description: 'מעקב אחרי פגישה מאתמול',
-          status: 'todo',
-          priority: 'high',
-          owner_name: 'שרה לוי',
-          lead_name: 'יוסי כהן',
-          due_date: '2025-09-16',
-          created_at: '2025-09-15T10:00:00Z'
-        },
-        {
-          id: '2',
-          title: 'הכנת הצעת מחיר',
-          description: 'דירת 3 חדרים בתל אביב',
-          status: 'doing',
-          priority: 'medium',
-          owner_name: 'דני כהן',
-          lead_name: 'רחל גרין',
-          due_date: '2025-09-17',
-          created_at: '2025-09-14T14:30:00Z'
-        },
-        {
-          id: '3',
-          title: 'שליחת חוזה',
-          description: 'חוזה מכירה - אושר על ידי הלקוח',
-          status: 'done',
-          priority: 'high',
-          owner_name: 'שרה לוי',
-          lead_name: 'מיכאל שמואל',
-          created_at: '2025-09-13T09:15:00Z'
-        },
-        {
-          id: '4',
-          title: 'עדכון מערכת CRM',
-          description: 'הוספת נתונים חדשים',
-          status: 'todo',
-          priority: 'low',
-          owner_name: 'דני כהן',
-          created_at: '2025-09-15T16:45:00Z'
-        }
-      ];
-
-      const mockContacts: CRMContact[] = [
-        {
-          id: '1',
-          name: 'חברת הבנייה הירוקה',
-          email: 'info@green-build.co.il',
-          phone: '+972-3-1234567',
-          company: 'הבנייה הירוקה בע״מ',
-          tags: ['קבלן', 'פרטנר'],
-          lastContact: '2025-09-10T12:00:00Z'
-        },
-        {
-          id: '2',
-          name: 'משרד עו״ד כהן ושותפים',
-          email: 'office@cohen-law.co.il',
-          phone: '+972-2-9876543',
-          company: 'כהן ושותפים',
-          tags: ['עורכי דין', 'חיוני'],
-          lastContact: '2025-09-12T15:30:00Z'
-        },
-        {
-          id: '3',
-          name: 'בנק הפועלים - סניף מרכז',
-          email: 'center@poalim.co.il',
-          phone: '+972-3-6532145',
-          company: 'בנק הפועלים',
-          tags: ['בנק', 'משכנתאות'],
-          lastContact: '2025-09-08T10:15:00Z'
-        }
-      ];
-
-      setTasks(mockTasks);
-      setContacts(mockContacts);
+    try {
+      // Fetch real tasks from API
+      const response = await fetch('/api/crm/tasks', {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setTasks(data.tasks || []);
+      } else {
+        console.error('Failed to load tasks');
+        setTasks([]);
+      }
+      
+      // Contacts will be loaded from customers table in the future
+      setContacts([]);
+      
+    } catch (error) {
+      console.error('Error loading CRM data:', error);
+      setTasks([]);
+      setContacts([]);
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   const getTasksByStatus = (status: 'todo' | 'doing' | 'done') => {
