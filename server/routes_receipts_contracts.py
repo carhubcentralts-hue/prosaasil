@@ -554,6 +554,29 @@ def view_contract(contract_id):
             p.drawString(100, y_position, detail)
             y_position -= 20
         
+        # הוספת חתימה אם קיימת
+        if contract.signature_data:
+            try:
+                from reportlab.lib.utils import ImageReader
+                import io
+                
+                # המרת base64 לתמונה
+                signature_b64 = contract.signature_data.split(',')[1] if ',' in contract.signature_data else contract.signature_data
+                signature_bytes = base64.b64decode(signature_b64)
+                signature_img = ImageReader(io.BytesIO(signature_bytes))
+                
+                # ציור החתימה ב-PDF
+                y_position -= 40
+                p.drawString(100, y_position, "Digital Signature:")
+                y_position -= 10
+                p.drawImage(signature_img, 100, y_position - 60, width=150, height=50, preserveAspectRatio=True)
+                y_position -= 70
+                if contract.signed_name:
+                    p.drawString(100, y_position, f"Signed by: {contract.signed_name}")
+            except Exception as sig_error:
+                print(f"Error adding signature to PDF: {sig_error}")
+                # Continue without signature if there's an error
+        
         p.save()
         buffer.seek(0)
         
@@ -631,6 +654,29 @@ def download_contract(contract_id):
         for detail in contract_details:
             p.drawString(100, y_position, detail)
             y_position -= 20
+        
+        # הוספת חתימה אם קיימת
+        if contract.signature_data:
+            try:
+                from reportlab.lib.utils import ImageReader
+                import io
+                
+                # המרת base64 לתמונה
+                signature_b64 = contract.signature_data.split(',')[1] if ',' in contract.signature_data else contract.signature_data
+                signature_bytes = base64.b64decode(signature_b64)
+                signature_img = ImageReader(io.BytesIO(signature_bytes))
+                
+                # ציור החתימה ב-PDF
+                y_position -= 40
+                p.drawString(100, y_position, "Digital Signature:")
+                y_position -= 10
+                p.drawImage(signature_img, 100, y_position - 60, width=150, height=50, preserveAspectRatio=True)
+                y_position -= 70
+                if contract.signed_name:
+                    p.drawString(100, y_position, f"Signed by: {contract.signed_name}")
+            except Exception as sig_error:
+                print(f"Error adding signature to PDF: {sig_error}")
+                # Continue without signature if there's an error
         
         p.save()
         buffer.seek(0)
