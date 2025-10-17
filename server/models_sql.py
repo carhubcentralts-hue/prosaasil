@@ -399,6 +399,23 @@ class Appointment(db.Model):
     auto_generated = db.Column(db.Boolean, default=False)
     source = db.Column(db.String(32), default="manual")  # manual/phone_call/whatsapp/ai_suggested
 
+class CRMTask(db.Model):
+    """משימות CRM - ניהול משימות לעסקים"""
+    __tablename__ = "crm_task"
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    status = db.Column(db.String(32), default="todo")  # todo/doing/done
+    priority = db.Column(db.String(32), default="medium")  # low/medium/high
+    assigned_to = db.Column(db.String(255))  # User name or email
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=True, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # ✨ קישור ללידים
+    due_date = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = db.Column(db.DateTime)
+
 class User(db.Model):
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)

@@ -5,7 +5,7 @@ Implements RBAC with business scoping as per guidelines
 """
 from flask import Blueprint, jsonify, request, g, send_file
 from server.auth_api import require_api_auth
-from server.models_sql import Business, Customer, WhatsAppMessage, CallLog, Deal, Payment, Invoice, Contract, PaymentGateway
+from server.models_sql import Business, Customer, WhatsAppMessage, CallLog, Deal, Payment, Invoice, Contract, PaymentGateway, CRMTask, Lead
 from server.db import db
 from datetime import datetime
 from sqlalchemy import or_, and_, func
@@ -752,3 +752,207 @@ def create_deal():
     except Exception as e:
         print(f"Deal creation failed: {e}")
         return jsonify({"error": "Deal creation failed"}), 500
+
+# === CRM TASKS API ===
+
+@crm_bp.get("/api/crm/tasks")
+@require_api_auth(["admin", "superadmin", "business", "agent"])
+def get_crm_tasks():
+    """Get all CRM tasks for the current business"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({"error": "No business access"}), 403
+        
+        # Get query parameters
+        status_filter = request.args.get('status')  # todo/doing/done
+        lead_id = request.args.get('lead_id', type=int)
+        
+        # Build query
+        query = CRMTask.query.filter_by(business_id=business_id)
+        
+        if status_filter:
+            query = query.filter_by(status=status_filter)
+        
+        if lead_id:
+            query = query.filter_by(lead_id=lead_id)
+        
+        tasks = query.order_by(CRMTask.created_at.desc()).all()
+        
+        # Get related data
+        result = []
+        for task in tasks:
+            # Get lead/customer name if exists
+            owner_name = None
+            lead_name = None
+            
+            if task.lead_id:
+                lead = Lead.query.get(task.lead_id)
+                if lead:
+                    lead_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+            
+            if task.customer_id:
+                customer = Customer.query.get(task.customer_id)
+                if customer:
+                    owner_name = customer.name
+            
+            result.append({
+                "id": str(task.id),
+                "title": task.title,
+                "description": task.description,
+                "status": task.status,
+                "priority": task.priority,
+                "owner_name": owner_name,
+                "lead_name": lead_name,
+                "assigned_to": task.assigned_to,
+                "due_date": task.due_date.isoformat() if task.due_date else None,
+                "created_at": task.created_at.isoformat() if task.created_at else None,
+                "updated_at": task.updated_at.isoformat() if task.updated_at else None,
+                "completed_at": task.completed_at.isoformat() if task.completed_at else None
+            })
+        
+        return jsonify({"success": True, "tasks": result})
+        
+    except Exception as e:
+        print(f"Get CRM tasks failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Failed to get tasks"}), 500
+
+@crm_bp.post("/api/crm/tasks")
+@require_api_auth(["admin", "superadmin", "business", "agent"])
+def create_crm_task():
+    """Create a new CRM task"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({"error": "No business access"}), 403
+        
+        data = request.get_json() or {}
+        
+        # Validate required fields
+        if not data.get('title'):
+            return jsonify({"error": "Title is required"}), 400
+        
+        task = CRMTask()
+        task.business_id = business_id
+        task.title = data['title']
+        task.description = data.get('description')
+        task.status = data.get('status', 'todo')
+        task.priority = data.get('priority', 'medium')
+        task.assigned_to = data.get('assigned_to')
+        task.customer_id = data.get('customer_id')
+        task.lead_id = data.get('lead_id')
+        
+        # Parse due_date if provided
+        if data.get('due_date'):
+            try:
+                task.due_date = datetime.fromisoformat(data['due_date'].replace('Z', '+00:00'))
+            except:
+                pass
+        
+        db.session.add(task)
+        db.session.commit()
+        
+        return jsonify({
+            "success": True,
+            "task": {
+                "id": str(task.id),
+                "title": task.title,
+                "status": task.status,
+                "priority": task.priority,
+                "created_at": task.created_at.isoformat() if task.created_at else None
+            }
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Create CRM task failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Failed to create task"}), 500
+
+@crm_bp.put("/api/crm/tasks/<int:task_id>")
+@require_api_auth(["admin", "superadmin", "business", "agent"])
+def update_crm_task(task_id):
+    """Update a CRM task"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({"error": "No business access"}), 403
+        
+        task = CRMTask.query.filter_by(id=task_id, business_id=business_id).first()
+        if not task:
+            return jsonify({"error": "Task not found"}), 404
+        
+        data = request.get_json() or {}
+        
+        # Update fields
+        if 'title' in data:
+            task.title = data['title']
+        if 'description' in data:
+            task.description = data['description']
+        if 'status' in data:
+            task.status = data['status']
+            # Set completed_at when marking as done
+            if data['status'] == 'done' and not task.completed_at:
+                task.completed_at = datetime.utcnow()
+            elif data['status'] != 'done':
+                task.completed_at = None
+        if 'priority' in data:
+            task.priority = data['priority']
+        if 'assigned_to' in data:
+            task.assigned_to = data['assigned_to']
+        if 'customer_id' in data:
+            task.customer_id = data['customer_id']
+        if 'lead_id' in data:
+            task.lead_id = data['lead_id']
+        if 'due_date' in data:
+            try:
+                task.due_date = datetime.fromisoformat(data['due_date'].replace('Z', '+00:00'))
+            except:
+                pass
+        
+        task.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        return jsonify({
+            "success": True,
+            "task": {
+                "id": str(task.id),
+                "title": task.title,
+                "status": task.status,
+                "priority": task.priority,
+                "updated_at": task.updated_at.isoformat() if task.updated_at else None
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Update CRM task failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Failed to update task"}), 500
+
+@crm_bp.delete("/api/crm/tasks/<int:task_id>")
+@require_api_auth(["admin", "superadmin", "business", "agent"])
+def delete_crm_task(task_id):
+    """Delete a CRM task"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({"error": "No business access"}), 403
+        
+        task = CRMTask.query.filter_by(id=task_id, business_id=business_id).first()
+        if not task:
+            return jsonify({"error": "Task not found"}), 404
+        
+        db.session.delete(task)
+        db.session.commit()
+        
+        return jsonify({"success": True, "message": "Task deleted successfully"})
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Delete CRM task failed: {e}")
+        return jsonify({"error": "Failed to delete task"}), 500
