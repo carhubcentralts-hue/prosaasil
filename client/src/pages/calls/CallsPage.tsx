@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Phone, PlayCircle, Clock, User, MessageSquare, ExternalLink, Download, Trash2, Calendar, FileText, Volume2, AlertTriangle } from 'lucide-react';
+import { Phone, PlayCircle, Clock, User, MessageSquare, ExternalLink, Download, Trash2, Calendar, FileText, Volume2, AlertTriangle, Edit, Save, X } from 'lucide-react';
 import { http } from '../../services/http';
 
 // Temporary UI components
@@ -91,6 +91,8 @@ export function CallsPage() {
   const [callDetails, setCallDetails] = useState<CallDetails | null>(null);
   const [downloadingRecording, setDownloadingRecording] = useState<string | null>(null);
   const [playingRecording, setPlayingRecording] = useState<string | null>(null);
+  const [editingTranscript, setEditingTranscript] = useState(false);
+  const [editedTranscript, setEditedTranscript] = useState('');
 
   useEffect(() => {
     loadCalls();
@@ -232,6 +234,48 @@ export function CallsPage() {
     const diffTime = expiry.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
+  };
+
+  const handleEditTranscript = () => {
+    if (!callDetails) return;
+    setEditedTranscript(callDetails.transcript);
+    setEditingTranscript(true);
+  };
+
+  const handleSaveTranscript = async () => {
+    if (!selectedCall) return;
+    
+    try {
+      await http.put(`/api/calls/${selectedCall.sid}/transcript`, {
+        transcript: editedTranscript
+      });
+      
+      // Update local state
+      if (callDetails) {
+        setCallDetails({
+          ...callDetails,
+          transcript: editedTranscript
+        });
+      }
+      
+      // Update in calls list
+      setCalls(calls.map(c => 
+        c.sid === selectedCall.sid 
+          ? { ...c, transcription: editedTranscript, hasTranscript: true }
+          : c
+      ));
+      
+      setEditingTranscript(false);
+      alert('התמליל עודכן בהצלחה');
+    } catch (error) {
+      console.error('Error updating transcript:', error);
+      alert('שגיאה בעדכון התמליל');
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingTranscript(false);
+    setEditedTranscript('');
   };
 
   const filteredCalls = calls.filter(call => {
@@ -633,10 +677,53 @@ export function CallsPage() {
 
               {/* Transcript */}
               <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">תמליל מלא</h3>
-                <div className="bg-slate-50 p-4 rounded-lg max-h-64 overflow-y-auto">
-                  <p className="text-slate-700 whitespace-pre-wrap">{callDetails.transcript}</p>
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-lg font-semibold text-slate-900">תמליל מלא</h3>
+                  {!editingTranscript ? (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={handleEditTranscript}
+                      data-testid="button-edit-transcript"
+                    >
+                      <Edit className="h-4 w-4 ml-2" />
+                      ערוך תמליל
+                    </Button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button 
+                        variant="default" 
+                        size="sm" 
+                        onClick={handleSaveTranscript}
+                        data-testid="button-save-transcript"
+                      >
+                        <Save className="h-4 w-4 ml-2" />
+                        שמור
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={handleCancelEdit}
+                        data-testid="button-cancel-edit"
+                      >
+                        <X className="h-4 w-4 ml-2" />
+                        ביטול
+                      </Button>
+                    </div>
+                  )}
                 </div>
+                {editingTranscript ? (
+                  <textarea
+                    value={editedTranscript}
+                    onChange={(e) => setEditedTranscript(e.target.value)}
+                    className="w-full bg-white border border-slate-300 p-4 rounded-lg min-h-64 text-slate-700 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    data-testid="textarea-transcript"
+                  />
+                ) : (
+                  <div className="bg-slate-50 p-4 rounded-lg max-h-64 overflow-y-auto">
+                    <p className="text-slate-700 whitespace-pre-wrap">{callDetails.transcript}</p>
+                  </div>
+                )}
               </div>
 
               {/* Actions */}

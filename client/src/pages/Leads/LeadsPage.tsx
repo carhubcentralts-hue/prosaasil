@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare } from 'lucide-react';
+import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare, Receipt } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 import { Card } from '../../shared/components/ui/Card';
@@ -489,7 +489,7 @@ export default function LeadsPage() {
                     ) : (
                       <div className="relative group flex items-center gap-2">
                         <div 
-                          className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 text-xs px-2 py-1 transition-all duration-200 hover:ring-2 hover:ring-blue-300 rounded-full inline-flex items-center font-medium`}
+                          className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 hover:scale-105 text-xs px-3 py-1.5 transition-all duration-200 hover:ring-2 hover:ring-blue-400 hover:shadow-md rounded-full inline-flex items-center gap-1.5 font-medium`}
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -500,9 +500,10 @@ export default function LeadsPage() {
                           role="button"
                           tabIndex={0}
                         >
-                          {getStatusLabel(lead.status)} ✎️
+                          {getStatusLabel(lead.status)}
+                          <Edit className="w-3 h-3 opacity-70" />
                         </div>
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 whitespace-nowrap pointer-events-none">
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 whitespace-nowrap pointer-events-none shadow-lg">
                           לחץ לשינוי סטטוס
                         </div>
                       </div>
@@ -563,6 +564,17 @@ export default function LeadsPage() {
                         title="צפה בדף הלקוח המלא"
                       >
                         <User className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/app/billing?leadId=${lead.id}`);
+                        }}
+                        className="h-8 w-8 p-0 bg-indigo-500 text-white hover:bg-indigo-600 border-0 rounded-md shadow-sm inline-flex items-center justify-center transition-colors"
+                        data-testid={`button-invoice-${lead.id}`}
+                        title="הוצא חשבונית"
+                      >
+                        <Receipt className="w-4 h-4" />
                       </button>
                       <button
                         onClick={(e) => {
@@ -633,6 +645,19 @@ export default function LeadsPage() {
                         >
                           <User className="w-3 h-3 ml-1" />
                           פרטים
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/app/billing?leadId=${lead.id}`);
+                          }}
+                          className="flex-1 h-7 px-2 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                          data-testid={`button-invoice-mobile-${lead.id}`}
+                        >
+                          <Receipt className="w-3 h-3 ml-1" />
+                          חשבונית
                         </Button>
                         <Button
                           size="sm"
