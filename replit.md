@@ -22,6 +22,16 @@ Preferred communication style: Simple, everyday language.
 - **UI Terminology Fix**: All "משימות" (tasks) changed to "תזכורות" (reminders) throughout CRM and Lead pages
 - **Status Dropdown Fix**: Fixed lead status dropdown in LeadsPage - now properly opens when clicking status badge without triggering navigation to lead detail page. Applied to both desktop (table) and mobile (card) views with proper event stopPropagation.
 - **Lead Integration**: All dropdowns (CRM reminders, invoices, contracts) are connected to `/api/leads` and display real leads from database with name and phone number.
+- **LeadDetailPage Full Integration**: Connected all tabs to real data:
+  - InvoicesTab: Loads invoices from `/api/receipts`, creates new invoices with proper lead_id association
+  - ContractsTab: Loads contracts from `/api/contracts`, creates new contracts with proper lead_id association
+  - CallsTab: Loads real call history from `/api/calls` filtered by lead's phone_e164
+  - All modals simplified with working form inputs and proper error handling
+- **Reminder Edit Functionality**: Added full edit support for reminders in LeadDetailPage:
+  - ReminderModal supports both create and edit modes
+  - Edit button (pencil icon) on each reminder in RemindersTab
+  - PATCH /api/leads/reminders/{id} for updates, POST for new reminders
+  - Proper form pre-population and reset on mode switching
 
 # System Architecture
 
