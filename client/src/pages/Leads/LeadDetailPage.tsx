@@ -17,7 +17,7 @@ const TABS = [
   { key: 'overview', label: 'סקירה', icon: User },
   { key: 'conversation', label: 'שיחות', icon: MessageSquare },
   { key: 'calls', label: 'שיחות טלפון', icon: Phone },
-  { key: 'tasks', label: 'משימות', icon: CheckCircle2 },
+  { key: 'reminders', label: 'תזכורות', icon: CheckCircle2 },
   { key: 'invoices', label: 'חשבוניות', icon: Calendar },
   { key: 'contracts', label: 'חוזים', icon: Tag },
   { key: 'activity', label: 'פעילות', icon: Activity },
@@ -95,18 +95,6 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       }));
   }, [activities]);
 
-  const tasks = useMemo<LeadTask[]>(() => {
-    return reminders.map(reminder => ({
-      id: reminder.id,
-      lead_id: reminder.lead_id,
-      title: reminder.note || 'משימה',
-      description: reminder.note,
-      due_date: reminder.due_at,
-      completed: !!reminder.completed_at,
-      created_at: reminder.due_at, // Use due_at as fallback since created_at not in schema
-      priority: 'medium' as const
-    }));
-  }, [reminders]);
 
   if (loading) {
     return (
@@ -318,7 +306,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         {activeTab === 'overview' && <OverviewTab lead={lead} reminders={reminders} onOpenReminder={() => setReminderModalOpen(true)} />}
         {activeTab === 'conversation' && <ConversationTab conversations={conversations} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} />}
-        {activeTab === 'tasks' && <TasksTab tasks={tasks} />}
+        {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => setReminderModalOpen(true)} />}
         {activeTab === 'invoices' && <InvoicesTab leadId={lead.id} />}
         {activeTab === 'contracts' && <ContractsTab leadId={lead.id} />}
         {activeTab === 'activity' && <ActivityTab activities={activities} />}
@@ -533,35 +521,42 @@ function CallsTab({ calls }: { calls: LeadCall[] }) {
   );
 }
 
-function TasksTab({ tasks }: { tasks: LeadTask[] }) {
+function RemindersTab({ reminders, onOpenReminder }: { reminders: LeadReminder[]; onOpenReminder: () => void }) {
   return (
     <Card className="p-4 sm:p-6">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">משימות</h3>
-      {tasks.length === 0 ? (
-        <p className="text-sm text-gray-500">אין משימות</p>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-medium text-gray-900">תזכורות</h3>
+        <Button 
+          size="sm" 
+          onClick={onOpenReminder}
+          data-testid="button-add-reminder"
+        >
+          <Plus className="w-4 h-4 ml-2" />
+          תזכורת חדשה
+        </Button>
+      </div>
+      {reminders.length === 0 ? (
+        <p className="text-sm text-gray-500">אין תזכורות</p>
       ) : (
         <div className="space-y-3">
-          {tasks.map((task) => (
-            <div key={task.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-              {task.completed ? (
+          {reminders.map((reminder) => (
+            <div key={reminder.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+              {reminder.completed_at ? (
                 <CheckCircle2 className="w-5 h-5 text-green-500" />
               ) : (
                 <Circle className="w-5 h-5 text-gray-400" />
               )}
               <div className="flex-1 min-w-0">
-                <p className={`text-sm ${task.completed ? 'line-through text-gray-500' : 'text-gray-900'}`}>
-                  {task.title}
+                <p className={`text-sm ${reminder.completed_at ? 'line-through text-gray-500' : 'text-gray-900'}`}>
+                  {reminder.note}
                 </p>
-                {task.due_date && (
+                {reminder.due_at && (
                   <p className="text-xs text-gray-500">
-                    <Calendar className="w-3 h-3 inline mr-1" />
-                    {formatDate(task.due_date)}
+                    <Clock className="w-3 h-3 inline mr-1" />
+                    {formatDate(reminder.due_at)}
                   </p>
                 )}
               </div>
-              <Badge variant={task.priority === 'high' ? 'error' : task.priority === 'medium' ? 'warning' : 'info'}>
-                {task.priority}
-              </Badge>
             </div>
           ))}
         </div>
