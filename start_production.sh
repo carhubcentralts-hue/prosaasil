@@ -43,13 +43,65 @@ fi
 # 1) Start Baileys ONLY if not using external service
 if [ "$SKIP_BAILEYS" = "false" ]; then
     echo "🟡 Installing Node dependencies for Baileys..."
-    cd services/whatsapp && npm install --omit=dev || npm ci --omit=dev || echo "⚠️ Could not install deps"
+    cd services/whatsapp
+    
+    # Try to install dependencies with verbose error handling
+    if [ ! -d "node_modules" ] || [ ! -f "node_modules/.package-lock.json" ]; then
+        echo "📦 Installing Node dependencies..."
+        npm install --omit=dev --prefer-offline --no-audit --no-fund 2>&1 | tee /tmp/npm_install.log
+        NPM_EXIT=$?
+        if [ $NPM_EXIT -ne 0 ]; then
+            echo "⚠️ npm install failed with code $NPM_EXIT. Trying npm ci..."
+            npm ci --omit=dev 2>&1 | tee -a /tmp/npm_install.log
+            NPM_EXIT=$?
+            if [ $NPM_EXIT -ne 0 ]; then
+                echo "❌ Failed to install Node dependencies. Check /tmp/npm_install.log"
+                echo "Continuing anyway - modules may be pre-installed..."
+            fi
+        fi
+    else
+        echo "✅ Node modules already installed"
+    fi
+    
     cd ../..
 
     echo "🟡 Starting Baileys on INTERNAL port 127.0.0.1:${BAILEYS_PORT}..."
-    BAILEYS_HOST=127.0.0.1 BAILEYS_PORT=${BAILEYS_PORT} nohup node services/whatsapp/baileys_service.js > /tmp/baileys_prod.log 2>&1 &
+    # Pass all required environment variables
+    BAILEYS_HOST=127.0.0.1 \
+    BAILEYS_PORT=${BAILEYS_PORT} \
+    FLASK_BASE_URL=${FLASK_BASE_URL} \
+    INTERNAL_SECRET=${INTERNAL_SECRET} \
+    nohup node services/whatsapp/baileys_service.js > /tmp/baileys_prod.log 2>&1 &
     BAI=$!
-    echo "✅ Baileys started internally (PID: $BAI, 127.0.0.1:${BAILEYS_PORT})"
+    
+    # Wait for Baileys to be ready (with timeout)
+    echo "⏳ Waiting for Baileys to start (max 15s)..."
+    BAILEYS_READY=false
+    for i in {1..15}; do
+        sleep 1
+        if curl -sf http://127.0.0.1:${BAILEYS_PORT}/healthz > /dev/null 2>&1; then
+            echo "✅ Baileys is ready! (PID: $BAI, 127.0.0.1:${BAILEYS_PORT})"
+            BAILEYS_READY=true
+            break
+        fi
+        echo -n "."
+    done
+    echo ""
+    
+    # Show Baileys logs if it failed to start
+    if [ "$BAILEYS_READY" = "false" ]; then
+        echo "⚠️ Baileys may not be responding. Last 30 lines of logs:"
+        tail -30 /tmp/baileys_prod.log 2>/dev/null || echo "No logs available yet"
+        echo ""
+        echo "🔍 Checking if process is still running..."
+        if kill -0 $BAI 2>/dev/null; then
+            echo "✅ Baileys process is running (PID: $BAI) - may just be slow to start"
+        else
+            echo "❌ Baileys process died immediately - check /tmp/baileys_prod.log"
+            echo "Showing full log:"
+            cat /tmp/baileys_prod.log 2>/dev/null || echo "No logs available"
+        fi
+    fi
 else
     echo "⏭️ Skipping Baileys - using external service"
     BAI=0  # Dummy PID

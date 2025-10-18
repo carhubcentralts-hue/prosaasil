@@ -6,7 +6,7 @@ AgentLocator is a Hebrew CRM system for real estate businesses, featuring an AI-
 
 Preferred communication style: Simple, everyday language.
 
-# Recent Changes (October 18, 2025)
+# Recent Changes (October 18-19, 2025)
 - Fixed invoice.payment_id database schema with proper foreign key to payment.id
 - Removed "Support Management" card from business overview page
 - Added lead selection dropdowns to payment and contract creation modals
@@ -32,6 +32,12 @@ Preferred communication style: Simple, everyday language.
   - Edit button (pencil icon) on each reminder in RemindersTab
   - PATCH /api/leads/reminders/{id} for updates, POST for new reminders
   - Proper form pre-population and reset on mode switching
+- **WhatsApp Deployment Fix (Build #101)**:
+  - Created setup.py to ensure Baileys Node.js dependencies are installed during build phase
+  - Enhanced start_production.sh with better error handling, logging, and healthchecks
+  - Added 15-second startup wait for Baileys service with verbose logging
+  - Improved npm install with fallback strategies and better error messages
+  - All environment variables (INTERNAL_SECRET, FLASK_BASE_URL) properly passed to Baileys service
 
 # System Architecture
 
