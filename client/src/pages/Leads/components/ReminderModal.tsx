@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from "../../../shared/components/ui/Button";
-import { Lead } from '../types';
+import { Lead, LeadReminder } from '../types';
 import { Clock, Bell, MessageSquare, Mail, X, Save } from 'lucide-react';
 import { http } from '../../../services/http';
 
@@ -8,15 +8,40 @@ interface ReminderModalProps {
   isOpen: boolean;
   onClose: () => void;
   lead: Lead;
+  reminder?: LeadReminder | null;
   onSuccess?: () => void;
 }
 
-export function ReminderModal({ isOpen, onClose, lead, onSuccess }: ReminderModalProps) {
+export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSuccess }: ReminderModalProps) {
   const [note, setNote] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [dueTime, setDueTime] = useState('');
   const [channel, setChannel] = useState<'ui' | 'email' | 'whatsapp'>('ui');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Pre-populate form when reminder is provided or reset when creating new
+  useEffect(() => {
+    if (isOpen) {
+      if (reminder) {
+        setNote(reminder.note || '');
+        
+        // Parse due_at to extract date and time
+        const dueDate = new Date(reminder.due_at);
+        const dateStr = dueDate.toISOString().split('T')[0];
+        const timeStr = dueDate.toTimeString().split(' ')[0].substring(0, 5); // HH:MM
+        
+        setDueDate(dateStr);
+        setDueTime(timeStr);
+        setChannel(reminder.channel as 'ui' | 'email' | 'whatsapp');
+      } else {
+        // Reset form when creating new reminder
+        setNote('');
+        setDueDate('');
+        setDueTime('');
+        setChannel('ui');
+      }
+    }
+  }, [reminder, isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,18 +56,29 @@ export function ReminderModal({ isOpen, onClose, lead, onSuccess }: ReminderModa
     try {
       const dueAt = `${dueDate}T${dueTime}:00.000Z`;
       
-      await http.post(`/api/leads/${lead.id}/reminders`, {
-        due_at: dueAt,
-        note: note.trim(),
-        channel,
-      });
+      if (reminder) {
+        // Update existing reminder
+        await http.patch(`/api/leads/reminders/${reminder.id}`, {
+          due_at: dueAt,
+          note: note.trim(),
+          channel,
+        });
+        alert(`תזכורת עודכנה בהצלחה`);
+      } else {
+        // Create new reminder
+        await http.post(`/api/leads/${lead.id}/reminders`, {
+          due_at: dueAt,
+          note: note.trim(),
+          channel,
+        });
+        alert(`תזכורת לחזרה ללקוח ${lead.full_name} נוצרה בהצלחה`);
+      }
 
-      alert(`תזכורת לחזרה ללקוח ${lead.full_name} נוצרה בהצלחה`);
       onSuccess?.();
       handleClose();
     } catch (error: any) {
-      console.error('Failed to create reminder:', error);
-      alert(error.message || 'שגיאה ביצירת התזכורת');
+      console.error('Failed to save reminder:', error);
+      alert(error.message || 'שגיאה בשמירת התזכורת');
     } finally {
       setIsSubmitting(false);
     }
@@ -88,7 +124,7 @@ export function ReminderModal({ isOpen, onClose, lead, onSuccess }: ReminderModa
                 <Clock className="h-5 w-5 text-white" />
               </div>
               <h2 className="text-lg font-semibold text-slate-900">
-                חזור אלי - {lead.full_name}
+                {reminder ? 'ערוך תזכורת' : `חזור אלי - ${lead.full_name}`}
               </h2>
             </div>
             <button
@@ -187,7 +223,7 @@ export function ReminderModal({ isOpen, onClose, lead, onSuccess }: ReminderModa
                 data-testid="button-create-reminder"
               >
                 <Save className="h-4 w-4" />
-                {isSubmitting ? 'יוצר...' : 'צור תזכורת'}
+                {isSubmitting ? (reminder ? 'שומר...' : 'יוצר...') : (reminder ? 'שמור שינויים' : 'צור תזכורת')}
               </Button>
             </div>
           </form>

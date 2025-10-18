@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
 import { ReminderModal } from './components/ReminderModal';
 import { Button } from '../../shared/components/ui/Button';
@@ -35,10 +35,12 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [whatsappChatOpen, setWhatsappChatOpen] = useState(false);
   const [reminderModalOpen, setReminderModalOpen] = useState(false);
+  const [editingReminder, setEditingReminder] = useState<LeadReminder | null>(null);
   
   // Data for each tab
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [reminders, setReminders] = useState<LeadReminder[]>([]);
+  const [calls, setCalls] = useState<LeadCall[]>([]);
 
   useEffect(() => {
     if (id) {
@@ -53,6 +55,11 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       setLead(response);
       setActivities(response.activity || []);
       setReminders(response.reminders || []);
+      
+      // Fetch calls for this lead by phone number
+      if (response.phone_e164) {
+        await fetchCalls(response.phone_e164);
+      }
     } catch (err) {
       console.error('Failed to fetch lead:', err);
       setError('שגיאה בטעינת פרטי הליד');
@@ -61,23 +68,27 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     }
   };
 
-  // Derive data from activities and reminders using useMemo
-  const calls = useMemo<LeadCall[]>(() => {
-    return activities
-      .filter(activity => 
-        activity.type === 'call' || activity.type === 'call_incoming'
-      )
-      .map(activity => ({
-        id: activity.id,
-        lead_id: activity.lead_id,
-        call_type: activity.type === 'call_incoming' ? 'incoming' : 'outgoing',
-        duration: 0, // TODO: Add duration to schema
-        recording_url: undefined, // TODO: Add recording to schema
-        notes: (activity.payload && typeof activity.payload === 'object' && activity.payload.note) ? activity.payload.note : '',
-        created_at: activity.at,
-        status: 'completed'
-      }));
-  }, [activities]);
+  const fetchCalls = async (phone: string) => {
+    try {
+      const response = await http.get<{ success: boolean; calls: any[] }>(`/api/calls?search=${encodeURIComponent(phone)}`);
+      if (response.success && response.calls) {
+        const leadCalls: LeadCall[] = response.calls.map((call: any) => ({
+          id: call.call_sid || call.id,
+          lead_id: parseInt(id || '0'),
+          call_type: (call.direction === 'inbound' ? 'incoming' : 'outgoing') as 'incoming' | 'outgoing',
+          duration: call.duration || 0,
+          recording_url: call.recording_url,
+          notes: call.transcription || '',
+          created_at: call.created_at,
+          status: call.status
+        }));
+        setCalls(leadCalls);
+      }
+    } catch (err) {
+      console.error('Failed to fetch calls:', err);
+      setCalls([]);
+    }
+  };
 
   const conversations = useMemo<LeadConversation[]>(() => {
     return activities
@@ -303,10 +314,10 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-        {activeTab === 'overview' && <OverviewTab lead={lead} reminders={reminders} onOpenReminder={() => setReminderModalOpen(true)} />}
+        {activeTab === 'overview' && <OverviewTab lead={lead} reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} />}
         {activeTab === 'conversation' && <ConversationTab conversations={conversations} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} />}
-        {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => setReminderModalOpen(true)} />}
+        {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} />}
         {activeTab === 'invoices' && <InvoicesTab leadId={lead.id} />}
         {activeTab === 'contracts' && <ContractsTab leadId={lead.id} />}
         {activeTab === 'activity' && <ActivityTab activities={activities} />}
@@ -325,8 +336,12 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       {lead && (
         <ReminderModal
           lead={lead}
+          reminder={editingReminder}
           isOpen={reminderModalOpen}
-          onClose={() => setReminderModalOpen(false)}
+          onClose={() => {
+            setReminderModalOpen(false);
+            setEditingReminder(null);
+          }}
           onSuccess={fetchLead}
         />
       )}
@@ -521,7 +536,7 @@ function CallsTab({ calls }: { calls: LeadCall[] }) {
   );
 }
 
-function RemindersTab({ reminders, onOpenReminder }: { reminders: LeadReminder[]; onOpenReminder: () => void }) {
+function RemindersTab({ reminders, onOpenReminder, onEditReminder }: { reminders: LeadReminder[]; onOpenReminder: () => void; onEditReminder: (reminder: LeadReminder) => void }) {
   return (
     <Card className="p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
@@ -557,6 +572,13 @@ function RemindersTab({ reminders, onOpenReminder }: { reminders: LeadReminder[]
                   </p>
                 )}
               </div>
+              <button
+                onClick={() => onEditReminder(reminder)}
+                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                data-testid={`button-edit-reminder-${reminder.id}`}
+              >
+                <Pencil className="w-4 h-4 text-gray-600" />
+              </button>
             </div>
           ))}
         </div>
@@ -569,9 +591,66 @@ function InvoicesTab({ leadId }: { leadId: number }) {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState({
+    amount: '',
+    description: ''
+  });
 
-  const handleCreateInvoice = () => {
-    setShowInvoiceModal(true);
+  useEffect(() => {
+    loadInvoices();
+  }, [leadId]);
+
+  const loadInvoices = async () => {
+    try {
+      setLoading(true);
+      const response = await http.get('/api/receipts') as any;
+      const allInvoices = response?.invoices || [];
+      const leadInvoices = allInvoices.filter((inv: any) => inv.lead_id === leadId);
+      setInvoices(leadInvoices);
+    } catch (error) {
+      console.error('Error loading invoices:', error);
+      setInvoices([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateInvoice = async () => {
+    try {
+      if (!invoiceForm.amount || !invoiceForm.description) {
+        alert('נא למלא את כל השדות');
+        return;
+      }
+
+      setLoading(true);
+      const response = await http.post('/api/receipts', {
+        lead_id: leadId,
+        amount: parseFloat(invoiceForm.amount),
+        description: invoiceForm.description,
+        customer_name: 'לקוח'
+      }) as any;
+
+      if (response.success) {
+        alert(`חשבונית ${response.invoice_number} נוצרה בהצלחה!`);
+        setShowInvoiceModal(false);
+        setInvoiceForm({ amount: '', description: '' });
+        loadInvoices();
+      } else {
+        alert('שגיאה ביצירת החשבונית');
+      }
+    } catch (error) {
+      console.error('Error creating invoice:', error);
+      alert('שגיאה ביצירת החשבונית');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('he-IL', {
+      style: 'currency',
+      currency: 'ILS'
+    }).format(amount);
   };
 
   return (
@@ -582,17 +661,16 @@ function InvoicesTab({ leadId }: { leadId: number }) {
           size="sm" 
           className="bg-blue-600 hover:bg-blue-700 text-white" 
           data-testid="button-create-invoice"
-          onClick={handleCreateInvoice}
+          onClick={() => setShowInvoiceModal(true)}
         >
           <Plus className="w-4 h-4 ml-2" />
           חשבונית חדשה
         </Button>
       </div>
       
-      {/* Invoice Modal */}
       {showInvoiceModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="invoice-modal">
-          <Card className="w-full max-w-lg">
+          <Card className="w-full max-w-md mx-4">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-medium">צור חשבונית חדשה</h3>
@@ -606,139 +684,81 @@ function InvoicesTab({ leadId }: { leadId: number }) {
                 </Button>
               </div>
               
-              <div className="grid grid-cols-1 gap-4">
-                <Button 
-                  className="p-4 bg-blue-50 hover:bg-blue-100 text-blue-900 text-right"
-                  onClick={async () => {
-                    try {
-                      setLoading(true);
-                      // Call invoice API
-                      const response = await http.post<{success: boolean; message?: string}>('/api/invoices', {
-                        lead_id: leadId,
-                        type: 'quote',
-                        title: 'הצעת מחיר',
-                        items: [
-                          { description: 'שירותי תיווך נדל"ן', amount: 15000, quantity: 1 }
-                        ]
-                      });
-                      
-                      if (response.success) {
-                        alert('הצעת מחיר נוצרה בהצלחה!');
-                        // Refresh invoices list here if needed
-                      } else {
-                        alert('שגיאה ביצירת הצעת מחיר');
-                      }
-                    } catch (err) {
-                      console.error('Invoice creation failed:', err);
-                      alert('יוצר הצעת מחיר לליד #' + leadId + ' (מצב דמו)');
-                    } finally {
-                      setLoading(false);
-                      setShowInvoiceModal(false);
-                    }
-                  }}
-                  data-testid="button-invoice-quote"
-                >
-                  <div>
-                    <h4 className="font-medium">הצעת מחיר</h4>
-                    <p className="text-sm opacity-75">הכן הצעת מחיר מקצועית ללקוח</p>
-                  </div>
-                </Button>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">סכום</label>
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={invoiceForm.amount}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, amount: e.target.value })}
+                    data-testid="input-invoice-amount"
+                  />
+                </div>
                 
-                <Button 
-                  className="p-4 bg-green-50 hover:bg-green-100 text-green-900 text-right"
-                  onClick={async () => {
-                    try {
-                      setLoading(true);
-                      const response = await http.post<{success: boolean; message?: string}>('/api/invoices', {
-                        lead_id: leadId,
-                        type: 'tax_invoice',
-                        title: 'חשבונית מס',
-                        tax_rate: 17,
-                        items: [
-                          { description: 'שירותי תיווך נדל"ן', amount: 15000, quantity: 1 }
-                        ]
-                      });
-                      
-                      if (response.success) {
-                        alert('חשבונית מס נוצרה בהצלחה!');
-                      } else {
-                        alert('שגיאה ביצירת חשבונית מס');
-                      }
-                    } catch (err) {
-                      console.error('Tax invoice creation failed:', err);
-                      alert('יוצר חשבונית מס לליד #' + leadId + ' (מצב דמו)');
-                    } finally {
-                      setLoading(false);
-                      setShowInvoiceModal(false);
-                    }
-                  }}
-                  data-testid="button-invoice-tax"
-                >
-                  <div>
-                    <h4 className="font-medium">חשבונית מס</h4>
-                    <p className="text-sm opacity-75">הפק חשבונית מס רשמית</p>
-                  </div>
-                </Button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">תיאור</label>
+                  <Input
+                    type="text"
+                    placeholder="תיאור החשבונית"
+                    value={invoiceForm.description}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, description: e.target.value })}
+                    data-testid="input-invoice-description"
+                  />
+                </div>
                 
-                <Button 
-                  className="p-4 bg-purple-50 hover:bg-purple-100 text-purple-900 text-right"
-                  onClick={async () => {
-                    try {
-                      setLoading(true);
-                      const response = await http.post<{success: boolean; message?: string}>('/api/receipts', {
-                        lead_id: leadId,
-                        amount: 15000,
-                        description: 'תשלום עבור שירותי תיווך נדל"ן',
-                        payment_method: 'bank_transfer'
-                      });
-                      
-                      if (response.success) {
-                        alert('קבלה נוצרה בהצלחה!');
-                      } else {
-                        alert('שגיאה ביצירת קבלה');
-                      }
-                    } catch (err) {
-                      console.error('Receipt creation failed:', err);
-                      alert('יוצר קבלה לליד #' + leadId + ' (מצב דמו)');
-                    } finally {
-                      setLoading(false);
-                      setShowInvoiceModal(false);
-                    }
-                  }}
-                  data-testid="button-invoice-receipt"
-                >
-                  <div>
-                    <h4 className="font-medium">קבלה</h4>
-                    <p className="text-sm opacity-75">הפק קבלה על תשלום</p>
-                  </div>
-                </Button>
+                <div className="flex gap-2 pt-4">
+                  <Button
+                    onClick={handleCreateInvoice}
+                    disabled={loading}
+                    className="flex-1"
+                    data-testid="button-submit-invoice"
+                  >
+                    {loading ? 'יוצר...' : 'צור חשבונית'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShowInvoiceModal(false)}
+                    className="flex-1"
+                  >
+                    ביטול
+                  </Button>
+                </div>
               </div>
             </div>
           </Card>
         </div>
       )}
-      {invoices.length === 0 ? (
+
+      {loading && invoices.length === 0 ? (
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-sm text-gray-500">טוען חשבוניות...</p>
+        </div>
+      ) : invoices.length === 0 ? (
         <div className="text-center py-8">
           <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
           <p className="text-sm text-gray-500 mb-4">אין חשבוניות עדיין</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-right">
-            <div className="p-4 bg-blue-50 rounded-lg">
-              <h4 className="font-medium text-blue-900">יצירת הצעת מחיר</h4>
-              <p className="text-sm text-blue-600 mt-1">הכן הצעת מחיר מקצועית ללקוח</p>
-            </div>
-            <div className="p-4 bg-green-50 rounded-lg">
-              <h4 className="font-medium text-green-900">חשבונית מס</h4>
-              <p className="text-sm text-green-600 mt-1">הפק חשבונית מס רשמית</p>
-            </div>
-            <div className="p-4 bg-purple-50 rounded-lg">
-              <h4 className="font-medium text-purple-900">קבלה</h4>
-              <p className="text-sm text-purple-600 mt-1">הפק קבלה על תשלום</p>
-            </div>
-          </div>
         </div>
       ) : (
-        <div className="space-y-4">
-          {/* Invoice list will be here */}
+        <div className="space-y-3">
+          {invoices.map((invoice) => (
+            <div key={invoice.id} className="p-4 bg-gray-50 rounded-lg" data-testid={`invoice-${invoice.id}`}>
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{invoice.description}</p>
+                  <p className="text-xs text-gray-500">מספר: {invoice.invoice_number}</p>
+                </div>
+                <p className="text-lg font-bold text-gray-900">{formatCurrency(invoice.total || invoice.amount)}</p>
+              </div>
+              <div className="flex justify-between items-center text-xs text-gray-500">
+                <span>{formatDate(invoice.created_at)}</span>
+                <Badge className={invoice.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
+                  {invoice.status === 'paid' ? 'שולם' : 'ממתין'}
+                </Badge>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </Card>
@@ -748,32 +768,90 @@ function InvoicesTab({ leadId }: { leadId: number }) {
 function ContractsTab({ leadId }: { leadId: number }) {
   const [contracts, setContracts] = useState<any[]>([]);
   const [showContractModal, setShowContractModal] = useState(false);
-  const [customContractName, setCustomContractName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [contractForm, setContractForm] = useState({
+    title: '',
+    type: 'sale'
+  });
 
-  const handleCreateContract = () => {
-    setShowContractModal(true);
+  useEffect(() => {
+    loadContracts();
+  }, [leadId]);
+
+  const loadContracts = async () => {
+    try {
+      setLoading(true);
+      const response = await http.get('/api/contracts') as any;
+      const allContracts = response?.contracts || [];
+      const leadContracts = allContracts.filter((contract: any) => contract.lead_id === leadId);
+      setContracts(leadContracts);
+    } catch (error) {
+      console.error('Error loading contracts:', error);
+      setContracts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateContract = async () => {
+    try {
+      if (!contractForm.title || !contractForm.type) {
+        alert('נא למלא את כל השדות');
+        return;
+      }
+
+      setLoading(true);
+      const response = await http.post('/api/contracts', {
+        lead_id: leadId,
+        type: contractForm.type,
+        title: contractForm.title
+      }) as any;
+
+      if (response.success) {
+        alert(`חוזה נוצר בהצלחה! מספר: ${response.contract_id}`);
+        setShowContractModal(false);
+        setContractForm({ title: '', type: 'sale' });
+        loadContracts();
+      } else {
+        alert('שגיאה ביצירת החוזה');
+      }
+    } catch (error) {
+      console.error('Error creating contract:', error);
+      alert('שגיאה ביצירת החוזה');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getContractTypeLabel = (type: string) => {
+    const types: Record<string, string> = {
+      'sale': 'מכר',
+      'rent': 'שכירות',
+      'mediation': 'תיווך',
+      'management': 'ניהול',
+      'custom': 'מותאם אישית'
+    };
+    return types[type] || type;
   };
 
   return (
-    <Card className="p-6">
+    <Card className="p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-medium text-gray-900">חוזים ומסמכים</h3>
         <Button 
           size="sm" 
           className="bg-green-600 hover:bg-green-700 text-white" 
           data-testid="button-create-contract"
-          onClick={handleCreateContract}
+          onClick={() => setShowContractModal(true)}
         >
           <Plus className="w-4 h-4 ml-2" />
           חוזה חדש
         </Button>
       </div>
       
-      {/* Contract Modal */}
       {showContractModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="contract-modal">
-          <Card className="w-full max-w-lg">
+          <Card className="w-full max-w-md mx-4">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-medium">צור חוזה חדש</h3>
@@ -787,191 +865,88 @@ function ContractsTab({ leadId }: { leadId: number }) {
                 </Button>
               </div>
               
-              <div className="grid grid-cols-1 gap-4">
-                {/* Custom Contract Input */}
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    שם החוזה המותאם
-                  </label>
-                  <input
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">כותרת החוזה</label>
+                  <Input
                     type="text"
-                    className="w-full p-2 border border-gray-300 rounded-md"
-                    placeholder="הכנס שם חוזה (לדוגמה: חוזה ייעוץ, חוזה ניהול, וכו')"
-                    value={customContractName}
-                    onChange={(e) => setCustomContractName(e.target.value)}
-                    data-testid="input-custom-contract-name"
+                    placeholder="לדוגמה: חוזה מכר דירה"
+                    value={contractForm.title}
+                    onChange={(e) => setContractForm({ ...contractForm, title: e.target.value })}
+                    data-testid="input-contract-title"
                   />
                 </div>
                 
-                <Button 
-                  className="p-4 bg-purple-50 hover:bg-purple-100 text-purple-900 text-right"
-                  onClick={async () => {
-                    const contractName = customContractName.trim() || 'חוזה מותאם אישית';
-                    try {
-                      setLoading(true);
-                      const response = await http.post<{success: boolean; message?: string}>('/api/contracts', {
-                        lead_id: leadId,
-                        type: 'custom',
-                        title: contractName,
-                        custom_details: {
-                          created_by: 'user',
-                          contract_category: 'custom'
-                        }
-                      });
-                      
-                      if (response.success) {
-                        alert(`${contractName} נוצר בהצלחה!`);
-                      } else {
-                        alert(`שגיאה ביצירת ${contractName}`);
-                      }
-                    } catch (err) {
-                      console.error('Custom contract creation failed:', err);
-                      alert(`יוצר ${contractName} לליד #${leadId} (מצב דמו)`);
-                    } finally {
-                      setLoading(false);
-                      setShowContractModal(false);
-                      setCustomContractName('');
-                    }
-                  }}
-                  data-testid="button-contract-custom"
-                  disabled={!customContractName.trim()}
-                >
-                  <div>
-                    <h4 className="font-medium">חוזה מותאם אישית</h4>
-                    <p className="text-sm opacity-75">צור חוזה לפי הצרכים שלך</p>
-                  </div>
-                </Button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">סוג החוזה</label>
+                  <select
+                    className="w-full p-2 border border-gray-300 rounded-md"
+                    value={contractForm.type}
+                    onChange={(e) => setContractForm({ ...contractForm, type: e.target.value })}
+                    data-testid="select-contract-type"
+                  >
+                    <option value="sale">מכר</option>
+                    <option value="rent">שכירות</option>
+                    <option value="mediation">תיווך</option>
+                    <option value="management">ניהול</option>
+                    <option value="custom">מותאם אישית</option>
+                  </select>
+                </div>
                 
-                <Button 
-                  className="p-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-right"
-                  onClick={async () => {
-                    try {
-                      setLoading(true);
-                      const response = await http.post<{success: boolean; message?: string}>('/api/contracts', {
-                        lead_id: leadId,
-                        type: 'sale',
-                        title: 'חוזה מכר נדל"ן',
-                        property_type: 'apartment',
-                        terms: {
-                          payment_schedule: 'installments',
-                          warranty_period: '12_months'
-                        }
-                      });
-                      
-                      if (response.success) {
-                        alert('חוזה מכר נוצר בהצלחה!');
-                      } else {
-                        alert('שגיאה ביצירת חוזה מכר');
-                      }
-                    } catch (err) {
-                      console.error('Contract creation failed:', err);
-                      alert('יוצר חוזה מכר לליד #' + leadId + ' (מצב דמו)');
-                    } finally {
-                      setLoading(false);
-                      setShowContractModal(false);
-                    }
-                  }}
-                  data-testid="button-contract-sale"
-                >
-                  <div>
-                    <h4 className="font-medium">חוזה מכר</h4>
-                    <p className="text-sm opacity-75">חוזה רכישת נדל"ן רשמי</p>
-                  </div>
-                </Button>
-                
-                <Button 
-                  className="p-4 bg-orange-50 hover:bg-orange-100 text-orange-900 text-right"
-                  onClick={async () => {
-                    try {
-                      setLoading(true);
-                      const response = await http.post<{success: boolean; message?: string}>('/api/contracts', {
-                        lead_id: leadId,
-                        type: 'rent',
-                        title: 'חוזה שכירות',
-                        rental_terms: {
-                          duration: '12_months',
-                          deposit_amount: 12000,
-                          monthly_rent: 4000
-                        }
-                      });
-                      
-                      if (response.success) {
-                        alert('חוזה שכירות נוצר בהצלחה!');
-                      } else {
-                        alert('שגיאה ביצירת חוזה שכירות');
-                      }
-                    } catch (err) {
-                      console.error('Rental contract creation failed:', err);
-                      alert('יוצר חוזה שכירות לליד #' + leadId + ' (מצב דמו)');
-                    } finally {
-                      setLoading(false);
-                      setShowContractModal(false);
-                    }
-                  }}
-                  data-testid="button-contract-rent"
-                >
-                  <div>
-                    <h4 className="font-medium">חוזה שכירות</h4>
-                    <p className="text-sm opacity-75">חוזה שכירות מפורט</p>
-                  </div>
-                </Button>
-                
-                <Button 
-                  className="p-4 bg-yellow-50 hover:bg-yellow-100 text-yellow-900 text-right"
-                  onClick={async () => {
-                    try {
-                      setLoading(true);
-                      const response = await http.post<{success: boolean; message?: string}>('/api/contracts', {
-                        lead_id: leadId,
-                        type: 'mediation',
-                        title: 'הסכם תיווך נדל"ן',
-                        commission_rate: 2.5,
-                        exclusivity_period: '3_months'
-                      });
-                      
-                      if (response.success) {
-                        alert('הסכם תיווך נוצר בהצלחה!');
-                      } else {
-                        alert('שגיאה ביצירת הסכם תיווך');
-                      }
-                    } catch (err) {
-                      console.error('Mediation contract creation failed:', err);
-                      alert('יוצר הסכם תיווך לליד #' + leadId + ' (מצב דמו)');
-                    } finally {
-                      setLoading(false);
-                      setShowContractModal(false);
-                    }
-                  }}
-                  data-testid="button-contract-mediation"
-                >
-                  <div>
-                    <h4 className="font-medium">הסכם תיווך</h4>
-                    <p className="text-sm opacity-75">הסכם תיווך נדל"ן</p>
-                  </div>
-                </Button>
+                <div className="flex gap-2 pt-4">
+                  <Button
+                    onClick={handleCreateContract}
+                    disabled={loading}
+                    className="flex-1"
+                    data-testid="button-submit-contract"
+                  >
+                    {loading ? 'יוצר...' : 'צור חוזה'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShowContractModal(false)}
+                    className="flex-1"
+                  >
+                    ביטול
+                  </Button>
+                </div>
               </div>
             </div>
           </Card>
         </div>
       )}
-      {contracts.length === 0 ? (
+
+      {loading && contracts.length === 0 ? (
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-sm text-gray-500">טוען חוזים...</p>
+        </div>
+      ) : contracts.length === 0 ? (
         <div className="text-center py-8">
           <Tag className="w-12 h-12 text-gray-300 mx-auto mb-4" />
           <p className="text-sm text-gray-500 mb-4">אין חוזים עדיין</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-right">
-            <div className="p-4 bg-indigo-50 rounded-lg">
-              <h4 className="font-medium text-indigo-900">חוזה מכר</h4>
-              <p className="text-sm text-indigo-600 mt-1">חוזה רכישת נדל"ן רשמי</p>
-            </div>
-            <div className="p-4 bg-orange-50 rounded-lg">
-              <h4 className="font-medium text-orange-900">חוזה שכירות</h4>
-              <p className="text-sm text-orange-600 mt-1">חוזה שכירות מפורט</p>
-            </div>
-          </div>
         </div>
       ) : (
-        <div className="space-y-4">
-          {/* Contract list will be here */}
+        <div className="space-y-3">
+          {contracts.map((contract) => (
+            <div key={contract.id} className="p-4 bg-gray-50 rounded-lg" data-testid={`contract-${contract.id}`}>
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{contract.title}</p>
+                  <p className="text-xs text-gray-500">מספר: {contract.id}</p>
+                </div>
+                <Badge className="bg-blue-100 text-blue-800">
+                  {getContractTypeLabel(contract.type)}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center text-xs text-gray-500">
+                <span>{formatDate(contract.created_at)}</span>
+                <Badge className={contract.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                  {contract.status === 'active' ? 'פעיל' : contract.status}
+                </Badge>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </Card>
