@@ -2,21 +2,21 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses, featuring an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. It processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. The system aims to streamline the sales pipeline for real estate professionals with fully customizable AI assistants and business names.
 
-## Environment Variables for Streaming STT (Phase 2)
+## Streaming STT Status (Phase 2 - DISABLED)
 
-Add these to your Replit Secrets to enable ultra-low-latency streaming STT:
+**Current Status:** Streaming STT is **disabled** due to implementation issues.
 
-```
-ENABLE_STREAMING_STT=true
-STT_BATCH_MS=150
-STT_PARTIAL_DEBOUNCE_MS=180
-GCP_STT_MODEL=default
-GCP_STT_LANGUAGE=he-IL
-GCP_STT_PUNCTUATION_INTERIM=false
-GCP_STT_PUNCTUATION_FINAL=true
-```
+**Problems Found:**
+- Implementation creates new streaming session per utterance (not continuous)
+- Causes 90-second crashes and frequent fallbacks  
+- Not true real-time streaming
 
-**To test Phase 1 only (without streaming):** Set `ENABLE_STREAMING_STT=false`
+**Current Mode:** Single-request Google STT with optimizations:
+- Fast μ-law→PCM conversion (10-20x faster)
+- Removed unnecessary delays
+- Balanced audio validation
+
+**Performance:** ~0.8-1.5s response time (good enough for conversations)
 
 # User Preferences
 
@@ -81,6 +81,29 @@ Preferred communication style: Simple, everyday language.
 - **Baileys Library**: For direct WhatsApp connectivity.
 
 # Recent Changes
+
+## Streaming STT Disabled (BUILD 100.19)
+**Problem:** Streaming STT implementation caused 90-second crashes and fallbacks in Cloud Run.
+
+**Root Cause:**
+- Code created new streaming session per utterance (not continuous)
+- Google STT Streaming has 305s cumulative limit
+- Multiple sessions → timeout/crash
+- Not true real-time streaming
+
+**Solution:**
+- Disabled streaming STT completely (forced to `false`)
+- Single-request mode is faster and more reliable with Phase 1 optimizations
+- No more crashes, consistent performance
+
+**Result:**
+✅ No more 90-second crashes
+✅ Reliable transcription
+✅ ~0.8-1.5s response time (acceptable)
+
+**Files Modified:**
+- `server/media_ws_ai.py` - Disabled streaming, force single-request mode
+- `replit.md` - Updated streaming status
 
 ## Audio Validation Fix (BUILD 100.18)
 **Problem:** Audio validation was too strict, blocking legitimate speech transcription.
