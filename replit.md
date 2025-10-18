@@ -12,6 +12,8 @@ Preferred communication style: Simple, everyday language.
 - Added lead selection dropdowns to payment and contract creation modals
 - Unified tasks and reminders into single "Reminders" feature
 - **CRITICAL FIX**: Fixed duplicate lead creation - system now properly deduplicates leads by phone number instead of creating new lead for each call
+- **Enhanced Reminders System**: Converted CRM page from "tasks" to "reminders" with comprehensive modal supporting note, description, date/time, priority, type, and optional lead association
+- **Database Schema Update**: LeadReminder model now supports general business reminders with nullable lead_id and direct tenant_id ownership for proper multi-tenant isolation
 
 # System Architecture
 
@@ -51,7 +53,7 @@ Preferred communication style: Simple, everyday language.
 - **Customizable Status Management**: Per-business custom lead statuses.
 - **Billing and Contracts**: Integrated payment processing and contract generation with lead selection dropdowns for creating invoices and contracts.
 - **Automatic Recording Cleanup**: 2-day retention policy for recordings.
-- **Unified Reminders System**: Single reminders feature replacing separate tasks and reminders.
+- **Enhanced Reminders System**: Comprehensive reminder management with create/edit modal, full field support (note, description, date/time, priority, type, lead association), and support for both lead-specific and general business reminders.
 
 ## System Design Choices
 - **AI Response Optimization**: Max tokens reduced to 200 for shorter, more conversational responses using `gpt-4o-mini`.

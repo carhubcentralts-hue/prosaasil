@@ -150,7 +150,7 @@ def list_leads():
         return auth_error
     
     user = get_current_user()
-    is_admin = user.get('role') in ['admin', 'superadmin']
+    is_admin = user.get('role') in ['admin', 'superadmin'] if user else False
     
     # ✅ FIX: Admin/Superadmin can see ALL leads
     if is_admin:
@@ -975,7 +975,7 @@ def bulk_delete_leads():
         return auth_error
     
     user = get_current_user()
-    is_admin = user.get('role') in ['admin', 'superadmin']
+    is_admin = user.get('role') in ['admin', 'superadmin'] if user else False
     
     # Admin can delete any leads
     if is_admin:
@@ -1223,3 +1223,78 @@ def create_general_reminder():
             "note": reminder.note
         }
     }), 201
+
+@leads_bp.route("/api/reminders/<int:reminder_id>", methods=["PATCH"])
+def update_general_reminder(reminder_id):
+    """Update or complete a general reminder"""
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    # Find reminder by ID and tenant_id for security
+    reminder = LeadReminder.query.filter_by(id=reminder_id, tenant_id=tenant_id).first()
+    if not reminder:
+        return jsonify({"error": "Reminder not found"}), 404
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON data required"}), 400
+    
+    # Update allowed fields
+    if 'due_at' in data:
+        try:
+            reminder.due_at = datetime.fromisoformat(data['due_at'].replace('Z', '+00:00'))
+        except ValueError:
+            return jsonify({"error": "Invalid due_at format. Use ISO format"}), 400
+    
+    if 'note' in data:
+        reminder.note = data['note']
+    
+    if 'description' in data:
+        reminder.note = data['description']  # Use note field for description
+    
+    if 'completed' in data and data['completed']:
+        reminder.completed_at = datetime.utcnow()
+        
+        # Log completion only if associated with a lead
+        if reminder.lead_id:
+            user = get_current_user()
+            create_activity(
+                reminder.lead_id,
+                "reminder_completed",
+                {
+                    "reminder_id": reminder_id,
+                    "note": reminder.note,
+                    "completed_by": user.get('email', 'unknown') if user else 'unknown'
+                },
+                user.get('id') if user else None
+            )
+    
+    db.session.commit()
+    
+    return jsonify({"message": "Reminder updated successfully"})
+
+@leads_bp.route("/api/reminders/<int:reminder_id>", methods=["DELETE"])
+def delete_general_reminder(reminder_id):
+    """Delete a general reminder"""
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    # Find reminder by ID and tenant_id for security
+    reminder = LeadReminder.query.filter_by(id=reminder_id, tenant_id=tenant_id).first()
+    if not reminder:
+        return jsonify({"error": "Reminder not found"}), 404
+    
+    db.session.delete(reminder)
+    db.session.commit()
+    
+    return jsonify({"message": "Reminder deleted successfully"})

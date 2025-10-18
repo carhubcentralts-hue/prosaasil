@@ -154,8 +154,9 @@ export function CrmPage() {
         channel: 'ui'
       };
 
+      // Use new general reminders endpoints
       const url = editingReminder 
-        ? `/api/leads/${reminderForm.lead_id || '0'}/reminders/${editingReminder.id}` 
+        ? `/api/reminders/${editingReminder.id}` 
         : `/api/reminders`;
       
       const method = editingReminder ? 'PATCH' : 'POST';
@@ -172,7 +173,8 @@ export function CrmPage() {
         closeReminderModal();
         loadData();
       } else {
-        alert('שגיאה בשמירת תזכורת');
+        const error = await response.json();
+        alert(`שגיאה בשמירת תזכורת: ${error.error || 'שגיאה לא ידועה'}`);
       }
     } catch (error) {
       console.error('Error saving reminder:', error);
