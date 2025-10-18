@@ -1264,63 +1264,6 @@ class MediaStreamHandler:
                 # Ultimate fallback: duplicate samples (crude but works)
                 return pcm16_8k + pcm16_8k  # Double the data for "16kHz"
 
-    def _hebrew_stt_streaming(self, pcm16_8k: bytes, on_partial_cb=None) -> str:
-        """
-        ⚡ REAL-TIME streaming STT using existing session
-        Feeds audio to long-lived session, waits for final result
-        """
-        if not self.stt_ready or not self.streaming_stt:
-            raise Exception("Streaming STT not ready - session not initialized")
-        
-        try:
-            final_text_parts = []
-            last_partial = ""
-            results_done = threading.Event()
-            
-            def on_partial(txt: str):
-                nonlocal last_partial
-                if not txt or txt == last_partial:
-                    return
-                last_partial = txt
-                print(f"🟡 PARTIAL: {txt}")
-                # Call external callback if provided
-                if on_partial_cb:
-                    try:
-                        on_partial_cb(txt)
-                    except Exception as e:
-                        print(f"⚠️ Partial callback error: {e}")
-            
-            def on_final(txt: str):
-                if txt:
-                    final_text_parts.append(txt)
-                    print(f"🟢 FINAL: {txt}")
-                # Signal that we got a final result
-                results_done.set()
-            
-            # Start streaming session if not already started
-            if not self.streaming_stt._streaming:
-                self.streaming_stt.start_streaming(on_partial=on_partial, on_final=on_final)
-            
-            # Feed audio to existing session
-            self.streaming_stt.push_audio(pcm16_8k)
-            
-            # Wait for final result (max 5 seconds)
-            got_results = results_done.wait(timeout=5.0)
-            
-            if not got_results:
-                print("⚠️ Streaming timeout - no final results received")
-                # Don't stop the stream - just return empty, session continues
-                return ""
-            
-            final_text = " ".join(final_text_parts).strip()
-            return final_text
-            
-        except Exception as e:
-            print(f"❌ Streaming STT failed: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
-
     def _hebrew_stt_wrapper(self, pcm16_8k: bytes, on_partial_cb=None) -> str:
         """
         🎯 Smart wrapper: streaming (collects from dispatcher) → fallback to single-request
