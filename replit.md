@@ -11,6 +11,7 @@ Preferred communication style: Simple, everyday language.
 - Removed "Support Management" card from business overview page
 - Added lead selection dropdowns to payment and contract creation modals
 - Unified tasks and reminders into single "Reminders" feature
+- **CRITICAL FIX**: Fixed duplicate lead creation - system now properly deduplicates leads by phone number instead of creating new lead for each call
 
 # System Architecture
 

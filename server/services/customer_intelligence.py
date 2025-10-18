@@ -384,7 +384,35 @@ class CustomerIntelligence:
     
     def _create_new_customer_and_lead(self, phone: str, call_sid: str, extracted_info: Dict) -> Tuple[Customer, Lead]:
         """צור לקוח וליד חדשים"""
-        # צור לקוח
+        # ✅ בדיקה כפולה: וודא שאין ליד קיים לפני יצירה
+        existing_lead = Lead.query.filter_by(
+            tenant_id=self.business_id,
+            phone_e164=phone
+        ).filter(
+            Lead.status.in_(['new', 'attempting', 'contacted', 'qualified'])
+        ).order_by(Lead.updated_at.desc()).first()
+        
+        # אם יש ליד קיים - רק צור לקוח ועדכן ליד
+        if existing_lead:
+            log.warning(f"⚠️ Found existing lead {existing_lead.id} for {phone}, updating instead of creating new")
+            customer = Customer()
+            customer.business_id = self.business_id
+            customer.phone_e164 = phone
+            customer.name = extracted_info.get('name', f"לקוח {phone[-4:]}")
+            customer.status = "new"
+            customer.created_at = datetime.utcnow()
+            db.session.add(customer)
+            db.session.flush()
+            
+            # עדכן ליד קיים
+            existing_lead.updated_at = datetime.utcnow()
+            existing_lead.last_contact_at = datetime.utcnow()
+            if existing_lead.notes:
+                existing_lead.notes += f"\n[שיחה {call_sid}]: {datetime.utcnow().strftime('%d/%m/%Y %H:%M')}"
+            db.session.commit()
+            return customer, existing_lead
+        
+        # צור לקוח חדש
         customer = Customer()
         customer.business_id = self.business_id
         customer.phone_e164 = phone
@@ -395,7 +423,7 @@ class CustomerIntelligence:
         db.session.add(customer)
         db.session.flush()  # כדי לקבל ID
         
-        # צור ליד
+        # צור ליד חדש
         lead = Lead()
         lead.tenant_id = self.business_id
         lead.phone_e164 = phone
@@ -419,6 +447,7 @@ class CustomerIntelligence:
         
         db.session.add(lead)
         db.session.commit()
+        log.info(f"🆕 Created new customer and lead for {phone}")
         
         return customer, lead
     
@@ -453,21 +482,31 @@ class CustomerIntelligence:
     
     def _update_or_create_lead_for_existing_customer(self, customer: Customer, call_sid: str, extracted_info: Dict) -> Lead:
         """עדכן או צור ליד עבור לקוח קיים"""
-        # חפש ליד קיים לשיחה זו
+        # ✅ חפש ליד פעיל קיים לאותו מספר טלפון (לא לפי call_sid!)
+        # מחפשים לידים פעילים בלבד (לא won/lost/unqualified)
         existing_lead = Lead.query.filter_by(
             tenant_id=self.business_id,
-            phone_e164=customer.phone_e164,
-            external_id=call_sid
-        ).first()
+            phone_e164=customer.phone_e164
+        ).filter(
+            Lead.status.in_(['new', 'attempting', 'contacted', 'qualified'])
+        ).order_by(Lead.updated_at.desc()).first()
         
         if existing_lead:
-            # עדכן ליד קיים
+            # ✅ עדכן ליד קיים - הוסף call_sid לפתקיות
             existing_lead.updated_at = datetime.utcnow()
             existing_lead.last_contact_at = datetime.utcnow()
+            
+            # הוסף הערה על השיחה החדשה
+            if existing_lead.notes:
+                existing_lead.notes += f"\n[שיחה {call_sid}]: {datetime.utcnow().strftime('%d/%m/%Y %H:%M')}"
+            else:
+                existing_lead.notes = f"[שיחה {call_sid}]: {datetime.utcnow().strftime('%d/%m/%Y %H:%M')}"
+            
             db.session.commit()
+            log.info(f"♻️ Updated existing lead {existing_lead.id} for phone {customer.phone_e164}")
             return existing_lead
         else:
-            # צור ליד חדש לשיחה חדשה
+            # צור ליד חדש רק אם אין ליד פעיל
             lead = Lead()
             lead.tenant_id = self.business_id
             lead.phone_e164 = customer.phone_e164
@@ -481,6 +520,7 @@ class CustomerIntelligence:
             
             db.session.add(lead)
             db.session.commit()
+            log.info(f"🆕 Created new lead for existing customer (no active lead found)")
             return lead
     
     def _update_lead_from_whatsapp(self, customer: Customer, message: str, extracted_info: Dict) -> Lead:
