@@ -6,11 +6,12 @@ import os, json, time, base64, audioop, math, threading, queue, random, zlib
 import builtins
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 
-# ⚡ STREAMING STT: Disabled by default (has reliability issues)
-# Current implementation creates new session per utterance - not true streaming
-# Single-request mode is faster and more reliable after μ-law optimization
-USE_STREAMING_STT = False  # Force disable - implementation needs fixing
-print("📝 STT MODE: Single-request (fast μ-law + optimized Google STT)")
+# ⚡ STREAMING STT: Toggle via environment variable
+USE_STREAMING_STT = os.getenv("ENABLE_STREAMING_STT", "false").lower() == "true"
+if USE_STREAMING_STT:
+    print("🚀 STT MODE: Real-time Streaming (Google STT Streaming API)")
+else:
+    print("📝 STT MODE: Single-request (fast μ-law + optimized Google STT)")
 
 # Override print to always flush (CRITICAL for logs visibility)
 _original_print = builtins.print
@@ -142,6 +143,18 @@ class MediaStreamHandler:
         
         # ✅ CRITICAL: Track background threads for proper cleanup
         self.background_threads = []
+        
+        # ⚡ STREAMING STT: One session per call (not per utterance!)
+        self.streaming_stt = None
+        self.stt_ready = False
+        if USE_STREAMING_STT:
+            try:
+                from server.services.gcp_stt_stream import GcpStreamingSTT
+                self.streaming_stt = GcpStreamingSTT(sample_rate_hz=8000)
+                self.stt_ready = True
+                print("✅ Streaming STT session initialized for this call")
+            except Exception as e:
+                print(f"⚠️ Failed to init streaming STT: {e} - will use fallback")
 
     def run(self):
         # Media stream handler initialized")
@@ -1163,14 +1176,13 @@ class MediaStreamHandler:
 
     def _hebrew_stt_streaming(self, pcm16_8k: bytes, on_partial_cb=None) -> str:
         """
-        ⚡ PHASE 2: Real-time streaming STT with partials
-        Uses GcpStreamingSTT with batching (150ms) + debounce (180ms)
+        ⚡ REAL-TIME streaming STT using existing session
+        Feeds audio to long-lived session, waits for final result
         """
+        if not self.stt_ready or not self.streaming_stt:
+            raise Exception("Streaming STT not ready - session not initialized")
+        
         try:
-            from server.services.gcp_stt_stream import GcpStreamingSTT
-            import time
-            
-            stt = GcpStreamingSTT(sample_rate_hz=8000)
             final_text_parts = []
             last_partial = ""
             results_done = threading.Event()
@@ -1195,20 +1207,20 @@ class MediaStreamHandler:
                 # Signal that we got a final result
                 results_done.set()
             
-            # Start streaming
-            stt.start_streaming(on_partial=on_partial, on_final=on_final)
+            # Start streaming session if not already started
+            if not self.streaming_stt._streaming:
+                self.streaming_stt.start_streaming(on_partial=on_partial, on_final=on_final)
             
-            # Push all audio data
-            stt.push_audio(pcm16_8k)
+            # Feed audio to existing session
+            self.streaming_stt.push_audio(pcm16_8k)
             
-            # ✅ FIX: Wait for results before stopping (max 5 seconds)
+            # Wait for final result (max 5 seconds)
             got_results = results_done.wait(timeout=5.0)
             
             if not got_results:
                 print("⚠️ Streaming timeout - no final results received")
-            
-            # Now safe to stop
-            stt.stop_streaming()
+                # Don't stop the stream - just return empty, session continues
+                return ""
             
             final_text = " ".join(final_text_parts).strip()
             return final_text
