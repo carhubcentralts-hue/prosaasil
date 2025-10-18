@@ -2,6 +2,22 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses, featuring an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. It processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. The system aims to streamline the sales pipeline for real estate professionals with fully customizable AI assistants and business names.
 
+## Environment Variables for Streaming STT (Phase 2)
+
+Add these to your Replit Secrets to enable ultra-low-latency streaming STT:
+
+```
+ENABLE_STREAMING_STT=true
+STT_BATCH_MS=150
+STT_PARTIAL_DEBOUNCE_MS=180
+GCP_STT_MODEL=default
+GCP_STT_LANGUAGE=he-IL
+GCP_STT_PUNCTUATION_INTERIM=false
+GCP_STT_PUNCTUATION_FINAL=true
+```
+
+**To test Phase 1 only (without streaming):** Set `ENABLE_STREAMING_STT=false`
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
