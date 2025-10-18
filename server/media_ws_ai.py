@@ -6,6 +6,13 @@ import os, json, time, base64, audioop, math, threading, queue, random, zlib
 import builtins
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 
+# ⚡ PHASE 2: Streaming STT toggle
+USE_STREAMING_STT = os.getenv("ENABLE_STREAMING_STT", "false").lower() == "true"
+if USE_STREAMING_STT:
+    print("🚀 STREAMING STT ENABLED - Real-time Hebrew transcription active")
+else:
+    print("📝 STREAMING STT DISABLED - Using single-request mode")
+
 # Override print to always flush (CRITICAL for logs visibility)
 _original_print = builtins.print
 def print(*args, **kwargs):
