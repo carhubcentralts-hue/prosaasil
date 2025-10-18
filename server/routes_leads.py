@@ -725,8 +725,10 @@ def create_reminder(lead_id):
         return jsonify({"error": "Invalid due_at format. Use ISO format"}), 400
     
     user = get_current_user()
+    tenant_id = get_current_tenant()
     
     reminder = LeadReminder()
+    reminder.tenant_id = tenant_id  # Required for new schema
     reminder.lead_id = lead_id
     reminder.due_at = due_at
     reminder.note = data.get('note')
@@ -935,10 +937,11 @@ def get_due_reminders():
     now = datetime.utcnow()
     
     # Query for due reminders (not completed, due time has passed)
-    due_reminders = db.session.query(LeadReminder, Lead).join(
+    # Use left join to support reminders without lead_id
+    due_reminders = db.session.query(LeadReminder, Lead).outerjoin(
         Lead, LeadReminder.lead_id == Lead.id
     ).filter(
-        Lead.tenant_id == tenant_id,  # Business scope
+        LeadReminder.tenant_id == tenant_id,  # Business scope via direct tenant ownership
         LeadReminder.completed_at.is_(None),  # Not completed
         LeadReminder.due_at <= now  # Due or overdue
     ).order_by(LeadReminder.due_at.asc()).all()
@@ -949,8 +952,8 @@ def get_due_reminders():
         reminders_data.append({
             "id": reminder.id,
             "lead_id": reminder.lead_id,
-            "lead_name": lead.full_name,
-            "lead_phone": lead.display_phone,
+            "lead_name": lead.full_name if lead else None,
+            "lead_phone": lead.display_phone if lead else None,
             "due_at": reminder.due_at.isoformat(),
             "note": reminder.note,
             "channel": reminder.channel,
@@ -1110,3 +1113,113 @@ def send_whatsapp_message(lead_id):
     
     # TODO: Implement WhatsApp integration in task 7
     return jsonify({"message": "WhatsApp integration coming soon"}), 501
+
+# ====================================
+# General Reminders Endpoints (CRM)
+# ====================================
+
+@leads_bp.route("/api/reminders", methods=["GET"])
+def get_all_reminders():
+    """Get all reminders for current business/tenant"""
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    # Get all reminders for this tenant (both lead-specific and general)
+    reminders = LeadReminder.query.filter_by(tenant_id=tenant_id).order_by(LeadReminder.due_at.desc()).all()
+    
+    # Get lead names for display
+    lead_names = {}
+    lead_ids = [r.lead_id for r in reminders if r.lead_id]
+    if lead_ids:
+        leads = Lead.query.filter(Lead.id.in_(lead_ids)).all()
+        lead_names = {l.id: l.full_name or f"{l.first_name or ''} {l.last_name or ''}".strip() for l in leads}
+    
+    return jsonify({
+        "reminders": [
+            {
+                "id": r.id,
+                "lead_id": r.lead_id,
+                "lead_name": lead_names.get(r.lead_id) if r.lead_id else None,
+                "due_at": r.due_at.isoformat() if r.due_at else None,
+                "note": r.note,
+                "description": r.note,  # Duplicate for compatibility
+                "channel": r.channel,
+                "priority": "medium",  # Default priority (field not in model yet)
+                "reminder_type": "general",  # Default type (field not in model yet)
+                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+                "created_by": r.created_by,
+                "created_at": r.created_at.isoformat() if r.created_at else None
+            }
+            for r in reminders
+        ]
+    })
+
+@leads_bp.route("/api/reminders", methods=["POST"])
+def create_general_reminder():
+    """Create a new reminder (with or without lead association)"""
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    data = request.get_json()
+    if not data or 'due_at' not in data or 'note' not in data:
+        return jsonify({"error": "due_at and note are required"}), 400
+    
+    try:
+        due_at = datetime.fromisoformat(data['due_at'].replace('Z', '+00:00'))
+    except ValueError:
+        return jsonify({"error": "Invalid due_at format. Use ISO format"}), 400
+    
+    # If lead_id is provided, verify access
+    lead_id = data.get('lead_id')
+    if lead_id:
+        lead = Lead.query.filter_by(id=lead_id, tenant_id=tenant_id).first()
+        if not lead:
+            return jsonify({"error": "Lead not found or access denied"}), 404
+    
+    user = get_current_user()
+    
+    reminder = LeadReminder()
+    reminder.tenant_id = tenant_id  # Direct tenant ownership
+    reminder.lead_id = lead_id if lead_id else None  # Optional lead association
+    reminder.due_at = due_at
+    reminder.note = data.get('note')
+    reminder.channel = data.get('channel', 'ui')
+    reminder.created_by = user.get('id') if user else None
+    
+    db.session.add(reminder)
+    
+    # Log reminder creation only if associated with a lead
+    if lead_id:
+        create_activity(
+            lead_id,
+            "reminder_created",
+            {
+                "due_at": due_at.isoformat(),
+                "note": data.get('note'),
+                "channel": data.get('channel', 'ui'),
+                "created_by": user.get('email', 'unknown') if user else 'unknown'
+            },
+            user.get('id') if user else None
+        )
+    
+    db.session.commit()
+    
+    return jsonify({
+        "message": "Reminder created successfully",
+        "reminder": {
+            "id": reminder.id,
+            "lead_id": reminder.lead_id,
+            "due_at": reminder.due_at.isoformat(),
+            "note": reminder.note
+        }
+    }), 201

@@ -203,11 +203,16 @@ class Lead(db.Model):
         return self.phone_e164
 
 class LeadReminder(db.Model):
-    """Reminders for leads - 'חזור אליי' functionality"""
+    """Reminders for leads - 'חזור אליי' functionality - now supports general business reminders"""
     __tablename__ = "lead_reminders"
     
     id = db.Column(db.Integer, primary_key=True)
-    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
+    
+    # Multi-tenant support - direct business ownership
+    tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Optional lead association - nullable for general reminders
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)
     
     due_at = db.Column(db.DateTime, nullable=False, index=True)
     note = db.Column(db.Text)
@@ -219,6 +224,11 @@ class LeadReminder(db.Model):
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
+    
+    # Indexes for efficient querying
+    __table_args__ = (
+        db.Index('idx_tenant_due_at', 'tenant_id', 'due_at'),
+    )
 
 class LeadStatus(db.Model):
     """Custom lead statuses per business"""
