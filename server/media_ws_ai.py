@@ -9,9 +9,33 @@ from server.services.mulaw_fast import mulaw_to_pcm16_fast
 # ⚡ STREAMING STT: Toggle via environment variable
 USE_STREAMING_STT = os.getenv("ENABLE_STREAMING_STT", "false").lower() == "true"
 if USE_STREAMING_STT:
-    print("🚀 STT MODE: Real-time Streaming (Google STT Streaming API)")
+    print("🚀 STT MODE: Real-time Streaming (Session-per-call)")
 else:
     print("📝 STT MODE: Single-request (fast μ-law + optimized Google STT)")
+
+# ⚡ MODULE-LEVEL DISPATCHER for streaming STT
+# ONE session per call, utterances switch targets
+_stt_session = None  # StreamingSTTSession instance
+_current_utterance = {
+    "id": None,
+    "partial_cb": None,
+    "final_buf": None
+}
+
+def _stt_on_partial(text: str):
+    """Global partial callback - routes to current utterance"""
+    cb = _current_utterance.get("partial_cb")
+    if cb:
+        try:
+            cb(text)
+        except Exception as e:
+            print(f"⚠️ Partial callback error: {e}")
+
+def _stt_on_final(text: str):
+    """Global final callback - appends to current utterance buffer"""
+    buf = _current_utterance.get("final_buf")
+    if buf is not None:
+        buf.append(text)
 
 # Override print to always flush (CRITICAL for logs visibility)
 _original_print = builtins.print

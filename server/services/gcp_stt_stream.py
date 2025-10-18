@@ -2,7 +2,8 @@
 Real-time Streaming STT for Hebrew with Google Cloud Speech
 Optimized for ultra-low latency phone conversations
 
-Based on Phase 2 optimization guidelines:
+Session-per-call architecture:
+- ONE session per call (not per utterance!)
 - Batching: 150ms chunks
 - Partial debounce: 180ms
 - Thread-safe for sync WebSocket handlers
@@ -21,9 +22,210 @@ log = logging.getLogger("gcp_stt_stream")
 BATCH_MS = int(os.getenv("STT_BATCH_MS", "150"))
 DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "180"))
 LANG = os.getenv("GCP_STT_LANGUAGE", "he-IL")
-MODEL = os.getenv("GCP_STT_MODEL", "default")
+MODEL = os.getenv("GCP_STT_MODEL", "phone_call")  # phone_call is better for telephony
 PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() == "true"
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
+
+
+class StreamingSTTSession:
+    """
+    ONE session per call - lives for entire conversation.
+    Audio is fed continuously via push_audio().
+    Callbacks fire for partial/final results across ALL utterances.
+    """
+    
+    def __init__(self, on_partial, on_final):
+        """
+        Initialize streaming session with callbacks.
+        
+        Args:
+            on_partial: Callback for interim results (called frequently ~180ms)
+            on_final: Callback for final results (end of utterance)
+        """
+        # Initialize Google Speech client
+        try:
+            sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+            if sa_json:
+                credentials_info = json.loads(sa_json)
+                from google.cloud.speech import SpeechClient
+                self.client = SpeechClient.from_service_account_info(credentials_info)
+                log.info("✅ StreamingSTTSession: Client initialized (service account)")
+            else:
+                from google.cloud.speech import SpeechClient
+                self.client = SpeechClient()
+                log.info("✅ StreamingSTTSession: Client initialized (default)")
+        except Exception as e:
+            log.error(f"❌ Failed to initialize Speech client: {e}")
+            raise
+        
+        self._on_partial = on_partial
+        self._on_final = on_final
+        
+        # Audio queue for receiving from WS thread
+        self._q = queue.Queue(maxsize=32)
+        self._stop = threading.Event()
+        
+        # Debouncing state
+        self._last_partial = ""
+        self._last_emit_ms = 0
+        
+        # Start worker thread
+        self._t = threading.Thread(target=self._run, daemon=True)
+        self._t.start()
+        log.info("🚀 StreamingSTTSession: Worker thread started")
+    
+    def push_audio(self, pcm_bytes: bytes):
+        """
+        Feed PCM16 8kHz audio to the streaming session.
+        Called from WS loop - non-blocking.
+        """
+        if not pcm_bytes:
+            return
+        try:
+            self._q.put_nowait(pcm_bytes)
+        except queue.Full:
+            # Under pressure, drop frame rather than increase latency
+            log.warning("⚠️ Audio queue full, dropping frame")
+    
+    def close(self):
+        """
+        Stop streaming session and cleanup.
+        Called at end of call.
+        """
+        log.info("🛑 Closing StreamingSTTSession...")
+        self._stop.set()
+        try:
+            self._q.put_nowait(None)  # Signal EOF
+        except queue.Full:
+            pass
+        self._t.join(timeout=2.0)
+        log.info("✅ StreamingSTTSession closed")
+    
+    def _config(self):
+        """Build recognition config"""
+        speech_contexts = [
+            speech.SpeechContext(
+                phrases=[
+                    "שי דירות ומשרדים", "לאה", "דירה", "משרד", "שכר", "מכירה",
+                    "חדרים", "מטר", "קומה", "מעלית", "חניה", "מרפסת", "אזור",
+                    "תל אביב", "ירושלים", "חיפה", "פתח תקווה", "רמת גן",
+                    "שקל", "אלף", "מיליון", "תקציב", "משכנתא", "נדלן"
+                ],
+                boost=15.0
+            )
+        ]
+        
+        return speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            sample_rate_hertz=8000,
+            language_code=LANG,
+            model=MODEL,
+            enable_automatic_punctuation=PUNCTUATION_FINAL,
+            speech_contexts=speech_contexts
+        )
+    
+    def _streaming_config(self):
+        """Build streaming config"""
+        return speech.StreamingRecognitionConfig(
+            config=self._config(),
+            interim_results=True,
+            single_utterance=False  # CRITICAL: Allow multiple utterances in one session
+        )
+    
+    def _requests(self):
+        """Generator yielding batched audio requests"""
+        buf = bytearray()
+        last = time.monotonic()
+        
+        while not self._stop.is_set():
+            try:
+                chunk = self._q.get(timeout=0.05)
+            except queue.Empty:
+                # No data, check if should flush buffer
+                now = time.monotonic()
+                if buf and (now - last) * 1000 >= BATCH_MS:
+                    yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
+                    buf.clear()
+                    last = now
+                continue
+            
+            if chunk is None:
+                # EOF signal - flush and exit
+                if buf:
+                    log.info(f"🔚 Flushing final {len(buf)} bytes")
+                    yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
+                break
+            
+            buf.extend(chunk)
+            now = time.monotonic()
+            
+            # Send batch if enough data or enough time passed
+            if (now - last) * 1000 >= BATCH_MS:
+                yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
+                buf.clear()
+                last = now
+    
+    def _emit_partial(self, text: str):
+        """Emit partial result with debouncing"""
+        if not text:
+            return
+        
+        now = time.monotonic() * 1000
+        if text != self._last_partial and now - self._last_emit_ms >= DEBOUNCE_MS:
+            self._last_partial = text
+            self._last_emit_ms = now
+            try:
+                self._on_partial(text)
+            except Exception as e:
+                log.error(f"Partial callback error: {e}")
+    
+    def _emit_final(self, text: str):
+        """Emit final result"""
+        if text:
+            try:
+                self._on_final(text)
+            except Exception as e:
+                log.error(f"Final callback error: {e}")
+        # Reset partial after final
+        self._last_partial = ""
+    
+    def _run(self):
+        """
+        Worker thread - maintains continuous connection to GCP.
+        Runs for entire duration of call.
+        """
+        log.info("📡 StreamingSTTSession: Starting GCP streaming recognize...")
+        try:
+            responses = self.client.streaming_recognize(
+                self._streaming_config(),
+                self._requests()
+            )
+            
+            for resp in responses:
+                if self._stop.is_set():
+                    break
+                
+                for result in resp.results:
+                    if not result.alternatives:
+                        continue
+                    
+                    transcript = result.alternatives[0].transcript.strip()
+                    if not transcript:
+                        continue
+                    
+                    if result.is_final:
+                        log.info(f"🟢 FINAL: {transcript}")
+                        self._emit_final(transcript)
+                    else:
+                        log.debug(f"🟡 PARTIAL: {transcript}")
+                        self._emit_partial(transcript)
+                        
+        except Exception as e:
+            log.error(f"❌ Streaming worker error: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            log.info("📡 StreamingSTTSession: Worker stopped")
 
 class GcpStreamingSTT:
     """

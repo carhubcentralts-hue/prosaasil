@@ -1,0 +1,266 @@
+מעולה שעצרת בזמן. הפתרון הנכון כאן הוא Session אחד לכל שיחה (call), עם מנגנון “מחליף־יעד” (dispatcher) שממפה את ה־partials/finals לאותו utterance פעיל. לא פותחים/סוגרים session לכל משפט – זה מה שגרם לנפילות/timeout.
+
+להלן הנחיה סופר-מדויקת, צעד-אחר-צעד, שתוכל לתת לאייג’נט כדי ליישם בלי לשבור כלום:
+
+⸻
+
+היעד
+	•	GCP Streaming STT רץ כ־Session אחד לכל שיחה.
+	•	לכל utterance יש “איסוף” נפרד, אבל אותו session מפיק partial/final לכל מה שנכנס.
+	•	ה־WS של Twilio מזרים μ-law → PCM8k → שולחים חתיכות 150ms ל־session.
+	•	ה־AI מקבל חלקיים כל ≈180–250ms ותגובה ראשונית <1.2s.
+
+⸻
+
+1) API חדש ל־Session (בקובץ server/services/gcp_stt_stream.py)
+
+אל תמחק את המימוש הקיים—רק הוסף מחלקת Session שמנהלת את החיים של סטרימינג בודד:
+
+# server/services/gcp_stt_stream.py
+import os, time, threading, queue
+from google.cloud import speech_v1p1beta1 as speech
+
+BATCH_MS   = int(os.getenv("STT_BATCH_MS", "150"))
+DEBOUNCEMS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "180"))
+LANG       = os.getenv("GCP_STT_LANGUAGE", "he-IL")
+MODEL      = os.getenv("GCP_STT_MODEL", "phone_call")
+
+class StreamingSTTSession:
+    """
+    Session אחד לכל שיחה.
+    מזינים אליו אודיו (push_audio), והוא קורא ל-callbacks עם partial/final.
+    בסוף סוגרים עם close().
+    """
+
+    def __init__(self, on_partial, on_final):
+        self.client = speech.SpeechClient()
+        self._on_partial = on_partial
+        self._on_final   = on_final
+
+        self._q = queue.Queue(maxsize=16)   # לקבלת אודיו מ-thread ה-WS
+        self._stop = threading.Event()
+        self._last_partial = ""
+        self._last_emit_ms = 0
+
+        # חוט GCP
+        self._t = threading.Thread(target=self._run, daemon=True)
+        self._t.start()
+
+    # === Public API ===
+    def push_audio(self, pcm_bytes: bytes):
+        # מוזן מכל לולאת WS — ללא בלוקים ארוכים
+        if not pcm_bytes:
+            return
+        try:
+            self._q.put_nowait(pcm_bytes)
+        except queue.Full:
+            # במצב לחץ נעדיף לדלג על פריים אחד מאשר להעלות latency
+            pass
+
+    def close(self):
+        # מסמן סגירה וממתין לחוט
+        self._stop.set()
+        try:
+            self._q.put_nowait(None)
+        except queue.Full:
+            pass
+        self._t.join(timeout=2.0)
+
+    # === Internal ===
+    def _config(self):
+        return speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            sample_rate_hertz=8000,
+            language_code=LANG,
+            model=MODEL,
+            enable_automatic_punctuation=False,
+        )
+
+    def _streaming_config(self):
+        return speech.StreamingRecognitionConfig(
+            config=self._config(),
+            interim_results=True,
+            single_utterance=False,
+        )
+
+    def _requests(self):
+        buf = bytearray()
+        last = time.monotonic()
+        while not self._stop.is_set():
+            try:
+                chunk = self._q.get(timeout=0.05)
+            except queue.Empty:
+                chunk = None
+
+            if chunk is None:
+                # flush אחרון
+                if buf:
+                    yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
+                break
+
+            buf.extend(chunk)
+            now = time.monotonic()
+            if (now - last) * 1000 >= BATCH_MS:
+                yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
+                buf.clear()
+                last = now
+
+    def _emit_partial(self, text: str):
+        if not text:
+            return
+        now = time.monotonic() * 1000
+        if text != self._last_partial and now - self._last_emit_ms >= DEBOUNCEMS:
+            self._last_partial = text
+            self._last_emit_ms = now
+            try:
+                self._on_partial(text)
+            except Exception:
+                pass
+
+    def _emit_final(self, text: str):
+        if text:
+            try:
+                self._on_final(text)
+            except Exception:
+                pass
+        # איפוס partial אחרי final
+        self._last_partial = ""
+
+    def _run(self):
+        # רץ בחוט נפרד – חיבור רציף ל-GCP לאורך כל חיי השיחה
+        responses = self.client.streaming_recognize(
+            self._streaming_config(), self._requests()
+        )
+        try:
+            for resp in responses:
+                for result in resp.results:
+                    alt = result.alternatives[0].transcript.strip() if result.alternatives else ""
+                    if result.is_final:
+                        self._emit_final(alt)
+                    else:
+                        self._emit_partial(alt)
+        except Exception:
+            # לא מפילים את השרת—בעת תקלה, callbacks לא ייקראו יותר.
+            pass
+
+ככה אנחנו מספקים Session חי אחד עם push_audio() ו־close(); ה־callbacks לא קשורים ל־utterance ספציפי—המיפוי ל־utterance נעשה ברמת המדיה (ראה סעיף 2).
+
+⸻
+
+2) ניהול Utterances בצד המדיה (media_ws_ai.py)
+
+ה־session יחיה לכל השיחה, ואת השיוך ל־utterance נעשה עם “מחליף יעד” פשוט:
+
+# media_ws_ai.py
+USE_STREAM = os.getenv("ENABLE_STREAMING_STT", "false").lower() == "true"
+print(f"[CFG] ENABLE_STREAMING_STT={USE_STREAM}", flush=True)
+
+_current_utt = {"id": None, "partial_cb": None, "final_buf": None}
+_session = None  # StreamingSTTSession פעיל לשיחה
+
+def _stt_on_partial(text: str):
+    # שולח חלקיים ליעד הנוכחי בלבד
+    cb = _current_utt.get("partial_cb")
+    if cb:
+        try: cb(text)
+        except Exception: pass
+
+def _stt_on_final(text: str):
+    buf = _current_utt.get("final_buf")
+    if buf is not None:
+        buf.append(text)
+
+def _start_session_if_needed():
+    global _session
+    if _session is None and USE_STREAM:
+        from server.services.gcp_stt_stream import StreamingSTTSession
+        _session = StreamingSTTSession(on_partial=_stt_on_partial, on_final=_stt_on_final)
+        print("[STT] Streaming session started", flush=True)
+
+def _close_session_if_exists():
+    global _session
+    if _session is not None:
+        try:
+            _session.close()
+        finally:
+            _session = None
+            print("[STT] Streaming session closed", flush=True)
+
+התחלת/סיום utterance (לפני/אחרי קריאת STT)
+
+במקום להפעיל STT לכל utterance, אנחנו רק מחליפים מצביעים:
+
+import uuid
+
+def _utterance_begin(partial_cb=None):
+    # נקרא כשמתחיל משפט חדש (VAD/שקט נגמר/תחילת קול)
+    _current_utt["id"] = uuid.uuid4().hex
+    _current_utt["partial_cb"] = partial_cb
+    _current_utt["final_buf"] = []
+
+async def _utterance_end():
+    # נקרא כשנגמר משפט (VAD/שקט), ומחזיר final_text
+    finals = _current_utt.get("final_buf") or []
+    text = " ".join(finals).strip()
+    # איפוס יעד:
+    _current_utt["id"] = None
+    _current_utt["partial_cb"] = None
+    _current_utt["final_buf"] = None
+    return text
+
+נקודת הזנת האודיו (בלולאת ה-WS שלך)
+
+במקום לשלוח לכל utterance, פשוט דוחפים ל־session אחד:
+
+# בתוך לולאת ה-WS שמקבלת frames מטוויליו:
+_start_session_if_needed()
+pcm_chunk = mulaw_decode_fast(frame)  # יש לך כבר
+if _session:
+    _session.push_audio(pcm_chunk)
+
+עיבוד utterance בפועל
+
+כל ה־AI/DB נשאר בדיוק כמו היום—רק קרא ל־begin/end:
+
+# כשVAD מזהה התחלה:
+_utterance_begin(partial_cb=handle_partial_from_agent)
+
+# כשVAD מזהה סוף:
+final_text = await _utterance_end()
+# מכאן ממשיך כרגיל: סיכום, DB, תשובת AI, TTS וכו'
+
+סיום השיחה
+
+בטוח לסגור session:
+
+# on call end / WS close:
+_close_session_if_exists()
+
+
+⸻
+
+3) דגשים שמונעים תקלות
+	•	אסור לפתוח Session לכל utterance (זה מה שקרס לך אחרי ~90s).
+	•	ה־callbacks נקבעים פעם אחת בתחילת השיחה; מיפוי ל־utterance נעשה ע״י החלפת המצביעים (partial_cb + final_buf) בתחילת/סוף utterance.
+	•	אין IO/DB/LLM בתוך callbacks — רק עדכון זיכרון/queue → הטיפול הכבד מתבצע אחרי _utterance_end().
+	•	Debounce עובד בתוך ה־Session, לא בלולאת ה־WS.
+	•	השאר את Whisper fallback שלך (למקרה של שגיאת GCP) ללא שינוי.
+
+⸻
+
+4) בדיקות GO/NO-GO
+	1.	Enable: ENABLE_STREAMING_STT=true גם ב־workspace וגם ב־deployment, ואז Republish.
+	2.	התקשר ובדוק לוגים:
+	•	[STT] Streaming session started מיד בתחילת השיחה
+	•	🟡 Partial: ... בקצב ~200ms
+	•	🟢 Final: ... בסיום כל utterance
+	3.	בסיום שיחה: [STT] Streaming session closed
+	4.	Twilio Debugger: אין 12100/11200, ה־Stream נשאר פתוח עד הסוף.
+
+⸻
+
+משפט קצר לשליחה לאייג’נט
+
+“תיישם Session אחד לשיחה עם מחלקת StreamingSTTSession (push_audio/close). ה־callbacks קבועים לשיחה, ואת השיוך לכל utterance נבצע ע״י החלפת היעד (partial_cb ו־final_buf) בתחילת/סוף utterance. אל תפתח Session לכל utterance. הזנת האודיו ל־session בלולאת ה־WS, ו־VAD רק קורא _utterance_begin/_utterance_end. בסוף השיחה סגור את ה־session. שמור את Whisper fallback כמות שהוא.”
+
+זה מייצב את הסטרימינג “על אמת” ונותן תגובת נציגה בזמן-אמת בלי נפילות.
