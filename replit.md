@@ -19,6 +19,9 @@ Preferred communication style: Simple, everyday language.
   - STT_PARTIAL_DEBOUNCE_MS: 180ms → 120ms (60ms faster)
   - VAD_HANGOVER_MS: 800ms → 375ms (425ms faster)
   - **IMPORTANT**: Update production secrets to match new optimized values for latency improvements to take effect
+- **UI Terminology Fix**: All "משימות" (tasks) changed to "תזכורות" (reminders) throughout CRM and Lead pages
+- **Status Dropdown Fix**: Fixed lead status dropdown in LeadsPage - now properly opens when clicking status badge without triggering navigation to lead detail page. Applied to both desktop (table) and mobile (card) views with proper event stopPropagation.
+- **Lead Integration**: All dropdowns (CRM reminders, invoices, contracts) are connected to `/api/leads` and display real leads from database with name and phone number.
 
 # System Architecture
 
@@ -59,6 +62,7 @@ Preferred communication style: Simple, everyday language.
 - **Billing and Contracts**: Integrated payment processing and contract generation with lead selection dropdowns for creating invoices and contracts.
 - **Automatic Recording Cleanup**: 2-day retention policy for recordings.
 - **Enhanced Reminders System**: Comprehensive reminder management with create/edit modal, full field support (note, description, date/time, priority, type, lead association), and support for both lead-specific and general business reminders.
+- **Lead Integration in All Modals**: CRM reminders, payment/invoice creation, and contract creation all feature lead selection dropdowns that fetch real leads from `/api/leads` endpoint.
 
 ## System Design Choices
 - **AI Response Optimization**: Max tokens reduced to 200 for shorter, more conversational responses using `gpt-4o-mini`.

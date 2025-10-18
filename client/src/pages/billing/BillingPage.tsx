@@ -414,7 +414,7 @@ export function BillingPage() {
       const response = await http.post(`/api/contracts/${selectedContract.id}/sign`, {
         signature_data: signatureData,
         signed_name: signatureName.trim()
-      });
+      }) as any;
 
       if (response.success) {
         alert('החוזה נחתם בהצלחה! ✓');
