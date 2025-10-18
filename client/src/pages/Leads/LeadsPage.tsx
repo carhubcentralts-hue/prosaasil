@@ -472,22 +472,24 @@ export default function LeadsPage() {
                     </div>
                   </TableCell>
                   
-                  <TableCell data-testid={`text-status-${lead.id}`} className="min-w-[130px]" onClick={(e) => e.stopPropagation()}>
+                  <TableCell data-testid={`text-status-${lead.id}`} className="min-w-[130px]">
                     {editingStatus === lead.id ? (
-                      <Select
-                        value={lead.status}
-                        onChange={(e) => handleStatusChange(lead.id, e.target.value as LeadStatus)}
-                        onBlur={() => setEditingStatus(null)}
-                        className="w-32"
-                        data-testid={`select-status-${lead.id}`}
-                        autoFocus
-                      >
-                        {statuses.map(status => (
-                          <SelectOption key={status.id} value={status.name}>
-                            {status.label}
-                          </SelectOption>
-                        ))}
-                      </Select>
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={lead.status}
+                          onChange={(e) => handleStatusChange(lead.id, e.target.value as LeadStatus)}
+                          onBlur={() => setEditingStatus(null)}
+                          className="w-32"
+                          data-testid={`select-status-${lead.id}`}
+                          autoFocus
+                        >
+                          {statuses.map(status => (
+                            <SelectOption key={status.id} value={status.name}>
+                              {status.label}
+                            </SelectOption>
+                          ))}
+                        </Select>
+                      </div>
                     ) : (
                       <div className="relative group flex items-center gap-2">
                         <div 
