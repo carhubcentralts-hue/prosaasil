@@ -77,6 +77,40 @@ def _create_dispatcher_callbacks(call_sid: str):
     
     return on_partial, on_final
 
+def _cleanup_stale_sessions():
+    """Cleanup sessions that haven't received audio for >2 minutes (edge case protection)"""
+    STALE_TIMEOUT = 120  # 2 minutes
+    current_time = time.time()
+    
+    with _registry_lock:
+        stale_call_sids = [
+            call_sid for call_sid, item in _sessions_registry.items()
+            if current_time - item["ts"] > STALE_TIMEOUT
+        ]
+    
+    for call_sid in stale_call_sids:
+        print(f"🧹 [REAPER] Cleaning stale session: {call_sid[:8]}... (inactive for >{STALE_TIMEOUT}s)")
+        _close_session(call_sid)
+
+# Start session reaper thread
+def _start_session_reaper():
+    """Background thread that cleans up stale sessions every 60s"""
+    def reaper_loop():
+        while True:
+            time.sleep(60)  # Check every 60 seconds
+            try:
+                _cleanup_stale_sessions()
+            except Exception as e:
+                print(f"⚠️ [REAPER] Error during cleanup: {e}")
+    
+    reaper_thread = threading.Thread(target=reaper_loop, daemon=True, name="SessionReaper")
+    reaper_thread.start()
+    print("🧹 [REAPER] Session cleanup thread started")
+
+# Start reaper on module load (only if streaming enabled)
+if USE_STREAMING_STT:
+    _start_session_reaper()
+
 # Override print to always flush (CRITICAL for logs visibility)
 _original_print = builtins.print
 def print(*args, **kwargs):
@@ -208,8 +242,7 @@ class MediaStreamHandler:
         # ✅ CRITICAL: Track background threads for proper cleanup
         self.background_threads = []
         
-        # ⚡ STREAMING STT: Initialize session for this call
-        self._init_streaming_stt()
+        # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
 
     def _init_streaming_stt(self):
         """Initialize streaming STT session for this call"""
@@ -436,6 +469,9 @@ class MediaStreamHandler:
                         traceback.print_exc()
                         self.business_id = 1
                         greet = "שלום! איך אפשר לעזור?"
+                    
+                    # ⚡ STREAMING STT: Initialize NOW (after business_id is known)
+                    self._init_streaming_stt()
                     
                     # ✅ יצירת call_log מיד בהתחלת שיחה (אחרי זיהוי עסק!)
                     try:
