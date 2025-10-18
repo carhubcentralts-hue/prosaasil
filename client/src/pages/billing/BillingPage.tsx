@@ -120,7 +120,7 @@ export function BillingPage() {
   const loadLeads = async () => {
     try {
       const response = await http.get('/api/leads') as any;
-      const leadsData = response?.leads || [];
+      const leadsData = response?.items || response?.leads || [];
       setLeads(leadsData.map((lead: any) => ({
         id: lead.id,
         name: lead.full_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'ללא שם',

@@ -130,7 +130,7 @@ export function CrmPage() {
       const response = await fetch('/api/leads', { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
-        setLeads(data.leads || []);
+        setLeads(data.items || data.leads || []);
       }
     } catch (error) {
       console.error('Error loading leads:', error);
