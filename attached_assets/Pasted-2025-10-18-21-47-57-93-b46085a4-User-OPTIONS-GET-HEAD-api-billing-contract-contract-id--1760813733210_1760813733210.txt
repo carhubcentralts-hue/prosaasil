@@ -1,0 +1,119 @@
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/billing/contract/<contract_id>/download
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/status
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/qr
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'POST'} /api/whatsapp/start
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'POST'} /api/whatsapp/reset
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'POST'} /api/whatsapp/disconnect
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/contacts
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/messages
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/conversation/<phone_number>
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/stats
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id>
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'POST'} /api/whatsapp/send
+2025-10-18 21:47:57.93
+b46085a4
+User
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'POST'} /webhook/whatsapp/incoming
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'POST'} /webhook/whatsapp/status
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/intelligence/customers
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/intelligence/stats
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/business/<int:business_id>
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'POST'} /api/admin/channels/
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id>
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/businesses
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/dashboard/stats
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/dashboard/activity
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/stats
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /healthz
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OPTIONS', 'GET', 'HEAD'} /readyz
+2025-10-18 21:47:57.93
+b46085a4
+User
+{'OP
