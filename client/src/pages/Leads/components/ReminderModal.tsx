@@ -58,7 +58,7 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
       
       if (reminder) {
         // Update existing reminder
-        await http.patch(`/api/leads/reminders/${reminder.id}`, {
+        await http.patch(`/api/leads/${lead.id}/reminders/${reminder.id}`, {
           due_at: dueAt,
           note: note.trim(),
           channel,

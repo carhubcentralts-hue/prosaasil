@@ -173,7 +173,7 @@ def list_contracts():
         ).join(
             Lead, Deal.customer_id == Lead.id
         ).filter(
-            Lead.business_id == business_id
+            Lead.tenant_id == business_id
         ).order_by(Contract.created_at.desc()).all()
         
         contracts_list = []

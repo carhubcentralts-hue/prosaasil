@@ -1,0 +1,80 @@
+2025-10-19 01:02:07.65
+ca10fc2f
+User
+resp = self.send(prep, **send_kwargs)
+2025-10-19 01:02:07.65
+ca10fc2f
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-10-19 01:02:07.65
+ca10fc2f
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/requests/sessions.py", line 703, in send
+2025-10-19 01:02:07.65
+ca10fc2f
+User
+r = adapter.send(request, **kwargs)
+2025-10-19 01:02:07.65
+ca10fc2f
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-10-19 01:02:07.65
+ca10fc2f
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/requests/adapters.py", line 677, in send
+2025-10-19 01:02:07.65
+ca10fc2f
+User
+raise ConnectionError(e, request=request)
+2025-10-19 01:02:07.65
+ca10fc2f
+User
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='127.0.0.1', port=3300): Max retries exceeded with url: /whatsapp/business_1/disconnect (Caused by NewConnectionError(': Failed to establish a new connection: [Errno 111] Connection refused'))
+2025-10-19 01:02:07.65
+ca10fc2f
+User
+INFO: 104.197.78.4:0 - "POST /api/whatsapp/disconnect HTTP/1.1" 500 Internal Server Error
+2025-10-19 01:02:14.97
+ca10fc2f
+User
+INFO: 34.135.168.171:0 - "POST /api/whatsapp/start HTTP/1.1" 200 OK
+2025-10-19 01:02:15.66
+ca10fc2f
+User
+INFO: 104.197.78.4:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-10-19 01:02:15.84
+ca10fc2f
+User
+INFO: 34.135.168.171:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+2025-10-19 01:02:18.56
+ca10fc2f
+User
+INFO: 34.135.168.171:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-10-19 01:02:18.75
+ca10fc2f
+User
+INFO: 34.135.168.171:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+2025-10-19 01:02:21.71
+ca10fc2f
+User
+INFO: 34.135.168.171:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-10-19 01:02:21.90
+ca10fc2f
+User
+INFO: 34.59.40.34:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+2025-10-19 01:02:23.71
+ca10fc2f
+User
+INFO: 34.135.168.171:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-10-19 01:02:23.95
+ca10fc2f
+User
+INFO: 34.135.168.171:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+2025-10-19 01:02:26.71
+ca10fc2f
+User
+INFO: 104.197.78.4:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-10-19 01:02:26.95
+ca10fc2f
+User
+INFO: 35.192.98.158:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
