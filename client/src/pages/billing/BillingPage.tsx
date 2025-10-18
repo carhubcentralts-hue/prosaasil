@@ -91,6 +91,7 @@ export function BillingPage() {
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
   const [signatureName, setSignatureName] = useState('');
+  const [leads, setLeads] = useState<Array<{id: number; name: string; phone: string}>>([]);
   
   // Form states
   const [paymentForm, setPaymentForm] = useState({
@@ -113,7 +114,23 @@ export function BillingPage() {
 
   useEffect(() => {
     loadData();
+    loadLeads();
   }, []);
+
+  const loadLeads = async () => {
+    try {
+      const response = await http.get('/api/leads') as any;
+      const leadsData = response?.leads || [];
+      setLeads(leadsData.map((lead: any) => ({
+        id: lead.id,
+        name: lead.full_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'ללא שם',
+        phone: lead.phone_e164 || lead.phone || ''
+      })));
+    } catch (error) {
+      console.error('Error loading leads:', error);
+      setLeads([]);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -743,7 +760,32 @@ export function BillingPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    סכום (₪)
+                    בחר ליד <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={paymentForm.lead_id}
+                    onChange={(e) => {
+                      const selectedLead = leads.find(l => l.id === parseInt(e.target.value));
+                      setPaymentForm({
+                        ...paymentForm, 
+                        lead_id: e.target.value,
+                        client_name: selectedLead?.name || ''
+                      });
+                    }}
+                  >
+                    <option value="">-- בחר ליד --</option>
+                    {leads.map(lead => (
+                      <option key={lead.id} value={lead.id}>
+                        {lead.name} {lead.phone ? `(${lead.phone})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    סכום (₪) <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -758,7 +800,7 @@ export function BillingPage() {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    תיאור
+                    תיאור <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -771,12 +813,14 @@ export function BillingPage() {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    לקוח
+                    שם לקוח (אופציונלי)
                   </label>
                   <input
                     type="text"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="שם הלקוח"
+                    value={paymentForm.client_name}
+                    onChange={(e) => setPaymentForm({...paymentForm, client_name: e.target.value})}
                   />
                 </div>
                 
@@ -858,6 +902,31 @@ export function BillingPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
+                    בחר ליד <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={contractForm.lead_id}
+                    onChange={(e) => {
+                      const selectedLead = leads.find(l => l.id === parseInt(e.target.value));
+                      setContractForm({
+                        ...contractForm, 
+                        lead_id: e.target.value,
+                        client_name: selectedLead?.name || ''
+                      });
+                    }}
+                  >
+                    <option value="">-- בחר ליד --</option>
+                    {leads.map(lead => (
+                      <option key={lead.id} value={lead.id}>
+                        {lead.name} {lead.phone ? `(${lead.phone})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     כותרת החוזה
                   </label>
                   <input
@@ -871,12 +940,14 @@ export function BillingPage() {
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    שם הלקוח
+                    שם הלקוח (אופציונלי)
                   </label>
                   <input
                     type="text"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="שם הלקוח"
+                    value={contractForm.client_name}
+                    onChange={(e) => setContractForm({...contractForm, client_name: e.target.value})}
                   />
                 </div>
                 
