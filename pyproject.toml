@@ -30,6 +30,10 @@ dependencies = [
     "uvicorn[standard]>=0.37.0",
 ]
 
+[tool.setuptools]
+py-modules = []
+
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["client*", "attached_assets*", "logs*", "tests*", "storage*", "services/whatsapp/node_modules*"]
+include = ["server*"]
+exclude = ["client*", "attached_assets*", "logs*", "tests*", "storage*", "services*", "scripts*", "test-results*"]

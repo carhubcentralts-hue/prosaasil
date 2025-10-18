@@ -150,16 +150,18 @@
 ## 📋 **5. Deployment Files**
 
 ### ✅ Production Scripts
-- [x] `start_production.sh` - סקריפט הפעלה ראשי
-- [x] `setup.py` - התקנת dependencies
+- [x] `start_production.sh` - סקריפט הפעלה ראשי + Baileys installation
+- [x] `pyproject.toml` - Python package configuration (FIXED!)
 - [x] `workflows.toml` - Replit workflow
 - [x] `Procfile` - Cloud Run config
 - [x] `requirements.txt` - Python packages
 - [x] `package.json` - Node.js packages
 
-### ✅ WhatsApp Deployment (Build #101)
-- [x] `setup.py` - מתקין Baileys dependencies
-- [x] Enhanced `start_production.sh`:
+### ✅ WhatsApp Deployment (Build #102)
+- [x] **Fixed pyproject.toml** - Resolved setuptools package conflicts
+- [x] **Removed setup.py** - Eliminated build location errors
+- [x] Enhanced `start_production.sh` handles everything:
+  - Baileys Node.js dependency installation
   - 15s startup wait with healthcheck
   - Better error handling
   - Verbose logging to `/tmp/baileys_prod.log`
@@ -277,11 +279,12 @@
 
 ## 📝 **הערות לפריסה:**
 
-1. **Build #101** - כולל תיקוני WhatsApp Baileys
-2. **Performance Secrets** - מומלץ לעדכן לערכים האופטימליים
-3. **Logs** - מערכת logging מפורטת ב-`/tmp/baileys_prod.log`
-4. **Zero Downtime** - Baileys auto-restart on failure
-5. **Health Checks** - `/healthz` endpoint for monitoring
+1. **Build #102** - תוקן קונפליקט pyproject.toml/setup.py
+2. **Package Configuration** - setuptools מוגדר נכון עכשיו
+3. **Performance Secrets** - מומלץ לעדכן לערכים האופטימליים
+4. **Logs** - מערכת logging מפורטת ב-`/tmp/baileys_prod.log`
+5. **Zero Downtime** - Baileys auto-restart on failure
+6. **Health Checks** - `/healthz` endpoint for monitoring
 
 ---
 

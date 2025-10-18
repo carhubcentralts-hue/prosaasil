@@ -40,9 +40,10 @@ See [FINAL_DEPLOYMENT_CHECKLIST.md](./FINAL_DEPLOYMENT_CHECKLIST.md) for complet
   - Edit button (pencil icon) on each reminder in RemindersTab
   - PATCH /api/leads/reminders/{id} for updates, POST for new reminders
   - Proper form pre-population and reset on mode switching
-- **WhatsApp Deployment Fix (Build #101)**:
-  - Created setup.py to ensure Baileys Node.js dependencies are installed during build phase
-  - Enhanced start_production.sh with better error handling, logging, and healthchecks
+- **WhatsApp Deployment Fix (Build #102)**:
+  - Fixed pyproject.toml package configuration to prevent build conflicts
+  - Removed setup.py to avoid setuptools package location errors
+  - Enhanced start_production.sh handles all Baileys Node.js dependency installation
   - Added 15-second startup wait for Baileys service with verbose logging
   - Improved npm install with fallback strategies and better error messages
   - All environment variables (INTERNAL_SECRET, FLASK_BASE_URL) properly passed to Baileys service
