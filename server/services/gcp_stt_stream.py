@@ -61,13 +61,16 @@ class StreamingSTTSession:
         self._on_partial = on_partial
         self._on_final = on_final
         
-        # Audio queue for receiving from WS thread
-        self._q = queue.Queue(maxsize=32)
+        # Audio queue for receiving from WS thread (16 = ~320ms buffer @ 20ms frames)
+        self._q = queue.Queue(maxsize=16)
         self._stop = threading.Event()
         
         # Debouncing state
         self._last_partial = ""
         self._last_emit_ms = 0
+        
+        # Metrics
+        self._dropped_frames = 0
         
         # Start worker thread
         self._t = threading.Thread(target=self._run, daemon=True)
@@ -85,7 +88,9 @@ class StreamingSTTSession:
             self._q.put_nowait(pcm_bytes)
         except queue.Full:
             # Under pressure, drop frame rather than increase latency
-            log.warning("⚠️ Audio queue full, dropping frame")
+            self._dropped_frames += 1
+            if self._dropped_frames % 10 == 1:  # Log every 10th drop
+                log.warning(f"⚠️ Audio queue full, dropped {self._dropped_frames} frames total (queue size: {self._q.qsize()})")
     
     def close(self):
         """
@@ -139,7 +144,8 @@ class StreamingSTTSession:
         
         while not self._stop.is_set():
             try:
-                chunk = self._q.get(timeout=0.05)
+                # ⚡ CRITICAL: Short timeout (20ms) to consume queue aggressively
+                chunk = self._q.get(timeout=0.02)
             except queue.Empty:
                 # No data, check if should flush buffer
                 now = time.monotonic()
@@ -237,9 +243,10 @@ class GcpStreamingSTT:
         self.client = None
         self.rate = sample_rate_hz
         
-        # Audio queue for batching
-        self._audio_queue = queue.Queue(maxsize=100)
+        # Audio queue for batching (16 = ~320ms buffer @ 20ms frames)
+        self._audio_queue = queue.Queue(maxsize=16)
         self._batch_size_bytes = int(sample_rate_hz * 2 * (BATCH_MS / 1000.0))  # PCM16
+        self._dropped_frames = 0  # Metrics
         
         # Results
         self._partial_callback = None
@@ -318,7 +325,9 @@ class GcpStreamingSTT:
         try:
             self._audio_queue.put_nowait(pcm16_data)
         except queue.Full:
-            log.warning("⚠️ Audio queue full, dropping frame")
+            self._dropped_frames += 1
+            if self._dropped_frames % 10 == 1:  # Log every 10th drop
+                log.warning(f"⚠️ Audio queue full, dropped {self._dropped_frames} frames total (queue size: {self._audio_queue.qsize()})")
             
     def _stream_worker(self):
         """Background worker that handles streaming recognition"""
@@ -367,8 +376,8 @@ class GcpStreamingSTT:
                 
                 while self._streaming:
                     try:
-                        # Get audio from queue (blocking with timeout)
-                        chunk = self._audio_queue.get(timeout=0.05)
+                        # ⚡ CRITICAL: Short timeout (20ms) to consume queue aggressively
+                        chunk = self._audio_queue.get(timeout=0.02)
                         
                         if chunk is None:
                             # End signal
