@@ -7,7 +7,7 @@ import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
 import { Input } from '../../shared/components/ui/Input';
-import { Lead, LeadActivity, LeadReminder, LeadCall, LeadConversation, LeadTask } from './types';
+import { Lead, LeadActivity, LeadReminder, LeadCall, LeadConversation } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
 

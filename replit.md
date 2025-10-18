@@ -6,6 +6,12 @@ AgentLocator is a Hebrew CRM system for real estate businesses, featuring an AI-
 
 Preferred communication style: Simple, everyday language.
 
+# Recent Changes (October 18, 2025)
+- Fixed invoice.payment_id database schema with proper foreign key to payment.id
+- Removed "Support Management" card from business overview page
+- Added lead selection dropdowns to payment and contract creation modals
+- Unified tasks and reminders into single "Reminders" feature
+
 # System Architecture
 
 ## Backend
@@ -42,8 +48,9 @@ Preferred communication style: Simple, everyday language.
 - **Customizable AI Assistant**: Customizable names and introductions via prompts and greetings.
 - **Greeting Management UI**: Dedicated fields for initial greetings (phone calls and WhatsApp) supporting dynamic placeholders and real-time cache invalidation.
 - **Customizable Status Management**: Per-business custom lead statuses.
-- **Billing and Contracts**: Integrated payment processing and contract generation.
+- **Billing and Contracts**: Integrated payment processing and contract generation with lead selection dropdowns for creating invoices and contracts.
 - **Automatic Recording Cleanup**: 2-day retention policy for recordings.
+- **Unified Reminders System**: Single reminders feature replacing separate tasks and reminders.
 
 ## System Design Choices
 - **AI Response Optimization**: Max tokens reduced to 200 for shorter, more conversational responses using `gpt-4o-mini`.
