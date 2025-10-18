@@ -8,7 +8,8 @@ Preferred communication style: Simple, everyday language.
 
 # Deployment Status
 
-**🟢 PRODUCTION READY** - All systems operational and tested (October 18, 2025)
+**🟢 PRODUCTION READY** - All systems operational and tested (October 19, 2025)
+**Build #103** - WhatsApp Baileys startup fixed
 
 See [FINAL_DEPLOYMENT_CHECKLIST.md](./FINAL_DEPLOYMENT_CHECKLIST.md) for complete deployment validation.
 
@@ -40,7 +41,10 @@ See [FINAL_DEPLOYMENT_CHECKLIST.md](./FINAL_DEPLOYMENT_CHECKLIST.md) for complet
   - Edit button (pencil icon) on each reminder in RemindersTab
   - PATCH /api/leads/reminders/{id} for updates, POST for new reminders
   - Proper form pre-population and reset on mode switching
-- **WhatsApp Deployment Fix (Build #102)**:
+- **WhatsApp Deployment Fix (Build #103) - CRITICAL FIX**:
+  - **FIXED BAILEYS STARTUP BUG**: Changed BAILEYS_BASE_URL logic to always start Baileys unless explicitly external
+  - Previous bug: Baileys skipped if BAILEYS_BASE_URL was set to localhost, causing "Connection refused" errors
+  - New logic: Only skip Baileys if BAILEYS_BASE_URL is external (not localhost/127.0.0.1)
   - Fixed pyproject.toml package configuration to prevent build conflicts
   - Removed setup.py to avoid setuptools package location errors
   - Enhanced start_production.sh handles all Baileys Node.js dependency installation

@@ -8,18 +8,21 @@ export FLASK_BASE_URL="${FLASK_BASE_URL:-http://localhost:5000}"
 export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 export RUN_MIGRATIONS_ON_START=1
 
-# ✅ BUILD 100.15: Cloud Run support - Baileys can be external service
-export BAILEYS_BASE_URL="${BAILEYS_BASE_URL:-}"
+# ✅ BUILD 103: Fixed Baileys startup - always start unless explicitly external
 SKIP_BAILEYS="${SKIP_BAILEYS:-false}"
 
-# If BAILEYS_BASE_URL is set, skip starting Baileys locally
-if [ -n "${BAILEYS_BASE_URL}" ]; then
-    echo "⚙️ BAILEYS_BASE_URL is set - using external Baileys service"
+# Only skip Baileys if BAILEYS_BASE_URL is set AND not localhost
+if [ -n "${BAILEYS_BASE_URL:-}" ] && [[ ! "${BAILEYS_BASE_URL}" =~ ^https?://(localhost|127\.0\.0\.1) ]]; then
+    echo "⚙️ BAILEYS_BASE_URL is set to external service - skipping local Baileys"
     echo "📊 External Baileys: ${BAILEYS_BASE_URL}"
     SKIP_BAILEYS=true
+else
+    # Use internal Baileys on localhost
+    export BAILEYS_BASE_URL="http://127.0.0.1:${BAILEYS_PORT}"
+    SKIP_BAILEYS=false
 fi
 
-echo "🚀 Starting AgentLocator Production System - Build #100.15"
+echo "🚀 Starting AgentLocator Production System - Build #103"
 echo "📊 EXTERNAL: Flask on 0.0.0.0:${PORT}"
 if [ "$SKIP_BAILEYS" = "true" ]; then
     echo "📊 Baileys: External service (${BAILEYS_BASE_URL})"

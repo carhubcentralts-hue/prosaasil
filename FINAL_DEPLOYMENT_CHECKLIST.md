@@ -1,7 +1,8 @@
 # ✅ רשימת בדיקה סופית לפריסה - AgentLocator
 
-**תאריך:** 18 אוקטובר 2025  
-**סטטוס:** 🟢 **מוכן לפריסה מלאה!**
+**תאריך:** 19 אוקטובר 2025  
+**סטטוס:** 🟢 **מוכן לפריסה מלאה!**  
+**Build:** #103 - WhatsApp Baileys Fixed
 
 ---
 
@@ -157,7 +158,12 @@
 - [x] `requirements.txt` - Python packages
 - [x] `package.json` - Node.js packages
 
-### ✅ WhatsApp Deployment (Build #102)
+### ✅ WhatsApp Deployment (Build #103) ⚠️ CRITICAL FIX
+- [x] **FIXED BAILEYS STARTUP BUG** - WhatsApp now works in deployment!
+  - Previous bug: Baileys service skipped if BAILEYS_BASE_URL set to localhost
+  - Caused "Connection refused" errors in production
+  - New logic: Only skip Baileys if BAILEYS_BASE_URL is truly external
+  - Always starts Baileys internally unless explicitly configured otherwise
 - [x] **Fixed pyproject.toml** - Resolved setuptools package conflicts
 - [x] **Removed setup.py** - Eliminated build location errors
 - [x] Enhanced `start_production.sh` handles everything:
@@ -279,12 +285,13 @@
 
 ## 📝 **הערות לפריסה:**
 
-1. **Build #102** - תוקן קונפליקט pyproject.toml/setup.py
-2. **Package Configuration** - setuptools מוגדר נכון עכשיו
-3. **Performance Secrets** - מומלץ לעדכן לערכים האופטימליים
-4. **Logs** - מערכת logging מפורטת ב-`/tmp/baileys_prod.log`
-5. **Zero Downtime** - Baileys auto-restart on failure
-6. **Health Checks** - `/healthz` endpoint for monitoring
+1. **Build #103** - ✅ תוקן באג קריטי בהפעלת WhatsApp Baileys!
+2. **WhatsApp Fix** - Baileys עכשיו מתחיל אוטומטית בפריסה
+3. **Package Configuration** - setuptools מוגדר נכון
+4. **Performance Secrets** - מומלץ לעדכן לערכים האופטימליים
+5. **Logs** - מערכת logging מפורטת ב-`/tmp/baileys_prod.log`
+6. **Zero Downtime** - Baileys auto-restart on failure
+7. **Health Checks** - `/healthz` endpoint for monitoring
 
 ---
 
