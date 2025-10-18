@@ -42,6 +42,7 @@ class GcpHebrewStreamerOptimized:
         # Streaming control
         self._streaming = False
         self._thread = None
+        self._flush_remaining = False
         
     def _ensure_client(self):
         """Lazy initialization of Speech client"""
@@ -71,7 +72,14 @@ class GcpHebrewStreamerOptimized:
         log.info("🚀 Ultra-low-latency Hebrew STT started")
         
     def stop(self):
-        """Stop streaming recognition"""
+        """Stop streaming recognition and flush remaining audio"""
+        # ✅ FIX: Flush remaining buffered audio before stopping
+        with self._audio_lock:
+            if len(self._audio_buffer) > 0:
+                log.info(f"📤 Flushing {len(self._audio_buffer)} bytes of remaining audio")
+                # Mark that we want to flush
+                self._flush_remaining = True
+        
         self._streaming = False
         if self._thread:
             self._thread.join(timeout=1.0)
@@ -123,20 +131,27 @@ class GcpHebrewStreamerOptimized:
                 )
             ]
             
+            # ✅ FIX: Default model for he-IL (phone_call + enhanced not supported)
+            model = os.getenv("GCP_STT_MODEL", "default")
+            use_enhanced = os.getenv("GCP_STT_ENHANCED", "true").lower() == "true"
+            
+            # ✅ SAFE: Don't combine phone_call with enhanced for he-IL
+            if model == "phone_call":
+                use_enhanced = False
+                log.info("📞 Using phone_call model (enhanced disabled for compatibility)")
+            
             config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 language_code="he-IL",
                 sample_rate_hertz=self.rate,
                 
                 # ⚡ SPEED: Disable punctuation in interim results
-                enable_automatic_punctuation=False,  # We'll add it in post-process for finals
+                enable_automatic_punctuation=False,
                 
-                # ⚡ Try phone_call model (best for telephony if available)
-                # Fallback to default if not supported for Hebrew
-                model=os.getenv("GCP_STT_MODEL", "phone_call"),  # or "latest_long"
-                
+                # ✅ Safe model selection
+                model=model,
                 speech_contexts=speech_contexts,
-                use_enhanced=True  # Better quality
+                use_enhanced=use_enhanced
             )
             
             streaming_config = speech.StreamingRecognitionConfig(
@@ -170,6 +185,15 @@ class GcpHebrewStreamerOptimized:
                     except Exception as e:
                         log.error(f"❌ Audio generator error: {e}")
                         break
+                
+                # ✅ FIX: Flush remaining audio when streaming stops
+                if self._flush_remaining:
+                    with self._audio_lock:
+                        if len(self._audio_buffer) > 0:
+                            final_chunk = bytes(self._audio_buffer)
+                            self._audio_buffer.clear()
+                            log.info(f"🔚 Flushing final {len(final_chunk)} bytes")
+                            yield speech.StreamingRecognizeRequest(audio_content=final_chunk)
                         
             # Start streaming recognition
             if self.client is None:

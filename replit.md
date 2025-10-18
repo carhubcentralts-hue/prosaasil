@@ -81,11 +81,12 @@ Preferred communication style: Simple, everyday language.
 
 3. **Created optimized STT service:**
    - `server/services/gcp_stt_stream_optimized.py`
-   - Batching: 100-200ms chunks to reduce overhead
+   - Batching: 150ms chunks to reduce overhead
    - Partial debounce: 180ms between interim results
    - Disabled `enable_automatic_punctuation` for speed
-   - Phone call model for telephony optimization
+   - Safe model selection (default for he-IL, no phone_call+enhanced conflict)
    - Speech contexts with 15.0 boost
+   - Flushes remaining audio on stop (prevents dropped final syllables)
 
 **Result:**
 ✅ Faster audio processing (10-20x on decode)
@@ -98,10 +99,14 @@ Preferred communication style: Simple, everyday language.
 - `server/services/mulaw_fast.py` - NEW: Ultra-fast lookup table
 - `server/services/gcp_stt_stream_optimized.py` - NEW: Optimized streaming STT
 
-**Next Phase (Optional):**
-- Replace single-request STT with streaming STT for true real-time
-- Current: Collects full utterance → sends to STT
-- Target: Stream audio → get partials every 180ms
+**Status:**
+✅ Phase 1 complete - Hot path optimization (10-20x faster μ-law, removed delays)
+⚠️ Phase 2 (Optional) - Streaming STT integration requires architectural changes:
+   - Current: Single-request STT (~2-3s latency)
+   - Future: Streaming STT with interim results (target <1.2s)
+   - Requires replacing _hebrew_stt() flow in media_ws_ai.py
+   
+**Note:** Current optimizations already improve responsiveness. Full streaming STT integration is optional for reaching <1.5s production target but requires significant refactoring of the audio processing loop.
 
 ## Appointment Creation Fix (BUILD 100.16)
 **Problem:** Appointments were not being created after phone calls:
