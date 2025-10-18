@@ -6,37 +6,38 @@ import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
 import { http } from '../../services/http';
 
-interface DueReminder {
+interface Reminder {
   id: number;
-  lead_id: number;
-  lead_name: string;
-  lead_phone?: string;
-  due_at: string;
+  lead_id: number | null;
+  lead_name: string | null;
+  due_at: string | null;
   note?: string;
+  description?: string;
   channel: 'ui' | 'email' | 'whatsapp';
-  overdue_minutes: number;
+  priority?: string;
+  reminder_type?: string;
+  completed_at: string | null;
+  created_by?: number;
   created_at: string;
 }
 
-interface DueRemindersResponse {
-  reminders: DueReminder[];
-  total_count: number;
-  overdue_count: number;
+interface RemindersResponse {
+  reminders: Reminder[];
 }
 
 export function NotificationsPage() {
   const navigate = useNavigate();
-  const [remindersData, setRemindersData] = useState<DueRemindersResponse | null>(null);
+  const [remindersData, setRemindersData] = useState<RemindersResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [completingReminders, setCompletingReminders] = useState<Set<number>>(new Set());
 
-  // Fetch due reminders
+  // Fetch all reminders (same API as CRM page)
   const fetchReminders = async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await http.get<DueRemindersResponse>('/api/reminders/due');
+      const response = await http.get<RemindersResponse>('/api/reminders');
       setRemindersData(response);
     } catch (err) {
       console.error('Failed to fetch reminders:', err);
@@ -54,10 +55,22 @@ export function NotificationsPage() {
   }, []);
 
   // Complete reminder function
-  const handleCompleteReminder = async (reminderId: number, leadId: number) => {
+  const handleCompleteReminder = async (reminderId: number, leadId: number | null) => {
     try {
       setCompletingReminders(prev => new Set([...prev, reminderId]));
-      await http.patch(`/api/leads/${leadId}/reminders/${reminderId}`, { completed: true });
+      
+      if (leadId) {
+        // Lead-specific reminder
+        await http.patch(`/api/leads/${leadId}/reminders/${reminderId}`, { 
+          completed_at: new Date().toISOString() 
+        });
+      } else {
+        // General business reminder - use the general endpoint
+        await http.patch(`/api/reminders/${reminderId}`, { 
+          completed_at: new Date().toISOString() 
+        });
+      }
+      
       // Refresh the reminders list
       await fetchReminders();
     } catch (err) {
@@ -146,8 +159,20 @@ export function NotificationsPage() {
     );
   }
 
-  const reminders = remindersData?.reminders || [];
-  const overdueCount = remindersData?.overdue_count || 0;
+  const allReminders = remindersData?.reminders || [];
+  
+  // Filter out completed reminders
+  const activeReminders = allReminders.filter(r => !r.completed_at);
+  
+  // Calculate overdue reminders
+  const now = new Date();
+  const overdueReminders = activeReminders.filter(r => {
+    if (!r.due_at) return false;
+    return new Date(r.due_at) < now;
+  });
+  
+  const overdueCount = overdueReminders.length;
+  const reminders = activeReminders;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -158,7 +183,7 @@ export function NotificationsPage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
                 <Bell className="w-7 h-7 text-blue-600" />
-                תזכורות "חזור אליי"
+                תזכורות
               </h1>
               <p className="text-gray-600 mt-1">
                 {reminders.length > 0 
@@ -197,74 +222,82 @@ export function NotificationsPage() {
           </Card>
         ) : (
           <div className="space-y-4">
-            {reminders.map((reminder) => (
-              <Card 
-                key={reminder.id} 
-                className={`p-6 ${reminder.overdue_minutes > 0 ? 'border-red-200 bg-red-50' : 'border-gray-200'}`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-3">
-                      <User className="w-5 h-5 text-gray-500" />
-                      <h3 className="text-lg font-medium text-gray-900">
-                        {reminder.lead_name}
-                      </h3>
-                      {reminder.lead_phone && (
-                        <span className="text-sm text-gray-500">
-                          {reminder.lead_phone}
-                        </span>
-                      )}
-                      <Badge 
-                        variant={reminder.overdue_minutes > 0 ? 'error' : 'warning'}
-                        className="flex items-center gap-1"
-                      >
-                        <Clock className="w-3 h-3" />
-                        {reminder.overdue_minutes > 0 
-                          ? `באיחור ${reminder.overdue_minutes} דק'`
-                          : 'מתוזמן עכשיו'
-                        }
-                      </Badge>
-                    </div>
-
-                    {reminder.note && (
-                      <p className="text-gray-700 mb-3 bg-white p-3 rounded-md">
-                        "{reminder.note}"
-                      </p>
-                    )}
-
-                    <div className="flex items-center gap-4 text-sm text-gray-500">
-                      <div className="flex items-center gap-1">
-                        {getChannelIcon(reminder.channel)}
-                        {getChannelLabel(reminder.channel)}
+            {reminders.map((reminder) => {
+              const isOverdue = reminder.due_at && new Date(reminder.due_at) < now;
+              const overdueMinutes = isOverdue 
+                ? Math.floor((now.getTime() - new Date(reminder.due_at!).getTime()) / 60000)
+                : 0;
+              
+              return (
+                <Card 
+                  key={reminder.id} 
+                  className={`p-6 ${isOverdue ? 'border-red-200 bg-red-50' : 'border-gray-200'}`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-3">
+                        <User className="w-5 h-5 text-gray-500" />
+                        <h3 className="text-lg font-medium text-gray-900">
+                          {reminder.lead_name || 'תזכורת כללית'}
+                        </h3>
+                        {reminder.due_at && (
+                          <Badge 
+                            variant={isOverdue ? 'error' : 'warning'}
+                            className="flex items-center gap-1"
+                          >
+                            <Clock className="w-3 h-3" />
+                            {isOverdue 
+                              ? `באיחור ${overdueMinutes} דק'`
+                              : 'ממתין'
+                            }
+                          </Badge>
+                        )}
                       </div>
-                      <span>תוזמן ל-{formatTimeAgo(reminder.due_at)}</span>
+
+                      {(reminder.note || reminder.description) && (
+                        <p className="text-gray-700 mb-3 bg-white p-3 rounded-md">
+                          "{reminder.note || reminder.description}"
+                        </p>
+                      )}
+
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <div className="flex items-center gap-1">
+                          {getChannelIcon(reminder.channel)}
+                          {getChannelLabel(reminder.channel)}
+                        </div>
+                        {reminder.due_at && (
+                          <span>תוזמן ל-{formatTimeAgo(reminder.due_at)}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 ml-4">
+                      {reminder.lead_id && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleGoToLead(reminder.lead_id!)}
+                          data-testid={`button-go-to-lead-${reminder.id}`}
+                        >
+                          <Phone className="w-4 h-4 mr-1" />
+                          פתח ליד
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        onClick={() => handleCompleteReminder(reminder.id, reminder.lead_id)}
+                        disabled={completingReminders.has(reminder.id)}
+                        className="bg-green-600 hover:bg-green-700"
+                        data-testid={`button-complete-reminder-${reminder.id}`}
+                      >
+                        <CheckCircle2 className="w-4 h-4 mr-1" />
+                        {completingReminders.has(reminder.id) ? 'מסיים...' : 'סיימתי'}
+                      </Button>
                     </div>
                   </div>
-
-                  <div className="flex gap-2 ml-4">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => handleGoToLead(reminder.lead_id)}
-                      data-testid={`button-go-to-lead-${reminder.id}`}
-                    >
-                      <Phone className="w-4 h-4 mr-1" />
-                      פתח ליד
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => handleCompleteReminder(reminder.id, reminder.lead_id)}
-                      disabled={completingReminders.has(reminder.id)}
-                      className="bg-green-600 hover:bg-green-700"
-                      data-testid={`button-complete-reminder-${reminder.id}`}
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-1" />
-                      {completingReminders.has(reminder.id) ? 'מסיים...' : 'סיימתי'}
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>

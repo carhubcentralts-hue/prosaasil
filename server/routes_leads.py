@@ -1257,6 +1257,26 @@ def update_general_reminder(reminder_id):
     if 'description' in data:
         reminder.note = data['description']  # Use note field for description
     
+    if 'completed_at' in data:
+        if data['completed_at']:
+            reminder.completed_at = datetime.fromisoformat(data['completed_at'].replace('Z', '+00:00'))
+        else:
+            reminder.completed_at = None
+        
+        # Log completion only if associated with a lead and being marked complete
+        if reminder.lead_id and data['completed_at']:
+            user = get_current_user()
+            create_activity(
+                reminder.lead_id,
+                "reminder_completed",
+                {
+                    "reminder_id": reminder_id,
+                    "note": reminder.note,
+                    "completed_by": user.get('email', 'unknown') if user else 'unknown'
+                },
+                user.get('id') if user else None
+            )
+    
     if 'completed' in data and data['completed']:
         reminder.completed_at = datetime.utcnow()
         

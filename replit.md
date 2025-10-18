@@ -40,6 +40,12 @@ Preferred communication style: Simple, everyday language.
   - Added 15-second startup wait for Baileys service with verbose logging
   - Improved npm install with fallback strategies and better error messages
   - All environment variables (INTERNAL_SECRET, FLASK_BASE_URL) properly passed to Baileys service
+- **Unified Reminders System**: Fixed NotificationsPage to use same API as CRM:
+  - Changed from `/api/reminders/due` to `/api/reminders` for consistent data
+  - Now displays ALL reminders (completed and active) with proper filtering
+  - Supports both lead-specific and general business reminders
+  - Unified completion logic using PATCH `/api/reminders/{id}` or `/api/leads/{lead_id}/reminders/{id}`
+  - All reminders now centralized in one view across the entire system
 
 # System Architecture
 
