@@ -723,7 +723,8 @@ class MediaStreamHandler:
         try:
             # PATCH 6: Safe ASR - never leaves empty
             try:
-                text = self._hebrew_stt(pcm16_8k) or ""
+                # ⚡ PHASE 2: Use smart wrapper (streaming or single-request)
+                text = self._hebrew_stt_wrapper(pcm16_8k) or ""
                 print(f"🎤 USER: {text}")
                 
                 # ✅ מדידת ASR Latency
@@ -1160,6 +1161,88 @@ class MediaStreamHandler:
                 print(f"⚠️ Even simple resample failed: {e2}")
                 # Ultimate fallback: duplicate samples (crude but works)
                 return pcm16_8k + pcm16_8k  # Double the data for "16kHz"
+
+    def _hebrew_stt_streaming(self, pcm16_8k: bytes, on_partial_cb=None) -> str:
+        """
+        ⚡ PHASE 2: Real-time streaming STT with partials
+        Uses GcpStreamingSTT with batching (150ms) + debounce (180ms)
+        """
+        try:
+            from server.services.gcp_stt_stream import GcpStreamingSTT
+            import time
+            
+            stt = GcpStreamingSTT(sample_rate_hz=8000)
+            final_text_parts = []
+            last_partial = ""
+            results_done = threading.Event()
+            
+            def on_partial(txt: str):
+                nonlocal last_partial
+                if not txt or txt == last_partial:
+                    return
+                last_partial = txt
+                print(f"🟡 PARTIAL: {txt}")
+                # Call external callback if provided
+                if on_partial_cb:
+                    try:
+                        on_partial_cb(txt)
+                    except Exception as e:
+                        print(f"⚠️ Partial callback error: {e}")
+            
+            def on_final(txt: str):
+                if txt:
+                    final_text_parts.append(txt)
+                    print(f"🟢 FINAL: {txt}")
+                # Signal that we got a final result
+                results_done.set()
+            
+            # Start streaming
+            stt.start_streaming(on_partial=on_partial, on_final=on_final)
+            
+            # Push all audio data
+            stt.push_audio(pcm16_8k)
+            
+            # ✅ FIX: Wait for results before stopping (max 5 seconds)
+            got_results = results_done.wait(timeout=5.0)
+            
+            if not got_results:
+                print("⚠️ Streaming timeout - no final results received")
+            
+            # Now safe to stop
+            stt.stop_streaming()
+            
+            final_text = " ".join(final_text_parts).strip()
+            return final_text
+            
+        except Exception as e:
+            print(f"❌ Streaming STT failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def _hebrew_stt_wrapper(self, pcm16_8k: bytes, on_partial_cb=None) -> str:
+        """
+        🎯 Smart wrapper: streaming (if enabled) → fallback to single-request
+        """
+        if not USE_STREAMING_STT:
+            # Single-request mode (existing)
+            return self._hebrew_stt(pcm16_8k)
+        
+        try:
+            # Try streaming mode
+            result = self._hebrew_stt_streaming(pcm16_8k, on_partial_cb=on_partial_cb)
+            
+            # ✅ FIX: Fallback on empty results too (not just exceptions)
+            if not result or not result.strip():
+                print("⚠️ [STT] Streaming returned empty → fallback to single")
+                return self._hebrew_stt(pcm16_8k)
+                
+            return result
+            
+        except Exception as e:
+            # Fallback to single-request on exception
+            print(f"⚠️ [STT] Streaming failed → fallback to single. err={e}")
+            return self._hebrew_stt(pcm16_8k)
 
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
         """Hebrew STT using Google STT Streaming with speech contexts (לפי ההנחיות)"""

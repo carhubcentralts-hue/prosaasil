@@ -117,12 +117,21 @@ Preferred communication style: Simple, everyday language.
 
 **Status:**
 ✅ Phase 1 complete - Hot path optimization (10-20x faster μ-law, removed delays)
-⚠️ Phase 2 (Optional) - Streaming STT integration requires architectural changes:
-   - Current: Single-request STT (~2-3s latency)
-   - Future: Streaming STT with interim results (target <1.2s)
-   - Requires replacing _hebrew_stt() flow in media_ws_ai.py
+✅ Phase 2 complete - Streaming STT integration with smart toggle:
+   - Created `_hebrew_stt_streaming()` - real-time STT with partials/finals
+   - Created `_hebrew_stt_wrapper()` - smart fallback (streaming → single-request)
+   - Integrated in `_process_utterance_safe()` - single point of change
+   - Toggle: `ENABLE_STREAMING_STT` (default: false for safety)
    
-**Note:** Current optimizations already improve responsiveness. Full streaming STT integration is optional for reaching <1.5s production target but requires significant refactoring of the audio processing loop.
+**How to enable:**
+- Set `ENABLE_STREAMING_STT=false` → single-request mode (current behavior)
+- Set `ENABLE_STREAMING_STT=true` → streaming mode (target <1.2s latency)
+- Auto-fallback to single-request if streaming fails
+
+**Expected behavior with streaming enabled:**
+- 🟡 PARTIAL logs every ~180ms during speech
+- 🟢 FINAL log when utterance complete
+- Response latency: ~0.8-1.2s (vs ~2-3s in single-request)
 
 ## Appointment Creation Fix (BUILD 100.16)
 **Problem:** Appointments were not being created after phone calls:
