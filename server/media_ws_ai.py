@@ -1256,40 +1256,38 @@ class MediaStreamHandler:
             duration = len(pcm16_8k) / (2 * 8000)
             print(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
-            # ✅ בדיקות מרובות לזיהוי דיבור אמיתי
+            # ✅ BALANCED: Block silence/noise but allow legitimate speech
             
-            # 1. בדיקת עוצמה בסיסית
-            if max_amplitude < 100:  # ✅ חמור יותר מ-50
-                print("🚫 STT_BLOCKED: Audio too quiet (max_amplitude < 100)")
+            # 1. Basic amplitude check - balanced threshold
+            if max_amplitude < 80:  # Telephony noise ≈60-90, speech >100
+                print(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 80)")
                 return ""
             
-            # 2. בדיקת RMS לזיהוי אנרגיה שמעותית
-            if rms < 80:  # ✅ בדיקת אנרגיה מינימלית
-                print("🚫 STT_BLOCKED: Audio energy too low (rms < 80)")
+            # 2. RMS energy check - balanced
+            if rms < 50:  # Telephony hiss ≈35-50, speech >60
+                print(f"🚫 STT_BLOCKED: Audio energy too low (rms={rms} < 50)")
                 return ""
             
-            # 3. בדיקת אורך מינימלי
-            if duration < 0.2:  # פחות מ-200ms
-                print("🚫 STT_BLOCKED: Audio too short (< 200ms)")
+            # 3. Duration check
+            if duration < 0.15:  # Too short to be meaningful
+                print(f"🚫 STT_BLOCKED: Audio too short ({duration:.2f}s < 0.15s)")
                 return ""
             
-            # 4. ✅ בדיקת שינוי אנרגיה - האם יש דיבור אמיתי? (numpy אופציונלי)
+            # 4. ✅ Advanced checks with variance/ZCR - INFORMATIONAL + BLOCKING
             try:
                 import numpy as np
                 pcm_array = np.frombuffer(pcm16_8k, dtype=np.int16)
                 energy_variance = np.var(pcm_array.astype(np.float32))
-                
-                if energy_variance < 500000:  # אנרגיה מונוטונית = רעש
-                    print(f"🚫 STT_BLOCKED: Monotonic audio (variance={energy_variance}) - likely noise")
-                    return ""
-                
-                # 5. בדיקת Zero Crossing Rate - דיבור יש לו מעברי אפס
                 zero_crossings = np.sum(np.diff(np.sign(pcm_array)) != 0) / len(pcm_array)
-                if zero_crossings < 0.01:  # שיעור נמוך מאוד = לא דיבור
-                    print(f"🚫 STT_BLOCKED: Low ZCR ({zero_crossings:.3f}) - not speech")
+                
+                # ✅ Block pure silence, DTMF, and carrier tones
+                # Pure silence/monotonic: low variance AND low ZCR
+                # DTMF tone: very low ZCR (pure sine wave)
+                if (energy_variance < 200000 and zero_crossings < 0.02) or (zero_crossings < 0.005):
+                    print(f"🚫 STT_BLOCKED: Non-speech audio (variance={energy_variance}, zcr={zero_crossings:.3f})")
                     return ""
                 
-                print(f"✅ AUDIO_VALIDATED: variance={energy_variance}, zcr={zero_crossings:.3f} - proceeding to STT")
+                print(f"✅ AUDIO_VALIDATED: amp={max_amplitude}, rms={rms}, var={int(energy_variance)}, zcr={zero_crossings:.3f}")
                 
             except ImportError:
                 print("⚠️ numpy not available - skipping advanced audio validation")

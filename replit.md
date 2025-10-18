@@ -82,6 +82,24 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
+## Audio Validation Fix (BUILD 100.18)
+**Problem:** Audio validation was too strict, blocking legitimate speech transcription.
+
+**Solution:**
+- Balanced audio quality thresholds to block telephony noise while accepting speech:
+  - max_amplitude: 100 → 80 (telephony noise ≈60-90, speech >100)
+  - rms: 80 → 50 (telephony hiss ≈35-50, speech >60)
+  - duration: 0.2s → 0.15s (allow shorter utterances)
+  - Kept variance+ZCR checks but only block when BOTH are low (blocks DTMF/carrier tones)
+  
+**Result:**
+✅ Balanced validation - accepts normal speech while blocking pure noise
+✅ Blocks telephony artifacts (DTMF tones, carrier hiss)
+✅ Better recognition without false positives
+
+**Files Modified:**
+- `server/media_ws_ai.py` - Balanced audio validation thresholds
+
 ## Ultra-Low-Latency Optimization (BUILD 100.17)
 **Problem:** Call transcription was too slow (~2-3s), not suitable for real-time conversations.
 
