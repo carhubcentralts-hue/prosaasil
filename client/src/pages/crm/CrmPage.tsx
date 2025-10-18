@@ -613,7 +613,7 @@ export function CrmPage() {
                     <option value="call">שיחה</option>
                     <option value="meeting">פגישה</option>
                     <option value="email">דוא"ל</option>
-                    <option value="task">משימה</option>
+                    <option value="follow_up">מעקב</option>
                   </select>
                 </div>
 

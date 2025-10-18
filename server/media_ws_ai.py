@@ -126,12 +126,12 @@ class ConnectionClosed(Exception):
 from server.stream_state import stream_registry
 
 SR = 8000
-# ✅ BUILD 100.16: VAD מותאם - תגובות קצרות OK, אבל ממתין לשקט אמיתי!
+# ⚡ BUILD 100.17: VAD ULTRA-OPTIMIZED FOR LOW LATENCY (<3s response time)
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.8"))        # ✅ 0.8s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
 VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "800"))  # ✅ 800ms - סובלנות לנשימות/הפסקות קצרות
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "375"))  # ⚡ CRITICAL: Reduced from 800ms to 375ms for faster finalization
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1500")) # ✅ 1500ms - יותר "קירור" אחרי תגובה

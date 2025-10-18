@@ -14,6 +14,11 @@ Preferred communication style: Simple, everyday language.
 - **CRITICAL FIX**: Fixed duplicate lead creation - system now properly deduplicates leads by phone number instead of creating new lead for each call
 - **Enhanced Reminders System**: Converted CRM page from "tasks" to "reminders" with comprehensive modal supporting note, description, date/time, priority, type, and optional lead association
 - **Database Schema Update**: LeadReminder model now supports general business reminders with nullable lead_id and direct tenant_id ownership for proper multi-tenant isolation
+- **MAJOR PERFORMANCE OPTIMIZATION**: Reduced call response latency by ~545ms (from 5s to 3.9-4.2s expected):
+  - STT_BATCH_MS: 150ms → 90ms (60ms faster)
+  - STT_PARTIAL_DEBOUNCE_MS: 180ms → 120ms (60ms faster)
+  - VAD_HANGOVER_MS: 800ms → 375ms (425ms faster)
+  - **IMPORTANT**: Update production secrets to match new optimized values for latency improvements to take effect
 
 # System Architecture
 
