@@ -53,7 +53,7 @@ Preferred communication style: Simple, everyday language.
 - **Cold Start Optimization**: Automatic warmup of services (OpenAI, STT, TTS, DB) on startup and via a dedicated `/warmup` endpoint to eliminate first-call latency.
 - **Business Auto-Detection**: Smart normalization of identifiers for automatic detection of new businesses and creation of `BusinessContactChannel`.
 - **Hebrew TTS Improvements**: Enhanced pronunciation for large numbers and common Hebrew words using nikud.
-- **Streaming STT**: Implemented a session-per-call architecture for streaming STT, ensuring stability, true real-time streaming, and adherence to Google's API limits. Features a dispatcher pattern for utterance routing, continuous audio feed, and smart fallback to single-request STT if streaming fails.
+- **Streaming STT**: Implemented a session-per-call architecture for streaming STT, ensuring stability, true real-time streaming, and adherence to Google's API limits. Features a dispatcher pattern for utterance routing, continuous audio feed, and smart fallback to single-request STT if streaming fails. Optimized queue (maxsize=16) with aggressive consumption (20ms timeout) to prevent audio backlog and dropped frames.
 - **Thread-Safe Multi-Call Support**: Complete registry system (`_sessions_registry`) with `RLock` protection for concurrent calls. Each call_sid has isolated session + dispatcher state. Supports up to MAX_CONCURRENT_CALLS (default: 50) with capacity protection and automatic session reaper (120s timeout).
 - **Perfect Multi-Tenant Isolation**: Every session registered with tenant_id (business_id), all Lead queries filtered by tenant_id, zero cross-business data leakage. Business auto-detected by to_number on "start" event before session initialization.
 
