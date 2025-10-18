@@ -1,101 +1,135 @@
 """
-Google Cloud Speech-to-Text Streaming for Hebrew
-Real-time Hebrew speech recognition from Twilio Media Streams
+Real-time Streaming STT for Hebrew with Google Cloud Speech
+Optimized for ultra-low latency phone conversations
+
+Based on Phase 2 optimization guidelines:
+- Batching: 150ms chunks
+- Partial debounce: 180ms
+- Thread-safe for sync WebSocket handlers
 """
 import os
 import json
-from google.cloud import speech
-import base64
-import audioop
-import logging
+import time
 import threading
 import queue
-import time
+import logging
+from google.cloud import speech
 
 log = logging.getLogger("gcp_stt_stream")
 
-class GcpHebrewStreamer:
-    """Real-time Hebrew speech recognition for Twilio Media Streams"""
+# Configuration from environment
+BATCH_MS = int(os.getenv("STT_BATCH_MS", "150"))
+DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "180"))
+LANG = os.getenv("GCP_STT_LANGUAGE", "he-IL")
+MODEL = os.getenv("GCP_STT_MODEL", "default")
+PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() == "true"
+PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
+
+class GcpStreamingSTT:
+    """
+    Thread-safe streaming STT service
+    Designed to work with sync WebSocket handlers
+    """
     
     def __init__(self, sample_rate_hz=8000):
         self.client = None
         self.rate = sample_rate_hz
-        self._audio_queue = queue.Queue()
-        self._results_queue = queue.Queue()
+        
+        # Audio queue for batching
+        self._audio_queue = queue.Queue(maxsize=100)
+        self._batch_size_bytes = int(sample_rate_hz * 2 * (BATCH_MS / 1000.0))  # PCM16
+        
+        # Results
+        self._partial_callback = None
+        self._final_callback = None
+        self._last_partial_time = 0.0
+        self._last_partial_text = ""
+        
+        # Control
         self._streaming = False
-        self._stream = None
-        self._thread = None
+        self._worker_thread = None
         
     def _ensure_client(self):
-        """Lazy initialization of Speech client with proper credentials"""
+        """Lazy initialization of Speech client"""
         if self.client is None:
             try:
-                # Use service account JSON from environment (same as TTS)
-                import json
                 sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
                 if sa_json:
                     credentials_info = json.loads(sa_json)
                     self.client = speech.SpeechClient.from_service_account_info(credentials_info)
-                    log.info("✅ Google Cloud Speech client initialized with credentials")
+                    log.info("✅ Streaming STT client initialized (service account)")
                 else:
-                    # Fallback to default credentials
                     self.client = speech.SpeechClient()
-                    log.info("✅ Google Cloud Speech client initialized (default)")
+                    log.info("✅ Streaming STT client initialized (default)")
             except Exception as e:
                 log.error(f"❌ Failed to initialize Speech client: {e}")
                 raise
         
-    def start(self):
-        """Start streaming recognition"""
+    def start_streaming(self, on_partial=None, on_final=None):
+        """
+        Start streaming recognition
+        
+        Args:
+            on_partial: Callback for interim results (text)
+            on_final: Callback for final results (text)
+        """
         if self._streaming:
+            log.warning("⚠️ Already streaming")
             return
             
-        # Ensure client is initialized
         self._ensure_client()
-            
+        self._partial_callback = on_partial
+        self._final_callback = on_final
         self._streaming = True
-        self._thread = threading.Thread(target=self._stream_worker, daemon=True)
-        self._thread.start()
-        log.info("Hebrew streaming ASR started")
         
-    def stop(self):
-        """Stop streaming recognition"""
+        self._worker_thread = threading.Thread(target=self._stream_worker, daemon=True)
+        self._worker_thread.start()
+        log.info("🚀 Real-time streaming STT started")
+        
+    def stop_streaming(self):
+        """Stop streaming and flush remaining audio"""
+        if not self._streaming:
+            return
+            
+        log.info("🛑 Stopping streaming STT...")
         self._streaming = False
-        if self._thread:
-            self._thread.join(timeout=1.0)
-        log.info("Hebrew streaming ASR stopped")
         
-    def push_ulaw_base64(self, b64_payload):
-        """Push μ-law audio from Twilio Media Streams"""
+        # Signal end of stream
+        try:
+            self._audio_queue.put(None, timeout=0.5)
+        except queue.Full:
+            pass
+            
+        if self._worker_thread:
+            self._worker_thread.join(timeout=2.0)
+            
+        log.info("✅ Streaming STT stopped")
+        
+    def push_audio(self, pcm16_data):
+        """
+        Push PCM16 audio data to the stream
+        Thread-safe, non-blocking
+        """
         if not self._streaming:
             return
             
         try:
-            # Decode base64 → μ-law → PCM 16-bit
-            mulaw_data = base64.b64decode(b64_payload)
-            pcm16_data = audioop.ulaw2lin(mulaw_data, 2)
+            self._audio_queue.put_nowait(pcm16_data)
+        except queue.Full:
+            log.warning("⚠️ Audio queue full, dropping frame")
             
-            # Queue for processing
-            if not self._audio_queue.full():
-                self._audio_queue.put(pcm16_data, block=False)
-                
-        except Exception as e:
-            log.error(f"Audio conversion failed: {e}")
-            
-    def get_results(self):
-        """Get available transcription results [(text, is_final)]"""
-        results = []
-        try:
-            while not self._results_queue.empty():
-                results.append(self._results_queue.get_nowait())
-        except queue.Empty:
-            pass
-        return results
-        
     def _stream_worker(self):
-        """Background worker for streaming recognition"""
+        """Background worker that handles streaming recognition"""
         try:
-            # ✅ OPTIMIZED: Hebrew real estate speech recognition
+            # Configure recognition
+            use_enhanced = os.getenv("GCP_STT_ENHANCED", "true").lower() == "true"
+            
+            # Safe model selection for he-IL
+            model = MODEL
+            if model == "phone_call":
+                use_enhanced = False
+                log.info("📞 Using phone_call model (enhanced disabled for he-IL)")
+            
             speech_contexts = [
                 speech.SpeechContext(
                     phrases=[
@@ -103,18 +137,19 @@ class GcpHebrewStreamer:
                         "חדרים", "מטר", "קומה", "מעלית", "חניה", "מרפסת", "אזור",
                         "תל אביב", "ירושלים", "חיפה", "פתח תקווה", "רמת גן",
                         "שקל", "אלף", "מיליון", "תקציב", "משכנתא", "נדלן"
-                    ]
+                    ],
+                    boost=15.0
                 )
             ]
             
             config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                language_code="he-IL",
+                language_code=LANG,
                 sample_rate_hertz=self.rate,
-                enable_automatic_punctuation=True,
-                # NO MODEL - use default for Hebrew (latest_short not supported)
-                speech_contexts=speech_contexts,  # ✅ Hebrew real estate terms
-                use_enhanced=True  # ✅ Better quality
+                enable_automatic_punctuation=PUNCTUATION_INTERIM,  # Usually false for speed
+                model=model,
+                speech_contexts=speech_contexts,
+                use_enhanced=use_enhanced
             )
             
             streaming_config = speech.StreamingRecognitionConfig(
@@ -123,35 +158,92 @@ class GcpHebrewStreamer:
                 single_utterance=False,
             )
             
-            def audio_generator():
-                """Generate audio chunks for streaming"""
+            def request_generator():
+                """Generate batched audio requests"""
+                buffer = bytearray()
+                last_send = time.time()
+                
                 while self._streaming:
                     try:
-                        chunk = self._audio_queue.get(timeout=0.1)
-                        yield speech.StreamingRecognizeRequest(audio_content=chunk)
-                    except queue.Empty:
-                        continue
-                    except Exception as e:
-                        log.error(f"Audio generator error: {e}")
-                        break
+                        # Get audio from queue (blocking with timeout)
+                        chunk = self._audio_queue.get(timeout=0.05)
                         
-            # Start streaming recognition with client validation
-            if self.client is None:
-                log.error("❌ Speech client not initialized")
-                return
-            responses = self.client.streaming_recognize(streaming_config, audio_generator())
+                        if chunk is None:
+                            # End signal
+                            break
+                            
+                        buffer.extend(chunk)
+                        
+                        # Send batch if enough data or enough time passed
+                        now = time.time()
+                        time_since_send = (now - last_send) * 1000
+                        
+                        if len(buffer) >= self._batch_size_bytes or time_since_send >= BATCH_MS:
+                            if buffer:
+                                yield speech.StreamingRecognizeRequest(audio_content=bytes(buffer))
+                                buffer.clear()
+                                last_send = now
+                                
+                    except queue.Empty:
+                        # No audio available, check if we should send buffered data
+                        if buffer and (time.time() - last_send) * 1000 >= BATCH_MS:
+                            yield speech.StreamingRecognizeRequest(audio_content=bytes(buffer))
+                            buffer.clear()
+                            last_send = time.time()
+                            
+                # Flush remaining buffer
+                if buffer:
+                    log.info(f"🔚 Flushing final {len(buffer)} bytes")
+                    yield speech.StreamingRecognizeRequest(audio_content=bytes(buffer))
+            
+            # Start streaming recognition
+            responses = self.client.streaming_recognize(streaming_config, request_generator())
             
             for response in responses:
                 if not self._streaming:
                     break
                     
                 for result in response.results:
-                    if result.alternatives:
-                        transcript = result.alternatives[0].transcript.strip()
-                        if transcript:
-                            self._results_queue.put((transcript, result.is_final))
+                    if not result.alternatives:
+                        continue
+                        
+                    transcript = result.alternatives[0].transcript.strip()
+                    if not transcript:
+                        continue
+                    
+                    if result.is_final:
+                        # Final result
+                        log.info(f"🟢 FINAL: {transcript}")
+                        if self._final_callback:
+                            self._final_callback(transcript)
+                    else:
+                        # Interim result with debounce
+                        current_time = time.time()
+                        time_since_last = (current_time - self._last_partial_time) * 1000
+                        
+                        # Debounce: only send if enough time passed OR text changed significantly
+                        if time_since_last >= DEBOUNCE_MS or transcript != self._last_partial_text:
+                            log.debug(f"🟡 PARTIAL: {transcript}")
+                            self._last_partial_time = current_time
+                            self._last_partial_text = transcript
                             
+                            if self._partial_callback:
+                                self._partial_callback(transcript)
+                                
         except Exception as e:
-            log.error(f"Streaming ASR worker failed: {e}")
+            log.error(f"❌ Streaming worker error: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             self._streaming = False
+            log.info("📡 Stream worker stopped")
+
+
+# Factory function for backward compatibility
+def create_streaming_stt(sample_rate_hz=8000):
+    """Factory function for creating streaming STT instance"""
+    return GcpStreamingSTT(sample_rate_hz=sample_rate_hz)
+
+
+# Legacy class name for backward compatibility
+GcpHebrewStreamer = GcpStreamingSTT
