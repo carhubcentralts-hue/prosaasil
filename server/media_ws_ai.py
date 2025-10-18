@@ -13,29 +13,69 @@ if USE_STREAMING_STT:
 else:
     print("📝 STT MODE: Single-request (fast μ-law + optimized Google STT)")
 
-# ⚡ MODULE-LEVEL DISPATCHER for streaming STT
-# ONE session per call, utterances switch targets
-_stt_session = None  # StreamingSTTSession instance
-_current_utterance = {
-    "id": None,
-    "partial_cb": None,
-    "final_buf": None
-}
+# ⚡ THREAD-SAFE SESSION REGISTRY for multi-call support
+# Each call_sid has its own session + dispatcher state
+_sessions_registry = {}  # call_sid -> {"session": StreamingSTTSession, "utterance": {...}, "tenant": str, "ts": float}
+_registry_lock = threading.RLock()
+MAX_CONCURRENT_CALLS = int(os.getenv("MAX_CONCURRENT_CALLS", "50"))
 
-def _stt_on_partial(text: str):
-    """Global partial callback - routes to current utterance"""
-    cb = _current_utterance.get("partial_cb")
-    if cb:
+def _register_session(call_sid: str, session, tenant_id=None):
+    """Register a new STT session for a call (thread-safe)"""
+    with _registry_lock:
+        if len(_sessions_registry) >= MAX_CONCURRENT_CALLS:
+            raise RuntimeError(f"Over capacity: {len(_sessions_registry)}/{MAX_CONCURRENT_CALLS} calls")
+        _sessions_registry[call_sid] = {
+            "session": session,
+            "utterance": {"id": None, "partial_cb": None, "final_buf": None},
+            "tenant": tenant_id,
+            "ts": time.time()
+        }
+        print(f"✅ [REGISTRY] Registered session for call {call_sid[:8]}... (tenant: {tenant_id}, total: {len(_sessions_registry)})")
+
+def _get_session(call_sid: str):
+    """Get STT session for a call (thread-safe)"""
+    with _registry_lock:
+        item = _sessions_registry.get(call_sid)
+        return item["session"] if item else None
+
+def _get_utterance_state(call_sid: str):
+    """Get utterance state for a call (thread-safe)"""
+    with _registry_lock:
+        item = _sessions_registry.get(call_sid)
+        return item["utterance"] if item else None
+
+def _close_session(call_sid: str):
+    """Close and remove STT session for a call (thread-safe)"""
+    with _registry_lock:
+        item = _sessions_registry.pop(call_sid, None)
+    
+    if item:
         try:
-            cb(text)
+            item["session"].close()
+            print(f"✅ [REGISTRY] Closed session for call {call_sid[:8]}... (remaining: {len(_sessions_registry)})")
         except Exception as e:
-            print(f"⚠️ Partial callback error: {e}")
+            print(f"⚠️ [REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
 
-def _stt_on_final(text: str):
-    """Global final callback - appends to current utterance buffer"""
-    buf = _current_utterance.get("final_buf")
-    if buf is not None:
-        buf.append(text)
+def _create_dispatcher_callbacks(call_sid: str):
+    """Create partial/final callbacks that route to the correct call's utterance"""
+    def on_partial(text: str):
+        utt = _get_utterance_state(call_sid)
+        if utt:
+            cb = utt.get("partial_cb")
+            if cb:
+                try:
+                    cb(text)
+                except Exception as e:
+                    print(f"⚠️ Partial callback error for {call_sid[:8]}...: {e}")
+    
+    def on_final(text: str):
+        utt = _get_utterance_state(call_sid)
+        if utt:
+            buf = utt.get("final_buf")
+            if buf is not None:
+                buf.append(text)
+    
+    return on_partial, on_final
 
 # Override print to always flush (CRITICAL for logs visibility)
 _original_print = builtins.print
@@ -173,17 +213,28 @@ class MediaStreamHandler:
 
     def _init_streaming_stt(self):
         """Initialize streaming STT session for this call"""
-        global _stt_session
-        if not USE_STREAMING_STT:
+        if not USE_STREAMING_STT or not self.call_sid:
             return
         
         try:
             from server.services.gcp_stt_stream import StreamingSTTSession
-            _stt_session = StreamingSTTSession(
-                on_partial=_stt_on_partial,
-                on_final=_stt_on_final
+            
+            # Create dispatcher callbacks for this specific call
+            on_partial, on_final = _create_dispatcher_callbacks(self.call_sid)
+            
+            # Create session
+            session = StreamingSTTSession(
+                on_partial=on_partial,
+                on_final=on_final
             )
-            print("✅ [STT] Streaming session started for this call")
+            
+            # Register in thread-safe registry
+            _register_session(self.call_sid, session, tenant_id=self.business_id)
+            
+            print(f"✅ [STT] Streaming session started for call {self.call_sid[:8]}... (business: {self.business_id})")
+        except RuntimeError as e:
+            print(f"🚨 [STT] Over capacity: {e}")
+            # Don't crash - will use fallback STT
         except Exception as e:
             print(f"⚠️ [STT] Failed to start streaming: {e}")
             import traceback
@@ -191,14 +242,8 @@ class MediaStreamHandler:
     
     def _close_streaming_stt(self):
         """Close streaming STT session at end of call"""
-        global _stt_session
-        if _stt_session:
-            try:
-                _stt_session.close()
-                _stt_session = None
-                print("✅ [STT] Streaming session closed")
-            except Exception as e:
-                print(f"⚠️ [STT] Error closing session: {e}")
+        if self.call_sid:
+            _close_session(self.call_sid)
     
     def _utterance_begin(self, partial_cb=None):
         """
@@ -206,31 +251,43 @@ class MediaStreamHandler:
         Switches dispatcher target to new utterance buffer.
         """
         import uuid
-        global _current_utterance
         
-        _current_utterance["id"] = uuid.uuid4().hex[:8]
-        _current_utterance["partial_cb"] = partial_cb
-        _current_utterance["final_buf"] = []
+        if not self.call_sid:
+            return
         
-        print(f"🎤 Utterance {_current_utterance['id']} BEGIN")
+        utt_state = _get_utterance_state(self.call_sid)
+        if utt_state is not None:
+            with _registry_lock:
+                utt_state["id"] = uuid.uuid4().hex[:8]
+                utt_state["partial_cb"] = partial_cb
+                utt_state["final_buf"] = []
+            
+            print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
     
     def _utterance_end(self):
         """
         Mark end of utterance.
         Returns collected final text and resets dispatcher.
         """
-        global _current_utterance
+        if not self.call_sid:
+            return ""
         
-        finals = _current_utterance.get("final_buf") or []
-        text = " ".join(finals).strip()
+        utt_state = _get_utterance_state(self.call_sid)
+        if utt_state is None:
+            return ""
         
-        utt_id = _current_utterance.get("id", "???")
-        print(f"🎤 Utterance {utt_id} END: '{text}'")
+        with _registry_lock:
+            finals = utt_state.get("final_buf") or []
+            text = " ".join(finals).strip()
+            
+            utt_id = utt_state.get("id", "???")
+            
+            # Reset dispatcher
+            utt_state["id"] = None
+            utt_state["partial_cb"] = None
+            utt_state["final_buf"] = None
         
-        # Reset dispatcher
-        _current_utterance["id"] = None
-        _current_utterance["partial_cb"] = None
-        _current_utterance["final_buf"] = None
+        print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_id} END: '{text}'")
         
         return text
 
@@ -415,9 +472,10 @@ class MediaStreamHandler:
                         stream_registry.touch_media(self.call_sid)
                     
                     # ⚡ STREAMING STT: Feed audio to session (continuous streaming)
-                    global _stt_session
-                    if _stt_session and pcm16:
-                        _stt_session.push_audio(pcm16)
+                    if self.call_sid and pcm16:
+                        session = _get_session(self.call_sid)
+                        if session:
+                            session.push_audio(pcm16)
                     
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
@@ -1268,9 +1326,9 @@ class MediaStreamHandler:
         """
         🎯 Smart wrapper: streaming (collects from dispatcher) → fallback to single-request
         """
-        global _stt_session
+        session = _get_session(self.call_sid) if self.call_sid else None
         
-        if not USE_STREAMING_STT or not _stt_session:
+        if not USE_STREAMING_STT or not session:
             # Single-request mode (existing)
             return self._hebrew_stt(pcm16_8k)
         
