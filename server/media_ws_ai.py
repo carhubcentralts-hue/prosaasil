@@ -567,6 +567,10 @@ class MediaStreamHandler:
                         
                         # אסוף אודיו רק כשיש קול או כשיש כבר דבר מה בבאפר
                         if is_strong_voice or len(self.buf) > 0:
+                            # ⚡ STREAMING STT: Mark start of new utterance (once)
+                            if len(self.buf) == 0 and is_strong_voice:
+                                self._utterance_begin()
+                            
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
@@ -726,6 +730,9 @@ class MediaStreamHandler:
             import traceback
             traceback.print_exc()
         finally:
+            # ⚡ STREAMING STT: Close session at end of call
+            self._close_streaming_stt()
+            
             # Clean up TX thread
             if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
                 self.tx_running = False
@@ -1316,17 +1323,21 @@ class MediaStreamHandler:
 
     def _hebrew_stt_wrapper(self, pcm16_8k: bytes, on_partial_cb=None) -> str:
         """
-        🎯 Smart wrapper: streaming (if enabled) → fallback to single-request
+        🎯 Smart wrapper: streaming (collects from dispatcher) → fallback to single-request
         """
-        if not USE_STREAMING_STT:
+        global _stt_session
+        
+        if not USE_STREAMING_STT or not _stt_session:
             # Single-request mode (existing)
             return self._hebrew_stt(pcm16_8k)
         
         try:
-            # Try streaming mode
-            result = self._hebrew_stt_streaming(pcm16_8k, on_partial_cb=on_partial_cb)
+            # Streaming mode: collect results from dispatcher
+            # Audio is already being fed to session in WS loop
+            # Just collect what's been accumulated
+            result = self._utterance_end()
             
-            # ✅ FIX: Fallback on empty results too (not just exceptions)
+            # ✅ FIX: Fallback on empty results
             if not result or not result.strip():
                 print("⚠️ [STT] Streaming returned empty → fallback to single")
                 return self._hebrew_stt(pcm16_8k)
@@ -1336,6 +1347,8 @@ class MediaStreamHandler:
         except Exception as e:
             # Fallback to single-request on exception
             print(f"⚠️ [STT] Streaming failed → fallback to single. err={e}")
+            import traceback
+            traceback.print_exc()
             return self._hebrew_stt(pcm16_8k)
 
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
