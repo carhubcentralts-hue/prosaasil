@@ -168,17 +168,71 @@ class MediaStreamHandler:
         # ✅ CRITICAL: Track background threads for proper cleanup
         self.background_threads = []
         
-        # ⚡ STREAMING STT: One session per call (not per utterance!)
-        self.streaming_stt = None
-        self.stt_ready = False
-        if USE_STREAMING_STT:
+        # ⚡ STREAMING STT: Initialize session for this call
+        self._init_streaming_stt()
+
+    def _init_streaming_stt(self):
+        """Initialize streaming STT session for this call"""
+        global _stt_session
+        if not USE_STREAMING_STT:
+            return
+        
+        try:
+            from server.services.gcp_stt_stream import StreamingSTTSession
+            _stt_session = StreamingSTTSession(
+                on_partial=_stt_on_partial,
+                on_final=_stt_on_final
+            )
+            print("✅ [STT] Streaming session started for this call")
+        except Exception as e:
+            print(f"⚠️ [STT] Failed to start streaming: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _close_streaming_stt(self):
+        """Close streaming STT session at end of call"""
+        global _stt_session
+        if _stt_session:
             try:
-                from server.services.gcp_stt_stream import GcpStreamingSTT
-                self.streaming_stt = GcpStreamingSTT(sample_rate_hz=8000)
-                self.stt_ready = True
-                print("✅ Streaming STT session initialized for this call")
+                _stt_session.close()
+                _stt_session = None
+                print("✅ [STT] Streaming session closed")
             except Exception as e:
-                print(f"⚠️ Failed to init streaming STT: {e} - will use fallback")
+                print(f"⚠️ [STT] Error closing session: {e}")
+    
+    def _utterance_begin(self, partial_cb=None):
+        """
+        Mark start of new utterance.
+        Switches dispatcher target to new utterance buffer.
+        """
+        import uuid
+        global _current_utterance
+        
+        _current_utterance["id"] = uuid.uuid4().hex[:8]
+        _current_utterance["partial_cb"] = partial_cb
+        _current_utterance["final_buf"] = []
+        
+        print(f"🎤 Utterance {_current_utterance['id']} BEGIN")
+    
+    def _utterance_end(self):
+        """
+        Mark end of utterance.
+        Returns collected final text and resets dispatcher.
+        """
+        global _current_utterance
+        
+        finals = _current_utterance.get("final_buf") or []
+        text = " ".join(finals).strip()
+        
+        utt_id = _current_utterance.get("id", "???")
+        print(f"🎤 Utterance {utt_id} END: '{text}'")
+        
+        # Reset dispatcher
+        _current_utterance["id"] = None
+        _current_utterance["partial_cb"] = None
+        _current_utterance["final_buf"] = None
+        
+        return text
 
     def run(self):
         # Media stream handler initialized")
@@ -359,6 +413,11 @@ class MediaStreamHandler:
                     self.last_rx_ts = time.time()
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
+                    
+                    # ⚡ STREAMING STT: Feed audio to session (continuous streaming)
+                    global _stt_session
+                    if _stt_session and pcm16:
+                        _stt_session.push_audio(pcm16)
                     
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)

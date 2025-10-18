@@ -1,0 +1,133 @@
+קצר וברור: כן — זה יעבוד לכמה שיחות במקביל ולכמה עסקים כל עוד אתה מנהל את זה נכון. הנה איך להפוך את זה ליציב ולא ליפול בעומס.
+
+⸻
+
+מה חשוב להבין
+	•	כל שיחה = WebSocket אחד מטוויליו + Session STT אחד (חוט Thread אחד ל-GCP).
+	•	שרת אחד יכול להחזיק הרבה WebSockets במקביל. צווארי בקבוק בפועל: CPU, זיכרון, ורוחב פס ל-GCP.
+	•	Python + Threads מתאימים כאן (I/O-bound). ה-GIL לא מפריע כי רוב הזמן מחכים לרשת.
+
+⸻
+
+מימוש בטוח לריבוי שיחות (וגם ריבוי עסקים)
+
+1) רגיסטר של סשנים לכל שיחה
+
+ב־media_ws_ai.py/שכבת ה-WS, החזק mapping גלובלי לכל תהליך:
+
+# registry.py (או בראש media_ws_ai.py)
+import threading, time
+
+_sessions = {}           # call_sid -> {"session": StreamingSTTSession, "ts": time.monotonic(), "tenant": str}
+_sessions_lock = threading.RLock()
+MAX_CALLS = int(os.getenv("MAX_CONCURRENT_CALLS", "50"))
+
+def register_session(call_sid, session, tenant_id=None):
+    with _sessions_lock:
+        if len(_sessions) >= MAX_CALLS:
+            raise RuntimeError("Over capacity")
+        _sessions[call_sid] = {"session": session, "ts": time.monotonic(), "tenant": tenant_id}
+
+def get_session(call_sid):
+    with _sessions_lock:
+        item = _sessions.get(call_sid)
+        return item["session"] if item else None
+
+def close_session(call_sid):
+    with _sessions_lock:
+        item = _sessions.pop(call_sid, None)
+    if item:
+        try: item["session"].close()
+        except: pass
+
+	•	צור call_sid מה-Twilio (מגיע ב-start של ה-statusCallback או בפרמטרים של ה-WS).
+	•	on WS connect: פתח StreamingSTTSession, רשום ב-registry.
+	•	on WS close או status “stop”: קרא close_session(call_sid) ונקה.
+
+כך אין “דליפות” — כל שיחה סוגרת משאבים שלה.
+
+2) Session אחד לכל שיחה (כמו שנתתי קודם)
+	•	StreamingSTTSession (בתוך gcp_stt_stream.py) מריץ thread יחיד ל-GCP לכל שיחה.
+	•	push_audio נקרא מה-WS (מכל פריים).
+	•	callbacks (partial/final) קבועים לשיחה.
+	•	שיוך ל-utterance נעשה על-ידי “מחליף יעד” (הפונקציות _utterance_begin/_utterance_end שהצגתי קודם).
+
+3) בידול לקוחות/עסקים (Multi-tenant)
+	•	העבר tenant_id בשורת ה-WS (querystring ?tenant=...) או בכותרת.
+	•	שמור אותו ב-registry לצד הסשן.
+	•	כשאתה יוצר לידים/שיחות ב-DB – קח את tenant_id מרשומה זו (מונע ערבוב בין עסקים).
+	•	אם בעתיד תרצה מפתחות GCP/מודל שונים לכל עסק – בנה “מנהל קונפיגורציה” לפי tenant_id בזמן יצירת הסשן.
+
+⸻
+
+קיבולת, תצורה ויציבות
+
+4) גבולות בטיחות (Backpressure)
+	•	queue.Queue(maxsize=16) בסשן – כבר מונע הצפה.
+	•	אם queue.Full נזרק — דלג על פריים בודד (עדיף איבוד 20ms על פני פיצוץ latency).
+	•	הוסף מדדים לוגיים:
+	•	q.size() פעם ב־5 שניות → אם >12 לעתים קרובות, אתה בעומס.
+	•	“Dropped frames” counter.
+
+5) כמה שיחות במקביל?
+
+כל שיחה ≈ 1 thread STT + חוט WS קליל.
+כללי אצבע (vCPU אחד, 1–2GB RAM):
+	•	10–20 שיחות בו-זמנית — בדרך כלל חלק.
+	•	30–50 — עדיין אפשרי, תלוי ברוחב פס ו-GCP.
+רוצה יותר? הפתרונות:
+	•	העלה instance (CPU/RAM).
+	•	הוסף workers (ראו סעיף 6).
+	•	הגבל MAX_CONCURRENT_CALLS ותחזיר תשובת עומס ידידותית אם מלא.
+
+6) פריסה מרובת workers
+	•	הפעלה עם כמה workers בתהליך:
+	•	אם אתה על uvicorn:
+
+uvicorn asgi:asgi_app --workers 2 --ws websockets --host 0.0.0.0 --port $PORT
+
+
+	•	או gunicorn עם worker class של uvicorn:
+
+gunicorn asgi:asgi_app -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:$PORT
+
+
+	•	WebSocket נשאר דבוק לאותו worker (חיבור TCP בודד), וזה בסדר: כל worker מחזיק registry משלו.
+	•	בענן: קבע Concurrency סביר לאינסטנס (למשל 20), ו-Autoscaling עד X אינסטנסים.
+
+7) ניקוי קריסות וזליגות
+	•	on WS close, on Twilio status stop, ו-on server shutdown – תמיד לקרוא close_session(call_sid).
+	•	הוסף reaper קטן שרץ כל 60 שניות ומוחק סשנים שלא קיבלו אודיו > 2 דקות (edge cases).
+
+8) ניטור מהיר
+
+הדפסות לוג מינימליות:
+
+[WS] connected call=CAxxx tenant=T1
+[STT] session started call=CAxxx
+🟡 Partial(200ms): ...
+🟢 Final: ...
+[STT] session closed call=CAxxx
+
+ובטעויות:
+
+[STT] queue full: dropped frame call=CAxxx
+[STT] streaming failed: <err> → fallback single (optional)
+
+
+⸻
+
+למה זה לא יקרוס?
+	•	אין פתיחה/סגירה של מיקרו-סשנים לכל משפט — Session יציב לשיחה בלבד.
+	•	חוט אחד לכל סשן (I/O-bound) → נמתח יפה עם ריבוי חיבורים.
+	•	תורים עם maxsize מגינים מפני הצפה.
+	•	Registry מסודר + סגירה בכל יציאה מבטיחים ניקיון זיכרון.
+	•	אפשר להגדיר MAX_CONCURRENT_CALLS ולא לעבור אותו.
+
+⸻
+
+TL;DR – מה להגיד למפתח
+
+“תשאיר Session STT אחד לכל CALL, עם registry לפי CallSid. ה-WS דוחף push_audio לאותו session. את ה-partials/finals משרשרים ל-utterance הנוכחי דרך ‘מחליף יעד’ (_utterance_begin/_utterance_end). הגבל קיבולת עם MAX_CONCURRENT_CALLS, תורים עם maxsize, וסגור סשן על WS close/status stop. לפריסה, הרץ 2–4 workers לפי vCPU. ככה אנחנו תומכים בעשרות שיחות מקביליות ובכמה עסקים בלי קריסות.”
+
+עם זה אתה מסודר גם לשיחות רבות וגם למולטי-טננט.
