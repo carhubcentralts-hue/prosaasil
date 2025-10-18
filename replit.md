@@ -23,10 +23,12 @@ Preferred communication style: Simple, everyday language.
 - **Status Dropdown Fix**: Fixed lead status dropdown in LeadsPage - now properly opens when clicking status badge without triggering navigation to lead detail page. Applied to both desktop (table) and mobile (card) views with proper event stopPropagation.
 - **Lead Integration**: All dropdowns (CRM reminders, invoices, contracts) are connected to `/api/leads` and display real leads from database with name and phone number.
 - **LeadDetailPage Full Integration**: Connected all tabs to real data:
-  - InvoicesTab: Loads invoices from `/api/receipts`, creates new invoices with proper lead_id association
-  - ContractsTab: Loads contracts from `/api/contracts`, creates new contracts with proper lead_id association
+  - InvoicesTab: Loads invoices from `/api/receipts` with lead_id filtering, creates new invoices with proper lead_id association
+  - ContractsTab: Loads contracts from `/api/contracts` with lead_id filtering, creates new contracts with proper lead_id association
   - CallsTab: Loads real call history from `/api/calls` filtered by lead's phone_e164
   - All modals simplified with working form inputs and proper error handling
+  - **CRITICAL FIX**: Added GET /api/contracts endpoint and enhanced /api/receipts to return lead_id for proper filtering
+  - All data is 100% real from database - zero mock/demo data
 - **Reminder Edit Functionality**: Added full edit support for reminders in LeadDetailPage:
   - ReminderModal supports both create and edit modes
   - Edit button (pencil icon) on each reminder in RemindersTab

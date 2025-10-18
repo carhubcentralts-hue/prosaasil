@@ -21,18 +21,21 @@ def list_receipts():
         
         # Get all invoices (prefer payment_id, fallback to deal_id for legacy)
         from sqlalchemy import or_
-        invoices = db.session.query(Invoice, Payment).join(
+        invoices = db.session.query(Invoice, Payment, Deal).join(
             Payment,
             or_(
                 Invoice.payment_id == Payment.id,
                 (Invoice.payment_id.is_(None) & (Invoice.deal_id == Payment.deal_id))
             )
+        ).join(
+            Deal,
+            Payment.deal_id == Deal.id
         ).filter(
             Payment.business_id == business_id
         ).order_by(Invoice.issued_at.desc()).all()
         
         invoices_list = []
-        for invoice, payment in invoices:
+        for invoice, payment, deal in invoices:
             invoices_list.append({
                 'id': invoice.id,  # Always use invoice ID for PDF endpoints
                 'payment_id': payment.id,
@@ -44,6 +47,7 @@ def list_receipts():
                 'description': payment.description,
                 'customer_name': payment.customer_name,
                 'status': payment.status,
+                'lead_id': deal.customer_id,  # Add lead_id for filtering in frontend
                 'created_at': invoice.issued_at.isoformat() if invoice.issued_at else None,
                 'paid_at': payment.paid_at.isoformat() if payment.paid_at else None
             })
@@ -150,6 +154,54 @@ def create_receipt():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'שגיאה ביצירת חשבונית: {str(e)}'}), 500
+
+@receipts_contracts_bp.route('/api/contracts', methods=['GET'])
+@require_api_auth()
+def list_contracts():
+    """רשימת כל החוזים"""
+    try:
+        from server.models_sql import Contract, Deal, Lead, db
+        from server.routes_crm import get_business_id
+        
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({'success': False, 'message': 'Business ID נדרש'}), 400
+        
+        # Get all contracts with lead info
+        contracts = db.session.query(Contract, Deal, Lead).join(
+            Deal, Contract.deal_id == Deal.id
+        ).join(
+            Lead, Deal.customer_id == Lead.id
+        ).filter(
+            Lead.business_id == business_id
+        ).order_by(Contract.created_at.desc()).all()
+        
+        contracts_list = []
+        for contract, deal, lead in contracts:
+            contracts_list.append({
+                'id': contract.id,
+                'deal_id': deal.id,
+                'lead_id': lead.id,  # Add lead_id for filtering in frontend
+                'title': contract.template_name or f'חוזה #{contract.id}',
+                'description': contract.template_name,
+                'customer_name': lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip() or "לקוח",
+                'type': deal.stage or 'mediation',
+                'status': 'signed' if contract.signed_at else 'draft',
+                'created_at': contract.created_at.isoformat() if contract.created_at else None,
+                'signed_at': contract.signed_at.isoformat() if contract.signed_at else None,
+                'signed_name': contract.signed_name
+            })
+        
+        return jsonify({
+            'success': True,
+            'contracts': contracts_list,
+            'total': len(contracts_list)
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'שגיאה בשליפת חוזים: {str(e)}'}), 500
 
 @receipts_contracts_bp.route('/api/contracts', methods=['POST'])
 @require_api_auth()
