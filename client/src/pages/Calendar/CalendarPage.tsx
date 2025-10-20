@@ -182,20 +182,31 @@ export function CalendarPage() {
       
       const method = editingAppointment ? 'PUT' : 'POST';
       
+      // Convert datetime-local values to ISO format with timezone
+      const dataToSend = {
+        ...formData,
+        start_time: formData.start_time ? new Date(formData.start_time).toISOString() : formData.start_time,
+        end_time: formData.end_time ? new Date(formData.end_time).toISOString() : formData.end_time
+      };
+      
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(formData)
+        body: JSON.stringify(dataToSend)
       });
 
       if (response.ok) {
         await fetchAppointments(); // Refresh appointments
         closeModal();
+        alert(editingAppointment ? 'הפגישה עודכנה בהצלחה!' : 'הפגישה נוצרה בהצלחה!');
       } else {
-        console.error('שגיאה בשמירת הפגישה');
+        const errorData = await response.json().catch(() => ({}));
+        alert(`שגיאה בשמירת הפגישה: ${errorData.error || 'שגיאה לא ידועה'}`);
+        console.error('שגיאה בשמירת הפגישה', errorData);
       }
     } catch (error) {
+      alert('שגיאה בשמירת הפגישה. אנא נסה שוב.');
       console.error('שגיאה בשמירת הפגישה:', error);
     }
   };
@@ -241,11 +252,25 @@ export function CalendarPage() {
   // Open modal for editing appointment
   const openEditAppointmentModal = (appointment: Appointment) => {
     setEditingAppointment(appointment);
+    
+    // Convert ISO datetime to local datetime-local format (handling timezone properly)
+    const formatDatetimeLocal = (isoString: string) => {
+      if (!isoString) return '';
+      const date = new Date(isoString);
+      // Get local datetime in YYYY-MM-DDTHH:MM format
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
+    };
+    
     setFormData({
       title: appointment.title,
       description: appointment.description || '',
-      start_time: appointment.start_time,
-      end_time: appointment.end_time,
+      start_time: formatDatetimeLocal(appointment.start_time),
+      end_time: formatDatetimeLocal(appointment.end_time),
       location: appointment.location || '',
       status: appointment.status,
       appointment_type: appointment.appointment_type,
