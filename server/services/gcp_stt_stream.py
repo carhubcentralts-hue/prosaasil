@@ -19,8 +19,8 @@ from google.cloud import speech
 log = logging.getLogger("gcp_stt_stream")
 
 # Configuration from environment - OPTIMIZED FOR LOW LATENCY
-BATCH_MS = int(os.getenv("STT_BATCH_MS", "70"))  # ⚡ OPTIMIZED: 70ms for faster responses (20ms saved, safer than 60ms)
-DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "100"))  # ⚡ OPTIMIZED: 100ms for faster responses (20ms saved, safer than 80ms)
+BATCH_MS = int(os.getenv("STT_BATCH_MS", "120"))  # ⚡ BUILD 107: 120ms - balanced speed+stability
+DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "160"))  # ⚡ BUILD 107: 160ms - reduce flooding
 LANG = os.getenv("GCP_STT_LANGUAGE", "he-IL")
 MODEL = os.getenv("GCP_STT_MODEL", "phone_call")  # phone_call is better for telephony
 PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() == "true"

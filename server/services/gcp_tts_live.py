@@ -28,7 +28,7 @@ class HebrewTTSLive:
         
         # ✅ 1. קול טבעי - WaveNet-D (גברי) או לפי ENV
         voice_name = os.getenv("TTS_VOICE", "he-IL-Wavenet-D")  # ✅ D = קול גברי טבעי
-        speaking_rate = float(os.getenv("TTS_RATE", "0.96"))     # ✅ 0.96 = קצב נעים
+        speaking_rate = float(os.getenv("TTS_RATE", "1.05"))     # ⚡ BUILD 107: 1.05 = קצב מהיר יותר
         pitch = float(os.getenv("TTS_PITCH", "-2.0"))            # ✅ -2.0 = גובה טבעי
         
         log.info(f"TTS Config: voice={voice_name}, rate={speaking_rate}, pitch={pitch}")
@@ -38,10 +38,10 @@ class HebrewTTSLive:
             name=voice_name
         )
         
-        # ✅ 2. טלפוניה - effects profile + 8kHz
+        # ⚡ BUILD 107: טלפוניה - PCM16 עם speaking_rate מואץ
         self.audio_config_telephony = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-            speaking_rate=speaking_rate,
+            audio_encoding=texttospeech.AudioEncoding.LINEAR16,  # PCM16 לטלפוניה
+            speaking_rate=speaking_rate,  # ⚡ 1.05 = מהיר יותר!
             pitch=pitch,
             sample_rate_hertz=8000,
             effects_profile_id=["telephony-class-application"]  # ✅ מנקה "פלסטיקיות"

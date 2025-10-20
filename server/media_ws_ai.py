@@ -668,13 +668,13 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ✅ BUILD 100.16: Balance - SHORT utterances with LONG silence detection
-                            # תגובות קצרות: min_silence קצר (1.0s)
-                            # משפטים ארוכים: min_silence ארוך (3.0s) למנוע קטיעה
+                            # ⚡ BUILD 107: ULTRA-LOW LATENCY - 0.8s silence for FAST responses
+                            # תגובות קצרות: min_silence קצר מאוד (0.65s)
+                            # משפטים ארוכים: min_silence מאוזן (1.2s)
                             if dur < 2.0:
-                                min_silence = 1.0  # תגובה קצרה - מהר
+                                min_silence = 0.65  # ⚡ תגובה קצרה - סופר מהר!
                             else:
-                                min_silence = 3.0  # משפט ארוך - ממתין לשקט אמיתי!
+                                min_silence = 1.2  # ⚡ משפט ארוך - מאוזן
                             
                             silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
