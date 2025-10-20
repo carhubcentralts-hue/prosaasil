@@ -9,9 +9,24 @@ Preferred communication style: Simple, everyday language.
 # Deployment Status
 
 **🟢 PRODUCTION READY** - All systems operational and tested (October 20, 2025)
-**Build #105** - Call latency optimization (targeting <2s response time)
+**Build #106** - Professional call summaries with structured format
 
 See [FINAL_DEPLOYMENT_CHECKLIST.md](./FINAL_DEPLOYMENT_CHECKLIST.md) for complete deployment validation.
+
+# Recent Changes (October 20, 2025)
+- **Professional Call Summaries (Build #106) - UX ENHANCEMENT**:
+  - **NEW: Structured Summary Format** - 80-150 word professional summaries with 5 sections
+  - **Sections**: סוג הפנייה, פרטי הנכס המבוקש, פרטי קשר, סטטוס ומעקב, הערות נוספות
+  - **Enhanced AI Prompt**: Detailed instructions for extracting property type, area, budget, rooms, special requirements
+  - **Validation**: Enforces 70-180 word range with warnings, rejects <70 or truncates >180
+  - **Smart Fallback**: Structured 80+ word summaries even when AI fails (with keyword extraction)
+  - **Comprehensive Logging**: Tracks word count and summary quality for monitoring
+  - **Result**: Professional, detailed summaries instead of basic 10-30 word notes
+- **Meeting Scheduling Verified** (Build #104+106):
+  - ✅ Hebrew time parser correctly extracts "מחר ב-10", "יום רביעי בערב" → exact datetime
+  - ✅ Appointments created with all details: title, description, start_time, end_time, contact info
+  - ✅ Calendar displays appointments professionally with AI badge, status, type, priority
+  - ✅ Summary includes meeting confirmation status in "סטטוס ומעקב" section
 
 # Recent Changes (October 18-20, 2025)
 - **Call Latency Optimization (Build #105) - CRITICAL PERFORMANCE UPDATE**:
