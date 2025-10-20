@@ -150,7 +150,11 @@ def create_receipt():
         })
         
     except Exception as e:
-        db.session.rollback()
+        try:
+            from server.models_sql import db
+            db.session.rollback()
+        except:
+            pass  # DB might not be imported if error happened early
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'שגיאה ביצירת חשבונית: {str(e)}'}), 500
@@ -270,7 +274,11 @@ def create_contract():
         })
         
     except Exception as e:
-        db.session.rollback()
+        try:
+            from server.models_sql import db
+            db.session.rollback()
+        except:
+            pass  # DB might not be imported if error happened early
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'שגיאה ביצירת חוזה: {str(e)}'}), 500
@@ -358,7 +366,11 @@ def sign_contract(contract_id):
         })
         
     except Exception as e:
-        db.session.rollback()
+        try:
+            from server.models_sql import db
+            db.session.rollback()
+        except:
+            pass  # DB might not be imported if error happened early
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'שגיאה בחתימת חוזה: {str(e)}'}), 500
