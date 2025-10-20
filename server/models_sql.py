@@ -108,7 +108,7 @@ class BusinessSettings(db.Model):
     tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), primary_key=True)
     ai_prompt = db.Column(db.Text)
     model = db.Column(db.String(50), default="gpt-4o-mini")  # AI model for prompts
-    max_tokens = db.Column(db.Integer, default=150)  # Maximum tokens for AI responses
+    max_tokens = db.Column(db.Integer, default=120)  # ⚡ BUILD 105: Optimized for faster responses (was 150)
     temperature = db.Column(db.Float, default=0.7)   # AI temperature setting (0-2)
     # Business settings
     phone_number = db.Column(db.String(255))  # Business phone number

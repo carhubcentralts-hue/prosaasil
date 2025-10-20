@@ -830,7 +830,7 @@ def admin_support_prompt():
             return jsonify({
                 "ai_prompt": settings.ai_prompt or "",
                 "model": settings.model or "gpt-4o-mini",
-                "max_tokens": settings.max_tokens or 150,
+                "max_tokens": settings.max_tokens or 120,  # ⚡ BUILD 105: 120 for faster responses
                 "temperature": settings.temperature or 0.7,
                 "updated_at": settings.updated_at.isoformat() if settings.updated_at else None
             })
@@ -838,7 +838,7 @@ def admin_support_prompt():
             return jsonify({
                 "ai_prompt": "",
                 "model": "gpt-4o-mini", 
-                "max_tokens": 150,
+                "max_tokens": 120,  # ⚡ BUILD 105: 120 for faster responses
                 "temperature": 0.7,
                 "updated_at": None
             })
@@ -851,9 +851,9 @@ def admin_support_prompt():
     # Get and validate other parameters
     model = data.get("model", "gpt-4o-mini") or "gpt-4o-mini"
     try:
-        max_tokens = int(data.get("max_tokens", 150)) if data.get("max_tokens") else 150
+        max_tokens = int(data.get("max_tokens", 120)) if data.get("max_tokens") else 120  # ⚡ BUILD 105
     except (ValueError, TypeError):
-        max_tokens = 150
+        max_tokens = 120  # ⚡ BUILD 105
     try:
         temperature = float(data.get("temperature", 0.7)) if data.get("temperature") is not None else 0.7
     except (ValueError, TypeError):
@@ -861,7 +861,7 @@ def admin_support_prompt():
     
     # Validate ranges
     if max_tokens < 1 or max_tokens > 4000:
-        max_tokens = 150
+        max_tokens = 120  # ⚡ BUILD 105: Default for invalid values
     if temperature < 0 or temperature > 2:
         temperature = 0.7
         
