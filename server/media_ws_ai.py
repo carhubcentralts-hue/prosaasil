@@ -1110,11 +1110,8 @@ class MediaStreamHandler:
         self.state = STATE_SPEAK
         print(f"🔊 TTS_START: '{text}'")
         
-        # ✅ מדידת Turn Latency (מ-EOU עד TTS)
-        if hasattr(self, 'eou_timestamp'):
-            turn_latency = time.time() - self.eou_timestamp
-            print(f"📊 TURN_LATENCY: {turn_latency:.3f}s (target: <1.2s)")
-            delattr(self, 'eou_timestamp')  # נקה למדידה הבאה
+        # ⚡ BUILD 107: Save EOU timestamp for total latency calculation
+        eou_saved = getattr(self, 'eou_timestamp', None)
         
         try:
             # ⚡ ULTRA-SPEED: No delay before TTS - immediately start speaking
@@ -1138,10 +1135,15 @@ class MediaStreamHandler:
                 send_time = time.time() - send_start
                 print(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission)")
                 
-                # ✅ Total latency breakdown
-                if hasattr(self, 'eou_timestamp'):
-                    total_latency = time.time() - self.eou_timestamp
+                # ⚡ BUILD 107: Total latency breakdown (EOU→first audio sent)
+                if eou_saved:
+                    turn_latency = send_start - eou_saved
+                    total_latency = time.time() - eou_saved
+                    print(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
                     print(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
+                    # נקה למדידה הבאה
+                    if hasattr(self, 'eou_timestamp'):
+                        delattr(self, 'eou_timestamp')
             else:
                 print("🔊 TTS FAILED - sending beep")
                 self._send_beep(800)

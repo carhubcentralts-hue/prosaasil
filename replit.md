@@ -25,11 +25,11 @@ Preferred communication style: Simple, everyday language.
 - **Security**: CSRF protection, secure redirects, and role-based access control.
 
 ## Real-time Communication
-- **Twilio Integration**: Media Streams WebSocket with Starlette/ASGI for Cloud Run native WebSocket support.
+- **Twilio Integration**: Media Streams WebSocket with Starlette/ASGI for Cloud Run native WebSocket support, inbound_track routing, and proper statusCallbackEvent handling.
 - **Audio Processing**: Optimized barge-in detection, calibrated VAD for Hebrew speech, immediate TTS interruption, and seamless turn-taking.
 - **Custom Greetings**: Initial phone greeting loads from business configuration with dynamic placeholders.
-- **Natural TTS**: Production-grade Hebrew TTS with WaveNet-D voice (8kHz telephony optimization), SSML smart pronunciation, and TTS caching.
-- **Performance Optimization**: Sub-second greeting, natural number pronunciation using SSML, and faster STT response times (0.65s silence detection).
+- **Natural TTS**: Production-grade Hebrew TTS with WaveNet-D voice (8kHz telephony optimization), SSML smart pronunciation, TTS caching, and accelerated speaking rate (1.05x).
+- **Performance Optimization**: ⚡ BUILD 107 Ultra-low latency - VAD silence detection (0.65s/1.2s), STT batching (120ms), STT debounce (160ms), comprehensive latency tracking (ASR, AI, TTS, Total).
 - **Intelligent Error Handling**: Smart responses for STT failures.
 
 ## CRM Features
