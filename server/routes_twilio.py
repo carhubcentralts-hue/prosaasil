@@ -351,11 +351,13 @@ def incoming_call():
     # ✅ Twilio SDK
     vr = VoiceResponse()
     
-    # ✅ Connect + Stream
+    # ✅ Connect + Stream (לפי ההנחיות המדויקות)
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
     stream = connect.stream(
         url=f"wss://{host}/ws/twilio-media",
-        status_callback=f"https://{host}/webhook/stream_status"
+        track="inbound_track",  # ✅ CRITICAL: track parameter
+        status_callback=f"https://{host}/webhook/stream_status",
+        status_callback_event="start mark stop"  # ✅ CRITICAL: status events
     )
     
     # ✅ CRITICAL: הוסף Parameters עם CallSid + To (חובה!)
