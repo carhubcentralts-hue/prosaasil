@@ -9,11 +9,19 @@ Preferred communication style: Simple, everyday language.
 # Deployment Status
 
 **🟢 PRODUCTION READY** - All systems operational and tested (October 20, 2025)
-**Build #104** - Appointment scheduling intelligence + Invoice/Contract fixes
+**Build #105** - Call latency optimization (targeting <2s response time)
 
 See [FINAL_DEPLOYMENT_CHECKLIST.md](./FINAL_DEPLOYMENT_CHECKLIST.md) for complete deployment validation.
 
 # Recent Changes (October 18-20, 2025)
+- **Call Latency Optimization (Build #105) - CRITICAL PERFORMANCE UPDATE**:
+  - **NEW: Comprehensive Timing Instrumentation** - Added precise measurements for STT, AI, TTS, and total latency
+  - **STT Optimization**: VAD_HANGOVER_MS: 375ms→300ms, BATCH_MS: 90ms→70ms, DEBOUNCE_MS: 120ms→100ms
+  - **AI Optimization**: max_tokens reduced from 200→120 for faster GPT-4o-mini responses
+  - **TTS Already Optimized**: Cache enabled, telephony profile, WaveNet-D voice
+  - **Expected Improvement**: ~195-215ms faster response time
+  - **⚠️ IMPORTANT**: Values are balanced for quality+speed. Test in production and adjust if needed.
+  - **📊 Monitoring**: Check logs for ASR_LATENCY, AI_PROCESSING, TTS_GENERATION, TOTAL_LATENCY metrics
 - **Intelligent Appointment Scheduling (Build #104) - MAJOR IMPROVEMENT**:
   - **NEW: Hebrew Time Parser** - Understands Hebrew time expressions like "מחר ב-10", "יום רביעי בערב", "אחרי הצהריים"
   - Parses specific times (10:30, 14:00) and relative expressions (היום, מחר, מחרתיים)

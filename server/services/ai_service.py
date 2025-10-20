@@ -105,14 +105,14 @@ class AIService:
                 prompt_data = {
                     "system_prompt": system_prompt,
                     "model": "gpt-4o-mini",  # Fast model
-                    "max_tokens": 200,  # ⚡ Shorter for faster responses (2-3 sentences)
+                    "max_tokens": 120,  # ⚡ OPTIMIZED: 120 tokens for faster responses (2-3 sentences, safer than 100)
                     "temperature": 0.2  # ⚡ Low temperature for faster, more deterministic responses
                 }
             else:
                 prompt_data = {
                     "system_prompt": system_prompt,
                     "model": settings.model,
-                    "max_tokens": min(settings.max_tokens, 200),  # ⚡ Cap at 200 for faster responses
+                    "max_tokens": min(settings.max_tokens, 120),  # ⚡ OPTIMIZED: Cap at 120 for faster responses
                     "temperature": min(settings.temperature, 0.3)  # ⚡ Cap temperature for speed
                 }
             
@@ -132,7 +132,7 @@ class AIService:
             return {
                 "system_prompt": self._get_default_hebrew_prompt(business_name, channel),
                 "model": "gpt-4o-mini",
-                "max_tokens": 200,  # ⚡ Shorter for faster responses
+                "max_tokens": 120,  # ⚡ OPTIMIZED: 120 tokens for faster responses
                 "temperature": 0.2  # ⚡ Fast and deterministic
             }
     

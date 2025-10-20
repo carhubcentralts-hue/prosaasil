@@ -131,7 +131,7 @@ MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.8"))        # ✅ 0.8s - מאפ�
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
 VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "375"))  # ⚡ CRITICAL: Reduced from 800ms to 375ms for faster finalization
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "300"))  # ⚡ OPTIMIZED: 300ms for faster responses (75ms saved, safer than 250ms)
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1500")) # ✅ 1500ms - יותר "קירור" אחרי תגובה
@@ -1125,10 +1125,23 @@ class MediaStreamHandler:
                 text = text[:150].rsplit(' ', 1)[0] + '.'
                 print(f"🔪 TTS_SHORTENED: {text}")
             
+            # ⏱️ TTS timing instrumentation
+            tts_start = time.time()
             tts_audio = self._hebrew_tts(text)
+            tts_generation_time = time.time() - tts_start
+            print(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s (target: <0.5s)")
+            
             if tts_audio and len(tts_audio) > 1000:
                 print(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
+                send_start = time.time()
                 self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
+                send_time = time.time() - send_start
+                print(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission)")
+                
+                # ✅ Total latency breakdown
+                if hasattr(self, 'eou_timestamp'):
+                    total_latency = time.time() - self.eou_timestamp
+                    print(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
             else:
                 print("🔊 TTS FAILED - sending beep")
                 self._send_beep(800)
