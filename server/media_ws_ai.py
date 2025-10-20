@@ -126,15 +126,15 @@ class ConnectionClosed(Exception):
 from server.stream_state import stream_registry
 
 SR = 8000
-# ⚡ BUILD 100.17: VAD ULTRA-OPTIMIZED FOR LOW LATENCY (<3s response time)
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.8"))        # ✅ 0.8s - מאפשר תגובות קצרות כמו "כן"
+# ⚡ BUILD 107: VAD ULTRA-OPTIMIZED FOR LOW LATENCY (<3s response time)
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
 VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "300"))  # ⚡ OPTIMIZED: 300ms for faster responses (75ms saved, safer than 250ms)
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "220"))  # ⚡ BUILD 107: 220ms for faster responses
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
-REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1500")) # ✅ 1500ms - יותר "קירור" אחרי תגובה
+REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
 BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","40"))  # ✅ 40 frames = ≈800ms קול רציף נדרש לקטיעה
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
@@ -668,13 +668,13 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ⚡ BUILD 107: ULTRA-LOW LATENCY - 0.8s silence for FAST responses
-                            # תגובות קצרות: min_silence קצר מאוד (0.65s)
-                            # משפטים ארוכים: min_silence מאוזן (1.2s)
+                            # ⚡ BUILD 107: ULTRA-LOW LATENCY - 0.5s silence for FAST responses
+                            # תגובות קצרות: min_silence קצר מאוד (0.5s) ⚡⚡⚡
+                            # משפטים ארוכים: min_silence קצר (1.8s במקום 3.0s)
                             if dur < 2.0:
-                                min_silence = 0.65  # ⚡ תגובה קצרה - סופר מהר!
+                                min_silence = 0.5  # ⚡ תגובה קצרה - סופר מהר! (חצי שניה!)
                             else:
-                                min_silence = 1.2  # ⚡ משפט ארוך - מאוזן
+                                min_silence = 1.8  # ⚡ משפט ארוך - מהיר (במקום 3.0s)
                             
                             silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
