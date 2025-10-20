@@ -236,15 +236,15 @@ def _identify_business_for_call(to_number, from_number):
     print("❌ לא נמצא שום עסק במערכת")
     return None
 
-def save_call_status(call_sid, status):
-    """שלח עדכון סטטוס שיחה לעיבוד ברקע (Thread) למנוע timeout"""
-    thread = Thread(target=save_call_status_async, args=(call_sid, status))
+def save_call_status(call_sid, status, duration=0, direction="inbound"):
+    """שלח עדכון סטטוס שיחה לעיבוד ברקע (Thread) למנוע timeout - BUILD 106"""
+    thread = Thread(target=save_call_status_async, args=(call_sid, status, duration, direction))
     thread.daemon = True
     thread.start()
-    log.info("Call status queued for update: %s -> %s", call_sid, status)
+    log.info("Call status queued for update: %s -> %s (duration=%s)", call_sid, status, duration)
 
-def save_call_status_async(call_sid, status):
-    """עדכון סטטוס שיחה אסינכרוני מלא - PostgreSQL מתוקן"""
+def save_call_status_async(call_sid, status, duration=0, direction="inbound"):
+    """עדכון סטטוס שיחה אסינכרוני מלא - PostgreSQL מתוקן - BUILD 106"""
     try:
         # שימוש ב-PostgreSQL דרך SQLAlchemy במקום SQLite
         from server.app_factory import create_app
@@ -257,6 +257,8 @@ def save_call_status_async(call_sid, status):
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
             if call_log:
                 call_log.call_status = status
+                call_log.duration = duration  # ✅ BUILD 106: Save duration
+                call_log.direction = direction  # ✅ BUILD 106: Save direction
                 call_log.updated_at = db.func.now()
                 db.session.commit()
                 log.info("PostgreSQL call status updated: %s -> %s", call_sid, status)

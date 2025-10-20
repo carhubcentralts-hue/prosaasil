@@ -81,10 +81,12 @@ class CallLog(db.Model):
     call_sid = db.Column(db.String(64), unique=True, index=True)  # ✅ Unique constraint to prevent duplicates
     from_number = db.Column(db.String(64), index=True)
     to_number = db.Column(db.String(64))  # ✅ BUILD 88: Added to_number field
+    direction = db.Column(db.String(16), default="inbound")  # ✅ BUILD 106: inbound/outbound
+    duration = db.Column(db.Integer, default=0)  # ✅ BUILD 106: Call duration in seconds
     call_status = db.Column(db.String(32), default="in-progress")  # ✅ BUILD 90: Legacy field for production DB compatibility
     recording_url = db.Column(db.String(512))
     transcription = db.Column(db.Text)
-    summary = db.Column(db.Text)  # ✨ סיכום חכם קצר של השיחה (10-30 מילים)
+    summary = db.Column(db.Text)  # ✨ סיכום חכם קצר של השיחה (80-150 מילים) - BUILD 106
     status = db.Column(db.String(32), default="received")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

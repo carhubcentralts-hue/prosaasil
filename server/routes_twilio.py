@@ -591,9 +591,11 @@ def stream_status():
 @twilio_bp.route("/webhook/call_status", methods=["POST"])
 @require_twilio_signature
 def call_status():
-    """Handle call status updates - FAST אסינכרוני"""
+    """Handle call status updates - FAST אסינכרוני - BUILD 106"""
     call_sid = request.form.get("CallSid")
     call_status = request.form.get("CallStatus")
+    call_duration = request.form.get("CallDuration", "0")  # ✅ BUILD 106: Get duration
+    direction = request.form.get("Direction", "inbound")  # ✅ BUILD 106: Get direction
     
     # החזרה מיידית ללא עיכובים
     resp = make_response("", 204)
@@ -602,9 +604,10 @@ def call_status():
     
     # עיבוד ברקע אחרי שהחזרנו response
     try:
-        current_app.logger.info("CALL_STATUS", extra={"call_sid": call_sid, "status": call_status})
+        current_app.logger.info("CALL_STATUS", extra={"call_sid": call_sid, "status": call_status, "duration": call_duration})
         if call_status in ["completed", "busy", "no-answer", "failed", "canceled"]:
-            save_call_status(call_sid, call_status)  # כעת אסינכרוני
+            # ✅ BUILD 106: Save with duration and direction
+            save_call_status(call_sid, call_status, int(call_duration), direction)
     except Exception:
         current_app.logger.exception("CALL_STATUS_HANDLER_ERROR")
     
