@@ -1,0 +1,139 @@
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+2025-10-20 17:20:14.13
+9112bd4a
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+2025-10-20 17:20:14.13
+9112bd4a
+User
+ret = self._execute_context(
+2025-10-20 17:20:14.13
+9112bd4a
+User
+^^^^^^^^^^^^^^^^^^^^^^
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+2025-10-20 17:20:14.13
+9112bd4a
+User
+return self._exec_single_context(
+2025-10-20 17:20:14.13
+9112bd4a
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-10-20 17:20:14.13
+9112bd4a
+User
+self._handle_dbapi_exception(
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+2025-10-20 17:20:14.13
+9112bd4a
+User
+raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+2025-10-20 17:20:14.13
+9112bd4a
+User
+cursor.execute(statement, parameters)
+2025-10-20 17:20:14.13
+9112bd4a
+User
+DETAIL: Key (customer_id)=(89) is not present in table "customer".
+2025-10-20 17:20:14.13
+9112bd4a
+User
+2025-10-20 17:20:14.13
+9112bd4a
+User
+[SQL: INSERT INTO deal (customer_id, title, stage, amount, created_at) VALUES (%(customer_id)s, %(title)s, %(stage)s, %(amount)s, %(created_at)s) RETURNING deal.id]
+2025-10-20 17:20:14.13
+9112bd4a
+User
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-10-20 17:20:14.13
+9112bd4a
+User
+INFO: 136.114.27.225:0 - "POST /api/receipts HTTP/1.1" 500 Internal Server Error
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+2025-10-20 17:20:14.13
+9112bd4a
+User
+psycopg2.errors.ForeignKeyViolation: insert or update on table "deal" violates foreign key constraint "deal_customer_id_fkey"
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4345, in flush
+2025-10-20 17:20:14.13
+9112bd4a
+User
+self._flush(objects)
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4441, in _flush
+2025-10-20 17:20:14.13
+9112bd4a
+User
+flush_context.execute()
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 466, in execute
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 642, in execute
+2025-10-20 17:20:14.13
+9112bd4a
+User
+return meth(
+2025-10-20 17:20:14.13
+9112bd4a
+User
+return connection._execute_clauseelement(
+2025-10-20 17:20:14.13
+9112bd4a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+2025-10-20 17:20:14.13
+9112bd4a
+User
+self.dialect.do_execute(
+2025-10-20 17:20:14.13
+9112bd4a
+User
+sqlalchemy.exc.IntegrityError: (psycopg2.errors.ForeignKeyViolation) insert or update on table "deal" violates foreign key constraint "deal_customer_id_fkey"
+2025-10-20 17:20:14.13
+9112bd4a
+User
+[parameters: {'customer_id': 89, 'title': 'עסקה - לקוח 4724', 'stage': 'new', 'amount': 200, 'created_at': datetime.datetime(2025, 10, 20, 14, 20, 14, 74252)}]
+
+Wrap
+
+Colors
