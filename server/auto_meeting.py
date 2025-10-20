@@ -111,24 +111,36 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         
         description = "פגישה שנוצרה אוטומטית מתוך שיחת טלפון.\n\n" + "\n".join(description_parts)
         
-        # זמני פגישה מוצעים (יום עסקים הבא + 1-3 ימים)
-        now = datetime.now()
+        # ✅ BUILD 104: ניתוח זמן אמיתי מהשיחה!
+        from server.services.time_parser import get_meeting_time_from_conversation
         
-        # מחפשים יום עסקים הבא (לא שבת)
-        days_ahead = 1
-        while True:
-            potential_date = now + timedelta(days=days_ahead)
-            # בדוק שזה לא שבת (weekday() == 5)
-            if potential_date.weekday() != 5:
-                break
-            days_ahead += 1
+        # נסה לנתח זמן מהשיחה
+        parsed_time = get_meeting_time_from_conversation(conversation_history)
         
-        # קביעת זמן - 10:00 בבוקר או 16:00 אחר הצהריים
-        meeting_time = potential_date.replace(hour=10, minute=0, second=0, microsecond=0)
-        if now.hour > 14:  # אם כבר אחרי 14:00, קבע ל-16:00
-            meeting_time = meeting_time.replace(hour=16)
-        
-        end_time = meeting_time + timedelta(hours=1)  # פגישה של שעה
+        if parsed_time:
+            # ✅ נמצא זמן מוסכם בשיחה!
+            meeting_time, end_time = parsed_time
+            print(f"✅ Parsed meeting time from conversation: {meeting_time}")
+        else:
+            # ⚠️ Fallback: זמן default (אם לא נמצא זמן בשיחה)
+            now = datetime.now()
+            
+            # מחפשים יום עסקים הבא (לא שבת)
+            days_ahead = 1
+            while True:
+                potential_date = now + timedelta(days=days_ahead)
+                # בדוק שזה לא שבת (weekday() == 5)
+                if potential_date.weekday() != 5:
+                    break
+                days_ahead += 1
+            
+            # קביעת זמן - 10:00 בבוקר או 16:00 אחר הצהריים
+            meeting_time = potential_date.replace(hour=10, minute=0, second=0, microsecond=0)
+            if now.hour > 14:  # אם כבר אחרי 14:00, קבע ל-16:00
+                meeting_time = meeting_time.replace(hour=16)
+            
+            end_time = meeting_time + timedelta(hours=1)  # פגישה של שעה
+            print(f"⚠️ Using default meeting time: {meeting_time}")
         
         # יצירת הפגישה
         appointment = Appointment()
