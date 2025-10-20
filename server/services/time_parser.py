@@ -26,18 +26,20 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     target_date = now
     days_ahead = 1  # Default: מחר
     
-    # היום
-    if any(word in text_lower for word in ['היום', 'עכשיו', 'בעוד שעה']):
-        days_ahead = 0
-        target_date = now
+    # ✅ FIX: Check more specific patterns first (מחרתיים before מחר)
     
-    # מחר
-    elif any(word in text_lower for word in ['מחר', 'מחרתיים']):
+    # מחרתיים / יומיים (check first!)
+    if any(word in text_lower for word in ['מחרתיים', 'יומיים']):
+        days_ahead = 2
+    
+    # מחר (only if not מחרתיים)
+    elif 'מחר' in text_lower and 'מחרתיים' not in text_lower:
         days_ahead = 1
     
-    # מחרתיים / יומיים
-    elif any(word in text_lower for word in ['מחרתיים', 'יומיים']):
-        days_ahead = 2
+    # היום
+    elif any(word in text_lower for word in ['היום', 'עכשיו', 'בעוד שעה']):
+        days_ahead = 0
+        target_date = now
     
     # ימים ספציפיים
     elif 'שלושה ימים' in text_lower or '3 ימים' in text_lower:

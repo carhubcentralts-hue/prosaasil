@@ -1,8 +1,8 @@
 # ✅ רשימת בדיקה סופית לפריסה - AgentLocator
 
-**תאריך:** 19 אוקטובר 2025  
+**תאריך:** 20 אוקטובר 2025  
 **סטטוס:** 🟢 **מוכן לפריסה מלאה!**  
-**Build:** #103 - WhatsApp Baileys Fixed
+**Build:** #104 - Intelligent Appointment Scheduling
 
 ---
 
@@ -285,13 +285,15 @@
 
 ## 📝 **הערות לפריסה:**
 
-1. **Build #103** - ✅ תוקן באג קריטי בהפעלת WhatsApp Baileys!
-2. **WhatsApp Fix** - Baileys עכשיו מתחיל אוטומטית בפריסה
-3. **Package Configuration** - setuptools מוגדר נכון
-4. **Performance Secrets** - מומלץ לעדכן לערכים האופטימליים
-5. **Logs** - מערכת logging מפורטת ב-`/tmp/baileys_prod.log`
-6. **Zero Downtime** - Baileys auto-restart on failure
-7. **Health Checks** - `/healthz` endpoint for monitoring
+1. **Build #104** - ✅ תיאום פגישות חכם + תיקוני חשבוניות/חוזים!
+2. **Appointment Intelligence** - הזמן שהלקוח מבקש נשמר בדיוק
+3. **Hebrew Time Parser** - מבין ביטויים בעברית ("מחר ב-10", "יום רביעי")
+4. **AI Confirmation** - חוזר על הזמן המדויק שהוסכם
+5. **Package Configuration** - setuptools מוגדר נכון
+6. **Performance Secrets** - מומלץ לעדכן לערכים האופטימליים
+7. **Logs** - מערכת logging מפורטת ב-`/tmp/baileys_prod.log`
+8. **Zero Downtime** - Baileys auto-restart on failure
+9. **Health Checks** - `/healthz` endpoint for monitoring
 
 ---
 

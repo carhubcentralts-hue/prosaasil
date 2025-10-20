@@ -8,10 +8,25 @@ Preferred communication style: Simple, everyday language.
 
 # Deployment Status
 
-**🟢 PRODUCTION READY** - All systems operational and tested (October 19, 2025)
-**Build #103** - WhatsApp Baileys startup fixed
+**🟢 PRODUCTION READY** - All systems operational and tested (October 20, 2025)
+**Build #104** - Appointment scheduling intelligence + Invoice/Contract fixes
 
 See [FINAL_DEPLOYMENT_CHECKLIST.md](./FINAL_DEPLOYMENT_CHECKLIST.md) for complete deployment validation.
+
+# Recent Changes (October 18-20, 2025)
+- **Intelligent Appointment Scheduling (Build #104) - MAJOR IMPROVEMENT**:
+  - **NEW: Hebrew Time Parser** - Understands Hebrew time expressions like "מחר ב-10", "יום רביעי בערב", "אחרי הצהריים"
+  - Parses specific times (10:30, 14:00) and relative expressions (היום, מחר, מחרתיים)
+  - Recognizes weekday names (יום שני, רביעי, וכו') and calculates exact dates
+  - **Meetings now scheduled at customer's requested time** instead of default time
+  - AI instructed to repeat exact agreed time to customer: "נפגש מחר ב-10:00" instead of vague confirmation
+  - Fallback to smart defaults (10:00 AM or 4:00 PM next business day) if no time mentioned
+  - Skips Shabbat automatically when scheduling
+  - All time parsing centralized in `server/services/time_parser.py`
+- **Fixed Invoice/Contract Creation**:
+  - Fixed `db.session.rollback()` error handling in exception blocks
+  - All database errors now properly caught and rolled back
+  - Improved error messages for debugging
 
 # Recent Changes (October 18-19, 2025)
 - Fixed invoice.payment_id database schema with proper foreign key to payment.id
