@@ -34,7 +34,7 @@ Preferred communication style: Simple, everyday language.
 
 ## CRM Features
 - **Multi-tenant Architecture**: Business-based data isolation.
-- **Call Logging**: Comprehensive call tracking with transcription and status management.
+- **Call Logging**: Comprehensive call tracking with transcription, status management, duration, and direction (inbound/outbound) captured from Twilio webhooks.
 - **Conversation Memory**: Full conversation history for contextual AI responses.
 - **WhatsApp Integration**: Supports both Twilio and Baileys with optimized response times, full message storage, and context management.
 - **Intelligent Lead Collection**: Automated capture of key lead information with real-time creation and deduplication.

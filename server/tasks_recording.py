@@ -257,11 +257,14 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound"):
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
             if call_log:
                 call_log.call_status = status
-                call_log.duration = duration  # ✅ BUILD 106: Save duration
-                call_log.direction = direction  # ✅ BUILD 106: Save direction
+                # ✅ BUILD 106: Only update duration/direction if provided (avoid overwriting with 0)
+                if duration > 0:
+                    call_log.duration = duration
+                if direction:
+                    call_log.direction = direction
                 call_log.updated_at = db.func.now()
                 db.session.commit()
-                log.info("PostgreSQL call status updated: %s -> %s", call_sid, status)
+                log.info("PostgreSQL call status updated: %s -> %s (duration=%s)", call_sid, status, duration)
             else:
                 log.warning("Call SID not found for status update: %s", call_sid)
         
