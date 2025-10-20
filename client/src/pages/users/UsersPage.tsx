@@ -56,6 +56,11 @@ const Badge = ({ children, className = "", variant = "default" }: {
   );
 };
 
+const Input = ({ className = "", ...props }: any) => (
+  <input className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${className}`} {...props} />
+  );
+};
+
 // User interface
 interface SystemUser {
   id: string;
@@ -495,6 +500,53 @@ export function UsersPage() {
           )}
         </Card>
       </div>
+
+      {/* Add User Modal */}
+      {showUserModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="p-6 max-w-2xl w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              משתמש חדש
+            </h3>
+            <form className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">שם מלא</label>
+                  <Input type="text" placeholder="הזן שם מלא" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">דוא"ל</label>
+                  <Input type="email" placeholder="הזן דוא״ל" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
+                  <Input type="tel" placeholder="הזן מספר טלפון" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">תפקיד</label>
+                  <select className="w-full px-3 py-2 border border-gray-300 rounded-md">
+                    <option value="user">משתמש רגיל</option>
+                    <option value="manager">מנהל</option>
+                    <option value="admin">אדמין</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <Button type="submit">
+                  צור משתמש
+                </Button>
+                <Button 
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowUserModal(false)}
+                >
+                  ביטול
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
 
       {/* Impersonation Modal */}
       {showImpersonateModal && selectedUser && (
