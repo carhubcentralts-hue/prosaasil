@@ -1,0 +1,156 @@
+
+
+
+AgentLocator
+Files
+Commands
+Search
+Packager files
+Your app is not running
+
+Run
+to preview your app.
+Search
+Time
+Deployment
+Source
+Log
+2025-10-21 12:09:47.47
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/billing/contract/<contract_id>/view -> receipts_contracts.view_contract
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'POST', 'OPTIONS'} /api/whatsapp/disconnect
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/contacts
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/messages
+2025-10-21 12:14:12.89
+fedc94dd
+User
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/conversation/<phone_number>
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/stats
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'POST', 'OPTIONS'} /api/whatsapp/prompts/<int:business_id>
+2025-10-21 12:14:12.89
+fedc94dd
+User
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'POST', 'OPTIONS'} /api/whatsapp/webhook/incoming
+2025-10-21 12:14:12.89
+fedc94dd
+User
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'POST', 'OPTIONS'} /api/whatsapp/send
+2025-10-21 12:14:12.89
+fedc94dd
+User
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'POST', 'OPTIONS'} /webhook/whatsapp/incoming
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'POST', 'OPTIONS'} /webhook/whatsapp/status
+2025-10-21 12:14:12.89
+fedc94dd
+User
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/intelligence/customers
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/intelligence/stats
+2025-10-21 12:14:12.89
+fedc94dd
+User
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/
+2025-10-21 12:14:12.89
+fedc94dd
+User
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/business/<int:business_id>
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'POST', 'OPTIONS'} /api/admin/channels/
+2025-10-21 12:14:12.89
+fedc94dd
+User
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id>
+2025-10-21 12:14:12.89
+fedc94dd
+User
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/businesses
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/dashboard/stats
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/dashboard/activity
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/stats
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /healthz
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /readyz
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /version
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /livez
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'POST', 'GET', 'OPTIONS', 'HEAD'} /warmup
+2025-10-21 12:14:12.89
+fedc94dd
+User
+{'OPTIONS', 'GET', 'HEAD'} /db-check
