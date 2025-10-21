@@ -29,7 +29,7 @@ Preferred communication style: Simple, everyday language.
 - **Audio Processing**: Smart barge-in detection (disabled for long responses >20 words, enabled for short ones), calibrated VAD for Hebrew speech, immediate TTS interruption, and seamless turn-taking.
 - **Custom Greetings**: Initial phone greeting loads from business configuration with dynamic placeholders.
 - **Natural TTS**: Production-grade Hebrew TTS with WaveNet-D voice (8kHz telephony optimization), SSML smart pronunciation, TTS caching, and accelerated speaking rate (1.05x).
-- **Performance Optimization**: ⚡ BUILD 109 Ultra-low latency - VAD silence detection (0.5s/1.8s), STT streaming with partial transcripts (100ms response), Early EOU detection, comprehensive latency tracking (ASR, AI, TTS, Total). Achieves 2-3 second response times vs previous 5-6 seconds (60% improvement).
+- **Performance Optimization**: ⚡ BUILD 109 Ultra-low latency - VAD silence detection (0.5s/1.8s), STT streaming with partial transcripts (100ms response), Early EOU detection, comprehensive latency tracking (ASR, AI, TTS, Total). Achieves 2-3 second response times vs previous 5-6 seconds (60% improvement). Session timestamp updated on every audio frame to prevent 2-minute resets.
 - **Intelligent Error Handling**: Smart responses for STT failures.
 
 ## CRM Features
@@ -48,9 +48,9 @@ Preferred communication style: Simple, everyday language.
 - **Lead Integration in All Modals**: CRM reminders, payment/invoice creation, and contract creation all feature lead selection dropdowns.
 
 ## System Design Choices
-- **AI Response Optimization**: Max tokens reduced to 200 for shorter, more conversational responses using `gpt-4o-mini`.
+- **AI Response Optimization**: Max tokens set to 180 for quality Hebrew responses (3-4 sentences) using `gpt-4o-mini`, temperature 0.3-0.4 for balanced natural responses.
 - **Robustness**: Implemented thread tracking and enhanced cleanup for background processes, extended ASGI handler timeout.
-- **STT Reliability**: Implemented a confidence threshold (>=0.5) to reject unreliable transcriptions and extended STT timeout to 3 seconds for Hebrew speech.
+- **STT Reliability**: Relaxed validation for better Hebrew recognition - amplitude threshold lowered to 40 (from 80), RMS threshold to 25 (from 50), confidence threshold to 0.3 (from 0.5). Extended STT timeout to 3 seconds for Hebrew speech. numpy/scipy dependencies added for advanced audio analysis.
 - **Voice Consistency**: Standardized on a male voice (`he-IL-Wavenet-D`) and masculine Hebrew phrasing.
 - **Cold Start Optimization**: Automatic warmup of services on startup and via a dedicated `/warmup` endpoint.
 - **Business Auto-Detection**: Smart normalization of identifiers for automatic detection of new businesses.
