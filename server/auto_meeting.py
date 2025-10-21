@@ -114,13 +114,18 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         # ✅ BUILD 104: ניתוח זמן אמיתי מהשיחה!
         from server.services.time_parser import get_meeting_time_from_conversation
         
+        # ✅ DEBUG: הדפס את השיחה שאנחנו מנתחים
+        print(f"🔍 AUTO_MEETING: Analyzing {len(conversation_history)} conversation turns for meeting time")
+        for i, turn in enumerate(conversation_history[-3:]):  # 3 תורות אחרונים
+            print(f"  Turn {i}: user='{turn.get('user', '')[:50]}...', bot='{turn.get('bot', '')[:50]}...'")
+        
         # נסה לנתח זמן מהשיחה
         parsed_time = get_meeting_time_from_conversation(conversation_history)
         
         if parsed_time:
             # ✅ נמצא זמן מוסכם בשיחה!
             meeting_time, end_time = parsed_time
-            print(f"✅ Parsed meeting time from conversation: {meeting_time}")
+            print(f"✅ AUTO_MEETING: Parsed meeting time from conversation: {meeting_time.strftime('%Y-%m-%d %H:%M')}")
         else:
             # ⚠️ Fallback: זמן default (אם לא נמצא זמן בשיחה)
             now = datetime.now()

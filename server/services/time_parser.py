@@ -22,6 +22,9 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     text_lower = text.lower()
     now = datetime.now()
     
+    # ✅ DEBUG: הדפס מה אנחנו מנתחים
+    print(f"🔍 TIME_PARSER: Analyzing text: '{text[:100]}...'")
+    
     # ✅ ניתוח תאריך (יחסי)
     target_date = now
     days_ahead = 1  # Default: מחר
@@ -132,6 +135,9 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     
     end_time = meeting_time + timedelta(hours=1)  # פגישה של שעה
     
+    # ✅ DEBUG: הדפס מה מצאנו
+    print(f"✅ TIME_PARSER: Parsed meeting time: {meeting_time.strftime('%Y-%m-%d %H:%M')} (end: {end_time.strftime('%H:%M')})")
+    
     return (meeting_time, end_time)
 
 
@@ -155,17 +161,29 @@ def get_meeting_time_from_conversation(conversation_history: list) -> Optional[T
         user_text = turn.get('user', '')
         bot_text = turn.get('bot', '')
         
-        # חפש אישור זמן מהבוט (זה אומר שהזמן הוסכם)
-        bot_confirmed = any(phrase in bot_text for phrase in [
-            'נקבע ל', 'אראה אותך ב', 'אקבע ל', 'מצוין! ל',
-            'נפגש ב', 'פגישה ב', 'אשמח לראות אותך ב'
-        ])
+        # ✅ BUILD 110: הרחבת ביטויי אישור - כיסוי כל האפשרויות!
+        confirmation_phrases = [
+            'נקבע ל', 'נקבע לך פגישה ל', 'אראה אותך ב', 'אקבע ל', 
+            'מצוין! ל', 'מצוין! נקבע', 'נפגש ב', 'פגישה ב', 
+            'אשמח לראות אותך ב', 'קבעתי לך פגישה ל', 'קבענו ל',
+            'בוא ב', 'מחכה לך ב', 'אני מזמין אותך ל'
+        ]
         
-        if bot_confirmed or user_text:
-            # נסה לנתח את התשובה של המשתמש (או את אישור הבוט)
-            text_to_parse = user_text if user_text else bot_text
-            result = parse_hebrew_time(text_to_parse)
+        # חפש אישור זמן מהבוט (זה אומר שהזמן הוסכם)
+        bot_confirmed = any(phrase in bot_text for phrase in confirmation_phrases)
+        
+        # ✅ FIX: נסה תמיד את תשובת המשתמש תחילה - היא הכי אמינה!
+        if user_text:
+            result = parse_hebrew_time(user_text)
             if result:
+                print(f"✅ Found meeting time in USER text: {result[0]}")
+                return result
+        
+        # אם יש אישור מהבוט, נסה לנתח את תגובת הבוט
+        if bot_confirmed:
+            result = parse_hebrew_time(bot_text)
+            if result:
+                print(f"✅ Found meeting time in BOT confirmation: {result[0]}")
                 return result
     
     # אם לא נמצא זמן מוסכם, נסה בכל השיחה
