@@ -1,4 +1,12 @@
+MANIFEST.in
+Procfile
+asgi.py
 pyproject.toml
+start_production.sh
+client/dist/index.html
+client/dist/assets/AdminSupportPage-kGwPa3jP.js
+client/dist/assets/index-B5TniFKM.js
+client/dist/assets/index-BqYX3Iln.css
 repl_nix_workspace.egg-info/PKG-INFO
 repl_nix_workspace.egg-info/SOURCES.txt
 repl_nix_workspace.egg-info/dependency_links.txt
@@ -77,3 +85,6 @@ server/ui/auth.py
 server/ui/routes.py
 server/utils/api_guard.py
 server/utils/api_handler.py
+services/whatsapp/baileys_service.js
+services/whatsapp/package-lock.json
+services/whatsapp/package.json
