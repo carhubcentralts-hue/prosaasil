@@ -1054,19 +1054,61 @@ def api_biz_users_create():
     try:
         from server.models_sql import db, User
         
-        name = request.form.get('name', '').strip()
-        email = request.form.get('email', '').strip().lower()
-        role = request.form.get('role', '').strip()
-        business_id = request.form.get('business_id', '').strip()
-        enabled = bool(request.form.get('enabled'))
+        # Get data from JSON or form
+        if request.is_json:
+            data = request.get_json()
+            name = data.get('name', '').strip()
+            email = data.get('email', '').strip().lower()
+            role = data.get('role', '').strip()
+            business_id = data.get('business_id')
+            enabled = bool(data.get('enabled', True))
+        else:
+            name = request.form.get('name', '').strip()
+            email = request.form.get('email', '').strip().lower()
+            role = request.form.get('role', '').strip()
+            business_id = request.form.get('business_id', '').strip()
+            enabled = bool(request.form.get('enabled'))
         
-        if not name or not email or not role or not business_id:
-            return jsonify({'success': False, 'error': 'כל השדות נדרשים'}), 400
-            
-        # Return JSON success for API consistency
-        return jsonify({'success': True, 'message': 'משתמש נוצר בהצלחה'})
+        if not name or not email or not role:
+            return jsonify({'success': False, 'error': 'שם, אימייל ותפקיד נדרשים'}), 400
+        
+        # Check if user already exists
+        existing = User.query.filter_by(email=email).first()
+        if existing:
+            return jsonify({'success': False, 'error': 'משתמש עם אימייל זה כבר קיים'}), 400
+        
+        # Create new user
+        new_user = User(
+            name=name,
+            email=email,
+            role=role,
+            business_id=int(business_id) if business_id else None,
+            enabled=enabled
+        )
+        
+        db.session.add(new_user)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True, 
+            'message': 'משתמש נוצר בהצלחה',
+            'user': {
+                'id': new_user.id,
+                'name': new_user.name,
+                'email': new_user.email,
+                'role': new_user.role,
+                'business_id': new_user.business_id,
+                'enabled': new_user.enabled
+            }
+        })
         
     except Exception as e:
+        try:
+            db.session.rollback()
+        except:
+            pass
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': f'שגיאת יצירת משתמש: {str(e)}'}), 500
 
 @ui_bp.route('/api/crm/contacts', methods=['POST'])

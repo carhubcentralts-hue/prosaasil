@@ -189,9 +189,16 @@ export function CalendarPage() {
         end_time: formData.end_time ? new Date(formData.end_time).toISOString() : formData.end_time
       };
       
+      // Get CSRF token from cookie
+      const csrfToken = document.cookie.split('; ').find(row => row.startsWith('csrf_token='))?.split('=')[1];
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (csrfToken) {
+        headers['X-CSRFToken'] = csrfToken;
+      }
+      
       const response = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         credentials: 'include',
         body: JSON.stringify(dataToSend)
       });
@@ -216,8 +223,16 @@ export function CalendarPage() {
     if (!confirm('האם אתה בטוח שברצונך למחוק פגישה זו?')) return;
     
     try {
+      // Get CSRF token from cookie
+      const csrfToken = document.cookie.split('; ').find(row => row.startsWith('csrf_token='))?.split('=')[1];
+      const headers: HeadersInit = {};
+      if (csrfToken) {
+        headers['X-CSRFToken'] = csrfToken;
+      }
+      
       const response = await fetch(`/api/calendar/appointments/${id}`, {
         method: 'DELETE',
+        headers,
         credentials: 'include'
       });
 

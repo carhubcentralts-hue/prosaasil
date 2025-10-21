@@ -397,6 +397,13 @@ def apply_migrations():
         migrations_applied.append("create_business_contact_channels_table")
         log.info("Applied migration: create_business_contact_channels_table with seed data")
     
+    # Migration 17: Add signature_data to contract table
+    if check_table_exists('contract') and not check_column_exists('contract', 'signature_data'):
+        from sqlalchemy import text
+        db.session.execute(text("ALTER TABLE contract ADD COLUMN signature_data TEXT"))
+        migrations_applied.append("add_contract_signature_data")
+        log.info("Applied migration: add_contract_signature_data")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")

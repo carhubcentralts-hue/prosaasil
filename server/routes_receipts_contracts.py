@@ -413,41 +413,69 @@ def view_invoice(invoice_id):
         p = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
         
-        # הוספת פונט עברי (אם קיים)
+        # הוספת פונט עברי (נדרש לתמיכה בעברית)
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        font_name = 'Helvetica'  # Default font
         try:
             hebrew_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
             if os.path.exists(hebrew_font_path):
                 pdfmetrics.registerFont(TTFont('Hebrew', hebrew_font_path))
                 font_name = 'Hebrew'
             else:
-                font_name = 'Helvetica'
-        except:
+                # Fallback - try other common Hebrew font paths
+                alt_paths = [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansBold.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+                ]
+                for alt_path in alt_paths:
+                    if os.path.exists(alt_path):
+                        pdfmetrics.registerFont(TTFont('Hebrew', alt_path))
+                        font_name = 'Hebrew'
+                        break
+        except Exception as e:
+            print(f"Font loading error: {e}")
             font_name = 'Helvetica'
         
-        # כותרת החשבונית
-        p.setFont(font_name, 24)
-        p.drawString(100, height - 100, f"Invoice #{invoice.invoice_number}")
+        # Function to draw RTL text (for Hebrew)
+        def draw_rtl_text(canvas_obj, x, y, text, font, size):
+            canvas_obj.setFont(font, size)
+            # For RTL, draw from right edge
+            text_width = stringWidth(text, font, size)
+            canvas_obj.drawString(width - x - text_width, y, text)
         
-        # פרטי החשבונית - נתונים אמיתיים מה-DB
+        # כותרת החשבונית בעברית
+        p.setFont(font_name, 26)
+        title = f"חשבונית #{invoice.invoice_number}"
+        draw_rtl_text(p, 50, height - 80, title, font_name, 26)
+        
+        # קו הפרדה
+        p.setStrokeColorRGB(0.8, 0.8, 0.8)
+        p.setLineWidth(1)
+        p.line(50, height - 100, width - 50, height - 100)
+        
+        # פרטי החשבונית - נתונים אמיתיים מה-DB בעברית
         p.setFont(font_name, 12)
-        y_position = height - 150
+        y_position = height - 130
         
         invoice_details = [
-            f"Company: {business_name}",
-            f"Invoice Number: {invoice.invoice_number}",
-            f"Date: {invoice.issued_at.strftime('%Y-%m-%d %H:%M') if invoice.issued_at else 'N/A'}",
-            f"Subtotal: ₪{invoice.subtotal / 100:,.2f}",
-            f"Tax (18%): ₪{invoice.tax / 100:,.2f}",
-            f"Total: ₪{invoice.total / 100:,.2f}",
-            f"Description: {payment.description or 'עמלת תיווך נדל״ן'}",
-            f"Customer: {payment.customer_name or 'לא צוין'}",
-            f"Status: {payment.status or 'created'}",
-            f"Payment Method: {payment.provider or 'manual'}"
+            f"חברה: {business_name}",
+            f"מספר חשבונית: {invoice.invoice_number}",
+            f"תאריך: {invoice.issued_at.strftime('%d/%m/%Y %H:%M') if invoice.issued_at else 'לא צוין'}",
+            "",
+            f"סכום ביניים: ₪{invoice.subtotal / 100:,.2f}",
+            f"מע\"מ (18%): ₪{invoice.tax / 100:,.2f}",
+            f"סכום כולל: ₪{invoice.total / 100:,.2f}",
+            "",
+            f"תיאור: {payment.description or 'עמלת תיווך נדל״ן'}",
+            f"לקוח: {payment.customer_name or 'לא צוין'}",
+            f"סטטוס: {payment.status or 'created'}",
+            f"אמצעי תשלום: {payment.provider or 'ידני'}"
         ]
         
         for detail in invoice_details:
-            p.drawString(100, y_position, detail)
-            y_position -= 20
+            if detail:  # Skip empty lines
+                draw_rtl_text(p, 50, y_position, detail, font_name, 12)
+            y_position -= 25
         
         # שמירת ה-PDF
         p.save()
@@ -505,38 +533,69 @@ def download_invoice(invoice_id):
         p = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
         
+        # הוספת פונט עברי (נדרש לתמיכה בעברית)
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        font_name = 'Helvetica'  # Default font
         try:
             hebrew_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
             if os.path.exists(hebrew_font_path):
                 pdfmetrics.registerFont(TTFont('Hebrew', hebrew_font_path))
                 font_name = 'Hebrew'
             else:
-                font_name = 'Helvetica'
-        except:
+                # Fallback - try other common Hebrew font paths
+                alt_paths = [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansBold.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+                ]
+                for alt_path in alt_paths:
+                    if os.path.exists(alt_path):
+                        pdfmetrics.registerFont(TTFont('Hebrew', alt_path))
+                        font_name = 'Hebrew'
+                        break
+        except Exception as e:
+            print(f"Font loading error: {e}")
             font_name = 'Helvetica'
         
-        p.setFont(font_name, 24)
-        p.drawString(100, height - 100, f"Invoice #{invoice.invoice_number}")
+        # Function to draw RTL text (for Hebrew)
+        def draw_rtl_text(canvas_obj, x, y, text, font, size):
+            canvas_obj.setFont(font, size)
+            # For RTL, draw from right edge
+            text_width = stringWidth(text, font, size)
+            canvas_obj.drawString(width - x - text_width, y, text)
         
+        # כותרת החשבונית בעברית
+        p.setFont(font_name, 26)
+        title = f"חשבונית #{invoice.invoice_number}"
+        draw_rtl_text(p, 50, height - 80, title, font_name, 26)
+        
+        # קו הפרדה
+        p.setStrokeColorRGB(0.8, 0.8, 0.8)
+        p.setLineWidth(1)
+        p.line(50, height - 100, width - 50, height - 100)
+        
+        # פרטי החשבונית - נתונים אמיתיים מה-DB בעברית
         p.setFont(font_name, 12)
-        y_position = height - 150
+        y_position = height - 130
         
         invoice_details = [
-            f"Company: {business_name}",
-            f"Invoice Number: {invoice.invoice_number}",
-            f"Date: {invoice.issued_at.strftime('%Y-%m-%d %H:%M') if invoice.issued_at else 'N/A'}",
-            f"Subtotal: ₪{invoice.subtotal / 100:,.2f}",
-            f"Tax (18%): ₪{invoice.tax / 100:,.2f}",
-            f"Total: ₪{invoice.total / 100:,.2f}",
-            f"Description: {payment.description or 'עמלת תיווך נדל״ן'}",
-            f"Customer: {payment.customer_name or 'לא צוין'}",
-            f"Status: {payment.status or 'created'}",
-            f"Payment Method: {payment.provider or 'manual'}"
+            f"חברה: {business_name}",
+            f"מספר חשבונית: {invoice.invoice_number}",
+            f"תאריך: {invoice.issued_at.strftime('%d/%m/%Y %H:%M') if invoice.issued_at else 'לא צוין'}",
+            "",
+            f"סכום ביניים: ₪{invoice.subtotal / 100:,.2f}",
+            f"מע\"מ (18%): ₪{invoice.tax / 100:,.2f}",
+            f"סכום כולל: ₪{invoice.total / 100:,.2f}",
+            "",
+            f"תיאור: {payment.description or 'עמלת תיווך נדל״ן'}",
+            f"לקוח: {payment.customer_name or 'לא צוין'}",
+            f"סטטוס: {payment.status or 'created'}",
+            f"אמצעי תשלום: {payment.provider or 'ידני'}"
         ]
         
         for detail in invoice_details:
-            p.drawString(100, y_position, detail)
-            y_position -= 20
+            if detail:  # Skip empty lines
+                draw_rtl_text(p, 50, y_position, detail, font_name, 12)
+            y_position -= 25
         
         p.save()
         buffer.seek(0)
