@@ -50,13 +50,14 @@ def choose_stt_model(language="he-IL"):
     
     # Initialize client with regional endpoint for lower RTT
     try:
-        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
         region = os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')
         api_endpoint = f"{region}-speech.googleapis.com"
         
         from google.api_core.client_options import ClientOptions
         client_options = ClientOptions(api_endpoint=api_endpoint)
         
+        # Try to get credentials - support both JSON and default ADC
+        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
         if sa_json:
             credentials_info = json.loads(sa_json)
             client = speech.SpeechClient.from_service_account_info(
@@ -64,62 +65,73 @@ def choose_stt_model(language="he-IL"):
                 client_options=client_options
             )
         else:
+            # Try Application Default Credentials
             client = speech.SpeechClient(client_options=client_options)
+            
     except Exception as e:
-        log.error(f"❌ [choose_stt_model] Failed to init client: {e}")
-        # Fallback to safe defaults
+        log.warning(f"⚠️ [choose_stt_model] Failed to init client: {e} - using conservative fallback")
+        # Can't probe, use conservative fallback
         return {"model": "default", "use_enhanced": False}
+    
+    # Known model compatibility for Hebrew
+    # phone_call: Works in some regions, not in others (especially europe-west1)
+    # default: Works everywhere with Hebrew
     
     # Generate 300ms of silence for probe (8kHz PCM16)
     silent_bytes = b"\x00" * int(8000 * 0.3 * 2)
     
+    # Try to probe models in order with actual API call
+    # For each model, try enhanced first, then basic
     for model in order:
-        try:
-            # Build config for this model
-            cfg = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                sample_rate_hertz=8000,
-                language_code=language,
-                model=model,
-                use_enhanced=True,
-                enable_automatic_punctuation=True,
-            )
-            scfg = speech.StreamingRecognitionConfig(
-                config=cfg,
-                interim_results=True,
-                single_utterance=False
-            )
-            
-            # Quick probe: send config + tiny silent audio
-            requests = [
-                speech.StreamingRecognizeRequest(streaming_config=scfg),
-                speech.StreamingRecognizeRequest(audio_content=silent_bytes)
-            ]
-            
-            # This will throw INVALID_ARGUMENT if model not available for language
-            responses = client.streaming_recognize(requests=iter(requests))
-            
-            # Consume first response (or error)
+        # Try with enhanced=True first
+        for use_enhanced in [True, False]:
             try:
-                next(responses, None)
-            except StopIteration:
-                pass
-            
-            log.info(f"✅ [choose_stt_model] Selected model: '{model}' (enhanced=True, language={language})")
-            return {"model": model, "use_enhanced": True}
-            
-        except Exception as e:
-            emsg = str(e).lower()
-            if "model" in emsg and ("not available" in emsg or "not supported" in emsg):
-                log.warning(f"⚠️ [choose_stt_model] Model '{model}' not available for {language}; trying next...")
-                continue
-            else:
-                # Other error - log but try next model
-                log.warning(f"⚠️ [choose_stt_model] Probe failed for '{model}': {e}")
-                continue
+                # Build config for this model
+                cfg = speech.RecognitionConfig(
+                    encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                    sample_rate_hertz=8000,
+                    language_code=language,
+                    model=model,
+                    use_enhanced=use_enhanced,
+                )
+                
+                # Real probe: call non-streaming recognize with silent audio
+                # This will throw INVALID_ARGUMENT if model not supported for language
+                audio = speech.RecognitionAudio(content=silent_bytes)
+                response = client.recognize(config=cfg, audio=audio)
+                
+                # If we got here without exception, the model works!
+                log.info(f"✅ [choose_stt_model] Selected model: '{model}' (enhanced={use_enhanced}, language={language})")
+                return {"model": model, "use_enhanced": use_enhanced}
+                
+            except Exception as e:
+                emsg = str(e).lower()
+                
+                # Check if this is model/enhanced availability issue
+                if use_enhanced and ("enhanced" in emsg or "not available" in emsg):
+                    log.warning(f"⚠️ [choose_stt_model] Enhanced not available for '{model}'; trying basic...")
+                    continue  # Try use_enhanced=False
+                    
+                # Check if this is model incompatibility
+                elif "model" in emsg and ("not supported" in emsg or "invalid" in emsg):
+                    log.warning(f"⚠️ [choose_stt_model] Model '{model}' not supported for {language}; trying next model...")
+                    break  # Skip to next model
+                
+                # Auth/service error - can't probe reliably
+                elif "permission" in emsg or "auth" in emsg or "501" in str(e):
+                    log.warning(f"⚠️ [choose_stt_model] Auth/service error: {e}; can't probe - using conservative fallback")
+                    return {"model": "default", "use_enhanced": False}
+                    
+                # Other error - try basic mode, then next model
+                else:
+                    log.warning(f"⚠️ [choose_stt_model] Probe failed for '{model}' (enhanced={use_enhanced}): {e}")
+                    if use_enhanced:
+                        continue  # Try basic
+                    else:
+                        break  # Skip to next model
     
-    # All models failed - fallback to default without enhanced (rare)
-    log.error("❌ [choose_stt_model] All models failed! Falling back to default (enhanced=False)")
+    # All models failed - fallback to default without enhanced
+    log.warning("⚠️ [choose_stt_model] All models failed probe - using 'default' (enhanced=False) as last resort")
     return {"model": "default", "use_enhanced": False}
 
 
