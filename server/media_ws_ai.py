@@ -2277,6 +2277,10 @@ class MediaStreamHandler:
                 tx_count += 1
                 if tx_count % 50 == 0:  # Log every 50 frames (1 second)
                     print(f"🎵 TX_MEDIA: Frame {tx_count} {'SUCCESS' if success else 'FAILED'}")
+                
+                # ⚡ BUILD 115.1: Rate limiting - prevent send_queue overflow
+                # Each frame is 20ms audio, sleep 8ms to avoid flooding WebSocket
+                time.sleep(0.008)
                 continue
             if item.get("type") == "mark":
                 success = self._ws_send(json.dumps({

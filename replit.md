@@ -12,13 +12,13 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Result**: Stable production deployment - works reliably with default/phone_call models for Hebrew
 - **Fix**: Removed startup probe and custom endpoint that caused "לא הבנתי" loop in production
 
-**⚡ BUILD 115.1 הסופי - פשטות מקסימלית:**
-- **default תמיד**: phone_call לא עובד בעברית בישראל - השתמש רק ב-default
-- **ללא probe**: אין בדיקות מורכבות בזמן startup
-- **ללא fallback מסובך**: קונפיגורציה פשוטה ויציבה
-- **ללא ENDPOINT מותאם**: SpeechClient() רגיל - יציב בכל סביבה
-- **Enhanced=True**: גוגל מתעלמת אם לא נתמך; המערכת לא קורסת
-- **תוצאה**: המערכת הכי פשוטה ויציבה - עובדת תמיד!
+**⚡ BUILD 115.1 FINAL - Production Stability:**
+- **Simple Model**: default only (phone_call doesn't work for Hebrew in Israel)
+- **No Probe**: No complex startup checks
+- **No Custom Endpoint**: Standard SpeechClient() - stable everywhere
+- **Enhanced=True**: Google ignores if unsupported; system doesn't crash
+- **TX Rate Limiting**: 8ms sleep between media frames prevents send_queue overflow
+- **Result**: Simplest, most stable configuration - works reliably in production!
 
 # User Preferences
 
