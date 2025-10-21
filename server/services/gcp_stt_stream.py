@@ -42,18 +42,27 @@ class StreamingSTTSession:
             on_partial: Callback for interim results (called frequently ~180ms)
             on_final: Callback for final results (end of utterance)
         """
-        # Initialize Google Speech client
+        # ⚡ BUILD 114: Initialize Google Speech client with europe-west1 region for lower RTT
         try:
             sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+            region = os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')
+            api_endpoint = f"{region}-speech.googleapis.com"
+            
+            from google.api_core.client_options import ClientOptions
+            client_options = ClientOptions(api_endpoint=api_endpoint)
+            
             if sa_json:
                 credentials_info = json.loads(sa_json)
                 from google.cloud.speech import SpeechClient
-                self.client = SpeechClient.from_service_account_info(credentials_info)
-                log.info("✅ StreamingSTTSession: Client initialized (service account)")
+                self.client = SpeechClient.from_service_account_info(
+                    credentials_info,
+                    client_options=client_options
+                )
+                log.info(f"✅ StreamingSTTSession: Client initialized (service account, region: {region})")
             else:
                 from google.cloud.speech import SpeechClient
-                self.client = SpeechClient()
-                log.info("✅ StreamingSTTSession: Client initialized (default)")
+                self.client = SpeechClient(client_options=client_options)
+                log.info(f"✅ StreamingSTTSession: Client initialized (default, region: {region})")
         except Exception as e:
             log.error(f"❌ Failed to initialize Speech client: {e}")
             raise

@@ -85,6 +85,14 @@ def _create_dispatcher_callbacks(call_sid: str):
                 utt["last_partial"] = text
             print(f"🟡 [PARTIAL] '{text}' saved for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
             
+            # ⚡ BUILD 114: Early Finalization - if partial is strong enough, finalize immediately
+            # This saves 400-600ms by not waiting for the final event
+            if text and len(text) > 15 and text.rstrip().endswith(('.', '?', '!')):
+                print(f"⚡ [EARLY_FINALIZE] Strong partial detected: '{text}' → triggering final")
+                # Trigger final with this partial
+                on_final(text)
+                return  # Don't call the partial callback
+            
             # Call the utterance's partial callback
             cb = utt.get("partial_cb")
             if cb:
