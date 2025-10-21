@@ -29,19 +29,31 @@ PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "t
 
 def choose_stt_model(language="he-IL"):
     """
-    ⚡ BUILD 115.1: Simple model selection (NO PROBE - fixes production issue)
+    ⚡ BUILD 115.1: Simple model selection with safe fallback (NO PROBE)
     
-    Selects model based on ENV without real-time probing.
-    Probe was causing failures in production deployment.
+    Selects model based on ENV with fallback order: env → phone_call → default
+    No startup probe - fallback happens at runtime if model fails.
     
     Returns:
-        dict: {"model": str, "use_enhanced": bool}
+        dict: {"model": str, "use_enhanced": bool, "fallback_order": list}
     """
-    model = os.getenv("GCP_STT_MODEL", "default").strip()
+    preferred = os.getenv("GCP_STT_MODEL", "").strip()
     use_enhanced = os.getenv("GCP_STT_USE_ENHANCED", "true").lower() == "true"
     
+    # Build fallback order: preferred → phone_call → default
+    fallback_order = []
+    if preferred and preferred not in fallback_order:
+        fallback_order.append(preferred)
+    if "phone_call" not in fallback_order:
+        fallback_order.append("phone_call")
+    if "default" not in fallback_order:
+        fallback_order.append("default")
+    
+    model = fallback_order[0]
     print(f"✅ [STT] Selected model: {model} (enhanced={use_enhanced})", flush=True)
-    return {"model": model, "use_enhanced": use_enhanced}
+    print(f"📋 [STT] Fallback order: {' → '.join(fallback_order)}", flush=True)
+    
+    return {"model": model, "use_enhanced": use_enhanced, "fallback_order": fallback_order}
 
 
 # ⚡ BUILD 115.1: Choose model from ENV (NO PROBE - fixed production issue)
