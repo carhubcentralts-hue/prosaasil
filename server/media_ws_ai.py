@@ -250,6 +250,9 @@ class MediaStreamHandler:
         self.processing_start_ts = 0.0   # תחילת עיבוד
         self.speaking_start_ts = 0.0     # תחילת דיבור
         
+        # ⚡ BUILD 109: Smart barge-in - disable for long responses
+        self.long_response = False       # האם התשובה ארוכה (>20 מילים)
+        
         # ✅ WebSocket Keepalive למניעת נפילות אחרי 5 דקות
         self.last_keepalive_ts = 0.0     # זמן keepalive אחרון
         self.keepalive_interval = 18.0   # שלח כל 18 שניות
@@ -649,14 +652,19 @@ class MediaStreamHandler:
                     else:
                         self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
 
-                    # ⚡ FIXED BARGE-IN: Prevent false interruptions - EXTRA LONG GRACE PERIOD
+                    # ⚡ BUILD 109: SMART BARGE-IN - Disable for long responses, enable for short ones
                     if self.speaking and BARGE_IN:
-                        # ✅ CRITICAL: Grace period מאוד ארוך - 4 שניות! היא חייבת לסיים משפטים!
-                        grace_period = 4.0  # 4.0 שניות - כמעט כל המשפטים נגמרים תוך 4 שניות
+                        # 🧠 SMART: If response is long (>20 words), DISABLE barge-in completely!
+                        if self.long_response:
+                            # 🔒 Long response - let it finish! No interruptions allowed
+                            continue
+                        
+                        # 🔓 Short response - allow barge-in with grace period
+                        grace_period = 1.5  # 1.5 שניות לתגובות קצרות
                         time_since_tts_start = current_time - self.speaking_start_ts
                         
                         if time_since_tts_start < grace_period:
-                            # Inside grace period - NO barge-in allowed AT ALL
+                            # Inside grace period - NO barge-in allowed
                             continue
                         
                         # ✅ HEBREW BARGE-IN: Very high threshold + longer duration required
@@ -1140,6 +1148,14 @@ class MediaStreamHandler:
         """⚡ TTS מהיר לברכה - ללא sleep!"""
         if not text:
             return
+        
+        # ⚡ BUILD 109: Count words to decide on barge-in
+        word_count = len(text.split())
+        self.long_response = word_count > 20
+        if self.long_response:
+            print(f"🔒 LONG_RESPONSE ({word_count} words) - BARGE-IN DISABLED")
+        else:
+            print(f"🔓 SHORT_RESPONSE ({word_count} words) - BARGE-IN ENABLED")
             
         self.speaking = True
         self.speaking_start_ts = time.time()
@@ -1179,6 +1195,14 @@ class MediaStreamHandler:
                 time.sleep(0.05)  # המתנה קצרה
             except Exception as e:
                 print(f"⚠️ Interrupt error (non-critical): {e}")
+        
+        # ⚡ BUILD 109: Count words to decide on barge-in
+        word_count = len(text.split())
+        self.long_response = word_count > 20
+        if self.long_response:
+            print(f"🔒 LONG_RESPONSE ({word_count} words) - BARGE-IN DISABLED")
+        else:
+            print(f"🔓 SHORT_RESPONSE ({word_count} words) - BARGE-IN ENABLED")
             
         self.speaking = True
         self.speaking_start_ts = time.time()
@@ -1236,6 +1260,7 @@ class MediaStreamHandler:
     def _finalize_speaking(self):
         """סיום דיבור עם חזרה להאזנה"""
         self.speaking = False
+        self.long_response = False  # ⚡ BUILD 109: Reset flag
         self.last_tts_end_ts = time.time()
         self.state = STATE_LISTEN
         self.last_voice_ts = 0  # איפוס למערכת VAD
@@ -2179,6 +2204,14 @@ class MediaStreamHandler:
         """דיבור עם נשימה אנושית ו-TX Queue - תמיד משדר משהו"""
         if not text:
             return
+        
+        # ⚡ BUILD 109: Count words to decide on barge-in
+        word_count = len(text.split())
+        self.long_response = word_count > 20
+        if self.long_response:
+            print(f"🔒 LONG_RESPONSE ({word_count} words) - BARGE-IN DISABLED")
+        else:
+            print(f"🔓 SHORT_RESPONSE ({word_count} words) - BARGE-IN ENABLED")
             
         self.speaking = True
         self.state = STATE_SPEAK

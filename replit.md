@@ -26,7 +26,7 @@ Preferred communication style: Simple, everyday language.
 
 ## Real-time Communication
 - **Twilio Integration**: Media Streams WebSocket with Starlette/ASGI for Cloud Run native WebSocket support, inbound_track routing, and proper statusCallbackEvent handling.
-- **Audio Processing**: Optimized barge-in detection, calibrated VAD for Hebrew speech, immediate TTS interruption, and seamless turn-taking.
+- **Audio Processing**: Smart barge-in detection (disabled for long responses >20 words, enabled for short ones), calibrated VAD for Hebrew speech, immediate TTS interruption, and seamless turn-taking.
 - **Custom Greetings**: Initial phone greeting loads from business configuration with dynamic placeholders.
 - **Natural TTS**: Production-grade Hebrew TTS with WaveNet-D voice (8kHz telephony optimization), SSML smart pronunciation, TTS caching, and accelerated speaking rate (1.05x).
 - **Performance Optimization**: ⚡ BUILD 109 Ultra-low latency - VAD silence detection (0.5s/1.8s), STT streaming with partial transcripts (100ms response), Early EOU detection, comprehensive latency tracking (ASR, AI, TTS, Total). Achieves 2-3 second response times vs previous 5-6 seconds (60% improvement).
