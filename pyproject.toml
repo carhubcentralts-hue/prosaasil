@@ -39,4 +39,7 @@ py-modules = []
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["server*"]
-exclude = ["client*", "attached_assets*", "logs*", "tests*", "storage*", "services*", "scripts*", "test-results*"]
+exclude = ["tests*", "test-results*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.py"]

@@ -1,0 +1,22 @@
+# Include all production files
+include asgi.py
+include start_production.sh
+include Procfile
+include pyproject.toml
+
+# Include client dist (built frontend)
+recursive-include client/dist *
+
+# Include Baileys service
+recursive-include services/whatsapp *.js *.json
+exclude services/whatsapp/node_modules/**
+
+# Include server files
+recursive-include server *.py
+
+# Exclude unnecessary files
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store
+exclude .replit
+exclude replit.nix
