@@ -8,6 +8,21 @@ export FLASK_BASE_URL="${FLASK_BASE_URL:-http://localhost:5000}"
 export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 export RUN_MIGRATIONS_ON_START=1
 
+# ✅ BUILD Frontend if not exists or is outdated
+echo "🔍 Checking frontend build..."
+if [ ! -d "client/dist" ] || [ ! -f "client/dist/index.html" ]; then
+    echo "⚠️ Frontend build not found - building now..."
+    cd client
+    echo "📦 Installing frontend dependencies..."
+    npm install --prefer-offline --no-audit --no-fund
+    echo "🏗️ Building frontend with Vite..."
+    npm run build
+    cd ..
+    echo "✅ Frontend build complete!"
+else
+    echo "✅ Frontend build found - skipping rebuild"
+fi
+
 # ✅ BUILD 103: Fixed Baileys startup - always start unless explicitly external
 SKIP_BAILEYS="${SKIP_BAILEYS:-false}"
 
