@@ -335,10 +335,10 @@ class MediaStreamHandler:
             
             print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
     
-    def _utterance_end(self, timeout=0.5):
+    def _utterance_end(self, timeout=0.3):
         """
         Mark end of utterance.
-        ⚡ BUILD 112: Increased timeout to 500ms for reliable streaming results
+        ⚡ BUILD 112.1: REDUCED timeout to 300ms for FASTER responses (was 500ms)
         """
         if not self.call_sid:
             print("⚠️ _utterance_end: No call_sid")
@@ -350,17 +350,19 @@ class MediaStreamHandler:
             return ""
         
         utt_id = utt_state.get("id", "???")
-        print(f"🎤 [{self.call_sid[:8]}] _utterance_end: Collecting results for utterance {utt_id}")
+        print(f"🎤 [{self.call_sid[:8]}] _utterance_end: Collecting results for utterance {utt_id} (timeout={timeout}s)")
         
-        # ⚡ BUILD 112: Wait longer (500ms) for streaming results
+        # ⚡ BUILD 112.1: Wait 300ms for streaming results (was 500ms)
         # Streaming needs time to process audio and return partials/finals
+        wait_start = time.time()
         final_event = utt_state.get("final_received")
         if final_event:
-            got_final = final_event.wait(timeout=timeout)  # 500ms wait for streaming
+            got_final = final_event.wait(timeout=timeout)  # 300ms wait for streaming
+            wait_duration = time.time() - wait_start
             if got_final:
-                print(f"✅ [{self.call_sid[:8]}] Got final event within {timeout}s")
+                print(f"✅ [{self.call_sid[:8]}] Got final event in {wait_duration:.3f}s")
             else:
-                print(f"⚠️ [{self.call_sid[:8]}] Timeout waiting for final ({timeout}s)")  
+                print(f"⚠️ [{self.call_sid[:8]}] Timeout after {wait_duration:.3f}s - using fallback")  
         
         # Collect text - prioritize partial over finals
         with _registry_lock:
@@ -374,13 +376,13 @@ class MediaStreamHandler:
             # Use partial if available, otherwise finals
             if last_partial:
                 text = last_partial
-                print(f"✅ [{self.call_sid[:8]}] Using partial: '{text}'")
+                print(f"✅ [{self.call_sid[:8]}] Using partial: '{text[:50]}...' ({len(text)} chars)")
             elif finals_text:
                 text = finals_text
-                print(f"✅ [{self.call_sid[:8]}] Using final: '{text}'")
+                print(f"✅ [{self.call_sid[:8]}] Using final: '{text[:50]}...' ({len(text)} chars)")
             else:
                 text = ""
-                print(f"⚠️ [{self.call_sid[:8]}] No text available")
+                print(f"⚠️ [{self.call_sid[:8]}] No text available - returning empty")
             
             # Reset dispatcher
             utt_state["id"] = None
@@ -389,7 +391,7 @@ class MediaStreamHandler:
             utt_state["final_received"] = None
             utt_state["last_partial"] = ""
         
-        print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_id} END: '{text}'")
+        print(f"🏁 [{self.call_sid[:8]}] Utterance {utt_id} COMPLETE: returning '{text[:30] if text else '(empty)'}'")
         
         return text
 
@@ -1524,12 +1526,20 @@ class MediaStreamHandler:
             # Streaming mode: collect results from dispatcher
             # Audio is already being fed to session in WS loop
             # Just collect what's been accumulated
+            print(f"⏱️ [STT_STREAM] Calling _utterance_end...")
+            utt_start = time.time()
             result = self._utterance_end()
+            utt_duration = time.time() - utt_start
+            print(f"⏱️ [STT_STREAM] _utterance_end took {utt_duration:.3f}s, result: '{result[:50] if result else '(empty)'}'")
             
             # ✅ FIX: Fallback on empty results
             if not result or not result.strip():
                 print("⚠️ [STT] Streaming returned empty → fallback to single")
-                return self._hebrew_stt(pcm16_8k)
+                fallback_start = time.time()
+                fallback_result = self._hebrew_stt(pcm16_8k)
+                fallback_duration = time.time() - fallback_start
+                print(f"⏱️ [STT_FALLBACK] Single-request took {fallback_duration:.3f}s, result: '{fallback_result[:50] if fallback_result else '(empty)'}'")
+                return fallback_result
                 
             return result
             
