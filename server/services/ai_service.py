@@ -101,19 +101,19 @@ class AIService:
             logger.info(f"✅ Replaced {{{{business_name}}}} with '{business_name}'")
             
             if not settings:
-                # ⚡ FAST defaults - optimized for speed
+                # ⚡ BUILD 109: Balanced - quality + speed
                 prompt_data = {
                     "system_prompt": system_prompt,
                     "model": "gpt-4o-mini",  # Fast model
-                    "max_tokens": 120,  # ⚡ OPTIMIZED: 120 tokens for faster responses (2-3 sentences, safer than 100)
-                    "temperature": 0.2  # ⚡ Low temperature for faster, more deterministic responses
+                    "max_tokens": 180,  # ⚡ BUILD 109: 180 tokens for quality Hebrew responses (3-4 sentences)
+                    "temperature": 0.3  # Balanced temperature for natural responses
                 }
             else:
                 prompt_data = {
                     "system_prompt": system_prompt,
                     "model": settings.model,
-                    "max_tokens": min(settings.max_tokens, 120),  # ⚡ OPTIMIZED: Cap at 120 for faster responses
-                    "temperature": min(settings.temperature, 0.3)  # ⚡ Cap temperature for speed
+                    "max_tokens": min(settings.max_tokens, 180),  # ⚡ BUILD 109: Cap at 180 for quality
+                    "temperature": min(settings.temperature, 0.4)  # Balanced temperature
                 }
             
             # שמירה בקאש
@@ -132,8 +132,8 @@ class AIService:
             return {
                 "system_prompt": self._get_default_hebrew_prompt(business_name, channel),
                 "model": "gpt-4o-mini",
-                "max_tokens": 120,  # ⚡ OPTIMIZED: 120 tokens for faster responses
-                "temperature": 0.2  # ⚡ Fast and deterministic
+                "max_tokens": 180,  # ⚡ BUILD 109: 180 tokens for quality
+                "temperature": 0.3  # Balanced
             }
     
     def _get_default_hebrew_prompt(self, business_name: str = "העסק שלנו", channel: str = "calls") -> str:
