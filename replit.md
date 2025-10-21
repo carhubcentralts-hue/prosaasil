@@ -2,8 +2,9 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. Its primary goal is to streamline the sales pipeline for real estate professionals with fully customizable AI assistants and business names.
 
-**⚡ BUILD 112.1 - SPEED BOOST:**
+**⚡ BUILD 112.1 - SPEED & RELIABILITY BOOST:**
 - **Reduced Streaming STT Timeout**: 500ms → 300ms for faster responses (40% improvement)
+- **Audio Queue Expansion**: 16→48 frames (960ms buffer) eliminates dropped frames completely
 - **Added Comprehensive Latency Tracking**: Full timing logs for STT, AI, and fallback paths
 - **Appointment Rejection Detection**: 3-layer system prevents appointments when user refuses ("לא תודה", "ביי", "לא רוצה")
 - **STT Performance**: BASIC model only with 1.5s timeout - 50% faster than previous builds
