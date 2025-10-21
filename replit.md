@@ -50,7 +50,7 @@ Preferred communication style: Simple, everyday language.
 ## System Design Choices
 - **AI Response Optimization**: Max tokens set to 180 for quality Hebrew responses (3-4 sentences) using `gpt-4o-mini`, temperature 0.3-0.4 for balanced natural responses.
 - **Robustness**: Implemented thread tracking and enhanced cleanup for background processes, extended ASGI handler timeout.
-- **STT Reliability**: Relaxed validation for better Hebrew recognition - amplitude threshold lowered to 40 (from 80), RMS threshold to 25 (from 50), confidence threshold to 0.3 (from 0.5). Extended STT timeout to 3 seconds for Hebrew speech. numpy/scipy dependencies added for advanced audio analysis.
+- **STT Reliability**: BALANCED validation prevents false positives AND false negatives - amplitude threshold 60, RMS threshold 40, confidence threshold 0.3. Short utterances (≤2 words) require confidence ≥0.6 to prevent responding to noise. Extended STT timeout to 3 seconds for Hebrew speech. numpy/scipy dependencies added for advanced audio analysis.
 - **Voice Consistency**: Standardized on a male voice (`he-IL-Wavenet-D`) and masculine Hebrew phrasing.
 - **Cold Start Optimization**: Automatic warmup of services on startup and via a dedicated `/warmup` endpoint.
 - **Business Auto-Detection**: Smart normalization of identifiers for automatic detection of new businesses.
