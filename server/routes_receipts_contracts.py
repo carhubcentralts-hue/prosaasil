@@ -643,39 +643,68 @@ def view_contract(contract_id):
         p = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
         
+        # הוספת פונט עברי (נדרש לתמיכה בעברית)
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        font_name = 'Helvetica'  # Default font
         try:
             hebrew_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
             if os.path.exists(hebrew_font_path):
                 pdfmetrics.registerFont(TTFont('Hebrew', hebrew_font_path))
                 font_name = 'Hebrew'
             else:
-                font_name = 'Helvetica'
-        except:
+                # Fallback - try other common Hebrew font paths
+                alt_paths = [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansBold.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+                ]
+                for alt_path in alt_paths:
+                    if os.path.exists(alt_path):
+                        pdfmetrics.registerFont(TTFont('Hebrew', alt_path))
+                        font_name = 'Hebrew'
+                        break
+        except Exception as e:
+            print(f"Font loading error: {e}")
             font_name = 'Helvetica'
         
-        # כותרת החוזה
-        p.setFont(font_name, 24)
-        p.drawString(100, height - 100, f"Contract #{contract.id}")
+        # Function to draw RTL text (for Hebrew)
+        def draw_rtl_text(canvas_obj, x, y, text, font, size):
+            canvas_obj.setFont(font, size)
+            # For RTL, draw from right edge
+            text_width = stringWidth(text, font, size)
+            canvas_obj.drawString(width - x - text_width, y, text)
         
-        # פרטי החוזה - נתונים אמיתיים מה-DB
+        # כותרת החוזה בעברית
+        p.setFont(font_name, 26)
+        title = f"חוזה #{contract.id}"
+        draw_rtl_text(p, 50, height - 80, title, font_name, 26)
+        
+        # קו הפרדה
+        p.setStrokeColorRGB(0.8, 0.8, 0.8)
+        p.setLineWidth(1)
+        p.line(50, height - 100, width - 50, height - 100)
+        
+        # פרטי החוזה - נתונים אמיתיים מה-DB בעברית
         p.setFont(font_name, 12)
-        y_position = height - 150
+        y_position = height - 130
         
         contract_details = [
-            f"Company: {business_name}",
-            f"Contract ID: {contract.id}",
-            f"Template: {contract.template_name or 'Standard Agreement'}",
-            f"Created: {contract.created_at.strftime('%Y-%m-%d %H:%M') if contract.created_at else 'N/A'}",
-            f"Customer: {customer.name if customer else 'לא צוין'}",
-            f"Property: {deal.title if deal else 'לא צוין'}",
-            f"Amount: ₪{deal.amount / 100:,.2f}" if deal and deal.amount else "Amount: N/A",
-            f"Signed By: {contract.signed_name if contract.signed_name else 'Not Signed'}",
-            f"Signed At: {contract.signed_at.strftime('%Y-%m-%d %H:%M') if contract.signed_at else 'N/A'}"
+            f"חברה: {business_name}",
+            f"מספר חוזה: {contract.id}",
+            f"תבנית: {contract.template_name or 'חוזה רגיל'}",
+            f"תאריך יצירה: {contract.created_at.strftime('%d/%m/%Y %H:%M') if contract.created_at else 'לא צוין'}",
+            "",
+            f"לקוח: {customer.name if customer else 'לא צוין'}",
+            f"נכס: {deal.title if deal else 'לא צוין'}",
+            f"סכום: ₪{deal.amount / 100:,.2f}" if deal and deal.amount else "סכום: לא צוין",
+            "",
+            f"נחתם על ידי: {contract.signed_name if contract.signed_name else 'טרם נחתם'}",
+            f"תאריך חתימה: {contract.signed_at.strftime('%d/%m/%Y %H:%M') if contract.signed_at else 'לא צוין'}"
         ]
         
         for detail in contract_details:
-            p.drawString(100, y_position, detail)
-            y_position -= 20
+            if detail:  # Skip empty lines
+                draw_rtl_text(p, 50, y_position, detail, font_name, 12)
+            y_position -= 25
         
         # הוספת חתימה אם קיימת
         if contract.signature_data:
@@ -690,12 +719,13 @@ def view_contract(contract_id):
                 
                 # ציור החתימה ב-PDF
                 y_position -= 40
-                p.drawString(100, y_position, "Digital Signature:")
+                draw_rtl_text(p, 50, y_position, "חתימה דיגיטלית:", font_name, 12)
                 y_position -= 10
-                p.drawImage(signature_img, 100, y_position - 60, width=150, height=50, preserveAspectRatio=True)
+                # Draw signature image aligned to right
+                p.drawImage(signature_img, width - 200, y_position - 60, width=150, height=50, preserveAspectRatio=True)
                 y_position -= 70
                 if contract.signed_name:
-                    p.drawString(100, y_position, f"Signed by: {contract.signed_name}")
+                    draw_rtl_text(p, 50, y_position, f"נחתם על ידי: {contract.signed_name}", font_name, 12)
             except Exception as sig_error:
                 print(f"Error adding signature to PDF: {sig_error}")
                 # Continue without signature if there's an error
@@ -746,37 +776,68 @@ def download_contract(contract_id):
         p = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
         
+        # הוספת פונט עברי (נדרש לתמיכה בעברית)
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        font_name = 'Helvetica'  # Default font
         try:
             hebrew_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
             if os.path.exists(hebrew_font_path):
                 pdfmetrics.registerFont(TTFont('Hebrew', hebrew_font_path))
                 font_name = 'Hebrew'
             else:
-                font_name = 'Helvetica'
-        except:
+                # Fallback - try other common Hebrew font paths
+                alt_paths = [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansBold.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+                ]
+                for alt_path in alt_paths:
+                    if os.path.exists(alt_path):
+                        pdfmetrics.registerFont(TTFont('Hebrew', alt_path))
+                        font_name = 'Hebrew'
+                        break
+        except Exception as e:
+            print(f"Font loading error: {e}")
             font_name = 'Helvetica'
         
-        p.setFont(font_name, 24)
-        p.drawString(100, height - 100, f"Contract #{contract.id}")
+        # Function to draw RTL text (for Hebrew)
+        def draw_rtl_text(canvas_obj, x, y, text, font, size):
+            canvas_obj.setFont(font, size)
+            # For RTL, draw from right edge
+            text_width = stringWidth(text, font, size)
+            canvas_obj.drawString(width - x - text_width, y, text)
         
+        # כותרת החוזה בעברית
+        p.setFont(font_name, 26)
+        title = f"חוזה #{contract.id}"
+        draw_rtl_text(p, 50, height - 80, title, font_name, 26)
+        
+        # קו הפרדה
+        p.setStrokeColorRGB(0.8, 0.8, 0.8)
+        p.setLineWidth(1)
+        p.line(50, height - 100, width - 50, height - 100)
+        
+        # פרטי החוזה - נתונים אמיתיים מה-DB בעברית
         p.setFont(font_name, 12)
-        y_position = height - 150
+        y_position = height - 130
         
         contract_details = [
-            f"Company: {business_name}",
-            f"Contract ID: {contract.id}",
-            f"Template: {contract.template_name or 'Standard Agreement'}",
-            f"Created: {contract.created_at.strftime('%Y-%m-%d %H:%M') if contract.created_at else 'N/A'}",
-            f"Customer: {customer.name if customer else 'לא צוין'}",
-            f"Property: {deal.title if deal else 'לא צוין'}",
-            f"Amount: ₪{deal.amount / 100:,.2f}" if deal and deal.amount else "Amount: N/A",
-            f"Signed By: {contract.signed_name if contract.signed_name else 'Not Signed'}",
-            f"Signed At: {contract.signed_at.strftime('%Y-%m-%d %H:%M') if contract.signed_at else 'N/A'}"
+            f"חברה: {business_name}",
+            f"מספר חוזה: {contract.id}",
+            f"תבנית: {contract.template_name or 'חוזה רגיל'}",
+            f"תאריך יצירה: {contract.created_at.strftime('%d/%m/%Y %H:%M') if contract.created_at else 'לא צוין'}",
+            "",
+            f"לקוח: {customer.name if customer else 'לא צוין'}",
+            f"נכס: {deal.title if deal else 'לא צוין'}",
+            f"סכום: ₪{deal.amount / 100:,.2f}" if deal and deal.amount else "סכום: לא צוין",
+            "",
+            f"נחתם על ידי: {contract.signed_name if contract.signed_name else 'טרם נחתם'}",
+            f"תאריך חתימה: {contract.signed_at.strftime('%d/%m/%Y %H:%M') if contract.signed_at else 'לא צוין'}"
         ]
         
         for detail in contract_details:
-            p.drawString(100, y_position, detail)
-            y_position -= 20
+            if detail:  # Skip empty lines
+                draw_rtl_text(p, 50, y_position, detail, font_name, 12)
+            y_position -= 25
         
         # הוספת חתימה אם קיימת
         if contract.signature_data:
@@ -791,12 +852,13 @@ def download_contract(contract_id):
                 
                 # ציור החתימה ב-PDF
                 y_position -= 40
-                p.drawString(100, y_position, "Digital Signature:")
+                draw_rtl_text(p, 50, y_position, "חתימה דיגיטלית:", font_name, 12)
                 y_position -= 10
-                p.drawImage(signature_img, 100, y_position - 60, width=150, height=50, preserveAspectRatio=True)
+                # Draw signature image aligned to right
+                p.drawImage(signature_img, width - 200, y_position - 60, width=150, height=50, preserveAspectRatio=True)
                 y_position -= 70
                 if contract.signed_name:
-                    p.drawString(100, y_position, f"Signed by: {contract.signed_name}")
+                    draw_rtl_text(p, 50, y_position, f"נחתם על ידי: {contract.signed_name}", font_name, 12)
             except Exception as sig_error:
                 print(f"Error adding signature to PDF: {sig_error}")
                 # Continue without signature if there's an error
