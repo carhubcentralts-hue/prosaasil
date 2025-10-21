@@ -14,8 +14,8 @@ print("="*80)
 print("⚡ BUILD 107 - ULTRA LOW LATENCY CONFIGURATION")
 print("="*80)
 print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
-print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '60')}")
-print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '90')}")
+print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '80')}")
+print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '120')}")
 print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
 print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')}")
 print("="*80)
@@ -280,33 +280,52 @@ class MediaStreamHandler:
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
 
     def _init_streaming_stt(self):
-        """Initialize streaming STT session for this call"""
+        """
+        ⚡ BUILD 114: Initialize streaming STT with retry mechanism
+        3 attempts before falling back to single-request mode
+        """
         if not USE_STREAMING_STT or not self.call_sid:
             return
         
-        try:
-            from server.services.gcp_stt_stream import StreamingSTTSession
-            
-            # Create dispatcher callbacks for this specific call
-            on_partial, on_final = _create_dispatcher_callbacks(self.call_sid)
-            
-            # Create session
-            session = StreamingSTTSession(
-                on_partial=on_partial,
-                on_final=on_final
-            )
-            
-            # Register in thread-safe registry
-            _register_session(self.call_sid, session, tenant_id=self.business_id)
-            
-            print(f"✅ [STT] Streaming session started for call {self.call_sid[:8]}... (business: {self.business_id})")
-        except RuntimeError as e:
-            print(f"🚨 [STT] Over capacity: {e}")
-            # Don't crash - will use fallback STT
-        except Exception as e:
-            print(f"⚠️ [STT] Failed to start streaming: {e}")
-            import traceback
-            traceback.print_exc()
+        from server.services.gcp_stt_stream import StreamingSTTSession
+        
+        # ⚡ RETRY MECHANISM: 3 attempts before fallback
+        for attempt in range(3):
+            try:
+                # Create dispatcher callbacks for this specific call
+                on_partial, on_final = _create_dispatcher_callbacks(self.call_sid)
+                
+                # Create session
+                session = StreamingSTTSession(
+                    on_partial=on_partial,
+                    on_final=on_final
+                )
+                
+                # Register in thread-safe registry
+                _register_session(self.call_sid, session, tenant_id=self.business_id)
+                
+                print(f"✅ [STT] Streaming session started for call {self.call_sid[:8]}... (business: {self.business_id}, attempt: {attempt+1})")
+                return  # Success!
+                
+            except RuntimeError as e:
+                print(f"🚨 [STT] Over capacity (attempt {attempt+1}/3): {e}")
+                if attempt < 2:
+                    time.sleep(0.2)  # Brief delay before retry
+                    continue
+                # Don't crash - will use fallback STT
+                return
+                
+            except Exception as e:
+                print(f"⚠️ [STT] Streaming start failed (attempt {attempt+1}/3): {e}", flush=True)
+                if attempt < 2:
+                    time.sleep(0.2)  # Brief delay before retry
+                    continue
+                import traceback
+                traceback.print_exc()
+                return
+        
+        # If we get here, all 3 attempts failed
+        print(f"❌ [STT] All streaming attempts failed for call {self.call_sid[:8]} → using fallback single request", flush=True)
     
     def _close_streaming_stt(self):
         """Close streaming STT session at end of call"""
@@ -335,7 +354,7 @@ class MediaStreamHandler:
             
             print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
     
-    def _utterance_end(self, timeout=0.45):
+    def _utterance_end(self, timeout=0.450):
         """
         Mark end of utterance.
         ⚡ BUILD 114: OPTIMIZED timeout to 450ms - balanced speed & accuracy with streaming STT
