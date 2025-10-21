@@ -335,10 +335,11 @@ class MediaStreamHandler:
             
             print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
     
-    def _utterance_end(self, timeout=0.3):
+    def _utterance_end(self, timeout=1.2):
         """
         Mark end of utterance.
-        ⚡ BUILD 112.1: REDUCED timeout to 300ms for FASTER responses (was 500ms)
+        ⚡ BUILD 113: INCREASED timeout to 1200ms for BETTER transcription accuracy
+        Previous 300ms was TOO SHORT - users couldn't finish speaking!
         """
         if not self.call_sid:
             print("⚠️ _utterance_end: No call_sid")
@@ -352,12 +353,13 @@ class MediaStreamHandler:
         utt_id = utt_state.get("id", "???")
         print(f"🎤 [{self.call_sid[:8]}] _utterance_end: Collecting results for utterance {utt_id} (timeout={timeout}s)")
         
-        # ⚡ BUILD 112.1: Wait 300ms for streaming results (was 500ms)
+        # ⚡ BUILD 113: Wait 1200ms for streaming results (was 300ms - TOO SHORT!)
         # Streaming needs time to process audio and return partials/finals
+        # Users need time to complete sentences - 300ms caused premature cutoff
         wait_start = time.time()
         final_event = utt_state.get("final_received")
         if final_event:
-            got_final = final_event.wait(timeout=timeout)  # 300ms wait for streaming
+            got_final = final_event.wait(timeout=timeout)  # 1200ms wait for streaming
             wait_duration = time.time() - wait_start
             if got_final:
                 print(f"✅ [{self.call_sid[:8]}] Got final event in {wait_duration:.3f}s")
