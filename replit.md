@@ -12,6 +12,14 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Result**: Stable production deployment - works reliably with default/phone_call models for Hebrew
 - **Fix**: Removed startup probe and custom endpoint that caused "לא הבנתי" loop in production
 
+**⚡ BUILD 115.1 הסופי - פשטות מקסימלית:**
+- **default תמיד**: phone_call לא עובד בעברית בישראל - השתמש רק ב-default
+- **ללא probe**: אין בדיקות מורכבות בזמן startup
+- **ללא fallback מסובך**: קונפיגורציה פשוטה ויציבה
+- **ENDPOINT אזורי**: europe-west1-speech.googleapis.com לביצועים טובים
+- **Enhanced=True**: גוגל מתעלמת אם לא נתמך; המערכת לא קורסת
+- **תוצאה**: המערכת הכי פשוטה ויציבה - עובדת תמיד!
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
