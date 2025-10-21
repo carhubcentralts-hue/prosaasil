@@ -29,8 +29,8 @@ Preferred communication style: Simple, everyday language.
 - **Audio Processing**: Smart barge-in detection (disabled for long responses >20 words, enabled for short ones), calibrated VAD for Hebrew speech, immediate TTS interruption, and seamless turn-taking.
 - **Custom Greetings**: Initial phone greeting loads from business configuration with dynamic placeholders.
 - **Natural TTS**: Production-grade Hebrew TTS with WaveNet-D voice (8kHz telephony optimization), SSML smart pronunciation, TTS caching, and accelerated speaking rate (1.05x).
-- **Performance Optimization**: ⚡ BUILD 109 Ultra-low latency - VAD silence detection (0.5s/1.8s), STT streaming with partial transcripts (100ms response), Early EOU detection, comprehensive latency tracking (ASR, AI, TTS, Total). Achieves 2-3 second response times vs previous 5-6 seconds (60% improvement). Session timestamp updated on every audio frame to prevent 2-minute resets.
-- **Intelligent Error Handling**: Smart responses for STT failures.
+- **Performance Optimization**: ⚡ BUILD 109 Ultra-low latency - VAD silence detection (0.5s/1.8s), STT streaming with partial transcripts (100ms response), Early EOU detection, comprehensive latency tracking (ASR, AI, TTS, Total). Achieves 2-3 second response times vs previous 5-6 seconds (60% improvement). Session timestamp updated on every audio frame to prevent 2-minute resets. **3-layer false-positive protection**: (1) Balanced audio validation (60/40 thresholds), (2) STT confidence checks with short-utterance rejection, (3) Common-word filtering with punctuation normalization.
+- **Intelligent Error Handling**: Smart responses for STT failures with consecutive failure tracking (2x trigger "לא הבנתי").
 
 ## CRM Features
 - **Multi-tenant Architecture**: Business-based data isolation.
@@ -38,7 +38,7 @@ Preferred communication style: Simple, everyday language.
 - **Conversation Memory**: Full conversation history for contextual AI responses.
 - **WhatsApp Integration**: Supports both Twilio and Baileys with optimized response times, full message storage, and context management.
 - **Intelligent Lead Collection**: Automated capture of key lead information with real-time creation and deduplication.
-- **Calendar & Meeting Scheduling**: AI checks real-time availability and suggests appointment slots, with automatic calendar entry creation and Hebrew time parsing.
+- **Calendar & Meeting Scheduling**: ⚡ BUILD 110 - AI checks real-time availability and suggests appointment slots with **explicit time confirmation** in responses. Enhanced time parser with 12+ confirmation phrases, DEBUG logging for full visibility, and priority given to user input. Appointments store precise datetime (date + time) in start_time/end_time fields.
 - **Customizable AI Assistant**: Customizable names and introductions via prompts and greetings.
 - **Greeting Management UI**: Dedicated fields for initial greetings supporting dynamic placeholders and real-time cache invalidation.
 - **Customizable Status Management**: Per-business custom lead statuses.
