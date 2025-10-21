@@ -38,7 +38,7 @@ Preferred communication style: Simple, everyday language.
 - **Conversation Memory**: Full conversation history for contextual AI responses.
 - **WhatsApp Integration**: Supports both Twilio and Baileys with optimized response times, full message storage, and context management.
 - **Intelligent Lead Collection**: Automated capture of key lead information with real-time creation and deduplication.
-- **Calendar & Meeting Scheduling**: ⚡ BUILD 110 - AI checks real-time availability and suggests appointment slots with **explicit time confirmation** in responses. Enhanced time parser with 12+ confirmation phrases, DEBUG logging for full visibility, and priority given to user input. Appointments store precise datetime (date + time) in start_time/end_time fields.
+- **Calendar & Meeting Scheduling**: ⚡ BUILD 110.1 - AI checks real-time availability and suggests appointment slots with **explicit time confirmation** that **repeats the exact time the customer said**. Enhanced time parser with 14 confirmation phrases, DEBUG logging for full visibility, and priority given to user input. Appointments store precise datetime (date + time) in start_time/end_time fields. **Iron Rule: AI must repeat customer's exact time, not make up times!**
 - **Customizable AI Assistant**: Customizable names and introductions via prompts and greetings.
 - **Greeting Management UI**: Dedicated fields for initial greetings supporting dynamic placeholders and real-time cache invalidation.
 - **Customizable Status Management**: Per-business custom lead statuses.
