@@ -1045,6 +1045,22 @@ class MediaStreamHandler:
             # ✅ איפוס מונה כישלונות - STT הצליח!
             if hasattr(self, 'consecutive_empty_stt'):
                 self.consecutive_empty_stt = 0
+            
+            # ⚡ BUILD 109: Short utterance false-positive protection
+            word_count = len(text.split())
+            if word_count <= 2:
+                # Very short utterances might be noise - require them to be common words
+                common_words = {
+                    "כן", "לא", "שלום", "תודה", "בסדר", "נהדר", "ביי", "היי", 
+                    "מה", "למה", "איך", "מי", "מתי", "איפה", "כמה", "אוקיי",
+                    "טוב", "רגע", "כן כן", "לא לא", "שלום שלום"
+                }
+                if text.strip() not in common_words and word_count == 1:
+                    print(f"🚫 SHORT_UNCOMMON_WORD: '{text}' (1 word, not in common list) - likely false positive")
+                    self.state = STATE_LISTEN
+                    self.processing = False
+                    return
+                # 2-word phrases pass through (likely real speech)
             # STT result processed")
             
             # PATCH 6: Anti-duplication on user text (14s window) - WITH DEBUG
