@@ -1055,8 +1055,10 @@ class MediaStreamHandler:
                     "מה", "למה", "איך", "מי", "מתי", "איפה", "כמה", "אוקיי",
                     "טוב", "רגע", "כן כן", "לא לא", "שלום שלום"
                 }
-                if text.strip() not in common_words and word_count == 1:
-                    print(f"🚫 SHORT_UNCOMMON_WORD: '{text}' (1 word, not in common list) - likely false positive")
+                # Normalize: remove punctuation for comparison
+                normalized_text = text.strip().strip(".,!?;:\"'")
+                if normalized_text not in common_words and word_count == 1:
+                    print(f"🚫 SHORT_UNCOMMON_WORD: '{text}' (normalized: '{normalized_text}', not in common list) - likely false positive")
                     self.state = STATE_LISTEN
                     self.processing = False
                     return
