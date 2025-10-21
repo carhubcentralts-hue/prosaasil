@@ -126,6 +126,7 @@ class StreamingSTTSession:
             sample_rate_hertz=8000,
             language_code=LANG,
             model=MODEL,
+            use_enhanced=True,  # ⚡ BUILD 114: Enhanced model for better Hebrew accuracy
             enable_automatic_punctuation=PUNCTUATION_FINAL,
             speech_contexts=speech_contexts
         )
