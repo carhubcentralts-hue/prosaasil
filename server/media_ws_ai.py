@@ -1521,16 +1521,16 @@ class MediaStreamHandler:
             duration = len(pcm16_8k) / (2 * 8000)
             print(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
-            # ⚡ BUILD 109: RELAXED validation - allow more legitimate speech
+            # ⚡ BUILD 109: BALANCED validation - prevent both false negatives AND false positives
             
-            # 1. Basic amplitude check - RELAXED threshold
-            if max_amplitude < 40:  # Very quiet - probably silence/noise
-                print(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 40)")
+            # 1. Basic amplitude check - BALANCED threshold (middle ground)
+            if max_amplitude < 60:  # Telephony speech typically >100, noise <90
+                print(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 60)")
                 return ""
             
-            # 2. RMS energy check - RELAXED
-            if rms < 25:  # Very low energy - probably silence
-                print(f"🚫 STT_BLOCKED: Audio energy too low (rms={rms} < 25)")
+            # 2. RMS energy check - BALANCED
+            if rms < 40:  # Speech typically >70, hiss <50
+                print(f"🚫 STT_BLOCKED: Audio energy too low (rms={rms} < 40)")
                 return ""
             
             # 3. Duration check
@@ -1612,12 +1612,18 @@ class MediaStreamHandler:
                 confidence = response.results[0].alternatives[0].confidence
                 print(f"📊 GOOGLE_STT_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
                 
-                # ⚡ BUILD 109: RELAXED confidence - accept more Hebrew speech
+                # ⚡ BUILD 109: SMART confidence - prevent false positives
                 if confidence < 0.3:  # Very low confidence = not reliable
                     print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.3 - rejecting result")
                     return ""  # Return empty instead of nonsense
                 
-                print(f"✅ GOOGLE_STT_SUCCESS: '{hebrew_text}' (confidence: {confidence:.2f})")
+                # ⚡ BUILD 109: Additional check - reject very short results with low-medium confidence
+                word_count = len(hebrew_text.split())
+                if word_count <= 2 and confidence < 0.6:
+                    print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.6 - likely noise")
+                    return ""
+                
+                print(f"✅ GOOGLE_STT_SUCCESS: '{hebrew_text}' ({word_count} words, confidence: {confidence:.2f})")
                 return hebrew_text
             else:
                 print("⚠️ ENHANCED_MODEL_FAILED - trying BASIC model")
@@ -1668,12 +1674,18 @@ class MediaStreamHandler:
                 confidence = response.results[0].alternatives[0].confidence
                 print(f"📊 GOOGLE_STT_BASIC_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
                 
-                # ⚡ BUILD 109: RELAXED confidence - accept more Hebrew speech
+                # ⚡ BUILD 109: SMART confidence - prevent false positives
                 if confidence < 0.3:  # Very low confidence = not reliable
                     print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.3 - rejecting result")
                     return ""  # Return empty instead of nonsense
                 
-                print(f"✅ GOOGLE_STT_BASIC_SUCCESS: '{hebrew_text}' (confidence: {confidence:.2f})")
+                # ⚡ BUILD 109: Additional check - reject very short results with low-medium confidence
+                word_count = len(hebrew_text.split())
+                if word_count <= 2 and confidence < 0.6:
+                    print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.6 - likely noise")
+                    return ""
+                
+                print(f"✅ GOOGLE_STT_BASIC_SUCCESS: '{hebrew_text}' ({word_count} words, confidence: {confidence:.2f})")
                 return hebrew_text
             else:
                 print("❌ Both Google STT models failed - fallback to Whisper with validation")
