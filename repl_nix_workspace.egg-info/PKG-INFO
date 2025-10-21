@@ -19,6 +19,7 @@ Requires-Dist: numpy>=2.3.4
 Requires-Dist: openai>=2.2.0
 Requires-Dist: psycopg2-binary>=2.9.10
 Requires-Dist: pyjwt>=2.10.1
+Requires-Dist: reportlab>=4.4.4
 Requires-Dist: requests>=2.32.5
 Requires-Dist: scipy>=1.16.2
 Requires-Dist: sqlalchemy>=2.0.43
