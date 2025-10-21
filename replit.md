@@ -2,16 +2,16 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. Its primary goal is to streamline the sales pipeline for real estate professionals with fully customizable AI assistants and business names.
 
-**⚡ BUILD 115 - DYNAMIC MODEL SELECTION:**
-- **Smart Model Detection**: Automatic probe of STT model availability at startup with fallback chain (user-preferred → phone_call → default)
-- **Zero-Config Reliability**: System auto-detects which models work with Hebrew and selects best available option
-- **Enhanced Model Preference**: Attempts ENHANCED mode for all models, gracefully degrades if unavailable
-- **Streaming STT**: Enabled by default with 3-attempt retry mechanism before fallback
-- **Regional Optimization**: europe-west1 region for reduced RTT latency to Google STT
-- **Optimized Parameters**: BATCH_MS=80ms, DEBOUNCE_MS=120ms, TIMEOUT=450ms, VAD_HANGOVER=220ms
-- **Early Finalization**: Strong partials (>15 chars + punctuation) trigger immediate finalization, saving 400-600ms
-- **Enhanced Logging**: Comprehensive latency tracking (partial, final, STT, AI, TTS, total turn)
-- **Result**: ≤2 second response times with excellent Hebrew transcription quality, works with any available model
+**⚡ BUILD 115 - PRODUCTION-READY STT:**
+- **Smart Model Selection**: Automatic probe with streaming_recognize() to detect model+language availability (phone_call → default fallback)
+- **Enhanced/Basic Fallback**: Each model tried with enhanced=True first, then enhanced=False before moving to next model
+- **ENDPOINT-based Configuration**: Uses GOOGLE_CLOUD_SPEECH_ENDPOINT (e.g., europe-west1-speech.googleapis.com) instead of region
+- **Global Configs**: recognition_config and streaming_config created once at startup for consistency
+- **Non-blocking Fallback**: ThreadPoolExecutor for single-request STT prevents blocking event loop
+- **Streaming by Default**: USE_STREAMING_STT=True in code (ENV override: "false"/"0"/"no" disables)
+- **Fast Parameters**: BATCH_MS=80ms, DEBOUNCE_MS=120ms, TIMEOUT_MS=450ms for ≤2s total response time
+- **3-Attempt Retry**: Streaming STT retries 3x (200ms delay) before falling back to single-request mode
+- **Result**: Zero-config reliability - works with any available Google STT model for Hebrew
 
 # User Preferences
 
