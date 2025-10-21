@@ -1648,7 +1648,7 @@ class MediaStreamHandler:
                 print(f"⚠️ STT_TIMEOUT ({timeout_error}) - likely silence")
                 return ""
             
-            print(f"📊 GOOGLE_STT_BASIC: Processed {len(pcm16_8k)} bytes")
+            print(f"📊 GOOGLE_STT_ENHANCED: Processed {len(pcm16_8k)} bytes")
             
             if response.results and response.results[0].alternatives:
                 hebrew_text = response.results[0].alternatives[0].transcript.strip()

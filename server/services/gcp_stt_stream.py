@@ -335,14 +335,10 @@ class GcpStreamingSTT:
     def _stream_worker(self):
         """Background worker that handles streaming recognition"""
         try:
-            # Configure recognition
-            use_enhanced = os.getenv("GCP_STT_ENHANCED", "true").lower() == "true"
-            
-            # Safe model selection for he-IL
+            # ⚡ BUILD 114: ALWAYS use enhanced model with phone_call
+            use_enhanced = True  # ✅ CRITICAL: Enhanced model for better Hebrew accuracy
             model = MODEL
-            if model == "phone_call":
-                use_enhanced = False
-                log.info("📞 Using phone_call model (enhanced disabled for he-IL)")
+            log.info(f"📞 Using phone_call model with ENHANCED=True for he-IL")
             
             speech_contexts = [
                 speech.SpeechContext(

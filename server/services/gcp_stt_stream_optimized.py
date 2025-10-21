@@ -131,14 +131,10 @@ class GcpHebrewStreamerOptimized:
                 )
             ]
             
-            # ✅ FIX: Default model for he-IL (phone_call + enhanced not supported)
-            model = os.getenv("GCP_STT_MODEL", "default")
-            use_enhanced = os.getenv("GCP_STT_ENHANCED", "true").lower() == "true"
-            
-            # ✅ SAFE: Don't combine phone_call with enhanced for he-IL
-            if model == "phone_call":
-                use_enhanced = False
-                log.info("📞 Using phone_call model (enhanced disabled for compatibility)")
+            # ⚡ BUILD 114: ALWAYS use enhanced model with phone_call for better Hebrew
+            model = os.getenv("GCP_STT_MODEL", "phone_call")
+            use_enhanced = True  # ✅ CRITICAL: Enhanced model required for accuracy
+            log.info(f"📞 Using phone_call model with ENHANCED=True for he-IL")
             
             config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
