@@ -1521,16 +1521,16 @@ class MediaStreamHandler:
             duration = len(pcm16_8k) / (2 * 8000)
             print(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
-            # ✅ BALANCED: Block silence/noise but allow legitimate speech
+            # ⚡ BUILD 109: RELAXED validation - allow more legitimate speech
             
-            # 1. Basic amplitude check - balanced threshold
-            if max_amplitude < 80:  # Telephony noise ≈60-90, speech >100
-                print(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 80)")
+            # 1. Basic amplitude check - RELAXED threshold
+            if max_amplitude < 40:  # Very quiet - probably silence/noise
+                print(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 40)")
                 return ""
             
-            # 2. RMS energy check - balanced
-            if rms < 50:  # Telephony hiss ≈35-50, speech >60
-                print(f"🚫 STT_BLOCKED: Audio energy too low (rms={rms} < 50)")
+            # 2. RMS energy check - RELAXED
+            if rms < 25:  # Very low energy - probably silence
+                print(f"🚫 STT_BLOCKED: Audio energy too low (rms={rms} < 25)")
                 return ""
             
             # 3. Duration check
@@ -1612,10 +1612,10 @@ class MediaStreamHandler:
                 confidence = response.results[0].alternatives[0].confidence
                 print(f"📊 GOOGLE_STT_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
                 
-                # ✅ CRITICAL: בדיקת confidence - לא לקבל תוצאות אקראיות!
-                if confidence < 0.5:  # confidence נמוך = לא אמין
-                    print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.5 - rejecting result")
-                    return ""  # ✅ החזר ריק במקום nonsense!
+                # ⚡ BUILD 109: RELAXED confidence - accept more Hebrew speech
+                if confidence < 0.3:  # Very low confidence = not reliable
+                    print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.3 - rejecting result")
+                    return ""  # Return empty instead of nonsense
                 
                 print(f"✅ GOOGLE_STT_SUCCESS: '{hebrew_text}' (confidence: {confidence:.2f})")
                 return hebrew_text
@@ -1668,10 +1668,10 @@ class MediaStreamHandler:
                 confidence = response.results[0].alternatives[0].confidence
                 print(f"📊 GOOGLE_STT_BASIC_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
                 
-                # ✅ CRITICAL: בדיקת confidence - לא לקבל תוצאות אקראיות!
-                if confidence < 0.5:  # confidence נמוך = לא אמין
-                    print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.5 - rejecting result")
-                    return ""  # ✅ החזר ריק במקום nonsense!
+                # ⚡ BUILD 109: RELAXED confidence - accept more Hebrew speech
+                if confidence < 0.3:  # Very low confidence = not reliable
+                    print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.3 - rejecting result")
+                    return ""  # Return empty instead of nonsense
                 
                 print(f"✅ GOOGLE_STT_BASIC_SUCCESS: '{hebrew_text}' (confidence: {confidence:.2f})")
                 return hebrew_text
