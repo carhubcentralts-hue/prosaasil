@@ -1590,12 +1590,13 @@ class MediaStreamHandler:
                 print("❌ Google STT client not available - fallback to Whisper")
                 return self._whisper_fallback(pcm16_8k)
             
-            # ⚡ SPEED BOOST: Google STT עם timeout אגרסיבי ל-enhanced model
+            # ⚡ SPEED OPTIMIZATION: Use BASIC model directly - faster & more reliable!
+            # ENHANCED model often fails/timeouts → use BASIC for speed
             recognition_config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=8000,  
                 language_code="he-IL",   # עברית ישראל
-                use_enhanced=True,       # Enhanced model לאיכות טובה יותר
+                use_enhanced=False,      # ✅ BASIC model - מהיר ויציב!
                 enable_automatic_punctuation=False,  # מניעת הפרעות
                 # קונטקסט קל - רק לרמז
                 speech_contexts=[
@@ -1611,31 +1612,31 @@ class MediaStreamHandler:
             # Single request recognition (לא streaming למבע קצר)
             audio = speech.RecognitionAudio(content=pcm16_8k)
             
-            # ⚡ RELIABLE STT: Full timeout for Hebrew multi-word phrases
+            # ⚡ AGGRESSIVE TIMEOUT: 1.5s for speed (Hebrew usually < 1s)
             try:
                 response = client.recognize(
                     config=recognition_config,
                     audio=audio,
-                    timeout=3.0  # ✅ 3s timeout - כיסוי מלא לעברית (2.2-2.8s + מרווח בטחון)
+                    timeout=1.5  # ✅ FAST: 1.5s timeout (was 3s)
                 )
             except Exception as timeout_error:
-                # אם timeout - נסה basic model מיידית
-                print(f"⚠️ ENHANCED_MODEL_TIMEOUT ({timeout_error}) - switching to basic")
-                return self._google_stt_basic_fallback(pcm16_8k)
+                # Timeout = likely empty audio, return empty
+                print(f"⚠️ STT_TIMEOUT ({timeout_error}) - likely silence")
+                return ""
             
-            print(f"📊 GOOGLE_STT_ENHANCED: Processed {len(pcm16_8k)} bytes")
+            print(f"📊 GOOGLE_STT_BASIC: Processed {len(pcm16_8k)} bytes")
             
             if response.results and response.results[0].alternatives:
                 hebrew_text = response.results[0].alternatives[0].transcript.strip()
                 confidence = response.results[0].alternatives[0].confidence
                 print(f"📊 GOOGLE_STT_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
                 
-                # ⚡ BUILD 109: SMART confidence - prevent false positives
+                # ⚡ BUILD 111: SMART confidence - prevent false positives
                 if confidence < 0.3:  # Very low confidence = not reliable
                     print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.3 - rejecting result")
                     return ""  # Return empty instead of nonsense
                 
-                # ⚡ BUILD 109: Additional check - reject very short results with low-medium confidence
+                # ⚡ BUILD 111: Additional check - reject very short results with low-medium confidence
                 word_count = len(hebrew_text.split())
                 if word_count <= 2 and confidence < 0.6:
                     print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.6 - likely noise")
@@ -1644,74 +1645,13 @@ class MediaStreamHandler:
                 print(f"✅ GOOGLE_STT_SUCCESS: '{hebrew_text}' ({word_count} words, confidence: {confidence:.2f})")
                 return hebrew_text
             else:
-                print("⚠️ ENHANCED_MODEL_FAILED - trying BASIC model")
-                # ✅ FIXED: נסה basic model לפני Whisper!
-                return self._google_stt_basic_fallback(pcm16_8k)
+                # No results = silence
+                print("⚠️ STT_NO_RESULTS - likely silence")
+                return ""
                 
         except Exception as e:
-            print(f"❌ GOOGLE_STT_ERROR: {e} - trying basic model")
-            return self._google_stt_basic_fallback(pcm16_8k)
-    
-    def _google_stt_basic_fallback(self, pcm16_8k: bytes) -> str:
-        """✅ FIXED: Google STT basic model כ-fallback לפני Whisper"""
-        try:
-            print(f"🔄 GOOGLE_STT_BASIC: Trying basic model as fallback")
-            try:
-                from server.services.lazy_services import get_stt_client
-                from google.cloud import speech
-            except ImportError as import_error:
-                print(f"⚠️ Google Speech library not available: {import_error} - using Whisper")
-                return self._whisper_fallback(pcm16_8k)
-            
-            client = get_stt_client()
-            if not client:
-                print("❌ Google STT client not available - fallback to Whisper")
-                return self._whisper_fallback(pcm16_8k)
-            
-            # ✅ Basic model עם אפס speech contexts - מאוד גמיש!
-            recognition_config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                sample_rate_hertz=8000,
-                language_code="he-IL",
-                use_enhanced=False,      # Basic model
-                enable_automatic_punctuation=False,
-                # ✅ אפס speech contexts - מקבל כל עברית!
-            )
-            
-            audio = speech.RecognitionAudio(content=pcm16_8k)
-            response = client.recognize(
-                config=recognition_config,
-                audio=audio,
-                timeout=3.0  # ✅ 3s timeout - כיסוי מלא לעברית
-            )
-            
-            print(f"📊 GOOGLE_STT_BASIC: Processed {len(pcm16_8k)} bytes")
-            
-            if response.results and response.results[0].alternatives:
-                hebrew_text = response.results[0].alternatives[0].transcript.strip()
-                confidence = response.results[0].alternatives[0].confidence
-                print(f"📊 GOOGLE_STT_BASIC_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
-                
-                # ⚡ BUILD 109: SMART confidence - prevent false positives
-                if confidence < 0.3:  # Very low confidence = not reliable
-                    print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.3 - rejecting result")
-                    return ""  # Return empty instead of nonsense
-                
-                # ⚡ BUILD 109: Additional check - reject very short results with low-medium confidence
-                word_count = len(hebrew_text.split())
-                if word_count <= 2 and confidence < 0.6:
-                    print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.6 - likely noise")
-                    return ""
-                
-                print(f"✅ GOOGLE_STT_BASIC_SUCCESS: '{hebrew_text}' ({word_count} words, confidence: {confidence:.2f})")
-                return hebrew_text
-            else:
-                print("❌ Both Google STT models failed - fallback to Whisper with validation")
-                return self._whisper_fallback_validated(pcm16_8k)
-                
-        except Exception as e:
-            print(f"❌ GOOGLE_STT_BASIC_ERROR: {e} - fallback to Whisper with validation")
-            return self._whisper_fallback_validated(pcm16_8k)
+            print(f"❌ GOOGLE_STT_ERROR: {e}")
+            return ""
     
     def _whisper_fallback_validated(self, pcm16_8k: bytes) -> str:
         """✅ FIXED: Whisper fallback with smart validation - לא ימציא מילים!"""
