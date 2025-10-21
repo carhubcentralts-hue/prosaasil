@@ -575,12 +575,6 @@ class MediaStreamHandler:
                     self.last_rx_ts = time.time()
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
-                        
-                        # ⚡ BUILD 109 FIX: Update timestamp in sessions registry to prevent cleanup!
-                        with _registry_lock:
-                            item = _sessions_registry.get(self.call_sid)
-                            if item:
-                                item["ts"] = time.time()
                     
                     # ⚡ STREAMING STT: Feed audio to session (continuous streaming)
                     if self.call_sid and pcm16:

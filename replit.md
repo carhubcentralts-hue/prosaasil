@@ -6,6 +6,7 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Appointment Rejection Detection**: 3-layer system prevents appointments when user refuses ("לא תודה", "ביי", "לא רוצה")
 - **STT Performance Boost**: Removed ENHANCED model fallback - BASIC model only with 1.5s timeout (was 3s) - 50% faster
 - **Eliminated Double Processing**: Single STT path prevents ENHANCED→BASIC fallback chains
+- **Streaming STT Fixes**: Increased timeout from 100ms to 500ms, added comprehensive logging for partials/finals, improved session state tracking
 
 # User Preferences
 
