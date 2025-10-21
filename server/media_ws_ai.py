@@ -7,7 +7,7 @@ import builtins
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 
 # ⚡ STREAMING STT: Toggle via environment variable
-USE_STREAMING_STT = os.getenv("ENABLE_STREAMING_STT", "false").lower() == "true"
+USE_STREAMING_STT = os.getenv("ENABLE_STREAMING_STT", "true").lower() == "true"
 
 # ⚡ BUILD 107: לוג מפורט של כל פרמטרי האופטימיזציה
 print("="*80)
@@ -158,12 +158,12 @@ class ConnectionClosed(Exception):
 from server.stream_state import stream_registry
 
 SR = 8000
-# ⚡ BUILD 113: VAD OPTIMIZED FOR ACCURACY (Better transcription, slight latency tradeoff)
+# ⚡ BUILD 114: VAD OPTIMIZED FOR SPEED (Streaming STT enabled, ≤2s latency target)
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
 VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "600"))  # ⚡ BUILD 113: 600ms (was 220ms) - allows natural pauses/breaths
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "220"))  # ⚡ BUILD 114: 220ms - fast response with streaming STT
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
@@ -335,11 +335,10 @@ class MediaStreamHandler:
             
             print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
     
-    def _utterance_end(self, timeout=1.2):
+    def _utterance_end(self, timeout=0.45):
         """
         Mark end of utterance.
-        ⚡ BUILD 113: INCREASED timeout to 1200ms for BETTER transcription accuracy
-        Previous 300ms was TOO SHORT - users couldn't finish speaking!
+        ⚡ BUILD 114: OPTIMIZED timeout to 450ms - balanced speed & accuracy with streaming STT
         """
         if not self.call_sid:
             print("⚠️ _utterance_end: No call_sid")
@@ -353,13 +352,12 @@ class MediaStreamHandler:
         utt_id = utt_state.get("id", "???")
         print(f"🎤 [{self.call_sid[:8]}] _utterance_end: Collecting results for utterance {utt_id} (timeout={timeout}s)")
         
-        # ⚡ BUILD 113: Wait 1200ms for streaming results (was 300ms - TOO SHORT!)
-        # Streaming needs time to process audio and return partials/finals
-        # Users need time to complete sentences - 300ms caused premature cutoff
+        # ⚡ BUILD 114: Wait 450ms for streaming results - optimized for speed & accuracy
+        # Streaming STT enabled by default → fast partial results
         wait_start = time.time()
         final_event = utt_state.get("final_received")
         if final_event:
-            got_final = final_event.wait(timeout=timeout)  # 1200ms wait for streaming
+            got_final = final_event.wait(timeout=timeout)  # 450ms wait for streaming
             wait_duration = time.time() - wait_start
             if got_final:
                 print(f"✅ [{self.call_sid[:8]}] Got final event in {wait_duration:.3f}s")
@@ -1615,13 +1613,14 @@ class MediaStreamHandler:
                 print("❌ Google STT client not available - fallback to Whisper")
                 return self._whisper_fallback(pcm16_8k)
             
-            # ⚡ SPEED OPTIMIZATION: Use BASIC model directly - faster & more reliable!
-            # ENHANCED model often fails/timeouts → use BASIC for speed
+            # ⚡ BUILD 114: Use ENHANCED phone_call model for better Hebrew accuracy!
+            # With streaming STT enabled, we can afford enhanced model for quality
             recognition_config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=8000,  
                 language_code="he-IL",   # עברית ישראל
-                use_enhanced=False,      # ✅ BASIC model - מהיר ויציב!
+                model="phone_call",      # ✅ Telephony-optimized model
+                use_enhanced=True,       # ✅ ENHANCED model for better Hebrew accuracy!
                 enable_automatic_punctuation=False,  # מניעת הפרעות
                 # קונטקסט קל - רק לרמז
                 speech_contexts=[
