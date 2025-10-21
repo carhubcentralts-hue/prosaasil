@@ -2438,12 +2438,12 @@ class MediaStreamHandler:
                                 # נסה לנתח את השיחה עכשיו
                                 lead_info = self._analyze_lead_completeness()
                             
-                            if lead_info and lead_info.get('meeting_ready'):
+                            if lead_info and lead_info.get('meeting_ready') and self.call_sid:
                                 phone_number = getattr(self, 'phone_number', '')
                                 conversation = getattr(self, 'conversation_history', [])
                                 
                                 result = check_and_create_appointment(
-                                    self.call_sid,
+                                    str(self.call_sid),  # ✅ Ensure string type
                                     lead_info,
                                     conversation,
                                     phone_number
@@ -2493,13 +2493,12 @@ class MediaStreamHandler:
                             return
                         
                         # צור call_log חדש
-                        call_log = CallLog(
-                            business_id=getattr(self, 'business_id', 1),
-                            call_sid=self.call_sid,
-                            from_number=str(self.phone_number or ""),
-                            to_number=str(getattr(self, 'to_number', '') or ''),  # ✅ המספר שאליו התקשרו
-                            call_status="in_progress"  # ✅ תוקן: call_status במקום status
-                        )
+                        call_log = CallLog()  # type: ignore[call-arg]
+                        call_log.business_id = getattr(self, 'business_id', 1)
+                        call_log.call_sid = self.call_sid
+                        call_log.from_number = str(self.phone_number or "")
+                        call_log.to_number = str(getattr(self, 'to_number', '') or '')
+                        call_log.call_status = "in_progress"
                         db.session.add(call_log)
                         
                         try:
@@ -2549,23 +2548,21 @@ class MediaStreamHandler:
                             return
                         
                         # שמור תור משתמש
-                        user_turn = ConversationTurn(
-                            call_log_id=call_log.id,
-                            call_sid=self.call_sid or f"live_{int(time.time())}",
-                            speaker='user',
-                            message=user_text,
-                            confidence_score=1.0
-                        )
+                        user_turn = ConversationTurn()  # type: ignore[call-arg]
+                        user_turn.call_log_id = call_log.id
+                        user_turn.call_sid = self.call_sid or f"live_{int(time.time())}"
+                        user_turn.speaker = 'user'
+                        user_turn.message = user_text
+                        user_turn.confidence_score = 1.0
                         db.session.add(user_turn)
                         
                         # שמור תור AI
-                        bot_turn = ConversationTurn(
-                            call_log_id=call_log.id,
-                            call_sid=self.call_sid or f"live_{int(time.time())}",
-                            speaker='assistant',
-                            message=bot_reply,
-                            confidence_score=1.0
-                        )
+                        bot_turn = ConversationTurn()  # type: ignore[call-arg]
+                        bot_turn.call_log_id = call_log.id
+                        bot_turn.call_sid = self.call_sid or f"live_{int(time.time())}"
+                        bot_turn.speaker = 'assistant'
+                        bot_turn.message = bot_reply
+                        bot_turn.confidence_score = 1.0
                         db.session.add(bot_turn)
                         
                         db.session.commit()
