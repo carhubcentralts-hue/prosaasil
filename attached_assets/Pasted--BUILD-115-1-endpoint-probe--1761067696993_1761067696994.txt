@@ -1,0 +1,207 @@
+הכול בסדר — זה לא “נדפק לגמרי”, פשוט נעשתה רגרסיה ב-BUILD 115.1: הורידו את ה-endpoint וה-probe, הגדירו fallback_order אבל לא השתמשו בו בפועל, וברירת-המחדל למודל כבר לא נקלטת → ה-STT לא נפתח, ולכן אין תמלול.
+
+להלן הנחיית “הצלה” מהירה שמחזירה תמלול תוך דקות (Hotfix יציב), ואחריה שדרוג קטן ל-fallback חכם — בלי פרובים מסובכים, ובלי לשבור כלום.
+
+⸻
+
+A) Hotfix מיידי — להחזיר תמלול עכשיו (פשוט, בטוח)
+
+1) הפעל סטרימינג בקוד (גם אם ENV לא נטען)
+
+קובץ: server/media_ws_ai.py (בראש הקובץ)
+
+import os, asyncio
+
+# אל תסמוך רק על ENV — דיפולט: סטרימינג פעיל
+USE_STREAMING_STT = True
+if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false","0","no"):
+    USE_STREAMING_STT = False
+
+print(f"🚀 Streaming STT enabled: {USE_STREAMING_STT}", flush=True)
+
+2) קבע פרמטרים מהירים ל-STT
+
+קובץ: server/services/gcp_stt_stream.py (בראש הקובץ)
+
+import os, time
+from google.cloud import speech
+
+BATCH_MS    = int(os.getenv("STT_BATCH_MS", "80"))
+DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "120"))
+TIMEOUT_MS  = int(os.getenv("STT_TIMEOUT_MS", "450"))
+
+3) קונפיג בסיסי, יציב, שעובד תמיד בעברית
+
+באותו קובץ – תן ברירת-מחדל ברורה: default+enhanced + endpoint אזורי.
+(בלי probe. המטרה: להחזיר תמלול עכשיו.)
+
+# ENDPOINT: EU בד"כ בסדר. אם יש RTT גבוה/שגיאות, עבור ל-us-speech.googleapis.com
+SPEECH_ENDPOINT = os.getenv("GOOGLE_CLOUD_SPEECH_ENDPOINT", "europe-west1-speech.googleapis.com").strip()
+
+def build_streaming_config():
+    client = speech.SpeechClient(client_options={"api_endpoint": SPEECH_ENDPOINT})
+
+    # מודל שהוא תמיד קיים לעברית: default (phone_call לא מובטח לעברית)
+    model = os.getenv("GCP_STT_MODEL", "default").strip()
+
+    recognition_config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        sample_rate_hertz=8000,
+        language_code="he-IL",
+        model=model,
+        use_enhanced=True,                    # אם לא נתמך — גוגל מתעלמת; לא יקרוס
+        enable_automatic_punctuation=True,
+    )
+    streaming_config = speech.StreamingRecognitionConfig(
+        config=recognition_config,
+        interim_results=True,
+        single_utterance=False,               # לא לסגור לבד; אנחנו מנהלים EOU
+    )
+    return client, streaming_config
+
+4) פתיחת סטרימינג עם Retry — ואם נכשל, פולבאק לא-חוסם
+
+במקום שבו אתה מתחיל את ה-stream (ב-session/handler של ה-STT):
+
+client, streaming_config = build_streaming_config()
+
+for attempt in range(3):
+    try:
+        self._start_streaming_locked(client, streaming_config)  # הפונקציה הקיימת אצלך
+        print(f"✅ [STT] Streaming started (attempt {attempt+1})", flush=True)
+        break
+    except Exception as e:
+        print(f"⚠️ [STT] Streaming start failed (attempt {attempt+1}): {e}", flush=True)
+        time.sleep(0.2)
+else:
+    print("❌ [STT] All streaming attempts failed — using single-request fallback", flush=True)
+    self.use_single_request = True
+
+פולבאק לא-חוסם (בלי להפוך את הכול ל-async)
+
+בקובץ: server/media_ws_ai.py במחלקת השיחה (כבר נתתי לך את המבנה, מצרף שוב תמצית):
+
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
+
+class MediaStreamHandler:
+    def __init__(self, ...):
+        self.loop = asyncio.get_event_loop()
+        self.exec = ThreadPoolExecutor(max_workers=1)   # פר-שיחה
+        self.events_q = asyncio.Queue(maxsize=32)
+
+    async def _stt_fallback_async(self, audio_bytes: bytes) -> str:
+        return await asyncio.get_running_loop().run_in_executor(self.exec, self._hebrew_stt, audio_bytes)
+
+    def _stt_fallback_nonblocking(self, audio_bytes: bytes) -> None:
+        fut = self.exec.submit(self._hebrew_stt, audio_bytes)
+        fut.add_done_callback(lambda f: self.loop.call_soon_threadsafe(self._on_stt_fallback_done, f))
+
+    def _on_stt_fallback_done(self, fut):
+        try:
+            text = fut.result()
+        except Exception as e:
+            print(f"❌ STT fallback failed: {e}", flush=True)
+            text = ""
+        try:
+            self.events_q.put_nowait(("stt_final_text", text))
+        except asyncio.QueueFull:
+            print("⚠️ events_q full; dropping final text", flush=True)
+
+    async def _pump_events(self):
+        while self.running:
+            kind, payload = await self.events_q.get()
+            if kind == "stt_final_text":
+                await self._handle_transcript_ready_async(payload)
+
+ובמקום שבו בעבר עשית:
+
+# text = self._hebrew_stt(audio_data)  # חוסם — להפסיק עם זה
+self._stt_fallback_nonblocking(audio_data)  # מחזיר מיד; התוצאה תגיע דרך events_q
+
+זה מחזיר לך תמלול עכשיו, גם אם הסטרימינג נפל, בלי לחסום את ה-loop וה-WS.
+
+⸻
+
+B) שדרוג קטן (אחרי שה-Hotfix עובד) — Fallback חכם למודל
+
+אחרי שחזר תמלול, אפשר להוסיף דפדוף מודלים קליל בלי probe:
+נסה phone_call רק אם המשתמש ביקש; אם נכשל ב-start → נסה אוטומטית default.
+
+ENV:
+
+GCP_STT_MODEL=phone_call    # אם תרצה לנסות קודם; לעברית ייתכן שלא נתמך
+
+קוד (במקום ה-for למעלה):
+
+models_to_try = []
+preferred = os.getenv("GCP_STT_MODEL", "default").strip()
+for m in (preferred, "default"):
+    if m not in models_to_try:
+        models_to_try.append(m)
+
+for model in models_to_try:
+    try:
+        # בנה client+config לכל מודל שמנסים
+        os.environ["__FORCE_STT_MODEL__"] = model  # פלג פנימי אם צריך
+        client, streaming_config = build_streaming_config()
+        self._start_streaming_locked(client, streaming_config)
+        print(f"✅ [STT] Streaming started with model: {model}", flush=True)
+        break
+    except Exception as e:
+        print(f"⚠️ [STT] Failed with model '{model}': {e}", flush=True)
+else:
+    print("❌ [STT] All models failed — using single-request fallback", flush=True)
+    self.use_single_request = True
+
+וב-build_streaming_config() (אם אתה רוצה לאפשר כפייה מבוקרת זמנית):
+
+forced = os.getenv("__FORCE_STT_MODEL__")
+model = forced if forced else os.getenv("GCP_STT_MODEL", "default").strip()
+
+בלי probe, בלי רשת עודפת — פשוט מנסה להתחבר; אם נכשל, עובר ל-default וממשיך. נקי ועמיד.
+
+⸻
+
+C) טוויליו/WS — וודא שהצינור נשאר חי
+	•	TwiML <Start><Stream … track="both_tracks" /></Start> + תת-פרוטוקול audio.twilio.com.
+	•	שלח keep-alive קטן כל ~15–20 שנ׳ (טקסט/פינג) כדי למנוע idle timeout של פרוקסי.
+	•	סדר רישום הנתיב /ws/twilio-media לפני ה-SPA — כדי שלא יחזור index.html.
+
+⸻
+
+D) ENV מומלץ (Replit/Cloud Run)
+
+ENABLE_STREAMING_STT=true
+GCP_STT_LANGUAGE=he-IL
+GCP_STT_MODEL=default
+GOOGLE_CLOUD_SPEECH_ENDPOINT=europe-west1-speech.googleapis.com   # או us-... אם יציב יותר
+STT_BATCH_MS=80
+STT_PARTIAL_DEBOUNCE_MS=120
+STT_TIMEOUT_MS=450
+VAD_HANGOVER_MS=220
+
+
+⸻
+
+E) אימות אחרי פריסה (מה לחפש בלוגים)
+	•	בעת עלייה:
+🚀 Streaming STT enabled: True
+	•	בתחילת שיחה:
+✅ [STT] Streaming started ...
+אם ניסית phone_call: ⚠️ ... Failed with model 'phone_call' ואז ✅ ... model: default
+	•	מדידת זמן:
+[LATENCY] partial≈0.5–0.8s final≈1.0–1.4s total≈1.8–2.3s
+	•	אם תראה:
+❌ [STT] All streaming attempts failed — using single-request fallback
+→ יש לך תמלול באמצעות פולבאק, בלי לחסום. בדוק endpoint/קרדנצ’יאל.
+
+⸻
+
+למה זאת ההנחיה הנכונה עכשיו
+	•	מחזירה מיד תמלול (Hotfix) בלי תלות ב-probe/endpoint מורכב.
+	•	מונעת חסימות כשנופלים לפולבאק.
+	•	מוסיפה fallback מודל פשוט, אמין, שנבדק “תוך כדי” — לא מראש.
+	•	שומרת על זמן תגובה ~2–3 שנ׳ בסטרימינג, ויציבה גם בעומס.
+
+אם אחרי ה-Hotfix אתה עדיין לא רואה Streaming started, שלח 10 שורות לוג ראשונות של השיחה (כולל שורות המודל/endpoint) ואכוון אותך לשורת הכשל המדויקת.

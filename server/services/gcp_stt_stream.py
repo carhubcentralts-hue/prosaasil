@@ -27,40 +27,14 @@ PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() 
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
 
 
-def choose_stt_model(language="he-IL"):
-    """
-    ⚡ BUILD 115.1: Simple model selection with safe fallback (NO PROBE)
-    
-    Selects model based on ENV with fallback order: env → phone_call → default
-    No startup probe - fallback happens at runtime if model fails.
-    
-    Returns:
-        dict: {"model": str, "use_enhanced": bool, "fallback_order": list}
-    """
-    preferred = os.getenv("GCP_STT_MODEL", "").strip()
-    use_enhanced = os.getenv("GCP_STT_USE_ENHANCED", "true").lower() == "true"
-    
-    # Build fallback order: preferred → phone_call → default
-    fallback_order = []
-    if preferred and preferred not in fallback_order:
-        fallback_order.append(preferred)
-    if "phone_call" not in fallback_order:
-        fallback_order.append("phone_call")
-    if "default" not in fallback_order:
-        fallback_order.append("default")
-    
-    model = fallback_order[0]
-    print(f"✅ [STT] Selected model: {model} (enhanced={use_enhanced})", flush=True)
-    print(f"📋 [STT] Fallback order: {' → '.join(fallback_order)}", flush=True)
-    
-    return {"model": model, "use_enhanced": use_enhanced, "fallback_order": fallback_order}
+# ⚡ BUILD 115.1: ENDPOINT אזורי לביצועים טובים
+SPEECH_ENDPOINT = os.getenv("GOOGLE_CLOUD_SPEECH_ENDPOINT", "europe-west1-speech.googleapis.com").strip()
 
+# ⚡ BUILD 115.1: default תמיד - phone_call לא עובד בעברית בישראל!
+MODEL = os.getenv("GCP_STT_MODEL", "default").strip()
+USE_ENHANCED = True  # גוגל מתעלמת אם לא נתמך; לא קורס
 
-# ⚡ BUILD 115.1: Choose model from ENV (NO PROBE - fixed production issue)
-MODEL_CFG = choose_stt_model(LANG)
-MODEL = MODEL_CFG["model"]
-USE_ENHANCED = MODEL_CFG["use_enhanced"]
-print(f"🎯 STT Configuration: model={MODEL}, enhanced={USE_ENHANCED}, language={LANG}", flush=True)
+print(f"🎯 STT Configuration: model={MODEL}, enhanced={USE_ENHANCED}, language={LANG}, endpoint={SPEECH_ENDPOINT}", flush=True)
 
 
 class StreamingSTTSession:
@@ -78,10 +52,12 @@ class StreamingSTTSession:
             on_partial: Callback for interim results (called frequently ~180ms)
             on_final: Callback for final results (end of utterance)
         """
-        # ⚡ BUILD 115.1: Initialize Google Speech client (default endpoint - FIXED production issue)
+        # ⚡ BUILD 115.1: Initialize Google Speech client with regional endpoint
         try:
-            self.client = speech.SpeechClient()
-            log.info(f"✅ StreamingSTTSession: Client initialized")
+            self.client = speech.SpeechClient(
+                client_options={"api_endpoint": SPEECH_ENDPOINT}
+            )
+            log.info(f"✅ StreamingSTTSession: Client initialized (endpoint: {SPEECH_ENDPOINT})")
         except Exception as e:
             log.error(f"❌ Failed to initialize Speech client: {e}")
             raise
