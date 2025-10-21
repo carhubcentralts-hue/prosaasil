@@ -39,7 +39,13 @@ def _register_session(call_sid: str, session, tenant_id=None):
             raise RuntimeError(f"Over capacity: {len(_sessions_registry)}/{MAX_CONCURRENT_CALLS} calls")
         _sessions_registry[call_sid] = {
             "session": session,
-            "utterance": {"id": None, "partial_cb": None, "final_buf": None},
+            "utterance": {
+                "id": None, 
+                "partial_cb": None, 
+                "final_buf": None,
+                "final_received": None,  # ⚡ NEW: Event for waiting on final
+                "last_partial": ""  # ⚡ NEW: Backup partial text
+            },
             "tenant": tenant_id,
             "ts": time.time()
         }
@@ -74,6 +80,11 @@ def _create_dispatcher_callbacks(call_sid: str):
     def on_partial(text: str):
         utt = _get_utterance_state(call_sid)
         if utt:
+            # ⚡ NEW: Save last partial as backup
+            with _registry_lock:
+                utt["last_partial"] = text
+            
+            # Call the utterance's partial callback
             cb = utt.get("partial_cb")
             if cb:
                 try:
@@ -87,6 +98,12 @@ def _create_dispatcher_callbacks(call_sid: str):
             buf = utt.get("final_buf")
             if buf is not None:
                 buf.append(text)
+                print(f"✅ [FINAL] Received for {call_sid[:8]}...: '{text}'")
+                
+                # ⚡ NEW: Signal that final has arrived!
+                final_event = utt.get("final_received")
+                if final_event:
+                    final_event.set()
     
     return on_partial, on_final
 
@@ -297,6 +314,7 @@ class MediaStreamHandler:
         Switches dispatcher target to new utterance buffer.
         """
         import uuid
+        import threading
         
         if not self.call_sid:
             return
@@ -307,13 +325,16 @@ class MediaStreamHandler:
                 utt_state["id"] = uuid.uuid4().hex[:8]
                 utt_state["partial_cb"] = partial_cb
                 utt_state["final_buf"] = []
+                utt_state["final_received"] = threading.Event()  # ⚡ NEW: wait for final
+                utt_state["last_partial"] = ""  # ⚡ NEW: save last partial as backup
             
             print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
     
-    def _utterance_end(self):
+    def _utterance_end(self, timeout=0.75):
         """
         Mark end of utterance.
-        Returns collected final text and resets dispatcher.
+        Waits for final transcript from GCP (up to timeout) before cleanup.
+        ⚡ FIX: Prevents race condition where buffer is cleared before GCP final arrives!
         """
         if not self.call_sid:
             return ""
@@ -322,16 +343,39 @@ class MediaStreamHandler:
         if utt_state is None:
             return ""
         
+        utt_id = utt_state.get("id", "???")
+        start_wait = time.time()
+        
+        # ⚡ WAIT for final transcript (GCP sends it 200-350ms after audio stops)
+        final_event = utt_state.get("final_received")
+        if final_event:
+            print(f"⏳ [{self.call_sid[:8]}] Waiting up to {timeout*1000:.0f}ms for final transcript...")
+            received = final_event.wait(timeout=timeout)
+            wait_time = (time.time() - start_wait) * 1000
+            
+            if received:
+                print(f"✅ [{self.call_sid[:8]}] Final received after {wait_time:.0f}ms")
+            else:
+                print(f"⚠️ [{self.call_sid[:8]}] Timeout after {wait_time:.0f}ms - using partial")
+        
+        # Now collect the text
         with _registry_lock:
             finals = utt_state.get("final_buf") or []
             text = " ".join(finals).strip()
             
-            utt_id = utt_state.get("id", "???")
+            # ⚡ FALLBACK: If no final, use last partial
+            if not text:
+                last_partial = utt_state.get("last_partial", "")
+                if last_partial:
+                    print(f"📝 [{self.call_sid[:8]}] No final - using partial: '{last_partial}'")
+                    text = last_partial
             
-            # Reset dispatcher
+            # NOW reset dispatcher (after collecting text!)
             utt_state["id"] = None
             utt_state["partial_cb"] = None
             utt_state["final_buf"] = None
+            utt_state["final_received"] = None
+            utt_state["last_partial"] = ""
         
         print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_id} END: '{text}'")
         
