@@ -119,6 +119,15 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         for i, turn in enumerate(conversation_history[-3:]):  # 3 תורות אחרונים
             print(f"  Turn {i}: user='{turn.get('user', '')[:50]}...', bot='{turn.get('bot', '')[:50]}...'")
         
+        # 🚨 CRITICAL: בדוק תחילה אם יש סירוב בתור האחרון!
+        if conversation_history:
+            last_user_msg = conversation_history[-1].get('user', '').lower()
+            rejection_keywords = ['לא תודה', 'לא רוצה', 'לא מעוניין', 'ביי', 'להתראות', 'תודה לא']
+            
+            if any(keyword in last_user_msg for keyword in rejection_keywords):
+                print(f"🚫 AUTO_MEETING: User REJECTED in last turn - NOT creating appointment!")
+                return {'success': False, 'reason': 'המשתמש סירב לקביעת פגישה'}
+        
         # נסה לנתח זמן מהשיחה
         parsed_time = get_meeting_time_from_conversation(conversation_history)
         

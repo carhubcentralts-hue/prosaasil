@@ -25,6 +25,20 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     # ✅ DEBUG: הדפס מה אנחנו מנתחים
     print(f"🔍 TIME_PARSER: Analyzing text: '{text[:100]}...'")
     
+    # ✅ 🚨 CRITICAL: סינון סירובים - אם המשתמש אמר "לא", אין פגישה!
+    rejection_phrases = [
+        'לא תודה', 'לא רוצה', 'לא מעוניין', 'לא צריך', 'לא נוח לי',
+        'אני לא', 'לא יכול', 'לא מתאים', 'לא בשביל', 'תודה לא',
+        'אין צורך', 'לא ברור', 'אני מוותר', 'ביי', 'להתראות',
+        'לא נראה לי', 'כרגע לא', 'עדיין לא', 'אולי פעם אחרת'
+    ]
+    
+    # בדוק אם יש סירוב בטקסט
+    for rejection in rejection_phrases:
+        if rejection in text_lower:
+            print(f"🚫 TIME_PARSER: REJECTION detected - '{rejection}' found in text. NO MEETING!")
+            return None
+    
     # ✅ ניתוח תאריך (יחסי)
     target_date = now
     days_ahead = 1  # Default: מחר
@@ -153,6 +167,22 @@ def get_meeting_time_from_conversation(conversation_history: list) -> Optional[T
     """
     if not conversation_history:
         return None
+    
+    # 🚨 CRITICAL: בדוק תחילה אם התור האחרון הוא סירוב!
+    if conversation_history:
+        last_turn = conversation_history[-1]
+        last_user_text = last_turn.get('user', '').lower()
+        
+        # סירובים חזקים שמבטלים את כל הפגישה
+        strong_rejections = [
+            'לא תודה', 'לא רוצה', 'לא מעוניין', 'תודה לא', 
+            'ביי', 'להתראות', 'שלום', 'אני לא'
+        ]
+        
+        for rejection in strong_rejections:
+            if rejection in last_user_text:
+                print(f"🚫 CONVERSATION: Last turn is REJECTION - '{rejection}'. NO MEETING!")
+                return None
     
     # בדוק את התורות האחרונים (5 תורות אחרונים) - שם בדרך כלל נקבע זמן
     recent_turns = conversation_history[-5:]
