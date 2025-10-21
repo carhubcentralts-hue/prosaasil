@@ -291,6 +291,12 @@ class MediaStreamHandler:
         # ✅ CRITICAL: Track background threads for proper cleanup
         self.background_threads = []
         
+        # ⚡ BUILD 115: Async executor for non-blocking fallback STT
+        from concurrent.futures import ThreadPoolExecutor
+        self.loop = None  # Will be set when needed
+        self.exec = ThreadPoolExecutor(max_workers=1)  # Per-call executor
+        self.events_q = None  # Will be created if async mode is used
+        
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
 
     def _init_streaming_stt(self):
@@ -1552,6 +1558,46 @@ class MediaStreamHandler:
                 print(f"⚠️ Even simple resample failed: {e2}")
                 # Ultimate fallback: duplicate samples (crude but works)
                 return pcm16_8k + pcm16_8k  # Double the data for "16kHz"
+
+    async def _stt_fallback_async(self, audio_data: bytes) -> str:
+        """
+        ⚡ BUILD 115: Async wrapper for fallback STT
+        Runs _hebrew_stt in thread pool without blocking the event loop
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(self.exec, self._hebrew_stt, audio_data)
+        except Exception as e:
+            print(f"❌ [STT_FALLBACK_ASYNC] Failed: {e}", flush=True)
+            return ""
+    
+    def _stt_fallback_nonblocking(self, audio_data: bytes) -> None:
+        """
+        ⚡ BUILD 115: Non-blocking wrapper for fallback STT (sync → async)
+        Submits work to thread pool and returns immediately.
+        Result is delivered via callback to avoid blocking.
+        """
+        # Submit to thread pool
+        fut = self.exec.submit(self._hebrew_stt, audio_data)
+        
+        # When done, deliver result back to event loop safely
+        def _on_done(f):
+            try:
+                text = f.result()
+            except Exception as e:
+                print(f"❌ [STT_FALLBACK_NB] Failed: {e}", flush=True)
+                text = ""
+            
+            # If there's a loop and events queue, use it
+            if self.loop and self.events_q:
+                self.loop.call_soon_threadsafe(
+                    lambda: self.events_q.put_nowait(("stt_final_text", text))
+                )
+            else:
+                # Fallback: direct callback (sync mode)
+                print(f"🎤 [STT_FALLBACK_NB] Result: {text[:50] if text else '(empty)'}", flush=True)
+        
+        fut.add_done_callback(_on_done)
 
     def _hebrew_stt_wrapper(self, pcm16_8k: bytes, on_partial_cb=None) -> str:
         """
