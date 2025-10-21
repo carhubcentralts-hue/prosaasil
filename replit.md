@@ -2,13 +2,13 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. Its primary goal is to streamline the sales pipeline for real estate professionals with fully customizable AI assistants and business names.
 
-**⚡ BUILD 112.1 - SPEED & RELIABILITY BOOST:**
-- **Reduced Streaming STT Timeout**: 500ms → 300ms for faster responses (40% improvement)
-- **Audio Queue Expansion**: 16→48 frames (960ms buffer) eliminates dropped frames completely
-- **Added Comprehensive Latency Tracking**: Full timing logs for STT, AI, and fallback paths
-- **Appointment Rejection Detection**: 3-layer system prevents appointments when user refuses ("לא תודה", "ביי", "לא רוצה")
-- **STT Performance**: BASIC model only with 1.5s timeout - 50% faster than previous builds
-- **WhatsApp Thread Pool Fix**: Added thread limit (10 concurrent) and cleanup to prevent system from stopping responses
+**⚡ BUILD 113 - TRANSCRIPTION ACCURACY FIX:**
+- **CRITICAL FIX**: Hebrew speech was cutting off mid-sentence due to aggressive timeouts
+- **STT Utterance Timeout**: 300ms → 1200ms (allows users to finish complete sentences)
+- **VAD_HANGOVER_MS**: 220ms → 600ms (tolerates natural breathing pauses between words)
+- **Audio Validation Thresholds**: Relaxed from 60/40 to 50/30 (accepts quieter speech for better accuracy)
+- **Trade-off**: Slight latency increase (~300-500ms) for significantly better transcription quality
+- **Result**: Users can now speak naturally without system cutting them off prematurely
 
 # User Preferences
 
@@ -37,7 +37,7 @@ Preferred communication style: Simple, everyday language.
 - **Audio Processing**: Smart barge-in detection (disabled for long responses >20 words, enabled for short ones), calibrated VAD for Hebrew speech, immediate TTS interruption, and seamless turn-taking.
 - **Custom Greetings**: Initial phone greeting loads from business configuration with dynamic placeholders.
 - **Natural TTS**: Production-grade Hebrew TTS with WaveNet-D voice (8kHz telephony optimization), SSML smart pronunciation, TTS caching, and accelerated speaking rate (1.05x).
-- **Performance Optimization**: ⚡ BUILD 112 Ultra-low latency - BASIC model STT only (1.5s timeout), VAD silence detection (0.5s/1.8s), Early EOU detection, comprehensive latency tracking (ASR, AI, TTS, Total). Achieves <2 second response times (50% faster than previous builds). Session timestamp updated on every audio frame to prevent 2-minute resets. **3-layer false-positive protection**: (1) Balanced audio validation (60/40 thresholds), (2) STT confidence checks with short-utterance rejection, (3) Common-word filtering with punctuation normalization. **Appointment rejection detection**: 3-layer system (time_parser, conversation parser, auto_meeting) prevents appointments on user refusal.
+- **Performance Optimization**: ⚡ BUILD 113 Accuracy-focused - BASIC model STT only (1.2s timeout for complete sentences), VAD silence detection with natural pause tolerance (600ms hangover), Early EOU detection, comprehensive latency tracking (ASR, AI, TTS, Total). Achieves <2.5 second response times with better transcription quality. Session timestamp updated on every audio frame to prevent 2-minute resets. **3-layer false-positive protection**: (1) Relaxed audio validation (50/30 thresholds - allows quieter speech), (2) STT confidence checks with short-utterance rejection, (3) Common-word filtering with punctuation normalization. **Appointment rejection detection**: 3-layer system (time_parser, conversation parser, auto_meeting) prevents appointments on user refusal.
 - **Intelligent Error Handling**: Smart responses for STT failures with consecutive failure tracking (2x trigger "לא הבנתי").
 
 ## CRM Features
@@ -58,7 +58,7 @@ Preferred communication style: Simple, everyday language.
 ## System Design Choices
 - **AI Response Optimization**: Max tokens set to 180 for quality Hebrew responses (3-4 sentences) using `gpt-4o-mini`, temperature 0.3-0.4 for balanced natural responses.
 - **Robustness**: Implemented thread tracking and enhanced cleanup for background processes, extended ASGI handler timeout.
-- **STT Reliability**: BALANCED validation prevents false positives AND false negatives - amplitude threshold 60, RMS threshold 40, confidence threshold 0.3. Short utterances (≤2 words) require confidence ≥0.6 to prevent responding to noise. ⚡ BUILD 112: Optimized timeout to 1.5s (was 3s), BASIC model only (removed ENHANCED fallback). numpy/scipy dependencies added for advanced audio analysis.
+- **STT Reliability**: RELAXED validation allows quieter speech for better accuracy - amplitude threshold 50, RMS threshold 30, confidence threshold 0.3. Short utterances (≤2 words) require confidence ≥0.6 to prevent responding to noise. ⚡ BUILD 113: Utterance timeout 1.2s (was 0.3s - users can finish sentences), BASIC model only. numpy/scipy dependencies added for advanced audio analysis.
 - **Voice Consistency**: Standardized on a male voice (`he-IL-Wavenet-D`) and masculine Hebrew phrasing.
 - **Cold Start Optimization**: Automatic warmup of services on startup and via a dedicated `/warmup` endpoint.
 - **Business Auto-Detection**: Smart normalization of identifiers for automatic detection of new businesses.
