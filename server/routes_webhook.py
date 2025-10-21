@@ -15,9 +15,15 @@ webhook_bp = Blueprint('webhook', __name__, url_prefix='/webhook')
 INTERNAL_SECRET = os.getenv('INTERNAL_SECRET')
 
 # ⚡ CRITICAL FIX: Reuse app instance across threads - massive speed boost
-from threading import Lock
+from threading import Lock, Semaphore
 _cached_app = None
 _cached_app_lock = Lock()  # ⚡ Initialize at module load to prevent race condition
+
+# ⚡ BUILD 112: Limit concurrent WhatsApp processing threads
+MAX_CONCURRENT_WA_THREADS = int(os.getenv("MAX_WA_THREADS", "10"))
+_wa_thread_semaphore = Semaphore(MAX_CONCURRENT_WA_THREADS)
+_active_wa_threads = 0
+_wa_threads_lock = Lock()
 
 def get_or_create_app():
     """Get cached app or create new one - thread-safe"""
@@ -57,8 +63,17 @@ def whatsapp_incoming():
         messages = events.get('messages', [])
         
         if messages:
-            # ⚡ FAST PATH: Queue job and return immediately
-            Thread(target=_process_whatsapp_fast, args=(tenant_id, messages), daemon=True).start()
+            # ⚡ BUILD 112: Check thread capacity before spawning
+            global _active_wa_threads
+            with _wa_threads_lock:
+                if _active_wa_threads >= MAX_CONCURRENT_WA_THREADS:
+                    logger.warning(f"⚠️ WhatsApp thread pool full ({_active_wa_threads}/{MAX_CONCURRENT_WA_THREADS}) - processing synchronously")
+                    # Process inline to avoid dropping messages
+                    _process_whatsapp_fast(tenant_id, messages)
+                else:
+                    # ⚡ FAST PATH: Spawn thread with tracking
+                    _active_wa_threads += 1
+                    Thread(target=_process_whatsapp_with_cleanup, args=(tenant_id, messages), daemon=True).start()
         
         # ⚡ ACK immediately - don't wait for processing
         return '', 200
@@ -66,6 +81,16 @@ def whatsapp_incoming():
     except Exception as e:
         logger.error(f"WhatsApp webhook error: {e}")
         return '', 200  # Still ACK to avoid retries
+
+def _process_whatsapp_with_cleanup(tenant_id: str, messages: list):
+    """⚡ Wrapper with thread cleanup"""
+    global _active_wa_threads
+    try:
+        _process_whatsapp_fast(tenant_id, messages)
+    finally:
+        with _wa_threads_lock:
+            _active_wa_threads -= 1
+            logger.info(f"✅ WhatsApp thread finished (active: {_active_wa_threads}/{MAX_CONCURRENT_WA_THREADS})")
 
 def _process_whatsapp_fast(tenant_id: str, messages: list):
     """⚡ FAST background processor - typing first, then response"""
@@ -107,9 +132,12 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                     jid = f"{phone_number}@s.whatsapp.net"
                     
                     # ⚡ STEP 1: Send typing indicator immediately (creates instant feel)
-                    typing_start = time.time()
-                    wa_service.send_typing(jid, True)
-                    logger.info(f"⏱️ typing took: {time.time() - typing_start:.2f}s")
+                    try:
+                        typing_start = time.time()
+                        wa_service.send_typing(jid, True)
+                        logger.info(f"⏱️ typing took: {time.time() - typing_start:.2f}s")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Typing indicator failed: {e}")
                     
                     # ⚡ STEP 2: Quick customer/lead lookup (no heavy processing)
                     lookup_start = time.time()

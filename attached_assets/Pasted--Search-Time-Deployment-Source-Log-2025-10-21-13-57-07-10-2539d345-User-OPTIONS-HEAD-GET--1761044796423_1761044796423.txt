@@ -1,0 +1,141 @@
+
+Search
+Time
+Deployment
+Source
+Log
+2025-10-21 13:57:07.10
+2539d345
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/business/current/prompt -> ai_prompt.get_current_business_prompt
+2025-10-21 13:57:11.50
+2539d345
+User
+{'POST', 'OPTIONS'} /api/whatsapp/reset -> whatsapp.reset
+2025-10-21 13:57:11.50
+2539d345
+User
+{'POST', 'OPTIONS'} /api/whatsapp/start -> whatsapp.start
+2025-10-21 13:57:11.50
+2539d345
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/stats -> whatsapp.api_wa_stats
+2025-10-21 13:57:11.50
+2539d345
+User
+{'POST', 'OPTIONS'} /api/whatsapp/webhook/incoming -> whatsapp.baileys_webhook
+2025-10-21 13:57:11.50
+2539d345
+User
+================
+2025-10-21 13:57:11.50
+2539d345
+User
+✅ Simple SPA routes registered (no blueprint)
+2025-10-21 13:57:14.50
+2539d345
+User
+🔍 AUTO_MEETING: Analyzing 11 conversation turns for meeting time
+2025-10-21 13:57:14.60
+2539d345
+User
+Turn 0: user='כן אני רוצה לקבוע צפייה ב דירה בחולון...', bot='מעולה! יש לי זמינות ביום שלישי 21/10, יום רביעי 22...'
+2025-10-21 13:57:14.60
+2539d345
+User
+Turn 1: user='אתמול יצאת עד יום ראשון יום ראשון בשעה...', bot='נכון, יום ראשון 26/10 הוא התאריך הפנוי הבא. באיזה ...'
+2025-10-21 13:57:14.60
+2539d345
+User
+Turn 2: user='4:00 בצהריים...', bot='מצוין! קבענו צפייה בדירה בחולון ביום ראשון 26/10 ב...'
+2025-10-21 13:57:14.60
+2539d345
+User
+🔍 TIME_PARSER: Analyzing text: '4:00 בצהריים...'
+2025-10-21 13:57:14.60
+2539d345
+User
+✅ TIME_PARSER: Parsed meeting time: 2025-10-22 09:00 (end: 10:00)
+2025-10-21 13:57:14.60
+2539d345
+User
+✅ Found meeting time in USER text: 2025-10-22 09:00:00
+2025-10-21 13:57:14.60
+2539d345
+User
+✅ AUTO_MEETING: Parsed meeting time from conversation: 2025-10-22 09:00
+2025-10-21 13:57:14.60
+2539d345
+User
+2025-10-21 13:57:15.90
+2539d345
+User
+✅ Auto appointment created: 23 for call CAe52b3fd70006efcb88e568aedb30858a
+2025-10-21 13:57:15.90
+2539d345
+User
+📅 AUTO-APPOINTMENT CREATED: 23 at 2025-10-22T09:00:00
+2025-10-21 13:59:25.05
+2539d345
+User
+INFO: 34.136.134.81:0 - "GET /app/admin/businesses/1/agent HTTP/1.1" 200 OK
+2025-10-21 13:59:25.30
+2539d345
+User
+INFO: 34.29.136.0:0 - "GET /assets/index-DC8wHdV4.css HTTP/1.1" 200 OK
+2025-10-21 14:00:58.15
+2539d345
+User
+⚠️ Using fallback active business_id=1 for whatsapp:business_1
+2025-10-21 14:00:58.15
+2539d345
+User
+⚠️ Using fallback business_id=1 (fallback_active) for tenantId=business_1
+2025-10-21 14:01:16.40
+2539d345
+User
+⚠️ Using fallback active business_id=1 for whatsapp:business_1
+2025-10-21 14:01:16.40
+2539d345
+User
+⚠️ Using fallback business_id=1 (fallback_active) for tenantId=business_1
+2025-10-21 14:01:33.10
+2539d345
+User
+⚠️ Using fallback active business_id=1 for whatsapp:business_1
+2025-10-21 14:01:33.10
+2539d345
+User
+⚠️ Using fallback business_id=1 (fallback_active) for tenantId=business_1
+2025-10-21 14:01:48.80
+2539d345
+User
+⚠️ Using fallback active business_id=1 for whatsapp:business_1
+2025-10-21 14:01:48.80
+2539d345
+User
+⚠️ Using fallback business_id=1 (fallback_active) for tenantId=business_1
+2025-10-21 14:02:12.40
+2539d345
+User
+⚠️ Using fallback active business_id=1 for whatsapp:business_1
+2025-10-21 14:02:12.40
+2539d345
+User
+⚠️ Using fallback business_id=1 (fallback_active) for tenantId=business_1
+2025-10-21 14:02:27.10
+2539d345
+User
+⚠️ Using fallback active business_id=1 for whatsapp:business_1
+2025-10-21 14:02:27.10
+2539d345
+User
+⚠️ Using fallback business_id=1 (fallback_active) for tenantId=business_1
+2025-10-21 14:02:37.10
+2539d345
+User
+⚠️ Using fallback active business_id=1 for whatsapp:business_1
+2025-10-21 14:02:37.10
+2539d345
+User
+⚠️ Using fallback business_id=1 (fallback_active) for tenantId=business_1
