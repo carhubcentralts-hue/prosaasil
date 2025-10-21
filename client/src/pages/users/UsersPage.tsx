@@ -58,8 +58,7 @@ const Badge = ({ children, className = "", variant = "default" }: {
 
 const Input = ({ className = "", ...props }: any) => (
   <input className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${className}`} {...props} />
-  );
-};
+);
 
 // User interface
 interface SystemUser {
@@ -85,6 +84,12 @@ export function UsersPage() {
   const [showUserModal, setShowUserModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<SystemUser | null>(null);
   const [showImpersonateModal, setShowImpersonateModal] = useState(false);
+  const [userForm, setUserForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    role: 'business_agent'
+  });
 
   useEffect(() => {
     loadUsers();
@@ -152,6 +157,30 @@ export function UsersPage() {
   const handleImpersonate = (user: SystemUser) => {
     setSelectedUser(user);
     setShowImpersonateModal(true);
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (!userForm.name || !userForm.email || !userForm.role) {
+        alert('נא למלא את כל השדות הנדרשים');
+        return;
+      }
+
+      const response = await http.post('/api/biz/users', userForm) as any;
+      
+      if (response && response.success !== false) {
+        alert('המשתמש נוצר בהצלחה!');
+        setShowUserModal(false);
+        setUserForm({ name: '', email: '', phone: '', role: 'business_agent' });
+        await loadUsers();
+      } else {
+        alert('שגיאה ביצירת המשתמש: ' + (response?.message || 'שגיאה לא ידועה'));
+      }
+    } catch (error) {
+      console.error('Error creating user:', error);
+      alert('שגיאה ביצירת המשתמש');
+    }
   };
 
   const filteredUsers = users.filter(user => {
@@ -508,26 +537,48 @@ export function UsersPage() {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
               משתמש חדש
             </h3>
-            <form className="space-y-4">
+            <form className="space-y-4" onSubmit={handleCreateUser}>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">שם מלא</label>
-                  <Input type="text" placeholder="הזן שם מלא" />
+                  <Input 
+                    type="text" 
+                    placeholder="הזן שם מלא"
+                    value={userForm.name}
+                    onChange={(e: any) => setUserForm({...userForm, name: e.target.value})}
+                    required
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">דוא"ל</label>
-                  <Input type="email" placeholder="הזן דוא״ל" />
+                  <Input 
+                    type="email" 
+                    placeholder="הזן דוא״ל"
+                    value={userForm.email}
+                    onChange={(e: any) => setUserForm({...userForm, email: e.target.value})}
+                    required
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
-                  <Input type="tel" placeholder="הזן מספר טלפון" />
+                  <Input 
+                    type="tel" 
+                    placeholder="הזן מספר טלפון"
+                    value={userForm.phone}
+                    onChange={(e: any) => setUserForm({...userForm, phone: e.target.value})}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">תפקיד</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded-md">
-                    <option value="user">משתמש רגיל</option>
-                    <option value="manager">מנהל</option>
-                    <option value="admin">אדמין</option>
+                  <select 
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    value={userForm.role}
+                    onChange={(e) => setUserForm({...userForm, role: e.target.value})}
+                  >
+                    <option value="business_agent">סוכן</option>
+                    <option value="business_owner">בעל עסק</option>
+                    <option value="manager">מנהל עסק</option>
+                    <option value="read_only">צפייה בלבד</option>
                   </select>
                 </div>
               </div>
