@@ -80,9 +80,10 @@ def _create_dispatcher_callbacks(call_sid: str):
     def on_partial(text: str):
         utt = _get_utterance_state(call_sid)
         if utt:
-            # ⚡ NEW: Save last partial as backup
+            # ⚡ BUILD 112: Save last partial as backup and log it
             with _registry_lock:
                 utt["last_partial"] = text
+            print(f"🟡 [PARTIAL] '{text}' saved for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
             
             # Call the utterance's partial callback
             cb = utt.get("partial_cb")
@@ -98,12 +99,13 @@ def _create_dispatcher_callbacks(call_sid: str):
             buf = utt.get("final_buf")
             if buf is not None:
                 buf.append(text)
-                print(f"✅ [FINAL] Received for {call_sid[:8]}...: '{text}'")
+                print(f"✅ [FINAL] '{text}' received for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
                 
-                # ⚡ NEW: Signal that final has arrived!
+                # ⚡ Signal that final has arrived!
                 final_event = utt.get("final_received")
                 if final_event:
                     final_event.set()
+                    print(f"📢 [FINAL_EVENT] Set for {call_sid[:8]}...")
     
     return on_partial, on_final
 
@@ -333,25 +335,32 @@ class MediaStreamHandler:
             
             print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
     
-    def _utterance_end(self, timeout=0.1):
+    def _utterance_end(self, timeout=0.5):
         """
         Mark end of utterance.
-        ⚡ BUILD 109: USE PARTIALS DIRECTLY - GCP streaming doesn't send finals with single_utterance=False!
+        ⚡ BUILD 112: Increased timeout to 500ms for reliable streaming results
         """
         if not self.call_sid:
+            print("⚠️ _utterance_end: No call_sid")
             return ""
         
         utt_state = _get_utterance_state(self.call_sid)
         if utt_state is None:
+            print(f"⚠️ _utterance_end: No utterance state for call {self.call_sid[:8]}")
             return ""
         
         utt_id = utt_state.get("id", "???")
+        print(f"🎤 [{self.call_sid[:8]}] _utterance_end: Collecting results for utterance {utt_id}")
         
-        # ⚡ NEW APPROACH: Use last partial immediately (partials are good enough!)
-        # Small wait (100ms) to let final partial arrive, but don't wait for "final" that won't come
+        # ⚡ BUILD 112: Wait longer (500ms) for streaming results
+        # Streaming needs time to process audio and return partials/finals
         final_event = utt_state.get("final_received")
         if final_event:
-            final_event.wait(timeout=timeout)  # Quick 100ms wait for last partial
+            got_final = final_event.wait(timeout=timeout)  # 500ms wait for streaming
+            if got_final:
+                print(f"✅ [{self.call_sid[:8]}] Got final event within {timeout}s")
+            else:
+                print(f"⚠️ [{self.call_sid[:8]}] Timeout waiting for final ({timeout}s)")  
         
         # Collect text - prioritize partial over finals
         with _registry_lock:
@@ -578,6 +587,16 @@ class MediaStreamHandler:
                         session = _get_session(self.call_sid)
                         if session:
                             session.push_audio(pcm16)
+                            # Update session timestamp to prevent cleanup
+                            with _registry_lock:
+                                item = _sessions_registry.get(self.call_sid)
+                                if item:
+                                    item["ts"] = time.time()
+                        elif USE_STREAMING_STT:
+                            # ⚠️ Session should exist but doesn't!
+                            if not hasattr(self, '_session_warning_logged'):
+                                print(f"⚠️ [STT] No streaming session for {self.call_sid[:8]} - using fallback")
+                                self._session_warning_logged = True
                     
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
