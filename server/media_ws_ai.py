@@ -1564,16 +1564,16 @@ class MediaStreamHandler:
             duration = len(pcm16_8k) / (2 * 8000)
             print(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
-            # ⚡ BUILD 109: BALANCED validation - prevent both false negatives AND false positives
+            # ⚡ BUILD 113: RELAXED validation - allow quieter speech for better transcription
             
-            # 1. Basic amplitude check - BALANCED threshold (middle ground)
-            if max_amplitude < 60:  # Telephony speech typically >100, noise <90
-                print(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 60)")
+            # 1. Basic amplitude check - RELAXED threshold (favor accuracy over noise rejection)
+            if max_amplitude < 50:  # Lowered from 60 - allow quieter speech
+                print(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 50)")
                 return ""
             
-            # 2. RMS energy check - BALANCED
-            if rms < 40:  # Speech typically >70, hiss <50
-                print(f"🚫 STT_BLOCKED: Audio energy too low (rms={rms} < 40)")
+            # 2. RMS energy check - RELAXED
+            if rms < 30:  # Lowered from 40 - allow quieter audio
+                print(f"🚫 STT_BLOCKED: Audio energy too low (rms={rms} < 30)")
                 return ""
             
             # 3. Duration check
