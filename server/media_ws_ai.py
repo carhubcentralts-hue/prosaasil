@@ -2,16 +2,18 @@
 WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
-import os, json, time, base64, audioop, math, threading, queue, random, zlib
+import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio
 import builtins
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 
-# ⚡ STREAMING STT: Toggle via environment variable
-USE_STREAMING_STT = os.getenv("ENABLE_STREAMING_STT", "true").lower() == "true"
+# ⚡ STREAMING STT: דיפולט מופעל בקוד, כדי שלא ניפול לסינגל-ריקווסט אם ENV לא נטען
+USE_STREAMING_STT = True
+if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
+    USE_STREAMING_STT = False
 
-# ⚡ BUILD 114: לוג מפורט של כל פרמטרי האופטימיזציה
+# ⚡ BUILD 115: בחירת מודל דינמית + fallback חכם
 print("="*80)
-print("⚡ BUILD 114 - STREAMING STT PRODUCTION OPTIMIZATION")
+print("⚡ BUILD 115 - DYNAMIC MODEL SELECTION + SMART FALLBACK")
 print("="*80)
 print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
 print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
