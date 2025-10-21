@@ -8,9 +8,22 @@ from server.services.mulaw_fast import mulaw_to_pcm16_fast
 
 # ⚡ STREAMING STT: Toggle via environment variable
 USE_STREAMING_STT = os.getenv("ENABLE_STREAMING_STT", "false").lower() == "true"
+
+# ⚡ BUILD 107: לוג מפורט של כל פרמטרי האופטימיזציה
+print("="*80)
+print("⚡ BUILD 107 - ULTRA LOW LATENCY CONFIGURATION")
+print("="*80)
+print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
+print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '60')}")
+print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '90')}")
+print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
+print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')}")
+print("="*80)
+
 if USE_STREAMING_STT:
     print("🚀 STT MODE: Real-time Streaming (Session-per-call)")
 else:
+    print("⚠️  WARNING: STT MODE is Single-request (SLOW!) - Set ENABLE_STREAMING_STT=true")
     print("📝 STT MODE: Single-request (fast μ-law + optimized Google STT)")
 
 # ⚡ THREAD-SAFE SESSION REGISTRY for multi-call support
@@ -661,9 +674,15 @@ class MediaStreamHandler:
                         
                         # אסוף אודיו רק כשיש קול או כשיש כבר דבר מה בבאפר
                         if is_strong_voice or len(self.buf) > 0:
-                            # ⚡ STREAMING STT: Mark start of new utterance (once)
+                            # ⚡ STREAMING STT: Mark start of new utterance (once) + save partial text
                             if len(self.buf) == 0 and is_strong_voice:
-                                self._utterance_begin()
+                                # Callback to save partial text for early EOU detection
+                                def save_partial(text):
+                                    self.last_partial_text = text
+                                    print(f"🔊 PARTIAL: '{text}'")
+                                
+                                self.last_partial_text = ""  # Reset
+                                self._utterance_begin(partial_cb=save_partial)
                             
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
@@ -678,10 +697,22 @@ class MediaStreamHandler:
                             
                             silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
-                            min_duration = 0.7  # ✅ מינימום נמוך לתגובות קצרות
+                            min_duration = 0.6  # ⚡ BUILD 107: מינימום קצר יותר - 0.6s במקום 0.7s
                             
-                            # ✅ EOU איכותי: באפר מספיק גדול לתמלול משמעותי
-                            buffer_big_enough = len(self.buf) > 12800  # לפחות 0.8s של אודיו איכותי
+                            # ⚡ BUILD 107: באפר קטן יותר = תגובה מהירה יותר!
+                            buffer_big_enough = len(self.buf) > 8000  # ⚡ 0.5s במקום 0.8s - חוסך 300ms!
+                            
+                            # ⚡⚡⚡ BUILD 107: EARLY EOU - מענה מוקדם על partial חזק!
+                            # אם יש partial חזק (12+ תווים וסיום במשפט) + 0.35s דממה - קפיצה מיד!
+                            last_partial = getattr(self, "last_partial_text", "")
+                            high_conf_partial = (len(last_partial) >= 12) and any(last_partial.endswith(p) for p in (".", "?", "!", "…", ":", ";"))
+                            early_silence = silence_time >= 0.35  # דממה קצרצרה
+                            
+                            if high_conf_partial and early_silence and dur >= 0.5:
+                                print(f"⚡⚡⚡ EARLY EOU on strong partial: '{last_partial}' ({dur:.1f}s, {silence_time:.2f}s silence)")
+                                # קפיצה מיידית לעיבוד!
+                                silent = True
+                                buffer_big_enough = True
                             
                             # סוף מבע: דממה מספקת OR זמן יותר מדי OR באפר גדול עם שקט
                             if ((silent and buffer_big_enough) or too_long) and dur >= min_duration:

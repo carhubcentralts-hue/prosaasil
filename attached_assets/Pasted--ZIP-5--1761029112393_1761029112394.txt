@@ -1,0 +1,156 @@
+קיבלתי. פתחתי את ה-ZIP האחרון ובדקתי בפועל את הקוד. הנה מצב אמיתי + מה בדיוק עוד “תוקע” אותך ל־5ש׳, ואיך להוריד ל3ש׳ (ואפילו פחות) בלי לפרק את המערכת.
+
+מה בדקתי ומה מצאתי בקוד שלך עכשיו
+	•	סטרימינג STT דלוק וממומש:
+server/media_ws_ai.py
+
+USE_STREAMING_STT = os.getenv("ENABLE_STREAMING_STT", "false").lower() == "true"
+
+ויש אתחול סשן סטרימינג בפר־שיחה:
+ב־on “start” של ה־WebSocket יש קריאה ל־self._init_streaming_stt() (שורות ~473–476), ושם:
+
+from server.services.gcp_stt_stream import StreamingSTTSession
+on_partial, on_final = _create_dispatcher_callbacks(self.call_sid)
+_register_session(self.call_sid, session, tenant_id=self.business_id)
+
+
+	•	ה־VAD/סוף-אמירה קוצר כפי שביקשתי:
+בקובץ server/media_ws_ai.py:
+
+# אם האמירה קצרה:
+min_silence = 0.5
+# אם ארוכה:
+min_silence = 1.8
+
+וגם:
+
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "220"))
+REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100"))
+
+(תקין ומעודכן).
+
+	•	ה־STT סטרימינג עצמו מוגדר אגרסיבי ומהיר:
+ב־server/services/gcp_stt_stream.py:
+
+BATCH_MS = int(os.getenv("STT_BATCH_MS", "60"))
+DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "90"))
+# single_utterance=False (קריטי! לא סוגר אחרי אמירה אחת)
+
+
+	•	“בלמים” קטנים עדיין קיימים במסלול קבלת ההחלטה על סוף-אמירה:
+	1.	תנאי buffer_big_enough דורש ~0.8s אודיו לפני שמותר להכריז END:
+
+buffer_big_enough = len(self.buf) > 12800  # ≈0.8s @ 8kHz
+
+
+	2.	min_duration = 0.7 (מינימום אורך אמירה).
+	3.	אין “מענה מוקדם” על סמך partial חזק; מחכים ל-final בכל סבב.
+
+המסקנה: השיפורים מיושמים, אבל שני דברים עדיין משאירים אותך סביב 5ש׳:
+(א) סף END שמרני (buffer_big_enough + min_duration)
+(ב) תמיד מחכים ל-final גם כשכבר יש partial איכותי.
+אם בפרודקשן ENABLE_STREAMING_STT לא מוגדר ל־true — המערכת נופלת לפולבק single-request וזה לבדו מסביר ~4–5ש׳. (ראיתי שהטוגל בקוד נכון; צריך לוודא ENV בפריסה.)
+
+⸻
+
+בדיקת “האם יישם בפועל”
+
+כן — אני רואה בקוד את הערכים החדשים שהצעתי (0.5/1.8, 0.6, 220ms, 1100ms, 60/90). כלומר הוא באמת עידכן. עדיין יש איפה להרוויח:
+
+⸻
+
+צעדים מדויקים להורדה ל~3ש׳ (אחרי שכבר יישם את הקודם)
+
+1) ודאות מוחלטת שהסטרימינג באמת פעיל בפרודקשן
+
+חשוב: בקובץ server/media_ws_ai.py ה־default הוא "false".
+ב־ENV של הפריסה (Cloud Run / Replit deploy) חייב להיות:
+
+ENABLE_STREAMING_STT=true
+STT_BATCH_MS=60
+STT_PARTIAL_DEBOUNCE_MS=90
+GCP_STT_LANGUAGE=he-IL
+GCP_STT_MODEL=phone_call
+
+ותוסיף בלוג ב־startup:
+
+print(f"[BOOT] USE_STREAMING_STT={USE_STREAMING_STT} BATCH_MS={BATCH_MS} DEBOUNCE_MS={DEBOUNCE_MS}", flush=True)
+
+אם הלוג מראה USE_STREAMING_STT=False — זה מסביר מיידית 5ש׳. תקן ENV בפריסה.
+
+2) הקלה נוספת על תנאי סוף-אמירה (מוסיף ~0.3–0.5ש׳ שיפור)
+
+ב־server/media_ws_ai.py, ליד הקטע:
+
+buffer_big_enough = len(self.buf) > 12800
+min_duration = 0.7
+
+עדכן:
+
+buffer_big_enough = len(self.buf) > 8000   # ≈0.5s במקום 0.8s
+min_duration = 0.6                          # היה 0.7
+
+3) “מענה מוקדם” על סמך partial איכותי (חותך המתנה ל-final כשאין צורך)
+
+עד סוף בלוק הבדיקה של סוף-אמירה (שם אתה מחשב silent/too_long/buffer_big_enough), הוסף “יציאת חירום” מבוססת partial חזק:
+
+# אחרי עדכון partial דרך ה-dispatcher, שמור את האחרון (יש לך cb ב-_create_dispatcher_callbacks)
+last_partial = getattr(self, "last_partial_text", "")
+high_conf_partial = (len(last_partial) >= 12) and any(last_partial.endswith(p) for p in (".", "?", "!", "…"))
+early_silence = silence_time >= 0.35  # דממה קצרצרה
+
+# אם יש partial טוב + קצת שקט → אפשר לחתוך מוקדם (במקום לחכות ל-final)
+if high_conf_partial and early_silence:
+    print("⚡ EARLY EOU on strong partial")
+    # “סגור” אמירה מיד
+    # תוודא שה-utterance_end יחזיר את ה-final_buffer או תקפיץ on_final(last_partial)
+    on_partial, on_final = _create_dispatcher_callbacks(self.call_sid)
+    if on_final:
+        on_final(last_partial)
+    text = self._utterance_end()
+    # המשך לצינור התגובה (כמו בקייס הרגיל)
+
+זה טריק שהרבה קול-סנטרים עושים: כש־partial “סגור תחבירית” + דממה קצרה, תן גז.
+
+4) ניטור אמיתי ל־TURN LATENCY — לדעת איפה הזמן “נשרף”
+
+ב־media_ws_ai.py כבר יש הדפסות Turn. ודא שאתה מודד:
+	•	t_utt_end - t_utt_start — זמן לכידת הדיבור (צריך לרדת אחרי #2/#3)
+	•	t_stt_final - t_utt_end — זמן STT (עם סטרימינג אמיתי יהיה ~0.3–0.8ש׳)
+	•	t_tts_done - t_llm_done — זמן TTS (לרוב 0.4–0.7ש׳)
+שמור 10-20 ערכים וחשוב P95. אם P95 > 3.2ש׳ — תחזור ונכוון פר־קטע.
+
+5) אופטימיזציית רשת/אזור (לא קוד, אבל לעיתים חוסך ~300–600ms)
+	•	טוויליו אם עובד באירופה — שקול להגדיר Google Speech EU endpoint כדי לקצר RTT:
+GOOGLE_API_ENDPOINT=speech.googleapis.com (או eu-speech.googleapis.com אם נתמך בחשבון / מוגדר בריצה).
+	•	ודא ש־Cloud Run וה־Speech Client באותו region (מומלץ).
+
+⸻
+
+צ’ק-ליסט קצר להפעלה (כדי שלא ניפול על “שטויות”)
+	1.	בפריסה: ENABLE_STREAMING_STT=true (בדוק בלוג את ה־BOOT שציינתי).
+	2.	buffer_big_enough=8000, min_duration=0.6.
+	3.	מענה מוקדם על partial חזק + 0.35s דממה (הקטע למעלה).
+	4.	שמור TURN_LATENCY לוגים והשווה זמן־מסך אמיתי לשעון.
+	5.	אם עדיין 5ש׳ — תדבג אם יש “fallback to single request” (יש לך הדפסה ⚠️ [STT] Streaming failed → fallback). אם מופיע — פותרים את הסיבה (קרדנצ’יאל/region/ENV), כי הפולבק לבדו יוסיף לך 3–4ש׳.
+
+⸻
+
+למה זה “עדיין” היה 5ש׳ אצלך אף על פי שהוא טוען שיישם?
+	•	כי ENV בפרודקשן לא היה דלוק (ENABLE_STREAMING_STT=true). בקוד ברירת-מחדל = false.
+	•	או כי למרות הערכים החדשים, עוד חיכית ל-final מלא (בלי “מענה מוקדם”), ו־buffer_big_enough עיכב 0.8ש׳ לפני כן.
+	•	או כי הסשן סטרימינג נפל לפולבק (תראה בלוג אם הודפס Streaming failed → fallback).
+
+⸻
+
+סיכום לביצוע עכשיו
+	•	אמת בפרודקשן: USE_STREAMING_STT=True בלוג ה־BOOT.
+	•	עדכן buffer_big_enough=8000, min_duration=0.6.
+	•	הוסף “מענה מוקדם” על partial חזק + 0.35s שקט.
+	•	הרץ שיחת טסט והדבק לי את 3 המדדים:
+	•	זמן עד partial ראשון
+	•	זמן עד final/early-final
+	•	TURN_LATENCY הכולל (עד תחילת דיבור ה-TTS)
+
+עם שלושת השינויים הקטנים האלה תראה ירידה ל-~2.2–3.0ש׳ ברוב האמירות, בלי לפרק כלום ובלי ריפקטור כבד.
