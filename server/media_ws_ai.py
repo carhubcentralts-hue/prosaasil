@@ -330,11 +330,10 @@ class MediaStreamHandler:
             
             print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
     
-    def _utterance_end(self, timeout=0.75):
+    def _utterance_end(self, timeout=0.1):
         """
         Mark end of utterance.
-        Waits for final transcript from GCP (up to timeout) before cleanup.
-        ⚡ FIX: Prevents race condition where buffer is cleared before GCP final arrives!
+        ⚡ BUILD 109: USE PARTIALS DIRECTLY - GCP streaming doesn't send finals with single_utterance=False!
         """
         if not self.call_sid:
             return ""
@@ -344,33 +343,34 @@ class MediaStreamHandler:
             return ""
         
         utt_id = utt_state.get("id", "???")
-        start_wait = time.time()
         
-        # ⚡ WAIT for final transcript (GCP sends it 200-350ms after audio stops)
+        # ⚡ NEW APPROACH: Use last partial immediately (partials are good enough!)
+        # Small wait (100ms) to let final partial arrive, but don't wait for "final" that won't come
         final_event = utt_state.get("final_received")
         if final_event:
-            print(f"⏳ [{self.call_sid[:8]}] Waiting up to {timeout*1000:.0f}ms for final transcript...")
-            received = final_event.wait(timeout=timeout)
-            wait_time = (time.time() - start_wait) * 1000
-            
-            if received:
-                print(f"✅ [{self.call_sid[:8]}] Final received after {wait_time:.0f}ms")
-            else:
-                print(f"⚠️ [{self.call_sid[:8]}] Timeout after {wait_time:.0f}ms - using partial")
+            final_event.wait(timeout=timeout)  # Quick 100ms wait for last partial
         
-        # Now collect the text
+        # Collect text - prioritize partial over finals
         with _registry_lock:
+            # ⚡ PRIMARY: Use last partial (this is what we actually get!)
+            last_partial = utt_state.get("last_partial", "")
+            
+            # FALLBACK: Check finals buffer (rarely populated)
             finals = utt_state.get("final_buf") or []
-            text = " ".join(finals).strip()
+            finals_text = " ".join(finals).strip()
             
-            # ⚡ FALLBACK: If no final, use last partial
-            if not text:
-                last_partial = utt_state.get("last_partial", "")
-                if last_partial:
-                    print(f"📝 [{self.call_sid[:8]}] No final - using partial: '{last_partial}'")
-                    text = last_partial
+            # Use partial if available, otherwise finals
+            if last_partial:
+                text = last_partial
+                print(f"✅ [{self.call_sid[:8]}] Using partial: '{text}'")
+            elif finals_text:
+                text = finals_text
+                print(f"✅ [{self.call_sid[:8]}] Using final: '{text}'")
+            else:
+                text = ""
+                print(f"⚠️ [{self.call_sid[:8]}] No text available")
             
-            # NOW reset dispatcher (after collecting text!)
+            # Reset dispatcher
             utt_state["id"] = None
             utt_state["partial_cb"] = None
             utt_state["final_buf"] = None
