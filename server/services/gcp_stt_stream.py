@@ -27,14 +27,11 @@ PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() 
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
 
 
-# ⚡ BUILD 115.1: ENDPOINT אזורי לביצועים טובים
-SPEECH_ENDPOINT = os.getenv("GOOGLE_CLOUD_SPEECH_ENDPOINT", "europe-west1-speech.googleapis.com").strip()
-
 # ⚡ BUILD 115.1: default תמיד - phone_call לא עובד בעברית בישראל!
 MODEL = os.getenv("GCP_STT_MODEL", "default").strip()
 USE_ENHANCED = True  # גוגל מתעלמת אם לא נתמך; לא קורס
 
-print(f"🎯 STT Configuration: model={MODEL}, enhanced={USE_ENHANCED}, language={LANG}, endpoint={SPEECH_ENDPOINT}", flush=True)
+print(f"🎯 STT Configuration: model={MODEL}, enhanced={USE_ENHANCED}, language={LANG}", flush=True)
 
 
 class StreamingSTTSession:
@@ -52,12 +49,10 @@ class StreamingSTTSession:
             on_partial: Callback for interim results (called frequently ~180ms)
             on_final: Callback for final results (end of utterance)
         """
-        # ⚡ BUILD 115.1: Initialize Google Speech client with regional endpoint
+        # ⚡ BUILD 115.1: Initialize Google Speech client (NO custom endpoint - production fix)
         try:
-            self.client = speech.SpeechClient(
-                client_options={"api_endpoint": SPEECH_ENDPOINT}
-            )
-            log.info(f"✅ StreamingSTTSession: Client initialized (endpoint: {SPEECH_ENDPOINT})")
+            self.client = speech.SpeechClient()
+            log.info(f"✅ StreamingSTTSession: Client initialized")
         except Exception as e:
             log.error(f"❌ Failed to initialize Speech client: {e}")
             raise
