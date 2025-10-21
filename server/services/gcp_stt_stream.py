@@ -22,9 +22,112 @@ log = logging.getLogger("gcp_stt_stream")
 BATCH_MS = int(os.getenv("STT_BATCH_MS", "80"))  # 80ms - sweet spot for latency vs throughput
 DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "120"))  # 120ms - prevents flooding
 LANG = os.getenv("GCP_STT_LANGUAGE", "he-IL")
-MODEL = os.getenv("GCP_STT_MODEL", "phone_call")  # phone_call is better for telephony
 PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() == "true"
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
+
+
+def choose_stt_model(language="he-IL"):
+    """
+    ⚡ BUILD 115: Dynamic model selection with availability check
+    
+    Tries models in order of preference:
+    1. User-specified model from GCP_STT_MODEL
+    2. phone_call (best for telephony if available)
+    3. default (fallback, works everywhere)
+    
+    Tests each model with a quick probe to ensure it's supported
+    for the target language before committing.
+    
+    Returns:
+        dict: {"model": str, "use_enhanced": bool}
+    """
+    preferred = os.getenv("GCP_STT_MODEL", "phone_call").strip()
+    candidates = [preferred, "phone_call", "default"]
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    order = [m for m in candidates if not (m in seen or seen.add(m))]
+    
+    # Initialize client with regional endpoint for lower RTT
+    try:
+        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
+        region = os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')
+        api_endpoint = f"{region}-speech.googleapis.com"
+        
+        from google.api_core.client_options import ClientOptions
+        client_options = ClientOptions(api_endpoint=api_endpoint)
+        
+        if sa_json:
+            credentials_info = json.loads(sa_json)
+            client = speech.SpeechClient.from_service_account_info(
+                credentials_info,
+                client_options=client_options
+            )
+        else:
+            client = speech.SpeechClient(client_options=client_options)
+    except Exception as e:
+        log.error(f"❌ [choose_stt_model] Failed to init client: {e}")
+        # Fallback to safe defaults
+        return {"model": "default", "use_enhanced": False}
+    
+    # Generate 300ms of silence for probe (8kHz PCM16)
+    silent_bytes = b"\x00" * int(8000 * 0.3 * 2)
+    
+    for model in order:
+        try:
+            # Build config for this model
+            cfg = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=8000,
+                language_code=language,
+                model=model,
+                use_enhanced=True,
+                enable_automatic_punctuation=True,
+            )
+            scfg = speech.StreamingRecognitionConfig(
+                config=cfg,
+                interim_results=True,
+                single_utterance=False
+            )
+            
+            # Quick probe: send config + tiny silent audio
+            requests = [
+                speech.StreamingRecognizeRequest(streaming_config=scfg),
+                speech.StreamingRecognizeRequest(audio_content=silent_bytes)
+            ]
+            
+            # This will throw INVALID_ARGUMENT if model not available for language
+            responses = client.streaming_recognize(requests=iter(requests))
+            
+            # Consume first response (or error)
+            try:
+                next(responses, None)
+            except StopIteration:
+                pass
+            
+            log.info(f"✅ [choose_stt_model] Selected model: '{model}' (enhanced=True, language={language})")
+            return {"model": model, "use_enhanced": True}
+            
+        except Exception as e:
+            emsg = str(e).lower()
+            if "model" in emsg and ("not available" in emsg or "not supported" in emsg):
+                log.warning(f"⚠️ [choose_stt_model] Model '{model}' not available for {language}; trying next...")
+                continue
+            else:
+                # Other error - log but try next model
+                log.warning(f"⚠️ [choose_stt_model] Probe failed for '{model}': {e}")
+                continue
+    
+    # All models failed - fallback to default without enhanced (rare)
+    log.error("❌ [choose_stt_model] All models failed! Falling back to default (enhanced=False)")
+    return {"model": "default", "use_enhanced": False}
+
+
+# ⚡ BUILD 115: Choose model dynamically at startup
+MODEL_CFG = choose_stt_model(LANG)
+MODEL = MODEL_CFG["model"]
+USE_ENHANCED = MODEL_CFG["use_enhanced"]
+log.info(f"🎯 STT Configuration: model={MODEL}, enhanced={USE_ENHANCED}, language={LANG}")
 
 
 class StreamingSTTSession:
@@ -135,7 +238,7 @@ class StreamingSTTSession:
             sample_rate_hertz=8000,
             language_code=LANG,
             model=MODEL,
-            use_enhanced=True,  # ⚡ BUILD 114: Enhanced model for better Hebrew accuracy
+            use_enhanced=USE_ENHANCED,  # ⚡ BUILD 115: Dynamically selected based on availability
             enable_automatic_punctuation=PUNCTUATION_FINAL,
             speech_contexts=speech_contexts
         )
@@ -344,10 +447,8 @@ class GcpStreamingSTT:
     def _stream_worker(self):
         """Background worker that handles streaming recognition"""
         try:
-            # ⚡ BUILD 114: ALWAYS use enhanced model with phone_call
-            use_enhanced = True  # ✅ CRITICAL: Enhanced model for better Hebrew accuracy
-            model = MODEL
-            log.info(f"📞 Using phone_call model with ENHANCED=True for he-IL")
+            # ⚡ BUILD 115: Use dynamically selected model configuration
+            log.info(f"📞 Using model='{MODEL}' with ENHANCED={USE_ENHANCED} for {LANG}")
             
             speech_contexts = [
                 speech.SpeechContext(
@@ -366,9 +467,9 @@ class GcpStreamingSTT:
                 language_code=LANG,
                 sample_rate_hertz=self.rate,
                 enable_automatic_punctuation=PUNCTUATION_INTERIM,  # Usually false for speed
-                model=model,
+                model=MODEL,
                 speech_contexts=speech_contexts,
-                use_enhanced=use_enhanced
+                use_enhanced=USE_ENHANCED
             )
             
             streaming_config = speech.StreamingRecognitionConfig(
