@@ -9,15 +9,18 @@ from server.services.mulaw_fast import mulaw_to_pcm16_fast
 # ⚡ STREAMING STT: Toggle via environment variable
 USE_STREAMING_STT = os.getenv("ENABLE_STREAMING_STT", "true").lower() == "true"
 
-# ⚡ BUILD 107: לוג מפורט של כל פרמטרי האופטימיזציה
+# ⚡ BUILD 114: לוג מפורט של כל פרמטרי האופטימיזציה
 print("="*80)
-print("⚡ BUILD 107 - ULTRA LOW LATENCY CONFIGURATION")
+print("⚡ BUILD 114 - STREAMING STT PRODUCTION OPTIMIZATION")
 print("="*80)
 print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
+print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
+print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
+print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
 print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '80')}")
 print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '120')}")
-print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
-print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')}")
+print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '220')}")
+print(f"[BOOT] UTTERANCE_TIMEOUT = 450ms (hardcoded for optimal balance)")
 print("="*80)
 
 if USE_STREAMING_STT:
