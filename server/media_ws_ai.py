@@ -418,7 +418,9 @@ class MediaStreamHandler:
             utt_state["final_received"] = None
             utt_state["last_partial"] = ""
         
+        # ⚡ BUILD 114: Detailed latency logging
         print(f"🏁 [{self.call_sid[:8]}] Utterance {utt_id} COMPLETE: returning '{text[:30] if text else '(empty)'}'")
+        print(f"[LATENCY] final_wait={wait_duration:.2f}s, utterance_total={time.time() - wait_start:.2f}s")
         
         return text
 
@@ -1300,12 +1302,17 @@ class MediaStreamHandler:
                 send_time = time.time() - send_start
                 print(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission)")
                 
-                # ⚡ BUILD 107: Total latency breakdown (EOU→first audio sent)
+                # ⚡ BUILD 114: Detailed latency breakdown (EOU→first audio sent)
                 if eou_saved:
                     turn_latency = send_start - eou_saved
                     total_latency = time.time() - eou_saved
+                    stt_time = getattr(self, 'last_stt_time', 0.0)
+                    ai_time = getattr(self, 'last_ai_time', 0.0)
+                    
                     print(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
                     print(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
+                    print(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
+                    
                     # נקה למדידה הבאה
                     if hasattr(self, 'eou_timestamp'):
                         delattr(self, 'eou_timestamp')
