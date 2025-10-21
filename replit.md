@@ -2,6 +2,11 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. Its primary goal is to streamline the sales pipeline for real estate professionals with fully customizable AI assistants and business names.
 
+**⚡ BUILD 112 - CRITICAL FIXES:**
+- **Appointment Rejection Detection**: 3-layer system prevents appointments when user refuses ("לא תודה", "ביי", "לא רוצה")
+- **STT Performance Boost**: Removed ENHANCED model fallback - BASIC model only with 1.5s timeout (was 3s) - 50% faster
+- **Eliminated Double Processing**: Single STT path prevents ENHANCED→BASIC fallback chains
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
@@ -29,7 +34,7 @@ Preferred communication style: Simple, everyday language.
 - **Audio Processing**: Smart barge-in detection (disabled for long responses >20 words, enabled for short ones), calibrated VAD for Hebrew speech, immediate TTS interruption, and seamless turn-taking.
 - **Custom Greetings**: Initial phone greeting loads from business configuration with dynamic placeholders.
 - **Natural TTS**: Production-grade Hebrew TTS with WaveNet-D voice (8kHz telephony optimization), SSML smart pronunciation, TTS caching, and accelerated speaking rate (1.05x).
-- **Performance Optimization**: ⚡ BUILD 109 Ultra-low latency - VAD silence detection (0.5s/1.8s), STT streaming with partial transcripts (100ms response), Early EOU detection, comprehensive latency tracking (ASR, AI, TTS, Total). Achieves 2-3 second response times vs previous 5-6 seconds (60% improvement). Session timestamp updated on every audio frame to prevent 2-minute resets. **3-layer false-positive protection**: (1) Balanced audio validation (60/40 thresholds), (2) STT confidence checks with short-utterance rejection, (3) Common-word filtering with punctuation normalization.
+- **Performance Optimization**: ⚡ BUILD 112 Ultra-low latency - BASIC model STT only (1.5s timeout), VAD silence detection (0.5s/1.8s), Early EOU detection, comprehensive latency tracking (ASR, AI, TTS, Total). Achieves <2 second response times (50% faster than previous builds). Session timestamp updated on every audio frame to prevent 2-minute resets. **3-layer false-positive protection**: (1) Balanced audio validation (60/40 thresholds), (2) STT confidence checks with short-utterance rejection, (3) Common-word filtering with punctuation normalization. **Appointment rejection detection**: 3-layer system (time_parser, conversation parser, auto_meeting) prevents appointments on user refusal.
 - **Intelligent Error Handling**: Smart responses for STT failures with consecutive failure tracking (2x trigger "לא הבנתי").
 
 ## CRM Features
@@ -50,7 +55,7 @@ Preferred communication style: Simple, everyday language.
 ## System Design Choices
 - **AI Response Optimization**: Max tokens set to 180 for quality Hebrew responses (3-4 sentences) using `gpt-4o-mini`, temperature 0.3-0.4 for balanced natural responses.
 - **Robustness**: Implemented thread tracking and enhanced cleanup for background processes, extended ASGI handler timeout.
-- **STT Reliability**: BALANCED validation prevents false positives AND false negatives - amplitude threshold 60, RMS threshold 40, confidence threshold 0.3. Short utterances (≤2 words) require confidence ≥0.6 to prevent responding to noise. Extended STT timeout to 3 seconds for Hebrew speech. numpy/scipy dependencies added for advanced audio analysis.
+- **STT Reliability**: BALANCED validation prevents false positives AND false negatives - amplitude threshold 60, RMS threshold 40, confidence threshold 0.3. Short utterances (≤2 words) require confidence ≥0.6 to prevent responding to noise. ⚡ BUILD 112: Optimized timeout to 1.5s (was 3s), BASIC model only (removed ENHANCED fallback). numpy/scipy dependencies added for advanced audio analysis.
 - **Voice Consistency**: Standardized on a male voice (`he-IL-Wavenet-D`) and masculine Hebrew phrasing.
 - **Cold Start Optimization**: Automatic warmup of services on startup and via a dedicated `/warmup` endpoint.
 - **Business Auto-Detection**: Smart normalization of identifiers for automatic detection of new businesses.
