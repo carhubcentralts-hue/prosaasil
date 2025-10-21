@@ -29,92 +29,26 @@ PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "t
 
 def choose_stt_model(language="he-IL"):
     """
-    ⚡ BUILD 115: Smart model selection for Hebrew STT
+    ⚡ BUILD 115.1: Simple model selection (NO PROBE - fixes production issue)
     
-    Probes models in order: user-preferred → phone_call → default
-    For each model, tries enhanced=True first, then enhanced=False
-    Returns first working combination.
+    Selects model based on ENV without real-time probing.
+    Probe was causing failures in production deployment.
     
     Returns:
         dict: {"model": str, "use_enhanced": bool}
     """
-    preferred = os.getenv("GCP_STT_MODEL", "phone_call").strip()
-    order = []
-    for m in (preferred, "phone_call", "default"):
-        if m not in order:
-            order.append(m)
+    model = os.getenv("GCP_STT_MODEL", "default").strip()
+    use_enhanced = os.getenv("GCP_STT_USE_ENHANCED", "true").lower() == "true"
     
-    # Initialize client with ENDPOINT (not REGION)
-    try:
-        endpoint = os.getenv("GOOGLE_CLOUD_SPEECH_ENDPOINT", "europe-west1-speech.googleapis.com")
-        client = speech.SpeechClient(
-            client_options={"api_endpoint": endpoint}
-        )
-    except Exception as e:
-        print(f"⚠️ [choose_stt_model] Client init failed: {e} - using conservative fallback", flush=True)
-        return {"model": "default", "use_enhanced": False}
-    
-    # 300ms silent audio for probe (8kHz PCM16)
-    silent_bytes = b"\x00" * int(8000 * 0.3 * 2)
-    
-    # Probe each model (enhanced → basic)
-    for model in order:
-        for use_enhanced in [True, False]:
-            try:
-                cfg = speech.RecognitionConfig(
-                    encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                    sample_rate_hertz=8000,
-                    language_code=language,
-                    model=model,
-                    use_enhanced=use_enhanced,
-                    enable_automatic_punctuation=True,
-                )
-                scfg = speech.StreamingRecognitionConfig(
-                    config=cfg, 
-                    interim_results=True, 
-                    single_utterance=False
-                )
-                # Probe with streaming_recognize
-                list(client.streaming_recognize(requests=[
-                    speech.StreamingRecognizeRequest(streaming_config=scfg),
-                    speech.StreamingRecognizeRequest(audio_content=silent_bytes)
-                ]))
-                print(f"✅ [STT] Selected model: {model} (enhanced={use_enhanced})", flush=True)
-                return {"model": model, "use_enhanced": use_enhanced}
-            except Exception as e:
-                msg = str(e).lower()
-                if "model" in msg and "not available" in msg:
-                    print(f"⚠️ [STT] Model '{model}' not available for {language}, trying next…", flush=True)
-                    break  # Next model
-                print(f"⚠️ [STT] Probe failed for '{model}' (enhanced={use_enhanced}): {e}", flush=True)
-                continue  # Try basic or next model
-    
-    # Fallback
-    print("❌ [STT] Falling back to default (enhanced=False)", flush=True)
-    return {"model": "default", "use_enhanced": False}
+    print(f"✅ [STT] Selected model: {model} (enhanced={use_enhanced})", flush=True)
+    return {"model": model, "use_enhanced": use_enhanced}
 
 
-# ⚡ BUILD 115: Choose model dynamically at startup
+# ⚡ BUILD 115.1: Choose model from ENV (NO PROBE - fixed production issue)
 MODEL_CFG = choose_stt_model(LANG)
 MODEL = MODEL_CFG["model"]
 USE_ENHANCED = MODEL_CFG["use_enhanced"]
 print(f"🎯 STT Configuration: model={MODEL}, enhanced={USE_ENHANCED}, language={LANG}", flush=True)
-
-# ⚡ BUILD 115: Global recognition config (created once at startup)
-recognition_config = speech.RecognitionConfig(
-    encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-    sample_rate_hertz=8000,
-    language_code=LANG,
-    model=MODEL,
-    use_enhanced=USE_ENHANCED,
-    enable_automatic_punctuation=True,
-)
-
-streaming_config = speech.StreamingRecognitionConfig(
-    config=recognition_config,
-    interim_results=True,
-    single_utterance=False,
-)
 
 
 class StreamingSTTSession:
@@ -132,13 +66,10 @@ class StreamingSTTSession:
             on_partial: Callback for interim results (called frequently ~180ms)
             on_final: Callback for final results (end of utterance)
         """
-        # ⚡ BUILD 115: Initialize Google Speech client with ENDPOINT
+        # ⚡ BUILD 115.1: Initialize Google Speech client (default endpoint - FIXED production issue)
         try:
-            endpoint = os.getenv("GOOGLE_CLOUD_SPEECH_ENDPOINT", "europe-west1-speech.googleapis.com")
-            self.client = speech.SpeechClient(
-                client_options={"api_endpoint": endpoint}
-            )
-            log.info(f"✅ StreamingSTTSession: Client initialized (endpoint: {endpoint})")
+            self.client = speech.SpeechClient()
+            log.info(f"✅ StreamingSTTSession: Client initialized")
         except Exception as e:
             log.error(f"❌ Failed to initialize Speech client: {e}")
             raise

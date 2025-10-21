@@ -2,16 +2,15 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. Its primary goal is to streamline the sales pipeline for real estate professionals with fully customizable AI assistants and business names.
 
-**⚡ BUILD 115 - PRODUCTION-READY STT:**
-- **Smart Model Selection**: Automatic probe with streaming_recognize() to detect model+language availability (phone_call → default fallback)
-- **Enhanced/Basic Fallback**: Each model tried with enhanced=True first, then enhanced=False before moving to next model
-- **ENDPOINT-based Configuration**: Uses GOOGLE_CLOUD_SPEECH_ENDPOINT (e.g., europe-west1-speech.googleapis.com) instead of region
-- **Global Configs**: recognition_config and streaming_config created once at startup for consistency
+**⚡ BUILD 115.1 - PRODUCTION-READY STT (HOTFIX):**
+- **Simple Model Selection**: ENV-based model selection (NO PROBE - fixes production deployment issue)
+- **Default Endpoint**: Uses standard Google Speech client without custom endpoint (production-stable)
 - **Non-blocking Fallback**: ThreadPoolExecutor for single-request STT prevents blocking event loop
 - **Streaming by Default**: USE_STREAMING_STT=True in code (ENV override: "false"/"0"/"no" disables)
 - **Fast Parameters**: BATCH_MS=80ms, DEBOUNCE_MS=120ms, TIMEOUT_MS=450ms for ≤2s total response time
 - **3-Attempt Retry**: Streaming STT retries 3x (200ms delay) before falling back to single-request mode
-- **Result**: Zero-config reliability - works with any available Google STT model for Hebrew
+- **Result**: Stable production deployment - works reliably with default/phone_call models for Hebrew
+- **Fix**: Removed startup probe and custom endpoint that caused "לא הבנתי" loop in production
 
 # User Preferences
 
