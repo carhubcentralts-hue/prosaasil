@@ -2,11 +2,11 @@
 Real-time Streaming STT for Hebrew with Google Cloud Speech
 Optimized for ultra-low latency phone conversations
 
-Session-per-call architecture:
-- ONE session per call (not per utterance!)
-- Batching: 150ms chunks
-- Partial debounce: 180ms
-- Thread-safe for sync WebSocket handlers
+⚡ BUILD 115: Dynamic model selection with smart fallback
+- Session-per-call architecture
+- Automatic model availability probing
+- Graceful fallback (phone_call → default)
+- Thread-safe for concurrent calls
 """
 import os
 import json
@@ -18,9 +18,10 @@ from google.cloud import speech
 
 log = logging.getLogger("gcp_stt_stream")
 
-# ⚡ BUILD 114: Configuration optimized for speed & accuracy
-BATCH_MS = int(os.getenv("STT_BATCH_MS", "80"))  # 80ms - sweet spot for latency vs throughput
-DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "120"))  # 120ms - prevents flooding
+# ⚡ BUILD 115: Fast parameters for low-latency streaming
+BATCH_MS = int(os.getenv("STT_BATCH_MS", "80"))        # 60-120ms optimal range
+DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "120"))  # Partial debounce
+TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "450"))    # Utterance timeout when silent
 LANG = os.getenv("GCP_STT_LANGUAGE", "he-IL")
 PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() == "true"
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
@@ -28,110 +29,68 @@ PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "t
 
 def choose_stt_model(language="he-IL"):
     """
-    ⚡ BUILD 115: Dynamic model selection with availability check
+    ⚡ BUILD 115: Smart model selection for Hebrew STT
     
-    Tries models in order of preference:
-    1. User-specified model from GCP_STT_MODEL
-    2. phone_call (best for telephony if available)
-    3. default (fallback, works everywhere)
-    
-    Tests each model with a quick probe to ensure it's supported
-    for the target language before committing.
+    Probes models in order: user-preferred → phone_call → default
+    For each model, tries enhanced=True first, then enhanced=False
+    Returns first working combination.
     
     Returns:
         dict: {"model": str, "use_enhanced": bool}
     """
     preferred = os.getenv("GCP_STT_MODEL", "phone_call").strip()
-    candidates = [preferred, "phone_call", "default"]
+    order = []
+    for m in (preferred, "phone_call", "default"):
+        if m not in order:
+            order.append(m)
     
-    # Remove duplicates while preserving order
-    seen = set()
-    order = [m for m in candidates if not (m in seen or seen.add(m))]
-    
-    # Initialize client with regional endpoint for lower RTT
+    # Initialize client with ENDPOINT (not REGION)
     try:
-        region = os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')
-        api_endpoint = f"{region}-speech.googleapis.com"
-        
-        from google.api_core.client_options import ClientOptions
-        client_options = ClientOptions(api_endpoint=api_endpoint)
-        
-        # Try to get credentials - support both JSON and default ADC
-        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
-        if sa_json:
-            credentials_info = json.loads(sa_json)
-            client = speech.SpeechClient.from_service_account_info(
-                credentials_info,
-                client_options=client_options
-            )
-        else:
-            # Try Application Default Credentials
-            client = speech.SpeechClient(client_options=client_options)
-            
+        endpoint = os.getenv("GOOGLE_CLOUD_SPEECH_ENDPOINT", "europe-west1-speech.googleapis.com")
+        client = speech.SpeechClient(
+            client_options={"api_endpoint": endpoint}
+        )
     except Exception as e:
-        log.warning(f"⚠️ [choose_stt_model] Failed to init client: {e} - using conservative fallback")
-        # Can't probe, use conservative fallback
+        print(f"⚠️ [choose_stt_model] Client init failed: {e} - using conservative fallback", flush=True)
         return {"model": "default", "use_enhanced": False}
     
-    # Known model compatibility for Hebrew
-    # phone_call: Works in some regions, not in others (especially europe-west1)
-    # default: Works everywhere with Hebrew
-    
-    # Generate 300ms of silence for probe (8kHz PCM16)
+    # 300ms silent audio for probe (8kHz PCM16)
     silent_bytes = b"\x00" * int(8000 * 0.3 * 2)
     
-    # Try to probe models in order with actual API call
-    # For each model, try enhanced first, then basic
+    # Probe each model (enhanced → basic)
     for model in order:
-        # Try with enhanced=True first
         for use_enhanced in [True, False]:
             try:
-                # Build config for this model
                 cfg = speech.RecognitionConfig(
                     encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                     sample_rate_hertz=8000,
                     language_code=language,
                     model=model,
                     use_enhanced=use_enhanced,
+                    enable_automatic_punctuation=True,
                 )
-                
-                # Real probe: call non-streaming recognize with silent audio
-                # This will throw INVALID_ARGUMENT if model not supported for language
-                audio = speech.RecognitionAudio(content=silent_bytes)
-                response = client.recognize(config=cfg, audio=audio)
-                
-                # If we got here without exception, the model works!
-                log.info(f"✅ [choose_stt_model] Selected model: '{model}' (enhanced={use_enhanced}, language={language})")
+                scfg = speech.StreamingRecognitionConfig(
+                    config=cfg, 
+                    interim_results=True, 
+                    single_utterance=False
+                )
+                # Probe with streaming_recognize
+                list(client.streaming_recognize(requests=[
+                    speech.StreamingRecognizeRequest(streaming_config=scfg),
+                    speech.StreamingRecognizeRequest(audio_content=silent_bytes)
+                ]))
+                print(f"✅ [STT] Selected model: {model} (enhanced={use_enhanced})", flush=True)
                 return {"model": model, "use_enhanced": use_enhanced}
-                
             except Exception as e:
-                emsg = str(e).lower()
-                
-                # Check if this is model/enhanced availability issue
-                if use_enhanced and ("enhanced" in emsg or "not available" in emsg):
-                    log.warning(f"⚠️ [choose_stt_model] Enhanced not available for '{model}'; trying basic...")
-                    continue  # Try use_enhanced=False
-                    
-                # Check if this is model incompatibility
-                elif "model" in emsg and ("not supported" in emsg or "invalid" in emsg):
-                    log.warning(f"⚠️ [choose_stt_model] Model '{model}' not supported for {language}; trying next model...")
-                    break  # Skip to next model
-                
-                # Auth/service error - can't probe reliably
-                elif "permission" in emsg or "auth" in emsg or "501" in str(e):
-                    log.warning(f"⚠️ [choose_stt_model] Auth/service error: {e}; can't probe - using conservative fallback")
-                    return {"model": "default", "use_enhanced": False}
-                    
-                # Other error - try basic mode, then next model
-                else:
-                    log.warning(f"⚠️ [choose_stt_model] Probe failed for '{model}' (enhanced={use_enhanced}): {e}")
-                    if use_enhanced:
-                        continue  # Try basic
-                    else:
-                        break  # Skip to next model
+                msg = str(e).lower()
+                if "model" in msg and "not available" in msg:
+                    print(f"⚠️ [STT] Model '{model}' not available for {language}, trying next…", flush=True)
+                    break  # Next model
+                print(f"⚠️ [STT] Probe failed for '{model}' (enhanced={use_enhanced}): {e}", flush=True)
+                continue  # Try basic or next model
     
-    # All models failed - fallback to default without enhanced
-    log.warning("⚠️ [choose_stt_model] All models failed probe - using 'default' (enhanced=False) as last resort")
+    # Fallback
+    print("❌ [STT] Falling back to default (enhanced=False)", flush=True)
     return {"model": "default", "use_enhanced": False}
 
 
@@ -139,7 +98,23 @@ def choose_stt_model(language="he-IL"):
 MODEL_CFG = choose_stt_model(LANG)
 MODEL = MODEL_CFG["model"]
 USE_ENHANCED = MODEL_CFG["use_enhanced"]
-log.info(f"🎯 STT Configuration: model={MODEL}, enhanced={USE_ENHANCED}, language={LANG}")
+print(f"🎯 STT Configuration: model={MODEL}, enhanced={USE_ENHANCED}, language={LANG}", flush=True)
+
+# ⚡ BUILD 115: Global recognition config (created once at startup)
+recognition_config = speech.RecognitionConfig(
+    encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+    sample_rate_hertz=8000,
+    language_code=LANG,
+    model=MODEL,
+    use_enhanced=USE_ENHANCED,
+    enable_automatic_punctuation=True,
+)
+
+streaming_config = speech.StreamingRecognitionConfig(
+    config=recognition_config,
+    interim_results=True,
+    single_utterance=False,
+)
 
 
 class StreamingSTTSession:
@@ -157,27 +132,13 @@ class StreamingSTTSession:
             on_partial: Callback for interim results (called frequently ~180ms)
             on_final: Callback for final results (end of utterance)
         """
-        # ⚡ BUILD 114: Initialize Google Speech client with europe-west1 region for lower RTT
+        # ⚡ BUILD 115: Initialize Google Speech client with ENDPOINT
         try:
-            sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
-            region = os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')
-            api_endpoint = f"{region}-speech.googleapis.com"
-            
-            from google.api_core.client_options import ClientOptions
-            client_options = ClientOptions(api_endpoint=api_endpoint)
-            
-            if sa_json:
-                credentials_info = json.loads(sa_json)
-                from google.cloud.speech import SpeechClient
-                self.client = SpeechClient.from_service_account_info(
-                    credentials_info,
-                    client_options=client_options
-                )
-                log.info(f"✅ StreamingSTTSession: Client initialized (service account, region: {region})")
-            else:
-                from google.cloud.speech import SpeechClient
-                self.client = SpeechClient(client_options=client_options)
-                log.info(f"✅ StreamingSTTSession: Client initialized (default, region: {region})")
+            endpoint = os.getenv("GOOGLE_CLOUD_SPEECH_ENDPOINT", "europe-west1-speech.googleapis.com")
+            self.client = speech.SpeechClient(
+                client_options={"api_endpoint": endpoint}
+            )
+            log.info(f"✅ StreamingSTTSession: Client initialized (endpoint: {endpoint})")
         except Exception as e:
             log.error(f"❌ Failed to initialize Speech client: {e}")
             raise
