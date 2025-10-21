@@ -88,13 +88,14 @@ def _create_dispatcher_callbacks(call_sid: str):
                 utt["last_partial"] = text
             print(f"🟡 [PARTIAL] '{text}' saved for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
             
-            # ⚡ BUILD 114: Early Finalization - if partial is strong enough, finalize immediately
-            # This saves 400-600ms by not waiting for the final event
+            # ⚡ BUILD 114: Early Finalization - if partial is strong enough, trigger final AND continue
+            # This saves 400-600ms by triggering final event early
             if text and len(text) > 15 and text.rstrip().endswith(('.', '?', '!')):
-                print(f"⚡ [EARLY_FINALIZE] Strong partial detected: '{text}' → triggering final")
-                # Trigger final with this partial
-                on_final(text)
-                return  # Don't call the partial callback
+                print(f"⚡ [EARLY_FINALIZE] Strong partial detected: '{text}' → triggering final event")
+                # Trigger final event (but continue to call partial callback)
+                final_event = utt.get("final_received")
+                if final_event:
+                    final_event.set()
             
             # Call the utterance's partial callback
             cb = utt.get("partial_cb")
@@ -385,6 +386,7 @@ class MediaStreamHandler:
         # ⚡ BUILD 114: Wait 450ms for streaming results - optimized for speed & accuracy
         # Streaming STT enabled by default → fast partial results
         wait_start = time.time()
+        wait_duration = 0.0
         final_event = utt_state.get("final_received")
         if final_event:
             got_final = final_event.wait(timeout=timeout)  # 450ms wait for streaming
