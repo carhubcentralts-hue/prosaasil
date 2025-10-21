@@ -372,8 +372,8 @@ def update_appointment(appointment_id):
             except ValueError:
                 return jsonify({'error': 'פורמט תאריך מעקב לא תקין'}), 400
         
-        # Validate dates
-        if appointment.end_time <= appointment.start_time:
+        # Validate dates (only if both exist)
+        if appointment.end_time and appointment.start_time and appointment.end_time <= appointment.start_time:
             return jsonify({'error': 'זמן סיום חייב להיות אחרי זמן התחלה'}), 400
         
         appointment.updated_at = datetime.utcnow()
