@@ -43,6 +43,20 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Integration**: Works seamlessly with existing time parsing (hour extraction after date)
 - **Result**: Customer can say "28 ל10 בשעה 16" and appointment creates for October 28 at 16:00!
 
+**⚡ BUILD 118.5 - Enhanced STT Accuracy for Hebrew:**
+- **Problem**: Speech-to-text transcription inaccurate - misrecognizing Hebrew words
+- **Solution**: Massively expanded vocabulary hints and boosted recognition priority
+- **Vocabulary Expansion**: Increased from 20 to 100+ Hebrew terms covering:
+  - Real estate terms (דירה, משרד, מ״ר, ממ״ד, מעלית, חניה...)
+  - 24 Israeli cities (תל אביב, ירושלים, הרצליה, מודיעין...)
+  - Numbers and money (אלף, אלפיים, מיליון, משכנתא...)
+  - Time expressions (מחר, בוקר, שעה, ראשון, ינואר...)
+  - Common conversation words (כן, לא, תודה, אפשר, מתאים...)
+  - Actions and meetings (פגישה, ביקור, לקבוע, להגיע...)
+- **Boost Increase**: Raised from 15.0 to 20.0 for maximum recognition priority
+- **Alternative Language Code**: Added iw-IL alongside he-IL for better Hebrew support
+- **Result**: Dramatically improved transcription accuracy for Hebrew real estate conversations!
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
