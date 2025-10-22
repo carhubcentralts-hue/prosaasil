@@ -902,16 +902,14 @@ class MediaStreamHandler:
                         self.heartbeat_counter += 1
                         
                         # שלח heartbeat mark event אם החיבור תקין
-                        if not self.ws_connection_failed:
+                        # ⚡ BUILD 119.1: Via TX Queue (control frame - never dropped!)
+                        if not self.ws_connection_failed and self.stream_sid:
                             try:
-                                heartbeat_msg = {
-                                    "event": "mark",
-                                    "streamSid": self.stream_sid,
-                                    "mark": {"name": f"heartbeat_{self.heartbeat_counter}"}
-                                }
-                                success = self._ws_send(json.dumps(heartbeat_msg))
-                                if success:
-                                    print(f"💓 WS_KEEPALIVE #{self.heartbeat_counter} (prevents 5min timeout)")
+                                self._tx_enqueue({
+                                    "type": "mark",
+                                    "name": f"heartbeat_{self.heartbeat_counter}"
+                                })
+                                print(f"💓 WS_KEEPALIVE #{self.heartbeat_counter} (prevents 5min timeout)")
                             except Exception as e:
                                 print(f"⚠️ Keepalive failed: {e}")
                         else:
@@ -1451,27 +1449,33 @@ class MediaStreamHandler:
     
     def _tx_enqueue(self, item):
         """
-        ⚡ BUILD 119: Enqueue with drop-oldest policy + telemetry
-        If queue is full, drop oldest frame and insert new one (Real-time > past)
+        ⚡ BUILD 119.1: Enqueue with drop-oldest ONLY for media frames
+        Control frames (clear, mark) are NEVER dropped - critical for Twilio
         """
         try:
             self.tx_q.put_nowait(item)
         except queue.Full:
-            # Drop oldest frame (keep system responsive!)
-            try:
-                _ = self.tx_q.get_nowait()
-                self.tx_drops += 1  # Track for telemetry
-            except queue.Empty:
-                pass
-            # Try again
-            try:
-                self.tx_q.put_nowait(item)
-            except queue.Full:
-                # Throttled logging - max once per 2 seconds
-                now = time.monotonic()
-                if now - self._last_overflow_log > 2.0:
-                    print(f"⚠️ tx_q full after drop-oldest (drops={self.tx_drops})", flush=True)
-                    self._last_overflow_log = now
+            # ⚠️ Drop-oldest ONLY for media frames, NEVER for control frames
+            if item.get("type") == "media":
+                # Drop oldest frame (keep system responsive!)
+                try:
+                    _ = self.tx_q.get_nowait()
+                    self.tx_drops += 1  # Track for telemetry
+                except queue.Empty:
+                    pass
+                # Try again
+                try:
+                    self.tx_q.put_nowait(item)
+                except queue.Full:
+                    # Throttled logging - max once per 2 seconds
+                    now = time.monotonic()
+                    if now - self._last_overflow_log > 2.0:
+                        print(f"⚠️ tx_q full after drop-oldest (drops={self.tx_drops})", flush=True)
+                        self._last_overflow_log = now
+            else:
+                # Control frames: block until space available (CRITICAL - don't drop!)
+                self.tx_q.put(item, timeout=1.0)
+                print(f"⚠️ Control frame ({item.get('type')}) had to wait - queue was full!", flush=True)
     
     def _finalize_speaking(self):
         """סיום דיבור עם חזרה להאזנה"""

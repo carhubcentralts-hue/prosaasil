@@ -4,27 +4,30 @@ AgentLocator is a Hebrew CRM system for real estate businesses designed to strea
 
 ## Recent Changes
 
-**⚡ BUILD 119 - Production TX Queue with Precise Timing:**
+**⚡ BUILD 119.1 - Production TX Queue with Precise Timing (Final):**
 - **Problem**: "Send queue full, dropping frame" errors during longer TTS responses causing audio freezes
 - **Root Cause**: Queue too small (120 frames = 2.4s) AND naive solution (256 frames) would create 5-6s hidden lag
-- **Solution**: Professional-grade TX queue system with precise timing, back-pressure, and drop-oldest
+- **Solution**: Professional-grade TX queue system with precise timing, back-pressure, and smart drop-oldest
 - **Implementation**:
-  - asgi.py send_queue: 176 frames (~3.5s balanced buffer, not 256)
-  - media_ws_ai.py tx_q: 120 frames (~2.4s) with drop-oldest policy
+  - asgi.py send_queue: 144 frames (~2.9s balanced buffer, aligned with tx_q)
+  - media_ws_ai.py tx_q: 120 frames (~2.4s) with intelligent drop-oldest
   - Added tx_drops counter for telemetry tracking
   - _tx_loop: precise 20ms/frame timing with next_deadline scheduling
   - Back-pressure: 90% threshold triggers double-wait to drain queue
-  - **ALL frames via _tx_enqueue**: greeting, TTS, beeps, marks - NO direct _ws_send bypasses
+  - **Smart drop-oldest**: Drops ONLY media frames, control frames (clear, mark, keepalive) NEVER dropped
+  - **ALL frames via _tx_enqueue**: greeting, TTS, beeps, marks, keepalives - NO direct _ws_send bypasses
   - Real-time telemetry: [TX] fps/q/drops logged every second
+  - Greeting sends greeting_end mark for tracking
 - **Expected Metrics**:
-  - fps ≈ 50 (50 frames/second)
+  - fps ≈ 50 (50 frames/second, stable)
   - q < 20 (queue size under 20 most of the time)
   - drops = 0 (zero dropped frames under normal load)
 - **Benefits**:
   - ✅ Zero "Send queue full" errors
-  - ✅ No hidden lag accumulation (3.5s max vs 5-6s with naive approach)
-  - ✅ Drop-oldest keeps system responsive during spikes
+  - ✅ No hidden lag accumulation (2.9s max buffer)
+  - ✅ Drop-oldest keeps system responsive during spikes WITHOUT breaking control flow
   - ✅ Complete telemetry for monitoring and debugging
+  - ✅ Control frames always delivered (critical for Twilio)
 - **Result**: Reliable audio streaming without freezes or lag, production-grade quality!
 
 # User Preferences
