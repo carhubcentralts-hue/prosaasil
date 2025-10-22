@@ -50,6 +50,14 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Target**: Maintain ≤3s response time while eliminating false positives and mid-sentence interruptions
 - **Result**: Stable, reliable conversations - bot completes full responses, ignores background noise, only responds to real speech!
 
+**⚡ BUILD 118.1 - Instant Greeting Delivery:**
+- **Problem**: Greeting took 3-6 seconds to START playing (T0→T1 latency)
+- **Root Cause**: STT initialization (100-300ms) + call log creation (50-200ms) + DB queries happened BEFORE greeting
+- **Solution**: Deferred setup - greeting sent IMMEDIATELY after business lookup, all other setup (STT init, call log) moved AFTER greeting
+- **Flow Change**: T0→greet→T1→[greeting plays]→T2→[STT init]→[call log] (was: T0→[STT init]→[call log]→greet→T1→[greeting plays]→T2)
+- **Target**: T0→T1 latency ≤500ms (down from 3-6 seconds)
+- **Result**: Instant greeting playback - caller hears business greeting within half a second of connection!
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

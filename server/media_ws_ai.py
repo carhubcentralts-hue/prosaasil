@@ -587,36 +587,25 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
-                    # ⚡ OPTIMIZED: זיהוי עסק + ברכה בשאילתה אחת!
+                    # ⚡ BUILD 118.1: IMMEDIATE greeting - defer ALL non-critical setup!
+                    # Start TX thread first
+                    if not self.tx_running:
+                        self.tx_running = True
+                        self.tx_thread.start()
+                    
+                    # Get greeting in FASTEST way possible (cached or default)
+                    greet = "שלום! איך אפשר לעזור?"
                     try:
                         from server.app_factory import create_app
                         app = create_app()
                         with app.app_context():
                             business_id, greet = self._identify_business_and_get_greeting()
-                        print(f"⚡ FAST: business_id={business_id}, greeting loaded in single query!")
+                        print(f"⚡ FAST: business_id={business_id}, greeting loaded!")
                     except Exception as e:
-                        print(f"❌ CRITICAL ERROR in business identification: {e}")
-                        import traceback
-                        traceback.print_exc()
+                        print(f"⚠️ Business ID lookup failed (using default greeting): {e}")
                         self.business_id = 1
-                        greet = "שלום! איך אפשר לעזור?"
                     
-                    # ⚡ STREAMING STT: Initialize NOW (after business_id is known)
-                    self._init_streaming_stt()
-                    
-                    # ✅ יצירת call_log מיד בהתחלת שיחה (אחרי זיהוי עסק!)
-                    try:
-                        if self.call_sid and not hasattr(self, '_call_log_created'):
-                            self._create_call_log_on_start()
-                            self._call_log_created = True
-                    except Exception as e:
-                        print(f"⚠️ Call log creation failed (non-critical): {e}")
-                    
-                    # ✅ ברכה מיידית - בלי השהיה!
-                    if not self.tx_running:
-                        self.tx_running = True
-                        self.tx_thread.start()
-                    
+                    # ⚡ SEND GREETING IMMEDIATELY - don't wait for anything else!
                     if not self.greeting_sent:
                         self.t1_greeting_start = time.time()  # ⚡ [T1] Greeting start
                         print(f"🎯 [T1={self.t1_greeting_start:.3f}] SENDING IMMEDIATE GREETING! (Δ={(self.t1_greeting_start - self.t0_connected)*1000:.0f}ms from T0)")
@@ -629,6 +618,20 @@ class MediaStreamHandler:
                             print(f"❌ CRITICAL ERROR sending greeting: {e}")
                             import traceback
                             traceback.print_exc()
+                    
+                    # ⚡ BUILD 118.1: DEFERRED SETUP - do AFTER greeting to reduce T0→T1 latency
+                    # These are important but not time-critical for first impression
+                    try:
+                        # STT initialization (can take 100-300ms)
+                        self._init_streaming_stt()
+                        
+                        # Call log creation (DB write - can take 50-200ms)
+                        if self.call_sid and not hasattr(self, '_call_log_created'):
+                            self._create_call_log_on_start()
+                            self._call_log_created = True
+                    except Exception as e:
+                        print(f"⚠️ Deferred setup failed (non-critical): {e}")
+                    
                     continue
 
                 if et == "media":
