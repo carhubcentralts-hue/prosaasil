@@ -18,10 +18,10 @@ from google.cloud import speech
 
 log = logging.getLogger("gcp_stt_stream")
 
-# ⚡ BUILD 115: Fast parameters for low-latency streaming
-BATCH_MS = int(os.getenv("STT_BATCH_MS", "80"))        # 60-120ms optimal range
-DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "120"))  # Partial debounce
-TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "450"))    # Utterance timeout when silent
+# ⚡ BUILD 116: Ultra-fast parameters for sub-2s response
+BATCH_MS = int(os.getenv("STT_BATCH_MS", "40"))        # 40ms aggressive batching
+DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "90"))  # 90ms partial debounce
+TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "320"))    # 320ms utterance timeout (aggressive)
 LANG = os.getenv("GCP_STT_LANGUAGE", "he-IL")
 PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() == "true"
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
@@ -68,6 +68,7 @@ class StreamingSTTSession:
         # Debouncing state
         self._last_partial = ""
         self._last_emit_ms = 0
+        self._early_finalized = False  # Track if we already sent early-final for this utterance
         
         # Metrics
         self._dropped_frames = 0
@@ -186,15 +187,36 @@ class StreamingSTTSession:
             except Exception as e:
                 log.error(f"Partial callback error: {e}")
     
-    def _emit_final(self, text: str):
+    def _should_finalize_early(self, partial_text: str) -> bool:
+        """
+        ⚡ BUILD 116: Early-finalize aggressive strategy
+        Cuts 300-500ms by finalizing strong partials without waiting for silence
+        """
+        if not partial_text:
+            return False
+        
+        # Strong partial: >=12 chars with punctuation
+        if len(partial_text) >= 12 and any(p in partial_text for p in ".?!…"):
+            return True
+        
+        # Medium partial without punctuation: >=18 chars (short sentence)
+        if len(partial_text) >= 18:
+            return True
+        
+        return False
+    
+    def _emit_final(self, text: str, early=False):
         """Emit final result"""
         if text:
             try:
+                if early:
+                    log.info(f"⚡ EARLY-FINAL: {text} (saved ~400ms)")
                 self._on_final(text)
             except Exception as e:
                 log.error(f"Final callback error: {e}")
         # Reset partial after final
         self._last_partial = ""
+        self._early_finalized = early  # Track if this was early-finalized
     
     def _run(self):
         """
@@ -221,11 +243,21 @@ class StreamingSTTSession:
                         continue
                     
                     if result.is_final:
-                        log.info(f"🟢 FINAL: {transcript}")
-                        self._emit_final(transcript)
+                        # Skip if we already early-finalized this utterance
+                        if self._early_finalized:
+                            log.debug(f"🔵 Skipping FINAL (already early-finalized): {transcript}")
+                            self._early_finalized = False  # Reset for next utterance
+                        else:
+                            log.info(f"🟢 FINAL: {transcript}")
+                            self._emit_final(transcript, early=False)
                     else:
-                        log.debug(f"🟡 PARTIAL: {transcript}")
-                        self._emit_partial(transcript)
+                        # ⚡ BUILD 116: Check if we should early-finalize this partial
+                        if not self._early_finalized and self._should_finalize_early(transcript):
+                            # Treat this partial as final - saves 300-500ms!
+                            self._emit_final(transcript, early=True)
+                        else:
+                            log.debug(f"🟡 PARTIAL: {transcript}")
+                            self._emit_partial(transcript)
                         
         except Exception as e:
             log.error(f"❌ Streaming worker error: {e}")

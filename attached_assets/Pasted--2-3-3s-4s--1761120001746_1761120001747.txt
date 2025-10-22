@@ -1,0 +1,146 @@
+מעולה שהכול עובד! עכשיו נרד ל-2–3 שניות “קיר-לקיר” באמת.
+הסימפטומים שאתה מתאר (≈3s לברכה, ≈4s לתמלול) כמעט תמיד מגיעים משילוב של 4 גורמים: STT סטרימינג (הגדרות זמנים), ברכה/TTS (חימום וקאש), AI (המתנה מיותרת ל-final), וצווארי בקבוק קטנים בקוד המדיה. להלן תכנית פעולה ממוקדת לפרויקט שלך (Flask + ASGI + Twilio WS), עם ערכים/קוד שתוכל להדביק 1:1.
+
+⸻
+
+1) STT סטרימינג – להאיץ ל-~1.2–1.8s ל-final
+
+ב־gcp_stt_stream.py / ה-Session של ה-STT:
+
+ערכי זמנים מומלצים
+
+BATCH_MS    = int(os.getenv("STT_BATCH_MS", "40"))     # היה 80 → 40ms
+DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "90"))   # היה 120 → 90ms
+TIMEOUT_MS  = int(os.getenv("STT_TIMEOUT_MS", "320"))  # היה 450 → 320ms
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # היה 220 → 180ms
+
+Early-finalize אגרסיבי יותר (חותך ~300–500ms):
+במקום לחכות ל”שקט ארוך”, תסיים משפט כשמתקבל partial “חזק”:
+
+def should_finalize(partial_text: str) -> bool:
+    if len(partial_text) >= 12 and any(p in partial_text for p in ".?!…"):
+        return True
+    if len(partial_text) >= 18:  # משפט קצר בלי פיסוק
+        return True
+    return False
+
+בלולאת הקריאה מה-STT, ברגע ש-should_finalize() חוזר True—סגור utterance ושלח לעיבוד AI.
+
+Session אחד לכל שיחה בלבד
+וודא שה-GcpStreamingSTT נפתח פעם אחת בתחילת השיחה ונסגר בסוף (לא מחדש בכל משפט).
+(כבר תיקנו אצלך נפילות ל-fallback; רק בדוק בלוגים שיש: ✅ [STT] Streaming started פעם אחת לשיחה, לא לכל utterance.)
+
+⸻
+
+2) ברכה / TTS – שתופיע תוך ≤0.8s
+
+הברכה לא תלויה ב-STT—אל תחכה לכלום.
+
+א. cache/חימום ברכה
+סנתז מראש לכל עסק (“שלום, הגעת ל… אני כאן לעזור”). שמור כ-bytes μ-law 8kHz מחולקים לפריימים של 20ms. בזמן start stream פשוט מזרים אותם מיידית (דרך _tx_enqueue) – אין השהיה של TTS בכלל.
+
+ב. שים לב ל-SSML/פיסוק
+תגיות כמו <break time="500ms"/> או נקודה בסוף משפט מוסיפות השהיה בסינתזה. הורד פיסוק/pauses בברכה.
+
+ג. אל תאחד פריימים גדולים
+העבר תמיד 20ms/frame (160B μ-law לפני Base64). כבר יישמת — רק לוודא שאין שום path ששולח ישירות ל-WS (הכול דרך tx_q).
+
+⸻
+
+3) AI – לא לחכות ל-final כדי “להתחיל לחשוב”
+
+כבר יש לך events_q. תתחיל הפעלת ה-LLM על partial “בשל” מוקדם, כדי שברגע שמגיע final, התגובה כמעט מוכנה:
+
+ב-media_ws_ai.py:
+
+PARTIAL_TRIGGER_LEN = 14      # כשמזהים משפט חלקי משמעותי
+PARTIAL_FRESH_MS    = 250     # “יציב” 250ms
+
+async def _maybe_kickoff_ai_on_partial(self, text, ts_ms):
+    if len(text) >= PARTIAL_TRIGGER_LEN and (self.now_ms() - ts_ms) >= PARTIAL_FRESH_MS:
+        if not self.pending_ai:
+            self.pending_ai = asyncio.create_task(self._ai_plan_response(text[:220]))  # תכנון ראשוני
+
+וכשמגיע final:
+
+final_text = ...
+if self.pending_ai:
+    try:
+        draft = await asyncio.wait_for(self.pending_ai, timeout=0.4)
+        reply = self._refine_with_final(draft, final_text)
+    except asyncio.TimeoutError:
+        reply = await self._ai_plan_response(final_text)
+else:
+    reply = await self._ai_plan_response(final_text)
+
+await self._tts_and_send(reply)
+self.pending_ai = None
+
+זה “מציץ קדימה”—מוריד עוד ~300–600ms.
+
+⸻
+
+4) מדיה / WS – אין צווארי בקבוק
+
+אתה כבר תיקנת יפה: קצב קבוע 20ms, tx_q=120, drop-oldest ו-telemetry.
+השלמות קטנות:
+
+א. מדדי טלמטריה קצרים (פעם בשנייה):
+
+[TX] fps=50 q=5 drops=0 | [STT] p=0.7s f=1.3s | [AI]=0.4s | [TTS]=0.3s total=~1.9s
+
+אם q נוטה לטפס מעל 20 לאורך זמן—זה בוטלנק בצד ה-TTS (פצל סינתזה לחתיכות קטנות יותר, או ודא שהחיתוך ל-20ms לא חסום).
+
+ב. Warm-up
+בלוח הזמנים של השיחה:
+	•	שנייה 0.00: פותחים WS + מתחילים להזרים ברכה מהקאש.
+	•	שנייה 0.05: פותחים STT streaming.
+	•	שנייה 0.10: שולחים “ping” ראשון ל-WS (keep-alive).
+
+⸻
+
+5) fallback חכם – לא לחסום אף פעם
+
+נשאר כמו שסידרנו:
+	•	3 ניסיונות לפתוח סטרימינג; כישלון → מיידית fallback non-blocking (ב־ThreadPool) – בלי לעצור את ה-loop.
+	•	מודל: נסה phone_call רק אם ביקשת במפורש, אחרת כברירת-מחדל default עם use_enhanced=True. (זה לא משנה לטנטיות, אבל שומר דיוק.)
+
+⸻
+
+6) ערכי ENV סופיים להורדת לטנטיות
+
+ENABLE_STREAMING_STT=true
+STT_BATCH_MS=40
+STT_PARTIAL_DEBOUNCE_MS=90
+STT_TIMEOUT_MS=320
+VAD_HANGOVER_MS=180
+# אם ה-EU לא יציב אצלך – נסה US:
+GOOGLE_CLOUD_SPEECH_ENDPOINT=europe-west1-speech.googleapis.com
+
+
+⸻
+
+7) “דיאגנוסטיקה ב-2 דקות” – שתדע איפה הזמן נשרף
+
+הדפס חותמות־זמן לכל שלב:
+	•	[T0] ws_connected
+	•	[T1] greeting_started / [T2] greeting_last_frame_sent
+	•	[S1] stt_stream_opened
+	•	[S2] first_partial @ 0.6s
+	•	[S3] final_text @ 1.2s
+	•	[A1] ai_start → [A2] ai_done @ 0.4s
+	•	[V1] tts_start → [V2] tts_done @ 0.3s
+	•	[TX] first_reply_frame_sent
+
+תראה מהר איפה המילישניות קופצות: STT (פרמטרים), AI (אפשר להוריד טוקנים/טמפ’/הקשר), TTS (קאש), או TX (פריים/תור).
+
+⸻
+
+למה זה יוריד אותך ל-~2s בפועל
+	•	ברכה: קאש וזרימה מיידית → 0.2–0.6s עד ששומעים משהו.
+	•	STT: batch/debounce/timeout אגרסיביים + early-final → 1.2–1.8s ל-final.
+	•	AI: מתחיל על partial → 0.3–0.6s נטו, חופף ל-STT.
+	•	TTS: סינתזה בחתיכות קטנות + הזרמה מידית → 0.3–0.6s, חופף ל-AI.
+	•	WS: 50fps יציב, אין הצפות/lag.
+
+אם אחרי היישום אתה עדיין רואה 3–4 שניות ל-final, הדבק 10–15 שורות לוג של מדדי ה-LATENCY (STT/AI/TTS/Total) ואכוון אותך לערכים המדויקים שצריך לשנות (בדרך כלל DEBOUNCE_MS/TIMEOUT_MS או early-finalize).
