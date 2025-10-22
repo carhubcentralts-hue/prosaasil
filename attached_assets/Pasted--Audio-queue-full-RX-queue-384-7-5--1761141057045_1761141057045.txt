@@ -1,0 +1,104 @@
+כן — האבחון (“Audio queue full…”) נכון, אבל הפתרון שהוצע (להגדיל את ה-RX queue ל-384 = ~7.5 שניות) רק מסתיר את הבעיה ומכניס דיליי נסתר. צריך לטפל בסיבה: צריכת האודיו ע״י ה-STT לא עומדת בקצב של 50fps.
+
+הנה הנחיה מדויקת שתתקן את זה בלי לשבור כלום, ותשמור על latency נמוך ויציב:
+
+מה לשנות (RX – קליטת אודיו → STT)
+	1.	גודל תורים מאוזן (בלי lag נסתר)
+
+	•	קבע audio_rx_q (או איך שהוא נקרא אצלך, למשל self._audio_queue / self._q) ל־maxsize=160–240 (לא 384).
+זה שומר על buffer של ~3.2–4.8s לכל היותר במקרה קצה, ולא 7.5s.
+
+	2.	Drop-oldest חכם (רק למדיה)
+בכל מקום שבו אתה מכניס פריימים נכנסים לתור (ה־WS RX side), אל תעשה put() רגיל. עטוף בפונקציה:
+
+def _rx_enqueue(self, item, timeout=0.01):
+    # item["type"] ∈ {"media","mark","clear","keepalive"}
+    if item.get("type") != "media":
+        # פקודות בקרה לעולם לא נזרקות
+        self.audio_rx_q.put(item, timeout=1.0)
+        return
+    try:
+        self.audio_rx_q.put_nowait(item)
+    except queue.Full:
+        try:
+            # drop-oldest רק למדיה
+            self.audio_rx_q.get_nowait()
+        except queue.Empty:
+            pass
+        # ניסיון נוסף להכניס את המדיה העדכנית
+        self.audio_rx_q.put_nowait(item)
+
+חשוב: בדיוק כמו ב-TX, בקרות לא נזרקות (mark/clear/keepalive), רק media.
+
+	3.	צרכן RX עם תיזמון ושמירת קצב
+אל תעשה while rx: frame = q.get(); write(frame) בלי בקרה. צרכן ה-RX צריך לשמור קצב ולעשות resync אם מאחרים, בדומה ל-TX:
+
+FRAME_INTERVAL = 0.020  # 20ms
+next_deadline = time.perf_counter()
+
+while self.rx_running:
+    try:
+        item = self.audio_rx_q.get(timeout=0.1)
+    except queue.Empty:
+        continue
+
+    if item.get("type") == "media":
+        # כתיבה ל-STT (לא לחסום את הלולאה)
+        self.stt_session.write(item["pcm16"])  # או μ-law→PCM בהתאם למימוש שלך
+        # שמירת קצב: אם היינו מהירים מדי – חכה; אם איחרנו – resync
+        now = time.perf_counter()
+        if now < next_deadline:
+            time.sleep(next_deadline - now)
+        else:
+            # איחור – מבצעים resync כדי שלא נצבור דיליי
+            next_deadline = now
+        next_deadline += FRAME_INTERVAL
+    else:
+        self._handle_rx_control(item)
+
+	4.	קצב STT אמיתי (Streaming, לא בקשות יחיד)
+ודא שה-session של ה-STT חי לכל אורך השיחה, נפתח פעם אחת ומקבל write() לכל פריים/באטצ׳.
+הפרמטרים שהוכיחו את עצמם למטרה שלך:
+
+	•	BATCH_MS = 40
+	•	PARTIAL_DEBOUNCE_MS = 90
+	•	TIMEOUT_MS = 320
+	•	VAD_HANGOVER_MS = 180
+	•	GCP_STT_MODEL = "default" + use_enhanced=True
+	•	GCP_STT_LANGUAGE = "he-IL"
+	•	אזור: אם europe-west1 לא זמין בחשבון שלך לעברית → עבר ל-us-central1 (זה הכי יציב לעברית אצל רוב החשבונות).
+
+	5.	טלמטריה ב-RX (כמו שיש ב-TX)
+פעם בשנייה הדפס:
+
+[RX] fps_in=50 q=7 drops=0 write_ms=0.2
+
+	•	fps_in – כמה פריימים נכנסו לשנייה (צריך להיות ~50)
+	•	q – גודל התור (ממוצע < 20)
+	•	drops – כמה פריימי media נזרקו (צריך להיות 0; בפיקים קצרים מותר 1–2)
+	•	write_ms – זמן כתיבה ממוצע ל-STT (צריך להיות < 1ms לפריים; אם זה קופץ – יש צוואר בקבוק).
+
+	6.	אל תעשה לוגיקה כבדה ב-RX consumer
+
+	•	אסור לעשות ניתוחים, המרות Base64 או μ-law→PCM איטיות בתוך לולאת הצרכן.
+	•	את ההמרה μ-law→PCM תעשה בטבלת-מיפוי מהירה (כבר בניתם mulaw_fast – תשתמש).
+	•	לוגים “כבדים”/פורמטים – בדופק מדולל (לא על כל פריים).
+
+בדיקות GO/NO-GO אחרי השינוי
+	•	אין Audio queue full בלוגים.
+	•	[RX] fps_in≈50 q<20 drops=0 לאורך זמן.
+	•	[TX] fps≈50 q<20 drops=0.
+	•	STT partial: 0.6–1.2s, final: 1.2–1.8s.
+	•	זמן “שלום וברכה” ראשון: ≤1.8s מהתחלת הדיבור.
+
+למה לא להגדיל את ה-RX queue ל-384?
+
+כי זה נותן “ביטחון” על חשבון latency: אתה סופג 7.5 שניות תור לפני שהבעיה נחשפת. עדיף לזהות הצפה מוקדם, לעשות drop-oldest למדיה בלבד, ולשמור את המערכת רספונסיבית.
+
+⸻
+
+אם אחרי זה עדיין תראה drops בצד ה-RX:
+	•	בדוק שה-stt_session.write() באמת Non-blocking. אם הוא חוסם, העבר אותו ל-Thread ייעודי עם queue פנימי קטן (ל-STT בלבד) והעבר אליו batches של 40ms.
+	•	העלה זמנית את BATCH_MS ל-60ms כדי להפחית עומס כתיבות; אם השתפר – חזרה ל-40ms ונתאמן על כוונון.
+
+זה יפתור את החיתוכים ויביא אותך ל-~2 שניות end-to-end בלי קריסות ובלי lag נסתר.
