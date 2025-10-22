@@ -17,8 +17,9 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **No Probe**: No complex startup checks
 - **No Custom Endpoint**: Standard SpeechClient() - stable everywhere
 - **Enhanced=True**: Google ignores if unsupported; system doesn't crash
-- **TX Rate Limiting**: 8ms sleep between media frames prevents send_queue overflow
-- **Result**: Simplest, most stable configuration - works reliably in production!
+- **TX Rate Limiting**: 20ms/frame pacing with back-pressure handling prevents send_queue overflow
+- **Increased Buffer**: send_queue expanded from 500→1000 frames for 1-2 second audio buffer
+- **Result**: Production-grade transmission - no dropped frames, perfect Twilio sync!
 
 # User Preferences
 

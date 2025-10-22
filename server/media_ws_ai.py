@@ -2252,9 +2252,16 @@ class MediaStreamHandler:
             return None
     
     def _tx_loop(self):
-        """TX Queue loop for smooth audio transmission"""
+        """
+        ⚡ BUILD 115.1 FINAL: Improved TX loop with rate-limit, back-pressure, and error handling
+        Prevents send_queue overflow and ensures Twilio stays in sync
+        """
         print("🔊 TX_LOOP_START: Audio transmission thread started")
+        
+        FRAME_INTERVAL = 0.02  # 20 ms per frame expected by Twilio
+        last_send_time = time.perf_counter()
         tx_count = 0
+        
         while self.tx_running:
             try:
                 item = self.tx_q.get(timeout=0.5)
@@ -2264,24 +2271,40 @@ class MediaStreamHandler:
             if item.get("type") == "end":
                 print("🔚 TX_LOOP_END: End signal received")
                 break
+            
+            # Handle "clear" event
             if item.get("type") == "clear" and self.stream_sid:
                 success = self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
                 print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
                 continue
+            
+            # Handle "media" event with back-pressure and rate limiting
             if item.get("type") == "media":
+                # ⚡ Back-pressure: If send_queue is full, wait instead of dropping frames
+                if hasattr(self.ws, 'send_queue') and self.ws.send_queue.full():
+                    print("⚠️ send_queue full – applying back-pressure", flush=True)
+                    time.sleep(FRAME_INTERVAL)
+                    continue
+                
+                # Send frame
                 success = self._ws_send(json.dumps({
                     "event": "media", 
                     "streamSid": self.stream_sid,
                     "media": {"payload": item["payload"]}
                 }))
                 tx_count += 1
+                
                 if tx_count % 50 == 0:  # Log every 50 frames (1 second)
                     print(f"🎵 TX_MEDIA: Frame {tx_count} {'SUCCESS' if success else 'FAILED'}")
                 
-                # ⚡ BUILD 115.1: Rate limiting - prevent send_queue overflow
-                # Each frame is 20ms audio, sleep 8ms to avoid flooding WebSocket
-                time.sleep(0.008)
+                # ⚡ Rate limiting: Maintain steady 20ms/frame pace
+                elapsed = time.perf_counter() - last_send_time
+                if elapsed < FRAME_INTERVAL:
+                    time.sleep(FRAME_INTERVAL - elapsed)
+                last_send_time = time.perf_counter()
                 continue
+            
+            # Handle "mark" event
             if item.get("type") == "mark":
                 success = self._ws_send(json.dumps({
                     "event": "mark", 
@@ -2289,6 +2312,7 @@ class MediaStreamHandler:
                     "mark": {"name": item.get("name", "mark")}
                 }))
                 print(f"📍 TX_MARK: {item.get('name', 'mark')} {'SUCCESS' if success else 'FAILED'}")
+        
         print(f"🔊 TX_LOOP_DONE: Transmitted {tx_count} frames total")
     
     def _speak_with_breath(self, text: str):
