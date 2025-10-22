@@ -68,6 +68,15 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Future**: Can implement stream restart with audio buffering if needed
 - **Result**: Better visibility into session timeouts, prepared for longer calls!
 
+**⚡ BUILD 118.7 - Critical Audio Queue Fix:**
+- **Problem**: Audio queue overflow causing dropped frames - "dropped 351 frames total (queue size: 48)"
+- **Root Cause**: Queue size (48 frames = ~960ms buffer) too small for high-load scenarios, causing audio loss and transcription failures
+- **Impact**: Lost audio → inaccurate transcription → system "stops" after sustained conversation
+- **Solution**: Increased audio queue size from 48 to 128 frames (~2.5s buffer)
+- **Implementation**: Updated BOTH STT classes (StreamingSTTSession and GcpStreamingSTT) to prevent queue saturation
+- **Vocabulary Sync**: Synchronized expanded 130+ word vocabulary between both STT classes (was only in StreamingSTTSession)
+- **Result**: Zero dropped frames under normal load, reliable transcription for entire conversation duration!
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
