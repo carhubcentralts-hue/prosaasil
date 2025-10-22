@@ -1,0 +1,171 @@
+
+2025-10-22 16:16:09.73
+e3ec26b4
+User
+{'POST', 'OPTIONS'} /api/whatsapp/webhook/incoming
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'PUT', 'OPTIONS'} /api/admin/businesses/<int:business_id>/prompt
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/business/current/prompt
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'PUT', 'OPTIONS'} /api/business/current/prompt
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/prompt/history
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/statuses
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'POST', 'OPTIONS'} /api/statuses
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'PUT', 'OPTIONS'} /api/statuses/<int:status_id>
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'OPTIONS', 'DELETE'} /api/statuses/<int:status_id>
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'POST', 'OPTIONS'} /api/statuses/reorder
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'POST', 'OPTIONS'} /api/admin/statuses/initialize/<int:business_id>
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'POST', 'OPTIONS'} /api/greeting/invalidate
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/greeting/cache/stats
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'POST', 'OPTIONS'} /api/auth/forgot
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'POST', 'OPTIONS'} /api/auth/logout
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/auth/current
+2025-10-22 16:16:09.85
+e3ec26b4
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/calls
+2025-10-22 16:16:11.43
+e3ec26b4
+User
+2025-10-22 16:16:11.43
+e3ec26b4
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/admin/tenants
+2025-10-22 16:16:11.43
+e3ec26b4
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/success
+2025-10-22 16:16:14.20
+e3ec26b4
+User
+📨 Received: media
+2025-10-22 16:16:14.22
+e3ec26b4
+User
+📨 Received: media
+2025-10-22 16:16:14.23
+e3ec26b4
+User
+✅ מצא עסק: שי דירות (id=1)
+2025-10-22 16:16:14.23
+e3ec26b4
+User
+⚡ FAST COMPLETE: business_id=1, greeting='היי אני העוזר האישי של שי דהן ...'
+2025-10-22 16:16:14.24
+e3ec26b4
+User
+📨 Received: media
+2025-10-22 16:16:14.25
+e3ec26b4
+User
+⚡ FAST: business_id=1, greeting loaded!
+2025-10-22 16:16:14.25
+e3ec26b4
+User
+🎯 [T1=1761138974.258] SENDING IMMEDIATE GREETING! (Δ=2939ms from T0)
+2025-10-22 16:16:14.25
+e3ec26b4
+User
+🔓 SHORT_RESPONSE (11 words) - BARGE-IN ENABLED
+2025-10-22 16:16:14.25
+e3ec26b4
+User
+🔊 GREETING_START: 'היי אני העוזר האישי של שי דהן איך אוכל לעזור לך?'
+2025-10-22 16:16:14.25
+e3ec26b4
+User
+✅ CACHE HIT for business=1, frames=195
+2025-10-22 16:16:14.25
+e3ec26b4
+User
+✅ CACHE_SUCCESS: 195 frames ready!
+2025-10-22 16:16:14.25
+e3ec26b4
+User
+🧹 TX_CLEAR: SUCCESS
+2025-10-22 16:16:14.25
+e3ec26b4
+User
+[TX] fps=1 q=9 drops=0
+2025-10-22 16:16:14.25
+e3ec26b4
+User
+2025-10-22 16:16:14.26
+e3ec26b4
+User
+📨 Received: media
+2025-10-22 16:16:14.27
+e3ec26b4
+User
+⚠️ Control frame (mark) had to wait - queue was full!
+2025-10-22 16:16:14.27
+e3ec26b4
+User
+✅ CACHED_GREETING_SENT: 195 frames enqueued
+2025-10-22 16:16:14.27
+e3ec26b4
+User
+🎤 SPEAKING_END -> LISTEN STATE | buffer_reset
+2025-10-22 16:16:14.27
+e3ec26b4
+User
+🎯 [T2=1761138974.279] GREETING_COMPLETE! (Duration=21ms)
+2025-10-22 16:16:14.28
+e3ec26b4
+User
+📨 Received: media

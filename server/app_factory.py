@@ -445,7 +445,7 @@ def create_app():
         server_type = 'uvicorn_asgi' if os.getenv('ASGI_SERVER') else 'standalone'
         
         return jsonify({
-            'build': 70,
+            'build': 119,
             'websocket_integration': 'Starlette_ASGI_WebSocket',
             'route': '/ws/twilio-media',
             'method': 'asgi_starlette_websocket',
