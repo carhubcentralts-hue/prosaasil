@@ -67,7 +67,7 @@ class SyncWebSocketWrapper:
     """
     def __init__(self):
         self.recv_queue = Queue(maxsize=500)  # async → sync (max 500 frames ~10s of audio)
-        self.send_queue = Queue(maxsize=256)  # sync → async (max 256 frames ~5.1s buffer - handles longer responses)
+        self.send_queue = Queue(maxsize=176)  # sync → async (176 frames = ~3.5s buffer - balanced, prevents lag)
         self.running = True
         
     def receive(self):
@@ -84,7 +84,7 @@ class SyncWebSocketWrapper:
         """Sync send - puts in queue for async sender with timeout"""
         if self.running:
             try:
-                self.send_queue.put(data, timeout=3.0)  # ✅ 3s timeout for longer responses
+                self.send_queue.put(data, timeout=2.5)  # ✅ 2.5s timeout - balanced
             except:
                 print(f"⚠️ Send queue full, dropping frame (queue_size={self.send_queue.qsize()})", flush=True)
                 pass  # Drop frame if queue is full

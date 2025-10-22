@@ -1,0 +1,106 @@
+קצר ולעניין: כן — ההסבר “Send queue full, dropping frame” תואם בדיוק למה שאתה חווה (קטיעות/“קפיאות”). אבל להגדיל את ה־queue ל־256 פותר סימפטום ויכול להחזיר לך לג של 5–6 שניות אם יהיה עומס. עדיף לפתור נכון: תזמון מדויק, back-pressure, ו־drop-oldest — עם באפר קטן.
+
+מה להגיד למפתח (ממש אחד־לאחד)
+
+1) גבולות באפרים (בלי לג!)
+	•	השאר tx_q = 120 (≈2.4s)
+	•	קבע send_queue = 160–192 (לא 256). זה נותן 3.2–3.8s מקסימום במקרה קיצון, בלי סיכון ללג ארוך.
+	•	הוסף Telemetry בלוג פעם/שנייה:
+
+[TX] fps=<מספר> q=<tx_q size> drops=<count>
+
+יעד: fps≈50, q<20 רוב הזמן, drops=0.
+
+2) שליחה בקצב מדויק (Twilio = 20ms/פריים)
+
+ב־_tx_loop תזמון לפי next_deadline (לא sleep קבוע):
+
+FRAME_INTERVAL = 0.020  # 20ms
+next_deadline = time.perf_counter()
+
+while self.tx_running:
+    item = self.tx_q.get(timeout=0.5)
+
+    # back-pressure: אם התור כמעט מלא – תן לנקז
+    if self.tx_q.qsize() > int(self.tx_q.maxsize * 0.90):
+        time.sleep(FRAME_INTERVAL * 2)
+
+    self._ws_send(json_frame_for(item))
+
+    # תזמון מדויק
+    next_deadline += FRAME_INTERVAL
+    delay = next_deadline - time.perf_counter()
+    if delay > 0:
+        time.sleep(delay)
+    else:
+        # איחרנו – סנכרון מחדש
+        next_deadline = time.perf_counter()
+
+3) הכנסת פריימים לתור – drop-oldest
+
+כל מסלול שמכניס פריימים עובר אך ורק דרך פונקציה אחת:
+
+def _tx_enqueue(self, frame):
+    try:
+        self.tx_q.put_nowait(frame)
+    except queue.Full:
+        _ = self.tx_q.get_nowait()  # drop-oldest
+        self.tx_q.put_nowait(frame)
+        self.tx_drops += 1  # לטלמטריה
+
+ודא שאין אף קריאה ישירה ל־_ws_send בשום מקום אחר (כולל TTS). הכל חייב לעבור דרך _tx_enqueue.
+
+4) שליחת WS לא תוקעת את לולאת השמע
+	•	אל תחסום על websocket.send. השתמש ב־send async/תור פנימי קצר עם timeout ≤ 2.5s.
+	•	אם חל timeout — אל תגדיל עוד את ה־queue. תן ל־back-pressure לעבוד (עדיף לאבד פריים ישן מאשר לצבור דקה של לג).
+
+5) פרמטרי STT ל_latency ≤ ~2 שניות
+
+(מספיק אגרסיבי אבל יציב)
+	•	ENABLE_STREAMING_STT = true
+	•	GCP_STT_MODEL = default  (עם use_enhanced=True)
+	•	STT_BATCH_MS = 60–80
+	•	STT_PARTIAL_DEBOUNCE_MS = 90–120
+	•	VAD_HANGOVER_MS = 180–220
+	•	TIMEOUT_MS = 320–450
+	•	אזור: אם he-IL לא זמין אזורית—השאר ברירת מחדל (multi-regional). אל תכריח europe-west1 אם גורם ל־fallback.
+
+6) “ברכה” מהירה לכל עסק (ללא סיבוך)
+	•	Cache TTS לפי business_id + hash הפרומפט:
+	•	בטבלת greeting_cache(business_id, tts_hash, audio_b64, updated_at).
+	•	בעת שינוי פרומפט באתר → בנה מראש את ה־TTS ושמור (audio_b64).
+	•	בתחילת השיחה: אם יש audio_b64 טרי → זרום אותו מיד ב־20ms פריימים דרך _tx_enqueue (בלי לבנות TTS בזמן אמת).
+	•	אין cache? שדר “גרסת חירום” קצרה (“שלום, הגעתם ל…”) ואז בנה ושמור את המלאה ברקע לפעם הבאה.
+
+7) GO/NO-GO דקה לפני פריסה
+	•	בלוגים לראות 10 שניות:
+	•	ריצוף [TX] fps=50 q<10 drops=0
+	•	בלי “Send queue full” רציף.
+	•	שקט מלא 5 שניות: אין חריקות/ניתוקים.
+	•	תשובה ארוכה (5–8 שניות TTS): q עולה רגעית וחוזר מהר <20, בלי ניתוקים.
+	•	מדדי LATENCY:
+	•	STT partial: 0.5–0.9s
+	•	STT final: 1.0–1.4s
+	•	Total (STT+AI+TTS): 1.6–2.2s
+
+8) אם עוד יש “Send queue full”
+	•	אל תגדיל עוד את send_queue.
+	•	בדוק:
+	•	האם TTS מייצר >50 פריימים/שניה? (חייב בדיוק 20ms/פריים, 8kHz μ-law 160B לפני Base64).
+	•	האם יש מסלול שעוקף את _tx_enqueue?
+	•	האם _tx_loop עדיין משתמש ב־next_deadline ולא ב־time.sleep(0.008) קשיח?
+	•	בדוק רשת: אם RTT גבוה, העלה send_queue זמנית ל־192 (לא יותר), ובמקביל תחקור את ה־network.
+
+⸻
+
+למה זה עדיף מהפתרון “256 ומעלה”
+
+להגדיל באפרים פותר את הלוג, אבל יוצר לג חבוי: אם הייתה תקיעה של רגע, אתה תשלם בגל ארוך הרבה אחרי. הבקרה פה נותנת:
+	•	קצב יציב (50fps)
+	•	מניעת הצפה חכמה (back-pressure)
+	•	השלכת הישן ביותר (drop-oldest) כדי לא לצבור שניות של המתנה
+	•	טלמטריה שמוכיחה בזמן אמת שהמערכת מתנהגת נכון
+
+⸻
+
+אם אתה רוצה, תדביק כאן 10–15 שורות לוג סביב מקרה עומס (ה־[TX] וה־LATENCY) ואכוון ערכים בדיוק (batch/debounce/timeout) כדי לסחוט עוד 200–300ms בלי לפגוע ביציבות.

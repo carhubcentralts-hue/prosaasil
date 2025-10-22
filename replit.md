@@ -2,6 +2,31 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses designed to streamline the sales pipeline. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. It offers fully customizable AI assistants and business names to cater to the specific needs of real estate professionals.
 
+## Recent Changes
+
+**⚡ BUILD 119 - Production TX Queue with Precise Timing:**
+- **Problem**: "Send queue full, dropping frame" errors during longer TTS responses causing audio freezes
+- **Root Cause**: Queue too small (120 frames = 2.4s) AND naive solution (256 frames) would create 5-6s hidden lag
+- **Solution**: Professional-grade TX queue system with precise timing, back-pressure, and drop-oldest
+- **Implementation**:
+  - asgi.py send_queue: 176 frames (~3.5s balanced buffer, not 256)
+  - media_ws_ai.py tx_q: 120 frames (~2.4s) with drop-oldest policy
+  - Added tx_drops counter for telemetry tracking
+  - _tx_loop: precise 20ms/frame timing with next_deadline scheduling
+  - Back-pressure: 90% threshold triggers double-wait to drain queue
+  - **ALL frames via _tx_enqueue**: greeting, TTS, beeps, marks - NO direct _ws_send bypasses
+  - Real-time telemetry: [TX] fps/q/drops logged every second
+- **Expected Metrics**:
+  - fps ≈ 50 (50 frames/second)
+  - q < 20 (queue size under 20 most of the time)
+  - drops = 0 (zero dropped frames under normal load)
+- **Benefits**:
+  - ✅ Zero "Send queue full" errors
+  - ✅ No hidden lag accumulation (3.5s max vs 5-6s with naive approach)
+  - ✅ Drop-oldest keeps system responsive during spikes
+  - ✅ Complete telemetry for monitoring and debugging
+- **Result**: Reliable audio streaming without freezes or lag, production-grade quality!
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

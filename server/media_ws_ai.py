@@ -289,10 +289,11 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # ⚡ BUILD 115.1: Reduced to 120 frames (~2.4s buffer) to prevent lag
+        # ⚡ BUILD 119: Precise timing, back-pressure, drop-oldest - 120 frames (~2.4s buffer)
         self.tx_q = queue.Queue(maxsize=120)
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
+        self.tx_drops = 0  # Track dropped frames for telemetry
         self._last_overflow_log = 0.0  # For throttled logging
         
         print("🎯 AI CONVERSATION STARTED")
@@ -1307,43 +1308,38 @@ class MediaStreamHandler:
                 if frames and len(frames) > 0:
                     print(f"✅ CACHE_SUCCESS: {len(frames)} frames ready!")
                     
-                    # Send clear before greeting (direct to WS, not queue)
+                    # ⚡ BUILD 119: Send via TX Queue for consistency + telemetry
                     if self.stream_sid:
-                        self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+                        self._tx_enqueue({"type": "clear"})
                     
-                    # Send all frames DIRECTLY to WebSocket (not through TX Queue!)
-                    # This ensures we wait for all frames to be sent before finalize
+                    # Send all frames through TX Queue (for telemetry + drop-oldest protection)
                     frames_sent = 0
                     for frame_b64 in frames:
                         if not self.speaking:  # Check for barge-in
                             print(f"🚨 BARGE-IN during cached greeting at frame {frames_sent}/{len(frames)}")
                             break
                         
-                        # Send frame directly to WebSocket
-                        media_msg = json.dumps({
-                            "event": "media",
-                            "streamSid": self.stream_sid,
-                            "media": {"payload": frame_b64}
+                        # Send frame via TX Queue
+                        self._tx_enqueue({
+                            "type": "media",
+                            "payload": frame_b64
                         })
-                        self._ws_send(media_msg)
                         frames_sent += 1
                         
                         # Yield every 5 frames (100ms) to prevent blocking
                         if frames_sent % 5 == 0:
                             time.sleep(0)  # yield to eventlet
                     
-                    # Send mark at end (direct to WS)
+                    # Send mark at end (via TX Queue)
                     if self.stream_sid:
-                        mark_msg = json.dumps({
-                            "event": "mark",
-                            "streamSid": self.stream_sid,
-                            "mark": {"name": "greeting_end"}
+                        self._tx_enqueue({
+                            "type": "mark",
+                            "name": "greeting_end"
                         })
-                        self._ws_send(mark_msg)
                         self.mark_pending = True
                         self.mark_sent_ts = time.time()
                     
-                    print(f"✅ CACHED_GREETING_SENT: {frames_sent} frames sent directly")
+                    print(f"✅ CACHED_GREETING_SENT: {frames_sent} frames enqueued")
                     self._finalize_speaking()
                     return
                     
@@ -1455,15 +1451,16 @@ class MediaStreamHandler:
     
     def _tx_enqueue(self, item):
         """
-        ⚡ BUILD 115.1: Enqueue with drop-oldest policy
+        ⚡ BUILD 119: Enqueue with drop-oldest policy + telemetry
         If queue is full, drop oldest frame and insert new one (Real-time > past)
         """
         try:
             self.tx_q.put_nowait(item)
         except queue.Full:
-            # Drop oldest frame
+            # Drop oldest frame (keep system responsive!)
             try:
                 _ = self.tx_q.get_nowait()
+                self.tx_drops += 1  # Track for telemetry
             except queue.Empty:
                 pass
             # Try again
@@ -1473,7 +1470,7 @@ class MediaStreamHandler:
                 # Throttled logging - max once per 2 seconds
                 now = time.monotonic()
                 if now - self._last_overflow_log > 2.0:
-                    print("⚠️ tx_q full (drop oldest)", flush=True)
+                    print(f"⚠️ tx_q full after drop-oldest (drops={self.tx_drops})", flush=True)
                     self._last_overflow_log = now
     
     def _finalize_speaking(self):
@@ -1487,13 +1484,16 @@ class MediaStreamHandler:
         print("🎤 SPEAKING_END -> LISTEN STATE | buffer_reset")
 
     def _send_pcm16_as_mulaw_frames_with_mark(self, pcm16_8k: bytes):
-        """שליחת אודיו עם סימון לטוויליו וברג-אין"""
+        """
+        ⚡ BUILD 119: שליחת אודיו דרך TX Queue עם סימון לטוויליו וברג-אין
+        כל הפריימים עוברים דרך _tx_enqueue לתזמון מדויק + telemetry
+        """
         if not self.stream_sid or not pcm16_8k:
             self._finalize_speaking()
             return
             
-        # CLEAR לפני שליחה
-        self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+        # CLEAR לפני שליחה (דרך queue)
+        self._tx_enqueue({"type": "clear"})
         
         mulaw = audioop.lin2ulaw(pcm16_8k, 2)
         FR = 160  # 20ms @ 8kHz
@@ -1506,19 +1506,17 @@ class MediaStreamHandler:
             # בדיקת ברג-אין
             if not self.speaking:
                 print(f"🚨 BARGE-IN! Stopped at frame {frames_sent}/{total_frames}")
-                self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+                self._tx_enqueue({"type": "clear"})
                 self._finalize_speaking()
                 return
                 
-            # שלח פריים
+            # שלח פריים דרך TX Queue
             frame = mulaw[i:i+FR].ljust(FR, b'\x00')
             payload = base64.b64encode(frame).decode()
-            media_msg = json.dumps({
-                "event": "media",
-                "streamSid": self.stream_sid,
-                "media": {"payload": payload}
+            self._tx_enqueue({
+                "type": "media",
+                "payload": payload
             })
-            self._ws_send(media_msg)
             frames_sent += 1
             
             # Yield לeventlet
@@ -1532,23 +1530,19 @@ class MediaStreamHandler:
             if not self.speaking:
                 break
             payload = base64.b64encode(silence_mulaw).decode()
-            media_msg = json.dumps({
-                "event": "media", 
-                "streamSid": self.stream_sid,
-                "media": {"payload": payload}
+            self._tx_enqueue({
+                "type": "media",
+                "payload": payload
             })
-            self._ws_send(media_msg)
             time.sleep(0)  # yield
         
-        # שלח סימון לטוויליו
+        # שלח סימון לטוויליו (דרך queue)
         self.mark_pending = True
         self.mark_sent_ts = time.time()
-        mark_msg = json.dumps({
-            "event": "mark",
-            "streamSid": self.stream_sid,
-            "mark": {"name": "assistant_tts_end"}
+        self._tx_enqueue({
+            "type": "mark",
+            "name": "assistant_tts_end"
         })
-        self._ws_send(mark_msg)
         print("🎯 TTS_MARK_SENT: assistant_tts_end")
         
         # ✅ BUILD 100.4 FIX: סיים דיבור מיד וחזור להאזנה!
@@ -1557,12 +1551,15 @@ class MediaStreamHandler:
         print("✅ GREETING_COMPLETE -> LISTEN STATE")
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
-        """שליחת אודיו עם יכולת עצירה באמצע (BARGE-IN) - גרסה ישנה"""
+        """
+        ⚡ BUILD 119: שליחת אודיו דרך TX Queue עם יכולת עצירה באמצע (BARGE-IN)
+        כל הפריימים עוברים דרך _tx_enqueue לתזמון מדויק
+        """
         if not self.stream_sid or not pcm16_8k:
             return
             
-        # CLEAR לפני שליחה
-        self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+        # CLEAR לפני שליחה (דרך queue)
+        self._tx_enqueue({"type": "clear"})
         
         mulaw = audioop.lin2ulaw(pcm16_8k, 2)
         FR = 160  # 20ms @ 8kHz
@@ -1576,7 +1573,7 @@ class MediaStreamHandler:
             if not self.speaking:
                 print(f"🚨 BARGE-IN detected! Stopped at frame {frames_sent}/{total_frames}")
                 # שלח CLEAR נוסף למקרה הצורך
-                self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+                self._tx_enqueue({"type": "clear"})
                 break
                 
             chunk = mulaw[i:i+FR]
@@ -1586,15 +1583,15 @@ class MediaStreamHandler:
                 
             payload = base64.b64encode(chunk).decode("ascii")
             try:
-                self._ws_send(json.dumps({
-                    "event": "media",
-                    "streamSid": self.stream_sid,
-                    "media": {"payload": payload}
-                }))
+                # שלח דרך TX Queue במקום ישירות
+                self._tx_enqueue({
+                    "type": "media",
+                    "payload": payload
+                })
                 self.tx += 1
                 frames_sent += 1
                 
-                # לוגים מתקדמים כל 50 פריימי שידור + PATCH 10
+                # לוגים מתקדמים כל 50 פריימי שידור
                 if self.tx % 50 == 0:
                     elapsed = time.time() - self.last_tts_end_ts
                     print(f"WS_TX sid={self.stream_sid} tx={self.tx} frames_sent={frames_sent}/{total_frames} elapsed={elapsed:.1f}s")
@@ -2250,10 +2247,10 @@ class MediaStreamHandler:
     
     def _tx_loop(self):
         """
-        ⚡ BUILD 115.1 FINAL: Production-grade TX loop
+        ⚡ BUILD 119: Production TX loop with precise timing
         - Precise 20ms/frame timing with next_deadline
-        - Back-pressure at 90% threshold
-        - Real-time telemetry (fps/q/drops)
+        - Back-pressure at 90% threshold (let queue drain)
+        - Real-time telemetry (fps/q/drops every second)
         """
         print("🔊 TX_LOOP_START: Audio transmission thread started")
         
@@ -2263,7 +2260,7 @@ class MediaStreamHandler:
         
         # Telemetry
         frames_sent_last_sec = 0
-        drops_last_sec = 0
+        last_drops_count = 0
         last_telemetry_time = time.monotonic()
         
         while self.tx_running:
@@ -2282,15 +2279,13 @@ class MediaStreamHandler:
                 print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
                 continue
             
-            # Handle "media" event with back-pressure and rate limiting
+            # Handle "media" event with back-pressure
             if item.get("type") == "media":
-                # ⚡ Back-pressure: If tx_q is getting full (>90%), slow down
+                # ⚡ Back-pressure: If tx_q is getting full (>90%), give it time to drain
                 queue_size = self.tx_q.qsize()
-                if queue_size > 108:  # 90% of 120
-                    print(f"⚠️ tx_q nearly full ({queue_size}/120) – applying back-pressure", flush=True)
-                    drops_last_sec += 1
+                if queue_size > int(self.tx_q.maxsize * 0.90):  # 90% threshold
+                    # Don't skip frame - just slow down to let queue drain
                     time.sleep(FRAME_INTERVAL * 2)  # Double wait to drain queue
-                    continue
                 
                 # Send frame
                 success = self._ws_send(json.dumps({
@@ -2314,9 +2309,10 @@ class MediaStreamHandler:
                 now = time.monotonic()
                 if now - last_telemetry_time >= 1.0:
                     queue_size = self.tx_q.qsize()
-                    print(f"[TX] fps={frames_sent_last_sec} q={queue_size} drops={drops_last_sec}", flush=True)
+                    drops_this_sec = self.tx_drops - last_drops_count
+                    print(f"[TX] fps={frames_sent_last_sec} q={queue_size} drops={drops_this_sec}", flush=True)
                     frames_sent_last_sec = 0
-                    drops_last_sec = 0
+                    last_drops_count = self.tx_drops
                     last_telemetry_time = now
                 
                 continue
@@ -2330,7 +2326,7 @@ class MediaStreamHandler:
                 }))
                 print(f"📍 TX_MARK: {item.get('name', 'mark')} {'SUCCESS' if success else 'FAILED'}")
         
-        print(f"🔊 TX_LOOP_DONE: Transmitted {tx_count} frames total")
+        print(f"🔊 TX_LOOP_DONE: Transmitted {tx_count} frames total, total_drops={self.tx_drops}")
     
     def _speak_with_breath(self, text: str):
         """דיבור עם נשימה אנושית ו-TX Queue - תמיד משדר משהו"""
