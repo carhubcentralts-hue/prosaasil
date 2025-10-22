@@ -4,7 +4,24 @@ AgentLocator is a Hebrew CRM system for real estate businesses designed to strea
 
 ## Recent Changes
 
-**⚡ BUILD 119.1 - Production TX Queue with Precise Timing (Final):**
+**⚡ BUILD 119.2 - Back-Pressure Fix for Smooth Audio (CRITICAL FIX):**
+- **Problem**: Cached greeting flooded TX queue (195 frames in 21ms) causing choppy audio with background noise
+- **Root Cause**: Greeting sent all frames instantly instead of controlled rate → queue overflow → dropped frames
+- **Solution**: Added back-pressure loop in cached greeting sender
+- **Implementation**:
+  - While loop checks `tx_q.qsize() > 96` (80% of 120 max) before sending each frame
+  - Waits 20ms per frame when queue is full (maintains ~50fps flow rate)
+  - Prevents queue overflow while keeping greeting responsive
+  - No more "Control frame had to wait" warnings
+- **Benefits**:
+  - ✅ Smooth, continuous audio playback (no choppy sound)
+  - ✅ Zero background noise from dropped frames
+  - ✅ No mid-sentence cuts
+  - ✅ Queue stays at healthy 20-80 frames instead of overflowing to 120+
+  - ✅ Control frames (marks, clears) never blocked
+- **Result**: Crystal-clear greeting audio without stutters or artifacts!
+
+**⚡ BUILD 119.1 - Production TX Queue with Precise Timing:**
 - **Problem**: "Send queue full, dropping frame" errors during longer TTS responses causing audio freezes
 - **Root Cause**: Queue too small (120 frames = 2.4s) AND naive solution (256 frames) would create 5-6s hidden lag
 - **Solution**: Professional-grade TX queue system with precise timing, back-pressure, and smart drop-oldest

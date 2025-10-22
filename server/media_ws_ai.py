@@ -1310,12 +1310,18 @@ class MediaStreamHandler:
                     if self.stream_sid:
                         self._tx_enqueue({"type": "clear"})
                     
-                    # Send all frames through TX Queue (for telemetry + drop-oldest protection)
+                    # ⚡ BUILD 119.2: Send frames with BACK-PRESSURE to prevent overflow
+                    # Don't flood the queue - wait if it's getting full
                     frames_sent = 0
                     for frame_b64 in frames:
                         if not self.speaking:  # Check for barge-in
                             print(f"🚨 BARGE-IN during cached greeting at frame {frames_sent}/{len(frames)}")
                             break
+                        
+                        # ⚡ CRITICAL: Back-pressure - wait if queue is getting full
+                        # Keep queue at ~80% max to prevent overflow and maintain smooth playback
+                        while self.tx_q.qsize() > 96:  # 96 = 80% of 120 (tx_q maxsize)
+                            time.sleep(0.02)  # Wait one frame time (20ms)
                         
                         # Send frame via TX Queue
                         self._tx_enqueue({
@@ -1323,10 +1329,6 @@ class MediaStreamHandler:
                             "payload": frame_b64
                         })
                         frames_sent += 1
-                        
-                        # Yield every 5 frames (100ms) to prevent blocking
-                        if frames_sent % 5 == 0:
-                            time.sleep(0)  # yield to eventlet
                     
                     # Send mark at end (via TX Queue)
                     if self.stream_sid:
