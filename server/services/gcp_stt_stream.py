@@ -193,38 +193,41 @@ class StreamingSTTSession:
         )
     
     def _requests(self):
-        """Generator yielding batched audio requests"""
+        """
+        ⚡ BUILD 119.6: AGGRESSIVE queue draining!
+        Generator yielding batched audio requests.
+        Drains queue as fast as possible to prevent drops.
+        """
         buf = bytearray()
         last = time.monotonic()
         
         while not self._stop.is_set():
-            try:
-                # ⚡ CRITICAL: Short timeout (20ms) to consume queue aggressively
-                chunk = self._q.get(timeout=0.02)
-            except queue.Empty:
-                # No data, check if should flush buffer
-                now = time.monotonic()
-                if buf and (now - last) * 1000 >= BATCH_MS:
-                    yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
-                    buf.clear()
-                    last = now
-                continue
+            # ⚡ DRAIN MODE: Read all available frames without blocking
+            drained_count = 0
+            while drained_count < 50:  # Max 50 frames per batch (1 second)
+                try:
+                    chunk = self._q.get_nowait()  # Non-blocking!
+                    if chunk is None:
+                        # EOF signal - flush and exit
+                        if buf:
+                            log.info(f"🔚 Flushing final {len(buf)} bytes")
+                            yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
+                        return
+                    buf.extend(chunk)
+                    drained_count += 1
+                except queue.Empty:
+                    break
             
-            if chunk is None:
-                # EOF signal - flush and exit
-                if buf:
-                    log.info(f"🔚 Flushing final {len(buf)} bytes")
-                    yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
-                break
-            
-            buf.extend(chunk)
+            # Send batch if we have data
             now = time.monotonic()
-            
-            # Send batch if enough data or enough time passed
-            if (now - last) * 1000 >= BATCH_MS:
+            if buf and ((now - last) * 1000 >= BATCH_MS or drained_count > 0):
                 yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
                 buf.clear()
                 last = now
+            
+            # If no data was drained, sleep briefly to avoid busy-wait
+            if drained_count == 0:
+                time.sleep(0.01)  # 10ms sleep when queue is empty
     
     def _emit_partial(self, text: str):
         """Emit partial result with debouncing"""
