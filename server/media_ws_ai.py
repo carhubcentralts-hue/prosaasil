@@ -297,7 +297,7 @@ class MediaStreamHandler:
         self._last_overflow_log = 0.0  # For throttled logging
         
         # ⚡ BUILD 119.4: RX Queue with smaller buffer (rate control happens here)
-        self.audio_rx_q = queue.Queue(maxsize=100)  # 100 frames = 2s buffer (enough for spikes)  # Balanced: 160-240 recommended
+        self.audio_rx_q = queue.Queue(maxsize=200)  # ⚡ BUILD 119.4: 200 frames ≈ 4s buffer (per spec)
         self.rx_running = False
         self.rx_thread = None
         self.rx_drops = 0  # Track dropped RX frames
@@ -1559,18 +1559,28 @@ class MediaStreamHandler:
                 continue
             
             if item.get("type") == "media":
-                t0 = time.perf_counter()
                 # Write to STT (should be fast and non-blocking)
                 pcm16 = item.get("pcm16")
                 if pcm16 and self.call_sid:
                     session = _get_session(self.call_sid)
-                    if session:
-                        session.push_audio(pcm16)
-                    # If no session yet, frames stay in queue until session ready
-                    # RX worker will retry on next iteration
+                    if not session:
+                        # ⚡ BUILD 119.4: אם אין session - החזר לתור ונסה שוב!
+                        # זה מונע איבוד פריימים בזמן אתחול STT
+                        time.sleep(0.020)  # המתנה קצרה (20ms)
+                        # החזר את הפריים לראש התור
+                        try:
+                            self.audio_rx_q.put(item, block=False)
+                        except queue.Full:
+                            # אם התור מלא, לא נורא - הפריים יאבד (edge case)
+                            pass
+                        continue  # דלג על פריים זה עכשיו
+                    
+                    # יש session - כתוב את האודיו!
+                    t0 = time.perf_counter()
+                    session.push_audio(pcm16)
+                    dt = (time.perf_counter() - t0) * 1000.0
+                    write_acc_ms += dt
                 
-                dt = (time.perf_counter() - t0) * 1000.0
-                write_acc_ms += dt
                 fps_count += 1
                 
                 # Maintain 20ms cadence with resync
