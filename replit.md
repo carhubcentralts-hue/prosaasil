@@ -44,10 +44,12 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Result**: Customer can say "28 ל10 בשעה 16" and appointment creates for October 28 at 16:00!
 
 **⚡ BUILD 118.5 - Enhanced STT Accuracy for Hebrew:**
-- **Problem**: Speech-to-text transcription inaccurate - misrecognizing Hebrew words
+- **Problem**: Speech-to-text transcription inaccurate - misrecognizing Hebrew words like "קרקע להשקעה"
 - **Solution**: Massively expanded vocabulary hints and boosted recognition priority
-- **Vocabulary Expansion**: Increased from 20 to 100+ Hebrew terms covering:
-  - Real estate terms (דירה, משרד, מ״ר, ממ״ד, מעלית, חניה...)
+- **Vocabulary Expansion**: Increased from 20 to 130+ Hebrew terms covering:
+  - Real estate terms (דירה, משרד, מ״ר, ממ״ד, מעלית, חניה, קרקע, מגרש, נחלה, דונם...)
+  - Property types (פנטהאוז, דופלקס, טריפלקס, סטודיו, יחידת דיור...)
+  - Transactions (השקעה, השקעות, שכירות, מכירה, קניה...)
   - 24 Israeli cities (תל אביב, ירושלים, הרצליה, מודיעין...)
   - Numbers and money (אלף, אלפיים, מיליון, משכנתא...)
   - Time expressions (מחר, בוקר, שעה, ראשון, ינואר...)
@@ -56,6 +58,15 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Boost Increase**: Raised from 15.0 to 20.0 for maximum recognition priority
 - **Alternative Language Code**: Added iw-IL alongside he-IL for better Hebrew support
 - **Result**: Dramatically improved transcription accuracy for Hebrew real estate conversations!
+
+**⚡ BUILD 118.6 - Session Timeout Tracking:**
+- **Problem**: "After a minute she stops" - streaming sessions could timeout
+- **Solution**: Added session duration tracking and timeout warnings
+- **Google Cloud Limit**: 5 minutes (300 seconds) per streaming session
+- **Implementation**: Tracks session start time, warns at 4.5 minutes
+- **Note**: Most calls are <5 minutes, full endless streaming not needed yet
+- **Future**: Can implement stream restart with audio buffering if needed
+- **Result**: Better visibility into session timeouts, prepared for longer calls!
 
 # User Preferences
 
