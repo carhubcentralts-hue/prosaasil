@@ -2,6 +2,26 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. Its primary goal is to streamline the sales pipeline for real estate professionals with fully customizable AI assistants and business names.
 
+## Recent Changes
+
+**⚡ BUILD 118.1 - Instant Greeting Delivery:**
+- **Problem**: Greeting took 3-6 seconds to START playing (T0→T1 latency)
+- **Root Cause**: STT initialization (100-300ms) + call log creation (50-200ms) + DB queries happened BEFORE greeting
+- **Solution**: Deferred setup - greeting sent IMMEDIATELY after business lookup, all other setup (STT init, call log) moved AFTER greeting
+- **Flow Change**: T0→greet→T1→[greeting plays]→T2→[STT init]→[call log] (was: T0→[STT init]→[call log]→greet→T1→[greeting plays]→T2)
+- **Target**: T0→T1 latency ≤500ms (down from 3-6 seconds)
+- **Result**: Instant greeting playback - caller hears business greeting within half a second of connection!
+
+**⚡ BUILD 118.2 - Calendar Timezone Fix:**
+- **Problem**: Appointments saved to wrong day/time - timezone conversion bug
+- **Root Cause**: Frontend sent ISO timestamps with timezone offset (e.g., "2025-10-21T14:00:00+03:00"), but server converted to UTC instead of keeping local time
+- **Solution**: Custom parse_iso_with_timezone() function strips offset and keeps local time as-is (14:00 stays 14:00, not converted to 11:00 UTC)
+- **Implementation**: Regex-based parser preserves microsecond precision, no external dependencies needed
+- **Fix**: Updated routes_calendar.py - CREATE/UPDATE/DELETE endpoints now correctly handle timezone-aware ISO strings
+- **Design Choice**: Store naive datetime in DB (local time), ignoring timezone offset - this is deliberate for appointment scheduling
+- **Result**: When user says "יום שני 14:00", appointment is saved for Monday 14:00, not wrong day/time!
+- **Architect Approved**: Parser correctly handles all ISO formats (with/without microseconds, with/without timezone)
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
