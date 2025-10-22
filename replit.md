@@ -30,6 +30,19 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Impact**: All AI-parsed appointments (phone/WhatsApp) now correctly use Israel time
 - **Result**: When customer says "מחר ב-10" on phone, appointment creates for 10:00 Israel time, not UTC!
 
+**⚡ BUILD 118.4 - Numeric Date Parsing Support:**
+- **Problem**: AI couldn't parse specific numeric dates like "28 ל10 בשעה 16" or "5 בנובמבר"
+- **Solution**: Extended time_parser.py with comprehensive numeric date recognition
+- **Supported Formats**:
+  - DD ל-MM: "28 ל10", "5 ל-12"
+  - DD.MM: "28.10", "15.11.2025"
+  - DD/MM: "28/10", "5/12/2025"
+  - DD בMONTH: "28 באוקטובר", "5 בנובמבר"
+- **Smart Year Handling**: Auto-detects current/next year if date already passed
+- **Validation**: Handles invalid dates (31.2) gracefully, skips to next pattern
+- **Integration**: Works seamlessly with existing time parsing (hour extraction after date)
+- **Result**: Customer can say "28 ל10 בשעה 16" and appointment creates for October 28 at 16:00!
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
