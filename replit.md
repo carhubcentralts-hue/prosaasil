@@ -4,6 +4,27 @@ AgentLocator is a Hebrew CRM system for real estate businesses designed to strea
 
 ## Recent Changes
 
+**⚡ BUILD 119.6 - Production Stability Fix (RESTART-FREE!):**
+- **Root Cause Identified**: Server was restarting mid-call, destroying all state (queues/threads/sessions)!
+  - Logs showed `✅ RX: Back to NORMAL mode (q=20)` → `🚩 APP_START` → all queues/sessions lost!
+  - Auto-restart loop in start_production.sh was checking every 5s and restarting processes
+  - Multiple workers competing for state (no `--workers 1` flag)
+- **Complete Production Fix**:
+  1. **start_production.sh**: Changed `&` to `exec` - script is replaced by uvicorn process
+  2. **start_production.sh**: Added `--workers 1 --no-server-header` for single-worker stability
+  3. **start_production.sh**: Removed auto-restart loop (lines 169-186) - no more mid-call restarts!
+  4. **Procfile**: Added `--workers 1 --no-server-header` for dev consistency
+- **Expected Behavior**:
+  - No `APP_START` events during active calls
+  - Single uvicorn worker handles all WebSocket state consistently
+  - Process runs until manually stopped (no watchdog restarts)
+- **Key Improvements**:
+  - ✅ **Zero mid-call restarts**: exec prevents script-based restarts
+  - ✅ **Single worker**: no state conflicts between workers
+  - ✅ **Stable sessions**: queues/threads survive for entire call duration
+  - ✅ **Production-ready**: architect-approved deployment configuration
+- **Architect Review**: ✅ PASS - "start_production.sh now launches uvicorn as a single-worker foreground process and removes the manual restart loop, so the script itself no longer triggers mid-call restarts."
+
 **⚡ BUILD 119.5 - Complete Back-Pressure Solution (PRODUCTION-READY!):**
 - **Problem**: RX worker couldn't keep up, queue filled to 200 and dropped 557 frames!
   - `write_ms=2.10` indicated `push_audio()` was blocking
