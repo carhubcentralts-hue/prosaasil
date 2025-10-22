@@ -13,16 +13,17 @@ if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
 
 # ⚡ BUILD 115: בחירת מודל דינמית + fallback חכם
 print("="*80)
-print("⚡ BUILD 115 - DYNAMIC MODEL SELECTION + SMART FALLBACK")
+print("⚡ BUILD 118 - BALANCED PARAMETERS (Reduce False Positives + ≤3s Response)")
 print("="*80)
 print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
 print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
 print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
 print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
-print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '40')}")
-print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '90')}")
-print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '180')}")
-print(f"[BOOT] UTTERANCE_TIMEOUT = 320ms (aggressive for sub-2s response)")
+print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '60')}")
+print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '250')}")
+print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '500')}")
+print(f"[BOOT] VAD_RMS = {os.getenv('VAD_RMS', '95')}")
+print(f"[BOOT] UTTERANCE_TIMEOUT = 900ms (balanced for reliability + ≤3s response)")
 print("="*80)
 
 if USE_STREAMING_STT:
@@ -172,12 +173,12 @@ class ConnectionClosed(Exception):
 from server.stream_state import stream_registry
 
 SR = 8000
-# ⚡ BUILD 114: VAD OPTIMIZED FOR SPEED (Streaming STT enabled, ≤2s latency target)
+# ⚡ BUILD 118: VAD BALANCED FOR RELIABILITY + SPEED (Reduce false positives, maintain ≤3s response)
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
-VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
+VAD_RMS = int(os.getenv("VAD_RMS", "95"))                   # ⚡ BUILD 118: 95 - LESS sensitive to background noise (was 65)
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # ⚡ BUILD 116: 180ms - aggressive for sub-2s response
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "500"))  # ⚡ BUILD 118: 500ms - prevents mid-sentence cuts (was 180ms)
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
@@ -1105,8 +1106,8 @@ class MediaStreamHandler:
                     self.consecutive_empty_stt = 0
                 self.consecutive_empty_stt += 1
                 
-                # אם 2 כישלונות ברצף - תגיד "לא הבנתי"
-                if self.consecutive_empty_stt >= 2:
+                # ⚡ BUILD 118: אם 3 כישלונות ברצף - תגיד "לא הבנתי" (was 2)
+                if self.consecutive_empty_stt >= 3:
                     print("🚫 MULTIPLE_EMPTY_STT: Saying 'didn't understand'")
                     self.consecutive_empty_stt = 0  # איפוס
                     try:
@@ -1123,14 +1124,14 @@ class MediaStreamHandler:
             if hasattr(self, 'consecutive_empty_stt'):
                 self.consecutive_empty_stt = 0
             
-            # ⚡ BUILD 109: Short utterance false-positive protection
+            # ⚡ BUILD 118: Enhanced false-positive protection
             word_count = len(text.split())
             if word_count <= 2:
                 # Very short utterances might be noise - require them to be common words
                 common_words = {
                     "כן", "לא", "שלום", "תודה", "בסדר", "נהדר", "ביי", "היי", 
                     "מה", "למה", "איך", "מי", "מתי", "איפה", "כמה", "אוקיי",
-                    "טוב", "רגע", "כן כן", "לא לא", "שלום שלום"
+                    "טוב", "רגע", "כן כן", "לא לא", "שלום שלום", "הלו", "אהלן"
                 }
                 # Normalize: remove punctuation for comparison
                 normalized_text = text.strip().strip(".,!?;:\"'")

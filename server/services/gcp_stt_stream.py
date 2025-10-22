@@ -18,10 +18,10 @@ from google.cloud import speech
 
 log = logging.getLogger("gcp_stt_stream")
 
-# ⚡ BUILD 116: Ultra-fast parameters for sub-2s response
-BATCH_MS = int(os.getenv("STT_BATCH_MS", "40"))        # 40ms aggressive batching
-DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "90"))  # 90ms partial debounce
-TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "320"))    # 320ms utterance timeout (aggressive)
+# ⚡ BUILD 118: Balanced parameters for reliability + ≤3s response (Reduce false positives)
+BATCH_MS = int(os.getenv("STT_BATCH_MS", "60"))        # 60ms balanced batching (was 40ms)
+DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "250"))  # 250ms partial debounce (was 90ms) - more patient
+TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "900"))    # 900ms utterance timeout (was 320ms) - prevents mid-sentence cuts
 LANG = os.getenv("GCP_STT_LANGUAGE", "he-IL")
 PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() == "true"
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
