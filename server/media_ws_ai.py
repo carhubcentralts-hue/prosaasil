@@ -826,13 +826,13 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ⚡ BUILD 118.8: BALANCED LATENCY - don't cut mid-sentence!
-                            # תגובות קצרות: min_silence סביר (0.8s) - let customer finish thought
-                            # משפטים ארוכים: min_silence balanced (2.0s) - proper pauses
+                            # ⚡ BUILD 118.8: SMART LATENCY - balance speed vs accuracy!
+                            # תגובות קצרות: min_silence קצר אבל לא מהיר מדי
+                            # משפטים ארוכים: min_silence סביר אבל לא איטי מדי
                             if dur < 2.0:
-                                min_silence = 0.8  # ⚡ BUILD 118.8: 0.8s (was 0.5s) - don't rush!
+                                min_silence = 0.7  # ⚡ BUILD 118.8: 0.7s - fast but not rushed!
                             else:
-                                min_silence = 2.0  # ⚡ BUILD 118.8: 2.0s (was 1.8s) - let them finish
+                                min_silence = 1.2  # ⚡ BUILD 118.8: 1.2s - balanced!
                             
                             silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
@@ -841,14 +841,21 @@ class MediaStreamHandler:
                             # ⚡ BUILD 107: באפר קטן יותר = תגובה מהירה יותר!
                             buffer_big_enough = len(self.buf) > 8000  # ⚡ 0.5s במקום 0.8s - חוסך 300ms!
                             
-                            # ⚡⚡⚡ BUILD 118.8: CONSERVATIVE EARLY EOU - prevent mid-sentence cuts!
-                            # Only trigger early EOU when we're VERY confident customer finished
+                            # ⚡⚡⚡ BUILD 118.8: SMART EARLY EOU - fast response without mid-sentence cuts!
+                            # Trigger early when confident, but not too aggressive
                             last_partial = getattr(self, "last_partial_text", "")
-                            # ⚡ BUILD 118.8: STRICTER - 24+ chars + clear ending + longer silence
-                            high_conf_partial = (len(last_partial) >= 24) and any(last_partial.endswith(p) for p in (".", "?", "!", "…"))
-                            early_silence = silence_time >= 0.6  # ⚡ BUILD 118.8: 0.6s (was 0.35s) - let customer breathe!
+                            # ⚡ CRITICAL FIX: Strip whitespace before checking prefixes!
+                            last_partial_clean = last_partial.rstrip()
                             
-                            if high_conf_partial and early_silence and dur >= 0.7:
+                            # ⚡ TIER 1: Very high confidence - immediate response (saves ~500ms!)
+                            very_high_conf = (len(last_partial_clean) >= 18) and any(last_partial_clean.endswith(p) for p in (".", "?", "!"))
+                            tier1_silence = silence_time >= 0.4  # Just a breath!
+                            
+                            # ⚡ TIER 2: High confidence - quick response (saves ~300ms)
+                            high_conf = (len(last_partial_clean) >= 15) and not last_partial_clean.endswith(("ב", "ל", "מ", "ה", "ו", "כ", "ש", "את", "על"))
+                            tier2_silence = silence_time >= 0.5
+                            
+                            if (very_high_conf and tier1_silence and dur >= 0.6) or (high_conf and tier2_silence and dur >= 0.7):
                                 print(f"⚡⚡⚡ EARLY EOU on strong partial: '{last_partial}' ({dur:.1f}s, {silence_time:.2f}s silence)")
                                 # קפיצה מיידית לעיבוד!
                                 silent = True

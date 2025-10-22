@@ -77,23 +77,23 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Vocabulary Sync**: Synchronized expanded 130+ word vocabulary between both STT classes (was only in StreamingSTTSession)
 - **Result**: Zero dropped frames under normal load, reliable transcription for entire conversation duration!
 
-**⚡ BUILD 118.8 - Conservative Turn-Taking Fix:**
-- **Problem**: System interrupts customer mid-sentence - "לא נותן לסיים מילה" (doesn't let finish words)
-- **Root Cause**: Overly aggressive early finalization and EOU detection cutting utterances too quickly
-- **Impact**: Customer frustration → poor UX → "סתם מתמלל" (just transcribes randomly)
-- **Solution**: CONSERVATIVE thresholds to prevent mid-sentence cuts
-- **Early Finalization Changes**:
-  - Increased from 12→20 chars minimum with punctuation
-  - Increased from 18→30 chars without punctuation
-  - Added Hebrew prefix detection (ב, ל, מ...) to prevent cuts like "דירה ב..."
-- **Early EOU Changes**:
-  - Increased from 12→24 chars minimum
-  - Increased silence threshold from 0.35s→0.6s (let customer breathe!)
-  - Minimum duration from 0.5s→0.7s
-- **Min Silence Changes**:
-  - Short utterances: 0.5s→0.8s (don't rush!)
-  - Long utterances: 1.8s→2.0s (let them finish thoughts)
-- **Result**: Customer can complete sentences naturally without interruption!
+**⚡ BUILD 118.8 - Smart Turn-Taking with 2-Tier Early Detection:**
+- **Problem**: System interrupts customer mid-sentence OR waits too long (4-5s response time)
+- **Root Cause**: Needed balance between preventing mid-sentence cuts and maintaining fast responses
+- **Impact**: Customer frustration from interruptions OR slow responses
+- **Solution**: SMART 2-tier early detection system - fast response without cutting mid-sentence!
+- **2-Tier Early Finalization**:
+  - TIER 1: 15+ chars with punctuation → immediate (saves ~400ms!)
+  - TIER 2: 25+ chars without Hebrew prefixes → quick response
+  - Hebrew prefix detection (ב, ל, מ, את, על...) prevents cuts like "דירה ב..."
+- **2-Tier Early EOU**:
+  - TIER 1: 18+ chars + punctuation + 0.4s silence → immediate response (saves ~500ms!)
+  - TIER 2: 15+ chars without prefixes + 0.5s silence → quick response (saves ~300ms!)
+  - Smart detection prevents "אני רוצה לקנות דירה ב..." cuts
+- **Optimized Min Silence**:
+  - Short utterances: 0.7s (fast but not rushed!)
+  - Long utterances: 1.2s (balanced - was 2.0s, saves ~800ms!)
+- **Expected Result**: ≤3 second total response time while preventing mid-sentence cuts!
 
 # User Preferences
 

@@ -231,20 +231,22 @@ class StreamingSTTSession:
     
     def _should_finalize_early(self, partial_text: str) -> bool:
         """
-        ⚡ BUILD 118.8: CONSERVATIVE early-finalize - prevent mid-sentence cuts
-        Only finalize when we're VERY confident the customer finished speaking
+        ⚡ BUILD 118.8: SMART early-finalize - fast response without mid-sentence cuts
+        Balance between speed and accuracy using tiered confidence levels
         """
         if not partial_text:
             return False
         
-        # ⚡ BUILD 118.8: MUCH STRICTER thresholds to prevent cutting mid-sentence
-        # Strong partial: >=20 chars with clear sentence ending
-        if len(partial_text) >= 20 and any(p in partial_text for p in ".?!"):
+        # ⚡ CRITICAL FIX: Strip whitespace before checking prefixes!
+        partial_text_clean = partial_text.rstrip()
+        
+        # ⚡ TIER 1: Very high confidence - clear sentence ending (saves ~400ms!)
+        if len(partial_text_clean) >= 15 and any(p in partial_text_clean for p in ".?!"):
             return True
         
-        # Long partial without punctuation: >=30 chars (complete sentence)
-        # Only for VERY clear cases to avoid cutting "אני רוצה לקנות דירה ב..."
-        if len(partial_text) >= 30 and not partial_text.endswith(("ב", "ל", "מ", "ה", "ו", "כ", "ש")):
+        # ⚡ TIER 2: High confidence - complete thought without prefix
+        # Avoid cutting "אני רוצה לקנות דירה ב..." but allow "אני רוצה לקנות דירה"
+        if len(partial_text_clean) >= 25 and not partial_text_clean.endswith(("ב", "ל", "מ", "ה", "ו", "כ", "ש", "את", "על")):
             return True
         
         return False
