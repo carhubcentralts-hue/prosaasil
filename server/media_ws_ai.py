@@ -1295,24 +1295,43 @@ class MediaStreamHandler:
                 if frames and len(frames) > 0:
                     print(f"✅ CACHE_SUCCESS: {len(frames)} frames ready!")
                     
-                    # Send clear before greeting
+                    # Send clear before greeting (direct to WS, not queue)
                     if self.stream_sid:
-                        self._tx_enqueue({"type": "clear"})
+                        self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
                     
-                    # Send all frames through TX Queue
+                    # Send all frames DIRECTLY to WebSocket (not through TX Queue!)
+                    # This ensures we wait for all frames to be sent before finalize
+                    frames_sent = 0
                     for frame_b64 in frames:
                         if not self.speaking:  # Check for barge-in
-                            print(f"🚨 BARGE-IN during cached greeting")
+                            print(f"🚨 BARGE-IN during cached greeting at frame {frames_sent}/{len(frames)}")
                             break
-                        self._tx_enqueue({"type": "media", "payload": frame_b64})
+                        
+                        # Send frame directly to WebSocket
+                        media_msg = json.dumps({
+                            "event": "media",
+                            "streamSid": self.stream_sid,
+                            "media": {"payload": frame_b64}
+                        })
+                        self._ws_send(media_msg)
+                        frames_sent += 1
+                        
+                        # Yield every 5 frames (100ms) to prevent blocking
+                        if frames_sent % 5 == 0:
+                            time.sleep(0)  # yield to eventlet
                     
-                    # Send mark at end
-                    self.mark_pending = True
-                    self.mark_sent_ts = time.time()
+                    # Send mark at end (direct to WS)
                     if self.stream_sid:
-                        self._tx_enqueue({"type": "mark", "name": "greeting_end"})
+                        mark_msg = json.dumps({
+                            "event": "mark",
+                            "streamSid": self.stream_sid,
+                            "mark": {"name": "greeting_end"}
+                        })
+                        self._ws_send(mark_msg)
+                        self.mark_pending = True
+                        self.mark_sent_ts = time.time()
                     
-                    print(f"✅ CACHED_GREETING_SENT: {len(frames)} frames enqueued")
+                    print(f"✅ CACHED_GREETING_SENT: {frames_sent} frames sent directly")
                     self._finalize_speaking()
                     return
                     

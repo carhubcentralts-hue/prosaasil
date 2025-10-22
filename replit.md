@@ -28,11 +28,18 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 
 **⚡ BUILD 117 - Instant Greeting Cache:**
 - **Pre-built Greeting Frames**: Greetings are synthesized once per business and stored as μ-law 20ms frames in memory cache (thread-safe with RLock, LRU eviction at 256 businesses)
-- **Ultra-Fast Delivery**: Cached greetings play in <200ms (vs 1-2s for live TTS) - frames sent directly through TX Queue for smooth 50fps transmission
+- **Ultra-Fast Delivery**: Cached greetings play in <200ms (vs 1-2s for live TTS) - frames sent directly to WebSocket for immediate playback
 - **Smart Fallback**: If cache fails, seamlessly falls back to live TTS without crashing
 - **Automatic Cache Invalidation**: API endpoint POST /api/greeting/invalidate clears cache when business greeting/voice changes
 - **New Services**: greeting_cache.py (thread-safe storage), audio_utils.py (PCM16→μ-law→frames conversion), greeting_builder.py (cache management)
 - **Result**: Instant greeting playback on repeat calls, business-specific customization, zero impact on existing STT/AI/TTS flow.
+
+**⚡ BUILD 117.1 - Audio Quality Fix (HOTFIX):**
+- **Critical Fix**: Cached greeting frames now sent **directly to WebSocket** instead of through TX Queue - prevents premature `_finalize_speaking()` call
+- **Root Cause**: BUILD 117 enqueued frames to TX Queue then immediately called `_finalize_speaking()`, causing system to return to LISTEN state while greeting was still playing
+- **Symptoms Fixed**: Choppy audio, cut-off words, background noise artifacts caused by STT processing audio during greeting playback
+- **Solution**: Greeting frames sent synchronously to WebSocket (like original TTS path), ensuring `_finalize_speaking()` only called after all frames transmitted
+- **Result**: Clean, stable greeting audio with no interruptions or artifacts - production-ready quality restored!
 
 # User Preferences
 
