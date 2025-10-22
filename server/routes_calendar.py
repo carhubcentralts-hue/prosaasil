@@ -202,10 +202,22 @@ def create_appointment():
                 return jsonify({'error': 'יש לציין עסק'}), 400
         
         # Parse and validate dates
+        # ✅ BUILD 118.2: Parse timezone-aware ISO format and keep as local time (not UTC!)
+        # Frontend sends "2025-10-21T14:00:00+03:00" meaning 14:00 in user's timezone
+        # We want to store 14:00 in DB, not convert to UTC (which would be 11:00)
         try:
-            start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
-            end_time = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
-        except ValueError:
+            from dateutil import parser as date_parser
+            start_time_aware = date_parser.isoparse(data['start_time'])
+            end_time_aware = date_parser.isoparse(data['end_time'])
+            
+            # ✅ CRITICAL: Strip timezone info to keep the local time as-is
+            # User said "14:00", we store "14:00" (not UTC conversion!)
+            start_time = start_time_aware.replace(tzinfo=None)
+            end_time = end_time_aware.replace(tzinfo=None)
+            
+            print(f"📅 CREATE: Received {data['start_time']} → Storing {start_time}")
+        except (ValueError, TypeError) as e:
+            print(f"❌ Date parsing error: {e}, start_time={data.get('start_time')}, end_time={data.get('end_time')}")
             return jsonify({'error': 'פורמט תאריך לא תקין'}), 400
         
         if end_time <= start_time:
@@ -321,6 +333,7 @@ def get_appointment(appointment_id):
 @require_api_auth(['admin', 'manager', 'business'])
 def update_appointment(appointment_id):
     """Update an existing appointment"""
+    data = None  # ✅ FIX LSP: Initialize data variable
     try:
         # Get business filter
         business_filter = get_user_business_filter()
@@ -354,22 +367,37 @@ def update_appointment(appointment_id):
                 setattr(appointment, field, data[field])
         
         # Handle date fields
+        # ✅ BUILD 118.2: Parse timezone-aware ISO format and keep local time
         if 'start_time' in data:
             try:
-                appointment.start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
-            except ValueError:
+                from dateutil import parser as date_parser
+                start_dt_aware = date_parser.isoparse(data['start_time'])
+                # Strip timezone to keep local time as-is
+                appointment.start_time = start_dt_aware.replace(tzinfo=None)
+                print(f"📅 UPDATE: Received {data['start_time']} → Storing {appointment.start_time}")
+            except (ValueError, TypeError) as e:
+                print(f"❌ Error parsing start_time: {e}")
                 return jsonify({'error': 'פורמט זמן התחלה לא תקין'}), 400
         
         if 'end_time' in data:
             try:
-                appointment.end_time = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
-            except ValueError:
+                from dateutil import parser as date_parser
+                end_dt_aware = date_parser.isoparse(data['end_time'])
+                # Strip timezone to keep local time as-is
+                appointment.end_time = end_dt_aware.replace(tzinfo=None)
+                print(f"📅 UPDATE: Received {data['end_time']} → Storing {appointment.end_time}")
+            except (ValueError, TypeError) as e:
+                print(f"❌ Error parsing end_time: {e}")
                 return jsonify({'error': 'פורמט זמן סיום לא תקין'}), 400
         
         if 'follow_up_date' in data and data['follow_up_date']:
             try:
-                appointment.follow_up_date = datetime.fromisoformat(data['follow_up_date'].replace('Z', '+00:00'))
-            except ValueError:
+                from dateutil import parser as date_parser
+                follow_dt_aware = date_parser.isoparse(data['follow_up_date'])
+                # Strip timezone to keep local time as-is
+                appointment.follow_up_date = follow_dt_aware.replace(tzinfo=None)
+            except (ValueError, TypeError) as e:
+                print(f"❌ Error parsing follow_up_date: {e}")
                 return jsonify({'error': 'פורמט תאריך מעקב לא תקין'}), 400
         
         # Validate dates (only if both exist)
