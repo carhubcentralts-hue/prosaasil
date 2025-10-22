@@ -296,8 +296,8 @@ class MediaStreamHandler:
         self.tx_drops = 0  # Track dropped frames for telemetry
         self._last_overflow_log = 0.0  # For throttled logging
         
-        # ⚡ BUILD 119.3: RX Queue + Worker Thread for controlled STT feeding (200 frames ~4s)
-        self.audio_rx_q = queue.Queue(maxsize=200)  # Balanced: 160-240 recommended
+        # ⚡ BUILD 119.4: RX Queue with smaller buffer (rate control happens here)
+        self.audio_rx_q = queue.Queue(maxsize=100)  # 100 frames = 2s buffer (enough for spikes)  # Balanced: 160-240 recommended
         self.rx_running = False
         self.rx_thread = None
         self.rx_drops = 0  # Track dropped RX frames

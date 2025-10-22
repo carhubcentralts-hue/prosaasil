@@ -2,7 +2,7 @@
 """
 ASGI Application for Cloud Run WebSocket Support
 Uses Starlette for WebSocket + Flask WSGI wrapper
-BUILD 119.3: RX Worker + Controlled STT Feeding at 20ms Cadence
+BUILD 119.4: Unbounded STT Queue + Controlled RX (No More Drops!)
 """
 import os
 import sys
@@ -25,7 +25,7 @@ from starlette.requests import Request
 
 # STARTUP LOGGING - TO STDOUT
 print("=" * 80, flush=True)
-print("🚀 ASGI BUILD 119.3 LOADING - RX WORKER + CONTROLLED STT FEEDING", flush=True)
+print("🚀 ASGI BUILD 119.4 LOADING - UNBOUNDED STT QUEUE FIX", flush=True)
 print("=" * 80, flush=True)
 
 # ✅ CRITICAL FIX: Ensure Google Cloud credentials are set BEFORE any imports
@@ -53,7 +53,7 @@ log = logging.getLogger("twilio_ws")
 flask_app = create_app()
 
 print("=" * 80, flush=True)
-print("✅ ASGI BUILD 119.3 READY - RX WORKER + 20MS CADENCE", flush=True)
+print("✅ ASGI BUILD 119.4 READY - UNBOUNDED STT + CONTROLLED RX", flush=True)
 print("=" * 80, flush=True)
 
 async def ws_http_probe(request: Request):

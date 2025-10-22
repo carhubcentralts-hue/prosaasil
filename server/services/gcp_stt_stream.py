@@ -65,10 +65,10 @@ class StreamingSTTSession:
         self._on_partial = on_partial
         self._on_final = on_final
         
-        # Audio queue for receiving from WS thread (200 = ~4s buffer @ 20ms frames)
-        # ⚡ BUILD 119.3: Balanced size (not too big = lag, not too small = drops)
-        # Drop-oldest policy will handle overflow without hidden latency
-        self._q = queue.Queue(maxsize=200)
+        # Audio queue for receiving from RX worker (unbounded to prevent blocking)
+        # ⚡ BUILD 119.4: Unbounded queue - RX worker controls rate, STT worker never blocks
+        # This prevents dropped frames when Google STT API is slow
+        self._q = queue.Queue(maxsize=0)  # 0 = unbounded
         self._stop = threading.Event()
         
         # Debouncing state
@@ -87,17 +87,12 @@ class StreamingSTTSession:
     def push_audio(self, pcm_bytes: bytes):
         """
         Feed PCM16 8kHz audio to the streaming session.
-        Called from WS loop - non-blocking.
+        Called from RX worker - always succeeds (unbounded queue).
         """
         if not pcm_bytes:
             return
-        try:
-            self._q.put_nowait(pcm_bytes)
-        except queue.Full:
-            # Under pressure, drop frame rather than increase latency
-            self._dropped_frames += 1
-            if self._dropped_frames % 10 == 1:  # Log every 10th drop
-                log.warning(f"⚠️ Audio queue full, dropped {self._dropped_frames} frames total (queue size: {self._q.qsize()})")
+        # ⚡ BUILD 119.4: Unbounded queue - never drops, RX worker controls rate
+        self._q.put_nowait(pcm_bytes)
     
     def close(self):
         """
