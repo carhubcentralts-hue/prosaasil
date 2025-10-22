@@ -15,17 +15,19 @@ def parse_iso_with_timezone(iso_string: str) -> datetime:
     """
     Parse ISO 8601 datetime with timezone offset and return naive datetime (keeping local time).
     Example: "2025-10-21T14:00:00+03:00" → datetime(2025, 10, 21, 14, 0, 0)
+    Example: "2025-10-21T14:00:00.123456+03:00" → datetime(2025, 10, 21, 14, 0, 0, 123456)
     
     We KEEP the local time as-is (14:00), not convert to UTC.
     This is because users specify appointments in their local time.
     """
     # Remove timezone offset to keep local time
-    # Regex matches: YYYY-MM-DDTHH:MM:SS[.ffffff][+/-HH:MM]
-    match = re.match(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?([+-]\d{2}:\d{2}|Z)?$', iso_string)
+    # Regex matches: YYYY-MM-DDTHH:MM:SS[.ffffff][+/-HH:MM|Z]
+    # ✅ FIXED: Capture fractional seconds to preserve microsecond precision
+    match = re.match(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)([+-]\d{2}:\d{2}|Z)?$', iso_string)
     if not match:
         raise ValueError(f"Invalid ISO format: {iso_string}")
     
-    datetime_part = match.group(1)
+    datetime_part = match.group(1)  # Includes fractional seconds if present
     # Parse the datetime part (without timezone)
     return datetime.fromisoformat(datetime_part)
 
