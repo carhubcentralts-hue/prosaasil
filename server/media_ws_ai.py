@@ -606,6 +606,21 @@ class MediaStreamHandler:
                         self.rx_thread = threading.Thread(target=self._rx_worker, daemon=True)
                         self.rx_thread.start()
                     
+                    # ⚡ BUILD 119.4: PARALLEL SETUP - STT init במקביל ל-Greeting!
+                    # זה מונע איבוד frames בזמן ההתחלה
+                    def _init_stt_async():
+                        """Initialize STT in parallel with greeting"""
+                        try:
+                            print("🟢 STT_SESSION: init requested")
+                            self._init_streaming_stt()
+                            print("🟢 STT_SESSION: ready")
+                        except Exception as e:
+                            print(f"⚠️ STT init failed (will retry): {e}")
+                    
+                    # התחל STT במקביל (לא חוסם!)
+                    stt_thread = threading.Thread(target=_init_stt_async, daemon=True)
+                    stt_thread.start()
+                    
                     # Get greeting in FASTEST way possible (cached or default)
                     greet = "שלום! איך אפשר לעזור?"
                     try:
@@ -618,10 +633,11 @@ class MediaStreamHandler:
                         print(f"⚠️ Business ID lookup failed (using default greeting): {e}")
                         self.business_id = 1
                     
-                    # ⚡ SEND GREETING IMMEDIATELY - don't wait for anything else!
+                    # ⚡ SEND GREETING IMMEDIATELY - don't wait for STT!
                     if not self.greeting_sent:
                         self.t1_greeting_start = time.time()  # ⚡ [T1] Greeting start
                         print(f"🎯 [T1={self.t1_greeting_start:.3f}] SENDING IMMEDIATE GREETING! (Δ={(self.t1_greeting_start - self.t0_connected)*1000:.0f}ms from T0)")
+                        print("🔊 GREETING: queued")
                         try:
                             self._speak_greeting(greet)  # ✅ פונקציה מיוחדת לברכה ללא sleep!
                             self.t2_greeting_end = time.time()  # ⚡ [T2] Greeting end
@@ -632,18 +648,13 @@ class MediaStreamHandler:
                             import traceback
                             traceback.print_exc()
                     
-                    # ⚡ BUILD 118.1: DEFERRED SETUP - do AFTER greeting to reduce T0→T1 latency
-                    # These are important but not time-critical for first impression
+                    # ⚡ Call log creation (DB write - non-blocking)
                     try:
-                        # STT initialization (can take 100-300ms)
-                        self._init_streaming_stt()
-                        
-                        # Call log creation (DB write - can take 50-200ms)
                         if self.call_sid and not hasattr(self, '_call_log_created'):
                             self._create_call_log_on_start()
                             self._call_log_created = True
                     except Exception as e:
-                        print(f"⚠️ Deferred setup failed (non-critical): {e}")
+                        print(f"⚠️ Call log creation failed: {e}")
                     
                     continue
 

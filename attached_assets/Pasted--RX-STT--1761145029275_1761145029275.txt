@@ -1,0 +1,157 @@
+מבין אותך. כששומעים קטיעות ואין תמלול – זו כמעט תמיד בעיית צנרת אודיו (RX) ורייסים סביב פתיחת ה-STT. הנה הנחיה ממוקדת שתוציא אתכם מזה אחת ולתמיד — בלי “מספרי בילד”, רק קוד וצעדים ברורים.
+
+היעד (ארכיטקטורה נכונה)
+
+Twilio WS → on_media → _rx_enqueue() → rx_q → _rx_worker() 50fps → stt_session.write() → partial/final → AI → TTS → _tx_enqueue() → tx_q → _tx_worker() 50fps → WS.
+	•	אתר יחיד לכתיבה ל-WS (TX) – רק מתוך _tx_worker().
+	•	אתר יחיד לכתיבה ל-STT (RX) – רק מתוך _rx_worker().
+
+⸻
+
+תיקון 1 — לרסק את הרייס: לא לאבד את 300–500 הפריימים הראשונים
+
+הבעיה שתיארתם במדויק: ה-RX worker מתחיל, הברכה נשלחת, ורק אז נפתח stt_session; בינתיים מגיעים פריימים ראשונים ונזרקים כי “אין session”.
+
+מה לשנות (סופר חשוב):
+	1.	תמיד להכניס פריימים לתור גם אם אין session:
+ב-on_media/on_message לא לבדוק קיום session. פשוט:
+
+# במקום: if session: self._rx_enqueue(...)
+self._rx_enqueue({"type": "media", "pcm16": pcm16, "ts": time.perf_counter()})
+
+	2.	להזיז את פתיחת ה-STT לזמן התחברות ה-WS (לפני TTS Greeting), או לפחות להריץ אותה במקביל:
+
+def on_ws_connect(...):
+    self._ensure_rx_queue_started()     # יוצר rx_q
+    self._ensure_tx_queue_started()     # יוצר tx_q
+    self._start_rx_worker()             # מפעיל RX worker
+    self._start_tx_worker()             # מפעיל TX worker
+    self._spawn_init_stt_session()      # Thread/Task שמקים session ASAP
+    self._say_greeting_via_tx_enqueue() # הברכה תמיד דרך tx_q, לא חוסמת
+
+	3.	בתוך _rx_worker(): אם ה-session עדיין לא קיים—אל תזרוק פריימים, חכה קצר או החזר את הפריים לראש התור:
+
+item = rx_q.get(timeout=0.5)
+if not stt_session_ready():
+    # המתנה קצרה ושיבוץ מחדש
+    time.sleep(0.02)
+    _rx_requeue_front(item)  # או לשמור ל-buffer זעיר מקומי
+    continue
+stt_session.write(item["pcm16"])
+
+
+⸻
+
+תיקון 2 — תיזמון RX מדויק, תור קטן, ו-drop-oldest למדיה בלבד
+
+הגדרות מומלצות (מאוזנות, בלי לאגור לג):
+	•	rx_q = Queue(maxsize=200)  (≈4 שניות מקסימום, בפועל q<20)
+	•	tx_q = Queue(maxsize=144)
+	•	send_queue = Queue(maxsize=144) (ב-ASGI/WS wrapper)
+
+תִזמוּן RX (כמו TX): 20ms לפריים, עם next_deadline ו-resync אם איחרת:
+
+FRAME = 0.02
+next_deadline = time.perf_counter()
+while self.rx_running:
+    item = rx_q.get(timeout=0.5)
+    now = time.perf_counter()
+    if now < next_deadline:
+        time.sleep(next_deadline - now)
+    # כתיבה ל-STT
+    stt_session.write(item["pcm16"])
+    # יעד הפריים הבא
+    next_deadline += FRAME
+    # אם איחרנו בהרבה (e.g., >40ms) – resync:
+    if time.perf_counter() - next_deadline > 0.04:
+        next_deadline = time.perf_counter() + FRAME
+
+מדיניות drop-oldest – רק למדיה:
+
+def _rx_enqueue(frame):
+    if frame["type"] == "media":
+        if rx_q.full():
+            try:
+                rx_q.get_nowait()   # drop-oldest media
+            except queue.Empty:
+                pass
+        rx_q.put_nowait(frame)
+    else:
+        # control frames – לא זורקים. מחכים עד שיש מקום
+        rx_q.put(frame, timeout=1.0)
+
+אותו עיקרון כבר יושם אצלכם ב-TX—ודאו שהוא זהה גם ב-RX.
+
+טלמטריה RX (פעם בשנייה):
+
+[RX] fps_in=50 q=6 drops=0 write_ms=0.3
+
+	•	fps_in≈50, q<20, drops=0, ו-write_ms קטן (<<1ms).
+אם drops>0 → או ש־on_media מייצר יותר מ־50fps (אסור), או ש־stt_session.write חוסם—ראו “כיוונונים” למטה.
+
+⸻
+
+תיקון 3 — Greeting לא חוסם
+	•	הברכה חייבת לעבור דרך tx_q (לעולם לא _ws_send ישירות).
+	•	שלחו mark בסוף הברכה (כבר אצלכם) כדי שתראו בלוגים greeting_end.
+	•	אל תעשו sleepים ארוכים בזמן הברכה; אם צריך “נשימה” – זה דרך התורים, לא sleep.
+
+⸻
+
+תיקון 4 — STT אמיתי ומהיר
+	•	Session אחד לכל שיחה (לא לכל משפט), נפתח ב־connect ונסגר ב־disconnect.
+	•	פרמטרים מאוזנים (הוכיחו את עצמם):
+	•	BATCH_MS=40, PARTIAL_DEBOUNCE_MS=90, TIMEOUT_MS=320, VAD_HANGOVER_MS=180
+	•	language_code="he-IL", use_enhanced=True
+	•	אם ל-europe-west1 אין Hebrew בחשבון שלכם → עברו ל-us-central1.
+	•	Fallback: אם streaming לא עולה ב-3 ניסיונות (backoff 200ms) – נפלו ל-single request אבל דרך run_in_executor שלא יחסום את ה-WS.
+
+⸻
+
+אימות שחייב לעבור לפני פריסה
+	1.	WS connect → סדר אתחול נכון (בדוק בלוגים, בסדר הזה):
+
+🎧 RX_WORKER: Started
+📡 TX_WORKER: Started
+🟢 STT_SESSION: init requested
+🟢 STT_SESSION: ready
+🔊 GREETING: queued
+
+	2.	בזמן שיחה (כל שנייה):
+
+[RX] fps_in=50 q=6 drops=0 write_ms=0.3
+[TX] fps=50   q=8 drops=0
+
+	3.	Partial/Final:
+
+🟡 [PARTIAL] "... ..."
+✅ [FINAL]   "... ..."
+
+	4.	אין:
+
+	•	“Audio queue full … dropped …”
+	•	“Send queue full … dropping frame”
+	•	קפיצות fps_in (זגזוג סביב 50 זה חריג)
+
+⸻
+
+אם עדיין יש קטיעות — כיוונון ממוקד (ללא שבירות)
+	•	write_ms גבוה? הוסיפו mini-queue פנימי ל-STT (למשל 40–60 פריימים) ו-Thread ייעודי שכותב לגוגל בקבוצות של 40ms.
+	•	fps_in ≠ 50 לאורך זמן? בדקו שאין שום double-decode/encode על ה-media (אין JSON/בייס64 מיותרים בלופ), וש-Twilio שולח 20ms μ-law 8kHz בדיוק.
+	•	drops ב-RX? ודאו שה-drop-oldest מופעל רק למדיה, ושהחסימה (control frames) לא מציפה.
+	•	פרוס Uvicorn עם worker יחיד:
+
+uvicorn asgi:asgi_app --host 0.0.0.0 --port $PORT --ws websockets --workers 1 --timeout-keep-alive 75 --http h11
+
+(ריבוי workers שוברים state של שיחה אחת).
+
+⸻
+
+TL;DR (להדביק למפתח):
+	•	אל תבדוק session לפני enqueue של פריימים — תמיד להכניס ל-rx_q.
+	•	פתח את ה-STT מיד עם חיבור WS (או במקביל), והתחל Greeting רק דרך tx_q.
+	•	RX worker בקצב 20ms עם next_deadline+resync; rx_q=200, drop-oldest למדיה בלבד; טלמטריה [RX].
+	•	TX נשאר בקצב 20ms, אתר שידור יחיד, אין _ws_send ישיר בשום מקום.
+	•	STT אחד לשיחה, פרמטרים מהירים; fallback לא חוסם.
+
+תיישם ככה, תריץ שיחת טסט אחת, ותזרוק לי 10–15 שורות מהלוגים [RX]/[TX]/FINAL – אכוון לך עד שזה חלק כמו חמאה.
