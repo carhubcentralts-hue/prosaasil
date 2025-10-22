@@ -1723,12 +1723,12 @@ class MediaStreamHandler:
                 text = ""
             
             # If there's a loop and events queue, use it
-            if self.loop and self.events_q:
+            if self.loop and self.events_q is not None:
                 try:
                     self.loop.call_soon_threadsafe(
-                        lambda: self.events_q.put_nowait(("stt_final_text", text))
+                        lambda: self.events_q.put_nowait(("stt_final_text", text))  # type: ignore
                     )
-                except AttributeError:
+                except (AttributeError, Exception):
                     # events_q doesn't have put_nowait - fall through to else
                     print(f"🎤 [STT_FALLBACK_NB] Result: {text[:50] if text else '(empty)'}", flush=True)
             else:
