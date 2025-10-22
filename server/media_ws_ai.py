@@ -182,7 +182,7 @@ VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "500"))  # ⚡ BUILD 118: 500
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","40"))  # ✅ 40 frames = ≈800ms קול רציף נדרש לקטיעה
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","100"))  # ⚡ BUILD 118: 100 frames = 2000ms (was 40 = 800ms)
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
@@ -751,14 +751,14 @@ class MediaStreamHandler:
                             # Inside grace period - NO barge-in allowed
                             continue
                         
-                        # ✅ HEBREW BARGE-IN: Very high threshold + longer duration required
-                        barge_in_threshold = max(1200, self.noise_floor * 15.0 + 500) if self.is_calibrated else 1500
+                        # ⚡ BUILD 118: MUCH HIGHER barge-in threshold - prevent false positives
+                        barge_in_threshold = max(2000, self.noise_floor * 20.0 + 800) if self.is_calibrated else 2500
                         is_barge_in_voice = rms > barge_in_threshold
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                            # ✅ HEBREW SPEECH: Require 1500ms continuous LOUD voice to prevent false interrupts  
-                            if self.voice_in_row >= 75:  # 1500ms קול רציף חזק - ממש בטוח שזה הפרעה מכוונת
+                            # ⚡ BUILD 118: Require 2000ms continuous VERY LOUD voice (was 1500ms)
+                            if self.voice_in_row >= 100:  # 2000ms קול רציף חזק מאוד - ממש בטוח שזה הפרעה מכוונת
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
