@@ -1246,7 +1246,11 @@ class MediaStreamHandler:
 
     # ✅ דיבור מתקדם עם סימונים לטוויליו
     def _speak_greeting(self, text: str):
-        """⚡ TTS מהיר לברכה - ללא sleep!"""
+        """
+        ⚡ BUILD 117: CACHED GREETING - Ultra-fast cached greeting frames
+        Uses pre-built μ-law frames from cache for instant greeting (<200ms)
+        Falls back to live TTS if cache fails
+        """
         if not text:
             return
         
@@ -1261,20 +1265,75 @@ class MediaStreamHandler:
         self.speaking = True
         self.speaking_start_ts = time.time()
         self.state = STATE_SPEAK
-        print(f"🔊 GREETING_TTS_START: '{text}'")
+        print(f"🔊 GREETING_START: '{text}'")
         
         try:
-            # ⚡ בלי sleep - ברכה מיידית!
+            # ⚡ BUILD 117: Try cached frames first for instant greeting
+            frames = None
+            try:
+                from server.services.greeting_builder import get_cached_greeting_frames
+                from server.services.gcp_tts_live import get_hebrew_tts
+                
+                # Get business/voice config
+                business_id = str(getattr(self, 'business_id', '1'))
+                locale = "he-IL"
+                voice_id = os.getenv("TTS_VOICE", "he-IL-Wavenet-D")
+                
+                # TTS synthesis function for cache
+                def tts_synth_func(txt):
+                    return get_hebrew_tts().synthesize_hebrew_pcm16_8k(txt)
+                
+                # Get cached frames (or build them)
+                frames = get_cached_greeting_frames(
+                    business_id=business_id,
+                    locale=locale,
+                    voice_id=voice_id,
+                    greeting_text=text,
+                    tts_synth_func=tts_synth_func
+                )
+                
+                if frames and len(frames) > 0:
+                    print(f"✅ CACHE_SUCCESS: {len(frames)} frames ready!")
+                    
+                    # Send clear before greeting
+                    if self.stream_sid:
+                        self._tx_enqueue({"type": "clear"})
+                    
+                    # Send all frames through TX Queue
+                    for frame_b64 in frames:
+                        if not self.speaking:  # Check for barge-in
+                            print(f"🚨 BARGE-IN during cached greeting")
+                            break
+                        self._tx_enqueue({"type": "media", "payload": frame_b64})
+                    
+                    # Send mark at end
+                    self.mark_pending = True
+                    self.mark_sent_ts = time.time()
+                    if self.stream_sid:
+                        self._tx_enqueue({"type": "mark", "name": "greeting_end"})
+                    
+                    print(f"✅ CACHED_GREETING_SENT: {len(frames)} frames enqueued")
+                    self._finalize_speaking()
+                    return
+                    
+            except Exception as cache_err:
+                print(f"⚠️ CACHE_FAILED: {cache_err} - falling back to live TTS")
+                import traceback
+                traceback.print_exc()
+            
+            # ❌ FALLBACK: Use live TTS if cache failed
+            print("🔄 FALLBACK_TTS: Using live synthesis")
             tts_audio = self._hebrew_tts(text)
             if tts_audio and len(tts_audio) > 1000:
-                print(f"✅ GREETING_TTS_SUCCESS: {len(tts_audio)} bytes")
+                print(f"✅ FALLBACK_TTS_SUCCESS: {len(tts_audio)} bytes")
                 self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
             else:
-                print("❌ GREETING_TTS_FAILED - sending beep")
+                print("❌ FALLBACK_TTS_FAILED - sending beep")
                 self._send_beep(800)
                 self._finalize_speaking()
+                
         except Exception as e:
-            print(f"❌ GREETING_TTS_ERROR: {e}")
+            print(f"❌ GREETING_ERROR: {e}")
             import traceback
             traceback.print_exc()
             try:

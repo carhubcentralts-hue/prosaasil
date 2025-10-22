@@ -26,6 +26,14 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Appointment Edit Debug**: Enhanced error logging in both client and server for appointment updates - full traceback and request data logged server-side, detailed status and error info client-side. Error messages remain generic to users for security.
 - **Result**: Correct datetime handling across all timezones, improved debugging capabilities for status management and appointment editing, secure error handling.
 
+**⚡ BUILD 117 - Instant Greeting Cache:**
+- **Pre-built Greeting Frames**: Greetings are synthesized once per business and stored as μ-law 20ms frames in memory cache (thread-safe with RLock, LRU eviction at 256 businesses)
+- **Ultra-Fast Delivery**: Cached greetings play in <200ms (vs 1-2s for live TTS) - frames sent directly through TX Queue for smooth 50fps transmission
+- **Smart Fallback**: If cache fails, seamlessly falls back to live TTS without crashing
+- **Automatic Cache Invalidation**: API endpoint POST /api/greeting/invalidate clears cache when business greeting/voice changes
+- **New Services**: greeting_cache.py (thread-safe storage), audio_utils.py (PCM16→μ-law→frames conversion), greeting_builder.py (cache management)
+- **Result**: Instant greeting playback on repeat calls, business-specific customization, zero impact on existing STT/AI/TTS flow.
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

@@ -273,6 +273,11 @@ def create_app():
         from server.routes_status_management import status_management_bp
         app.register_blueprint(status_management_bp)
         
+        # ⚡ BUILD 117: Greeting Cache Management API
+        from server.routes_greeting import greeting_bp
+        app.register_blueprint(greeting_bp)
+        print("✅ Greeting cache management API registered")
+        
         @app.before_request  
         def setup_security_context():
             """Setup security context for each request"""
