@@ -492,24 +492,32 @@ export default function LeadsPage() {
                       </div>
                     ) : (
                       <div className="relative group flex items-center gap-2">
-                        <div 
-                          className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 hover:scale-105 text-xs px-3 py-1.5 transition-all duration-200 hover:ring-2 hover:ring-blue-400 hover:shadow-md rounded-full inline-flex items-center gap-1.5 font-medium`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            console.log('Status badge clicked for lead', lead.id);
-                            setEditingStatus(lead.id);
-                          }}
-                          data-testid={`badge-status-${lead.id}`}
-                          role="button"
-                          tabIndex={0}
-                        >
-                          {getStatusLabel(lead.status)}
-                          <Edit className="w-3 h-3 opacity-70" />
-                        </div>
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 whitespace-nowrap pointer-events-none shadow-lg">
-                          לחץ לשינוי סטטוס
-                        </div>
+                        {statuses.length > 0 ? (
+                          <>
+                            <div 
+                              className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 hover:scale-105 text-xs px-3 py-1.5 transition-all duration-200 hover:ring-2 hover:ring-blue-400 hover:shadow-md rounded-full inline-flex items-center gap-1.5 font-medium`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                console.log('Status badge clicked for lead', lead.id, 'Available statuses:', statuses.length);
+                                setEditingStatus(lead.id);
+                              }}
+                              data-testid={`badge-status-${lead.id}`}
+                              role="button"
+                              tabIndex={0}
+                            >
+                              {getStatusLabel(lead.status)}
+                              <Edit className="w-3 h-3 opacity-70" />
+                            </div>
+                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 whitespace-nowrap pointer-events-none shadow-lg">
+                              לחץ לשינוי סטטוס
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {getStatusLabel(lead.status)} (טוען סטטוסים...)
+                          </div>
+                        )}
                       </div>
                     )}
                   </TableCell>

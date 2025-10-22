@@ -387,7 +387,12 @@ def update_appointment(appointment_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"Error updating appointment {appointment_id}: {e}")
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"❌ Error updating appointment {appointment_id}: {e}")
+        print(f"Full traceback:\n{error_details}")
+        print(f"Request data: {data}")
+        # Don't expose internal error details to user - security risk
         return jsonify({'error': 'שגיאה בעדכון הפגישה'}), 500
 
 @calendar_bp.route('/appointments/<int:appointment_id>', methods=['DELETE'])

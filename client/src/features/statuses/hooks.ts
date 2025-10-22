@@ -34,13 +34,20 @@ export function useStatuses(): UseStatusesResult {
       setLoading(true);
       setError(null);
       
+      console.log('🔵 Fetching statuses from /api/statuses...');
       const response = await http.get<{items: LeadStatus[], total: number}>('/api/statuses');
+      console.log('✅ Statuses response:', response);
+      
       // Handle backend response format: {items: [...], total: N}
       const statusList = response.items || [];
+      console.log('📋 Status list:', statusList, 'Length:', statusList.length);
       setStatuses(Array.isArray(statusList) ? statusList : []);
+      console.log('✅ Statuses set successfully');
     } catch (err) {
-      console.error('Failed to fetch statuses:', err);
+      console.error('❌ Failed to fetch statuses:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch statuses');
+      // Set empty array on error to prevent "undefined" issues
+      setStatuses([]);
     } finally {
       setLoading(false);
     }

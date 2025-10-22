@@ -20,6 +20,12 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Target Response Time**: STT ~1.2-1.8s (down from 2.0s), Total ~1.5-2.0s (down from 2.5-3.5s)
 - **Result**: Faster, more responsive conversations with Hebrew real estate AI assistant!
 
+**⚡ BUILD 116.1 - UI Bug Fixes & Debugging:**
+- **Calendar Datetime Fix**: Fixed timezone conversion bug that saved appointments to wrong day. datetime-local inputs now send ISO timestamps WITH local timezone offset (e.g., "2025-10-21T14:00:00+03:00") instead of UTC, ensuring user's chosen time is preserved exactly as entered.
+- **Status Dropdown Debug**: Added comprehensive logging to status management hooks to diagnose "No Options" display issue. Includes fallback messaging when statuses array is empty, console logs for API responses and state updates.
+- **Appointment Edit Debug**: Enhanced error logging in both client and server for appointment updates - full traceback and request data logged server-side, detailed status and error info client-side. Error messages remain generic to users for security.
+- **Result**: Correct datetime handling across all timezones, improved debugging capabilities for status management and appointment editing, secure error handling.
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

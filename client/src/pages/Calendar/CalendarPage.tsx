@@ -182,12 +182,39 @@ export function CalendarPage() {
       
       const method = editingAppointment ? 'PUT' : 'POST';
       
-      // Convert datetime-local values to ISO format with timezone
+      // ✅ FIX: Convert datetime-local to ISO with local timezone offset
+      // datetime-local gives us "2025-10-21T14:00" in user's local time
+      // We need to append the local timezone offset (e.g., +03:00) not Z (UTC)
+      const formatLocalDatetime = (datetime: string) => {
+        if (!datetime) return datetime;
+        
+        // Create a Date object from the input (interprets as local time)
+        const date = new Date(datetime);
+        
+        // Get timezone offset in minutes (negative for east of UTC)
+        const offsetMinutes = -date.getTimezoneOffset();
+        const offsetHours = Math.floor(Math.abs(offsetMinutes) / 60);
+        const offsetMins = Math.abs(offsetMinutes) % 60;
+        const offsetSign = offsetMinutes >= 0 ? '+' : '-';
+        const offsetString = `${offsetSign}${String(offsetHours).padStart(2, '0')}:${String(offsetMins).padStart(2, '0')}`;
+        
+        // Append seconds if needed and timezone offset
+        const withSeconds = datetime.length === 16 ? `${datetime}:00` : datetime;
+        return `${withSeconds}${offsetString}`;
+      };
+      
       const dataToSend = {
         ...formData,
-        start_time: formData.start_time ? new Date(formData.start_time).toISOString() : formData.start_time,
-        end_time: formData.end_time ? new Date(formData.end_time).toISOString() : formData.end_time
+        start_time: formatLocalDatetime(formData.start_time),
+        end_time: formatLocalDatetime(formData.end_time)
       };
+      
+      console.log('📅 Saving appointment with times:', {
+        start_raw: formData.start_time,
+        start_formatted: dataToSend.start_time,
+        end_raw: formData.end_time,
+        end_formatted: dataToSend.end_time
+      });
       
       // Get CSRF token from cookie
       const csrfToken = document.cookie.split('; ').find(row => row.startsWith('csrf_token='))?.split('=')[1];
@@ -203,18 +230,26 @@ export function CalendarPage() {
         body: JSON.stringify(dataToSend)
       });
 
+      console.log('📤 Response status:', response.status);
+      
       if (response.ok) {
         await fetchAppointments(); // Refresh appointments
         closeModal();
         alert(editingAppointment ? 'הפגישה עודכנה בהצלחה!' : 'הפגישה נוצרה בהצלחה!');
       } else {
         const errorData = await response.json().catch(() => ({}));
-        alert(`שגיאה בשמירת הפגישה: ${errorData.error || 'שגיאה לא ידועה'}`);
-        console.error('שגיאה בשמירת הפגישה', errorData);
+        console.error('❌ Failed to save appointment:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorData,
+          sentData: dataToSend,
+          editingId: editingAppointment?.id
+        });
+        alert(`שגיאה בשמירת הפגישה: ${errorData.error || response.statusText || 'שגיאה לא ידועה'}`);
       }
     } catch (error) {
+      console.error('❌ Exception saving appointment:', error);
       alert('שגיאה בשמירת הפגישה. אנא נסה שוב.');
-      console.error('שגיאה בשמירת הפגישה:', error);
     }
   };
 
