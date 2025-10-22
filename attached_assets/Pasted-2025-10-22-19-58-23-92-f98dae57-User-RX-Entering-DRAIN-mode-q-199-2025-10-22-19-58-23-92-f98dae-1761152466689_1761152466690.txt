@@ -1,0 +1,125 @@
+2025-10-22 19:58:23.92
+f98dae57
+User
+⚡ RX: Entering DRAIN mode (q=199)
+2025-10-22 19:58:23.92
+f98dae57
+User
+✅ RX: Back to NORMAL mode (q=20)
+2025-10-22 19:58:24.18
+f98dae57
+User
+✅ [FINAL] 'פוקסי' received for CAd3a55f... (utterance: b7645a18)
+2025-10-22 19:58:24.18
+f98dae57
+User
+📢 [FINAL_EVENT] Set for CAd3a55f...
+2025-10-22 19:58:24.18
+f98dae57
+User
+🟡 [PARTIAL] 'אולי' saved for CAd3a55f... (utterance: b7645a18)
+2025-10-22 19:58:24.18
+f98dae57
+User
+🔊 PARTIAL: 'אולי'
+2025-10-22 19:58:24.18
+f98dae57
+User
+2025-10-22 19:58:24.31
+f98dae57
+User
+🟡 [PARTIAL] 'לא אצלי' saved for CAd3a55f... (utterance: b7645a18)
+2025-10-22 19:58:24.31
+f98dae57
+User
+🔊 PARTIAL: 'לא אצלי'
+2025-10-22 19:58:26.28
+f98dae57
+User
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'POST'} /api/whatsapp/send
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'POST'} /webhook/whatsapp/incoming
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'POST'} /webhook/whatsapp/status
+2025-10-22 19:58:26.28
+f98dae57
+User
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/intelligence/customers
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/intelligence/stats
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/business/<int:business_id>
+2025-10-22 19:58:26.28
+f98dae57
+User
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'POST'} /api/admin/channels/
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id>
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/channels/businesses
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/dashboard/stats
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/dashboard/activity
+2025-10-22 19:58:26.28
+f98dae57
+User
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/stats
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /healthz
+2025-10-22 19:58:26.28
+f98dae57
+User
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /readyz
+2025-10-22 19:58:26.28
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /version
+2025-10-22 19:58:26.28
+f98dae57
+User

@@ -1,0 +1,126 @@
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt/history
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/statuses
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'POST'} /api/statuses
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'PUT'} /api/statuses/<int:status_id>
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/greeting/cache/stats
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/auth/csrf
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'POST'} /api/auth/logout
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/revenue
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/kpis/calls
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/calls
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/leads/stats
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/admin/businesses/prompts
+2025-10-22 19:52:42.09
+f98dae57
+User
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/calls/history
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/crm/contracts
+2025-10-22 19:52:42.09
+f98dae57
+User
+2025-10-22 19:52:42.09
+f98dae57
+User
+2025-10-22 19:52:42.09
+f98dae57
+User
+{'OPTIONS', 'GET', 'HEAD'} /api/crm/payments/paypal/return/cancel
+2025-10-22 19:52:42.28
+f98dae57
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+2025-10-22 19:52:42.28
+f98dae57
+User
+2025-10-22 19:52:45.07
+f98dae57
+User
+[RX] mode=normal fps_in=0 q=0 drops=0 write_ms=0.0
+2025-10-22 19:52:45.07
+f98dae57
+User
+2025-10-22 19:52:45.53
+f98dae57
+User
+🎯 STT Configuration: model=default, enhanced=True, language=he-IL
+2025-10-22 19:52:45.67
+f98dae57
+User
+✅ [REGISTRY] Registered session for call CAdb426c... (tenant: None, total: 1)
+2025-10-22 19:52:45.67
+f98dae57
+User
+2025-10-22 19:52:45.67
+f98dae57
+User
+✅ [S1=1761151965.678] Streaming session started for call CAdb426c... (business: None, attempt: 1, Δ=3736ms from T0)
+2025-10-22 19:52:45.67
+f98dae57
+User
+🟢 STT_SESSION: ready
+2025-10-22 19:52:46.08
+f98dae57
+User
+[RX] mode=normal fps_in=0 q=0 drops=0 write_ms=0.0
+2025-10-22 19:52:47.08
+f98dae57
+User
+[RX] mode=normal fps_in=0 q=0 drops=0 write_ms=0.0
+2025-10-22 19:52:48.08
+f98dae57
+User
+[RX] mode=normal fps_in=0 q=0 drops=0 write_ms=0.0
+2025-10-22 19:52:48.86
+f98dae57
+User
+✅ CustomerIntelligence: customer_id=39, lead_id=91
+2025-10-22 19:52:49.09
+f98dae57
+User
+[RX] mode=normal fps_in=0 q=0 drops=0 write_ms=0.0
+2025-10-22 19:52:49.10
+f98dae57
+User
+✅ Updated call_log with customer_id=39
