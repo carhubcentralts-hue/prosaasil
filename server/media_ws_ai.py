@@ -1538,101 +1538,76 @@ class MediaStreamHandler:
     
     def _rx_worker(self):
         """
-        ⚡ BUILD 119.5: RX Worker - with hysteresis back-pressure handling
-        Normal mode: controlled 20ms rate for steady pacing
-        Drain mode: max speed when queue fills to prevent drops
-        Uses pending buffer to preserve FIFO order during STT init
+        ⚡ BUILD 120.0: RX Worker with stable 20ms timing and periodic resync
+        - Precise 20ms frame rate (50 fps)
+        - Drift detection and correction
+        - Periodic resync every 30 seconds
+        - Always feeds frames to STT (no drops in RX layer)
         """
-        FRAME_INTERVAL = 0.020  # 20ms per frame
-        HIGH_WM = 100  # Enter drain mode above this
-        LOW_WM = 20    # Exit drain mode below this
+        FRAME_INTERVAL = 0.020  # 20ms per frame (50 fps)
+        SYNC_THRESHOLD = 0.5    # Resync if drift > 500ms
+        RESYNC_PERIOD = 30.0    # Resync every 30 seconds
         
-        mode = "normal"
         next_deadline = time.perf_counter()
+        last_sync = time.perf_counter()
         last_stat = time.time()
         fps_count = 0
         write_acc_ms = 0.0
-        pending_frame = None
         
-        print("🎧 RX_WORKER: Started", flush=True)
+        print("🎧 RX_WORKER: Started (20ms timing + 30s resync)", flush=True)
         
         while self.rx_running:
-            # Get new frame if we don't have one pending
-            if pending_frame is None:
-                try:
-                    pending_frame = self.audio_rx_q.get(timeout=0.1)
-                except queue.Empty:
-                    # Telemetry once per second
-                    if time.time() - last_stat >= 1.0:
-                        q_size = self.audio_rx_q.qsize()
-                        print(f"[RX] mode={mode} fps_in={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.1f}", flush=True)
-                        fps_count = 0
-                        write_acc_ms = 0.0
-                        last_stat = time.time()
-                    continue
+            start_time = time.perf_counter()
             
-            item = pending_frame
+            # Get frame from queue
+            try:
+                item = self.audio_rx_q.get(timeout=0.1)
+            except queue.Empty:
+                # Telemetry once per second
+                if time.time() - last_stat >= 1.0:
+                    q_size = self.audio_rx_q.qsize()
+                    print(f"[RX] fps={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.1f}", flush=True)
+                    fps_count = 0
+                    write_acc_ms = 0.0
+                    last_stat = time.time()
+                continue
             
             if item.get("type") == "media":
-                # ⚡ BUILD 119.5: Hysteresis back-pressure handling
-                q_size = self.audio_rx_q.qsize()
-                
-                # Update mode based on queue size with hysteresis
-                if mode == "normal" and q_size >= HIGH_WM:
-                    mode = "drain"
-                    print(f"⚡ RX: Entering DRAIN mode (q={q_size})", flush=True)
-                elif mode == "drain" and q_size <= LOW_WM:
-                    mode = "normal"
-                    print(f"✅ RX: Back to NORMAL mode (q={q_size})", flush=True)
-                
-                # Apply cadence only in normal mode
-                if mode == "normal":
-                    now = time.perf_counter()
-                    if now < next_deadline:
-                        time.sleep(next_deadline - now)
-                # else: Drain mode - NO SLEEP, max throughput!
-                
-                # Write to STT (non-blocking with back-pressure handling)
+                # Write to STT (always - STT handles drops internally)
                 pcm16 = item.get("pcm16")
-                wrote = False
                 if pcm16 and self.call_sid:
                     session = _get_session(self.call_sid)
                     if session:
                         t0 = time.perf_counter()
-                        wrote = session.push_audio(pcm16)  # Returns True if accepted, False if dropped
+                        session.push_audio(pcm16)  # STT handles drops with drop-oldest
                         dt = (time.perf_counter() - t0) * 1000.0
                         write_acc_ms += dt
-                
-                # ⚡ BUILD 119.6: Handle back-pressure from STT
-                if wrote:
-                    # Success - frame accepted
-                    next_deadline += FRAME_INTERVAL
-                    
-                    # Resync if lagging significantly
-                    if time.perf_counter() - next_deadline > 0.04:
-                        next_deadline = time.perf_counter() + FRAME_INTERVAL
-                    
-                    pending_frame = None
-                    fps_count += 1
-                else:
-                    # STT queue full - apply back-pressure!
-                    # In DRAIN mode: drop and continue (prevent infinite backup)
-                    # In NORMAL mode: retry next iteration
-                    if mode == "drain":
-                        pending_frame = None  # Drop frame, move on
-                        self.rx_drops += 1
-                    else:
-                        # Keep pending_frame, will retry
-                        time.sleep(0.005)  # Brief pause before retry
-            else:
-                # Control frame - process and clear
-                pending_frame = None
-                next_deadline += FRAME_INTERVAL
+                        fps_count += 1
+            
+            # Calculate timing
+            elapsed = time.perf_counter() - start_time
+            next_deadline += FRAME_INTERVAL
+            sleep_time = next_deadline - time.perf_counter()
+            
+            # Timing control with drift detection
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            elif abs(sleep_time) > SYNC_THRESHOLD:
+                # Drift detected - resync
+                print(f"⚠️ RX drift detected ({sleep_time:.3f}s), resyncing clock", flush=True)
+                next_deadline = time.perf_counter() + FRAME_INTERVAL
+                last_sync = time.perf_counter()
+            
+            # Periodic resync every 30 seconds
+            if time.perf_counter() - last_sync > RESYNC_PERIOD:
+                print("🔁 RX clock resync (30s)", flush=True)
+                next_deadline = time.perf_counter() + FRAME_INTERVAL
+                last_sync = time.perf_counter()
             
             # Telemetry once per second
             if time.time() - last_stat >= 1.0:
                 q_size = self.audio_rx_q.qsize()
-                print(f"[RX] mode={mode} fps_in={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.1f}", flush=True)
+                print(f"[RX] fps={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.1f}", flush=True)
                 fps_count = 0
                 write_acc_ms = 0.0
                 last_stat = time.time()
@@ -2413,15 +2388,21 @@ class MediaStreamHandler:
     
     def _tx_loop(self):
         """
-        ⚡ BUILD 119: Production TX loop with precise timing
-        - Precise 20ms/frame timing with next_deadline
-        - Back-pressure at 90% threshold (let queue drain)
-        - Real-time telemetry (fps/q/drops every second)
+        ⚡ BUILD 120.0: Production TX loop with stable timing and periodic resync
+        - Precise 20ms/frame timing (50 fps)
+        - Drift detection and correction
+        - Periodic resync every 30 seconds
+        - Back-pressure at 90% threshold
+        - Real-time telemetry
         """
-        print("🔊 TX_LOOP_START: Audio transmission thread started")
+        print("🔊 TX_LOOP_START: Audio transmission thread started (20ms timing + 30s resync)")
         
-        FRAME_INTERVAL = 0.02  # 20 ms per frame expected by Twilio
+        FRAME_INTERVAL = 0.02  # 20 ms per frame (50 fps)
+        SYNC_THRESHOLD = 0.5   # Resync if drift > 500ms
+        RESYNC_PERIOD = 30.0   # Resync every 30 seconds
+        
         next_deadline = time.monotonic()
+        last_sync = time.monotonic()
         tx_count = 0
         
         # Telemetry
@@ -2445,12 +2426,11 @@ class MediaStreamHandler:
                 print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
                 continue
             
-            # Handle "media" event with back-pressure
+            # Handle "media" event with precise timing
             if item.get("type") == "media":
                 # ⚡ Back-pressure: If tx_q is getting full (>90%), give it time to drain
                 queue_size = self.tx_q.qsize()
                 if queue_size > int(self.tx_q.maxsize * 0.90):  # 90% threshold
-                    # Don't skip frame - just slow down to let queue drain
                     time.sleep(FRAME_INTERVAL * 2)  # Double wait to drain queue
                 
                 # Send frame
@@ -2462,14 +2442,23 @@ class MediaStreamHandler:
                 tx_count += 1
                 frames_sent_last_sec += 1
                 
-                # ⚡ Precise timing with next_deadline
+                # ⚡ Precise timing with drift detection
                 next_deadline += FRAME_INTERVAL
                 delay = next_deadline - time.monotonic()
+                
                 if delay > 0:
                     time.sleep(delay)
-                else:
-                    # Missed deadline - resync
-                    next_deadline = time.monotonic()
+                elif abs(delay) > SYNC_THRESHOLD:
+                    # Drift detected - resync
+                    print(f"⚠️ TX drift detected ({delay:.3f}s), resyncing clock", flush=True)
+                    next_deadline = time.monotonic() + FRAME_INTERVAL
+                    last_sync = time.monotonic()
+                
+                # Periodic resync every 30 seconds
+                if time.monotonic() - last_sync > RESYNC_PERIOD:
+                    print("🔁 TX clock resync (30s)", flush=True)
+                    next_deadline = time.monotonic() + FRAME_INTERVAL
+                    last_sync = time.monotonic()
                 
                 # ⚡ Telemetry: Print stats every second
                 now = time.monotonic()

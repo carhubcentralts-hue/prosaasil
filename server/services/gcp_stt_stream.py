@@ -85,25 +85,36 @@ class StreamingSTTSession:
     
     def push_audio(self, pcm_bytes: bytes) -> bool:
         """
-        ⚡ BUILD 119.6: Feed PCM16 8kHz audio to the streaming session.
-        Called from RX worker - non-blocking with accurate drop reporting.
+        ⚡ BUILD 120.0: Feed PCM16 8kHz audio to the streaming session.
+        Non-blocking with drop-oldest to prevent RX worker blocking.
+        Always returns True (RX worker doesn't need back-pressure handling).
         
         Returns:
-            True if audio was accepted WITHOUT drops, False if dropped
+            True (always accepts, drops oldest if queue full)
         """
         if not pcm_bytes:
             return False
         
-        # ⚡ BUILD 119.6: Try to accept without drop
+        # Try to add frame without blocking
         try:
             self._q.put_nowait(pcm_bytes)
-            return True  # Success - no drop
+            return True
         except queue.Full:
-            # Queue full - report back-pressure to RX worker!
-            self._stt_drops += 1
-            if self._stt_drops % 50 == 1:  # Log every 50 drops
-                log.warning(f"⚠️ STT queue full! drops={self._stt_drops} q={self._q.qsize()}")
-            return False  # Signal back-pressure!
+            # Drop oldest frame and add new one
+            try:
+                _ = self._q.get_nowait()  # Drop oldest
+                self._stt_drops += 1
+                if self._stt_drops % 50 == 1:  # Log every 50 drops
+                    log.warning(f"⚠️ STT drop-oldest: drops={self._stt_drops} q={self._q.qsize()}")
+            except queue.Empty:
+                pass
+            # Add new frame
+            try:
+                self._q.put_nowait(pcm_bytes)
+            except queue.Full:
+                # Edge case - should never happen
+                pass
+            return True  # Always return True (drop-oldest handled)
     
     def close(self):
         """
