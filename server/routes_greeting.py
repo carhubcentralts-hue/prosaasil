@@ -4,7 +4,7 @@
 Endpoints for managing and invalidating greeting cache
 """
 from flask import Blueprint, request, jsonify
-from server.auth_utils import require_api_auth
+from server.auth_api import require_api_auth
 from server.services.greeting_builder import invalidate_greeting_for_business, get_cache_stats
 
 greeting_bp = Blueprint("greeting", __name__)
