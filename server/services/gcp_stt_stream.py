@@ -231,18 +231,20 @@ class StreamingSTTSession:
     
     def _should_finalize_early(self, partial_text: str) -> bool:
         """
-        ⚡ BUILD 116: Early-finalize aggressive strategy
-        Cuts 300-500ms by finalizing strong partials without waiting for silence
+        ⚡ BUILD 118.8: CONSERVATIVE early-finalize - prevent mid-sentence cuts
+        Only finalize when we're VERY confident the customer finished speaking
         """
         if not partial_text:
             return False
         
-        # Strong partial: >=12 chars with punctuation
-        if len(partial_text) >= 12 and any(p in partial_text for p in ".?!…"):
+        # ⚡ BUILD 118.8: MUCH STRICTER thresholds to prevent cutting mid-sentence
+        # Strong partial: >=20 chars with clear sentence ending
+        if len(partial_text) >= 20 and any(p in partial_text for p in ".?!"):
             return True
         
-        # Medium partial without punctuation: >=18 chars (short sentence)
-        if len(partial_text) >= 18:
+        # Long partial without punctuation: >=30 chars (complete sentence)
+        # Only for VERY clear cases to avoid cutting "אני רוצה לקנות דירה ב..."
+        if len(partial_text) >= 30 and not partial_text.endswith(("ב", "ל", "מ", "ה", "ו", "כ", "ש")):
             return True
         
         return False

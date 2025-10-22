@@ -1,0 +1,177 @@
+Search
+Time
+Deployment
+Source
+Log
+2025-10-22 14:17:42.91
+ae856b57
+System
+starting up user application
+2025-10-22 14:20:09.28
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:09.30
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:09.33
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:09.35
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:09.37
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:09.38
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:09.41
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.41
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.43
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.44
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.47
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.49
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.51
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.53
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.55
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.57
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.59
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.61
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.63
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.65
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.66
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.69
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.70
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.72
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.75
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.76
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.79
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.80
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.81
+ae856b57
+User
+🎙️ REAL_VOICE: rms=395, threshold=35.0
+2025-10-22 14:20:10.81
+ae856b57
+User
+🎤 [CA9950f8] Utterance 4566421f BEGIN
+2025-10-22 14:20:10.82
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.84
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.87
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.89
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.90
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.93
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.95
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.96
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:10.99
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:11.01
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:11.03
+ae856b57
+User
+📨 Received: media
+2025-10-22 14:20:11.05
+ae856b57
+User
+📨 Received: media

@@ -826,13 +826,13 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ⚡ BUILD 107: ULTRA-LOW LATENCY - 0.5s silence for FAST responses
-                            # תגובות קצרות: min_silence קצר מאוד (0.5s) ⚡⚡⚡
-                            # משפטים ארוכים: min_silence קצר (1.8s במקום 3.0s)
+                            # ⚡ BUILD 118.8: BALANCED LATENCY - don't cut mid-sentence!
+                            # תגובות קצרות: min_silence סביר (0.8s) - let customer finish thought
+                            # משפטים ארוכים: min_silence balanced (2.0s) - proper pauses
                             if dur < 2.0:
-                                min_silence = 0.5  # ⚡ תגובה קצרה - סופר מהר! (חצי שניה!)
+                                min_silence = 0.8  # ⚡ BUILD 118.8: 0.8s (was 0.5s) - don't rush!
                             else:
-                                min_silence = 1.8  # ⚡ משפט ארוך - מהיר (במקום 3.0s)
+                                min_silence = 2.0  # ⚡ BUILD 118.8: 2.0s (was 1.8s) - let them finish
                             
                             silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
@@ -841,13 +841,14 @@ class MediaStreamHandler:
                             # ⚡ BUILD 107: באפר קטן יותר = תגובה מהירה יותר!
                             buffer_big_enough = len(self.buf) > 8000  # ⚡ 0.5s במקום 0.8s - חוסך 300ms!
                             
-                            # ⚡⚡⚡ BUILD 107: EARLY EOU - מענה מוקדם על partial חזק!
-                            # אם יש partial חזק (12+ תווים וסיום במשפט) + 0.35s דממה - קפיצה מיד!
+                            # ⚡⚡⚡ BUILD 118.8: CONSERVATIVE EARLY EOU - prevent mid-sentence cuts!
+                            # Only trigger early EOU when we're VERY confident customer finished
                             last_partial = getattr(self, "last_partial_text", "")
-                            high_conf_partial = (len(last_partial) >= 12) and any(last_partial.endswith(p) for p in (".", "?", "!", "…", ":", ";"))
-                            early_silence = silence_time >= 0.35  # דממה קצרצרה
+                            # ⚡ BUILD 118.8: STRICTER - 24+ chars + clear ending + longer silence
+                            high_conf_partial = (len(last_partial) >= 24) and any(last_partial.endswith(p) for p in (".", "?", "!", "…"))
+                            early_silence = silence_time >= 0.6  # ⚡ BUILD 118.8: 0.6s (was 0.35s) - let customer breathe!
                             
-                            if high_conf_partial and early_silence and dur >= 0.5:
+                            if high_conf_partial and early_silence and dur >= 0.7:
                                 print(f"⚡⚡⚡ EARLY EOU on strong partial: '{last_partial}' ({dur:.1f}s, {silence_time:.2f}s silence)")
                                 # קפיצה מיידית לעיבוד!
                                 silent = True
