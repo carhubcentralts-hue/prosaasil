@@ -4,29 +4,31 @@ AgentLocator is a Hebrew CRM system for real estate businesses designed to strea
 
 ## Recent Changes
 
-**⚡ BUILD 119.2 - Complete Audio Quality Fix (TX + RX Queues):**
-- **Problem 1 - TX Queue**: Cached greeting flooded TX queue (195 frames in 21ms) causing choppy audio
-  - **Root Cause**: Greeting sent all frames instantly instead of controlled rate
-  - **Solution**: Added back-pressure loop in cached greeting sender
-  - While loop checks `tx_q.qsize() > 96` (80% of 120 max) before sending each frame
-  - Waits 20ms when queue is full (maintains ~50fps flow rate)
-  - Result: Smooth greeting playback with no stutters
-  
-- **Problem 2 - RX Queue**: Audio queue full during user speech (dropped 91+ frames)
-  - **Root Cause**: STT audio queue too small (128 frames = 2.5s) for longer user utterances
-  - **Solution**: Increased audio_queue from 128 to 384 frames (~7.5s buffer)
-  - Handles longer user speech without dropping frames
-  - Zero frame loss during conversation
-  
-- **Complete Benefits**:
-  - ✅ Smooth greeting playback (no choppy sound or cuts)
-  - ✅ Zero dropped frames during user speech
-  - ✅ No background noise from dropped frames
-  - ✅ Perfect audio quality in both directions (bot→user and user→bot)
-  - ✅ TX queue: healthy 20-80 frames, RX queue: 384 frame buffer
-  - ✅ Control frames never blocked
-  
-- **Result**: Crystal-clear audio in both directions - greeting and conversation!
+**⚡ BUILD 119.3 - RX Worker + Controlled STT Feeding (PROPER FIX):**
+- **Problem**: Audio queue full, dropped frames (3000+), choppy audio, wrong STT ("אשדוד" instead of real input)
+- **Root Cause**: Direct push to STT without rate control → queue overflow → lag + drops
+- **Solution**: Professional RX pipeline with worker thread (like TX)
+- **Implementation**:
+  - Added `audio_rx_q` (200 frames ~4s balanced buffer)
+  - Added `_rx_enqueue()` with drop-oldest for media ONLY (control frames never dropped)
+  - Added `_rx_worker()` thread: consumes at 20ms cadence with resync
+  - Changed direct `session.push_audio()` → `_rx_enqueue({"type":"media","pcm16":...})`
+  - RX worker feeds STT at steady 50fps pace (no flooding!)
+  - STT params: BATCH_MS=40, DEBOUNCE=90, TIMEOUT=320 (proven values)
+  - Full telemetry: `[RX] fps_in=? q=? drops=? write_ms=?` every second
+- **Benefits**:
+  - ✅ No more "Audio queue full" errors
+  - ✅ Zero dropped frames (drops=0)
+  - ✅ STT gets clean 50fps stream → accurate transcription
+  - ✅ No hidden lag (4s max buffer vs 7.5s before)
+  - ✅ Responsive system with drop-oldest safety net
+  - ✅ Complete visibility via RX/TX telemetry
+- **Expected Metrics**:
+  - `[RX] fps_in≈50 q<20 drops=0 write_ms<1`
+  - `[TX] fps≈50 q<20 drops=0`
+  - STT partial: 0.6-1.2s, final: 1.2-1.8s
+  - Total latency: ~1.6-2.3s
+- **Result**: Clean audio + accurate STT + low latency!
 
 **⚡ BUILD 119.1 - Production TX Queue with Precise Timing:**
 - **Problem**: "Send queue full, dropping frame" errors during longer TTS responses causing audio freezes

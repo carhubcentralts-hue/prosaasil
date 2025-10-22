@@ -296,6 +296,12 @@ class MediaStreamHandler:
         self.tx_drops = 0  # Track dropped frames for telemetry
         self._last_overflow_log = 0.0  # For throttled logging
         
+        # ⚡ BUILD 119.3: RX Queue + Worker Thread for controlled STT feeding (200 frames ~4s)
+        self.audio_rx_q = queue.Queue(maxsize=200)  # Balanced: 160-240 recommended
+        self.rx_running = False
+        self.rx_thread = None
+        self.rx_drops = 0  # Track dropped RX frames
+        
         print("🎯 AI CONVERSATION STARTED")
         
         # מאפיינים לזיהוי עסק
@@ -589,10 +595,16 @@ class MediaStreamHandler:
                         stream_registry.mark_start(self.call_sid)
                     
                     # ⚡ BUILD 118.1: IMMEDIATE greeting - defer ALL non-critical setup!
-                    # Start TX thread first
+                    # Start TX + RX threads first
                     if not self.tx_running:
                         self.tx_running = True
                         self.tx_thread.start()
+                    
+                    # ⚡ BUILD 119.3: Start RX worker thread
+                    if not self.rx_running:
+                        self.rx_running = True
+                        self.rx_thread = threading.Thread(target=self._rx_worker, daemon=True)
+                        self.rx_thread.start()
                     
                     # Get greeting in FASTEST way possible (cached or default)
                     greet = "שלום! איך אפשר לעזור?"
@@ -645,11 +657,13 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
                     
-                    # ⚡ STREAMING STT: Feed audio to session (continuous streaming)
+                    # ⚡ BUILD 119.3: Feed audio to RX queue (not directly to STT!)
+                    # RX worker will consume at controlled 20ms rate
                     if self.call_sid and pcm16:
                         session = _get_session(self.call_sid)
                         if session:
-                            session.push_audio(pcm16)
+                            # ✅ NEW: Enqueue to RX queue instead of direct push
+                            self._rx_enqueue({"type": "media", "pcm16": pcm16})
                             # Update session timestamp to prevent cleanup
                             with _registry_lock:
                                 item = _sessions_registry.get(self.call_sid)
@@ -1004,11 +1018,21 @@ class MediaStreamHandler:
             # ⚡ STREAMING STT: Close session at end of call
             self._close_streaming_stt()
             
+            # ⚡ BUILD 119.3: Clean up RX thread
+            if hasattr(self, 'rx_thread') and self.rx_thread and self.rx_thread.is_alive():
+                self.rx_running = False
+                try:
+                    self.rx_thread.join(timeout=1.0)
+                    print("✅ RX thread stopped")
+                except Exception as e:
+                    print(f"⚠️ RX thread cleanup error: {e}")
+            
             # Clean up TX thread
             if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
                 self.tx_running = False
                 try:
                     self.tx_thread.join(timeout=1.0)
+                    print("✅ TX thread stopped")
                 except:
                     pass
             
@@ -1478,6 +1502,84 @@ class MediaStreamHandler:
                 # Control frames: block until space available (CRITICAL - don't drop!)
                 self.tx_q.put(item, timeout=1.0)
                 print(f"⚠️ Control frame ({item.get('type')}) had to wait - queue was full!", flush=True)
+    
+    def _rx_enqueue(self, item, timeout=0.01):
+        """
+        ⚡ BUILD 119.3: RX enqueue with drop-oldest for media ONLY
+        Control frames (mark, clear, keepalive) are NEVER dropped
+        """
+        if item.get("type") != "media":
+            # Control frames: block until space available (don't drop!)
+            self.audio_rx_q.put(item, timeout=1.0)
+            return
+        
+        # Media frames: drop-oldest if full
+        try:
+            self.audio_rx_q.put_nowait(item)
+        except queue.Full:
+            try:
+                _ = self.audio_rx_q.get_nowait()  # Drop oldest MEDIA frame
+                self.rx_drops += 1
+            except queue.Empty:
+                pass
+            # Try again
+            self.audio_rx_q.put_nowait(item)
+    
+    def _rx_worker(self):
+        """
+        ⚡ BUILD 119.3: RX Worker - consumes audio queue at controlled 20ms rate
+        Feeds STT at steady pace with resync, prevents queue overflow
+        """
+        FRAME_INTERVAL = 0.020  # 20ms per frame
+        next_deadline = time.perf_counter()
+        last_stat = time.time()
+        fps_count = 0
+        write_acc_ms = 0.0
+        
+        print("🎧 RX_WORKER: Started", flush=True)
+        
+        while self.rx_running:
+            try:
+                item = self.audio_rx_q.get(timeout=0.1)
+            except queue.Empty:
+                # Telemetry once per second
+                if time.time() - last_stat >= 1.0:
+                    print(f"[RX] fps_in={fps_count} q={self.audio_rx_q.qsize()} drops={self.rx_drops} write_ms={write_acc_ms:.2f}", flush=True)
+                    fps_count = 0
+                    write_acc_ms = 0.0
+                    last_stat = time.time()
+                continue
+            
+            if item.get("type") == "media":
+                t0 = time.perf_counter()
+                # Write to STT (should be fast and non-blocking)
+                pcm16 = item.get("pcm16")
+                if pcm16 and self.call_sid:
+                    session = _get_session(self.call_sid)
+                    if session:
+                        session.push_audio(pcm16)
+                
+                dt = (time.perf_counter() - t0) * 1000.0
+                write_acc_ms += dt
+                fps_count += 1
+                
+                # Maintain 20ms cadence with resync
+                now = time.perf_counter()
+                if now < next_deadline:
+                    time.sleep(next_deadline - now)
+                else:
+                    # Lagging - resync to prevent cumulative delay
+                    next_deadline = now
+                next_deadline += FRAME_INTERVAL
+            
+            # Telemetry once per second (also here)
+            if time.time() - last_stat >= 1.0:
+                print(f"[RX] fps_in={fps_count} q={self.audio_rx_q.qsize()} drops={self.rx_drops} write_ms={write_acc_ms:.2f}", flush=True)
+                fps_count = 0
+                write_acc_ms = 0.0
+                last_stat = time.time()
+        
+        print("🎧 RX_WORKER: Stopped", flush=True)
     
     def _finalize_speaking(self):
         """סיום דיבור עם חזרה להאזנה"""
