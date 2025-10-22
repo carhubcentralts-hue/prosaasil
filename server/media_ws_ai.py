@@ -2007,70 +2007,8 @@ class MediaStreamHandler:
             print(f"❌ WHISPER_FALLBACK_ERROR: {e}")
             return ""
     
-    def _load_business_prompts(self, channel: str = 'calls') -> str:
-        """טוען פרומפטים מהדאטאבייס לפי עסק - לפי ההנחיות המדויקות"""
-        try:
-            # ✅ CRITICAL: All DB queries need app_context in Cloud Run/ASGI!
-            from server.app_factory import create_app
-            from server.models_sql import Business, BusinessSettings
-            
-            app = create_app()
-            with app.app_context():
-                # ✅ BUILD 100 FIX: זיהוי business_id לפי מספר טלפון - שימוש ב-phone_e164
-                if not self.business_id and self.phone_number:
-                    # חפש עסק לפי מספר הטלפון (phone_e164 = העמודה האמיתית)
-                    business = Business.query.filter(
-                        Business.phone_e164 == self.phone_number
-                    ).first()
-                    if business:
-                        self.business_id = business.id
-                        print(f"✅ זיהוי עסק לפי טלפון {self.phone_number}: {business.name}")
-                
-                # אם אין עדיין business_id, השתמש בfallback
-                if not self.business_id:
-                    from server.services.business_resolver import resolve_business_with_fallback
-                    self.business_id, status = resolve_business_with_fallback('twilio_voice', '+97233763805')
-                    print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
-                
-                if not self.business_id:
-                    print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל")
-                    return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
-                
-                # טען פרומפט מ-BusinessSettings
-                settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
-                business = Business.query.get(self.business_id)
-            
-            if settings and settings.ai_prompt:
-                try:
-                    # נסה לפרסר JSON (פורמט חדש עם calls/whatsapp)
-                    import json
-                    if settings.ai_prompt.startswith('{'):
-                        prompt_data = json.loads(settings.ai_prompt)
-                        prompt_text = prompt_data.get(channel, prompt_data.get('calls', ''))
-                        if prompt_text:
-                            print(f"AI_PROMPT loaded tenant={self.business_id} channel={channel}")
-                            return prompt_text
-                    else:
-                        # פרומפט יחיד (legacy)
-                        print(f"✅ טען פרומפט legacy מדאטאבייס לעסק {self.business_id}")
-                        return settings.ai_prompt
-                except Exception as e:
-                    print(f"⚠️ שגיאה בפרסור פרומפט JSON: {e}")
-                    # fallback לפרומפט כטקסט רגיל
-                    return settings.ai_prompt
-            
-            # אם אין ב-BusinessSettings, בדוק את business.system_prompt
-            if business and business.system_prompt:
-                print(f"✅ טען פרומפט מטבלת businesses לעסק {self.business_id}")
-                return business.system_prompt
-                
-            print(f"⚠️ לא נמצא פרומפט לעסק {self.business_id} - שימוש בברירת מחדל")
-            return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם/עסק hardcoded
-            
-        except Exception as e:
-            print(f"❌ שגיאה בטעינת פרומפט מדאטאבייס: {e}")
-            return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
-
+    # ⚠️ REMOVED: _load_business_prompts() - Dead code. Prompts are now loaded via ai_service.generate_ai_response()
+    
     def _identify_business_and_get_greeting(self) -> tuple:
         """⚡ זיהוי עסק וטעינת ברכה בשאילתה אחת - חוסך 50% זמן!"""
         try:
@@ -2135,86 +2073,8 @@ class MediaStreamHandler:
         """זיהוי business_id לפי to_number (wrapper for backwards compat)"""
         self._identify_business_and_get_greeting()  # קורא לפונקציה החדשה ומתעלם מהברכה
 
-    def _get_business_greeting_cached(self) -> str:
-        """⚡ טעינת ברכה עם cache - במיוחד מהיר לברכה הראשונה!"""
-        # קודם כל - בדוק אם יש business_id
-        if not hasattr(self, 'business_id') or not self.business_id:
-            print(f"⚠️ business_id חסר בקריאה ל-_get_business_greeting_cached!")
-            return "שלום! איך אפשר לעזור?"
-        
-        try:
-            # ✅ CRITICAL FIX: Must have app_context for DB query in Cloud Run/ASGI!
-            from server.app_factory import create_app
-            from server.models_sql import Business
-            
-            app = create_app()
-            with app.app_context():
-                # ⚡ שאילתה בודדת - קל ומהיר
-                business = Business.query.get(self.business_id)
-                
-                if business:
-                    # קבלת הברכה המותאמת
-                    greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
-                    business_name = business.name or "העסק שלנו"
-                    
-                    # החלפת placeholder בשם האמיתי
-                    greeting = greeting.replace("{{business_name}}", business_name)
-                    greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
-                    
-                    print(f"✅ ברכה נטענה במהירות: business_id={self.business_id}, name={business_name}")
-                    return greeting
-                else:
-                    print(f"⚠️ Business {self.business_id} לא נמצא - ברכה ברירת מחדל")
-                    return "שלום! איך אפשר לעזור?"
-        except Exception as e:
-            print(f"❌ שגיאה בטעינת ברכה: {e}")
-            import traceback
-            traceback.print_exc()
-            return "שלום! איך אפשר לעזור?"
-    
-    def _get_business_greeting(self) -> str:
-        """טעינת ברכה מותאמת אישית מהעסק עם {{business_name}} placeholder"""
-        print(f"🔍 _get_business_greeting CALLED! business_id={getattr(self, 'business_id', 'NOT SET')}")
-        
-        try:
-            from server.app_factory import create_app
-            from server.models_sql import Business
-            
-            # זיהוי עסק אם עדיין לא זוהה
-            if not hasattr(self, 'business_id') or not self.business_id:
-                print(f"⚠️ business_id לא מוגדר - מזהה עסק עכשיו...")
-                app = create_app()
-                with app.app_context():
-                    self._identify_business_from_phone()
-                print(f"🔍 אחרי זיהוי: business_id={getattr(self, 'business_id', 'STILL NOT SET')}")
-            
-            # טעינת ברכה מה-DB
-            app = create_app()
-            with app.app_context():
-                business = Business.query.get(self.business_id)
-                print(f"🔍 שאילתת business: id={self.business_id}, נמצא: {business is not None}")
-                
-                if business:
-                    # קבלת הברכה המותאמת
-                    greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
-                    business_name = business.name or "העסק שלנו"
-                    
-                    print(f"🔍 פרטי עסק: name={business_name}, greeting_message={business.greeting_message}")
-                    
-                    # החלפת placeholder בשם האמיתי
-                    greeting = greeting.replace("{{business_name}}", business_name)
-                    greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
-                    
-                    print(f"✅ Loaded custom greeting for business {self.business_id} ({business_name}): '{greeting}'")
-                    return greeting
-                else:
-                    print(f"⚠️ Business {self.business_id} not found - using default greeting")
-                    return "שלום! איך אפשר לעזור?"
-        except Exception as e:
-            import traceback
-            print(f"❌ Error loading business greeting: {e}")
-            print(f"❌ Traceback: {traceback.format_exc()}")
-            return "שלום! איך אפשר לעזור?"
+    # ⚠️ REMOVED: _get_business_greeting_cached() and _get_business_greeting() - Dead code
+    # Greeting is now loaded via _identify_business_and_get_greeting() in one optimized query
 
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response using unified AIService - UPDATED for prompt auto-sync"""
