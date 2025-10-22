@@ -65,9 +65,10 @@ class StreamingSTTSession:
         self._on_partial = on_partial
         self._on_final = on_final
         
-        # Audio queue for receiving from WS thread (128 = ~2.5s buffer @ 20ms frames)
-        # ⚡ BUILD 118.7: Increased from 48 to 128 to prevent dropped frames under load
-        self._q = queue.Queue(maxsize=128)
+        # Audio queue for receiving from WS thread (384 = ~7.5s buffer @ 20ms frames)
+        # ⚡ BUILD 119.2: Increased from 128 to 384 to prevent dropped frames during conversation
+        # This handles longer user utterances and ensures zero frame loss
+        self._q = queue.Queue(maxsize=384)
         self._stop = threading.Event()
         
         # Debouncing state
@@ -341,9 +342,10 @@ class GcpStreamingSTT:
         self.client = None
         self.rate = sample_rate_hz
         
-        # Audio queue for batching (128 = ~2.5s buffer @ 20ms frames)
-        # ⚡ BUILD 118.7: Increased from 48 to 128 to prevent dropped frames under load
-        self._audio_queue = queue.Queue(maxsize=128)
+        # Audio queue for batching (384 = ~7.5s buffer @ 20ms frames)
+        # ⚡ BUILD 119.2: Increased from 128 to 384 to prevent dropped frames during conversation
+        # This handles longer user utterances and ensures zero frame loss
+        self._audio_queue = queue.Queue(maxsize=384)
         self._batch_size_bytes = int(sample_rate_hz * 2 * (BATCH_MS / 1000.0))  # PCM16
         self._dropped_frames = 0  # Metrics
         

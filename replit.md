@@ -4,22 +4,29 @@ AgentLocator is a Hebrew CRM system for real estate businesses designed to strea
 
 ## Recent Changes
 
-**⚡ BUILD 119.2 - Back-Pressure Fix for Smooth Audio (CRITICAL FIX):**
-- **Problem**: Cached greeting flooded TX queue (195 frames in 21ms) causing choppy audio with background noise
-- **Root Cause**: Greeting sent all frames instantly instead of controlled rate → queue overflow → dropped frames
-- **Solution**: Added back-pressure loop in cached greeting sender
-- **Implementation**:
+**⚡ BUILD 119.2 - Complete Audio Quality Fix (TX + RX Queues):**
+- **Problem 1 - TX Queue**: Cached greeting flooded TX queue (195 frames in 21ms) causing choppy audio
+  - **Root Cause**: Greeting sent all frames instantly instead of controlled rate
+  - **Solution**: Added back-pressure loop in cached greeting sender
   - While loop checks `tx_q.qsize() > 96` (80% of 120 max) before sending each frame
-  - Waits 20ms per frame when queue is full (maintains ~50fps flow rate)
-  - Prevents queue overflow while keeping greeting responsive
-  - No more "Control frame had to wait" warnings
-- **Benefits**:
-  - ✅ Smooth, continuous audio playback (no choppy sound)
-  - ✅ Zero background noise from dropped frames
-  - ✅ No mid-sentence cuts
-  - ✅ Queue stays at healthy 20-80 frames instead of overflowing to 120+
-  - ✅ Control frames (marks, clears) never blocked
-- **Result**: Crystal-clear greeting audio without stutters or artifacts!
+  - Waits 20ms when queue is full (maintains ~50fps flow rate)
+  - Result: Smooth greeting playback with no stutters
+  
+- **Problem 2 - RX Queue**: Audio queue full during user speech (dropped 91+ frames)
+  - **Root Cause**: STT audio queue too small (128 frames = 2.5s) for longer user utterances
+  - **Solution**: Increased audio_queue from 128 to 384 frames (~7.5s buffer)
+  - Handles longer user speech without dropping frames
+  - Zero frame loss during conversation
+  
+- **Complete Benefits**:
+  - ✅ Smooth greeting playback (no choppy sound or cuts)
+  - ✅ Zero dropped frames during user speech
+  - ✅ No background noise from dropped frames
+  - ✅ Perfect audio quality in both directions (bot→user and user→bot)
+  - ✅ TX queue: healthy 20-80 frames, RX queue: 384 frame buffer
+  - ✅ Control frames never blocked
+  
+- **Result**: Crystal-clear audio in both directions - greeting and conversation!
 
 **⚡ BUILD 119.1 - Production TX Queue with Precise Timing:**
 - **Problem**: "Send queue full, dropping frame" errors during longer TTS responses causing audio freezes

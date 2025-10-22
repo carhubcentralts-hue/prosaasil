@@ -1,0 +1,114 @@
+d: media
+2025-10-22 16:34:54.08
+4d33a55d
+User
+📨 Received: media
+2025-10-22 16:34:54.10
+4d33a55d
+User
+📨 Received: media
+2025-10-22 16:34:54.12
+4d33a55d
+User
+📨 Received: media
+2025-10-22 16:34:54.14
+4d33a55d
+User
+📨 Received: media
+2025-10-22 16:34:54.16
+4d33a55d
+User
+📨 Received: media
+2025-10-22 16:34:54.18
+4d33a55d
+User
+📨 Received: media
+2025-10-22 16:34:54.20
+4d33a55d
+User
+📨 Received: media
+2025-10-22 16:34:54.20
+4d33a55d
+User
+✅ CACHED_GREETING_SENT: 195 frames enqueued
+2025-10-22 16:34:54.20
+4d33a55d
+User
+🎤 SPEAKING_END -> LISTEN STATE | buffer_reset
+2025-10-22 16:34:54.20
+4d33a55d
+User
+🎯 [T2=1761140094.208] GREETING_COMPLETE! (Duration=3097ms)
+2025-10-22 16:34:54.22
+4d33a55d
+User
+📨 Received: media
+2025-10-22 16:34:54.22
+4d33a55d
+User
+🎯 STT Configuration: model=default, enhanced=True, language=he-IL
+2025-10-22 16:34:54.23
+4d33a55d
+User
+✅ [REGISTRY] Registered session for call CA41746b... (tenant: 1, total: 1)
+2025-10-22 16:34:54.23
+4d33a55d
+User
+2025-10-22 16:34:54.23
+4d33a55d
+User
+✅ [S1=1761140094.230] Streaming session started for call CA41746b... (business: 1, attempt: 1, Δ=6019ms from T0)
+2025-10-22 16:34:54.23
+4d33a55d
+User
+2025-10-22 16:34:54.23
+4d33a55d
+User
+🔧 GCP credentials loaded from file path: /tmp/gcp_credentials.json...
+2025-10-22 16:34:54.23
+4d33a55d
+User
+🎙️ REAL_VOICE: rms=637, threshold=35.0
+2025-10-22 16:34:54.23
+4d33a55d
+User
+2025-10-22 16:34:54.23
+4d33a55d
+User
+⚠️ Audio queue full, dropped 1 frames total (queue size: 128)
+2025-10-22 16:34:54.23
+4d33a55d
+User
+⚠️ Audio queue full, dropped 11 frames total (queue size: 128)
+2025-10-22 16:34:54.23
+4d33a55d
+User
+⚠️ Audio queue full, dropped 21 frames total (queue size: 128)
+2025-10-22 16:34:54.23
+4d33a55d
+User
+⚠️ Audio queue full, dropped 31 frames total (queue size: 128)
+2025-10-22 16:34:54.23
+4d33a55d
+User
+⚠️ Audio queue full, dropped 41 frames total (queue size: 128)
+2025-10-22 16:34:54.23
+4d33a55d
+User
+⚠️ Audio queue full, dropped 51 frames total (queue size: 128)
+2025-10-22 16:34:54.23
+4d33a55d
+User
+⚠️ Audio queue full, dropped 61 frames total (queue size: 128)
+2025-10-22 16:34:54.23
+4d33a55d
+User
+⚠️ Audio queue full, dropped 71 frames total (queue size: 128)
+2025-10-22 16:34:54.23
+4d33a55d
+User
+⚠️ Audio queue full, dropped 81 frames total (queue size: 128)
+2025-10-22 16:34:54.24
+4d33a55d
+User
+⚠️ Audio queue full, dropped 91 frames total (queue size: 128)
