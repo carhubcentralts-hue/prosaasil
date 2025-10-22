@@ -1,0 +1,164 @@
+Search
+Time
+Deployment
+Source
+Log
+2025-10-22 15:08:19.48
+9df77bd6
+User
+✅ Baileys proxy routes: 0 /wa/* endpoints
+2025-10-22 15:08:20.71
+9df77bd6
+User
+✅ Production database initialized successfully
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/admin/business/<int:business_id> -> business_management.get_business
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses -> admin_bp.api_admin_businesses
+2025-10-22 15:08:20.73
+9df77bd6
+User
+2025-10-22 15:08:20.73
+9df77bd6
+User
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/admin/leads -> admin_bp.admin_leads
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/admin/leads/stats -> admin_bp.admin_leads_stats
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/admin/overview -> admin_bp.api_overview
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'POST'} /api/admin/statuses/initialize/<int:business_id> -> status_management.initialize_default_statuses
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'POST'} /api/admin/tenants -> ui.api_admin_tenants_create
+2025-10-22 15:08:20.73
+9df77bd6
+User
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'POST'} /api/auth/login -> auth_api.login
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'POST'} /api/auth/logout -> auth_api.logout
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/billing/contract/<contract_id>/download -> receipts_contracts.download_contract
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/billing/invoice/<invoice_id>/download -> receipts_contracts.download_invoice
+2025-10-22 15:08:20.73
+9df77bd6
+User
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'POST'} /api/business/<tenant>/prompts -> ai_prompt.save_prompt
+2025-10-22 15:08:20.73
+9df77bd6
+User
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'PUT'} /api/business/current/prompt -> ai_prompt.update_current_business_prompt
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'PUT'} /api/business/current/settings -> business_management.update_current_business_settings
+2025-10-22 15:08:20.73
+9df77bd6
+User
+{'OPTIONS', 'POST'} /api/calendar/appointments -> calendar.create_appointment
+2025-10-22 15:08:24.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:26.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:28.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:30.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:32.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:34.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:36.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:38.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:40.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:42.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:44.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:46.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:48.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:50.34
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:52.35
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:54.35
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:56.35
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:08:58.35
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
+2025-10-22 15:09:00.35
+9df77bd6
+User
+⚠️ Send queue full, dropping frame
