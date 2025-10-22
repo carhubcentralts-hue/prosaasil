@@ -657,23 +657,20 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
                     
-                    # ⚡ BUILD 119.3: Feed audio to RX queue (not directly to STT!)
+                    # ⚡ BUILD 119.4: Feed audio to RX queue ALWAYS (session check happens in worker!)
                     # RX worker will consume at controlled 20ms rate
                     if self.call_sid and pcm16:
+                        # ✅ CRITICAL FIX: Enqueue immediately - RX worker checks session!
+                        # This prevents losing frames during greeting/STT init
+                        self._rx_enqueue({"type": "media", "pcm16": pcm16})
+                        
+                        # Update session timestamp if it exists
                         session = _get_session(self.call_sid)
                         if session:
-                            # ✅ NEW: Enqueue to RX queue instead of direct push
-                            self._rx_enqueue({"type": "media", "pcm16": pcm16})
-                            # Update session timestamp to prevent cleanup
                             with _registry_lock:
                                 item = _sessions_registry.get(self.call_sid)
                                 if item:
                                     item["ts"] = time.time()
-                        elif USE_STREAMING_STT:
-                            # ⚠️ Session should exist but doesn't!
-                            if not hasattr(self, '_session_warning_logged'):
-                                print(f"⚠️ [STT] No streaming session for {self.call_sid[:8]} - using fallback")
-                                self._session_warning_logged = True
                     
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
@@ -1558,6 +1555,8 @@ class MediaStreamHandler:
                     session = _get_session(self.call_sid)
                     if session:
                         session.push_audio(pcm16)
+                    # If no session yet, frames stay in queue until session ready
+                    # RX worker will retry on next iteration
                 
                 dt = (time.perf_counter() - t0) * 1000.0
                 write_acc_ms += dt

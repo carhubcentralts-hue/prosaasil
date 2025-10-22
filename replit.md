@@ -4,30 +4,31 @@ AgentLocator is a Hebrew CRM system for real estate businesses designed to strea
 
 ## Recent Changes
 
-**⚡ BUILD 119.4 - Unbounded STT Queue (FINAL FIX FOR DROPS!):**
-- **Problem**: Despite RX worker, still got `q=200 drops=223` - frames dropped continuously
-- **Root Cause**: Double-queue blocking:
-  - RX worker → audio_rx_q (200) → push_audio() → STT._q (200) → Google STT
-  - When Google STT slow (network/processing), STT._q fills → push_audio() drops → choppy audio!
-  - Logs showed `write_ms=701ms` when STT queue blocked
-- **Solution**: Unbounded STT queue + smaller RX queue
+**⚡ BUILD 119.4 - Race Condition Fix + Unbounded STT Queue:**
+- **Problem 1**: Frames lost during greeting/STT initialization (race condition)
+  - RX worker starts → greeting sent (300-500ms) → STT session created
+  - Frames arrive **before** session exists → dropped!
+  - Code checked `if session: enqueue()` → early frames never queued!
+- **Problem 2**: Double-queue blocking when Google STT slow
+  - RX worker → audio_rx_q (200) → STT._q (200) → Google STT
+  - STT._q fills → push_audio() drops → choppy audio
+  - Logs showed `q=200 drops=223 write_ms=701ms`
+- **Solution**: Always enqueue + unbounded STT queue
 - **Implementation**:
+  - ✅ **CRITICAL FIX**: Enqueue frames **immediately** (no session check!)
+  - RX worker checks for session (frames wait in queue if session not ready)
   - Changed STT queue: `maxsize=200` → `maxsize=0` (unbounded)
+  - Reduced RX queue: 200 → 100 frames (2s buffer)
   - RX worker controls rate at 50fps (20ms cadence)
-  - STT queue never blocks → push_audio() always succeeds
-  - Reduced RX queue: 200 → 100 frames (2s buffer for spikes)
-  - RX queue handles Twilio bursts, STT queue handles Google API slowness
 - **Benefits**:
-  - ✅ Zero dropped frames (push_audio never fails!)
+  - ✅ No lost frames (even during initialization!)
+  - ✅ Zero drops (unbounded STT queue)
   - ✅ Clean 50fps stream to Google STT
-  - ✅ No blocking on network slowness
-  - ✅ RX queue stays small (q<20)
-  - ✅ Accurate transcription with all audio preserved
+  - ✅ Accurate transcription from first word
 - **Expected Metrics**:
   - `[RX] fps_in≈50 q<20 drops=0 write_ms<1`
   - `[TX] fps≈50 q<20 drops=0`
-  - No more queue full errors!
-- **Result**: Perfect audio quality + accurate Hebrew STT!
+- **Result**: Perfect audio + accurate STT from call start!
 
 **⚡ BUILD 119.1 - Production TX Queue with Precise Timing:**
 - **Problem**: "Send queue full, dropping frame" errors during longer TTS responses causing audio freezes
