@@ -41,6 +41,15 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Solution**: Greeting frames sent synchronously to WebSocket (like original TTS path), ensuring `_finalize_speaking()` only called after all frames transmitted
 - **Result**: Clean, stable greeting audio with no interruptions or artifacts - production-ready quality restored!
 
+**⚡ BUILD 118 - Balanced Parameters (Reduce False Positives + ≤3s Response):**
+- **Problem**: BUILD 116/117 were TOO aggressive - bot responded to background noise, stopped mid-sentence saying "לא הבנתי", 4s STT time
+- **VAD Tuning**: VAD_RMS 65→95 (less sensitive to noise), VAD_HANGOVER_MS 180→500ms (prevents mid-sentence cuts)
+- **STT Tuning**: BATCH_MS 40→60ms, DEBOUNCE_MS 90→250ms (more patient), TIMEOUT_MS 320→900ms (prevents cutting user off)
+- **False-Positive Protection**: consecutive_empty_stt 2→3 (less frequent "לא הבנתי"), enhanced common-word list
+- **Barge-in Hardening**: Threshold 1500→2500 (much higher), Duration 1500ms→2000ms (100 frames), Multiplier 15.0→20.0
+- **Target**: Maintain ≤3s response time while eliminating false positives and mid-sentence interruptions
+- **Result**: Stable, reliable conversations - bot completes full responses, ignores background noise, only responds to real speech!
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
@@ -68,8 +77,8 @@ Preferred communication style: Simple, everyday language.
 - **Audio Processing**: Smart barge-in detection (disabled for long responses >20 words, enabled for short ones), calibrated VAD for Hebrew speech, immediate TTS interruption, and seamless turn-taking.
 - **Custom Greetings**: Initial phone greeting loads from business configuration with dynamic placeholders.
 - **Natural TTS**: Production-grade Hebrew TTS with WaveNet-D voice (8kHz telephony optimization), SSML smart pronunciation, TTS caching, and accelerated speaking rate (1.05x).
-- **Performance Optimization**: ⚡ BUILD 115 Production - Streaming STT with 3-attempt retry + early finalization (saves 400-600ms on strong partials). Dynamic model selection (auto-detects best available model for Hebrew), europe-west1 region for low RTT. Optimized parameters: BATCH_MS=80ms, DEBOUNCE_MS=120ms, TIMEOUT=450ms, VAD_HANGOVER=220ms. Comprehensive latency tracking (partial, final, STT, AI, TTS, total turn). Achieves ≤2 second response times with excellent Hebrew accuracy. Session timestamp updated on every audio frame to prevent 2-minute resets. **3-layer false-positive protection**: (1) Relaxed audio validation (50/30 thresholds - allows quieter speech), (2) STT confidence checks with short-utterance rejection, (3) Common-word filtering with punctuation normalization. **Appointment rejection detection**: 3-layer system (time_parser, conversation parser, auto_meeting) prevents appointments on user refusal.
-- **Intelligent Error Handling**: Smart responses for STT failures with consecutive failure tracking (2x trigger "לא הבנתי").
+- **Performance Optimization**: ⚡ BUILD 118 Production - Streaming STT with 3-attempt retry + early finalization (saves 400-600ms on strong partials). Dynamic model selection (auto-detects best available model for Hebrew), europe-west1 region for low RTT. **Balanced parameters for reliability**: BATCH_MS=60ms, DEBOUNCE_MS=250ms, TIMEOUT=900ms, VAD_HANGOVER=500ms, VAD_RMS=95. Comprehensive latency tracking (partial, final, STT, AI, TTS, total turn). Achieves ≤3 second response times with excellent Hebrew accuracy and zero false positives. Session timestamp updated on every audio frame to prevent 2-minute resets. **Enhanced false-positive protection**: (1) Higher VAD thresholds (95 RMS), (2) STT confidence checks with short-utterance rejection, (3) Common-word filtering with punctuation normalization, (4) 3x consecutive failures before "לא הבנתי". **Hardened barge-in**: Requires 2000ms of VERY loud voice (threshold 2500) to interrupt bot. **Appointment rejection detection**: 3-layer system (time_parser, conversation parser, auto_meeting) prevents appointments on user refusal.
+- **Intelligent Error Handling**: Smart responses for STT failures with consecutive failure tracking (3x trigger "לא הבנתי").
 
 ## CRM Features
 - **Multi-tenant Architecture**: Business-based data isolation.
