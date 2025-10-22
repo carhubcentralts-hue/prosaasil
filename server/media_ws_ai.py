@@ -1565,14 +1565,14 @@ class MediaStreamHandler:
                         last_stat = time.time()
                     continue
             
-            # ⚡ BUILD 119.4: Timing BEFORE write (not after)
-            now = time.perf_counter()
-            if now < next_deadline:
-                time.sleep(next_deadline - now)
-            
             item = pending_frame
             
             if item.get("type") == "media":
+                # ⚡ BUILD 119.4: Enforce cadence BEFORE write
+                now = time.perf_counter()
+                if now < next_deadline:
+                    time.sleep(next_deadline - now)
+                
                 # Write to STT (should be fast and non-blocking)
                 pcm16 = item.get("pcm16")
                 if pcm16 and self.call_sid:
@@ -1584,17 +1584,16 @@ class MediaStreamHandler:
                         dt = (time.perf_counter() - t0) * 1000.0
                         write_acc_ms += dt
                         
-                        # ✅ Frame processed successfully - clear pending
+                        # ✅ Frame processed successfully - advance deadline and clear pending
+                        next_deadline += FRAME_INTERVAL
+                        
+                        # Resync if we're lagging significantly (>40ms)
+                        if time.perf_counter() - next_deadline > 0.04:
+                            next_deadline = time.perf_counter() + FRAME_INTERVAL
+                        
                         pending_frame = None
                         fps_count += 1
-                    # else: אין session עדיין - pending_frame נשאר, ננסה בסבב הבא
-                
-                # Advance deadline for next frame
-                next_deadline += FRAME_INTERVAL
-                
-                # Resync if we're lagging significantly (>40ms)
-                if time.perf_counter() - next_deadline > 0.04:
-                    next_deadline = time.perf_counter() + FRAME_INTERVAL
+                    # else: אין session עדיין - pending_frame נשאר, next_deadline לא מתקדם!
             else:
                 # Control frame or other type - process and clear pending
                 pending_frame = None
