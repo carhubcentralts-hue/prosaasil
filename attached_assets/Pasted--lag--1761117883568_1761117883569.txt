@@ -1,0 +1,86 @@
+סבבה, הוא בכיוון טוב — אבל יש שתי נקודות קריטיות שצריך לתקן כדי שלא תסבול מ-lag ולחוסר יציבות:
+
+מה נכון במה שעשה
+	•	הוסיף Rate limiting ל־_tx_loop עם FRAME_INTERVAL = 20ms → מצוין, זה בדיוק הקצב ש-Twilio מצפה לו (≈50 פריימים/שנייה).
+	•	משתמש ב־time.perf_counter() למדידת זמן → נכון ומדויק.
+
+מה חייבים לתקן עכשיו (שתי נקודות בולטות)
+	1.	גודל התור של השידור
+הוא הגדיל ל־1000 → זה יוצר “בּוּפר” של ~20 שניות (!), ויגרור דיליי קולי מורגש אם פעם אחת תיווצר הצפה.
+
+	•	תקן ל־100–150 מקסימום. זה נותן Headroom של ~2–3 שניות במקרה קצה, אבל לא יוצר זנב של דיבור ישן.
+
+# במקום 1000:
+self.send_queue = Queue(maxsize=120)
+
+ואם יש גם tx_q לפני זה — גם הוא צריך להיות בטווח 100–150, לא מאות.
+
+	2.	back-pressure על מה שבאמת מתמלא
+הוא בודק hasattr(self.ws, 'send_queue') → ברוב המימושים אין תור פנימי כזה על אובייקט ה־WS, והבדיקה לא עושה כלום.
+
+	•	תפעיל back-pressure מול התור שלך (זה שממנו _tx_loop קורא) — לא מול אובייקט ה־WS:
+	•	המדיניות: אם tx_q מלא כשמנסים להכניס פריים → זרוק את הכי ישן והכנס את החדש (Real-time > עבר).
+	•	בתוך _tx_loop אם אין מה לשלוח, חכה; אם יש — שלח בקצב 20ms. אם tx_q ממשיך להתמלא → זה אומר שה-TTS/הפקה מהירה מדי ביחס לשידור, וה-drop-oldest ב־enqueue יאזן.
+
+דוגמת קוד קצרה לסידור שני התורים
+
+# יצירה
+self.tx_q = asyncio.Queue(maxsize=120)  # תור מקור לכל היצרנים (TTS וכו')
+self._last_overflow_log = 0.0
+
+# הוספת פריים (בצד ה-TTS/יצרן המדיה)
+async def _tx_enqueue(self, frame_b64: str):
+    try:
+        self.tx_q.put_nowait(frame_b64)
+    except asyncio.QueueFull:
+        # Drop oldest
+        try:
+            _ = self.tx_q.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+        try:
+            self.tx_q.put_nowait(frame_b64)
+        except asyncio.QueueFull:
+            now = time.monotonic()
+            if now - self._last_overflow_log > 2.0:
+                print("⚠️ tx_q full (drop oldest)", flush=True)
+                self._last_overflow_log = now
+
+# משימת השידור היחידה
+async def _tx_loop(self):
+    FRAME_INTERVAL = 0.02
+    next_deadline = time.monotonic()
+    try:
+        while self.running and self.ws is not None:
+            frame_b64 = await self.tx_q.get()
+            await self._ws_send_media(frame_b64)  # שליחה בפועל
+            next_deadline += FRAME_INTERVAL
+            delay = next_deadline - time.monotonic()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            else:
+                next_deadline = time.monotonic()
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print(f"❌ TX loop error: {e}", flush=True)
+
+שים לב: אם _tx_loop רץ ב־thread סינכרוני, השתמש ב־time.sleep; אם הוא Task אסינכרוני — רק asyncio.sleep. אל תערבב.
+
+בדיקות מהירות (5 דקות)
+	1.	קצב פריימים: הוסף לוג שמונה כמה media נשלחו בשנייה → צריך להיות ~50/s.
+	2.	מדדי תור: פעם בשנייה הדפס tx_q_size, וודא שהוא רוב הזמן < 10. אם הוא מטפס, המשמעות: ייצור מהיר מדי או WS איטי.
+	3.	טון בדיקה: לפני שיחות אמיתיות, הזן 5 שניות “שקט” (פריימי מיו-לו 0x00) דרך _tx_enqueue ובדוק שאין overflow.
+	4.	Drop-oldest: גרום בכוונה להצפה (הזרק 1000 פריימים ברצף) ובדוק בלוג שרואים לכל היותר הודעה מחושׂמת "tx_q full (drop oldest)", בלי spam.
+
+טיפי ביצועים משלימים
+	•	ודא שכל פריים הוא 20ms אמיתי: ב־8kHz mu-law זה 160 דגימות (160 בתים לפני Base64). אם אתה עובד PCM16 לפני קידוד — זה 320 בתים.
+	•	אל תאחד כמה פריימים להודעה אחת ל־Twilio; שלח פריים לכל הודעה.
+	•	Task יחיד בלבד ששולח ל־WS. כל היצרנים חייבים לעבור דרך tx_q.
+
+מה יקרה אחרי התיקון
+	•	הודעת "Send queue full, dropping frame" צריכה להיעלם כמעט לחלוטין.
+	•	במקרה קצה של עומס — תראה לעיתים נדירות "tx_q full (drop oldest)", אבל לא Lag ולא “בליעת” משפטים שלמים.
+	•	הדיבור נשמע רציף, ובמקביל STT לא מתעכב כי ה־WS לא נחנק.
+
+אם תרצה, תדביק 10–15 שורות לוג אחרי הפריסה (מדדים לשנייה: frames_sent, tx_q_size, הזמן בין פריימים), ואכוון אותך אם צריך עדין את FRAME_INTERVAL/גודל התורים לדיוק מירבי.

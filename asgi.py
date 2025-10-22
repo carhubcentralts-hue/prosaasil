@@ -67,7 +67,7 @@ class SyncWebSocketWrapper:
     """
     def __init__(self):
         self.recv_queue = Queue(maxsize=500)  # async → sync (max 500 frames ~10s of audio)
-        self.send_queue = Queue(maxsize=1000)  # sync → async (max 1000 frames ~20s buffer)
+        self.send_queue = Queue(maxsize=120)  # sync → async (max 120 frames ~2.4s buffer - prevents lag)
         self.running = True
         
     def receive(self):

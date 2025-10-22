@@ -275,7 +275,8 @@ class MediaStreamHandler:
         self.heartbeat_counter = 0       # מונה heartbeat
         
         # TX Queue for smooth audio transmission
-        self.tx_q = queue.Queue(maxsize=4096)
+        # ⚡ BUILD 115.1: Reduced to 120 frames (~2.4s buffer) to prevent lag
+        self.tx_q = queue.Queue(maxsize=120)
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         
@@ -2280,10 +2281,11 @@ class MediaStreamHandler:
             
             # Handle "media" event with back-pressure and rate limiting
             if item.get("type") == "media":
-                # ⚡ Back-pressure: If send_queue is full, wait instead of dropping frames
-                if hasattr(self.ws, 'send_queue') and self.ws.send_queue.full():
-                    print("⚠️ send_queue full – applying back-pressure", flush=True)
-                    time.sleep(FRAME_INTERVAL)
+                # ⚡ Back-pressure: If tx_q is getting full (>90%), slow down
+                queue_size = self.tx_q.qsize()
+                if queue_size > 108:  # 90% of 120
+                    print(f"⚠️ tx_q nearly full ({queue_size}/120) – applying back-pressure", flush=True)
+                    time.sleep(FRAME_INTERVAL * 2)  # Double wait to drain queue
                     continue
                 
                 # Send frame
