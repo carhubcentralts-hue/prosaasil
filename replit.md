@@ -20,13 +20,13 @@ AgentLocator is a Hebrew CRM system for real estate businesses designed to strea
 - **Implementation Details**:
   - ✅ **FIX 1.1**: Frames **always** call `_rx_enqueue()` (no session check!)
   - ✅ **FIX 1.2**: STT init runs in **parallel thread** with greeting (not deferred!)
-  - ✅ **FIX 1.3**: RX worker checks session → if missing, **skip frame** (stays in queue!)
+  - ✅ **FIX 1.3**: RX worker uses **pending buffer** to hold frame until session ready (FIFO preserved!)
   - ✅ **FIX 2.1**: rx_q size = **UNBOUNDED** (no frame loss even during slow STT init!)
   - ✅ **FIX 2.2**: RX worker timing: **next_deadline + resync** (like TX)
   - ✅ **FIX 2.3**: Full telemetry: `[RX] fps_in/q/drops/write_ms`
   - ✅ **FIX 3**: Greeting via `_tx_enqueue()` (already working)
   - ✅ STT queue: `maxsize=0` (unbounded - prevents blocking!)
-  - ✅ **RESULT**: Both queues unbounded → **ZERO frame loss guaranteed**!
+  - ✅ **RESULT**: Unbounded queues + pending buffer → **ZERO frame loss + perfect FIFO order**!
 - **Correct Initialization Order**:
   ```
   [0ms]   WS Start → RX worker starts → TX worker starts
