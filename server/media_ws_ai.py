@@ -1479,7 +1479,7 @@ class MediaStreamHandler:
         frames_sent = 0
         total_frames = len(mulaw) // FR
         
-        print(f"🔊 Starting audio transmission: {total_frames} frames ({total_frames * 20}ms)")
+        # ⚡ Removed flooding log
         
         for i in range(0, len(mulaw), FR):
             # 🚨 בדיקה קריטית: האם עדיין צריך לדבר?
@@ -1504,17 +1504,13 @@ class MediaStreamHandler:
                 self.tx += 1
                 frames_sent += 1
                 
-                # לוגים מתקדמים כל 50 פריימי שידור + PATCH 10
-                if self.tx % 50 == 0:
-                    elapsed = time.time() - self.last_tts_end_ts
-                    print(f"WS_TX sid={self.stream_sid} tx={self.tx} frames_sent={frames_sent}/{total_frames} elapsed={elapsed:.1f}s")
+                # ⚡ Removed flooding logs - only log errors
             except Exception as e:
                 print(f"❌ Error sending frame {frames_sent}: {e}")
                 break
         
-        if self.speaking:
-            print(f"✅ Complete audio sent: {frames_sent}/{total_frames} frames")
-        else:
+        # ⚡ Only log interruptions (barge-in), not normal completions
+        if not self.speaking:
             print(f"⚠️ Audio interrupted: {frames_sent}/{total_frames} frames sent")
 
     def _send_beep(self, ms: int):
@@ -2356,11 +2352,13 @@ class MediaStreamHandler:
                     # Missed deadline - resync
                     next_deadline = time.monotonic()
                 
-                # ⚡ Telemetry: Print stats every second
+                # ⚡ Telemetry: Print stats every second (only if issues)
                 now = time.monotonic()
                 if now - last_telemetry_time >= 1.0:
                     queue_size = self.tx_q.qsize()
-                    print(f"[TX] fps={frames_sent_last_sec} q={queue_size} drops={drops_last_sec}", flush=True)
+                    # Only log if there are drops or queue is getting full
+                    if drops_last_sec > 0 or queue_size > 60:
+                        print(f"[TX] fps={frames_sent_last_sec} q={queue_size} drops={drops_last_sec}", flush=True)
                     frames_sent_last_sec = 0
                     drops_last_sec = 0
                     last_telemetry_time = now
@@ -2376,7 +2374,7 @@ class MediaStreamHandler:
                 }))
                 print(f"📍 TX_MARK: {item.get('name', 'mark')} {'SUCCESS' if success else 'FAILED'}")
         
-        print(f"🔊 TX_LOOP_DONE: Transmitted {tx_count} frames total")
+        # ⚡ Removed flooding log - TX loop ended naturally
     
     def _speak_with_breath(self, text: str):
         """דיבור עם נשימה אנושית ו-TX Queue - תמיד משדר משהו"""
