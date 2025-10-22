@@ -8,7 +8,26 @@ from server.models_sql import Appointment, Business, Customer, Deal, CallLog, Wh
 from server.routes_admin import require_api_auth  # Standardized import per guidelines
 from server.routes_crm import get_business_id
 import json
+import re
 from sqlalchemy import and_, or_, desc, asc
+
+def parse_iso_with_timezone(iso_string: str) -> datetime:
+    """
+    Parse ISO 8601 datetime with timezone offset and return naive datetime (keeping local time).
+    Example: "2025-10-21T14:00:00+03:00" → datetime(2025, 10, 21, 14, 0, 0)
+    
+    We KEEP the local time as-is (14:00), not convert to UTC.
+    This is because users specify appointments in their local time.
+    """
+    # Remove timezone offset to keep local time
+    # Regex matches: YYYY-MM-DDTHH:MM:SS[.ffffff][+/-HH:MM]
+    match = re.match(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?([+-]\d{2}:\d{2}|Z)?$', iso_string)
+    if not match:
+        raise ValueError(f"Invalid ISO format: {iso_string}")
+    
+    datetime_part = match.group(1)
+    # Parse the datetime part (without timezone)
+    return datetime.fromisoformat(datetime_part)
 
 calendar_bp = Blueprint('calendar', __name__, url_prefix='/api/calendar')
 
@@ -206,15 +225,8 @@ def create_appointment():
         # Frontend sends "2025-10-21T14:00:00+03:00" meaning 14:00 in user's timezone
         # We want to store 14:00 in DB, not convert to UTC (which would be 11:00)
         try:
-            from dateutil import parser as date_parser
-            start_time_aware = date_parser.isoparse(data['start_time'])
-            end_time_aware = date_parser.isoparse(data['end_time'])
-            
-            # ✅ CRITICAL: Strip timezone info to keep the local time as-is
-            # User said "14:00", we store "14:00" (not UTC conversion!)
-            start_time = start_time_aware.replace(tzinfo=None)
-            end_time = end_time_aware.replace(tzinfo=None)
-            
+            start_time = parse_iso_with_timezone(data['start_time'])
+            end_time = parse_iso_with_timezone(data['end_time'])
             print(f"📅 CREATE: Received {data['start_time']} → Storing {start_time}")
         except (ValueError, TypeError) as e:
             print(f"❌ Date parsing error: {e}, start_time={data.get('start_time')}, end_time={data.get('end_time')}")
@@ -370,10 +382,7 @@ def update_appointment(appointment_id):
         # ✅ BUILD 118.2: Parse timezone-aware ISO format and keep local time
         if 'start_time' in data:
             try:
-                from dateutil import parser as date_parser
-                start_dt_aware = date_parser.isoparse(data['start_time'])
-                # Strip timezone to keep local time as-is
-                appointment.start_time = start_dt_aware.replace(tzinfo=None)
+                appointment.start_time = parse_iso_with_timezone(data['start_time'])
                 print(f"📅 UPDATE: Received {data['start_time']} → Storing {appointment.start_time}")
             except (ValueError, TypeError) as e:
                 print(f"❌ Error parsing start_time: {e}")
@@ -381,10 +390,7 @@ def update_appointment(appointment_id):
         
         if 'end_time' in data:
             try:
-                from dateutil import parser as date_parser
-                end_dt_aware = date_parser.isoparse(data['end_time'])
-                # Strip timezone to keep local time as-is
-                appointment.end_time = end_dt_aware.replace(tzinfo=None)
+                appointment.end_time = parse_iso_with_timezone(data['end_time'])
                 print(f"📅 UPDATE: Received {data['end_time']} → Storing {appointment.end_time}")
             except (ValueError, TypeError) as e:
                 print(f"❌ Error parsing end_time: {e}")
@@ -392,10 +398,7 @@ def update_appointment(appointment_id):
         
         if 'follow_up_date' in data and data['follow_up_date']:
             try:
-                from dateutil import parser as date_parser
-                follow_dt_aware = date_parser.isoparse(data['follow_up_date'])
-                # Strip timezone to keep local time as-is
-                appointment.follow_up_date = follow_dt_aware.replace(tzinfo=None)
+                appointment.follow_up_date = parse_iso_with_timezone(data['follow_up_date'])
             except (ValueError, TypeError) as e:
                 print(f"❌ Error parsing follow_up_date: {e}")
                 return jsonify({'error': 'פורמט תאריך מעקב לא תקין'}), 400

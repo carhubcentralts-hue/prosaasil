@@ -58,6 +58,14 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Target**: T0→T1 latency ≤500ms (down from 3-6 seconds)
 - **Result**: Instant greeting playback - caller hears business greeting within half a second of connection!
 
+**⚡ BUILD 118.2 - Calendar Timezone Fix:**
+- **Problem**: Appointments saved to wrong day/time - timezone conversion bug from BUILD 116.1
+- **Root Cause**: Frontend sent ISO timestamps with timezone offset (e.g., "2025-10-21T14:00:00+03:00"), but server converted to UTC instead of keeping local time
+- **Solution**: Custom timezone parser strips offset and keeps local time as-is (14:00 stays 14:00, not converted to 11:00 UTC)
+- **Fix**: Updated routes_calendar.py with parse_iso_with_timezone() function - no external dependencies needed
+- **Impact**: CREATE/UPDATE/DELETE appointments now work correctly with user's local timezone
+- **Result**: When user says "יום שני 14:00", appointment is saved for Monday 14:00, not wrong day/time!
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
