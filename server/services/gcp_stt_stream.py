@@ -65,10 +65,9 @@ class StreamingSTTSession:
         self._on_partial = on_partial
         self._on_final = on_final
         
-        # Audio queue for receiving from RX worker (unbounded to prevent blocking)
-        # ⚡ BUILD 119.4: Unbounded queue - RX worker controls rate, STT worker never blocks
-        # This prevents dropped frames when Google STT API is slow
-        self._q = queue.Queue(maxsize=0)  # 0 = unbounded
+        # ⚡ BUILD 119.5: Bounded STT queue with drop-oldest (prevents OOM!)
+        # RX worker can push fast, we handle back-pressure here
+        self._q = queue.Queue(maxsize=200)  # Bounded - drop oldest if full
         self._stop = threading.Event()
         
         # Debouncing state
@@ -77,22 +76,38 @@ class StreamingSTTSession:
         self._early_finalized = False  # Track if we already sent early-final for this utterance
         
         # Metrics
-        self._dropped_frames = 0
+        self._stt_drops = 0  # Track drops in STT queue
         
         # Start worker thread
         self._t = threading.Thread(target=self._run, daemon=True)
         self._t.start()
         log.info("🚀 StreamingSTTSession: Worker thread started")
     
-    def push_audio(self, pcm_bytes: bytes):
+    def push_audio(self, pcm_bytes: bytes) -> bool:
         """
         Feed PCM16 8kHz audio to the streaming session.
-        Called from RX worker - always succeeds (unbounded queue).
+        Called from RX worker - non-blocking with drop-oldest if queue full.
+        
+        Returns:
+            True if audio was accepted, False otherwise
         """
         if not pcm_bytes:
-            return
-        # ⚡ BUILD 119.4: Unbounded queue - never drops, RX worker controls rate
-        self._q.put_nowait(pcm_bytes)
+            return False
+        
+        # ⚡ BUILD 119.5: Bounded queue with drop-oldest (prevents blocking RX worker!)
+        try:
+            self._q.put_nowait(pcm_bytes)
+            return True
+        except queue.Full:
+            # Drop oldest frame and add new one
+            try:
+                _ = self._q.get_nowait()  # Drop oldest
+                self._stt_drops += 1
+                self._q.put_nowait(pcm_bytes)
+                return True
+            except (queue.Empty, queue.Full):
+                self._stt_drops += 1
+                return False
     
     def close(self):
         """

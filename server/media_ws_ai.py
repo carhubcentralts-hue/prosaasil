@@ -1538,13 +1538,16 @@ class MediaStreamHandler:
     
     def _rx_worker(self):
         """
-        ⚡ BUILD 119.5: RX Worker - with back-pressure handling
+        ⚡ BUILD 119.5: RX Worker - with hysteresis back-pressure handling
         Normal mode: controlled 20ms rate for steady pacing
-        Back-pressure mode: max speed when queue fills (q>100) to prevent drops
+        Drain mode: max speed when queue fills to prevent drops
         Uses pending buffer to preserve FIFO order during STT init
         """
         FRAME_INTERVAL = 0.020  # 20ms per frame
-        BACK_PRESSURE_THRESHOLD = 100  # Switch to max speed above this queue size
+        HIGH_WM = 100  # Enter drain mode above this
+        LOW_WM = 20    # Exit drain mode below this
+        
+        mode = "normal"
         next_deadline = time.perf_counter()
         last_stat = time.time()
         fps_count = 0
@@ -1562,7 +1565,7 @@ class MediaStreamHandler:
                     # Telemetry once per second
                     if time.time() - last_stat >= 1.0:
                         q_size = self.audio_rx_q.qsize()
-                        print(f"[RX] fps_in={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.2f}", flush=True)
+                        print(f"[RX] mode={mode} fps_in={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.1f}", flush=True)
                         fps_count = 0
                         write_acc_ms = 0.0
                         last_stat = time.time()
@@ -1571,44 +1574,55 @@ class MediaStreamHandler:
             item = pending_frame
             
             if item.get("type") == "media":
-                # ⚡ BUILD 119.5: Back-pressure handling
+                # ⚡ BUILD 119.5: Hysteresis back-pressure handling
                 q_size = self.audio_rx_q.qsize()
-                if q_size < BACK_PRESSURE_THRESHOLD:
-                    # Normal mode: enforce 20ms cadence
+                
+                # Update mode based on queue size with hysteresis
+                if mode == "normal" and q_size >= HIGH_WM:
+                    mode = "drain"
+                    print(f"⚡ RX: Entering DRAIN mode (q={q_size})", flush=True)
+                elif mode == "drain" and q_size <= LOW_WM:
+                    mode = "normal"
+                    print(f"✅ RX: Back to NORMAL mode (q={q_size})", flush=True)
+                
+                # Apply cadence only in normal mode
+                if mode == "normal":
                     now = time.perf_counter()
                     if now < next_deadline:
                         time.sleep(next_deadline - now)
-                # else: Back-pressure mode - NO SLEEP, drain queue ASAP!
+                # else: Drain mode - NO SLEEP, max throughput!
                 
-                # Write to STT (should be fast and non-blocking)
+                # Write to STT (non-blocking with bounded queue)
                 pcm16 = item.get("pcm16")
+                wrote = False
                 if pcm16 and self.call_sid:
                     session = _get_session(self.call_sid)
                     if session:
-                        # Write audio
                         t0 = time.perf_counter()
-                        session.push_audio(pcm16)
+                        wrote = session.push_audio(pcm16)  # Returns True/False
                         dt = (time.perf_counter() - t0) * 1000.0
                         write_acc_ms += dt
-                        
-                        # Advance deadline and clear pending
-                        next_deadline += FRAME_INTERVAL
-                        
-                        # Resync if we're lagging significantly (>40ms)
-                        if time.perf_counter() - next_deadline > 0.04:
-                            next_deadline = time.perf_counter() + FRAME_INTERVAL
-                        
-                        pending_frame = None
-                        fps_count += 1
+                
+                # Only advance if we successfully wrote
+                if wrote:
+                    next_deadline += FRAME_INTERVAL
+                    
+                    # Resync if lagging significantly
+                    if time.perf_counter() - next_deadline > 0.04:
+                        next_deadline = time.perf_counter() + FRAME_INTERVAL
+                    
+                    pending_frame = None
+                    fps_count += 1
+                # else: Keep pending_frame, don't advance deadline
             else:
-                # Control frame - process and clear pending
+                # Control frame - process and clear
                 pending_frame = None
                 next_deadline += FRAME_INTERVAL
             
             # Telemetry once per second
             if time.time() - last_stat >= 1.0:
                 q_size = self.audio_rx_q.qsize()
-                print(f"[RX] fps_in={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.2f}", flush=True)
+                print(f"[RX] mode={mode} fps_in={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.1f}", flush=True)
                 fps_count = 0
                 write_acc_ms = 0.0
                 last_stat = time.time()
