@@ -5,6 +5,10 @@ Time Parser - ניתוח זמנים ותאריכים מעברית
 import re
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
+from zoneinfo import ZoneInfo
+
+# ✅ Israel timezone - כל הפגישות בזמן ישראל!
+ISRAEL_TZ = ZoneInfo('Asia/Jerusalem')
 
 def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     """
@@ -20,7 +24,8 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
         return None
     
     text_lower = text.lower()
-    now = datetime.now()
+    # ✅ BUILD 118.3: Use Israel timezone for all appointments!
+    now = datetime.now(ISRAEL_TZ)
     
     # ✅ DEBUG: הדפס מה אנחנו מנתחים
     print(f"🔍 TIME_PARSER: Analyzing text: '{text[:100]}...'")
@@ -137,15 +142,20 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     elif hour > 20:
         hour = 20
     
-    # ✅ בנה את הזמן הסופי
+    # ✅ בנה את הזמן הסופי (תמיד בזמן ישראל!)
     meeting_time = target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
     
     # אם הזמן עבר (אם זה היום והשעה כבר עברה), דחוף למחר
+    # ⚠️ Compare while both are timezone-aware!
     if meeting_time < now:
         meeting_time = meeting_time + timedelta(days=1)
         # דלג על שבת שוב
         if meeting_time.weekday() == 5:
             meeting_time = meeting_time + timedelta(days=1)
+    
+    # ✅ Convert to naive datetime for DB storage (strip timezone but keep local time)
+    # This matches our calendar system design choice (BUILD 118.2)
+    meeting_time = meeting_time.replace(tzinfo=None)
     
     end_time = meeting_time + timedelta(hours=1)  # פגישה של שעה
     
@@ -231,7 +241,8 @@ def format_meeting_time_hebrew(meeting_time: datetime) -> str:
     Returns:
         מחרוזת כמו "מחר בשעה 10:00" או "יום רביעי ב-14:30"
     """
-    now = datetime.now()
+    # ✅ BUILD 118.3: Use Israel timezone for formatting
+    now = datetime.now(ISRAEL_TZ).replace(tzinfo=None)
     days_diff = (meeting_time.date() - now.date()).days
     
     # קביעת "מתי"

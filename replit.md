@@ -22,6 +22,14 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Result**: When user says "יום שני 14:00", appointment is saved for Monday 14:00, not wrong day/time!
 - **Architect Approved**: Parser correctly handles all ISO formats (with/without microseconds, with/without timezone)
 
+**⚡ BUILD 118.3 - Israel Timezone for AI Appointment Parsing:**
+- **Problem**: AI assistant parsed appointment times using UTC instead of Israel timezone - "מחר ב-10" created 10:00 UTC instead of 10:00 IST
+- **Root Cause**: time_parser.py used datetime.now() without timezone awareness, defaulting to server UTC time
+- **Solution**: Updated time_parser.py to use ZoneInfo('Asia/Jerusalem') for all datetime operations
+- **Implementation**: Now uses datetime.now(ISRAEL_TZ) throughout, converts to naive datetime before DB storage (consistent with BUILD 118.2 design)
+- **Impact**: All AI-parsed appointments (phone/WhatsApp) now correctly use Israel time
+- **Result**: When customer says "מחר ב-10" on phone, appointment creates for 10:00 Israel time, not UTC!
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
