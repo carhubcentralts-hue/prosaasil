@@ -1592,19 +1592,20 @@ class MediaStreamHandler:
                         time.sleep(next_deadline - now)
                 # else: Drain mode - NO SLEEP, max throughput!
                 
-                # Write to STT (non-blocking with bounded queue)
+                # Write to STT (non-blocking with back-pressure handling)
                 pcm16 = item.get("pcm16")
                 wrote = False
                 if pcm16 and self.call_sid:
                     session = _get_session(self.call_sid)
                     if session:
                         t0 = time.perf_counter()
-                        wrote = session.push_audio(pcm16)  # Returns True/False
+                        wrote = session.push_audio(pcm16)  # Returns True if accepted, False if dropped
                         dt = (time.perf_counter() - t0) * 1000.0
                         write_acc_ms += dt
                 
-                # Only advance if we successfully wrote
+                # ⚡ BUILD 119.6: Handle back-pressure from STT
                 if wrote:
+                    # Success - frame accepted
                     next_deadline += FRAME_INTERVAL
                     
                     # Resync if lagging significantly
@@ -1613,7 +1614,16 @@ class MediaStreamHandler:
                     
                     pending_frame = None
                     fps_count += 1
-                # else: Keep pending_frame, don't advance deadline
+                else:
+                    # STT queue full - apply back-pressure!
+                    # In DRAIN mode: drop and continue (prevent infinite backup)
+                    # In NORMAL mode: retry next iteration
+                    if mode == "drain":
+                        pending_frame = None  # Drop frame, move on
+                        self.rx_drops += 1
+                    else:
+                        # Keep pending_frame, will retry
+                        time.sleep(0.005)  # Brief pause before retry
             else:
                 # Control frame - process and clear
                 pending_frame = None

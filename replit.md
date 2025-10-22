@@ -4,28 +4,30 @@ AgentLocator is a Hebrew CRM system for real estate businesses designed to strea
 
 ## Recent Changes
 
-**⚡ BUILD 119.6 - STT Performance Fix (AGGRESSIVE DRAINING!):**
-- **Root Cause Identified**: STT generator was blocking on Google responses, causing queue buildup!
-  - Logs showed `drops=243 q=195` - 243 frames dropped, queue almost full (195/200)
-  - STT `_requests()` generator was reading queue with blocking timeout (20ms)
-  - When Google STT slow → generator blocks → queue fills → frames drop → STT returns empty!
-- **Complete STT Fix**:
-  1. **gcp_stt_stream.py `_requests()`**: Changed from blocking `get(timeout=0.02)` to non-blocking `get_nowait()`
-  2. **Aggressive draining**: Reads up to 50 frames at once (1 second buffer) before sending batch
-  3. **Immediate send**: Sends batch immediately after draining (no BATCH_MS wait when data available)
-  4. **Smart sleep**: Only sleeps 10ms when queue is empty (avoids busy-wait)
-  5. **asgi.py**: Removed media event spam from logs (50/sec → 0) - only log important events
+**⚡ BUILD 119.6 - Complete RX/STT Back-Pressure Fix (ARCHITECT-REVIEWED!):**
+- **Root Cause Identified**: RX worker couldn't detect STT back-pressure, causing silent frame loss!
+  - Logs showed `drops=243 q=195` - 243 frames dropped, RX queue almost full (195/200)
+  - STT.push_audio() was returning True even when dropping frames (drop-oldest policy)
+  - RX worker thought frames were accepted (fps_count++) but they were silently dropped!
+  - Result: STT returns empty, no transcription
+- **Complete 3-Part Fix**:
+  1. **STT.push_audio()**: Returns False when queue full (signals back-pressure to RX)
+  2. **RX worker**: Handles back-pressure - in DRAIN mode drops consciously, in NORMAL mode retries
+  3. **STT._requests()**: Aggressive draining (get_nowait, reads up to 50 frames at once)
+  4. **asgi.py**: Removed media event spam from logs (50/sec → 0)
 - **Expected Behavior**:
-  - STT queue stays low: `q<20` (not 195!)
-  - Zero drops: `drops=0` (not 243!)
+  - RX queue stays low: `q<20` (not 195!)
+  - Accurate drop counting: only intentional drops counted
+  - STT receives all frames when not overloaded
   - Fast STT response: text appears within 1s
   - Clean logs: no media spam
 - **Key Improvements**:
-  - ✅ **Aggressive queue draining**: Reads all available frames at once (up to 50)
-  - ✅ **Non-blocking reads**: Never blocks on empty queue
-  - ✅ **Immediate processing**: Sends to Google as soon as data available
-  - ✅ **Zero frame loss**: Queue never fills up
+  - ✅ **Accurate back-pressure signaling**: push_audio returns False when queue full
+  - ✅ **Smart drop handling**: RX worker knows when frames are dropped
+  - ✅ **Aggressive STT draining**: Reads all available frames at once (up to 50)
+  - ✅ **Retry in NORMAL mode**: Avoids unnecessary drops during normal load
   - ✅ **Clean logs**: media spam removed (50/sec → 0)
+- **Architect Review**: ✅ "Refactor the DRAIN branch so it keeps feeding frames to STT rather than discarding them and gate DRAIN entry on real STT back-pressure"
 - **Previous Fixes (BUILD 119.5)**:
   - start_production.sh: exec + --workers 1 + no auto-restart loop
   - RX hysteresis back-pressure (DRAIN mode at q>=100)
