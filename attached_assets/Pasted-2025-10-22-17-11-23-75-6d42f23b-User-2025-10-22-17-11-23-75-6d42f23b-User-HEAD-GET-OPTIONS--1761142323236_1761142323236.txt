@@ -1,0 +1,130 @@
+2025-10-22 17:11:23.75
+6d42f23b
+User
+2025-10-22 17:11:23.75
+6d42f23b
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/dashboard/stats -> api_adapter.dashboard_stats
+2025-10-22 17:11:23.75
+6d42f23b
+User
+{'HEAD', 'GET', 'OPTIONS'} /api/greeting/cache/stats -> greeting.get_cache_statistics
+2025-10-22 17:11:25.11
+6d42f23b
+User
+🟡 [PARTIAL] 'לא' saved for CA247685... (utterance: None)
+2025-10-22 17:11:25.51
+6d42f23b
+User
+[RX] fps_in=15 q=91 drops=223 write_ms=0.43
+2025-10-22 17:11:26.02
+6d42f23b
+User
+🔧 send_loop ended
+2025-10-22 17:11:26.61
+6d42f23b
+User
+[RX] fps_in=14 q=77 drops=223 write_ms=0.24
+2025-10-22 17:11:28.61
+6d42f23b
+User
+✅ AI_SERVICE_RESPONSE: Generated 82 chars for business 1
+2025-10-22 17:11:28.61
+6d42f23b
+User
+🤖 BOT: אני כאן כדי לעזור לך עם מידע על נכסים. אם יש לך שאלות בנושא נדל"ן, אני זמין לעזור.
+2025-10-22 17:11:28.61
+6d42f23b
+User
+📊 AI_PROCESSING: 6.131s
+2025-10-22 17:11:28.61
+6d42f23b
+User
+[RX] fps_in=9 q=68 drops=223 write_ms=701.04
+2025-10-22 17:11:28.61
+6d42f23b
+User
+🔧 GCP credentials loaded from file path: /tmp/gcp_credentials.json...
+2025-10-22 17:11:29.01
+6d42f23b
+User
+⚠️ Missing phone_number or business_id for customer intelligence
+2025-10-22 17:11:29.01
+6d42f23b
+User
+🔓 SHORT_RESPONSE (18 words) - BARGE-IN ENABLED
+2025-10-22 17:11:29.01
+6d42f23b
+User
+🔊 TTS_START: 'אני כאן כדי לעזור לך עם מידע על נכסים. אם יש לך שאלות בנושא נדל"ן, אני זמין לעזור.'
+2025-10-22 17:11:29.01
+6d42f23b
+User
+🔊 TTS_START: Generating Natural Hebrew TTS for 'אני כאן כדי לעזור לך עם מידע על נכסים. אם יש לך שא...' (82 chars)
+2025-10-22 17:11:29.01
+6d42f23b
+User
+✅ Punctuation polished: 'אני כאן כדי לעזור לך עם מידע על נכסים. א...'
+2025-10-22 17:11:30.01
+6d42f23b
+User
+[RX] fps_in=3 q=65 drops=223 write_ms=0.03
+2025-10-22 17:11:30.01
+6d42f23b
+User
+🔧 FE_DIST=/home/runner/workspace/server/../client/dist
+2025-10-22 17:11:30.01
+6d42f23b
+User
+2025-10-22 17:11:31.61
+6d42f23b
+User
+[RX] fps_in=8 q=57 drops=223 write_ms=0.09
+2025-10-22 17:11:32.21
+6d42f23b
+User
+🔧 APP_SHA=dev
+2025-10-22 17:11:32.21
+6d42f23b
+User
+🚩 APP_START {'build': 87, 'sha': 'dev', 'fe': 'client/dist', 'time': '2025-10-22 14:11:31', 'app': 'AgentLocator-Complete', 'commit': 'dev', 'startup_ts': 1761142291}
+2025-10-22 17:11:32.21
+6d42f23b
+User
+🔧 DB_DRIVER: postgresql
+2025-10-22 17:11:32.21
+6d42f23b
+User
+✅ TTS_SUCCESS: 110654 bytes Natural Wavenet (6.9s)
+2025-10-22 17:11:32.21
+6d42f23b
+User
+📊 TTS_GENERATION: 3.290s (target: <0.5s)
+2025-10-22 17:11:32.21
+6d42f23b
+User
+🔊 TTS SUCCESS: 110654 bytes
+2025-10-22 17:11:32.21
+6d42f23b
+User
+🔊 TTS_FRAMES: 345 frames (6900ms)
+2025-10-22 17:11:32.41
+6d42f23b
+User
+🧹 TX_CLEAR: SUCCESS
+2025-10-22 17:11:32.41
+6d42f23b
+User
+[TX] fps=34 q=4 drops=0
+2025-10-22 17:11:32.91
+6d42f23b
+User
+[RX] fps_in=9 q=48 drops=223 write_ms=0.18
+2025-10-22 17:11:34.11
+6d42f23b
+User
+[RX] fps_in=6 q=42 drops=223 write_ms=0.10
+2025-10-22 17:11:34.11
+6d42f23b
+User
+🟡 [PARTIAL] 'רוצה' saved for CA247685... (utterance: None)
