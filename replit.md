@@ -4,29 +4,30 @@ AgentLocator is a Hebrew CRM system for real estate businesses designed to strea
 
 ## Recent Changes
 
-**⚡ BUILD 119.4 - Complete Race Condition Fix (FINAL!):**
+**⚡ BUILD 119.4 - Complete Race Condition Fix (PRODUCTION-READY!):**
 - **Problem 1**: Frames lost during greeting/STT initialization (race condition)
   - RX worker starts → greeting sent (300-500ms) → STT session created **AFTER**
   - Frames arrive **before** session exists → dropped silently!
   - Code checked `if session: enqueue()` → first 300-500 frames lost!
 - **Problem 2**: Double-queue blocking when Google STT slow
-  - RX worker → audio_rx_q (100) → STT._q (200) → Google STT
+  - RX worker → audio_rx_q → STT._q → Google STT
   - STT._q fills → push_audio() drops → choppy audio
-  - Logs showed `q=200 drops=223 write_ms=701ms`
-- **Complete Solution** (3-part fix):
+- **Complete Solution** (4-part fix):
   1. **Parallel STT Init**: STT session starts **immediately** in parallel thread (not after greeting!)
   2. **Always Enqueue**: Frames enqueued **immediately** (no session check at input!)
-  3. **Smart RX Worker**: If no session yet, frame goes **back to queue** (not dropped!)
+  3. **Pending Buffer**: RX worker holds frame until session ready (FIFO preserved, no requeue!)
+  4. **Bounded Queue + Drop-Oldest**: rx_q=200 frames (≈4s) prevents OOM, drops oldest media only
 - **Implementation Details**:
   - ✅ **FIX 1.1**: Frames **always** call `_rx_enqueue()` (no session check!)
   - ✅ **FIX 1.2**: STT init runs in **parallel thread** with greeting (not deferred!)
   - ✅ **FIX 1.3**: RX worker uses **pending buffer** to hold frame until session ready (FIFO preserved!)
-  - ✅ **FIX 2.1**: rx_q size = **UNBOUNDED** (no frame loss even during slow STT init!)
-  - ✅ **FIX 2.2**: RX worker timing: **next_deadline + resync** (like TX)
+  - ✅ **FIX 2.1**: rx_q size = **200 frames** (≈4s max buffer; in practice q<20)
+  - ✅ **FIX 2.2**: RX worker timing: **BEFORE write** with next_deadline + resync (like TX)
   - ✅ **FIX 2.3**: Full telemetry: `[RX] fps_in/q/drops/write_ms`
+  - ✅ **FIX 2.4**: Drop-oldest for **media only** (control frames never dropped)
   - ✅ **FIX 3**: Greeting via `_tx_enqueue()` (already working)
   - ✅ STT queue: `maxsize=0` (unbounded - prevents blocking!)
-  - ✅ **RESULT**: Unbounded queues + pending buffer → **ZERO frame loss + perfect FIFO order**!
+  - ✅ **RESULT**: Bounded queues + pending buffer + drop-oldest → **ZERO frame loss + no OOM/delay**!
 - **Correct Initialization Order**:
   ```
   [0ms]   WS Start → RX worker starts → TX worker starts

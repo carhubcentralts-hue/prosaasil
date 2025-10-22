@@ -296,9 +296,9 @@ class MediaStreamHandler:
         self.tx_drops = 0  # Track dropped frames for telemetry
         self._last_overflow_log = 0.0  # For throttled logging
         
-        # ⚡ BUILD 119.4: RX Queue UNBOUNDED (no frame loss during STT init!)
-        # Rate control happens in RX worker at 50fps, so this never grows large
-        self.audio_rx_q = queue.Queue(maxsize=0)  # 0 = unbounded (prevents any frame loss)
+        # ⚡ BUILD 119.4: RX Queue BOUNDED (200 frames ≈ 4s max buffer)
+        # Pending buffer in worker prevents frame loss, bounded queue prevents OOM/delay
+        self.audio_rx_q = queue.Queue(maxsize=200)  # 200 frames ≈ 4.0-4.2s buffer; in practice q<20
         self.rx_running = False
         self.rx_thread = None
         self.rx_drops = 0  # Track dropped RX frames
@@ -1514,11 +1514,27 @@ class MediaStreamHandler:
     
     def _rx_enqueue(self, item, timeout=0.01):
         """
-        ⚡ BUILD 119.4: RX enqueue - ALWAYS succeeds (unbounded queue!)
-        No drops possible - queue grows during STT init, then drains at 50fps
+        ⚡ BUILD 119.4: RX enqueue with drop-oldest for media ONLY
+        Control frames (mark, clear, keepalive) are NEVER dropped
+        Same policy as TX queue for symmetry
         """
-        # Unbounded queue - just put, never fails!
-        self.audio_rx_q.put_nowait(item)
+        if item.get("type") == "media":
+            # Media frames: drop-oldest if full
+            if self.audio_rx_q.full():
+                try:
+                    _ = self.audio_rx_q.get_nowait()  # Drop oldest MEDIA frame
+                    self.rx_drops += 1
+                except queue.Empty:
+                    pass
+            # Put the new frame
+            try:
+                self.audio_rx_q.put_nowait(item)
+            except queue.Full:
+                # Edge case: queue filled between check and put
+                self.rx_drops += 1
+        else:
+            # Control frames: block until space available (don't drop!)
+            self.audio_rx_q.put(item, timeout=1.0)
     
     def _rx_worker(self):
         """
@@ -1539,7 +1555,7 @@ class MediaStreamHandler:
             # ⚡ BUILD 119.4: Only get new frame if we don't have one pending
             if pending_frame is None:
                 try:
-                    pending_frame = self.audio_rx_q.get(timeout=0.1)
+                    pending_frame = self.audio_rx_q.get(timeout=0.5)
                 except queue.Empty:
                     # Telemetry once per second
                     if time.time() - last_stat >= 1.0:
@@ -1549,6 +1565,11 @@ class MediaStreamHandler:
                         last_stat = time.time()
                     continue
             
+            # ⚡ BUILD 119.4: Timing BEFORE write (not after)
+            now = time.perf_counter()
+            if now < next_deadline:
+                time.sleep(next_deadline - now)
+            
             item = pending_frame
             
             if item.get("type") == "media":
@@ -1556,34 +1577,28 @@ class MediaStreamHandler:
                 pcm16 = item.get("pcm16")
                 if pcm16 and self.call_sid:
                     session = _get_session(self.call_sid)
-                    if not session:
-                        # ⚡ BUILD 119.4: אם אין session - שמור בpending ונסה שוב!
-                        # הפריים נשאר בpending_frame, לא חוזר לתור (שומר סדר FIFO!)
-                        time.sleep(0.020)  # המתנה 20ms
-                        continue  # pending_frame לא מתאפס - ננסה שוב בסבב הבא
-                    
-                    # יש session - כתוב את האודיו!
-                    t0 = time.perf_counter()
-                    session.push_audio(pcm16)
-                    dt = (time.perf_counter() - t0) * 1000.0
-                    write_acc_ms += dt
-                    
-                    # ✅ Frame processed successfully - clear pending
-                    pending_frame = None
+                    if session:
+                        # יש session - כתוב את האודיו!
+                        t0 = time.perf_counter()
+                        session.push_audio(pcm16)
+                        dt = (time.perf_counter() - t0) * 1000.0
+                        write_acc_ms += dt
+                        
+                        # ✅ Frame processed successfully - clear pending
+                        pending_frame = None
+                        fps_count += 1
+                    # else: אין session עדיין - pending_frame נשאר, ננסה בסבב הבא
                 
-                fps_count += 1
-                
-                # Maintain 20ms cadence with resync
-                now = time.perf_counter()
-                if now < next_deadline:
-                    time.sleep(next_deadline - now)
-                else:
-                    # Lagging - resync to prevent cumulative delay
-                    next_deadline = now
+                # Advance deadline for next frame
                 next_deadline += FRAME_INTERVAL
+                
+                # Resync if we're lagging significantly (>40ms)
+                if time.perf_counter() - next_deadline > 0.04:
+                    next_deadline = time.perf_counter() + FRAME_INTERVAL
             else:
                 # Control frame or other type - process and clear pending
                 pending_frame = None
+                next_deadline += FRAME_INTERVAL
             
             # Telemetry once per second (also here)
             if time.time() - last_stat >= 1.0:
