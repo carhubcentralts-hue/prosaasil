@@ -274,6 +274,19 @@ class MediaStreamHandler:
         self.keepalive_interval = 18.0   # שלח כל 18 שניות
         self.heartbeat_counter = 0       # מונה heartbeat
         
+        # ⚡ BUILD 116: Enhanced telemetry - track every stage
+        self.t0_connected = 0.0          # [T0] WebSocket connected
+        self.t1_greeting_start = 0.0     # [T1] Greeting started
+        self.t2_greeting_end = 0.0       # [T2] Greeting last frame sent
+        self.s1_stream_opened = 0.0      # [S1] STT stream opened
+        self.s2_first_partial = 0.0      # [S2] First partial received
+        self.s3_final = 0.0              # [S3] Final text received
+        self.a1_ai_start = 0.0           # [A1] AI processing started
+        self.a2_ai_done = 0.0            # [A2] AI response ready
+        self.v1_tts_start = 0.0          # [V1] TTS synthesis started
+        self.v2_tts_done = 0.0           # [V2] TTS synthesis completed
+        self.tx_first_frame = 0.0        # [TX] First reply frame sent
+        
         # TX Queue for smooth audio transmission
         # ⚡ BUILD 115.1: Reduced to 120 frames (~2.4s buffer) to prevent lag
         self.tx_q = queue.Queue(maxsize=120)
@@ -326,7 +339,8 @@ class MediaStreamHandler:
                 # Register in thread-safe registry
                 _register_session(self.call_sid, session, tenant_id=self.business_id)
                 
-                print(f"✅ [STT] Streaming session started for call {self.call_sid[:8]}... (business: {self.business_id}, attempt: {attempt+1})")
+                self.s1_stream_opened = time.time()  # ⚡ [S1] STT stream opened
+                print(f"✅ [S1={self.s1_stream_opened:.3f}] Streaming session started for call {self.call_sid[:8]}... (business: {self.business_id}, attempt: {attempt+1}, Δ={(self.s1_stream_opened - self.t0_connected)*1000:.0f}ms from T0)")
                 return  # Success!
                 
             except RuntimeError as e:
@@ -567,7 +581,8 @@ class MediaStreamHandler:
                         
                     self.last_rx_ts = time.time()
                     self.last_keepalive_ts = time.time()  # ✅ התחל keepalive
-                    print(f"🎯 WS_START sid={self.stream_sid} call_sid={self.call_sid} from={self.phone_number} to={getattr(self, 'to_number', 'N/A')} mode={self.mode}")
+                    self.t0_connected = time.time()  # ⚡ [T0] WebSocket connected
+                    print(f"🎯 [T0={time.time():.3f}] WS_START sid={self.stream_sid} call_sid={self.call_sid} from={self.phone_number} to={getattr(self, 'to_number', 'N/A')} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
@@ -602,9 +617,12 @@ class MediaStreamHandler:
                         self.tx_thread.start()
                     
                     if not self.greeting_sent:
-                        print("🎯 SENDING IMMEDIATE GREETING!")
+                        self.t1_greeting_start = time.time()  # ⚡ [T1] Greeting start
+                        print(f"🎯 [T1={self.t1_greeting_start:.3f}] SENDING IMMEDIATE GREETING! (Δ={(self.t1_greeting_start - self.t0_connected)*1000:.0f}ms from T0)")
                         try:
                             self._speak_greeting(greet)  # ✅ פונקציה מיוחדת לברכה ללא sleep!
+                            self.t2_greeting_end = time.time()  # ⚡ [T2] Greeting end
+                            print(f"🎯 [T2={self.t2_greeting_end:.3f}] GREETING_COMPLETE! (Duration={(self.t2_greeting_end - self.t1_greeting_start)*1000:.0f}ms)")
                             self.greeting_sent = True
                         except Exception as e:
                             print(f"❌ CRITICAL ERROR sending greeting: {e}")
