@@ -13,17 +13,16 @@ if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
 
 # ⚡ BUILD 115: בחירת מודל דינמית + fallback חכם
 print("="*80)
-print("⚡ BUILD 118 - BALANCED PARAMETERS (Reduce False Positives + ≤3s Response)")
+print("⚡ BUILD 115 - DYNAMIC MODEL SELECTION + SMART FALLBACK")
 print("="*80)
 print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
 print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
 print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
 print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
-print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '60')}")
-print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '250')}")
-print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '500')}")
-print(f"[BOOT] VAD_RMS = {os.getenv('VAD_RMS', '95')}")
-print(f"[BOOT] UTTERANCE_TIMEOUT = 900ms (balanced for reliability + ≤3s response)")
+print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '40')}")
+print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '90')}")
+print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '180')}")
+print(f"[BOOT] UTTERANCE_TIMEOUT = 320ms (aggressive for sub-2s response)")
 print("="*80)
 
 if USE_STREAMING_STT:
@@ -173,16 +172,16 @@ class ConnectionClosed(Exception):
 from server.stream_state import stream_registry
 
 SR = 8000
-# ⚡ BUILD 118: VAD BALANCED FOR RELIABILITY + SPEED (Reduce false positives, maintain ≤3s response)
+# ⚡ BUILD 114: VAD OPTIMIZED FOR SPEED (Streaming STT enabled, ≤2s latency target)
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
-VAD_RMS = int(os.getenv("VAD_RMS", "95"))                   # ⚡ BUILD 118: 95 - LESS sensitive to background noise (was 65)
+VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "500"))  # ⚡ BUILD 118: 500ms - prevents mid-sentence cuts (was 180ms)
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # ⚡ BUILD 116: 180ms - aggressive for sub-2s response
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","100"))  # ⚡ BUILD 118: 100 frames = 2000ms (was 40 = 800ms)
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","40"))  # ✅ 40 frames = ≈800ms קול רציף נדרש לקטיעה
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
@@ -289,19 +288,11 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # ⚡ BUILD 119: Precise timing, back-pressure, drop-oldest - 120 frames (~2.4s buffer)
+        # ⚡ BUILD 115.1: Reduced to 120 frames (~2.4s buffer) to prevent lag
         self.tx_q = queue.Queue(maxsize=120)
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
-        self.tx_drops = 0  # Track dropped frames for telemetry
         self._last_overflow_log = 0.0  # For throttled logging
-        
-        # ⚡ BUILD 119.4: RX Queue BOUNDED (200 frames ≈ 4s max buffer)
-        # Pending buffer in worker prevents frame loss, bounded queue prevents OOM/delay
-        self.audio_rx_q = queue.Queue(maxsize=200)  # 200 frames ≈ 4.0-4.2s buffer; in practice q<20
-        self.rx_running = False
-        self.rx_thread = None
-        self.rx_drops = 0  # Track dropped RX frames
         
         print("🎯 AI CONVERSATION STARTED")
         
@@ -595,50 +586,39 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
-                    # ⚡ BUILD 118.1: IMMEDIATE greeting - defer ALL non-critical setup!
-                    # Start TX + RX threads first
-                    if not self.tx_running:
-                        self.tx_running = True
-                        self.tx_thread.start()
-                    
-                    # ⚡ BUILD 119.3: Start RX worker thread
-                    if not self.rx_running:
-                        self.rx_running = True
-                        self.rx_thread = threading.Thread(target=self._rx_worker, daemon=True)
-                        self.rx_thread.start()
-                    
-                    # ⚡ BUILD 119.4: PARALLEL SETUP - STT init במקביל ל-Greeting!
-                    # זה מונע איבוד frames בזמן ההתחלה
-                    def _init_stt_async():
-                        """Initialize STT in parallel with greeting"""
-                        try:
-                            print("🟢 STT_SESSION: init requested")
-                            self._init_streaming_stt()
-                            print("🟢 STT_SESSION: ready")
-                        except Exception as e:
-                            print(f"⚠️ STT init failed (will retry): {e}")
-                    
-                    # התחל STT במקביל (לא חוסם!)
-                    stt_thread = threading.Thread(target=_init_stt_async, daemon=True)
-                    stt_thread.start()
-                    
-                    # Get greeting in FASTEST way possible (cached or default)
-                    greet = "שלום! איך אפשר לעזור?"
+                    # ⚡ OPTIMIZED: זיהוי עסק + ברכה בשאילתה אחת!
                     try:
                         from server.app_factory import create_app
                         app = create_app()
                         with app.app_context():
                             business_id, greet = self._identify_business_and_get_greeting()
-                        print(f"⚡ FAST: business_id={business_id}, greeting loaded!")
+                        print(f"⚡ FAST: business_id={business_id}, greeting loaded in single query!")
                     except Exception as e:
-                        print(f"⚠️ Business ID lookup failed (using default greeting): {e}")
+                        print(f"❌ CRITICAL ERROR in business identification: {e}")
+                        import traceback
+                        traceback.print_exc()
                         self.business_id = 1
+                        greet = "שלום! איך אפשר לעזור?"
                     
-                    # ⚡ SEND GREETING IMMEDIATELY - don't wait for STT!
+                    # ⚡ STREAMING STT: Initialize NOW (after business_id is known)
+                    self._init_streaming_stt()
+                    
+                    # ✅ יצירת call_log מיד בהתחלת שיחה (אחרי זיהוי עסק!)
+                    try:
+                        if self.call_sid and not hasattr(self, '_call_log_created'):
+                            self._create_call_log_on_start()
+                            self._call_log_created = True
+                    except Exception as e:
+                        print(f"⚠️ Call log creation failed (non-critical): {e}")
+                    
+                    # ✅ ברכה מיידית - בלי השהיה!
+                    if not self.tx_running:
+                        self.tx_running = True
+                        self.tx_thread.start()
+                    
                     if not self.greeting_sent:
                         self.t1_greeting_start = time.time()  # ⚡ [T1] Greeting start
                         print(f"🎯 [T1={self.t1_greeting_start:.3f}] SENDING IMMEDIATE GREETING! (Δ={(self.t1_greeting_start - self.t0_connected)*1000:.0f}ms from T0)")
-                        print("🔊 GREETING: queued")
                         try:
                             self._speak_greeting(greet)  # ✅ פונקציה מיוחדת לברכה ללא sleep!
                             self.t2_greeting_end = time.time()  # ⚡ [T2] Greeting end
@@ -648,15 +628,6 @@ class MediaStreamHandler:
                             print(f"❌ CRITICAL ERROR sending greeting: {e}")
                             import traceback
                             traceback.print_exc()
-                    
-                    # ⚡ Call log creation (DB write - non-blocking)
-                    try:
-                        if self.call_sid and not hasattr(self, '_call_log_created'):
-                            self._create_call_log_on_start()
-                            self._call_log_created = True
-                    except Exception as e:
-                        print(f"⚠️ Call log creation failed: {e}")
-                    
                     continue
 
                 if et == "media":
@@ -669,20 +640,21 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
                     
-                    # ⚡ BUILD 119.4: Feed audio to RX queue ALWAYS (session check happens in worker!)
-                    # RX worker will consume at controlled 20ms rate
+                    # ⚡ STREAMING STT: Feed audio to session (continuous streaming)
                     if self.call_sid and pcm16:
-                        # ✅ CRITICAL FIX: Enqueue immediately - RX worker checks session!
-                        # This prevents losing frames during greeting/STT init
-                        self._rx_enqueue({"type": "media", "pcm16": pcm16})
-                        
-                        # Update session timestamp if it exists
                         session = _get_session(self.call_sid)
                         if session:
+                            session.push_audio(pcm16)
+                            # Update session timestamp to prevent cleanup
                             with _registry_lock:
                                 item = _sessions_registry.get(self.call_sid)
                                 if item:
                                     item["ts"] = time.time()
+                        elif USE_STREAMING_STT:
+                            # ⚠️ Session should exist but doesn't!
+                            if not hasattr(self, '_session_warning_logged'):
+                                print(f"⚠️ [STT] No streaming session for {self.call_sid[:8]} - using fallback")
+                                self._session_warning_logged = True
                     
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
@@ -778,14 +750,14 @@ class MediaStreamHandler:
                             # Inside grace period - NO barge-in allowed
                             continue
                         
-                        # ⚡ BUILD 118: MUCH HIGHER barge-in threshold - prevent false positives
-                        barge_in_threshold = max(2000, self.noise_floor * 20.0 + 800) if self.is_calibrated else 2500
+                        # ✅ HEBREW BARGE-IN: Very high threshold + longer duration required
+                        barge_in_threshold = max(1200, self.noise_floor * 15.0 + 500) if self.is_calibrated else 1500
                         is_barge_in_voice = rms > barge_in_threshold
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                            # ⚡ BUILD 118: Require 2000ms continuous VERY LOUD voice (was 1500ms)
-                            if self.voice_in_row >= 100:  # 2000ms קול רציף חזק מאוד - ממש בטוח שזה הפרעה מכוונת
+                            # ✅ HEBREW SPEECH: Require 1500ms continuous LOUD voice to prevent false interrupts  
+                            if self.voice_in_row >= 75:  # 1500ms קול רציף חזק - ממש בטוח שזה הפרעה מכוונת
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
@@ -850,13 +822,13 @@ class MediaStreamHandler:
                             self.buf.extend(pcm16)
                             dur = len(self.buf) / (2 * SR)
                             
-                            # ⚡ BUILD 118.8: SMART LATENCY - balance speed vs accuracy!
-                            # תגובות קצרות: min_silence קצר אבל לא מהיר מדי
-                            # משפטים ארוכים: min_silence סביר אבל לא איטי מדי
+                            # ⚡ BUILD 107: ULTRA-LOW LATENCY - 0.5s silence for FAST responses
+                            # תגובות קצרות: min_silence קצר מאוד (0.5s) ⚡⚡⚡
+                            # משפטים ארוכים: min_silence קצר (1.8s במקום 3.0s)
                             if dur < 2.0:
-                                min_silence = 0.7  # ⚡ BUILD 118.8: 0.7s - fast but not rushed!
+                                min_silence = 0.5  # ⚡ תגובה קצרה - סופר מהר! (חצי שניה!)
                             else:
-                                min_silence = 1.2  # ⚡ BUILD 118.8: 1.2s - balanced!
+                                min_silence = 1.8  # ⚡ משפט ארוך - מהיר (במקום 3.0s)
                             
                             silent = silence_time >= min_silence  
                             too_long = dur >= MAX_UTT_SEC
@@ -865,21 +837,13 @@ class MediaStreamHandler:
                             # ⚡ BUILD 107: באפר קטן יותר = תגובה מהירה יותר!
                             buffer_big_enough = len(self.buf) > 8000  # ⚡ 0.5s במקום 0.8s - חוסך 300ms!
                             
-                            # ⚡⚡⚡ BUILD 118.8: SMART EARLY EOU - fast response without mid-sentence cuts!
-                            # Trigger early when confident, but not too aggressive
+                            # ⚡⚡⚡ BUILD 107: EARLY EOU - מענה מוקדם על partial חזק!
+                            # אם יש partial חזק (12+ תווים וסיום במשפט) + 0.35s דממה - קפיצה מיד!
                             last_partial = getattr(self, "last_partial_text", "")
-                            # ⚡ CRITICAL FIX: Strip whitespace before checking prefixes!
-                            last_partial_clean = last_partial.rstrip()
+                            high_conf_partial = (len(last_partial) >= 12) and any(last_partial.endswith(p) for p in (".", "?", "!", "…", ":", ";"))
+                            early_silence = silence_time >= 0.35  # דממה קצרצרה
                             
-                            # ⚡ TIER 1: Very high confidence - immediate response (saves ~500ms!)
-                            very_high_conf = (len(last_partial_clean) >= 18) and any(last_partial_clean.endswith(p) for p in (".", "?", "!"))
-                            tier1_silence = silence_time >= 0.4  # Just a breath!
-                            
-                            # ⚡ TIER 2: High confidence - quick response (saves ~300ms)
-                            high_conf = (len(last_partial_clean) >= 15) and not last_partial_clean.endswith(("ב", "ל", "מ", "ה", "ו", "כ", "ש", "את", "על"))
-                            tier2_silence = silence_time >= 0.5
-                            
-                            if (very_high_conf and tier1_silence and dur >= 0.6) or (high_conf and tier2_silence and dur >= 0.7):
+                            if high_conf_partial and early_silence and dur >= 0.5:
                                 print(f"⚡⚡⚡ EARLY EOU on strong partial: '{last_partial}' ({dur:.1f}s, {silence_time:.2f}s silence)")
                                 # קפיצה מיידית לעיבוד!
                                 silent = True
@@ -925,14 +889,16 @@ class MediaStreamHandler:
                         self.heartbeat_counter += 1
                         
                         # שלח heartbeat mark event אם החיבור תקין
-                        # ⚡ BUILD 119.1: Via TX Queue (control frame - never dropped!)
-                        if not self.ws_connection_failed and self.stream_sid:
+                        if not self.ws_connection_failed:
                             try:
-                                self._tx_enqueue({
-                                    "type": "mark",
-                                    "name": f"heartbeat_{self.heartbeat_counter}"
-                                })
-                                print(f"💓 WS_KEEPALIVE #{self.heartbeat_counter} (prevents 5min timeout)")
+                                heartbeat_msg = {
+                                    "event": "mark",
+                                    "streamSid": self.stream_sid,
+                                    "mark": {"name": f"heartbeat_{self.heartbeat_counter}"}
+                                }
+                                success = self._ws_send(json.dumps(heartbeat_msg))
+                                if success:
+                                    print(f"💓 WS_KEEPALIVE #{self.heartbeat_counter} (prevents 5min timeout)")
                             except Exception as e:
                                 print(f"⚠️ Keepalive failed: {e}")
                         else:
@@ -1027,21 +993,11 @@ class MediaStreamHandler:
             # ⚡ STREAMING STT: Close session at end of call
             self._close_streaming_stt()
             
-            # ⚡ BUILD 119.3: Clean up RX thread
-            if hasattr(self, 'rx_thread') and self.rx_thread and self.rx_thread.is_alive():
-                self.rx_running = False
-                try:
-                    self.rx_thread.join(timeout=1.0)
-                    print("✅ RX thread stopped")
-                except Exception as e:
-                    print(f"⚠️ RX thread cleanup error: {e}")
-            
             # Clean up TX thread
             if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
                 self.tx_running = False
                 try:
                     self.tx_thread.join(timeout=1.0)
-                    print("✅ TX thread stopped")
                 except:
                     pass
             
@@ -1149,8 +1105,8 @@ class MediaStreamHandler:
                     self.consecutive_empty_stt = 0
                 self.consecutive_empty_stt += 1
                 
-                # ⚡ BUILD 118: אם 3 כישלונות ברצף - תגיד "לא הבנתי" (was 2)
-                if self.consecutive_empty_stt >= 3:
+                # אם 2 כישלונות ברצף - תגיד "לא הבנתי"
+                if self.consecutive_empty_stt >= 2:
                     print("🚫 MULTIPLE_EMPTY_STT: Saying 'didn't understand'")
                     self.consecutive_empty_stt = 0  # איפוס
                     try:
@@ -1167,14 +1123,14 @@ class MediaStreamHandler:
             if hasattr(self, 'consecutive_empty_stt'):
                 self.consecutive_empty_stt = 0
             
-            # ⚡ BUILD 118: Enhanced false-positive protection
+            # ⚡ BUILD 109: Short utterance false-positive protection
             word_count = len(text.split())
             if word_count <= 2:
                 # Very short utterances might be noise - require them to be common words
                 common_words = {
                     "כן", "לא", "שלום", "תודה", "בסדר", "נהדר", "ביי", "היי", 
                     "מה", "למה", "איך", "מי", "מתי", "איפה", "כמה", "אוקיי",
-                    "טוב", "רגע", "כן כן", "לא לא", "שלום שלום", "הלו", "אהלן"
+                    "טוב", "רגע", "כן כן", "לא לא", "שלום שלום"
                 }
                 # Normalize: remove punctuation for comparison
                 normalized_text = text.strip().strip(".,!?;:\"'")
@@ -1290,11 +1246,7 @@ class MediaStreamHandler:
 
     # ✅ דיבור מתקדם עם סימונים לטוויליו
     def _speak_greeting(self, text: str):
-        """
-        ⚡ BUILD 117: CACHED GREETING - Ultra-fast cached greeting frames
-        Uses pre-built μ-law frames from cache for instant greeting (<200ms)
-        Falls back to live TTS if cache fails
-        """
+        """⚡ TTS מהיר לברכה - ללא sleep!"""
         if not text:
             return
         
@@ -1309,91 +1261,20 @@ class MediaStreamHandler:
         self.speaking = True
         self.speaking_start_ts = time.time()
         self.state = STATE_SPEAK
-        print(f"🔊 GREETING_START: '{text}'")
+        print(f"🔊 GREETING_TTS_START: '{text}'")
         
         try:
-            # ⚡ BUILD 117: Try cached frames first for instant greeting
-            frames = None
-            try:
-                from server.services.greeting_builder import get_cached_greeting_frames
-                from server.services.gcp_tts_live import get_hebrew_tts
-                
-                # Get business/voice config
-                business_id = str(getattr(self, 'business_id', '1'))
-                locale = "he-IL"
-                voice_id = os.getenv("TTS_VOICE", "he-IL-Wavenet-D")
-                
-                # TTS synthesis function for cache
-                def tts_synth_func(txt):
-                    return get_hebrew_tts().synthesize_hebrew_pcm16_8k(txt)
-                
-                # Get cached frames (or build them)
-                frames = get_cached_greeting_frames(
-                    business_id=business_id,
-                    locale=locale,
-                    voice_id=voice_id,
-                    greeting_text=text,
-                    tts_synth_func=tts_synth_func
-                )
-                
-                if frames and len(frames) > 0:
-                    print(f"✅ CACHE_SUCCESS: {len(frames)} frames ready!")
-                    
-                    # ⚡ BUILD 119: Send via TX Queue for consistency + telemetry
-                    if self.stream_sid:
-                        self._tx_enqueue({"type": "clear"})
-                    
-                    # ⚡ BUILD 119.2: Send frames with BACK-PRESSURE to prevent overflow
-                    # Don't flood the queue - wait if it's getting full
-                    frames_sent = 0
-                    for frame_b64 in frames:
-                        if not self.speaking:  # Check for barge-in
-                            print(f"🚨 BARGE-IN during cached greeting at frame {frames_sent}/{len(frames)}")
-                            break
-                        
-                        # ⚡ CRITICAL: Back-pressure - wait if queue is getting full
-                        # Keep queue at ~80% max to prevent overflow and maintain smooth playback
-                        while self.tx_q.qsize() > 96:  # 96 = 80% of 120 (tx_q maxsize)
-                            time.sleep(0.02)  # Wait one frame time (20ms)
-                        
-                        # Send frame via TX Queue
-                        self._tx_enqueue({
-                            "type": "media",
-                            "payload": frame_b64
-                        })
-                        frames_sent += 1
-                    
-                    # Send mark at end (via TX Queue)
-                    if self.stream_sid:
-                        self._tx_enqueue({
-                            "type": "mark",
-                            "name": "greeting_end"
-                        })
-                        self.mark_pending = True
-                        self.mark_sent_ts = time.time()
-                    
-                    print(f"✅ CACHED_GREETING_SENT: {frames_sent} frames enqueued")
-                    self._finalize_speaking()
-                    return
-                    
-            except Exception as cache_err:
-                print(f"⚠️ CACHE_FAILED: {cache_err} - falling back to live TTS")
-                import traceback
-                traceback.print_exc()
-            
-            # ❌ FALLBACK: Use live TTS if cache failed
-            print("🔄 FALLBACK_TTS: Using live synthesis")
+            # ⚡ בלי sleep - ברכה מיידית!
             tts_audio = self._hebrew_tts(text)
             if tts_audio and len(tts_audio) > 1000:
-                print(f"✅ FALLBACK_TTS_SUCCESS: {len(tts_audio)} bytes")
+                print(f"✅ GREETING_TTS_SUCCESS: {len(tts_audio)} bytes")
                 self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
             else:
-                print("❌ FALLBACK_TTS_FAILED - sending beep")
+                print("❌ GREETING_TTS_FAILED - sending beep")
                 self._send_beep(800)
                 self._finalize_speaking()
-                
         except Exception as e:
-            print(f"❌ GREETING_ERROR: {e}")
+            print(f"❌ GREETING_TTS_ERROR: {e}")
             import traceback
             traceback.print_exc()
             try:
@@ -1484,135 +1365,26 @@ class MediaStreamHandler:
     
     def _tx_enqueue(self, item):
         """
-        ⚡ BUILD 119.1: Enqueue with drop-oldest ONLY for media frames
-        Control frames (clear, mark) are NEVER dropped - critical for Twilio
+        ⚡ BUILD 115.1: Enqueue with drop-oldest policy
+        If queue is full, drop oldest frame and insert new one (Real-time > past)
         """
         try:
             self.tx_q.put_nowait(item)
         except queue.Full:
-            # ⚠️ Drop-oldest ONLY for media frames, NEVER for control frames
-            if item.get("type") == "media":
-                # Drop oldest frame (keep system responsive!)
-                try:
-                    _ = self.tx_q.get_nowait()
-                    self.tx_drops += 1  # Track for telemetry
-                except queue.Empty:
-                    pass
-                # Try again
-                try:
-                    self.tx_q.put_nowait(item)
-                except queue.Full:
-                    # Throttled logging - max once per 2 seconds
-                    now = time.monotonic()
-                    if now - self._last_overflow_log > 2.0:
-                        print(f"⚠️ tx_q full after drop-oldest (drops={self.tx_drops})", flush=True)
-                        self._last_overflow_log = now
-            else:
-                # Control frames: block until space available (CRITICAL - don't drop!)
-                self.tx_q.put(item, timeout=1.0)
-                print(f"⚠️ Control frame ({item.get('type')}) had to wait - queue was full!", flush=True)
-    
-    def _rx_enqueue(self, item, timeout=0.01):
-        """
-        ⚡ BUILD 119.4: RX enqueue with drop-oldest for media ONLY
-        Control frames (mark, clear, keepalive) are NEVER dropped
-        Same policy as TX queue for symmetry
-        """
-        if item.get("type") == "media":
-            # Media frames: drop-oldest if full
-            if self.audio_rx_q.full():
-                try:
-                    _ = self.audio_rx_q.get_nowait()  # Drop oldest MEDIA frame
-                    self.rx_drops += 1
-                except queue.Empty:
-                    pass
-            # Put the new frame
+            # Drop oldest frame
             try:
-                self.audio_rx_q.put_nowait(item)
-            except queue.Full:
-                # Edge case: queue filled between check and put
-                self.rx_drops += 1
-        else:
-            # Control frames: block until space available (don't drop!)
-            self.audio_rx_q.put(item, timeout=1.0)
-    
-    def _rx_worker(self):
-        """
-        ⚡ BUILD 120.0: RX Worker with stable 20ms timing and periodic resync
-        - Precise 20ms frame rate (50 fps)
-        - Drift detection and correction
-        - Periodic resync every 30 seconds
-        - Always feeds frames to STT (no drops in RX layer)
-        """
-        FRAME_INTERVAL = 0.020  # 20ms per frame (50 fps)
-        SYNC_THRESHOLD = 0.5    # Resync if drift > 500ms
-        RESYNC_PERIOD = 30.0    # Resync every 30 seconds
-        
-        next_deadline = time.perf_counter()
-        last_sync = time.perf_counter()
-        last_stat = time.time()
-        fps_count = 0
-        write_acc_ms = 0.0
-        
-        print("🎧 RX_WORKER: Started (20ms timing + 30s resync)", flush=True)
-        
-        while self.rx_running:
-            start_time = time.perf_counter()
-            
-            # Get frame from queue
-            try:
-                item = self.audio_rx_q.get(timeout=0.1)
+                _ = self.tx_q.get_nowait()
             except queue.Empty:
-                # Telemetry once per second
-                if time.time() - last_stat >= 1.0:
-                    q_size = self.audio_rx_q.qsize()
-                    print(f"[RX] fps={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.1f}", flush=True)
-                    fps_count = 0
-                    write_acc_ms = 0.0
-                    last_stat = time.time()
-                continue
-            
-            if item.get("type") == "media":
-                # Write to STT (always - STT handles drops internally)
-                pcm16 = item.get("pcm16")
-                if pcm16 and self.call_sid:
-                    session = _get_session(self.call_sid)
-                    if session:
-                        t0 = time.perf_counter()
-                        session.push_audio(pcm16)  # STT handles drops with drop-oldest
-                        dt = (time.perf_counter() - t0) * 1000.0
-                        write_acc_ms += dt
-                        fps_count += 1
-            
-            # Calculate timing
-            elapsed = time.perf_counter() - start_time
-            next_deadline += FRAME_INTERVAL
-            sleep_time = next_deadline - time.perf_counter()
-            
-            # Timing control with drift detection
-            if sleep_time > 0:
-                time.sleep(sleep_time)
-            elif abs(sleep_time) > SYNC_THRESHOLD:
-                # Drift detected - resync
-                print(f"⚠️ RX drift detected ({sleep_time:.3f}s), resyncing clock", flush=True)
-                next_deadline = time.perf_counter() + FRAME_INTERVAL
-                last_sync = time.perf_counter()
-            
-            # Periodic resync every 30 seconds
-            if time.perf_counter() - last_sync > RESYNC_PERIOD:
-                print("🔁 RX clock resync (30s)", flush=True)
-                next_deadline = time.perf_counter() + FRAME_INTERVAL
-                last_sync = time.perf_counter()
-            
-            # Telemetry once per second
-            if time.time() - last_stat >= 1.0:
-                q_size = self.audio_rx_q.qsize()
-                print(f"[RX] fps={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.1f}", flush=True)
-                fps_count = 0
-                write_acc_ms = 0.0
-                last_stat = time.time()
-        
-        print("🎧 RX_WORKER: Stopped", flush=True)
+                pass
+            # Try again
+            try:
+                self.tx_q.put_nowait(item)
+            except queue.Full:
+                # Throttled logging - max once per 2 seconds
+                now = time.monotonic()
+                if now - self._last_overflow_log > 2.0:
+                    print("⚠️ tx_q full (drop oldest)", flush=True)
+                    self._last_overflow_log = now
     
     def _finalize_speaking(self):
         """סיום דיבור עם חזרה להאזנה"""
@@ -1625,16 +1397,13 @@ class MediaStreamHandler:
         print("🎤 SPEAKING_END -> LISTEN STATE | buffer_reset")
 
     def _send_pcm16_as_mulaw_frames_with_mark(self, pcm16_8k: bytes):
-        """
-        ⚡ BUILD 119: שליחת אודיו דרך TX Queue עם סימון לטוויליו וברג-אין
-        כל הפריימים עוברים דרך _tx_enqueue לתזמון מדויק + telemetry
-        """
+        """שליחת אודיו עם סימון לטוויליו וברג-אין"""
         if not self.stream_sid or not pcm16_8k:
             self._finalize_speaking()
             return
             
-        # CLEAR לפני שליחה (דרך queue)
-        self._tx_enqueue({"type": "clear"})
+        # CLEAR לפני שליחה
+        self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
         
         mulaw = audioop.lin2ulaw(pcm16_8k, 2)
         FR = 160  # 20ms @ 8kHz
@@ -1647,17 +1416,19 @@ class MediaStreamHandler:
             # בדיקת ברג-אין
             if not self.speaking:
                 print(f"🚨 BARGE-IN! Stopped at frame {frames_sent}/{total_frames}")
-                self._tx_enqueue({"type": "clear"})
+                self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
                 self._finalize_speaking()
                 return
                 
-            # שלח פריים דרך TX Queue
+            # שלח פריים
             frame = mulaw[i:i+FR].ljust(FR, b'\x00')
             payload = base64.b64encode(frame).decode()
-            self._tx_enqueue({
-                "type": "media",
-                "payload": payload
+            media_msg = json.dumps({
+                "event": "media",
+                "streamSid": self.stream_sid,
+                "media": {"payload": payload}
             })
+            self._ws_send(media_msg)
             frames_sent += 1
             
             # Yield לeventlet
@@ -1671,19 +1442,23 @@ class MediaStreamHandler:
             if not self.speaking:
                 break
             payload = base64.b64encode(silence_mulaw).decode()
-            self._tx_enqueue({
-                "type": "media",
-                "payload": payload
+            media_msg = json.dumps({
+                "event": "media", 
+                "streamSid": self.stream_sid,
+                "media": {"payload": payload}
             })
+            self._ws_send(media_msg)
             time.sleep(0)  # yield
         
-        # שלח סימון לטוויליו (דרך queue)
+        # שלח סימון לטוויליו
         self.mark_pending = True
         self.mark_sent_ts = time.time()
-        self._tx_enqueue({
-            "type": "mark",
-            "name": "assistant_tts_end"
+        mark_msg = json.dumps({
+            "event": "mark",
+            "streamSid": self.stream_sid,
+            "mark": {"name": "assistant_tts_end"}
         })
+        self._ws_send(mark_msg)
         print("🎯 TTS_MARK_SENT: assistant_tts_end")
         
         # ✅ BUILD 100.4 FIX: סיים דיבור מיד וחזור להאזנה!
@@ -1692,15 +1467,12 @@ class MediaStreamHandler:
         print("✅ GREETING_COMPLETE -> LISTEN STATE")
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
-        """
-        ⚡ BUILD 119: שליחת אודיו דרך TX Queue עם יכולת עצירה באמצע (BARGE-IN)
-        כל הפריימים עוברים דרך _tx_enqueue לתזמון מדויק
-        """
+        """שליחת אודיו עם יכולת עצירה באמצע (BARGE-IN) - גרסה ישנה"""
         if not self.stream_sid or not pcm16_8k:
             return
             
-        # CLEAR לפני שליחה (דרך queue)
-        self._tx_enqueue({"type": "clear"})
+        # CLEAR לפני שליחה
+        self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
         
         mulaw = audioop.lin2ulaw(pcm16_8k, 2)
         FR = 160  # 20ms @ 8kHz
@@ -1714,7 +1486,7 @@ class MediaStreamHandler:
             if not self.speaking:
                 print(f"🚨 BARGE-IN detected! Stopped at frame {frames_sent}/{total_frames}")
                 # שלח CLEAR נוסף למקרה הצורך
-                self._tx_enqueue({"type": "clear"})
+                self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
                 break
                 
             chunk = mulaw[i:i+FR]
@@ -1724,15 +1496,15 @@ class MediaStreamHandler:
                 
             payload = base64.b64encode(chunk).decode("ascii")
             try:
-                # שלח דרך TX Queue במקום ישירות
-                self._tx_enqueue({
-                    "type": "media",
-                    "payload": payload
-                })
+                self._ws_send(json.dumps({
+                    "event": "media",
+                    "streamSid": self.stream_sid,
+                    "media": {"payload": payload}
+                }))
                 self.tx += 1
                 frames_sent += 1
                 
-                # לוגים מתקדמים כל 50 פריימי שידור
+                # לוגים מתקדמים כל 50 פריימי שידור + PATCH 10
                 if self.tx % 50 == 0:
                     elapsed = time.time() - self.last_tts_end_ts
                     print(f"WS_TX sid={self.stream_sid} tx={self.tx} frames_sent={frames_sent}/{total_frames} elapsed={elapsed:.1f}s")
@@ -1860,14 +1632,10 @@ class MediaStreamHandler:
                 text = ""
             
             # If there's a loop and events queue, use it
-            if self.loop and self.events_q is not None:
-                try:
-                    self.loop.call_soon_threadsafe(
-                        lambda: self.events_q.put_nowait(("stt_final_text", text))  # type: ignore
-                    )
-                except (AttributeError, Exception):
-                    # events_q doesn't have put_nowait - fall through to else
-                    print(f"🎤 [STT_FALLBACK_NB] Result: {text[:50] if text else '(empty)'}", flush=True)
+            if self.loop and self.events_q:
+                self.loop.call_soon_threadsafe(
+                    lambda: self.events_q.put_nowait(("stt_final_text", text))
+                )
             else:
                 # Fallback: direct callback (sync mode)
                 print(f"🎤 [STT_FALLBACK_NB] Result: {text[:50] if text else '(empty)'}", flush=True)
@@ -2180,8 +1948,70 @@ class MediaStreamHandler:
             print(f"❌ WHISPER_FALLBACK_ERROR: {e}")
             return ""
     
-    # ⚠️ REMOVED: _load_business_prompts() - Dead code. Prompts are now loaded via ai_service.generate_ai_response()
-    
+    def _load_business_prompts(self, channel: str = 'calls') -> str:
+        """טוען פרומפטים מהדאטאבייס לפי עסק - לפי ההנחיות המדויקות"""
+        try:
+            # ✅ CRITICAL: All DB queries need app_context in Cloud Run/ASGI!
+            from server.app_factory import create_app
+            from server.models_sql import Business, BusinessSettings
+            
+            app = create_app()
+            with app.app_context():
+                # ✅ BUILD 100 FIX: זיהוי business_id לפי מספר טלפון - שימוש ב-phone_e164
+                if not self.business_id and self.phone_number:
+                    # חפש עסק לפי מספר הטלפון (phone_e164 = העמודה האמיתית)
+                    business = Business.query.filter(
+                        Business.phone_e164 == self.phone_number
+                    ).first()
+                    if business:
+                        self.business_id = business.id
+                        print(f"✅ זיהוי עסק לפי טלפון {self.phone_number}: {business.name}")
+                
+                # אם אין עדיין business_id, השתמש בfallback
+                if not self.business_id:
+                    from server.services.business_resolver import resolve_business_with_fallback
+                    self.business_id, status = resolve_business_with_fallback('twilio_voice', '+97233763805')
+                    print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
+                
+                if not self.business_id:
+                    print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל")
+                    return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
+                
+                # טען פרומפט מ-BusinessSettings
+                settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
+                business = Business.query.get(self.business_id)
+            
+            if settings and settings.ai_prompt:
+                try:
+                    # נסה לפרסר JSON (פורמט חדש עם calls/whatsapp)
+                    import json
+                    if settings.ai_prompt.startswith('{'):
+                        prompt_data = json.loads(settings.ai_prompt)
+                        prompt_text = prompt_data.get(channel, prompt_data.get('calls', ''))
+                        if prompt_text:
+                            print(f"AI_PROMPT loaded tenant={self.business_id} channel={channel}")
+                            return prompt_text
+                    else:
+                        # פרומפט יחיד (legacy)
+                        print(f"✅ טען פרומפט legacy מדאטאבייס לעסק {self.business_id}")
+                        return settings.ai_prompt
+                except Exception as e:
+                    print(f"⚠️ שגיאה בפרסור פרומפט JSON: {e}")
+                    # fallback לפרומפט כטקסט רגיל
+                    return settings.ai_prompt
+            
+            # אם אין ב-BusinessSettings, בדוק את business.system_prompt
+            if business and business.system_prompt:
+                print(f"✅ טען פרומפט מטבלת businesses לעסק {self.business_id}")
+                return business.system_prompt
+                
+            print(f"⚠️ לא נמצא פרומפט לעסק {self.business_id} - שימוש בברירת מחדל")
+            return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם/עסק hardcoded
+            
+        except Exception as e:
+            print(f"❌ שגיאה בטעינת פרומפט מדאטאבייס: {e}")
+            return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
+
     def _identify_business_and_get_greeting(self) -> tuple:
         """⚡ זיהוי עסק וטעינת ברכה בשאילתה אחת - חוסך 50% זמן!"""
         try:
@@ -2246,8 +2076,86 @@ class MediaStreamHandler:
         """זיהוי business_id לפי to_number (wrapper for backwards compat)"""
         self._identify_business_and_get_greeting()  # קורא לפונקציה החדשה ומתעלם מהברכה
 
-    # ⚠️ REMOVED: _get_business_greeting_cached() and _get_business_greeting() - Dead code
-    # Greeting is now loaded via _identify_business_and_get_greeting() in one optimized query
+    def _get_business_greeting_cached(self) -> str:
+        """⚡ טעינת ברכה עם cache - במיוחד מהיר לברכה הראשונה!"""
+        # קודם כל - בדוק אם יש business_id
+        if not hasattr(self, 'business_id') or not self.business_id:
+            print(f"⚠️ business_id חסר בקריאה ל-_get_business_greeting_cached!")
+            return "שלום! איך אפשר לעזור?"
+        
+        try:
+            # ✅ CRITICAL FIX: Must have app_context for DB query in Cloud Run/ASGI!
+            from server.app_factory import create_app
+            from server.models_sql import Business
+            
+            app = create_app()
+            with app.app_context():
+                # ⚡ שאילתה בודדת - קל ומהיר
+                business = Business.query.get(self.business_id)
+                
+                if business:
+                    # קבלת הברכה המותאמת
+                    greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
+                    business_name = business.name or "העסק שלנו"
+                    
+                    # החלפת placeholder בשם האמיתי
+                    greeting = greeting.replace("{{business_name}}", business_name)
+                    greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                    
+                    print(f"✅ ברכה נטענה במהירות: business_id={self.business_id}, name={business_name}")
+                    return greeting
+                else:
+                    print(f"⚠️ Business {self.business_id} לא נמצא - ברכה ברירת מחדל")
+                    return "שלום! איך אפשר לעזור?"
+        except Exception as e:
+            print(f"❌ שגיאה בטעינת ברכה: {e}")
+            import traceback
+            traceback.print_exc()
+            return "שלום! איך אפשר לעזור?"
+    
+    def _get_business_greeting(self) -> str:
+        """טעינת ברכה מותאמת אישית מהעסק עם {{business_name}} placeholder"""
+        print(f"🔍 _get_business_greeting CALLED! business_id={getattr(self, 'business_id', 'NOT SET')}")
+        
+        try:
+            from server.app_factory import create_app
+            from server.models_sql import Business
+            
+            # זיהוי עסק אם עדיין לא זוהה
+            if not hasattr(self, 'business_id') or not self.business_id:
+                print(f"⚠️ business_id לא מוגדר - מזהה עסק עכשיו...")
+                app = create_app()
+                with app.app_context():
+                    self._identify_business_from_phone()
+                print(f"🔍 אחרי זיהוי: business_id={getattr(self, 'business_id', 'STILL NOT SET')}")
+            
+            # טעינת ברכה מה-DB
+            app = create_app()
+            with app.app_context():
+                business = Business.query.get(self.business_id)
+                print(f"🔍 שאילתת business: id={self.business_id}, נמצא: {business is not None}")
+                
+                if business:
+                    # קבלת הברכה המותאמת
+                    greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
+                    business_name = business.name or "העסק שלנו"
+                    
+                    print(f"🔍 פרטי עסק: name={business_name}, greeting_message={business.greeting_message}")
+                    
+                    # החלפת placeholder בשם האמיתי
+                    greeting = greeting.replace("{{business_name}}", business_name)
+                    greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                    
+                    print(f"✅ Loaded custom greeting for business {self.business_id} ({business_name}): '{greeting}'")
+                    return greeting
+                else:
+                    print(f"⚠️ Business {self.business_id} not found - using default greeting")
+                    return "שלום! איך אפשר לעזור?"
+        except Exception as e:
+            import traceback
+            print(f"❌ Error loading business greeting: {e}")
+            print(f"❌ Traceback: {traceback.format_exc()}")
+            return "שלום! איך אפשר לעזור?"
 
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response using unified AIService - UPDATED for prompt auto-sync"""
@@ -2388,26 +2296,20 @@ class MediaStreamHandler:
     
     def _tx_loop(self):
         """
-        ⚡ BUILD 120.0: Production TX loop with stable timing and periodic resync
-        - Precise 20ms/frame timing (50 fps)
-        - Drift detection and correction
-        - Periodic resync every 30 seconds
+        ⚡ BUILD 115.1 FINAL: Production-grade TX loop
+        - Precise 20ms/frame timing with next_deadline
         - Back-pressure at 90% threshold
-        - Real-time telemetry
+        - Real-time telemetry (fps/q/drops)
         """
-        print("🔊 TX_LOOP_START: Audio transmission thread started (20ms timing + 30s resync)")
+        print("🔊 TX_LOOP_START: Audio transmission thread started")
         
-        FRAME_INTERVAL = 0.02  # 20 ms per frame (50 fps)
-        SYNC_THRESHOLD = 0.5   # Resync if drift > 500ms
-        RESYNC_PERIOD = 30.0   # Resync every 30 seconds
-        
+        FRAME_INTERVAL = 0.02  # 20 ms per frame expected by Twilio
         next_deadline = time.monotonic()
-        last_sync = time.monotonic()
         tx_count = 0
         
         # Telemetry
         frames_sent_last_sec = 0
-        last_drops_count = 0
+        drops_last_sec = 0
         last_telemetry_time = time.monotonic()
         
         while self.tx_running:
@@ -2426,12 +2328,15 @@ class MediaStreamHandler:
                 print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
                 continue
             
-            # Handle "media" event with precise timing
+            # Handle "media" event with back-pressure and rate limiting
             if item.get("type") == "media":
-                # ⚡ Back-pressure: If tx_q is getting full (>90%), give it time to drain
+                # ⚡ Back-pressure: If tx_q is getting full (>90%), slow down
                 queue_size = self.tx_q.qsize()
-                if queue_size > int(self.tx_q.maxsize * 0.90):  # 90% threshold
+                if queue_size > 108:  # 90% of 120
+                    print(f"⚠️ tx_q nearly full ({queue_size}/120) – applying back-pressure", flush=True)
+                    drops_last_sec += 1
                     time.sleep(FRAME_INTERVAL * 2)  # Double wait to drain queue
+                    continue
                 
                 # Send frame
                 success = self._ws_send(json.dumps({
@@ -2442,32 +2347,22 @@ class MediaStreamHandler:
                 tx_count += 1
                 frames_sent_last_sec += 1
                 
-                # ⚡ Precise timing with drift detection
+                # ⚡ Precise timing with next_deadline
                 next_deadline += FRAME_INTERVAL
                 delay = next_deadline - time.monotonic()
-                
                 if delay > 0:
                     time.sleep(delay)
-                elif abs(delay) > SYNC_THRESHOLD:
-                    # Drift detected - resync
-                    print(f"⚠️ TX drift detected ({delay:.3f}s), resyncing clock", flush=True)
-                    next_deadline = time.monotonic() + FRAME_INTERVAL
-                    last_sync = time.monotonic()
-                
-                # Periodic resync every 30 seconds
-                if time.monotonic() - last_sync > RESYNC_PERIOD:
-                    print("🔁 TX clock resync (30s)", flush=True)
-                    next_deadline = time.monotonic() + FRAME_INTERVAL
-                    last_sync = time.monotonic()
+                else:
+                    # Missed deadline - resync
+                    next_deadline = time.monotonic()
                 
                 # ⚡ Telemetry: Print stats every second
                 now = time.monotonic()
                 if now - last_telemetry_time >= 1.0:
                     queue_size = self.tx_q.qsize()
-                    drops_this_sec = self.tx_drops - last_drops_count
-                    print(f"[TX] fps={frames_sent_last_sec} q={queue_size} drops={drops_this_sec}", flush=True)
+                    print(f"[TX] fps={frames_sent_last_sec} q={queue_size} drops={drops_last_sec}", flush=True)
                     frames_sent_last_sec = 0
-                    last_drops_count = self.tx_drops
+                    drops_last_sec = 0
                     last_telemetry_time = now
                 
                 continue
@@ -2481,7 +2376,7 @@ class MediaStreamHandler:
                 }))
                 print(f"📍 TX_MARK: {item.get('name', 'mark')} {'SUCCESS' if success else 'FAILED'}")
         
-        print(f"🔊 TX_LOOP_DONE: Transmitted {tx_count} frames total, total_drops={self.tx_drops}")
+        print(f"🔊 TX_LOOP_DONE: Transmitted {tx_count} frames total")
     
     def _speak_with_breath(self, text: str):
         """דיבור עם נשימה אנושית ו-TX Queue - תמיד משדר משהו"""

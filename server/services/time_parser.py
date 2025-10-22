@@ -5,10 +5,6 @@ Time Parser - ניתוח זמנים ותאריכים מעברית
 import re
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
-from zoneinfo import ZoneInfo
-
-# ✅ Israel timezone - כל הפגישות בזמן ישראל!
-ISRAEL_TZ = ZoneInfo('Asia/Jerusalem')
 
 def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     """
@@ -24,8 +20,7 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
         return None
     
     text_lower = text.lower()
-    # ✅ BUILD 118.3: Use Israel timezone for all appointments!
-    now = datetime.now(ISRAEL_TZ)
+    now = datetime.now()
     
     # ✅ DEBUG: הדפס מה אנחנו מנתחים
     print(f"🔍 TIME_PARSER: Analyzing text: '{text[:100]}...'")
@@ -44,102 +39,54 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
             print(f"🚫 TIME_PARSER: REJECTION detected - '{rejection}' found in text. NO MEETING!")
             return None
     
-    # ✅ ניתוח תאריך
+    # ✅ ניתוח תאריך (יחסי)
     target_date = now
     days_ahead = 1  # Default: מחר
-    date_found = False
     
-    # ✅ BUILD 118.4: תאריכים מספריים! (28 ל10, 28.10, 5 בנובמבר)
-    # חודשים בעברית
-    hebrew_months = {
-        'ינואר': 1, 'פברואר': 2, 'מרץ': 3, 'מרס': 3, 'אפריל': 4, 
-        'מאי': 5, 'יוני': 6, 'יולי': 7, 'אוגוסט': 8, 
-        'ספטמבר': 9, 'אוקטובר': 10, 'נובמבר': 11, 'דצמבר': 12
+    # ✅ FIX: Check more specific patterns first (מחרתיים before מחר)
+    
+    # מחרתיים / יומיים (check first!)
+    if any(word in text_lower for word in ['מחרתיים', 'יומיים']):
+        days_ahead = 2
+    
+    # מחר (only if not מחרתיים)
+    elif 'מחר' in text_lower and 'מחרתיים' not in text_lower:
+        days_ahead = 1
+    
+    # היום
+    elif any(word in text_lower for word in ['היום', 'עכשיו', 'בעוד שעה']):
+        days_ahead = 0
+        target_date = now
+    
+    # ימים ספציפיים
+    elif 'שלושה ימים' in text_lower or '3 ימים' in text_lower:
+        days_ahead = 3
+    elif 'ארבעה ימים' in text_lower or '4 ימים' in text_lower:
+        days_ahead = 4
+    
+    # ימים בשבוע (ראשון = 6, שני = 0, ...)
+    weekday_map = {
+        'ראשון': 6,
+        'שני': 0,
+        'שלישי': 1,
+        'רביעי': 2,
+        'חמישי': 3,
+        'שישי': 4,
+        'שבת': 5
     }
     
-    # דפוסים לתאריכים מספריים
-    numeric_date_patterns = [
-        # "28 ל10" או "28 ל-10"
-        (r'(\d{1,2})\s*ל-?(\d{1,2})', lambda m: (int(m.group(1)), int(m.group(2)), None)),
-        # "28.10" או "28.10.2025"
-        (r'(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?', lambda m: (int(m.group(1)), int(m.group(2)), int(m.group(3)) if m.group(3) else None)),
-        # "28/10" או "28/10/2025"
-        (r'(\d{1,2})/(\d{1,2})(?:/(\d{4}))?', lambda m: (int(m.group(1)), int(m.group(2)), int(m.group(3)) if m.group(3) else None)),
-        # "28 באוקטובר" או "5 בנובמבר"
-        (r'(\d{1,2})\s+ב?(ינואר|פברואר|מרץ|מרס|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)', 
-         lambda m: (int(m.group(1)), hebrew_months[m.group(2)], None)),
-    ]
+    for day_name, target_weekday in weekday_map.items():
+        if f'יום {day_name}' in text_lower or f'ב{day_name}' in text_lower:
+            # חשב כמה ימים עד היום המבוקש
+            current_weekday = now.weekday()
+            days_until = (target_weekday - current_weekday) % 7
+            if days_until == 0:
+                days_until = 7  # אם זה היום, קפוץ לשבוע הבא
+            days_ahead = days_until
+            break
     
-    for pattern, extractor in numeric_date_patterns:
-        match = re.search(pattern, text_lower)
-        if match:
-            day, month, year = extractor(match)
-            # אם לא צוין שנה, השתמש בשנה הנוכחית או הבאה
-            if year is None:
-                year = now.year
-                # אם התאריך עבר השנה, קפוץ לשנה הבאה
-                try:
-                    temp_date = now.replace(year=year, month=month, day=day, hour=0, minute=0, second=0, microsecond=0)
-                    if temp_date.date() < now.date():
-                        year += 1
-                except ValueError:
-                    # תאריך לא תקין (למשל 31.2)
-                    continue
-            
-            try:
-                target_date = now.replace(year=year, month=month, day=day, hour=0, minute=0, second=0, microsecond=0)
-                date_found = True
-                print(f"📅 TIME_PARSER: Found numeric date: {day}/{month}/{year}")
-                break
-            except ValueError:
-                # תאריך לא תקין
-                continue
-    
-    # אם לא נמצא תאריך מספרי, השתמש בביטויים יחסיים
-    if not date_found:
-        # מחרתיים / יומיים (check first!)
-        if any(word in text_lower for word in ['מחרתיים', 'יומיים']):
-            days_ahead = 2
-        
-        # מחר (only if not מחרתיים)
-        elif 'מחר' in text_lower and 'מחרתיים' not in text_lower:
-            days_ahead = 1
-        
-        # היום
-        elif any(word in text_lower for word in ['היום', 'עכשיו', 'בעוד שעה']):
-            days_ahead = 0
-            target_date = now
-        
-        # ימים ספציפיים
-        elif 'שלושה ימים' in text_lower or '3 ימים' in text_lower:
-            days_ahead = 3
-        elif 'ארבעה ימים' in text_lower or '4 ימים' in text_lower:
-            days_ahead = 4
-        
-        # ימים בשבוע (ראשון = 6, שני = 0, ...)
-        else:
-            weekday_map = {
-                'ראשון': 6,
-                'שני': 0,
-                'שלישי': 1,
-                'רביעי': 2,
-                'חמישי': 3,
-                'שישי': 4,
-                'שבת': 5
-            }
-            
-            for day_name, target_weekday in weekday_map.items():
-                if f'יום {day_name}' in text_lower or f'ב{day_name}' in text_lower:
-                    # חשב כמה ימים עד היום המבוקש
-                    current_weekday = now.weekday()
-                    days_until = (target_weekday - current_weekday) % 7
-                    if days_until == 0:
-                        days_until = 7  # אם זה היום, קפוץ לשבוע הבא
-                    days_ahead = days_until
-                    break
-        
-        # חשב את התאריך הסופי
-        target_date = now + timedelta(days=days_ahead)
+    # חשב את התאריך הסופי
+    target_date = now + timedelta(days=days_ahead)
     
     # דלג על שבת (אלא אם זה מפורש)
     if target_date.weekday() == 5 and 'שבת' not in text_lower:
@@ -190,20 +137,15 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
     elif hour > 20:
         hour = 20
     
-    # ✅ בנה את הזמן הסופי (תמיד בזמן ישראל!)
+    # ✅ בנה את הזמן הסופי
     meeting_time = target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
     
     # אם הזמן עבר (אם זה היום והשעה כבר עברה), דחוף למחר
-    # ⚠️ Compare while both are timezone-aware!
     if meeting_time < now:
         meeting_time = meeting_time + timedelta(days=1)
         # דלג על שבת שוב
         if meeting_time.weekday() == 5:
             meeting_time = meeting_time + timedelta(days=1)
-    
-    # ✅ Convert to naive datetime for DB storage (strip timezone but keep local time)
-    # This matches our calendar system design choice (BUILD 118.2)
-    meeting_time = meeting_time.replace(tzinfo=None)
     
     end_time = meeting_time + timedelta(hours=1)  # פגישה של שעה
     
@@ -289,8 +231,7 @@ def format_meeting_time_hebrew(meeting_time: datetime) -> str:
     Returns:
         מחרוזת כמו "מחר בשעה 10:00" או "יום רביעי ב-14:30"
     """
-    # ✅ BUILD 118.3: Use Israel timezone for formatting
-    now = datetime.now(ISRAEL_TZ).replace(tzinfo=None)
+    now = datetime.now()
     days_diff = (meeting_time.date() - now.date()).days
     
     # קביעת "מתי"

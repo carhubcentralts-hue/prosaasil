@@ -137,15 +137,6 @@ export function AgentPromptsPage() {
         // Update version and timestamp
         const timestamp = result.updated_at || new Date().toISOString();
         setPrompts(prev => ({ ...prev, version: result.version, last_updated: timestamp }));
-        
-        // ⚡ BUILD 118.1: Invalidate greeting cache after save (if greeting changed)
-        try {
-          await http.post('/api/greeting/invalidate', { business_id: businessId });
-          console.log('✅ Greeting cache invalidated after prompt save');
-        } catch (cacheErr) {
-          console.warn('⚠️ Failed to invalidate greeting cache (non-critical):', cacheErr);
-        }
-        
         alert(`✅ פרומפט ${channel === 'calls' ? 'שיחות' : 'WhatsApp'} נשמר בהצלחה`);
       } else {
         alert(`❌ שגיאה בשמירת פרומפט: ${result.message}`);

@@ -7,11 +7,6 @@ Optimized for ultra-low latency phone conversations
 - Automatic model availability probing
 - Graceful fallback (phone_call → default)
 - Thread-safe for concurrent calls
-
-⚡ BUILD 118.6: Endless streaming for long calls
-- Google Cloud STT limit: 5 minutes per session
-- Auto-restart session before timeout
-- Seamless continuation for calls >5 minutes
 """
 import os
 import json
@@ -23,10 +18,10 @@ from google.cloud import speech
 
 log = logging.getLogger("gcp_stt_stream")
 
-# ⚡ BUILD 119.3: Proven parameters for reliable Hebrew STT with low latency
-BATCH_MS = int(os.getenv("STT_BATCH_MS", "40"))        # 40ms batching
+# ⚡ BUILD 116: Ultra-fast parameters for sub-2s response
+BATCH_MS = int(os.getenv("STT_BATCH_MS", "40"))        # 40ms aggressive batching
 DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "90"))  # 90ms partial debounce
-TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "320"))    # 320ms utterance timeout
+TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "320"))    # 320ms utterance timeout (aggressive)
 LANG = os.getenv("GCP_STT_LANGUAGE", "he-IL")
 PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() == "true"
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
@@ -65,9 +60,9 @@ class StreamingSTTSession:
         self._on_partial = on_partial
         self._on_final = on_final
         
-        # ⚡ BUILD 119.5: Bounded STT queue with drop-oldest (prevents OOM!)
-        # RX worker can push fast, we handle back-pressure here
-        self._q = queue.Queue(maxsize=200)  # Bounded - drop oldest if full
+        # Audio queue for receiving from WS thread (48 = ~960ms buffer @ 20ms frames)
+        # ⚡ BUILD 112.1: Increased from 16 to 48 to prevent dropped frames
+        self._q = queue.Queue(maxsize=48)
         self._stop = threading.Event()
         
         # Debouncing state
@@ -76,45 +71,27 @@ class StreamingSTTSession:
         self._early_finalized = False  # Track if we already sent early-final for this utterance
         
         # Metrics
-        self._stt_drops = 0  # Track drops in STT queue
+        self._dropped_frames = 0
         
         # Start worker thread
         self._t = threading.Thread(target=self._run, daemon=True)
         self._t.start()
         log.info("🚀 StreamingSTTSession: Worker thread started")
     
-    def push_audio(self, pcm_bytes: bytes) -> bool:
+    def push_audio(self, pcm_bytes: bytes):
         """
-        ⚡ BUILD 120.0: Feed PCM16 8kHz audio to the streaming session.
-        Non-blocking with drop-oldest to prevent RX worker blocking.
-        Always returns True (RX worker doesn't need back-pressure handling).
-        
-        Returns:
-            True (always accepts, drops oldest if queue full)
+        Feed PCM16 8kHz audio to the streaming session.
+        Called from WS loop - non-blocking.
         """
         if not pcm_bytes:
-            return False
-        
-        # Try to add frame without blocking
+            return
         try:
             self._q.put_nowait(pcm_bytes)
-            return True
         except queue.Full:
-            # Drop oldest frame and add new one
-            try:
-                _ = self._q.get_nowait()  # Drop oldest
-                self._stt_drops += 1
-                if self._stt_drops % 50 == 1:  # Log every 50 drops
-                    log.warning(f"⚠️ STT drop-oldest: drops={self._stt_drops} q={self._q.qsize()}")
-            except queue.Empty:
-                pass
-            # Add new frame
-            try:
-                self._q.put_nowait(pcm_bytes)
-            except queue.Full:
-                # Edge case - should never happen
-                pass
-            return True  # Always return True (drop-oldest handled)
+            # Under pressure, drop frame rather than increase latency
+            self._dropped_frames += 1
+            if self._dropped_frames % 10 == 1:  # Log every 10th drop
+                log.warning(f"⚠️ Audio queue full, dropped {self._dropped_frames} frames total (queue size: {self._q.qsize()})")
     
     def close(self):
         """
@@ -132,50 +109,15 @@ class StreamingSTTSession:
     
     def _config(self):
         """Build recognition config"""
-        # ⚡ BUILD 118.5: הרחבת vocabulary לדיוק מקסימלי בעברית!
         speech_contexts = [
             speech.SpeechContext(
                 phrases=[
-                    # נדל"ן - מונחים בסיסיים
-                    "דירה", "דירות", "בית", "בתים", "משרד", "משרדים", "נכס", "נכסים",
-                    "קרקע", "קרקעות", "מגרש", "מגרשים", "נחלה", "נחלות", "אדמה", "אדמות",
-                    "שכירות", "מכירה", "השכרה", "קניה", "מכר", "שכר", "השקעה", "השקעות",
-                    "חדר", "חדרים", "מ״ר", "מטר", "מטרים", "מרובע", "דונם", "דונמים",
-                    "קומה", "קומות", "מעלית", "חניה", "חניות", "מרפסת", "מרפסות",
-                    "ממ״ד", "מחסן", "מחסנים", "גג", "גינה", "גינות", "מזגן", "מזגנים",
-                    "פנטהאוז", "דופלקס", "טריפלקס", "סטודיו", "יחידת דיור", "יחידות דיור",
-                    
-                    # ערים ואזורים
-                    "תל אביב", "ירושלים", "חיפה", "באר שבע", "נתניה", "ראשון לציון",
-                    "פתח תקווה", "רמת גן", "הרצליה", "חולון", "בת ים", "רחובות",
-                    "אשדוד", "אשקלון", "רעננה", "כפר סבא", "הוד השרון", "רמת השרון",
-                    "גבעתיים", "בני ברק", "רמלה", "לוד", "מודיעין", "נס ציונה",
-                    
-                    # כסף ומחירים
-                    "שקל", "שקלים", "אלף", "אלפים", "מיליון", "עשרת אלפים",
-                    "מאה", "מאתיים", "חמש מאות", "אלפיים", "שלושת אלפים",
-                    "תקציב", "מחיר", "עלות", "משכנתא", "הלוואה", "ריבית",
-                    
-                    # זמנים ותאריכים
-                    "מחר", "מחרתיים", "היום", "עכשיו", "בוקר", "צהריים", "ערב",
-                    "שעה", "בשעה", "דקה", "יום", "שבוע", "חודש", "שנה",
-                    "ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת",
-                    "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
-                    "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
-                    
-                    # ביטויים נפוצים בשיחות
-                    "כן", "לא", "בסדר", "מצוין", "בטח", "אוקיי", "אולי",
-                    "תודה", "סליחה", "רגע", "שנייה", "אפשר", "צריך", "רוצה",
-                    "מעוניין", "מתאים", "נוח", "מתי", "איפה", "כמה", "מה",
-                    
-                    # שמות עסקים (מהקונפיג)
-                    "שי דירות ומשרדים", "לאה", "נדלן", "נדל״ן",
-                    
-                    # מצבים ופעולות
-                    "פגישה", "פגישות", "ביקור", "סיור", "להתקשר", "להודיע",
-                    "לקבוע", "לבדוק", "לראות", "להגיע", "לבוא", "לחזור"
+                    "שי דירות ומשרדים", "לאה", "דירה", "משרד", "שכר", "מכירה",
+                    "חדרים", "מטר", "קומה", "מעלית", "חניה", "מרפסת", "אזור",
+                    "תל אביב", "ירושלים", "חיפה", "פתח תקווה", "רמת גן",
+                    "שקל", "אלף", "מיליון", "תקציב", "משכנתא", "נדלן"
                 ],
-                boost=20.0  # ⚡ BUILD 118.5: הגדלת boost ל-20 לדיוק מקסימלי!
+                boost=15.0
             )
         ]
         
@@ -186,9 +128,7 @@ class StreamingSTTSession:
             model=MODEL,
             use_enhanced=USE_ENHANCED,  # ⚡ BUILD 115: Dynamically selected based on availability
             enable_automatic_punctuation=PUNCTUATION_FINAL,
-            speech_contexts=speech_contexts,
-            # ⚡ BUILD 118.5: הוספת alternative language codes לדיוק טוב יותר
-            alternative_language_codes=["iw-IL"]  # iw-IL = קוד חלופי לעברית
+            speech_contexts=speech_contexts
         )
     
     def _streaming_config(self):
@@ -200,41 +140,38 @@ class StreamingSTTSession:
         )
     
     def _requests(self):
-        """
-        ⚡ BUILD 119.6: AGGRESSIVE queue draining!
-        Generator yielding batched audio requests.
-        Drains queue as fast as possible to prevent drops.
-        """
+        """Generator yielding batched audio requests"""
         buf = bytearray()
         last = time.monotonic()
         
         while not self._stop.is_set():
-            # ⚡ DRAIN MODE: Read all available frames without blocking
-            drained_count = 0
-            while drained_count < 50:  # Max 50 frames per batch (1 second)
-                try:
-                    chunk = self._q.get_nowait()  # Non-blocking!
-                    if chunk is None:
-                        # EOF signal - flush and exit
-                        if buf:
-                            log.info(f"🔚 Flushing final {len(buf)} bytes")
-                            yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
-                        return
-                    buf.extend(chunk)
-                    drained_count += 1
-                except queue.Empty:
-                    break
+            try:
+                # ⚡ CRITICAL: Short timeout (20ms) to consume queue aggressively
+                chunk = self._q.get(timeout=0.02)
+            except queue.Empty:
+                # No data, check if should flush buffer
+                now = time.monotonic()
+                if buf and (now - last) * 1000 >= BATCH_MS:
+                    yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
+                    buf.clear()
+                    last = now
+                continue
             
-            # Send batch if we have data
+            if chunk is None:
+                # EOF signal - flush and exit
+                if buf:
+                    log.info(f"🔚 Flushing final {len(buf)} bytes")
+                    yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
+                break
+            
+            buf.extend(chunk)
             now = time.monotonic()
-            if buf and ((now - last) * 1000 >= BATCH_MS or drained_count > 0):
+            
+            # Send batch if enough data or enough time passed
+            if (now - last) * 1000 >= BATCH_MS:
                 yield speech.StreamingRecognizeRequest(audio_content=bytes(buf))
                 buf.clear()
                 last = now
-            
-            # If no data was drained, sleep briefly to avoid busy-wait
-            if drained_count == 0:
-                time.sleep(0.01)  # 10ms sleep when queue is empty
     
     def _emit_partial(self, text: str):
         """Emit partial result with debouncing"""
@@ -252,22 +189,18 @@ class StreamingSTTSession:
     
     def _should_finalize_early(self, partial_text: str) -> bool:
         """
-        ⚡ BUILD 118.8: SMART early-finalize - fast response without mid-sentence cuts
-        Balance between speed and accuracy using tiered confidence levels
+        ⚡ BUILD 116: Early-finalize aggressive strategy
+        Cuts 300-500ms by finalizing strong partials without waiting for silence
         """
         if not partial_text:
             return False
         
-        # ⚡ CRITICAL FIX: Strip whitespace before checking prefixes!
-        partial_text_clean = partial_text.rstrip()
-        
-        # ⚡ TIER 1: Very high confidence - clear sentence ending (saves ~400ms!)
-        if len(partial_text_clean) >= 15 and any(p in partial_text_clean for p in ".?!"):
+        # Strong partial: >=12 chars with punctuation
+        if len(partial_text) >= 12 and any(p in partial_text for p in ".?!…"):
             return True
         
-        # ⚡ TIER 2: High confidence - complete thought without prefix
-        # Avoid cutting "אני רוצה לקנות דירה ב..." but allow "אני רוצה לקנות דירה"
-        if len(partial_text_clean) >= 25 and not partial_text_clean.endswith(("ב", "ל", "מ", "ה", "ו", "כ", "ש", "את", "על")):
+        # Medium partial without punctuation: >=18 chars (short sentence)
+        if len(partial_text) >= 18:
             return True
         
         return False
@@ -289,17 +222,8 @@ class StreamingSTTSession:
         """
         Worker thread - maintains continuous connection to GCP.
         Runs for entire duration of call.
-        
-        ⚡ BUILD 118.6: Endless streaming support
-        Google Cloud STT has a 5-minute (300s) limit per stream.
-        We restart the stream every 4.5 minutes to stay under the limit.
         """
         log.info("📡 StreamingSTTSession: Starting GCP streaming recognize...")
-        
-        # ⚡ BUILD 118.6: Track session start time for endless streaming
-        session_start_time = time.monotonic()
-        MAX_SESSION_DURATION = 270  # 4.5 minutes (under 5 min limit)
-        
         try:
             responses = self.client.streaming_recognize(
                 self._streaming_config(),
@@ -309,16 +233,6 @@ class StreamingSTTSession:
             for resp in responses:
                 if self._stop.is_set():
                     break
-                
-                # ⚡ BUILD 118.6: Check if we've been streaming for too long
-                elapsed = time.monotonic() - session_start_time
-                if elapsed > MAX_SESSION_DURATION:
-                    log.warning(f"⏱️ Session duration {elapsed:.1f}s exceeded {MAX_SESSION_DURATION}s - would restart stream here")
-                    # Note: For true endless streaming, we'd need to:
-                    # 1. Buffer audio from last final transcript
-                    # 2. Close current stream
-                    # 3. Open new stream with buffered audio
-                    # For now, we just log - most calls are <5 min
                 
                 for result in resp.results:
                     if not result.alternatives:
@@ -362,10 +276,9 @@ class GcpStreamingSTT:
         self.client = None
         self.rate = sample_rate_hz
         
-        # Audio queue for batching (200 = ~4s buffer @ 20ms frames)
-        # ⚡ BUILD 119.3: Balanced size (not too big = lag, not too small = drops)
-        # Drop-oldest policy will handle overflow without hidden latency
-        self._audio_queue = queue.Queue(maxsize=200)
+        # Audio queue for batching (48 = ~960ms buffer @ 20ms frames)
+        # ⚡ BUILD 112.1: Increased from 16 to 48 to prevent dropped frames
+        self._audio_queue = queue.Queue(maxsize=48)
         self._batch_size_bytes = int(sample_rate_hz * 2 * (BATCH_MS / 1000.0))  # PCM16
         self._dropped_frames = 0  # Metrics
         
@@ -456,50 +369,15 @@ class GcpStreamingSTT:
             # ⚡ BUILD 115: Use dynamically selected model configuration
             log.info(f"📞 Using model='{MODEL}' with ENHANCED={USE_ENHANCED} for {LANG}")
             
-            # ⚡ BUILD 118.5: הרחבת vocabulary לדיוק מקסימלי בעברית!
             speech_contexts = [
                 speech.SpeechContext(
                     phrases=[
-                        # נדל"ן - מונחים בסיסיים
-                        "דירה", "דירות", "בית", "בתים", "משרד", "משרדים", "נכס", "נכסים",
-                        "קרקע", "קרקעות", "מגרש", "מגרשים", "נחלה", "נחלות", "אדמה", "אדמות",
-                        "שכירות", "מכירה", "השכרה", "קניה", "מכר", "שכר", "השקעה", "השקעות",
-                        "חדר", "חדרים", "מ״ר", "מטר", "מטרים", "מרובע", "דונם", "דונמים",
-                        "קומה", "קומות", "מעלית", "חניה", "חניות", "מרפסת", "מרפסות",
-                        "ממ״ד", "מחסן", "מחסנים", "גג", "גינה", "גינות", "מזגן", "מזגנים",
-                        "פנטהאוז", "דופלקס", "טריפלקס", "סטודיו", "יחידת דיור", "יחידות דיור",
-                        
-                        # ערים ואזורים
-                        "תל אביב", "ירושלים", "חיפה", "באר שבע", "נתניה", "ראשון לציון",
-                        "פתח תקווה", "רמת גן", "הרצליה", "חולון", "בת ים", "רחובות",
-                        "אשדוד", "אשקלון", "רעננה", "כפר סבא", "הוד השרון", "רמת השרון",
-                        "גבעתיים", "בני ברק", "רמלה", "לוד", "מודיעין", "נס ציונה",
-                        
-                        # כסף ומחירים
-                        "שקל", "שקלים", "אלף", "אלפים", "מיליון", "עשרת אלפים",
-                        "מאה", "מאתיים", "חמש מאות", "אלפיים", "שלושת אלפים",
-                        "תקציב", "מחיר", "עלות", "משכנתא", "הלוואה", "ריבית",
-                        
-                        # זמנים ותאריכים
-                        "מחר", "מחרתיים", "היום", "עכשיו", "בוקר", "צהריים", "ערב",
-                        "שעה", "בשעה", "דקה", "יום", "שבוע", "חודש", "שנה",
-                        "ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת",
-                        "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
-                        "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
-                        
-                        # ביטויים נפוצים בשיחות
-                        "כן", "לא", "בסדר", "מצוין", "בטח", "אוקיי", "אולי",
-                        "תודה", "סליחה", "רגע", "שנייה", "אפשר", "צריך", "רוצה",
-                        "מעוניין", "מתאים", "נוח", "מתי", "איפה", "כמה", "מה",
-                        
-                        # שמות עסקים (מהקונפיג)
-                        "שי דירות ומשרדים", "לאה", "נדלן", "נדל״ן",
-                        
-                        # מצבים ופעולות
-                        "פגישה", "פגישות", "ביקור", "סיור", "להתקשר", "להודיע",
-                        "לקבוע", "לבדוק", "לראות", "להגיע", "לבוא", "לחזור"
+                        "שי דירות ומשרדים", "לאה", "דירה", "משרד", "שכר", "מכירה",
+                        "חדרים", "מטר", "קומה", "מעלית", "חניה", "מרפסת", "אזור",
+                        "תל אביב", "ירושלים", "חיפה", "פתח תקווה", "רמת גן",
+                        "שקל", "אלף", "מיליון", "תקציב", "משכנתא", "נדלן"
                     ],
-                    boost=20.0  # ⚡ BUILD 118.5: הגדלת boost ל-20 לדיוק מקסימלי!
+                    boost=15.0
                 )
             ]
             
@@ -510,9 +388,7 @@ class GcpStreamingSTT:
                 enable_automatic_punctuation=PUNCTUATION_INTERIM,  # Usually false for speed
                 model=MODEL,
                 speech_contexts=speech_contexts,
-                use_enhanced=USE_ENHANCED,
-                # ⚡ BUILD 118.5: הוספת alternative language codes לדיוק טוב יותר
-                alternative_language_codes=["iw-IL"]  # iw-IL = קוד חלופי לעברית
+                use_enhanced=USE_ENHANCED
             )
             
             streaming_config = speech.StreamingRecognitionConfig(
@@ -560,9 +436,6 @@ class GcpStreamingSTT:
                     yield speech.StreamingRecognizeRequest(audio_content=bytes(buffer))
             
             # Start streaming recognition
-            if not self.client:
-                log.error("❌ Client not initialized")
-                return
             responses = self.client.streaming_recognize(streaming_config, request_generator())
             
             for response in responses:

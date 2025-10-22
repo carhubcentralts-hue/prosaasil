@@ -125,14 +125,11 @@ else
     BAI=0  # Dummy PID
 fi
 
-# 2) Start Flask/ASGI with Uvicorn on EXTERNAL port (native WebSocket support - BUILD 119.5)
-echo "🟡 Starting BUILD 119.5 with Uvicorn ASGI on EXTERNAL port 0.0.0.0:${PORT}..."
-# ⚡ BUILD 119.5: Single worker, no reload, stable production config
-exec uvicorn asgi:app \
-  --host 0.0.0.0 --port ${PORT} \
-  --ws websockets --lifespan off \
-  --workers 1 --timeout-keep-alive 75 \
-  --no-server-header --log-level info
+# 2) Start Flask/ASGI with Uvicorn on EXTERNAL port (native WebSocket support - BUILD 90)
+echo "🟡 Starting BUILD 90 with Uvicorn ASGI on EXTERNAL port 0.0.0.0:${PORT}..."
+uvicorn asgi:app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 --log-level info &
+FL=$!
+echo "✅ BUILD 90 Uvicorn/ASGI started (PID: $FL)"
 
 echo "🎯 Both services running. System ready!"
 echo "📊 EXTERNAL Access: Port ${PORT} (exposed)"
@@ -162,6 +159,29 @@ else
     echo "🔑 PID saved - Flask: $FL"
 fi
 
-# ⚡ BUILD 119.5: No auto-restart loop - exec handles process lifecycle
-# The 'exec' above replaces this script with uvicorn process
-# Uvicorn will run until manually stopped or killed
+echo "✅ Startup complete - keeping processes alive..."
+echo "💡 Press Ctrl+C to stop all services"
+
+# Keep script alive and monitor processes
+trap 'echo "🛑 Shutting down..."; kill $BAI $FL 2>/dev/null; exit 0' INT TERM
+
+# Infinite loop to keep script alive and monitor processes
+while true; do
+    # Check Baileys only if running locally
+    if [ "$SKIP_BAILEYS" = "false" ]; then
+        if ! kill -0 $BAI 2>/dev/null; then
+            echo "❌ Baileys died (PID $BAI) - restarting..."
+            BAILEYS_HOST=127.0.0.1 BAILEYS_PORT=${BAILEYS_PORT} nohup node services/whatsapp/baileys_service.js >> /tmp/baileys_prod.log 2>&1 &
+            BAI=$!
+        fi
+    fi
+    
+    # Always check Flask
+    if ! kill -0 $FL 2>/dev/null; then
+        echo "❌ Flask/ASGI died (PID $FL) - restarting..."
+        uvicorn asgi:app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 &
+        FL=$!
+    fi
+    
+    sleep 5
+done

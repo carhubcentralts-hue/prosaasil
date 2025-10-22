@@ -60,7 +60,7 @@ def create_app():
     print(f"🔧 APP_SHA={git_sha}")
     
     version_info = {
-        "build": 119,  # ⚡ BUILD 119.4: Unbounded STT Queue + RX Worker
+        "build": 87,
         "sha": git_sha,
         "fe": "client/dist",
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -273,11 +273,6 @@ def create_app():
         from server.routes_status_management import status_management_bp
         app.register_blueprint(status_management_bp)
         
-        # ⚡ BUILD 117: Greeting Cache Management API
-        from server.routes_greeting import greeting_bp
-        app.register_blueprint(greeting_bp)
-        print("✅ Greeting cache management API registered")
-        
         @app.before_request  
         def setup_security_context():
             """Setup security context for each request"""
@@ -445,7 +440,7 @@ def create_app():
         server_type = 'uvicorn_asgi' if os.getenv('ASGI_SERVER') else 'standalone'
         
         return jsonify({
-            'build': 119,
+            'build': 70,
             'websocket_integration': 'Starlette_ASGI_WebSocket',
             'route': '/ws/twilio-media',
             'method': 'asgi_starlette_websocket',

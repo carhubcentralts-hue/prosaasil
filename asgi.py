@@ -2,7 +2,7 @@
 """
 ASGI Application for Cloud Run WebSocket Support
 Uses Starlette for WebSocket + Flask WSGI wrapper
-BUILD 119.5: Complete Back-Pressure Solution with Hysteresis (PRODUCTION-READY!)
+BUILD 85: Google STT Fix + Conversation Memory + Auto Leads
 """
 import os
 import sys
@@ -25,7 +25,7 @@ from starlette.requests import Request
 
 # STARTUP LOGGING - TO STDOUT
 print("=" * 80, flush=True)
-print("🚀 ASGI BUILD 119.5 LOADING - COMPLETE BACK-PRESSURE SOLUTION", flush=True)
+print("🚀 ASGI BUILD 87 LOADING - DUPLICATE CALL_SID FIX", flush=True)
 print("=" * 80, flush=True)
 
 # ✅ CRITICAL FIX: Ensure Google Cloud credentials are set BEFORE any imports
@@ -53,7 +53,7 @@ log = logging.getLogger("twilio_ws")
 flask_app = create_app()
 
 print("=" * 80, flush=True)
-print("✅ ASGI BUILD 119.5 READY - HYSTERESIS BACK-PRESSURE + BOUNDED STT", flush=True)
+print("✅ ASGI BUILD 87 READY - ALL SYSTEMS GO", flush=True)
 print("=" * 80, flush=True)
 
 async def ws_http_probe(request: Request):
@@ -67,7 +67,7 @@ class SyncWebSocketWrapper:
     """
     def __init__(self):
         self.recv_queue = Queue(maxsize=500)  # async → sync (max 500 frames ~10s of audio)
-        self.send_queue = Queue(maxsize=144)  # sync → async (144 frames = ~2.9s buffer - balanced, prevents lag)
+        self.send_queue = Queue(maxsize=120)  # sync → async (max 120 frames ~2.4s buffer - prevents lag)
         self.running = True
         
     def receive(self):
@@ -84,9 +84,9 @@ class SyncWebSocketWrapper:
         """Sync send - puts in queue for async sender with timeout"""
         if self.running:
             try:
-                self.send_queue.put(data, timeout=2.5)  # ✅ 2.5s timeout - balanced
+                self.send_queue.put(data, timeout=2.0)  # ✅ 2s timeout instead of blocking forever
             except:
-                print(f"⚠️ Send queue full, dropping frame (queue_size={self.send_queue.qsize()})", flush=True)
+                print(f"⚠️ Send queue full, dropping frame", flush=True)
                 pass  # Drop frame if queue is full
     
     def stop(self):
@@ -131,10 +131,7 @@ async def ws_twilio_media(websocket: WebSocket):
                 while ws_wrapper.running:
                     try:
                         msg = await websocket.receive_json()
-                        # ⚡ BUILD 119.6: Log only important events (not media spam)
-                        event_type = msg.get('event', 'unknown')
-                        if event_type not in ('media',):  # Skip media (50/sec spam!)
-                            print(f"📨 Received: {event_type}", flush=True)
+                        print(f"📨 Received: {msg.get('event', 'unknown')}", flush=True)
                         ws_wrapper.recv_queue.put(json.dumps(msg))
                     except json.JSONDecodeError:
                         # Non-JSON frames - consume text to keep loop alive

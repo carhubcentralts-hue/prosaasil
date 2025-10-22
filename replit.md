@@ -1,146 +1,24 @@
 # Overview
 
-AgentLocator is a Hebrew CRM system for real estate businesses designed to streamline the sales pipeline. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. It offers fully customizable AI assistants and business names to cater to the specific needs of real estate professionals.
+AgentLocator is a Hebrew CRM system for real estate businesses. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. Its primary goal is to streamline the sales pipeline for real estate professionals with fully customizable AI assistants and business names.
 
-## Recent Changes
+**⚡ BUILD 115.1 - PRODUCTION-READY STT (HOTFIX):**
+- **Simple Model Selection**: ENV-based model selection (NO PROBE - fixes production deployment issue)
+- **Default Endpoint**: Uses standard Google Speech client without custom endpoint (production-stable)
+- **Non-blocking Fallback**: ThreadPoolExecutor for single-request STT prevents blocking event loop
+- **Streaming by Default**: USE_STREAMING_STT=True in code (ENV override: "false"/"0"/"no" disables)
+- **Fast Parameters**: BATCH_MS=80ms, DEBOUNCE_MS=120ms, TIMEOUT_MS=450ms for ≤2s total response time
+- **3-Attempt Retry**: Streaming STT retries 3x (200ms delay) before falling back to single-request mode
+- **Result**: Stable production deployment - works reliably with default/phone_call models for Hebrew
+- **Fix**: Removed startup probe and custom endpoint that caused "לא הבנתי" loop in production
 
-**⚡ BUILD 120.0 - Stable RX/TX Synchronization (PRODUCTION-READY!):**
-- **Problem**: Timing drift over long calls (>2min) caused choppy audio and slow STT
-  - RX/TX workers used simple `sleep(0.02)` without resync → accumulated drift
-  - After 2 minutes: audio playback stuttered, transcription delayed
-  - No periodic clock correction → timing errors compounded
-- **Complete 3-Part Solution**:
-  1. **RX Worker** (media_ws_ai.py):
-     - Precise 20ms timing with `next_deadline` scheduling
-     - Drift detection: resyncs if lag > 500ms
-     - Periodic resync: every 30 seconds
-     - Always feeds frames to STT (no RX-layer drops)
-  2. **STT.push_audio()** (gcp_stt_stream.py):
-     - Drop-oldest policy when queue full (200 frames ≈ 4s)
-     - Always returns True (RX worker doesn't handle back-pressure)
-     - STT layer handles all buffering internally
-  3. **TX Worker** (media_ws_ai.py):
-     - Precise 20ms timing with `next_deadline` scheduling
-     - Drift detection: resyncs if lag > 500ms
-     - Periodic resync: every 30 seconds
-     - Back-pressure at 90% queue threshold
-- **Expected Behavior**:
-  - Stable 50 fps (both RX and TX) even after 10+ minute calls
-  - No audio choppiness or stuttering
-  - Fast STT response: 1-2 seconds
-  - Periodic resync logs: `🔁 RX clock resync (30s)` and `🔁 TX clock resync (30s)`
-  - Clean telemetry: `[RX] fps=50 q<20 drops=0` and `[TX] fps=50 q<20 drops=0`
-- **Key Improvements**:
-  - ✅ **Zero timing drift**: Periodic 30s resync prevents accumulation
-  - ✅ **Automatic correction**: Drift detection resyncs if lag > 500ms
-  - ✅ **Smooth audio**: Stable 50fps TX → no choppy playback
-  - ✅ **Fast STT**: Stable 50fps RX → consistent transcription speed
-  - ✅ **Production-grade**: Works perfectly for 10+ minute calls
-- **Based on**: Twilio 20ms media frame spec + expert timing analysis
-- **Previous Fixes (BUILD 119.5)**:
-  - start_production.sh: exec + --workers 1 + no auto-restart loop
-  - Bounded queues (200 frames) with drop-oldest
-
-**⚡ BUILD 119.5 - Complete Back-Pressure Solution (PRODUCTION-READY!):**
-- **Problem**: RX worker couldn't keep up, queue filled to 200 and dropped 557 frames!
-  - `write_ms=2.10` indicated `push_audio()` was blocking
-  - Worker enforced 20ms timing even when queue full → accumulation!
-- **Complete 4-Part Solution**:
-  1. **STT Bounded Queue**: Changed STT internal queue from unbounded → bounded (200) with drop-oldest
-  2. **Non-Blocking push_audio**: Returns True/False, never blocks RX worker
-  3. **Hysteresis Back-Pressure**: 
-     - Enter drain mode at `q >= 100` (HIGH_WM)
-     - Exit drain mode at `q <= 20` (LOW_WM)
-     - Prevents mode oscillation
-  4. **Enhanced Telemetry**: `[RX] mode=normal/drain fps_in=? q=? drops=? write_ms=?`
-- **Expected Behavior**:
-  - Normal: `[RX] mode=normal fps_in=50 q<20 drops=0 write_ms<1`
-  - Under load: `⚡ RX: Entering DRAIN mode (q=100)` → `[RX] mode=drain fps_in=200+ q=50 drops=0`
-  - Recovery: `✅ RX: Back to NORMAL mode (q=20)`
-- **Key Improvements**:
-  - ✅ **Zero blocking**: push_audio never blocks (bounded queue + drop-oldest)
-  - ✅ **Zero OOM risk**: bounded queues at both RX and STT levels
-  - ✅ **Adaptive throughput**: 50fps normal, 200+ fps drain mode
-  - ✅ **Stable mode transitions**: hysteresis prevents oscillation
-
-**⚡ BUILD 119.4 - Complete Race Condition Fix:**
-- **Problem 1**: Frames lost during greeting/STT initialization (race condition)
-  - RX worker starts → greeting sent (300-500ms) → STT session created **AFTER**
-  - Frames arrive **before** session exists → dropped silently!
-  - Code checked `if session: enqueue()` → first 300-500 frames lost!
-- **Problem 2**: Double-queue blocking when Google STT slow
-  - RX worker → audio_rx_q → STT._q → Google STT
-  - STT._q fills → push_audio() drops → choppy audio
-- **Complete Solution** (4-part fix):
-  1. **Parallel STT Init**: STT session starts **immediately** in parallel thread (not after greeting!)
-  2. **Always Enqueue**: Frames enqueued **immediately** (no session check at input!)
-  3. **Pending Buffer**: RX worker holds frame until session ready (FIFO preserved, no requeue!)
-  4. **Bounded Queue + Drop-Oldest**: rx_q=200 frames (≈4s) prevents OOM, drops oldest media only
-- **Implementation Details**:
-  - ✅ **FIX 1.1**: Frames **always** call `_rx_enqueue()` (no session check!)
-  - ✅ **FIX 1.2**: STT init runs in **parallel thread** with greeting (not deferred!)
-  - ✅ **FIX 1.3**: RX worker uses **pending buffer** to hold frame until session ready (FIFO preserved!)
-  - ✅ **FIX 2.1**: rx_q size = **200 frames** (≈4s max buffer; in practice q<20)
-  - ✅ **FIX 2.2**: RX worker timing: **BEFORE write** with next_deadline + resync (like TX)
-  - ✅ **FIX 2.3**: Full telemetry: `[RX] fps_in/q/drops/write_ms`
-  - ✅ **FIX 2.4**: Drop-oldest for **media only** (control frames never dropped)
-  - ✅ **FIX 3**: Greeting via `_tx_enqueue()` (already working)
-  - ✅ STT queue: `maxsize=0` (unbounded - prevents blocking!)
-  - ✅ **RESULT**: Bounded queues + pending buffer + drop-oldest → **ZERO frame loss + no OOM/delay**!
-- **Correct Initialization Order**:
-  ```
-  [0ms]   WS Start → RX worker starts → TX worker starts
-  [0ms]   STT init (parallel thread) ← NO BLOCKING!
-  [10ms]  Greeting queued via _tx_enqueue
-  [100ms] STT session ready
-  [200ms] Greeting playing
-  → All frames captured from T=0ms!
-  ```
-- **Benefits**:
-  - ✅ **Zero frames lost** (even during STT init!)
-  - ✅ **Zero drops** (unbounded STT queue)
-  - ✅ **Perfect audio** from first word
-  - ✅ **Accurate STT** (all audio captured!)
-  - ✅ **Clean logs**: `[RX] fps_in≈50 q<20 drops=0 write_ms<1`
-- **Expected Logs**:
-  ```
-  🎧 RX_WORKER: Started
-  📡 TX_WORKER: Started
-  🟢 STT_SESSION: init requested
-  🔊 GREETING: queued
-  🟢 STT_SESSION: ready
-  [RX] fps_in=50 q=8 drops=0 write_ms=0.4
-  [TX] fps=50   q=12 drops=0
-  🟡 [PARTIAL] 'שלום אני רוצה דירה'
-  ✅ [FINAL]   'שלום אני רוצה דירה בתל אביב'
-  ```
-- **Result**: Production-grade audio pipeline with **ZERO frame loss**!
-
-**⚡ BUILD 119.1 - Production TX Queue with Precise Timing:**
-- **Problem**: "Send queue full, dropping frame" errors during longer TTS responses causing audio freezes
-- **Root Cause**: Queue too small (120 frames = 2.4s) AND naive solution (256 frames) would create 5-6s hidden lag
-- **Solution**: Professional-grade TX queue system with precise timing, back-pressure, and smart drop-oldest
-- **Implementation**:
-  - asgi.py send_queue: 144 frames (~2.9s balanced buffer, aligned with tx_q)
-  - media_ws_ai.py tx_q: 120 frames (~2.4s) with intelligent drop-oldest
-  - Added tx_drops counter for telemetry tracking
-  - _tx_loop: precise 20ms/frame timing with next_deadline scheduling
-  - Back-pressure: 90% threshold triggers double-wait to drain queue
-  - **Smart drop-oldest**: Drops ONLY media frames, control frames (clear, mark, keepalive) NEVER dropped
-  - **ALL frames via _tx_enqueue**: greeting, TTS, beeps, marks, keepalives - NO direct _ws_send bypasses
-  - Real-time telemetry: [TX] fps/q/drops logged every second
-  - Greeting sends greeting_end mark for tracking
-- **Expected Metrics**:
-  - fps ≈ 50 (50 frames/second, stable)
-  - q < 20 (queue size under 20 most of the time)
-  - drops = 0 (zero dropped frames under normal load)
-- **Benefits**:
-  - ✅ Zero "Send queue full" errors
-  - ✅ No hidden lag accumulation (2.9s max buffer)
-  - ✅ Drop-oldest keeps system responsive during spikes WITHOUT breaking control flow
-  - ✅ Complete telemetry for monitoring and debugging
-  - ✅ Control frames always delivered (critical for Twilio)
-- **Result**: Reliable audio streaming without freezes or lag, production-grade quality!
+**⚡ BUILD 116 - Sub-2s Response Optimization:**
+- **Ultra-Fast STT**: BATCH=40ms, DEBOUNCE=90ms, TIMEOUT=320ms, VAD_HANGOVER=180ms (aggressive)
+- **Early-Finalize**: Cuts 300-500ms by finalizing strong partials (≥12 chars + punctuation or ≥18 chars)
+- **Enhanced Telemetry**: Timestamps for every stage - T0/T1/T2 (WS+Greeting), S1 (STT stream), for sub-2s diagnostics
+- **TX System**: 20ms/frame pacing, 120-frame buffers, drop-oldest policy, real-time telemetry [TX] fps=50 q=6 drops=0
+- **Target Response Time**: STT ~1.2-1.8s (down from 2.0s), Total ~1.5-2.0s (down from 2.5-3.5s)
+- **Result**: Faster, more responsive conversations with Hebrew real estate AI assistant!
 
 # User Preferences
 
@@ -149,7 +27,8 @@ Preferred communication style: Simple, everyday language.
 # System Architecture
 
 ## Backend
-- **Frameworks**: Flask with SQLAlchemy ORM, Starlette for WebSocket handling.
+- **Framework**: Flask with SQLAlchemy ORM.
+- **WebSocket Support**: Starlette-based native WebSocket handling for Twilio Media Streams, compatible with Cloud Run.
 - **ASGI Server**: Uvicorn.
 - **Database**: PostgreSQL (production), SQLite (development).
 - **Authentication**: JWT-based with role-based access control and SeaSurf CSRF protection.
@@ -160,42 +39,43 @@ Preferred communication style: Simple, everyday language.
 - **Styling**: Tailwind CSS v4 with RTL support and Hebrew typography (Heebo font).
 - **Routing**: React Router v7 with AuthGuard/RoleGuard.
 - **State Management**: Context API for authentication.
-- **Design**: Production-grade, accessible, mobile-first design with CSRF protection and role-based access control.
+- **Components**: Production-grade, accessible, mobile-first design.
+- **Security**: CSRF protection, secure redirects, and role-based access control.
 
 ## Real-time Communication
-- **Twilio Integration**: Media Streams WebSocket with Starlette/ASGI for Cloud Run, inbound_track routing, and statusCallbackEvent handling.
-- **Audio Processing**: Smart barge-in detection, calibrated VAD for Hebrew, immediate TTS interruption, and 2-tier early finalization and EOU for seamless turn-taking and sub-3 second response times.
-- **Custom Greetings**: Initial phone greeting loads from business configuration with dynamic placeholders and caching. Instant greeting playback.
-- **Natural TTS**: Production-grade Hebrew TTS with WaveNet-D voice (8kHz telephony optimization), SSML smart pronunciation, TTS caching, and accelerated speaking rate.
-- **Performance Optimization**: Streaming STT with 3-attempt retry, dynamic model selection, europe-west1 region for low RTT, and balanced parameters for reliability and accuracy.
-- **Intelligent Error Handling**: Smart responses for STT failures with consecutive failure tracking.
-- **Session Management**: Tracks session duration and handles potential timeouts.
-- **Queue Management**: Increased audio queue and send queue sizes to prevent dropped frames and ensure reliable transcription and complete AI responses.
+- **Twilio Integration**: Media Streams WebSocket with Starlette/ASGI for Cloud Run native WebSocket support, inbound_track routing, and proper statusCallbackEvent handling.
+- **Audio Processing**: Smart barge-in detection (disabled for long responses >20 words, enabled for short ones), calibrated VAD for Hebrew speech, immediate TTS interruption, and seamless turn-taking.
+- **Custom Greetings**: Initial phone greeting loads from business configuration with dynamic placeholders.
+- **Natural TTS**: Production-grade Hebrew TTS with WaveNet-D voice (8kHz telephony optimization), SSML smart pronunciation, TTS caching, and accelerated speaking rate (1.05x).
+- **Performance Optimization**: ⚡ BUILD 115 Production - Streaming STT with 3-attempt retry + early finalization (saves 400-600ms on strong partials). Dynamic model selection (auto-detects best available model for Hebrew), europe-west1 region for low RTT. Optimized parameters: BATCH_MS=80ms, DEBOUNCE_MS=120ms, TIMEOUT=450ms, VAD_HANGOVER=220ms. Comprehensive latency tracking (partial, final, STT, AI, TTS, total turn). Achieves ≤2 second response times with excellent Hebrew accuracy. Session timestamp updated on every audio frame to prevent 2-minute resets. **3-layer false-positive protection**: (1) Relaxed audio validation (50/30 thresholds - allows quieter speech), (2) STT confidence checks with short-utterance rejection, (3) Common-word filtering with punctuation normalization. **Appointment rejection detection**: 3-layer system (time_parser, conversation parser, auto_meeting) prevents appointments on user refusal.
+- **Intelligent Error Handling**: Smart responses for STT failures with consecutive failure tracking (2x trigger "לא הבנתי").
 
 ## CRM Features
 - **Multi-tenant Architecture**: Business-based data isolation.
-- **Call Logging**: Comprehensive call tracking with transcription, status, duration, and direction.
+- **Call Logging**: Comprehensive call tracking with transcription, status management, duration, and direction (inbound/outbound) captured from Twilio webhooks.
 - **Conversation Memory**: Full conversation history for contextual AI responses.
-- **WhatsApp Integration**: Supports Twilio and Baileys with optimized response times and context management.
+- **WhatsApp Integration**: Supports both Twilio and Baileys with optimized response times, full message storage, and context management.
 - **Intelligent Lead Collection**: Automated capture of key lead information with real-time creation and deduplication.
-- **Calendar & Meeting Scheduling**: AI checks real-time availability, suggests appointment slots, and stores precise datetime using Israel timezone. Supports comprehensive numeric date parsing.
+- **Calendar & Meeting Scheduling**: ⚡ BUILD 110.1 - AI checks real-time availability and suggests appointment slots with **explicit time confirmation** that **repeats the exact time the customer said**. Enhanced time parser with 14 confirmation phrases, DEBUG logging for full visibility, and priority given to user input. Appointments store precise datetime (date + time) in start_time/end_time fields. **Iron Rule: AI must repeat customer's exact time, not make up times!**
 - **Customizable AI Assistant**: Customizable names and introductions via prompts and greetings.
 - **Greeting Management UI**: Dedicated fields for initial greetings supporting dynamic placeholders and real-time cache invalidation.
 - **Customizable Status Management**: Per-business custom lead statuses.
-- **Billing and Contracts**: Integrated payment processing and contract generation.
+- **Billing and Contracts**: Integrated payment processing and contract generation with lead selection dropdowns.
 - **Automatic Recording Cleanup**: 2-day retention policy for recordings.
-- **Enhanced Reminders System**: Comprehensive reminder management with create/edit modal and full field support.
+- **Enhanced Reminders System**: Comprehensive reminder management with create/edit modal and full field support for lead-specific and general business reminders.
+- **Lead Integration in All Modals**: CRM reminders, payment/invoice creation, and contract creation all feature lead selection dropdowns.
 
 ## System Design Choices
-- **AI Response Optimization**: Max tokens set to 180 for quality Hebrew responses (3-4 sentences) using `gpt-4o-mini`, temperature 0.3-0.4.
-- **Robustness**: Thread tracking, enhanced cleanup for background processes, extended ASGI handler timeout.
-- **STT Reliability**: RELAXED validation, higher confidence for short utterances, streaming STT with 3-attempt retry, dynamic model selection, regional optimization (europe-west1), and early finalization on strong partials. Enhanced STT accuracy for Hebrew with expanded vocabulary hints (130+ terms) and boost priority.
+- **AI Response Optimization**: Max tokens set to 180 for quality Hebrew responses (3-4 sentences) using `gpt-4o-mini`, temperature 0.3-0.4 for balanced natural responses.
+- **Robustness**: Implemented thread tracking and enhanced cleanup for background processes, extended ASGI handler timeout.
+- **STT Reliability**: RELAXED validation allows quieter speech for better accuracy - amplitude threshold 50, RMS threshold 30, confidence threshold 0.3. Short utterances (≤2 words) require confidence ≥0.6 to prevent responding to noise. ⚡ BUILD 115: Streaming STT with 3-attempt retry mechanism, dynamic model selection with startup probe (phone_call → default fallback), ENHANCED mode preference with graceful degradation, europe-west1 region, early finalization on strong partials (>15 chars + punctuation saves 400-600ms). Optimized timing: BATCH=80ms, DEBOUNCE=120ms, TIMEOUT=450ms. numpy/scipy dependencies added for advanced audio analysis.
 - **Voice Consistency**: Standardized on a male voice (`he-IL-Wavenet-D`) and masculine Hebrew phrasing.
 - **Cold Start Optimization**: Automatic warmup of services on startup and via a dedicated `/warmup` endpoint.
 - **Business Auto-Detection**: Smart normalization of identifiers for automatic detection of new businesses.
 - **Hebrew TTS Improvements**: Enhanced pronunciation for large numbers and common Hebrew words using nikud.
-- **Thread-Safe Multi-Call Support**: Complete registry system with `RLock` protection for concurrent calls (up to 50).
-- **Perfect Multi-Tenant Isolation**: Every session registered with `tenant_id`, all Lead queries filtered by `tenant_id` to prevent cross-business data leakage.
+- **Streaming STT**: Session-per-call architecture with 3-attempt retry mechanism before fallback to single-request. Dynamic model selection with automatic probe at startup (tries user-preferred → phone_call → default). Regional optimization (europe-west1) for low RTT. Early finalization on strong partials (>15 chars + punctuation) saves 400-600ms. Features dispatcher pattern, continuous audio feed, and smart fallback to single-request mode.
+- **Thread-Safe Multi-Call Support**: Complete registry system with `RLock` protection for concurrent calls, supporting up to MAX_CONCURRENT_CALLS (default: 50).
+- **Perfect Multi-Tenant Isolation**: Every session registered with tenant_id, all Lead queries filtered by tenant_id, zero cross-business data leakage.
 
 # External Dependencies
 
