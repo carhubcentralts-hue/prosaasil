@@ -14,14 +14,17 @@ AgentLocator is a Hebrew CRM system for real estate businesses designed to strea
   2. **start_production.sh**: Added `--workers 1 --no-server-header` for single-worker stability
   3. **start_production.sh**: Removed auto-restart loop (lines 169-186) - no more mid-call restarts!
   4. **Procfile**: Added `--workers 1 --no-server-header` for dev consistency
+  5. **asgi.py**: Removed media event spam from logs (50/sec → 0) - only log important events (start, stop, mark)
 - **Expected Behavior**:
   - No `APP_START` events during active calls
   - Single uvicorn worker handles all WebSocket state consistently
   - Process runs until manually stopped (no watchdog restarts)
+  - Clean logs: only important events logged (no media spam)
 - **Key Improvements**:
   - ✅ **Zero mid-call restarts**: exec prevents script-based restarts
   - ✅ **Single worker**: no state conflicts between workers
   - ✅ **Stable sessions**: queues/threads survive for entire call duration
+  - ✅ **Clean logs**: media spam removed (50/sec → 0)
   - ✅ **Production-ready**: architect-approved deployment configuration
 - **Architect Review**: ✅ PASS - "start_production.sh now launches uvicorn as a single-worker foreground process and removes the manual restart loop, so the script itself no longer triggers mid-call restarts."
 
