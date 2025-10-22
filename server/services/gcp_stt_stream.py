@@ -538,6 +538,9 @@ class GcpStreamingSTT:
                     yield speech.StreamingRecognizeRequest(audio_content=bytes(buffer))
             
             # Start streaming recognition
+            if not self.client:
+                log.error("❌ Client not initialized")
+                return
             responses = self.client.streaming_recognize(streaming_config, request_generator())
             
             for response in responses:
