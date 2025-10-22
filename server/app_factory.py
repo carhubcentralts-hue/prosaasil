@@ -60,7 +60,7 @@ def create_app():
     print(f"🔧 APP_SHA={git_sha}")
     
     version_info = {
-        "build": 87,
+        "build": 119,  # ⚡ BUILD 119.4: Unbounded STT Queue + RX Worker
         "sha": git_sha,
         "fe": "client/dist",
         "time": time.strftime("%Y-%m-%d %H:%M:%S"),
