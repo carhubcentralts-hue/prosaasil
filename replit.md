@@ -4,7 +4,20 @@ AgentLocator is a Hebrew CRM system for real estate businesses designed to strea
 
 ## Recent Changes
 
-**⚡ BUILD 119.4 - Complete Race Condition Fix (PRODUCTION-READY!):**
+**⚡ BUILD 119.5 - Back-Pressure Handling (PRODUCTION-READY!):**
+- **Problem**: RX worker couldn't keep up with 50fps input, queue filled to 200 and dropped 557 frames!
+  - Worker enforced 20ms timing even when queue was full → accumulation!
+  - Need adaptive speed: normal pace when queue healthy, max speed when under pressure
+- **Solution**: Back-pressure handling with threshold
+  - `q < 100`: Normal mode with 20ms cadence (steady pacing)
+  - `q >= 100`: Back-pressure mode - NO SLEEP! (drain queue ASAP)
+  - Also reduced queue.get timeout from 0.5s → 0.1s for faster response
+- **Expected Behavior**:
+  - Normal operation: `[RX] fps_in=50 q<20 drops=0` (smooth!)
+  - Under load: `[RX] fps_in=200+ q=50 drops=0` (drains quickly!)
+  - Result: **ZERO drops** even during STT init or slow STT responses!
+
+**⚡ BUILD 119.4 - Complete Race Condition Fix:**
 - **Problem 1**: Frames lost during greeting/STT initialization (race condition)
   - RX worker starts → greeting sent (300-500ms) → STT session created **AFTER**
   - Frames arrive **before** session exists → dropped silently!

@@ -1538,28 +1538,31 @@ class MediaStreamHandler:
     
     def _rx_worker(self):
         """
-        ⚡ BUILD 119.4: RX Worker - consumes audio queue at controlled 20ms rate
-        Feeds STT at steady pace with resync, prevents queue overflow
+        ⚡ BUILD 119.5: RX Worker - with back-pressure handling
+        Normal mode: controlled 20ms rate for steady pacing
+        Back-pressure mode: max speed when queue fills (q>100) to prevent drops
         Uses pending buffer to preserve FIFO order during STT init
         """
         FRAME_INTERVAL = 0.020  # 20ms per frame
+        BACK_PRESSURE_THRESHOLD = 100  # Switch to max speed above this queue size
         next_deadline = time.perf_counter()
         last_stat = time.time()
         fps_count = 0
         write_acc_ms = 0.0
-        pending_frame = None  # ⚡ BUILD 119.4: Local buffer for frame waiting for session
+        pending_frame = None
         
         print("🎧 RX_WORKER: Started", flush=True)
         
         while self.rx_running:
-            # ⚡ BUILD 119.4: Only get new frame if we don't have one pending
+            # Get new frame if we don't have one pending
             if pending_frame is None:
                 try:
-                    pending_frame = self.audio_rx_q.get(timeout=0.5)
+                    pending_frame = self.audio_rx_q.get(timeout=0.1)
                 except queue.Empty:
                     # Telemetry once per second
                     if time.time() - last_stat >= 1.0:
-                        print(f"[RX] fps_in={fps_count} q={self.audio_rx_q.qsize()} drops={self.rx_drops} write_ms={write_acc_ms:.2f}", flush=True)
+                        q_size = self.audio_rx_q.qsize()
+                        print(f"[RX] fps_in={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.2f}", flush=True)
                         fps_count = 0
                         write_acc_ms = 0.0
                         last_stat = time.time()
@@ -1568,23 +1571,27 @@ class MediaStreamHandler:
             item = pending_frame
             
             if item.get("type") == "media":
-                # ⚡ BUILD 119.4: Enforce cadence BEFORE write
-                now = time.perf_counter()
-                if now < next_deadline:
-                    time.sleep(next_deadline - now)
+                # ⚡ BUILD 119.5: Back-pressure handling
+                q_size = self.audio_rx_q.qsize()
+                if q_size < BACK_PRESSURE_THRESHOLD:
+                    # Normal mode: enforce 20ms cadence
+                    now = time.perf_counter()
+                    if now < next_deadline:
+                        time.sleep(next_deadline - now)
+                # else: Back-pressure mode - NO SLEEP, drain queue ASAP!
                 
                 # Write to STT (should be fast and non-blocking)
                 pcm16 = item.get("pcm16")
                 if pcm16 and self.call_sid:
                     session = _get_session(self.call_sid)
                     if session:
-                        # יש session - כתוב את האודיו!
+                        # Write audio
                         t0 = time.perf_counter()
                         session.push_audio(pcm16)
                         dt = (time.perf_counter() - t0) * 1000.0
                         write_acc_ms += dt
                         
-                        # ✅ Frame processed successfully - advance deadline and clear pending
+                        # Advance deadline and clear pending
                         next_deadline += FRAME_INTERVAL
                         
                         # Resync if we're lagging significantly (>40ms)
@@ -1593,15 +1600,15 @@ class MediaStreamHandler:
                         
                         pending_frame = None
                         fps_count += 1
-                    # else: אין session עדיין - pending_frame נשאר, next_deadline לא מתקדם!
             else:
-                # Control frame or other type - process and clear pending
+                # Control frame - process and clear pending
                 pending_frame = None
                 next_deadline += FRAME_INTERVAL
             
-            # Telemetry once per second (also here)
+            # Telemetry once per second
             if time.time() - last_stat >= 1.0:
-                print(f"[RX] fps_in={fps_count} q={self.audio_rx_q.qsize()} drops={self.rx_drops} write_ms={write_acc_ms:.2f}", flush=True)
+                q_size = self.audio_rx_q.qsize()
+                print(f"[RX] fps_in={fps_count} q={q_size} drops={self.rx_drops} write_ms={write_acc_ms:.2f}", flush=True)
                 fps_count = 0
                 write_acc_ms = 0.0
                 last_stat = time.time()
