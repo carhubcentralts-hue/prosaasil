@@ -279,6 +279,7 @@ class MediaStreamHandler:
         self.tx_q = queue.Queue(maxsize=120)
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
+        self._last_overflow_log = 0.0  # For throttled logging
         
         print("🎯 AI CONVERSATION STARTED")
         
@@ -765,7 +766,7 @@ class MediaStreamHandler:
                                 # שלח clear לטוויליו כדי לנקות אודיו תקוע (אם החיבור תקין)
                                 if not self.ws_connection_failed:
                                     try:
-                                        self.tx_q.put_nowait({"type": "clear"})
+                                        self._tx_enqueue({"type": "clear"})
                                     except:
                                         pass
                                 else:
@@ -1016,7 +1017,7 @@ class MediaStreamHandler:
         # ✅ STEP 1: שלח clear לטוויליו ראשון
         if not self.ws_connection_failed:
             try:
-                self.tx_q.put_nowait({"type": "clear"})
+                self._tx_enqueue({"type": "clear"})
                 print("✅ CLEAR_SENT: Twilio clear command sent")
             except Exception as e:
                 print(f"⚠️ CLEAR_FAILED: {e}")
@@ -1343,6 +1344,29 @@ class MediaStreamHandler:
             except:
                 pass
             self._finalize_speaking()
+    
+    def _tx_enqueue(self, item):
+        """
+        ⚡ BUILD 115.1: Enqueue with drop-oldest policy
+        If queue is full, drop oldest frame and insert new one (Real-time > past)
+        """
+        try:
+            self.tx_q.put_nowait(item)
+        except queue.Full:
+            # Drop oldest frame
+            try:
+                _ = self.tx_q.get_nowait()
+            except queue.Empty:
+                pass
+            # Try again
+            try:
+                self.tx_q.put_nowait(item)
+            except queue.Full:
+                # Throttled logging - max once per 2 seconds
+                now = time.monotonic()
+                if now - self._last_overflow_log > 2.0:
+                    print("⚠️ tx_q full (drop oldest)", flush=True)
+                    self._last_overflow_log = now
     
     def _finalize_speaking(self):
         """סיום דיבור עם חזרה להאזנה"""
@@ -2254,14 +2278,21 @@ class MediaStreamHandler:
     
     def _tx_loop(self):
         """
-        ⚡ BUILD 115.1 FINAL: Improved TX loop with rate-limit, back-pressure, and error handling
-        Prevents send_queue overflow and ensures Twilio stays in sync
+        ⚡ BUILD 115.1 FINAL: Production-grade TX loop
+        - Precise 20ms/frame timing with next_deadline
+        - Back-pressure at 90% threshold
+        - Real-time telemetry (fps/q/drops)
         """
         print("🔊 TX_LOOP_START: Audio transmission thread started")
         
         FRAME_INTERVAL = 0.02  # 20 ms per frame expected by Twilio
-        last_send_time = time.perf_counter()
+        next_deadline = time.monotonic()
         tx_count = 0
+        
+        # Telemetry
+        frames_sent_last_sec = 0
+        drops_last_sec = 0
+        last_telemetry_time = time.monotonic()
         
         while self.tx_running:
             try:
@@ -2285,6 +2316,7 @@ class MediaStreamHandler:
                 queue_size = self.tx_q.qsize()
                 if queue_size > 108:  # 90% of 120
                     print(f"⚠️ tx_q nearly full ({queue_size}/120) – applying back-pressure", flush=True)
+                    drops_last_sec += 1
                     time.sleep(FRAME_INTERVAL * 2)  # Double wait to drain queue
                     continue
                 
@@ -2295,15 +2327,26 @@ class MediaStreamHandler:
                     "media": {"payload": item["payload"]}
                 }))
                 tx_count += 1
+                frames_sent_last_sec += 1
                 
-                if tx_count % 50 == 0:  # Log every 50 frames (1 second)
-                    print(f"🎵 TX_MEDIA: Frame {tx_count} {'SUCCESS' if success else 'FAILED'}")
+                # ⚡ Precise timing with next_deadline
+                next_deadline += FRAME_INTERVAL
+                delay = next_deadline - time.monotonic()
+                if delay > 0:
+                    time.sleep(delay)
+                else:
+                    # Missed deadline - resync
+                    next_deadline = time.monotonic()
                 
-                # ⚡ Rate limiting: Maintain steady 20ms/frame pace
-                elapsed = time.perf_counter() - last_send_time
-                if elapsed < FRAME_INTERVAL:
-                    time.sleep(FRAME_INTERVAL - elapsed)
-                last_send_time = time.perf_counter()
+                # ⚡ Telemetry: Print stats every second
+                now = time.monotonic()
+                if now - last_telemetry_time >= 1.0:
+                    queue_size = self.tx_q.qsize()
+                    print(f"[TX] fps={frames_sent_last_sec} q={queue_size} drops={drops_last_sec}", flush=True)
+                    frames_sent_last_sec = 0
+                    drops_last_sec = 0
+                    last_telemetry_time = now
+                
                 continue
             
             # Handle "mark" event
@@ -2341,7 +2384,7 @@ class MediaStreamHandler:
             
             # clear + שידור אם החיבור תקין
             if self.stream_sid and not self.ws_connection_failed:
-                self.tx_q.put_nowait({"type": "clear"})
+                self._tx_enqueue({"type": "clear"})
             elif self.ws_connection_failed:
                 print("💔 SKIPPING TTS clear - WebSocket connection failed")
                 return None
