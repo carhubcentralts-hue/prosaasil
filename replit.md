@@ -12,6 +12,13 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 - **Result**: Stable production deployment - works reliably with default/phone_call models for Hebrew
 - **Fix**: Removed startup probe and custom endpoint that caused "לא הבנתי" loop in production
 
+**⚡ BUILD 117 - Anti-Interruption Fix:**
+- **False Barge-in Prevention**: Lowered long_response threshold from 20→12 words to disable barge-in for most responses
+- **Stricter Detection**: Increased barge-in threshold to 1800 RMS (from 1500), noise_floor multiplier to 18x (from 15x)
+- **Longer Grace Period**: Extended from 1.5s→2.5s to prevent cutting off response starts
+- **Continuous Voice Requirement**: Increased from 1500ms→2000ms (100 frames) to confirm intentional interruption
+- **Result**: No more mid-sentence cutoffs! Bot completes full responses without false interruptions from background noise/echo
+
 **⚡ BUILD 116 - Sub-2s Response Optimization:**
 - **Ultra-Fast STT**: BATCH=40ms, DEBOUNCE=90ms, TIMEOUT=320ms, VAD_HANGOVER=180ms (aggressive)
 - **Early-Finalize**: Cuts 300-500ms by finalizing strong partials (≥12 chars + punctuation or ≥18 chars)
