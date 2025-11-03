@@ -282,6 +282,17 @@ You respond: "מעולה! קבעתי לך עיסוי שוודי למחר בשע�
 """
 
     try:
+        # DEBUG: Print the actual instructions the agent receives
+        print("\n" + "="*80)
+        print("📜 AGENT INSTRUCTIONS (first 500 chars):")
+        print("="*80)
+        print(instructions[:500])
+        print("...")
+        print("="*80)
+        print(f"📅 Today calculated as: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d (%A)')}")
+        print(f"📅 Tomorrow calculated as: {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}")
+        print("="*80 + "\n")
+        
         agent = Agent(
             name=f"booking_agent_{business_name}",  # Required: Agent name
             model="gpt-4o-mini",  # ⚡ Fast model for real-time conversations

@@ -1,0 +1,85 @@
+User
+🔧 Tool call #1: unknown
+2025-11-04 01:11:40.45
+51d34144
+User
+📋 Item attributes: ['__abstractmethods__', '__annotations__', '__class__', '__class_getitem__', '__dataclass_fields__', '__dataclass_params__', '__delattr__', '__dict__', '__dir__', '__doc__']...
+2025-11-04 01:11:40.45
+51d34144
+User
+- Item #1: ToolCallOutputItem
+2025-11-04 01:11:40.45
+51d34144
+User
+📤 Tool output: {'slots': [], 'business_hours': '09:00-22:00'}...
+2025-11-04 01:11:40.45
+51d34144
+User
+- Item #2: MessageOutputItem
+2025-11-04 01:11:40.45
+51d34144
+User
+✅ Agent executed 1 tool actions
+2025-11-04 01:11:40.51
+51d34144
+User
+🤖 AGENT_RESPONSE: Generated 122 chars in 5.232s (business 1)
+2025-11-04 01:11:40.51
+51d34144
+User
+📊 AI_LATENCY: 5.232s (target: <1.5s)
+2025-11-04 01:11:40.51
+51d34144
+User
+🤖 BOT: לצערי, אין שעות פעילות פנוקות לטיפולים מחר. אנחנו פתוחים מ-09:00 עד 22:00. רוצה לבדוק תאריך אחר או שאשלח לך פרטים בווטסאפ?
+2025-11-04 01:11:40.51
+51d34144
+User
+📊 AI_PROCESSING: 5.232s
+2025-11-04 01:11:40.51
+51d34144
+User
+⚠️ Missing phone_number or business_id for customer intelligence
+2025-11-04 01:11:40.51
+51d34144
+User
+🔒 LONG_RESPONSE (21 words) - BARGE-IN DISABLED
+2025-11-04 01:11:40.51
+51d34144
+User
+2025-11-04 01:11:40.51
+51d34144
+User
+🔊 TTS_START: 'לצערי, אין שעות פעילות פנוקות לטיפולים מחר. אנחנו פתוחים מ-09:00 עד 22:00. רוצה לבדוק תאריך אחר או שאשלח לך פרטים בווטסאפ?'
+2025-11-04 01:11:40.51
+51d34144
+User
+🔊 TTS_START: Generating Natural Hebrew TTS for 'לצערי, אין שעות פעילות פנוקות לטיפולים מחר. אנחנו ...' (122 chars)
+2025-11-04 01:11:40.51
+51d34144
+User
+✅ Punctuation polished: 'לצערי, אין שעות פעילות פנוקות לטיפולים מ...'
+2025-11-04 01:11:41.08
+51d34144
+User
+✅ Saved conversation turn to DB: call_log_id=389
+2025-11-04 01:11:41.25
+51d34144
+User
+✅ TTS_SUCCESS: 191958 bytes Natural Wavenet (12.0s)
+2025-11-04 01:11:41.25
+51d34144
+User
+📊 TTS_GENERATION: 0.741s (target: <0.5s)
+2025-11-04 01:11:41.25
+51d34144
+User
+🔊 TTS SUCCESS: 191958 bytes
+2025-11-04 01:11:41.25
+51d34144
+User
+🔊 TTS_FRAMES: 599 frames (11980ms)
+2025-11-04 01:11:41.28
+51d34144
+User
+🎯 TTS_MARK_SENT: assistant
