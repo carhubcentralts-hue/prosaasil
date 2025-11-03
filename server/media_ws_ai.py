@@ -1671,8 +1671,9 @@ class MediaStreamHandler:
             
             # If there's a loop and events queue, use it
             if self.loop and self.events_q:
+                events_q = self.events_q  # Type hint helper
                 self.loop.call_soon_threadsafe(
-                    lambda: self.events_q.put_nowait(("stt_final_text", text))
+                    lambda: events_q.put_nowait(("stt_final_text", text))
                 )
             else:
                 # Fallback: direct callback (sync mode)
