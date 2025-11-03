@@ -440,20 +440,25 @@ class AIService:
         """
         # Check if agents are enabled (default: enabled)
         agents_enabled = os.getenv("AGENTS_ENABLED", "1") == "1"
+        logger.info(f"🎯 AGENTS_ENABLED = {agents_enabled}")
         
         if not agents_enabled:
             # Fallback to regular response
+            logger.warning("⚠️ Agents disabled - using regular response")
             return self.generate_response(message, business_id, context, channel, is_first_turn)
         
         # ⚡ Capture start time BEFORE try block for error logging
         start_time = time.time()
         
         try:
+            logger.info("📦 Importing agent modules...")
             from server.agents import get_agent, AGENTS_ENABLED
             from agents import Runner
+            logger.info(f"✅ Agent modules imported. AGENTS_ENABLED={AGENTS_ENABLED}")
             
             if not AGENTS_ENABLED:
                 # Double-check - agents not available
+                logger.warning("⚠️ AGENTS_ENABLED=False in module - using regular response")
                 return self.generate_response(message, business_id, context, channel, is_first_turn)
             
             # Get business name
@@ -466,11 +471,14 @@ class AIService:
             logger.info(f"📋 Loaded prompt for business {business_id}: {len(custom_prompt)} chars")
             
             # Get booking agent with custom prompt and business_id
+            logger.info(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}")
             agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt, business_id=business_id)
             
             if not agent:
-                logger.warning("Failed to create agent - falling back to regular response")
+                logger.error("❌ Failed to create agent - falling back to regular response")
                 return self.generate_response(message, business_id, context, channel, is_first_turn)
+            
+            logger.info(f"✅ Agent created successfully: {agent.name}")
             
             # Build enhanced context for agent
             agent_context = {

@@ -492,16 +492,9 @@ def handle_recording():
                 """Background thread for recording processing"""
                 try:
                     enqueue_recording(form_copy)
-                    current_app.logger.info("REC_QUEUED_ASYNC", extra={
-                        "call_sid": call_sid[:16],
-                        "duration": rec_duration,
-                        "status": rec_status
-                    })
+                    print(f"✅ REC_QUEUED_ASYNC: {call_sid[:16]} duration={rec_duration}")
                 except Exception as e:
-                    current_app.logger.error("REC_QUEUE_ASYNC_FAIL", extra={
-                        "call_sid": call_sid[:16],
-                        "error_type": type(e).__name__
-                    })
+                    print(f"❌ REC_QUEUE_ASYNC_FAIL: {call_sid[:16]} error={type(e).__name__}: {e}")
             
             # Fire daemon thread and return immediately (non-blocking)
             threading.Thread(target=async_enqueue, daemon=True).start()
