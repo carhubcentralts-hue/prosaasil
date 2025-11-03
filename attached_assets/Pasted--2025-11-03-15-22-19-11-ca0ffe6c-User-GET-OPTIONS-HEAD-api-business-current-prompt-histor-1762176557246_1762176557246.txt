@@ -1,0 +1,162 @@
+
+2025-11-03 15:22:19.11
+ca0ffe6c
+User
+{'GET', 'OPTIONS', 'HEAD'} /api/business/current/prompt/history
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'POST', 'OPTIONS'} /api/business/<tenant>/prompts
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'GET', 'OPTIONS', 'HEAD'} /api/business/current/prompt/history
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'GET', 'OPTIONS', 'HEAD'} /api/statuses
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'PUT', 'OPTIONS'} /api/statuses/<int:status_id>
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'POST', 'OPTIONS'} /api/statuses/reorder
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'POST', 'OPTIONS'} /api/auth/reset
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/whatsapp
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'GET', 'OPTIONS', 'HEAD'} /api/admin/leads/stats
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'GET', 'PUT', 'OPTIONS', 'HEAD'} /api/admin/support/prompt
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'GET', 'PUT', 'OPTIONS', 'HEAD'} /api/admin/support/phones
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'GET', 'OPTIONS', 'HEAD'} /api/crm/threads
+2025-11-03 15:27:49.24
+ca0ffe6c
+User
+{'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/activities
+2025-11-03 15:27:51.55
+ca0ffe6c
+User
+✅ Saved conversation turn to DB: call_log_id=321
+2025-11-03 15:27:55.31
+ca0ffe6c
+User
+🎙️ REAL_VOICE: rms=8929, threshold=35.0
+2025-11-03 15:27:55.31
+ca0ffe6c
+User
+🎤 [CA594609] Utterance 6f5af440 BEGIN
+
+2025-11-03 15:27:55.89
+ca0ffe6c
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #1
+2025-11-03 15:27:55.89
+ca0ffe6c
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=537
+2025-11-03 15:27:55.89
+ca0ffe6c
+User
+🎤 SAFE PROCESSING: conversation #1
+2025-11-03 15:27:55.89
+ca0ffe6c
+User
+⏱️ [STT_STREAM] Calling _utterance_end...
+2025-11-03 15:27:55.89
+ca0ffe6c
+User
+🎤 [CA594609] _utterance_end: Collecting results for utterance 6f5af440 (timeout=0.45s)
+2025-11-03 15:27:55.89
+ca0ffe6c
+User
+2025-11-03 15:27:56.34
+ca0ffe6c
+User
+⚠️ [CA594609] Timeout after 0.450s - using fallback
+2025-11-03 15:27:56.34
+ca0ffe6c
+User
+⚠️ [CA594609] No text available - returning empty
+2025-11-03 15:27:56.34
+ca0ffe6c
+User
+🏁 [CA594609] Utterance 6f5af440 COMPLETE: returning '(empty)'
+2025-11-03 15:27:56.34
+ca0ffe6c
+User
+[LATENCY] final_wait=0.45s, utterance_total=0.45s
+2025-11-03 15:27:56.34
+ca0ffe6c
+User
+⏱️ [STT_STREAM] _utterance_end took 0.451s, result: '(empty)'
+2025-11-03 15:27:56.34
+ca0ffe6c
+User
+⚠️ [STT] Streaming returned empty → fallback to single
+2025-11-03 15:27:56.34
+ca0ffe6c
+User
+🎵 STT_PROCEED: Processing 9600 bytes with Google STT (audio validated)
+2025-11-03 15:27:56.34
+ca0ffe6c
+User
+📊 AUDIO_QUALITY_CHECK: max_amplitude=32124, rms=2211, duration=0.6s
+2025-11-03 15:27:57.22
+ca0ffe6c
+User
+✅ AUDIO_VALIDATED: amp=32124, rms=2211, var=4892504, zcr=0.275
+2025-11-03 15:27:57.30
+ca0ffe6c
+User
+⚠️ STT_TIMEOUT (400 Invalid recognition 'config': The phone_call model is currently not supported for language : iw-IL.) - likely silence
+2025-11-03 15:27:57.30
+ca0ffe6c
+User
+⏱️ [STT_FALLBACK] Single-request took 0.965s, result: '(empty)'
+2025-11-03 15:27:57.30
+ca0ffe6c
+User
+🎤 USER:
+2025-11-03 15:27:57.30
+ca0ffe6c
+User
+📊 ASR_LATENCY: 1.416s (target: <0.7s)
+2025-11-03 15:27:57.30
+ca0ffe6c
+User
+🚫 NO_SPEECH_DETECTED: Staying silent (attempt 1)
+2025-11-03 15:27:57.30
+ca0ffe6c
+User
+✅ Processing complete for conversation #1
+2025-11-03 15:27:58.76
+ca0ffe6c
+User
+📨 Received: mark
+2025-11-03 15:27:58.76
+ca0ffe6c
+User
