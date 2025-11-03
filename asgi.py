@@ -131,7 +131,10 @@ async def ws_twilio_media(websocket: WebSocket):
                 while ws_wrapper.running:
                     try:
                         msg = await websocket.receive_json()
-                        print(f"📨 Received: {msg.get('event', 'unknown')}", flush=True)
+                        # ✅ Only log non-media events (media frames are too noisy - 50/sec!)
+                        event_type = msg.get('event', 'unknown')
+                        if event_type != 'media':
+                            print(f"📨 Received: {event_type}", flush=True)
                         ws_wrapper.recv_queue.put(json.dumps(msg))
                     except json.JSONDecodeError:
                         # Non-JSON frames - consume text to keep loop alive
