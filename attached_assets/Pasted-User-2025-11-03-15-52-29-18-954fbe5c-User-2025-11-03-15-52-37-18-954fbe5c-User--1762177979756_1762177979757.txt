@@ -1,0 +1,109 @@
+User
+================
+2025-11-03 15:52:29.18
+954fbe5c
+User
+2025-11-03 15:52:37.18
+954fbe5c
+User
+🎙️ REAL_VOICE: rms=926, threshold=35.0
+2025-11-03 15:52:37.18
+954fbe5c
+User
+🎤 [CAd19e33] Utterance e06304f1 BEGIN
+2025-11-03 15:52:37.57
+954fbe5c
+User
+🟡 [PARTIAL] 'אני' saved for CAd19e33... (utterance: e06304f1)
+2025-11-03 15:52:37.57
+954fbe5c
+User
+🔊 PARTIAL: 'אני'
+2025-11-03 15:52:37.89
+954fbe5c
+User
+🟡 [PARTIAL] 'אני מחפש' saved for CAd19e33... (utterance: e06304f1)
+2025-11-03 15:52:37.89
+954fbe5c
+User
+🔊 PARTIAL: 'אני מחפש'
+2025-11-03 15:52:38.19
+954fbe5c
+User
+🟡 [PARTIAL] 'אני' saved for CAd19e33... (utterance: e06304f1)
+2025-11-03 15:52:38.19
+954fbe5c
+User
+🔊 PARTIAL: 'אני'
+2025-11-03 15:52:38.29
+954fbe5c
+User
+🟡 [PARTIAL] 'מחפש בבקשה' saved for CAd19e33... (utterance: e06304f1)
+2025-11-03 15:52:38.32
+954fbe5c
+User
+💓 WS_KEEPALIVE #1 (prevents 5min timeout)
+2025-11-03 15:52:38.32
+954fbe5c
+User
+2025-11-03 15:52:38.34
+954fbe5c
+User
+📨 Received: mark
+2025-11-03 15:52:38.41
+954fbe5c
+User
+🟡 [PARTIAL] 'אני מחפש' saved for CAd19e33... (utterance: e06304f1)
+2025-11-03 15:52:38.41
+954fbe5c
+User
+🔊 PARTIAL: 'אני מחפש'
+2025-11-03 15:52:38.59
+954fbe5c
+User
+🟡 [PARTIAL] 'בבקשה בית' saved for CAd19e33... (utterance: e06304f1)
+2025-11-03 15:52:38.71
+954fbe5c
+User
+🟡 [PARTIAL] 'אני מחפש' saved for CAd19e33... (utterance: e06304f1)
+2025-11-03 15:52:38.71
+954fbe5c
+User
+🔊 PARTIAL: 'אני מחפש'
+2025-11-03 15:52:38.99
+954fbe5c
+User
+🟡 [PARTIAL] 'ביטוח the' saved for CAd19e33... (utterance: e06304f1)
+2025-11-03 15:52:39.27
+954fbe5c
+User
+✅ [FINAL] 'אני מחפש בבקשה ביטוח' received for CAd19e33... (utterance: e06304f1)
+2025-11-03 15:52:39.27
+954fbe5c
+User
+📢 [FINAL_EVENT] Set for CAd19e33...
+2025-11-03 15:52:39.27
+954fbe5c
+User
+🟡 [PARTIAL] 'דירה' saved for CAd19e33... (utterance: e06304f1)
+2025-11-03 15:52:39.27
+954fbe5c
+User
+🔊 PARTIAL: 'דירה'
+2025-11-03 15:52:39.58
+954fbe5c
+User
+🟡 [PARTIAL] 'אני מחפש בבקשה ביטוח דירה' saved for CAd19e33... (utterance: e06304f1)
+2025-11-03 15:52:40.96
+954fbe5c
+User
+🎤 END OF UTTERANCE: 3.8s audio, conversation #0
+2025-11-03 15:52:40.96
+954fbe5c
+User
+🧠 STATE -> PROCESSING | len=60800 | silence_ms=1801
+
+2025-11-03 15:52:40.96
+954fbe5c
+User
+🎤 SAFE PROCESSING: conversatio

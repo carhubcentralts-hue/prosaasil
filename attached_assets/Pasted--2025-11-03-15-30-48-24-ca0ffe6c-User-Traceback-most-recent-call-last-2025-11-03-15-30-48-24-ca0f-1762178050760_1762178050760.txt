@@ -1,0 +1,86 @@
+
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+Traceback (most recent call last):
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/google/api_core/grpc_helpers.py", line 115, in __next__
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+return next(self._wrapped)
+
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+^^^^^^^^^^^^^^^^^^^
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/grpc/_channel.py", line 543, in __next__
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+return self._next()
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+^^^^^^^^^^^^
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/grpc/_channel.py", line 972, in _next
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+raise self
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+grpc._channel._MultiThreadedRendezvous: <_MultiThreadedRendezvous of RPC that terminated with:
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+status = StatusCode.UNAVAILABLE
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+details = "recvmsg:Connection reset by peer"
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+debug_error_string = "UNKNOWN:Error received from peer ipv4:74.125.26.95:443 {grpc_message:"recvmsg:Connection reset by peer", grpc_status:14}"
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+>
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+The above exception was the direct cause of the following exception:
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+Traceback (most recent call last):
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+File "/home/runner/workspace/server/services/gcp_stt_stream.py", line 233, in _run
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+for resp in responses:
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/google/api_core/grpc_helpers.py", line 118, in __next__
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+raise exceptions.from_grpc_error(exc) from exc
+2025-11-03 15:30:48.24
+ca0ffe6c
+User
+google.api_core.exceptions.ServiceUnavailable: 503 recvmsg:Connection reset by peer
