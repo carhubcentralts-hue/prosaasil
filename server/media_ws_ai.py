@@ -1182,14 +1182,21 @@ class MediaStreamHandler:
             if hasattr(self, 'consecutive_empty_stt'):
                 self.consecutive_empty_stt = 0
             
-            # ⚡ BUILD 109: Short utterance false-positive protection
+            # ⚡ BUILD 117: Expanded common words list
             word_count = len(text.split())
             if word_count <= 2:
                 # Very short utterances might be noise - require them to be common words
                 common_words = {
+                    # Basic responses
                     "כן", "לא", "שלום", "תודה", "בסדר", "נהדר", "ביי", "היי", 
-                    "מה", "למה", "איך", "מי", "מתי", "איפה", "כמה", "אוקיי",
-                    "טוב", "רגע", "כן כן", "לא לא", "שלום שלום"
+                    "אוקיי", "אוקי", "טוב", "רגע", "כן כן", "לא לא", "שלום שלום",
+                    # Common verbs/phrases
+                    "אפשר", "צריך", "רוצה", "מעניין", "מצוין", "נכון", "בטוח",
+                    "אולי", "בוודאי", "ברור", "יופי", "מעולה", "סבבה", "בטח",
+                    # Questions
+                    "מה", "למה", "איך", "מי", "מתי", "איפה", "כמה", "מדוע",
+                    # Real estate common
+                    "דירה", "בית", "חדרים", "מטר", "שקל", "מיליון", "אלף"
                 }
                 # Normalize: remove punctuation for comparison
                 normalized_text = text.strip().strip(".,!?;:\"'")
