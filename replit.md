@@ -30,8 +30,10 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
   - Fixed silent TTS warmup failures - now throws exceptions on client init failure, validates synthesis result
   - **CRITICAL**: Added missing AI timing measurement (last_ai_time was never set - causing invisible 6s delays!)
   - **CRITICAL**: Added missing STT timing save (last_stt_time was never saved)
+  - **CRITICAL**: Fixed Flask app recreation bug - was calling create_app() on every AI request causing app restarts mid-call! Now creates Flask app once per handler and reuses it.
   - Removed noisy media frame logs (50/sec spam in production logs)
   - All timing now logged: ASR_LATENCY, AI_LATENCY, TTS_GENERATION, TOTAL_LATENCY
+  - Fixed Deal foreign key constraint to prevent orphaned deals (customer.id with CASCADE)
 
 # User Preferences
 

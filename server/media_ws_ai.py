@@ -2207,14 +2207,6 @@ class MediaStreamHandler:
             
             # ✅ UNIFIED: Use AIService for ALL prompt management (auto-updates!)
             from server.services.ai_service import generate_ai_response
-            from server.app_factory import create_app
-            
-            # וידוא שיש business_id
-            if not hasattr(self, 'business_id') or not self.business_id:
-                # זיהוי business_id אם חסר - WITH APP CONTEXT
-                app = create_app()
-                with app.app_context():
-                    self._identify_business_from_phone()
             
             # Build context for the AI
             context = {
@@ -2230,21 +2222,20 @@ class MediaStreamHandler:
                     for item in self.conversation_history[-6:]  # עד 6 תורות אחרונים לזיכרון מלא
                 ]
             
-            # ✅ CRITICAL FIX: Generate AI response WITH APP CONTEXT (for DB access)
+            # ✅ CRITICAL FIX: Use shared Flask app instance (no recreation!)
             business_id = getattr(self, 'business_id', None)
             if not business_id:
-                # ✅ זיהוי business_id אם חסר
-                app = create_app()
-                with app.app_context():
-                    self._identify_business_from_phone()
-                business_id = self.business_id or 11  # Fallback to business 11
-            
-            app = create_app()
+                business_id = 11  # Fallback to business 11
             
             # ⚡ CRITICAL: Measure AI response time
             ai_start = time.time()
             
-            with app.app_context():
+            # ✅ FIX: Use existing Flask app context (CRITICAL - prevents app restart!)
+            if not hasattr(self, '_flask_app'):
+                from server.app_factory import create_app
+                self._flask_app = create_app()  # Create once and reuse!
+            
+            with self._flask_app.app_context():
                 ai_response = generate_ai_response(
                     message=hebrew_text,
                     business_id=int(business_id),  # Ensure it's an int
