@@ -54,6 +54,7 @@ Preferred communication style: Simple, everyday language.
   - Hebrew numbers in STT contexts (אחד, שניים, שלוש...שש) with 20.0 boost for better accuracy
   - REMOVED broken word filter that rejected valid words - now trusts Google STT completely (only rejects ≤2 chars)
   - WebSocket stability: 120s timeout (was 30s), 10s keepalive (was 18s) to prevent ABNORMAL_CLOSURE
+  - **CRITICAL FIX: STT model hard-coded to "default"** - Google STT phone_call model NOT supported for Hebrew (iw-IL)
 - **AI Response Optimization**: Max tokens set to 350 for COMPLETE Hebrew sentences using `gpt-4o-mini`, temperature 0.3-0.4.
 - **Robustness**: Implemented thread tracking, enhanced cleanup for background processes, extended ASGI handler timeout. Flask app singleton pattern to prevent app restarts mid-call.
 - **STT Reliability**: Relaxed validation for quieter speech, confidence checks, and short-utterance rejection. Streaming STT with 3-attempt retry, dynamic model selection, and early finalization.
