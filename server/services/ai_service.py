@@ -131,18 +131,18 @@ class AIService:
             logger.info(f"✅ Replaced {{{{business_name}}}} with '{business_name}'")
             
             if not settings:
-                # ⚡ BUILD 109: Balanced - quality + speed
+                # ⚡ BUILD 117: INCREASED - allow complete sentences without truncation
                 prompt_data = {
                     "system_prompt": system_prompt,
                     "model": "gpt-4o-mini",  # Fast model
-                    "max_tokens": 180,  # ⚡ BUILD 109: 180 tokens for quality Hebrew responses (3-4 sentences)
+                    "max_tokens": 350,  # ⚡ BUILD 117: 350 tokens for COMPLETE sentences (no mid-sentence cuts!)
                     "temperature": 0.3  # Balanced temperature for natural responses
                 }
             else:
                 prompt_data = {
                     "system_prompt": system_prompt,
                     "model": settings.model,
-                    "max_tokens": min(settings.max_tokens, 180),  # ⚡ BUILD 109: Cap at 180 for quality
+                    "max_tokens": min(settings.max_tokens, 350),  # ⚡ BUILD 117: Cap at 350 for complete sentences
                     "temperature": min(settings.temperature, 0.4)  # Balanced temperature
                 }
             
@@ -162,7 +162,7 @@ class AIService:
             return {
                 "system_prompt": self._get_default_hebrew_prompt(business_name, channel),
                 "model": "gpt-4o-mini",
-                "max_tokens": 180,  # ⚡ BUILD 109: 180 tokens for quality
+                "max_tokens": 350,  # ⚡ BUILD 117: 350 tokens for COMPLETE sentences
                 "temperature": 0.3  # Balanced
             }
     
@@ -233,11 +233,11 @@ class AIService:
             # טעינת פרומפט עסק לפי ערוץ
             prompt_data = self.get_business_prompt(business_id, channel)
             
-            # ⚡ BUILD 117: First turn with FULL responses (no truncation!)
+            # ⚡ BUILD 117: First turn - NO SPECIAL LIMIT! Let AI finish complete sentences
+            # User requirement: "אם היא צריכה להסביר דקה שתסביר דקה" - let it speak as long as needed
             if is_first_turn:
-                max_words_first = int(os.getenv("AI_MAX_WORDS_FIRST_REPLY", "60"))  # ✅ 60 words = complete sentences
-                prompt_data["max_tokens"] = int(max_words_first * 1.7)  # ≈100 tokens עבור 60 מילים עבריות
-                logger.info(f"🎯 First turn - limiting to {prompt_data['max_tokens']} tokens (~{max_words_first} words)")
+                # Don't reduce max_tokens for first turn - keep the default 350 for complete sentences
+                logger.info(f"🎯 First turn - using full {prompt_data['max_tokens']} tokens for complete sentences")
             
             # בניית הודעות
             messages: List[Dict[str, str]] = [
