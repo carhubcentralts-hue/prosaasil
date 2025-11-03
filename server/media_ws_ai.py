@@ -1135,6 +1135,7 @@ class MediaStreamHandler:
                 # ✅ מדידת ASR Latency
                 if hasattr(self, 'eou_timestamp'):
                     asr_latency = time.time() - self.eou_timestamp
+                    self.last_stt_time = asr_latency  # ⚡ CRITICAL: Save for TOTAL_LATENCY calculation
                     print(f"📊 ASR_LATENCY: {asr_latency:.3f}s (target: <0.7s)")
                     
             except Exception as e:
@@ -2239,6 +2240,10 @@ class MediaStreamHandler:
                 business_id = self.business_id or 11  # Fallback to business 11
             
             app = create_app()
+            
+            # ⚡ CRITICAL: Measure AI response time
+            ai_start = time.time()
+            
             with app.app_context():
                 ai_response = generate_ai_response(
                     message=hebrew_text,
@@ -2248,7 +2253,11 @@ class MediaStreamHandler:
                     is_first_turn=is_first_turn  # ⚡ Phase 2C: Optimize first turn!
                 )
             
-            print(f"✅ AI_SERVICE_RESPONSE: Generated {len(ai_response)} chars for business {business_id}")
+            # ⚡ CRITICAL: Save AI timing for TOTAL_LATENCY calculation
+            self.last_ai_time = time.time() - ai_start
+            print(f"✅ AI_SERVICE_RESPONSE: Generated {len(ai_response)} chars in {self.last_ai_time:.3f}s (business {business_id})")
+            print(f"📊 AI_LATENCY: {self.last_ai_time:.3f}s (target: <1.5s)")
+            
             return ai_response
             
         except Exception as e:

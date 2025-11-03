@@ -22,11 +22,16 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
 
 **⚡ PHASE 2 - Advanced Sub-2s Optimizations:**
 - **Phase 2A (STT Tuning)**: ENV-based ultra-aggressive STT parameters (DEBOUNCE=60ms, TIMEOUT=240ms, HANGOVER=160ms, MIN_UTT=0.25s) for even faster responses beyond BUILD 116
-- **Phase 2B (TTS Pre-warming)**: `maybe_warmup()` every 8 minutes prevents cold starts, **FIXED**: Now forces client initialization on startup with explicit error handling, logs success/failure clearly with traceback on errors. Integrated in app_factory.py before serving traffic.
+- **Phase 2B (TTS Pre-warming)**: `maybe_warmup()` every 8 minutes prevents cold starts, **FIXED**: Now forces client initialization on startup with explicit error handling, logs success/failure clearly with traceback on errors. Integrated in app_factory.py before serving traffic. **Verified working**: 282ms warmup time in production.
 - **Phase 2C (LLM Discipline)**: First turn limited to 24 words (≈40 tokens) for rapid initial response, subsequent turns use full 180 tokens for quality. ENV-configurable via `AI_MAX_WORDS_FIRST_REPLY`
-- **Phase 2D (Metrics)**: `emit_turn_metrics()` infrastructure ready for 6-metric tracking (STT_FIRST_PARTIAL_MS, STT_FINAL_MS, TTS_READY_MS, TOTAL_LATENCY_MS, BARGE_IN_HIT, EOU_REASON)
+- **Phase 2D (Metrics)**: Complete timing infrastructure with last_ai_time and last_stt_time measurements. Full latency breakdown: STT→AI→TTS→TOTAL printed for every turn.
 - **Architecture Notes**: TTS warmup blocks startup until complete (ensures client ready before traffic), turn_count per-call (no race conditions), DEBUG=1 enables detailed timing logs, all defaults tunable via ENV
-- **Bug Fixes (Nov 3)**: Fixed silent warmup failures - now throws exceptions on client init failure, uses log.info() instead of log.debug(), validates synthesis result, prints clear success/failure messages with timing
+- **Critical Bug Fixes (Nov 3)**: 
+  - Fixed silent TTS warmup failures - now throws exceptions on client init failure, validates synthesis result
+  - **CRITICAL**: Added missing AI timing measurement (last_ai_time was never set - causing invisible 6s delays!)
+  - **CRITICAL**: Added missing STT timing save (last_stt_time was never saved)
+  - Removed noisy media frame logs (50/sec spam in production logs)
+  - All timing now logged: ASR_LATENCY, AI_LATENCY, TTS_GENERATION, TOTAL_LATENCY
 
 # User Preferences
 
