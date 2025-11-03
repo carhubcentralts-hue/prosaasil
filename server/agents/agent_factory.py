@@ -45,9 +45,22 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         # Wrapper for calendar_find_slots
         @function_tool
         def calendar_find_slots_wrapped(date_iso: str, duration_min: int = 60):
-            """Find available appointment slots"""
+            """
+            Find available appointment slots for a specific date
+            
+            Args:
+                date_iso: Date in ISO format (YYYY-MM-DD) like "2025-11-10"
+                duration_min: Duration in minutes (default 60)
+                
+            Returns:
+                FindSlotsOutput with list of available slots
+            """
             try:
-                logger.info(f"🔧 calendar_find_slots_wrapped called: date={date_iso}, business_id={business_id}")
+                logger.info(f"🔧 TOOL CALLED: calendar_find_slots_wrapped")
+                logger.info(f"   📅 date_iso={date_iso}")
+                logger.info(f"   ⏱️  duration_min={duration_min}")
+                logger.info(f"   🏢 business_id={business_id}")
+                
                 from server.agents.tools_calendar import FindSlotsInput, _calendar_find_slots_impl
                 
                 # Tools are called from ai_service.py which already has Flask context
@@ -58,10 +71,17 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 )
                 # Call internal implementation function directly
                 result = _calendar_find_slots_impl(input_data)
-                logger.info(f"✅ calendar_find_slots_wrapped success: {len(result.slots)} slots")
+                
+                logger.info(f"✅ calendar_find_slots_wrapped RESULT: {len(result.slots)} slots found")
+                if result.slots:
+                    slot_times = [s.start_display for s in result.slots[:5]]
+                    logger.info(f"   Available times: {', '.join(slot_times)}{'...' if len(result.slots) > 5 else ''}")
+                else:
+                    logger.warning(f"   ⚠️ NO SLOTS AVAILABLE for {date_iso}")
+                
                 return result
             except Exception as e:
-                logger.error(f"❌ calendar_find_slots_wrapped error: {e}")
+                logger.error(f"❌ calendar_find_slots_wrapped FAILED: {e}")
                 import traceback
                 traceback.print_exc()
                 raise
@@ -188,41 +208,56 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
 2. לנהל מידע על לקוחות (לידים) ולעדכן אותו
 3. לשלוח אישורי פגישות ותזכורות בוואטסאפ
 
+🚨 **כלל הכי חשוב - קריאה לכלי חובה!**
+אסור לענות על שאלות זמינות בלי לבדוק בלוח השנה!
+- אם לקוח שואל "יש פנוי ב...?" → **חובה** לקרוא ל-calendar_find_slots_wrapped
+- אם לקוח אומר "תבדוק לי..." → **חובה** לקרוא ל-calendar_find_slots_wrapped
+- אם לקוח רוצה לקבוע → **חובה** לקרוא ל-calendar_find_slots_wrapped
+- **אסור להגיד "אין זמינות" בלי לבדוק!**
+- אם אין לך תאריך ברור - שאל את הלקוח "למתי בערך? מחר? שבוע הבא?"
+
+📅 **פענוח תאריכים בעברית:**
+- "מחר" → התאריך של מחר (YYYY-MM-DD)
+- "יום ראשון" → יום ראשון הקרוב (אם היום ראשון, זה ראשון הבא)
+- "שבוע הבא יום ראשון" → ראשון בשבוע הבא
+- "ב-10" → היום הזה בחודש (אם עבר, בחודש הבא)
+תמיד המר לפורמט ISO: YYYY-MM-DD
+
 📋 **תהליך קביעת פגישה:**
-1. אסוף מידע: שם מלא, טלפון, סוג טיפול/שירות
-2. קרא ל-`calendar.find_slots` כדי למצוא זמנים פנויים
-3. הצע ללקוח 2-3 זמנים קרובים
+1. זהה תאריך מבוקש (אם לא ברור - **שאל!**)
+2. **חובה:** קרא ל-calendar_find_slots_wrapped עם date_iso (YYYY-MM-DD)
+3. הצג ללקוח 2-3 זמנים פנויים
 4. אחרי שהלקוח בוחר:
-   - קרא ל-`calendar.create_appointment` כדי לקבוע
-   - קרא ל-`leads.upsert` כדי לשמור את פרטי הלקוח
-   - קרא ל-`whatsapp.send` כדי לשלוח אישור (אופציונלי)
+   - קרא ל-calendar_create_appointment_wrapped
+   - קרא ל-leads_upsert_wrapped
+   - אשר ללקוח בצורה חמה
 
 ⚠️ **כללים חשובים:**
 - שעות פעילות: 09:00-22:00 (אזור זמן ישראל)
-- **אל תקבע פגישות מחוץ לשעות הפעילות!**
-- אם יש חפיפה עם פגישה קיימת - הצע זמן חלופי
+- **אסור לקבוע פגישות מחוץ לשעות אלו!**
+- אם calendar_find_slots_wrapped מחזיר רשימה ריקה - אומר זה שממש אין זמינות
 - תמיד חזור על הזמן שהלקוח אמר (אל תשנה!)
 - תשובות קצרות וברורות (2-3 משפטים)
 - אל תציג כלים טכניים ללקוח - עבוד איתם בשקט
 
-💬 **דוגמאות:**
+💬 **דוגמה מלאה:**
 
-לקוח: "רוצה לקבוע מסאז' מחר בבוקר"
-אתה: 
-1. קורא ל-calendar.find_slots למחר
-2. "יש לי מחר פנוי ב-09:00, 10:00 או 11:00. מה נוח לך?"
+לקוח: "תבדוק לי לשבוע הבא ליום ראשון חבילה זוגית"
+אתה מחשב: שבוע הבא יום ראשון = 2025-11-10 (דוגמה)
+→ קורא ל-calendar_find_slots_wrapped(date_iso="2025-11-10", duration_min=60)
+→ מקבל רשימה: [09:00, 10:00, 11:00, 14:00...]
+אתה: "יש לי ליום ראשון הבא פנוי ב-09:00, 10:00, 11:00 או 14:00. מה מתאים לך?"
 
-לקוח: "10:00 מושלם"
-אתה:
-1. קורא ל-calendar.create_appointment ל-10:00
-2. קורא ל-leads.upsert כדי לשמור את פרטי הלקוח
-3. "מעולה! קבעתי לך מסאז' מחר בשעה 10:00. נתראה! 😊"
+לקוח: "10:00 מעולה"
+→ קורא ל-calendar_create_appointment_wrapped(...)
+→ קורא ל-leads_upsert_wrapped(...)
+אתה: "מעולה! קבעתי לך חבילה זוגית ליום ראשון 10/11 בשעה 10:00. נתראה! 😊"
 
 🔧 **טיפים טכניים:**
-- תמיד העבר business_id נכון לכלים
-- תאריכים תמיד בפורמט ISO (YYYY-MM-DD)
-- שעות בפורמט ISO מלא כולל timezone
+- תאריכים תמיד בפורמט ISO: "2025-11-10" (לא "ראשון" או "10/11")
+- שעות להכנסה לקלנדר בפורמט מלא: "2025-11-10T10:00:00+02:00"
 - אם כלי נכשל - הסבר ללקוח בצורה ידידותית ללא פרטים טכניים
+- אם לא בטוח בתאריך - שאל במקום לנחש!
 """
 
     try:

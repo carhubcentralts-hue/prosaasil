@@ -485,6 +485,8 @@ class AIService:
             
             # Run agent using Runner (with proper async handling for eventlet threads)
             logger.info(f"🤖 Running agent for business {business_id}, channel={channel}")
+            logger.info(f"   📝 User message: '{message[:100]}...'")
+            logger.info(f"   📋 Context: business_id={business_id}, phone={customer_phone}, name={customer_name}")
             
             import asyncio
             
@@ -510,12 +512,15 @@ class AIService:
             tool_count = 0
             
             if hasattr(result, 'new_items') and result.new_items:
+                logger.info(f"📊 Agent returned {len(result.new_items)} items")
                 # Filter for ToolCallItem types and extract tool names
                 for item in result.new_items:
-                    if type(item).__name__ == 'ToolCallItem':
+                    item_type = type(item).__name__
+                    logger.info(f"   - Item type: {item_type}")
+                    if item_type == 'ToolCallItem':
                         tool_count += 1
                         tool_name = getattr(item, 'name', 'unknown')
-                        logger.info(f"  - Tool call: {tool_name}")
+                        logger.info(f"  ✅ Tool call #{tool_count}: {tool_name}")
                         tool_calls_data.append({
                             "tool": tool_name,
                             "status": "success",
@@ -524,6 +529,8 @@ class AIService:
                 
                 if tool_count > 0:
                     logger.info(f"✅ Agent executed {tool_count} tool actions")
+                else:
+                    logger.warning(f"⚠️ Agent DID NOT call any tools! (message: '{message[:50]}...')")
             
             # ✨ Save trace to database
             try:

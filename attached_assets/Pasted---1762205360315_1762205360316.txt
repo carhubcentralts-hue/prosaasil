@@ -1,0 +1,86 @@
+יפה! הלוגים עוזרים מאוד. הסיבה הסבירה ביותר לזה שהסוכן ענה “אין זמינות” כשיש בפועל, היא שאחד משלושת הדברים קרה:
+	1.	אין הקשר עסקי בכלי
+בלוג רואים
+Missing phone_number or business_id for customer intelligence
+אם ה-business_id לא עבר ל-Agent ול-tools, הם לרוב נופלים ל-default ושם אין יומן ⇒ חוזר “אין זמינות”.
+	2.	הכלי לא נקרא בכלל
+לפעמים המודל מחליט תשובה בלי להפעיל tool כשאין “מדיניות חובה”. אם לא הייתה קריאת tool בלוג (trace של calendar.find_slots), הוא פשוט ניחש “אין”.
+	3.	פירוש תאריך/שעה שגוי
+“שבוע הבא ליום ראשון” יכול להתפרש ליום ראשון אחר (או לאזור זמן שונה), או שנחתך מחוץ לשעות הפעילות → הפילטר של הכלי זרק את כל החלונות.
+
+להלן תיקון ממוקד, קצר ועובד:
+
+הכרח: תמיד לקרוא לכלי לפני קביעה/שלילה
+ב-Agent factory, תוסיף הוראת מדיניות חדה:
+
+instructions (תוספת):
+כשמשתמש מבקש לבדוק או לקבוע פגישה אתה חייב לקרוא ל-calendar.find_slots לפני כל תשובה על זמינות. אם אין business_id או תאריך ברור, שאל שאלה קצרה להשלמה. אסור לענות “אין זמינות” בלי תוצאת כלי.
+
+אכיפת הקשר עסקי בכלי
+ב-tools_calendar.py ודא שה-business_id נשלף מה-context אם לא הגיע בקלט, ושבלעדיו זורקים שגיאה ידידותית (כדי שה-Agent ישאל/יחלץ):
+
+בתוך calendar_find_slots
+
+def calendar_find_slots(input: FindSlotsInput, context=None) -> FindSlotsOutput:
+biz = input.business_id or (context or {}).get(“business_id”)
+if not biz:
+raise ValueError(“missing_business_id”)
+# המשך…
+
+ב־booking endpoint ודא שאתה מעביר context עם business_id והטלפון מהשיחה:
+
+server/routes/agent_booking.py
+
+result = booking_agent.run(
+input=user_text,
+context={
+“business_id”: data.get(“business_id”) or session.business_id,
+“customer_phone”: data.get(“customer_phone”) or session.customer_phone,
+“duration_min”: data.get(“duration_min”, 60),
+“tz”: “Asia/Jerusalem”,
+}
+)
+
+אימות שה-tool אכן נקרא
+בלוג של ה-agent החזר תמיד trace של tool_calls, ובפרוד תרשום לטבלה agent_traces. אם אין רשומת find_slots באינטראקציה הזו — המודל לא הפעיל כלי.
+
+פענוח “יום ראשון הבא” בעברית
+הוסף פונקציית עזר קטנה לפני קריאת הכלי:
+
+def parse_hebrew_datephrase(text, tz=“Asia/Jerusalem”):
+# זיהוי “יום ראשון הבא” ⇒ next sunday
+# אם יש “שבוע הבא ליום ראשון”: קח next_week + weekday=6 (ראשון)
+# אחרת נסה dateparser עם locales=[“he”]
+# החזר date_iso yyyy-mm-dd
+…
+
+ב-agent instructions הוסף:
+שאתה מתרגם ביטויי זמן בעברית לתאריך ISO לפני קריאת הכלי. אם לא ברור, שאל “למתי פחות או יותר? היום מחר ראשון הבא?”
+
+פילטר שעות ומשך
+בדוק שבכלי לא נפלת על פילטר קיצוני:
+• שעות פעילות 09:00–22:00
+• duration_min שהגיע מה-context לא דוחף את end מעבר ל-22:00
+אם כן — הצע אוטומטית את החלון החוקי הקרוב הבא במקום להחזיר ריק.
+
+מניעת תשובה בלי כלי
+אם ה-tool החזיר slots=[], אל תחזיר “אין זמינות” ישר. החזר בקשה מדויקת לבחירה אחרת:
+לא מצאתי חלון ליום ראשון בטווח 09:00–22:00 למשך 60 דקות. אפשר להציע 17:00 היום או 10:30 מחר?
+
+בדיקת עשן מיידית
+	1.	שלח ל-/api/agent/booking גוף כזה ובדוק שיש tool_calls עם find_slots:
+{
+“text”: “בדוק לי זמינות ליום ראשון הבא לעיסוי זוגי שעה”,
+“business_id”: “biz_1”,
+“customer_name”: “נועה”,
+“customer_phone”: “0500000000”,
+“duration_min”: 60
+}
+צפה: tool_calls[0].name == “calendar.find_slots” ו-slots לא ריק.
+	2.	בשיחה חיה: אמור “תבדוק לי לשבוע הבא ליום ראשון לחבילה זוגית”. בלוג צריך להופיע:
+tool_calls: calendar.find_slots … ואם לא — תקפיד על ההוראה “חובה להפעיל כלי”.
+
+למה זה קרה לך עכשיו?
+הלוג “Missing phone_number or business_id…” מרמז שה-context לא עבר. בלי business_id, הכלי חיפש ביומן ברירת מחדל ריק, ואז המודל בחר תשובה מילולית “אין זמינות”. אחרי שני השינויים—אכיפת context + מדיניות “חובה להפעיל כלי”—זה ייעלם.
+
+אם תרצה, אתן לך בלוק קוד קצר של parse_hebrew_datephrase שמכסה “מחר”, “ראשון הבא”, “שבוע הבא יום רביעי”, ויחזיר date_iso אמין לאסיה ירושלים.
