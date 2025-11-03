@@ -450,6 +450,7 @@ class AIService:
         
         try:
             from server.agents import get_agent, AGENTS_ENABLED
+            from agents import Runner
             
             if not AGENTS_ENABLED:
                 # Double-check - agents not available
@@ -482,29 +483,35 @@ class AIService:
                 **(context or {})
             }
             
-            # Run agent
+            # Run agent using Runner (run_sync for synchronous execution)
             logger.info(f"🤖 Running agent for business {business_id}, channel={channel}")
             
-            result = agent.run(input=message, context=agent_context)
+            runner = Runner()
+            result = runner.run_sync(starting_agent=agent, input=message, context=agent_context)
             duration_ms = int((time.time() - start_time) * 1000)
             
-            # Extract response
-            reply_text = result.output_text if hasattr(result, 'output_text') else str(result)
+            # Extract response using final_output_as
+            reply_text = result.final_output_as(str)
             
-            # Extract tool calls
+            # Extract tool calls from new_items
             tool_calls_data = []
             tool_count = 0
-            if hasattr(result, 'tool_calls') and result.tool_calls:
-                tool_count = len(result.tool_calls)
-                logger.info(f"✅ Agent executed {tool_count} tool actions")
-                for tool_call in result.tool_calls:
-                    tool_name = tool_call.name if hasattr(tool_call, 'name') else str(tool_call)
-                    logger.info(f"  - {tool_name}")
-                    tool_calls_data.append({
-                        "tool": tool_name,
-                        "status": "success" if hasattr(tool_call, 'result') else "unknown",
-                        "result": str(tool_call.result) if hasattr(tool_call, 'result') else None
-                    })
+            
+            if hasattr(result, 'new_items') and result.new_items:
+                # Filter for ToolCallItem types and extract tool names
+                for item in result.new_items:
+                    if type(item).__name__ == 'ToolCallItem':
+                        tool_count += 1
+                        tool_name = getattr(item, 'name', 'unknown')
+                        logger.info(f"  - Tool call: {tool_name}")
+                        tool_calls_data.append({
+                            "tool": tool_name,
+                            "status": "success",
+                            "result": None  # Result is in separate ToolCallOutputItem
+                        })
+                
+                if tool_count > 0:
+                    logger.info(f"✅ Agent executed {tool_count} tool actions")
             
             # ✨ Save trace to database
             try:
