@@ -39,12 +39,12 @@ class FindSlotsOutput(BaseModel):
 class CreateAppointmentInput(BaseModel):
     """Input for creating a new appointment"""
     business_id: int = Field(..., description="Business ID", ge=1)
-    customer_name: str = Field(..., description="Customer full name", min_length=2)
-    customer_phone: str = Field(..., description="Customer phone number")
-    treatment_type: str = Field(..., description="Type of service/treatment")
+    customer_name: str = Field(..., description="Customer full name", min_length=2, max_length=200)
+    customer_phone: str = Field(..., description="Customer phone in E.164 format (+972...)", pattern=r'^\+?[0-9]{10,15}$')
+    treatment_type: str = Field(..., description="Type of service/treatment", min_length=2, max_length=100)
     start_iso: str = Field(..., description="Start time in ISO format")
     end_iso: str = Field(..., description="End time in ISO format")
-    notes: Optional[str] = Field(None, description="Additional notes")
+    notes: Optional[str] = Field(None, description="Additional notes", max_length=1000)
     source: str = Field("ai_agent", description="Source of appointment")
 
 class CreateAppointmentOutput(BaseModel):
@@ -156,6 +156,22 @@ def calendar_create_appointment(input: CreateAppointmentInput) -> CreateAppointm
     - Start time is in the future
     """
     try:
+        # ⚡ Validate duration (15-240 minutes)
+        duration_min = (datetime.fromisoformat(input.end_iso) - datetime.fromisoformat(input.start_iso)).total_seconds() / 60
+        if duration_min < 15 or duration_min > 240:
+            raise ValueError(f"משך הפגישה חייב להיות בין 15-240 דקות (קיבלתי: {duration_min:.0f} דקות)")
+        
+        # ⚡ Validate phone format
+        phone = input.customer_phone.strip()
+        if not phone.startswith('+') and not phone.startswith('0'):
+            raise ValueError("מספר טלפון חייב להתחיל ב-+ או 0")
+        if phone.startswith('0') and len(phone) < 9:
+            raise ValueError("מספר טלפון לא תקין (קצר מדי)")
+        
+        # ⚡ Validate treatment type
+        if not input.treatment_type or input.treatment_type.strip() == "":
+            raise ValueError("חובה לציין סוג טיפול/שירות")
+        
         # Parse times
         start = datetime.fromisoformat(input.start_iso)
         end = datetime.fromisoformat(input.end_iso)
@@ -175,9 +191,9 @@ def calendar_create_appointment(input: CreateAppointmentInput) -> CreateAppointm
         if start < now:
             raise ValueError("לא ניתן לקבוע פגישה בעבר")
         
-        # Validate business hours
+        # ⚡ Validate business hours (09:00-22:00 Asia/Jerusalem)
         if start.hour < 9 or end.hour > 22 or (end.hour == 22 and end.minute > 0):
-            raise ValueError("שעות הפעילות הן 09:00-22:00")
+            raise ValueError("שעות הפעילות הן 09:00-22:00 (שעון ישראל)")
         
         # Check for conflicts
         existing = Appointment.query.filter(

@@ -441,3 +441,40 @@ class User(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
+
+class AgentTrace(db.Model):
+    """✨ BUILD 119: Agent action traces - מעקב אחר פעולות Agent"""
+    __tablename__ = "agent_trace"
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Context
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    agent_type = db.Column(db.String(64), nullable=False)  # booking/sales
+    channel = db.Column(db.String(32), nullable=False)  # calls/whatsapp/api
+    
+    # Customer info
+    customer_phone = db.Column(db.String(64), index=True)
+    customer_name = db.Column(db.String(255))
+    
+    # User input
+    user_message = db.Column(db.Text, nullable=False)
+    
+    # Agent response
+    agent_response = db.Column(db.Text)
+    
+    # Tool calls (JSON array)
+    tool_calls = db.Column(db.JSON)  # [{"tool": "calendar.create_appointment", "status": "success", "result": {...}}]
+    tool_count = db.Column(db.Integer, default=0)
+    
+    # Status
+    status = db.Column(db.String(32), default="success")  # success/error/fallback
+    error_message = db.Column(db.Text)
+    
+    # Performance
+    duration_ms = db.Column(db.Integer)  # Response time in milliseconds
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    def __repr__(self):
+        return f"<AgentTrace {self.id} - {self.agent_type} - {self.tool_count} tools>"

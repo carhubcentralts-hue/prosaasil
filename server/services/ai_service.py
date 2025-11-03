@@ -5,9 +5,10 @@ AI Service - Unified OpenAI Service for All Communication Channels
 """
 import os
 import logging
+import time
 from typing import Dict, Any, Optional, List
 from openai import OpenAI
-from server.models_sql import BusinessSettings, PromptRevisions, Business
+from server.models_sql import BusinessSettings, PromptRevisions, Business, AgentTrace
 from server.db import db
 from datetime import datetime
 
@@ -444,6 +445,9 @@ class AIService:
             # Fallback to regular response
             return self.generate_response(message, business_id, context, channel, is_first_turn)
         
+        # ⚡ Capture start time BEFORE try block for error logging
+        start_time = time.time()
+        
         try:
             from server.agents import get_agent, AGENTS_ENABLED
             
@@ -475,16 +479,50 @@ class AIService:
             
             # Run agent
             logger.info(f"🤖 Running agent for business {business_id}, channel={channel}")
+            
             result = agent.run(input=message, context=agent_context)
+            duration_ms = int((time.time() - start_time) * 1000)
             
             # Extract response
             reply_text = result.output_text if hasattr(result, 'output_text') else str(result)
             
-            # Log tool actions if any
+            # Extract tool calls
+            tool_calls_data = []
+            tool_count = 0
             if hasattr(result, 'tool_calls') and result.tool_calls:
-                logger.info(f"✅ Agent executed {len(result.tool_calls)} tool actions")
+                tool_count = len(result.tool_calls)
+                logger.info(f"✅ Agent executed {tool_count} tool actions")
                 for tool_call in result.tool_calls:
-                    logger.info(f"  - {tool_call.name if hasattr(tool_call, 'name') else str(tool_call)}")
+                    tool_name = tool_call.name if hasattr(tool_call, 'name') else str(tool_call)
+                    logger.info(f"  - {tool_name}")
+                    tool_calls_data.append({
+                        "tool": tool_name,
+                        "status": "success" if hasattr(tool_call, 'result') else "unknown",
+                        "result": str(tool_call.result) if hasattr(tool_call, 'result') else None
+                    })
+            
+            # ✨ Save trace to database
+            try:
+                trace = AgentTrace(
+                    business_id=business_id,
+                    agent_type="booking",
+                    channel=channel,
+                    customer_phone=customer_phone,
+                    customer_name=customer_name,
+                    user_message=message[:1000],  # Limit length
+                    agent_response=reply_text[:2000],
+                    tool_calls=tool_calls_data if tool_calls_data else None,
+                    tool_count=tool_count,
+                    status="success",
+                    duration_ms=duration_ms
+                )
+                db.session.add(trace)
+                db.session.commit()
+                logger.info(f"📊 Saved agent trace #{trace.id} (duration: {duration_ms}ms)")
+            except Exception as trace_error:
+                logger.error(f"Failed to save agent trace: {trace_error}")
+                # Don't fail the whole request just because trace failed
+                db.session.rollback()
             
             return reply_text
             
@@ -492,6 +530,30 @@ class AIService:
             logger.error(f"Agent error (falling back to regular response): {e}")
             import traceback
             traceback.print_exc()
+            
+            # ✨ Save error trace with duration
+            try:
+                error_duration_ms = int((time.time() - start_time) * 1000)
+                trace = AgentTrace(
+                    business_id=business_id,
+                    agent_type="booking",
+                    channel=channel,
+                    customer_phone=customer_phone,
+                    customer_name=customer_name,
+                    user_message=message[:1000],
+                    agent_response=None,
+                    tool_calls=None,
+                    tool_count=0,
+                    status="error",
+                    error_message=str(e)[:500],
+                    duration_ms=error_duration_ms
+                )
+                db.session.add(trace)
+                db.session.commit()
+                logger.info(f"📊 Saved error trace (duration: {error_duration_ms}ms)")
+            except:
+                db.session.rollback()
+            
             # Fallback to regular response
             return self.generate_response(message, business_id, context, channel, is_first_turn)
 
