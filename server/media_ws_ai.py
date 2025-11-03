@@ -6,30 +6,35 @@ import os, json, time, base64, audioop, math, threading, queue, random, zlib, as
 import builtins
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 
+# ⚡ PHASE 1: DEBUG mode - חונק hot path בפרוד
+DEBUG = os.getenv("DEBUG", "0") == "1"
+
 # ⚡ STREAMING STT: דיפולט מופעל בקוד, כדי שלא ניפול לסינגל-ריקווסט אם ENV לא נטען
 USE_STREAMING_STT = True
 if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
     USE_STREAMING_STT = False
 
-# ⚡ BUILD 115: בחירת מודל דינמית + fallback חכם
-print("="*80)
-print("⚡ BUILD 115 - DYNAMIC MODEL SELECTION + SMART FALLBACK")
-print("="*80)
-print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
-print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
-print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
-print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
-print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '40')}")
-print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '90')}")
-print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '180')}")
-print(f"[BOOT] UTTERANCE_TIMEOUT = 320ms (aggressive for sub-2s response)")
-print("="*80)
+# ⚡ BUILD 116: אופטימיזציות לזמן תגובה <2s
+if DEBUG:
+    print("="*80)
+    print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION")
+    print("="*80)
+    print(f"[BOOT] DEBUG = {DEBUG}")
+    print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
+    print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
+    print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
+    print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
+    print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '40')}")
+    print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '90')}")
+    print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '180')}")
+    print(f"[BOOT] UTTERANCE_TIMEOUT = 320ms (aggressive for sub-2s response)")
+    print("="*80)
 
 if USE_STREAMING_STT:
-    print("🚀 STT MODE: Real-time Streaming (Session-per-call)")
+    if DEBUG: print("🚀 STT MODE: Real-time Streaming (Session-per-call)")
 else:
-    print("⚠️  WARNING: STT MODE is Single-request (SLOW!) - Set ENABLE_STREAMING_STT=true")
-    print("📝 STT MODE: Single-request (fast μ-law + optimized Google STT)")
+    if DEBUG: print("⚠️  WARNING: STT MODE is Single-request (SLOW!) - Set ENABLE_STREAMING_STT=true")
+    if DEBUG: print("📝 STT MODE: Single-request (fast μ-law + optimized Google STT)")
 
 # ⚡ THREAD-SAFE SESSION REGISTRY for multi-call support
 # Each call_sid has its own session + dispatcher state
@@ -54,7 +59,7 @@ def _register_session(call_sid: str, session, tenant_id=None):
             "tenant": tenant_id,
             "ts": time.time()
         }
-        print(f"✅ [REGISTRY] Registered session for call {call_sid[:8]}... (tenant: {tenant_id}, total: {len(_sessions_registry)})")
+        if DEBUG: print(f"✅ [REGISTRY] Registered session for call {call_sid[:8]}... (tenant: {tenant_id}, total: {len(_sessions_registry)})")
 
 def _get_session(call_sid: str):
     """Get STT session for a call (thread-safe)"""
@@ -76,9 +81,9 @@ def _close_session(call_sid: str):
     if item:
         try:
             item["session"].close()
-            print(f"✅ [REGISTRY] Closed session for call {call_sid[:8]}... (remaining: {len(_sessions_registry)})")
+            if DEBUG: print(f"✅ [REGISTRY] Closed session for call {call_sid[:8]}... (remaining: {len(_sessions_registry)})")
         except Exception as e:
-            print(f"⚠️ [REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
+            if DEBUG: print(f"⚠️ [REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
 
 def _create_dispatcher_callbacks(call_sid: str):
     """Create partial/final callbacks that route to the correct call's utterance"""
@@ -88,12 +93,12 @@ def _create_dispatcher_callbacks(call_sid: str):
             # ⚡ BUILD 112: Save last partial as backup and log it
             with _registry_lock:
                 utt["last_partial"] = text
-            print(f"🟡 [PARTIAL] '{text}' saved for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
+            if DEBUG: print(f"🟡 [PARTIAL] '{text}' saved for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
             
             # ⚡ BUILD 114: Early Finalization - if partial is strong enough, trigger final AND continue
             # This saves 400-600ms by triggering final event early
             if text and len(text) > 15 and text.rstrip().endswith(('.', '?', '!')):
-                print(f"⚡ [EARLY_FINALIZE] Strong partial detected: '{text}' → triggering final event")
+                if DEBUG: print(f"⚡ [EARLY_FINALIZE] Strong partial detected: '{text}' → triggering final event")
                 # Trigger final event (but continue to call partial callback)
                 final_event = utt.get("final_received")
                 if final_event:
@@ -113,13 +118,13 @@ def _create_dispatcher_callbacks(call_sid: str):
             buf = utt.get("final_buf")
             if buf is not None:
                 buf.append(text)
-                print(f"✅ [FINAL] '{text}' received for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
+                if DEBUG: print(f"✅ [FINAL] '{text}' received for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
                 
                 # ⚡ Signal that final has arrived!
                 final_event = utt.get("final_received")
                 if final_event:
                     final_event.set()
-                    print(f"📢 [FINAL_EVENT] Set for {call_sid[:8]}...")
+                    if DEBUG: print(f"📢 [FINAL_EVENT] Set for {call_sid[:8]}...")
     
     return on_partial, on_final
 
@@ -135,7 +140,7 @@ def _cleanup_stale_sessions():
         ]
     
     for call_sid in stale_call_sids:
-        print(f"🧹 [REAPER] Cleaning stale session: {call_sid[:8]}... (inactive for >{STALE_TIMEOUT}s)")
+        if DEBUG: print(f"🧹 [REAPER] Cleaning stale session: {call_sid[:8]}... (inactive for >{STALE_TIMEOUT}s)")
         _close_session(call_sid)
 
 # Start session reaper thread
@@ -340,11 +345,11 @@ class MediaStreamHandler:
                 _register_session(self.call_sid, session, tenant_id=self.business_id)
                 
                 self.s1_stream_opened = time.time()  # ⚡ [S1] STT stream opened
-                print(f"✅ [S1={self.s1_stream_opened:.3f}] Streaming session started for call {self.call_sid[:8]}... (business: {self.business_id}, attempt: {attempt+1}, Δ={(self.s1_stream_opened - self.t0_connected)*1000:.0f}ms from T0)")
+                if DEBUG: print(f"✅ [S1={self.s1_stream_opened:.3f}] Streaming session started for call {self.call_sid[:8]}... (business: {self.business_id}, attempt: {attempt+1}, Δ={(self.s1_stream_opened - self.t0_connected)*1000:.0f}ms from T0)")
                 return  # Success!
                 
             except RuntimeError as e:
-                print(f"🚨 [STT] Over capacity (attempt {attempt+1}/3): {e}")
+                if DEBUG: print(f"🚨 [STT] Over capacity (attempt {attempt+1}/3): {e}")
                 if attempt < 2:
                     time.sleep(0.2)  # Brief delay before retry
                     continue
@@ -352,16 +357,17 @@ class MediaStreamHandler:
                 return
                 
             except Exception as e:
-                print(f"⚠️ [STT] Streaming start failed (attempt {attempt+1}/3): {e}", flush=True)
+                if DEBUG: print(f"⚠️ [STT] Streaming start failed (attempt {attempt+1}/3): {e}", flush=True)
                 if attempt < 2:
                     time.sleep(0.2)  # Brief delay before retry
                     continue
-                import traceback
-                traceback.print_exc()
+                if DEBUG:
+                    import traceback
+                    traceback.print_exc()
                 return
         
         # If we get here, all 3 attempts failed
-        print(f"❌ [STT] All streaming attempts failed for call {self.call_sid[:8]} → using fallback single request", flush=True)
+        if DEBUG: print(f"❌ [STT] All streaming attempts failed for call {self.call_sid[:8]} → using fallback single request", flush=True)
     
     def _close_streaming_stt(self):
         """Close streaming STT session at end of call"""
@@ -388,7 +394,7 @@ class MediaStreamHandler:
                 utt_state["final_received"] = threading.Event()  # ⚡ NEW: wait for final
                 utt_state["last_partial"] = ""  # ⚡ NEW: save last partial as backup
             
-            print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
+            if DEBUG: print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
     
     def _utterance_end(self, timeout=0.450):
         """

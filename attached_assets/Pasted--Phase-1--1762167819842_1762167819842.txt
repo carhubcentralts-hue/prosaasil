@@ -1,0 +1,162 @@
+כן—תתחיל עכשיו ב-Phase 1. להלן הנחיות לביצוע מיידי, קצרות וחדות, כולל דיפ־סטייל להדבקה. המטרה: להבטיח מדידה נכונה ולנקות את ה-hot path לפני כל טיוב נוסף.
+
+⸻
+
+Phase 1 — תשתית חובה (לביצוע עכשיו)
+
+1) DEBUG mode לכל הלוגים (חונק חם → כבוי בפרוד)
+
+קובץ: server/media_ws_ai.py (וגם בכל קובץ hot path דומה)
+
++ import os
++ DEBUG = os.getenv("DEBUG", "0") == "1"
+
+- print("[TURN] starting", turn_id)
++ if DEBUG: print(f"[TURN] starting {turn_id}")
+
+כל print(...) או logger.debug(...) במסלול חם (קבלת פריימים, on_partial, VAD, EOU) — עטוף ב:
+
+if DEBUG: print("...")  # או logger.debug
+
+מטרה: בפרוד אין I/O מיותר במסלול חם.
+
+⸻
+
+2) Async logging עם Queue (לא FileHandler סינכרוני)
+
+קובץ חדש (מומלץ): server/logging_async.py
+
+import logging, queue, threading, sys
+
+_log_q = queue.Queue(maxsize=10000)
+
+class QueueHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            _log_q.put_nowait(record)
+        except queue.Full:
+            pass  # drop if overloaded
+
+class ConsoleWorker(threading.Thread):
+    daemon = True
+    def run(self):
+        while True:
+            rec = _log_q.get()
+            try:
+                msg = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s').format(rec)
+                print(msg, file=sys.stderr, flush=False)
+            except Exception:
+                pass
+
+def setup_async_root(level=logging.INFO):
+    root = logging.getLogger()
+    root.setLevel(level)
+    # נקה handlers קיימים (חשוב אם היה FileHandler)
+    for h in list(root.handlers):
+        root.removeHandler(h)
+    root.addHandler(QueueHandler())
+    ConsoleWorker().start()
+    return root
+
+קובץ: server/app_factory.py (או entrypoint מרכזי אחרי monkey_patch)
+
++ from server.logging_async import setup_async_root
++ import os, logging
++ if os.getenv("ASYNC_LOG_QUEUE","1") == "1":
++     setup_async_root(level=logging.INFO)
++ else:
++     logging.basicConfig(level=logging.INFO)
+
+מטרה: כל הלוגים הולכים ל-Queue → הדפסה אסינכרונית → לא חוסמים את חוט השיחה.
+
+⸻
+
+3) אימות Eventlet monkey_patch וסדר טעינה
+
+קובץ: wsgi.py (למעלה ממש, לפני כל import אחר!)
+
++ import eventlet
++ eventlet.monkey_patch()
++ import os
++ os.environ.setdefault("EVENTLET_NO_GREENDNS", "1")
+
+ודא שההרצה היא עם eventlet worker:
+
+gunicorn wsgi:app -k eventlet --workers 1 --threads 1 --worker-connections 1000
+
+מטרה: כל ה-socket/DNS/time יהיו גרין–ת׳רד ידידותיים; בלי בלוקים מוזרים.
+
+⸻
+
+4) טלמטריה מדויקת (4 מדדים חובה בכל TURN)
+
+קובץ: server/media_ws_ai.py
+
+הוסף עוזרים בראש הקובץ:
+
+import time, json
+_now = lambda: int(time.time() * 1000)
+
+def _emit_turn_metrics(first_partial, final_ms, tts_ready, total):
+    # נקרא פעם אחת בסוף ה-TURN
+    payload = {
+        "STT_FIRST_PARTIAL_MS": first_partial,
+        "STT_FINAL_MS": final_ms,
+        "TTS_READY_MS": tts_ready,
+        "TOTAL_LATENCY_MS": total,
+    }
+    # לא חוסם: הולך ל-QueueHandler
+    import logging
+    logging.getLogger("turn").info(json.dumps(payload, ensure_ascii=False))
+
+ובזרימה של כל TURN (פשטני להדגמה — שלב בנקודות הנכונות שלך):
+
+turn_start_ms = _now()
+first_partial_ms = None
+
+# כשמגיע partial ראשון:
+if first_partial_ms is None:
+    first_partial_ms = _now() - turn_start_ms
+
+# כשנסגר EOU/final:
+final_ms = _now() - turn_start_ms
+
+# אחרי שסינתזת אודיו מוכן (לפני שליחה):
+tts_ready_ms = _now() - turn_start_ms
+
+# כשנשלח הפריים הראשון ל-Twilio:
+total_ms = _now() - turn_start_ms
+_emit_turn_metrics(first_partial_ms, final_ms, tts_ready_ms, total_ms)
+
+מטרה: לראות שחור-על-גבי-לבן איפה הולך הזמן (STT partial, EOU/final, TTS ready, total).
+
+⸻
+
+ENV (Replit Secrets) ל-Phase 1
+
+שים כך (גם אם כבר יש — תאשר):
+
+DEBUG=0
+ASYNC_LOG_QUEUE=1
+EVENTLET_NO_GREENDNS=1
+
+
+⸻
+
+בדיקת קבלה ל-Phase 1 (5 דקות)
+	1.	הרץ שיחה קצרה. ודא שב-Logs מופיעות שורות INFO של logger בשם turn עם JSON שמכיל את 4 המדדים.
+	2.	ודא שאין print/כתיבה לקובץ בתוך ה-hot path (תראה ירידה בכמות ההדפסות בריצה).
+	3.	ודא שהשרת רץ עם -k eventlet ושאין אזהרות DNS.
+
+✔️ אם זה עבר — אפשר לעבור ל-Phase 2 (כיוונון STT/EOU) בבטחה.
+❗ אם לא — עצור כאן עד שזה יציב; אחרת כל טיובי ביצועים “ישקרו” בגלל לוגים חוסמים/סדר טעינה.
+
+⸻
+
+מה הלאה (כשתסיים Phase 1)
+	•	נמשיך ל-Phase 2: עדכון ENV (DEBOUNCE=60, TIMEOUT=240, HANGOVER=160), ווידוא ש-Whisper fallback לא חוסם TURN.
+	•	Phase 3: Pre-warm TTS + Cache משפטי פתיחה, ומשמעת “≤24 מילים” לתשובה ראשונה.
+	•	Phase 4: בדיקות עומס (5–10 שיחות), KPI: P50≤2.2s / P95≤3.3s.
+	•	Phase 5: הוספת AgentKit/Agents SDK (אחרי שה-turn מהיר ויציב).
+
+אם תרצה, אחרי שתסמן “בוצע” על 1–4 למעלה, אתן לך את ה-diffs של Phase 2 ו-3 באותה רמת דיוק.
