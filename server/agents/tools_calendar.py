@@ -67,9 +67,12 @@ def _calendar_find_slots_impl(input: FindSlotsInput) -> FindSlotsOutput:
     - Check conflicts with existing appointments
     """
     try:
-        # Parse date and set to Israel timezone
-        date = datetime.fromisoformat(input.date_iso).replace(tzinfo=tz)
+        # Parse date and localize to Israel timezone
+        naive_date = datetime.fromisoformat(input.date_iso)
+        date = tz.localize(naive_date) if naive_date.tzinfo is None else naive_date
         today = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        logger.info(f"📅 Finding slots for business_id={input.business_id}, date={input.date_iso}, parsed={date}, today={today}")
         
         # Validate date is not in the past
         if date.date() < today.date():
@@ -98,6 +101,10 @@ def _calendar_find_slots_impl(input: FindSlotsInput) -> FindSlotsOutput:
             Appointment.status.in_(['scheduled', 'confirmed'])
         ).all()
         
+        logger.info(f"📊 Found {len(existing)} existing appointments on {input.date_iso}")
+        for apt in existing:
+            logger.info(f"   - {apt.start_time} to {apt.end_time}: {apt.title}")
+        
         # Build list of available slots
         slots = []
         for hour in range(start_hour, end_hour):
@@ -106,6 +113,7 @@ def _calendar_find_slots_impl(input: FindSlotsInput) -> FindSlotsOutput:
             
             # Skip if slot ends after working hours
             if slot_end.hour > end_hour:
+                logger.debug(f"   ⏭️  Skipping {hour}:00 - ends after working hours ({slot_end.hour} > {end_hour})")
                 continue
             
             # Check for conflicts with existing appointments
@@ -117,16 +125,18 @@ def _calendar_find_slots_impl(input: FindSlotsInput) -> FindSlotsOutput:
                 # Check if slots overlap
                 if (slot_start < apt_end and slot_end > apt_start):
                     has_conflict = True
+                    logger.debug(f"   ❌ {hour}:00 conflicts with {apt.title}")
                     break
             
             if not has_conflict:
+                logger.info(f"   ✅ {hour}:00 available")
                 slots.append(Slot(
                     start_iso=slot_start.isoformat(),
                     end_iso=slot_end.isoformat(),
                     start_display=slot_start.strftime("%H:%M")
                 ))
         
-        logger.info(f"Found {len(slots)} available slots for business {input.business_id} on {input.date_iso}")
+        logger.info(f"📅 RESULT: {len(slots)} available slots for business {input.business_id} on {input.date_iso}")
         return FindSlotsOutput(slots=slots, business_hours=working_hours)
         
     except Exception as e:
