@@ -1,0 +1,65 @@
+
+2025-11-03 21:30:23.81
+0f1271ff
+User
+File "/home/runner/workspace/server/agents/agent_factory.py", line 189, in get_agent
+2025-11-03 21:30:39.41
+0f1271ff
+User
+File "/home/runner/workspace/server/services/ai_service.py", line 467, in generate_response_with_agent
+2025-11-03 21:30:39.41
+0f1271ff
+User
+agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt)
+2025-11-03 21:30:39.41
+0f1271ff
+User
+File "/home/runner/workspace/server/agents/agent_factory.py", line 189, in get_agent
+2025-11-03 21:30:55.00
+0f1271ff
+User
+File "/home/runner/workspace/server/services/ai_service.py", line 467, in generate_response_with_agent
+2025-11-03 21:30:55.00
+0f1271ff
+User
+agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt)
+2025-11-03 21:30:55.00
+0f1271ff
+User
+File "/home/runner/workspace/server/agents/agent_factory.py", line 189, in get_agent
+2025-11-03 21:31:15.75
+0f1271ff
+User
+File "/home/runner/workspace/server/services/ai_service.py", line 467, in generate_response_with_agent
+2025-11-03 21:31:15.75
+0f1271ff
+User
+agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt)
+2025-11-03 21:31:15.75
+0f1271ff
+User
+File "/home/runner/workspace/server/agents/agent_factory.py", line 189, in get_agent
+2025-11-03 21:31:22.16
+0f1271ff
+User
+File "/home/runner/workspace/server/services/ai_service.py", line 467, in generate_response_with_agent
+2025-11-03 21:31:22.16
+0f1271ff
+User
+agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt)
+2025-11-03 21:31:22.16
+0f1271ff
+User
+File "/home/runner/workspace/server/agents/agent_factory.py", line 189, in get_agent
+2025-11-03 21:44:11.73
+0f1271ff
+User
+File "/home/runner/workspace/server/services/ai_service.py", line 467, in generate_response_with_agent
+2025-11-03 21:44:11.73
+0f1271ff
+User
+agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt)
+2025-11-03 21:44:11.73
+0f1271ff
+User
+File "/home/runner/workspace/server/agents/agent_factory.py", line 189, in get_agent
