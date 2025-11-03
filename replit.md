@@ -37,6 +37,8 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
   - **✅ SOLUTION #1**: Implemented Flask App Singleton pattern with thread-safe double-check locking. App created ONCE for entire process lifecycle, reused across all calls. Replaced all 10+ `create_app()` calls in media_ws_ai.py with `_get_flask_app()` singleton getter.
   - **🔴 SMOKING GUN #2**: Calendar availability check (`_get_calendar_availability`) ran on EVERY phone call before AI response, causing 12s latency when DB slow/unavailable!
   - **✅ SOLUTION #2**: Disabled calendar check for phone calls (channel=='calls'), kept only for WhatsApp where latency acceptable. Added LIMIT 10 for performance.
+  - **🔴 SMOKING GUN #3**: DB queries in `get_business_prompt()` took 12s on slow connections, causing "Audio Timeout" and call crashes!
+  - **✅ SOLUTION #3**: (1) Cache timeout increased to 5 minutes (covers full call), (2) AI cache warmup at startup preloads business 1+11, (3) Added timing logs for DB_QUERY and OPENAI_CALL diagnostics
   - **Migration 19**: Added missing CallLog columns (direction, duration, to_number) to fix "column does not exist" errors
   - Removed noisy media frame logs (50/sec spam in production logs)
   - All timing now logged: ASR_LATENCY, AI_LATENCY, TTS_GENERATION, TOTAL_LATENCY

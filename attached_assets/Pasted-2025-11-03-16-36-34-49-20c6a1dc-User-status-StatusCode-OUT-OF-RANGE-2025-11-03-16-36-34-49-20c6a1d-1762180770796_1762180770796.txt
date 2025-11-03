@@ -1,0 +1,123 @@
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+status = StatusCode.OUT_OF_RANGE
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+details = "Audio Timeout Error: Long duration elapsed without audio. Audio should be sent close to real time."
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+debug_error_string = "UNKNOWN:Error received from peer ipv4:142.250.98.95:443 {grpc_status:11, grpc_message:"Audio Timeout Error: Long duration elapsed without audio. Audio should be sent close to real time."}"
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+>
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+The above exception was the direct cause of the following exception:
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+Traceback (most recent call last):
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+File "/home/runner/workspace/server/services/gcp_stt_stream.py", line 233, in _run
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+for resp in responses:
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/google/api_core/grpc_helpers.py", line 118, in __next__
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+raise exceptions.from_grpc_error(exc) from exc
+2025-11-03 16:36:34.49
+20c6a1dc
+User
+google.api_core.exceptions.OutOfRange: 400 Audio Timeout Error: Long duration elapsed without audio. Audio should be sent close to real time.
+2025-11-03 16:36:36.73
+20c6a1dc
+User
+✅ AI_SERVICE_RESPONSE: Generated 47 chars in 12.294s (business 1)
+2025-11-03 16:36:36.73
+20c6a1dc
+User
+📊 AI_LATENCY: 12.294s (target: <1.5s)
+2025-11-03 16:36:36.73
+20c6a1dc
+User
+🤖 BOT: תודה על הפנייה! אחזור אליך בהקדם עם מענה מפורט.
+2025-11-03 16:36:36.73
+20c6a1dc
+User
+📊 AI_PROCESSING: 12.294s
+2025-11-03 16:36:36.73
+20c6a1dc
+User
+⚠️ Missing phone_number or business_id for customer intelligence
+2025-11-03 16:36:36.73
+20c6a1dc
+User
+🔓 SHORT_RESPONSE (9 words) - BARGE-IN ENABLED
+2025-11-03 16:36:36.73
+20c6a1dc
+User
+🔊 TTS_START: 'תודה על הפנייה! אחזור אליך בהקדם עם מענה מפורט.'
+2025-11-03 16:36:36.73
+20c6a1dc
+User
+🔊 TTS_START: Generating Natural Hebrew TTS for 'תודה על הפנייה! אחזור אליך בהקדם עם מענה מפורט....' (47 chars)
+2025-11-03 16:36:36.73
+20c6a1dc
+User
+✅ Punctuation polished: 'תודה על הפנייה! אחזור אליך בהקדם עם מענה...'
+2025-11-03 16:36:37.28
+20c6a1dc
+User
+✅ Saved conversation turn to DB: call_log_id=325
+2025-11-03 16:36:37.29
+20c6a1dc
+User
+✅ TTS_SUCCESS: 63240 bytes Natural Wavenet (4.0s)
+
+2025-11-03 16:36:37.29
+20c6a1dc
+User
+📊 TTS_GENERATION: 0.559s (target: <0.5s)
+2025-11-03 16:36:37.29
+20c6a1dc
+User
+🔊 TTS SUCCESS: 63240 bytes
+2025-11-03 16:36:37.29
+20c6a1dc
+User
+🔊 TTS_FRAMES: 197 frames (3940ms)
+2025-11-03 16:36:39.29
+20c6a1dc
+User
+⚠️ Send queue full, dropping frame
+2025-11-03 16:36:41.29
+20c6a1dc
+User
+⚠️ Send queue full, dropping frame
+2025-11-03 16:36:43.29
+20c6a1dc
+User
+⚠️ Send queue full, dropping frame
+2025-11-03 16:36:45.29
+20c6a1dc
+User
+⚠️ Send queue full, dropping frame
+2025-11-03 16:36:47.29
+20c6a1dc
+User

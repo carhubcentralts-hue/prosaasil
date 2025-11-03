@@ -20,7 +20,29 @@ def get_ai_service():
     global _global_ai_service
     if _global_ai_service is None:
         _global_ai_service = AIService()
+        # ⚡ CRITICAL: Warmup cache at startup
+        _warmup_ai_cache(_global_ai_service)
     return _global_ai_service
+
+def _warmup_ai_cache(service: 'AIService'):
+    """⚡ Preload cache for common business IDs to prevent first-turn latency"""
+    try:
+        import time
+        start = time.time()
+        
+        # Warmup business 1 and 11 (most common)
+        for business_id in [1, 11]:
+            for channel in ['calls', 'whatsapp']:
+                try:
+                    service.get_business_prompt(business_id, channel)
+                    logger.info(f"✅ WARMUP: Preloaded business {business_id} {channel}")
+                except Exception as e:
+                    logger.warning(f"⚠️ WARMUP failed for business {business_id} {channel}: {e}")
+        
+        warmup_time = time.time() - start
+        logger.info(f"✅ AI_CACHE_WARMUP: Completed in {warmup_time:.3f}s")
+    except Exception as e:
+        logger.error(f"❌ AI cache warmup failed: {e}")
 
 def invalidate_business_cache(business_id: int):
     """🔥 CRITICAL: Invalidate cache for business - called after prompt updates"""
@@ -44,7 +66,7 @@ class AIService:
             timeout=3.5  # ✅ Production timeout - allows Hebrew responses with margin
         )
         self._cache = {}  # קאש פרומפטים לביצועים
-        self._cache_timeout = 30  # ⚡ 30 שניות - קצר יותר למניעת בעיות multi-worker
+        self._cache_timeout = 300  # ⚡ 5 דקות - מספיק ארוך לשיחה שלמה
         
     def get_business_prompt(self, business_id: int, channel: str = "calls") -> Dict[str, Any]:
         """טעינת פרומפט עסק מהמסד נתונים עם קאש - לפי ערוץ (calls/whatsapp)"""
@@ -55,12 +77,20 @@ class AIService:
         if cache_key in self._cache:
             cached_data, timestamp = self._cache[cache_key]
             if now - timestamp < self._cache_timeout:
+                logger.info(f"✅ CACHE_HIT: business {business_id} {channel}")
                 return cached_data
         
         try:
+            # ⚡ CRITICAL: Measure DB query time
+            import time
+            db_start = time.time()
+            
             # טעינת הגדרות עסק
             settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
             business = Business.query.get(business_id)
+            
+            db_time = time.time() - db_start
+            logger.info(f"📊 DB_QUERY: {db_time:.3f}s for business {business_id}")
             
             # ✅ שם עסק לשימוש ב-placeholders
             business_name = business.name if business else "העסק שלנו"
@@ -258,6 +288,10 @@ class AIService:
             # הוספת הודעת המשתמש הנוכחית
             messages.append({"role": "user", "content": message})
             
+            # ⚡ CRITICAL: Measure OpenAI call time
+            import time
+            openai_start = time.time()
+            
             # קריאה ל-OpenAI
             response = self.client.chat.completions.create(
                 model=prompt_data["model"],
@@ -265,6 +299,9 @@ class AIService:
                 max_tokens=prompt_data["max_tokens"],
                 temperature=prompt_data["temperature"]
             )
+            
+            openai_time = time.time() - openai_start
+            logger.info(f"📊 OPENAI_CALL: {openai_time:.3f}s (timeout: 3.5s)")
             
             ai_response = response.choices[0].message.content
             if ai_response:
