@@ -455,6 +455,10 @@ def create_contract():
             db.session.add(customer)
             db.session.flush()  # Get customer ID
         
+        # ✅ CRITICAL: Validate customer exists and belongs to business before creating deal
+        if not customer:
+            return jsonify({"error": "Customer not found or doesn't belong to this business"}), 404
+        
         # Create deal
         deal = Deal()
         deal.customer_id = customer.id
@@ -732,9 +736,21 @@ def create_deal():
         data = request.get_json() or {}
         business_id = get_business_id()
         
+        customer_id = data.get("customer_id")
+        if not customer_id:
+            return jsonify({"error": "customer_id is required"}), 400
+        
+        # ✅ CRITICAL: Validate customer exists and belongs to business
+        customer = Customer.query.filter_by(
+            id=customer_id,
+            business_id=business_id
+        ).first()
+        
+        if not customer:
+            return jsonify({"error": f"Customer {customer_id} not found or doesn't belong to this business"}), 404
+        
         deal = Deal()
-        # deal.business_id = business_id  # Remove - column doesn't exist
-        deal.customer_id = data.get("customer_id")
+        deal.customer_id = customer.id
         deal.title = data.get("title", "")
         deal.stage = data.get("stage", "new")
         deal.amount = data.get("amount", 0)

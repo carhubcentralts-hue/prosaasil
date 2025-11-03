@@ -299,7 +299,7 @@ class LeadMergeCandidate(db.Model):
 class Deal(db.Model):
     __tablename__ = "deal"
     id = db.Column(db.Integer, primary_key=True)
-    customer_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)  # ✅ FIXED: Points to leads table
+    customer_id = db.Column(db.Integer, db.ForeignKey("customer.id", ondelete="CASCADE"), nullable=False, index=True)  # ✅ CRITICAL FIX: Points to customer table (not leads!) with CASCADE delete to prevent orphaned records
     title = db.Column(db.String(160))
     stage = db.Column(db.String(40), default='new')  # new / qualified / won / lost
     amount = db.Column(db.Integer)  # אגורות/שקלים — תואם CURRENCY
