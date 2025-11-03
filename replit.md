@@ -57,6 +57,12 @@ Preferred communication style: Simple, everyday language.
   - **Error Resilience**: Multi-layer fallback ensures system stability even if agents fail
   - **API Endpoints**: `/api/agent/booking` and `/api/agent/sales` for direct agent interactions
   - **Environment Control**: `AGENTS_ENABLED` environment variable for easy enable/disable (default: enabled)
+  - **Production Validations**:
+    - ✅ Timezone & Business Hours: Strict 09:00-22:00 Asia/Jerusalem enforcement
+    - ✅ Conflict Detection: Overlapping appointments rejected with clear Hebrew error messages
+    - ✅ Field Validation: Phone format (E.164), treatment_type required, duration 15-240 minutes
+    - ✅ Agent Tracing: Full logging to `agent_trace` table (tool_calls, duration_ms, status, errors)
+    - ✅ Kill-switch: `AGENTS_ENABLED=0` instantly disables agents with graceful fallback
 - **BUILD 118 - Fixed Timeout Issues & Reliability**:
   - **OpenAI timeout added**: 3.5s explicit timeout prevents indefinite waits
   - **Better error logging**: Now logs exact error types (APITimeoutError, RateLimitError, etc.)
