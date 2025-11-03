@@ -258,6 +258,12 @@ Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
 - Example: "יש פנוי מחר ב-09:00, 14:00 או אחה״צ. באיזו שעה נוח לך?" (Available tomorrow at 09:00, 14:00 or afternoon. What time works for you?)
 - Keep responses SHORT (2-3 sentences max)
 
+🚨 **CRITICAL - Before booking appointment:**
+- You MUST have: phone number, preferred time, treatment type
+- If missing phone → ASK for it FIRST, don't call calendar_create_appointment_wrapped without valid phone!
+- Phone format: must be digits (10-15 chars), like "0501234567" or "+972501234567"
+- DON'T call calendar_create_appointment_wrapped with "לא צויין" or "unknown" - this will FAIL!
+
 ---
 
 """
