@@ -51,6 +51,22 @@ USE_STREAMING_STT = True
 if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
     USE_STREAMING_STT = False
 
+# ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
+# This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
+_flask_app_singleton = None
+_flask_app_lock = threading.Lock()
+
+def _get_flask_app():
+    """Get or create Flask app singleton - prevents app recreation per-call"""
+    global _flask_app_singleton
+    if _flask_app_singleton is None:
+        with _flask_app_lock:
+            if _flask_app_singleton is None:  # Double-check after acquiring lock
+                from server.app_factory import create_app
+                _flask_app_singleton = create_app()
+                force_print("✅ Flask app singleton created for media handlers")
+    return _flask_app_singleton
+
 # ⚡ BUILD 116: אופטימיזציות לזמן תגובה <2s
 print("="*80)
 print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION + PHASE 1")
@@ -631,8 +647,7 @@ class MediaStreamHandler:
                     
                     # ⚡ OPTIMIZED: זיהוי עסק + ברכה בשאילתה אחת!
                     try:
-                        from server.app_factory import create_app
-                        app = create_app()
+                        app = _get_flask_app()  # ✅ Use singleton
                         with app.app_context():
                             business_id, greet = self._identify_business_and_get_greeting()
                         print(f"⚡ FAST: business_id={business_id}, greeting loaded in single query!")
@@ -1993,10 +2008,9 @@ class MediaStreamHandler:
         """טוען פרומפטים מהדאטאבייס לפי עסק - לפי ההנחיות המדויקות"""
         try:
             # ✅ CRITICAL: All DB queries need app_context in Cloud Run/ASGI!
-            from server.app_factory import create_app
             from server.models_sql import Business, BusinessSettings
             
-            app = create_app()
+            app = _get_flask_app()  # ✅ Use singleton
             with app.app_context():
                 # ✅ BUILD 100 FIX: זיהוי business_id לפי מספר טלפון - שימוש ב-phone_e164
                 if not self.business_id and self.phone_number:
@@ -2056,7 +2070,6 @@ class MediaStreamHandler:
     def _identify_business_and_get_greeting(self) -> tuple:
         """⚡ זיהוי עסק וטעינת ברכה בשאילתה אחת - חוסך 50% זמן!"""
         try:
-            from server.app_factory import create_app
             from server.models_sql import Business
             from sqlalchemy import or_
             
@@ -2064,7 +2077,7 @@ class MediaStreamHandler:
             
             print(f"⚡ FAST: זיהוי עסק + ברכה בשאילתה אחת: to_number={to_number}")
             
-            app = create_app()
+            app = _get_flask_app()  # ✅ Use singleton
             with app.app_context():
                 business = None
                 
@@ -2129,7 +2142,7 @@ class MediaStreamHandler:
             from server.app_factory import create_app
             from server.models_sql import Business
             
-            app = create_app()
+            app = _get_flask_app()  # ✅ Use singleton
             with app.app_context():
                 # ⚡ שאילתה בודדת - קל ומהיר
                 business = Business.query.get(self.business_id)
@@ -2165,13 +2178,13 @@ class MediaStreamHandler:
             # זיהוי עסק אם עדיין לא זוהה
             if not hasattr(self, 'business_id') or not self.business_id:
                 print(f"⚠️ business_id לא מוגדר - מזהה עסק עכשיו...")
-                app = create_app()
+                app = _get_flask_app()  # ✅ Use singleton
                 with app.app_context():
                     self._identify_business_from_phone()
                 print(f"🔍 אחרי זיהוי: business_id={getattr(self, 'business_id', 'STILL NOT SET')}")
             
             # טעינת ברכה מה-DB
-            app = create_app()
+            app = _get_flask_app()  # ✅ Use singleton
             with app.app_context():
                 business = Business.query.get(self.business_id)
                 print(f"🔍 שאילתת business: id={self.business_id}, נמצא: {business is not None}")
@@ -2230,12 +2243,10 @@ class MediaStreamHandler:
             # ⚡ CRITICAL: Measure AI response time
             ai_start = time.time()
             
-            # ✅ FIX: Use existing Flask app context (CRITICAL - prevents app restart!)
-            if not hasattr(self, '_flask_app'):
-                from server.app_factory import create_app
-                self._flask_app = create_app()  # Create once and reuse!
+            # ✅ FIX: Use Flask app singleton (CRITICAL - prevents app restart!)
+            app = _get_flask_app()
             
-            with self._flask_app.app_context():
+            with app.app_context():
                 ai_response = generate_ai_response(
                     message=hebrew_text,
                     business_id=int(business_id),  # Ensure it's an int
@@ -2621,7 +2632,7 @@ class MediaStreamHandler:
             
             def finalize_in_background():
                 try:
-                    app = create_app()
+                    app = _get_flask_app()  # ✅ Use singleton
                     with app.app_context():
                         # מצא call_log
                         call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
@@ -2709,7 +2720,7 @@ class MediaStreamHandler:
             
             def create_in_background():
                 try:
-                    app = create_app()
+                    app = _get_flask_app()  # ✅ Use singleton
                     with app.app_context():
                         # ✅ LOG DATABASE CONNECTION (per הנחיות)
                         db_url = os.getenv('DATABASE_URL', 'NOT_SET')
@@ -2766,7 +2777,7 @@ class MediaStreamHandler:
             
             def save_in_background():
                 try:
-                    app = create_app()
+                    app = _get_flask_app()  # ✅ Use singleton
                     with app.app_context():
                         # מצא call_log קיים (אמור להיות כבר נוצר ב-_create_call_log_on_start)
                         call_log = None
@@ -2831,7 +2842,7 @@ class MediaStreamHandler:
             
             def process_in_background():
                 try:
-                    app = create_app()
+                    app = _get_flask_app()  # ✅ Use singleton
                     with app.app_context():
                         business_id = getattr(self, 'business_id', 1)
                         ci = CustomerIntelligence(business_id)

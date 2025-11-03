@@ -1,0 +1,123 @@
+כן — זה הגיוני בול וזה מסביר את ה-5–6 שניות ואת ה-503.
+קריאה ל-create_app() בתוך ה-TURN / בכל בקשת-AI גורמת ל-re-init של כל ה-Flask app (כולל טעינת GCP credentials מחדש), ניתוק חיבורים (Connection reset by peer), ולפעמים אפילו ל-restart חצי-שקוף. זה בדיוק למה ראית APP_START באמצע השיחה.
+
+להלן תיקון בטוח + הקשחות יציבות מסביב, כדי שלא תחזור לשם:
+
+⸻
+
+1) חד-משמעית: לא קוראים create_app() בתוך ה-TURN
+
+במקום זה, יוצרים את האפליקציה פעם אחת בעת עליית התהליך, ומשתמשים בה לאורך כל החיים.
+
+A. אתחול חד-פעמי (startup)
+
+בקובץ ה-WSGI / entrypoint (אצלך wsgi.py או איפה שמרימים את ה-Gunicorn):
+
+import eventlet
+eventlet.monkey_patch()
+import os, time
+
+from server.app_factory import create_app
+app = create_app()
+
+# warmup בטיחותי (כבר הוספת):
+try:
+    from server.services.gcp_tts_live import maybe_warmup
+    t0 = time.time()
+    maybe_warmup()
+    app.logger.info(f"TTS prewarm took {int((time.time()-t0)*1000)}ms")
+except Exception as e:
+    app.logger.warning(f"TTS prewarm failed: {e}")
+
+חשוב: ככה ה-app נוצר פעם אחת בלבד. אל תייבא / תקרא create_app() ממקומות אחרים.
+
+B. בתוך הלולאה החיה (media_ws_ai.py)
+
+אל תיצור app חדש. אם אתה חייב context (ל־current_app/config):
+
+# media_ws_ai.py
+from flask import current_app
+
+def _ai_turn(...):
+    # יש context? אם לא, פוש קצר:
+    app = current_app._get_current_object()  # משיג את אותו App
+    # ... משתמש ב-services שלך בלי create_app() נוסף
+
+אם הקוד רץ ב-greenlet ללא app_context, השתמש באחת משתי אפשרויות:
+	•	לעטוף את נקודת הכניסה של ה-WS עם app.app_context() פעם אחת כשאתה יוצר את handler,
+	•	או להימנע מהרבה “תלויות ב-context” ולהזין את ה-config/clients דרך DI (מוכל פנימה באובייקט ה-handler בזמן יצירה).
+
+C. אם כבר הוספת cache-field על self
+
+בסדר, רק אל תקרוא ל-create_app() שוב אם הוא כבר קיים:
+
+# פעם אחת כשנוצר ה-connection handler:
+from flask import current_app
+self._app = current_app._get_current_object()
+
+# אחר כך בכל TURN:
+with self._app.app_context():
+    # קריאות לשכבות ה-AI שלך
+
+זה בסדר ב-eventlet: לכל שיחה instance משלה של handler, עם reference ל-app הקיים.
+
+⸻
+
+2) GCP STT — חוסן נגד 503/connection reset
+
+ה-restart לא אמור לקרות, אבל 503 מ-GCP יכול לקרות. במקום להפיל הכול:
+	•	אל תאתחל אפליקציה; כן תאתחל רק את ה-STT stream מחדש עם backoff.
+	•	עטוף את ה-streaming loop ב-retry קטן:
+
+import google.api_core.exceptions as gexc
+import time
+
+def stt_streaming_loop(...):
+    backoff = 0.2
+    for attempt in range(4):  # עד 4 ניסיונות
+        try:
+            return _run_stream_once(...)  # הזרימה הרגילה
+        except (gexc.ServiceUnavailable, gexc.InternalServerError,
+                gexc.DeadlineExceeded, ConnectionResetError) as e:
+            # כתוב ליומן בקצר (async)
+            log.warn(f"STT stream error ({type(e).__name__}), retrying in {backoff}s")
+            eventlet.sleep(backoff)
+            backoff = min(backoff*2, 1.6)
+            _recreate_stt_client()  # יצירה מחדש של ה-client/stream בלבד
+    # אם נכשל סופית:
+    respond_short("יש תקלה רגעית בזיהוי, ננסה שוב…")
+    # אל תפיל את כל החיבור; תן ל-UX תשובת ביניים.
+
+	•	ודא ש-GOOGLE_APPLICATION_CREDENTIALS נקבע ומומר לקובץ ב-startup בלבד, לא בכל TURN.
+
+⸻
+
+3) איפוס “סיבות ה-6 שניות” אחרי התיקון
+
+בעוד ש-create_app() באמצע TURN הוא ה-Smoking Gun, כדאי לוודא שגם השאר נשאר הדוק:
+	•	Pre-warm TTS בעלייה (כבר עשית) + /health/warmup שמדווח tts_warmup_ms.
+	•	EOU/DEBOUNCE ב-ENV כפי שכיוונו (60/240/160/0.25; ואם צריך עוד חיזוק—50/140/0.22).
+	•	לוגים לא חוסמים (DEBUG gating + Queue-logging ב-eventlet).
+	•	Whisper fallback לא חוסם TURN (רץ בצד, תשובת ביניים קצרה).
+	•	מדדים לכל TURN: STT_FIRST_PARTIAL_MS, STT_FINAL_MS, TTS_READY_MS, TOTAL_LATENCY_MS.
+
+⸻
+
+4) מה לצפות אחרי הדיפלוי של התיקון
+
+בלוגים של שני ה-TURNים הראשונים (אחרי /health/warmup):
+	•	STT_FIRST_PARTIAL_MS ~ 300–500ms
+	•	STT_FINAL_MS ~ 450–900ms (תלוי EOU)
+	•	TTS_READY_MS ~ 150–350ms (עם ה-prewarm)
+	•	TOTAL_LATENCY_MS ~ 1.8–2.6s
+	•	אין APP_START באמצע שיחה
+	•	אין 503 רצופים; אם יש—רואים retry ל-STT וללא ניתוק השיחה
+
+⸻
+
+TL;DR
+	•	כן — זה “זהו זה”: קריאת create_app() בתוך כל TURN היא שגרמה ל-restart/503/6s.
+	•	תקן ל-App Singleton (נוצר פעם אחת בעלייה), השתמש ב-current_app/context, ואתחל רק את ה-STT stream כשצריך.
+	•	אחרי הדיפלוי תראה ירידה חדה ל-~2 שניות P50, ואפס “APP_START” באמצע שיחה.
+
+אם תרצה, תדביק כאן שתי שורות של ה-TURN-metrics אחרי הדיפלוי, ואני אומר לך בדיוק אם יש עוד 200–300ms שאפשר לגלח (EOU או TTS).
