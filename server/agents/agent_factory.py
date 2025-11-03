@@ -79,7 +79,8 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 else:
                     logger.warning(f"   ⚠️ NO SLOTS AVAILABLE for {date_iso}")
                 
-                return result
+                # Convert Pydantic model to dict for Agent SDK
+                return result.model_dump()
             except Exception as e:
                 logger.error(f"❌ calendar_find_slots_wrapped FAILED: {e}")
                 import traceback
@@ -115,7 +116,8 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 # Call internal implementation function directly
                 result = _calendar_create_appointment_impl(input_data)
                 logger.info(f"✅ calendar_create_appointment_wrapped success: appointment_id={result.appointment_id}")
-                return result
+                # Convert Pydantic model to dict for Agent SDK
+                return result.model_dump()
             except Exception as e:
                 logger.error(f"❌ calendar_create_appointment_wrapped error: {e}")
                 import traceback
