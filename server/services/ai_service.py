@@ -1,6 +1,7 @@
 """
 AI Service - Unified OpenAI Service for All Communication Channels
 שירות AI מאוחד - מחבר פרומפטים דינמיים מהמסד נתונים עם OpenAI
+✨ BUILD 119: AgentKit integration for real actions (appointments, leads, WhatsApp)
 """
 import os
 import logging
@@ -411,6 +412,88 @@ class AIService:
             pass
         except Exception as e:
             logger.error(f"Failed to save conversation history: {e}")
+    
+    def generate_response_with_agent(self, message: str, business_id: int = 1, 
+                                     context: Optional[Dict[str, Any]] = None,
+                                     channel: str = "calls",
+                                     is_first_turn: bool = False,
+                                     customer_phone: Optional[str] = None,
+                                     customer_name: Optional[str] = None) -> str:
+        """
+        ✨ BUILD 119: Agent-enhanced response generation
+        
+        Uses AgentKit to perform real actions (appointments, leads, WhatsApp)
+        Falls back to regular generate_response if agents are disabled
+        
+        Args:
+            message: Customer's message
+            business_id: Business ID
+            context: Conversation context
+            channel: calls/whatsapp
+            is_first_turn: First message in conversation
+            customer_phone: Customer phone for lead creation
+            customer_name: Customer name for personalization
+            
+        Returns:
+            AI response (potentially enhanced with tool actions)
+        """
+        # Check if agents are enabled (default: enabled)
+        agents_enabled = os.getenv("AGENTS_ENABLED", "1") == "1"
+        
+        if not agents_enabled:
+            # Fallback to regular response
+            return self.generate_response(message, business_id, context, channel, is_first_turn)
+        
+        try:
+            from server.agents import get_agent, AGENTS_ENABLED
+            
+            if not AGENTS_ENABLED:
+                # Double-check - agents not available
+                return self.generate_response(message, business_id, context, channel, is_first_turn)
+            
+            # Get business name
+            business = Business.query.get(business_id)
+            business_name = business.name if business else "העסק שלנו"
+            
+            # Get booking agent
+            agent = get_agent(agent_type="booking", business_name=business_name)
+            
+            if not agent:
+                logger.warning("Failed to create agent - falling back to regular response")
+                return self.generate_response(message, business_id, context, channel, is_first_turn)
+            
+            # Build enhanced context for agent
+            agent_context = {
+                "business_id": business_id,
+                "business_name": business_name,
+                "customer_phone": customer_phone,
+                "customer_name": customer_name,
+                "channel": channel,
+                "is_first_turn": is_first_turn,
+                **(context or {})
+            }
+            
+            # Run agent
+            logger.info(f"🤖 Running agent for business {business_id}, channel={channel}")
+            result = agent.run(input=message, context=agent_context)
+            
+            # Extract response
+            reply_text = result.output_text if hasattr(result, 'output_text') else str(result)
+            
+            # Log tool actions if any
+            if hasattr(result, 'tool_calls') and result.tool_calls:
+                logger.info(f"✅ Agent executed {len(result.tool_calls)} tool actions")
+                for tool_call in result.tool_calls:
+                    logger.info(f"  - {tool_call.name if hasattr(tool_call, 'name') else str(tool_call)}")
+            
+            return reply_text
+            
+        except Exception as e:
+            logger.error(f"Agent error (falling back to regular response): {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback to regular response
+            return self.generate_response(message, business_id, context, channel, is_first_turn)
 
 def generate_ai_response(message: str, business_id: int = 1, 
                         context: Optional[Dict[str, Any]] = None, channel: str = "calls",

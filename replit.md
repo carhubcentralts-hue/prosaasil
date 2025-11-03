@@ -47,6 +47,16 @@ Preferred communication style: Simple, everyday language.
 - **Enhanced Reminders System**: Comprehensive reminder management.
 
 ## System Design Choices
+- **BUILD 119 - AgentKit Integration for Real Actions**:
+  - **OpenAI Agents SDK**: Integrated `openai-agents` package for production-ready AI capabilities
+  - **Tool System**: Created comprehensive tools for calendar (find_slots, create_appointment), leads (upsert, search), and WhatsApp (send)
+  - **Agent Factory**: Central orchestration with booking and sales agent types, cached instances for performance
+  - **AIService Integration**: New `generate_response_with_agent()` method with automatic fallback to regular responses
+  - **Real Actions**: AI can now perform actual operations - schedule appointments, create leads, send confirmations
+  - **Smart Context**: Agents receive full business context (tenant_id, customer info, channel) for accurate operations
+  - **Error Resilience**: Multi-layer fallback ensures system stability even if agents fail
+  - **API Endpoints**: `/api/agent/booking` and `/api/agent/sales` for direct agent interactions
+  - **Environment Control**: `AGENTS_ENABLED` environment variable for easy enable/disable (default: enabled)
 - **BUILD 118 - Fixed Timeout Issues & Reliability**:
   - **OpenAI timeout added**: 3.5s explicit timeout prevents indefinite waits
   - **Better error logging**: Now logs exact error types (APITimeoutError, RateLimitError, etc.)
