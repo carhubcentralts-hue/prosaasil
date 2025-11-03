@@ -58,6 +58,10 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 FindSlotsOutput with list of available slots
             """
             try:
+                print(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_find_slots_wrapped 🔧 🔧 🔧")
+                print(f"   📅 date_iso={date_iso}")
+                print(f"   ⏱️  duration_min={duration_min}")
+                print(f"   🏢 business_id={business_id}")
                 logger.info(f"🔧 TOOL CALLED: calendar_find_slots_wrapped")
                 logger.info(f"   📅 date_iso={date_iso}")
                 logger.info(f"   ⏱️  duration_min={duration_min}")
@@ -74,15 +78,20 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 # Call internal implementation function directly
                 result = _calendar_find_slots_impl(input_data)
                 
+                print(f"✅ calendar_find_slots_wrapped RESULT: {len(result.slots)} slots found")
                 logger.info(f"✅ calendar_find_slots_wrapped RESULT: {len(result.slots)} slots found")
                 if result.slots:
                     slot_times = [s.start_display for s in result.slots[:5]]
+                    print(f"   Available times: {', '.join(slot_times)}{'...' if len(result.slots) > 5 else ''}")
                     logger.info(f"   Available times: {', '.join(slot_times)}{'...' if len(result.slots) > 5 else ''}")
                 else:
+                    print(f"   ⚠️ NO SLOTS AVAILABLE for {date_iso}")
                     logger.warning(f"   ⚠️ NO SLOTS AVAILABLE for {date_iso}")
                 
                 # Convert Pydantic model to dict for Agent SDK
-                return result.model_dump()
+                result_dict = result.model_dump()
+                print(f"📤 Returning dict with {len(result_dict.get('slots', []))} slots")
+                return result_dict
             except Exception as e:
                 logger.error(f"❌ calendar_find_slots_wrapped FAILED: {e}")
                 import traceback

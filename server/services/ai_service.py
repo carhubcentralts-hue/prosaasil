@@ -544,20 +544,37 @@ class AIService:
                 print(f"📊 Agent returned {len(result.new_items)} items")
                 logger.info(f"📊 Agent returned {len(result.new_items)} items")
                 # Filter for ToolCallItem types and extract tool names
-                for item in result.new_items:
+                for idx, item in enumerate(result.new_items):
                     item_type = type(item).__name__
-                    print(f"   - Item type: {item_type}")
+                    print(f"   - Item #{idx}: {item_type}")
                     logger.info(f"   - Item type: {item_type}")
+                    
                     if item_type == 'ToolCallItem':
                         tool_count += 1
-                        tool_name = getattr(item, 'name', 'unknown')
-                        print(f"  ✅ Tool call #{tool_count}: {tool_name}")
+                        # Try multiple ways to get tool name
+                        tool_name = getattr(item, 'name', None)
+                        if not tool_name:
+                            tool_name = getattr(item, 'tool_name', None)
+                        if not tool_name and hasattr(item, 'tool'):
+                            tool_name = getattr(item.tool, 'name', None)
+                        if not tool_name:
+                            tool_name = 'unknown'
+                        
+                        print(f"  🔧 Tool call #{tool_count}: {tool_name}")
+                        print(f"     📋 Item attributes: {dir(item)[:10]}...")  # First 10 attributes
                         logger.info(f"  ✅ Tool call #{tool_count}: {tool_name}")
                         tool_calls_data.append({
                             "tool": tool_name,
                             "status": "success",
                             "result": None  # Result is in separate ToolCallOutputItem
                         })
+                    
+                    elif item_type == 'ToolCallOutputItem':
+                        # Extract tool output/result
+                        output = getattr(item, 'output', None)
+                        print(f"  📤 Tool output: {str(output)[:200] if output else 'None'}...")
+                        if output:
+                            logger.info(f"     Tool returned: {str(output)[:100]}")
                 
                 if tool_count > 0:
                     print(f"✅ Agent executed {tool_count} tool actions")
