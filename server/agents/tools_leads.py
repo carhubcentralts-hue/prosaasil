@@ -2,7 +2,7 @@
 Lead Management Tools for AgentKit - Create and update leads
 Integrates with existing Lead model and CRM system
 """
-from openai_agents import tool
+from agents.tool import function_tool
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
@@ -61,12 +61,7 @@ class SearchLeadOutput(BaseModel):
 # TOOLS
 # ================================================================================
 
-@tool(
-    name="leads.upsert",
-    description="Create a new lead or update existing one by phone number. Automatically detects duplicates and updates instead of creating. Returns lead ID and status.",
-    input_model=UpsertLeadInput,
-    output_model=UpsertLeadOutput
-)
+@function_tool
 def leads_upsert(input: UpsertLeadInput) -> UpsertLeadOutput:
     """
     Create or update a lead
@@ -188,12 +183,7 @@ def leads_upsert(input: UpsertLeadInput) -> UpsertLeadOutput:
         raise ValueError(f"Failed to save lead: {str(e)}")
 
 
-@tool(
-    name="leads.search",
-    description="Search for existing leads by phone, email, or status. Returns list of matching leads with their details.",
-    input_model=SearchLeadInput,
-    output_model=SearchLeadOutput
-)
+@function_tool
 def leads_search(input: SearchLeadInput) -> SearchLeadOutput:
     """
     Search for leads

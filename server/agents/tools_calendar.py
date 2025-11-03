@@ -2,7 +2,7 @@
 Calendar Tools for AgentKit - Find slots and create appointments
 Integrates with existing Appointment model
 """
-from openai_agents import tool
+from agents.tool import function_tool
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -57,12 +57,7 @@ class CreateAppointmentOutput(BaseModel):
 # TOOLS
 # ================================================================================
 
-@tool(
-    name="calendar.find_slots",
-    description="Find available appointment slots for a business on a specific date in Asia/Jerusalem timezone. Returns slots between 09:00-22:00 that don't conflict with existing appointments.",
-    input_model=FindSlotsInput,
-    output_model=FindSlotsOutput
-)
+@function_tool
 def calendar_find_slots(input: FindSlotsInput) -> FindSlotsOutput:
     """
     Find available slots for appointments
@@ -140,12 +135,7 @@ def calendar_find_slots(input: FindSlotsInput) -> FindSlotsOutput:
         raise ValueError(f"Failed to find slots: {str(e)}")
 
 
-@tool(
-    name="calendar.create_appointment",
-    description="Create a confirmed appointment in the calendar. Validates business hours, checks for conflicts, and creates the appointment record. Returns appointment ID and confirmation.",
-    input_model=CreateAppointmentInput,
-    output_model=CreateAppointmentOutput
-)
+@function_tool
 def calendar_create_appointment(input: CreateAppointmentInput) -> CreateAppointmentOutput:
     """
     Create a new appointment

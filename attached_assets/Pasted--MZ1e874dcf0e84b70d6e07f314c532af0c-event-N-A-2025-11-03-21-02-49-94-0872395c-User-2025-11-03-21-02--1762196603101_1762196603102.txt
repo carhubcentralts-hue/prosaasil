@@ -1,0 +1,112 @@
+=MZ1e874dcf0e84b70d6e07f314c532af0c event=N/A
+2025-11-03 21:02:49.94
+0872395c
+User
+2025-11-03 21:02:50.17
+0872395c
+User
+🧹 Waiting for 14 background threads...
+
+2025-11-03 21:02:50.21
+0872395c
+User
+✅ CALL FINALIZED: CAeab8198ba1c5f852d51d920cc43eaecd
+2025-11-03 21:02:50.21
+0872395c
+User
+📝 Summary: בקשה לתיאום פגישה
+2025-11-03 21:02:50.21
+0872395c
+User
+🎯 Intent: meeting_request
+2025-11-03 21:02:50.21
+0872395c
+User
+📊 Next Action: תיאום פגישה דחוף
+2025-11-03 21:02:50.26
+0872395c
+User
+✅ stream_status: Updated call_log for CAeab8198ba1c5f852d51d920cc43eaecd
+2025-11-03 21:02:50.26
+0872395c
+User
+INFO: 34.26.221.212:0 - "POST /webhook/stream_status HTTP/1.1" 200 OK
+2025-11-03 21:02:50.27
+0872395c
+User
+STREAM_ENDED call=CAeab8198ba1c5f852d51d920cc43eaecd stream=N/A status=N/A
+2025-11-03 21:02:50.27
+0872395c
+User
+INFO: 34.138.26.166:0 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+2025-11-03 21:02:50.35
+0872395c
+User
+🔧 GCP credentials loaded from file path: /tmp/gcp_credentials.json...
+2025-11-03 21:02:50.35
+0872395c
+User
+🔧 FE_DIST=/home/runner/workspace/server/../client/dist
+2025-11-03 21:02:50.35
+0872395c
+User
+INFO: 35.190.144.184:0 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+2025-11-03 21:02:50.36
+0872395c
+User
+🔧 APP_SHA=dev
+2025-11-03 21:02:50.36
+0872395c
+User
+🚩 APP_START {'build': 87, 'sha': 'dev', 'fe': 'client/dist', 'time': '2025-11-03 19:02:50', 'app': 'AgentLocator-Complete', 'commit': 'dev', 'startup_ts': 1762196570}
+2025-11-03 21:02:50.36
+0872395c
+User
+🔧 DB_DRIVER: postgresql
+2025-11-03 21:02:50.37
+0872395c
+User
+✅ Auth blueprints registered
+2025-11-03 21:02:50.37
+0872395c
+User
+2025-11-03 21:02:50.61
+0872395c
+User
+Traceback (most recent call last):
+2025-11-03 21:02:50.61
+0872395c
+User
+File "/home/runner/workspace/server/app_factory.py", line 362, in create_app
+2025-11-03 21:02:50.61
+0872395c
+User
+from server.routes_agent import bp as agent_bp
+2025-11-03 21:02:50.61
+0872395c
+User
+File "/home/runner/workspace/server/routes_agent.py", line 6, in
+2025-11-03 21:02:50.61
+0872395c
+User
+from server.agents.agent_factory import get_agent, AGENTS_ENABLED
+2025-11-03 21:02:50.61
+0872395c
+User
+File "/home/runner/workspace/server/agents/__init__.py", line 5, in
+2025-11-03 21:02:50.61
+0872395c
+User
+from server.agents.agent_factory import get_agent, create_booking_agent, create_sales_agent, AGENTS_ENABLED
+2025-11-03 21:02:50.61
+0872395c
+User
+File "/home/runner/workspace/server/agents/agent_factory.py", line 6, in
+2025-11-03 21:02:50.61
+0872395c
+User
+from openai_agents import Agent
+2025-11-03 21:02:50.61
+0872395c
+User
+ModuleNotFoundError: No module named 'openai_agents'

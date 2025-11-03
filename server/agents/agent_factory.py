@@ -3,7 +3,7 @@ Agent Factory - Create and configure AI agents with tools
 Integrates with OpenAI Agents SDK for production-ready agent capabilities
 """
 import os
-from openai_agents import Agent
+from agents import Agent
 from server.agents.tools_calendar import calendar_find_slots, calendar_create_appointment
 from server.agents.tools_leads import leads_upsert, leads_search
 from server.agents.tools_whatsapp import whatsapp_send

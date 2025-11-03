@@ -41,6 +41,7 @@ server/production_config.py
 server/rate_limiter.py
 server/routes_admin.py
 server/routes_admin_channels.py
+server/routes_agent.py
 server/routes_ai_prompt.py
 server/routes_business_management.py
 server/routes_calendar.py
@@ -62,6 +63,11 @@ server/ui_components.py
 server/whatsapp_appointment_handler.py
 server/whatsapp_provider.py
 server/whatsapp_templates.py
+server/agents/__init__.py
+server/agents/agent_factory.py
+server/agents/tools_calendar.py
+server/agents/tools_leads.py
+server/agents/tools_whatsapp.py
 server/providers/payments.py
 server/routes/__init__.py
 server/services/ai_service.py

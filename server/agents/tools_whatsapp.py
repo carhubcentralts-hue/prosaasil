@@ -2,7 +2,7 @@
 WhatsApp Tools for AgentKit - Send messages and confirmations
 Integrates with existing WhatsApp service (Baileys/Twilio)
 """
-from openai_agents import tool
+from agents.tool import function_tool
 from pydantic import BaseModel, Field
 from typing import Optional
 from server.whatsapp_provider import get_whatsapp_service
@@ -31,12 +31,7 @@ class SendWhatsAppOutput(BaseModel):
 # TOOLS
 # ================================================================================
 
-@tool(
-    name="whatsapp.send",
-    description="Send a WhatsApp message to a customer. Automatically selects best provider (Baileys or Twilio). Use for appointment confirmations, reminders, or follow-ups.",
-    input_model=SendWhatsAppInput,
-    output_model=SendWhatsAppOutput
-)
+@function_tool
 def whatsapp_send(input: SendWhatsAppInput) -> SendWhatsAppOutput:
     """
     Send WhatsApp message
