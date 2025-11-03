@@ -87,6 +87,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
 
     try:
         agent = Agent(
+            name=f"booking_agent_{business_name}",  # Required: Agent name
             model="gpt-4o-mini",  # ⚡ Fast model for real-time conversations
             instructions=instructions,
             tools=[
@@ -95,8 +96,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 leads_upsert,
                 leads_search,
                 whatsapp_send
-            ],
-            strict=True  # ⚡ Enforce schema validation
+            ]
         )
         
         logger.info(f"✅ Created booking agent for '{business_name}' with 5 tools")
@@ -149,14 +149,14 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
 
     try:
         agent = Agent(
+            name=f"sales_agent_{business_name}",  # Required: Agent name
             model="gpt-4o-mini",
             instructions=instructions,
             tools=[
                 leads_upsert,
                 leads_search,
                 whatsapp_send
-            ],
-            strict=True
+            ]
         )
         
         logger.info(f"✅ Created sales agent for '{business_name}' with 3 tools")
