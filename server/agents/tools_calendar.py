@@ -54,11 +54,10 @@ class CreateAppointmentOutput(BaseModel):
     confirmation_message: str
 
 # ================================================================================
-# TOOLS
+# INTERNAL FUNCTIONS (can be called directly)
 # ================================================================================
 
-@function_tool
-def calendar_find_slots(input: FindSlotsInput) -> FindSlotsOutput:
+def _calendar_find_slots_impl(input: FindSlotsInput) -> FindSlotsOutput:
     """
     Find available slots for appointments
     
@@ -134,9 +133,14 @@ def calendar_find_slots(input: FindSlotsInput) -> FindSlotsOutput:
         logger.error(f"Error finding slots: {e}")
         raise ValueError(f"Failed to find slots: {str(e)}")
 
-
+# Wrapped version for Agent SDK
 @function_tool
-def calendar_create_appointment(input: CreateAppointmentInput) -> CreateAppointmentOutput:
+def calendar_find_slots(input: FindSlotsInput) -> FindSlotsOutput:
+    """Find available appointment slots - Agent SDK wrapper"""
+    return _calendar_find_slots_impl(input)
+
+
+def _calendar_create_appointment_impl(input: CreateAppointmentInput) -> CreateAppointmentOutput:
     """
     Create a new appointment in the calendar
     
@@ -255,3 +259,9 @@ def calendar_create_appointment(input: CreateAppointmentInput) -> CreateAppointm
         db.session.rollback()
         logger.error(f"Error creating appointment: {e}")
         raise ValueError(f"Failed to create appointment: {str(e)}")
+
+# Wrapped version for Agent SDK
+@function_tool
+def calendar_create_appointment(input: CreateAppointmentInput) -> CreateAppointmentOutput:
+    """Create a new appointment - Agent SDK wrapper"""
+    return _calendar_create_appointment_impl(input)

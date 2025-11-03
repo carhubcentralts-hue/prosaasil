@@ -48,7 +48,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             """Find available appointment slots"""
             try:
                 logger.info(f"🔧 calendar_find_slots_wrapped called: date={date_iso}, business_id={business_id}")
-                from server.agents.tools_calendar import FindSlotsInput, calendar_find_slots
+                from server.agents.tools_calendar import FindSlotsInput, _calendar_find_slots_impl
                 
                 # Tools are called from ai_service.py which already has Flask context
                 input_data = FindSlotsInput(
@@ -56,7 +56,8 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                     date_iso=date_iso,
                     duration_min=duration_min
                 )
-                result = calendar_find_slots(input_data)
+                # Call internal implementation function directly
+                result = _calendar_find_slots_impl(input_data)
                 logger.info(f"✅ calendar_find_slots_wrapped success: {len(result.slots)} slots")
                 return result
             except Exception as e:
@@ -76,35 +77,86 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             notes: str = None
         ):
             """Create a new appointment"""
-            from server.agents.tools_calendar import CreateAppointmentInput, calendar_create_appointment
-            
-            # Tools are called from ai_service.py which already has Flask context
-            input_data = CreateAppointmentInput(
-                business_id=business_id,
-                customer_name=customer_name,
-                customer_phone=customer_phone,
-                treatment_type=treatment_type,
-                start_iso=start_iso,
-                end_iso=end_iso,
-                notes=notes,
-                source="ai_agent"
-            )
-            return calendar_create_appointment(input_data)
+            try:
+                logger.info(f"🔧 calendar_create_appointment_wrapped called: {customer_name}, business_id={business_id}")
+                from server.agents.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
+                
+                # Tools are called from ai_service.py which already has Flask context
+                input_data = CreateAppointmentInput(
+                    business_id=business_id,
+                    customer_name=customer_name,
+                    customer_phone=customer_phone,
+                    treatment_type=treatment_type,
+                    start_iso=start_iso,
+                    end_iso=end_iso,
+                    notes=notes,
+                    source="ai_agent"
+                )
+                # Call internal implementation function directly
+                result = _calendar_create_appointment_impl(input_data)
+                logger.info(f"✅ calendar_create_appointment_wrapped success: appointment_id={result.appointment_id}")
+                return result
+            except Exception as e:
+                logger.error(f"❌ calendar_create_appointment_wrapped error: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
         
-        # Wrapper for leads_upsert
+        # Wrapper for leads_upsert (simple implementation - creates lead directly)
         @function_tool
         def leads_upsert_wrapped(phone_e164: str, name: str = None, notes: str = None):
             """Create or update customer lead"""
-            from server.agents.tools_leads import LeadsUpsertInput, leads_upsert
-            
-            # Tools are called from ai_service.py which already has Flask context
-            input_data = LeadsUpsertInput(
-                tenant_id=business_id,
-                phone_e164=phone_e164,
-                name=name,
-                notes=notes
-            )
-            return leads_upsert(input_data)
+            try:
+                logger.info(f"🔧 leads_upsert_wrapped called: {phone_e164}, business_id={business_id}")
+                from server.models_sql import db, Lead
+                from datetime import datetime
+                
+                # Normalize phone to E.164 format
+                phone = phone_e164.strip()
+                if not phone.startswith('+'):
+                    if phone.startswith('0'):
+                        phone = '+972' + phone[1:]
+                    else:
+                        phone = '+972' + phone
+                
+                # Search for existing lead
+                existing_lead = Lead.query.filter_by(
+                    tenant_id=business_id,
+                    phone_e164=phone
+                ).first()
+                
+                if existing_lead:
+                    # Update existing
+                    if name:
+                        existing_lead.first_name = name
+                    if notes:
+                        existing_lead.notes = (existing_lead.notes or "") + "\n" + notes
+                    existing_lead.last_contact_at = datetime.utcnow()
+                    db.session.commit()
+                    logger.info(f"✅ leads_upsert_wrapped updated: lead_id={existing_lead.id}")
+                    return {"lead_id": existing_lead.id, "action": "updated", "phone": phone, "name": name or ""}
+                else:
+                    # Create new
+                    lead = Lead(
+                        tenant_id=business_id,
+                        phone_e164=phone,
+                        first_name=name or "Customer",
+                        source="ai_agent",
+                        status_name="new",
+                        notes=notes,
+                        last_contact_at=datetime.utcnow()
+                    )
+                    db.session.add(lead)
+                    db.session.commit()
+                    logger.info(f"✅ leads_upsert_wrapped created: lead_id={lead.id}")
+                    return {"lead_id": lead.id, "action": "created", "phone": phone, "name": name or ""}
+                    
+            except Exception as e:
+                logger.error(f"❌ leads_upsert_wrapped error: {e}")
+                db.session.rollback()
+                import traceback
+                traceback.print_exc()
+                raise
         
         tools_to_use = [
             calendar_find_slots_wrapped,
