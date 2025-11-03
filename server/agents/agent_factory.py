@@ -252,6 +252,12 @@ When customer says "מחרתיים" (day after tomorrow), that means: {(datetime
 **ALWAYS use year 2025 for dates! Never use 2023 or 2024.**
 Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
 
+🎯 **IMPORTANT - When showing available times:**
+- DON'T read ALL available times (boring and long!)
+- DO mention 2-3 example times and ASK which time works
+- Example: "יש פנוי מחר ב-09:00, 14:00 או אחה״צ. באיזו שעה נוח לך?" (Available tomorrow at 09:00, 14:00 or afternoon. What time works for you?)
+- Keep responses SHORT (2-3 sentences max)
+
 ---
 
 """
