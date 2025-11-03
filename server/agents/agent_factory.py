@@ -209,10 +209,25 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             whatsapp_send
         ]
     
+    # CRITICAL: Always add date context prefix, even for custom instructions!
+    date_context_prefix = f"""📅 **CRITICAL DATE CONTEXT:**
+Today is {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d (%A)')}, current time: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%H:%M')} Israel time.
+
+When customer says "מחר" (tomorrow), that means: {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}
+When customer says "מחרתיים" (day after tomorrow), that means: {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=2)).strftime('%Y-%m-%d')}
+
+**ALWAYS use year 2025 for dates! Never use 2023 or 2024.**
+Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
+
+---
+
+"""
+    
     # Use custom instructions if provided, else use default
     if custom_instructions and custom_instructions.strip():
-        instructions = custom_instructions
-        logger.info(f"✅ Using CUSTOM instructions for {business_name} ({len(instructions)} chars)")
+        # Prepend date context to custom instructions
+        instructions = date_context_prefix + custom_instructions
+        logger.info(f"✅ Using CUSTOM instructions for {business_name} ({len(custom_instructions)} chars) + date prefix")
     else:
         # CRITICAL: Instructions in ENGLISH for Agent SDK to understand properly!
         # The agent will still respond in Hebrew to customers.
