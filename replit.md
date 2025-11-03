@@ -47,14 +47,14 @@ Preferred communication style: Simple, everyday language.
 - **Enhanced Reminders System**: Comprehensive reminder management.
 
 ## System Design Choices
-- **BUILD 119 - AgentKit Integration for Real Actions**:
+- **BUILD 119 - AgentKit Integration for Real Actions** ✅ PRODUCTION READY:
   - **OpenAI Agents SDK**: Integrated `openai-agents` package (correct import: `from agents import Agent`)
-  - **Tool System**: Created comprehensive tools for calendar (find_slots, create_appointment), leads (upsert, search), and WhatsApp (send)
-  - **Agent Factory**: Central orchestration with booking and sales agent types, dynamic prompt loading
-  - **AIService Integration**: Replaced `generate_ai_response` with `generate_response_with_agent()` in phone calls
+  - **Tool System**: Comprehensive tools for calendar (find_slots, create_appointment), leads (upsert, search), and WhatsApp (send)
+  - **Agent Factory**: Central orchestration with booking and sales agent types, fresh agent creation per request
+  - **AIService Integration**: `generate_response_with_agent()` extracts `system_prompt` from prompt_data dict
   - **Real Actions**: AI performs actual operations during conversations - schedule appointments, create leads, send confirmations
   - **Smart Context**: Agents receive full business context (tenant_id, customer info, channel) for accurate operations
-  - **Dynamic Prompts**: Agents load custom instructions from BusinessSettings table (channel-specific)
+  - **Dynamic Prompts**: Agents load custom instructions from BusinessSettings.ai_prompt (channel-specific JSON)
   - **Error Resilience**: Multi-layer fallback ensures system stability even if agents fail
   - **API Endpoints**: `/api/agent/booking` and `/api/agent/sales` for direct agent interactions
   - **Environment Control**: `AGENTS_ENABLED` environment variable for easy enable/disable (default: enabled)
@@ -66,6 +66,8 @@ Preferred communication style: Simple, everyday language.
     - ✅ Agent Tracing: Full logging to `agent_trace` table (tool_calls, duration_ms, status, errors)
     - ✅ Kill-switch: `AGENTS_ENABLED=0` instantly disables agents with graceful fallback
     - ✅ Time Handling: Clear ISO format requirements with timezone, date calculation guidance
+    - ✅ Deduplication: Leads deduped by phone+tenant_id, appointments conflict-checked before creation
+    - ✅ Type Safety: isinstance() checks prevent dict/string type errors
 - **BUILD 118 - Fixed Timeout Issues & Reliability**:
   - **OpenAI timeout added**: 3.5s explicit timeout prevents indefinite waits
   - **Better error logging**: Now logs exact error types (APITimeoutError, RateLimitError, etc.)

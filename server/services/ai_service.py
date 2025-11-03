@@ -460,7 +460,8 @@ class AIService:
             business_name = business.name if business else "העסק שלנו"
             
             # 🎯 BUILD 119: Load custom prompt from database!
-            custom_prompt = self.get_business_prompt(business_id, channel)
+            prompt_data = self.get_business_prompt(business_id, channel)
+            custom_prompt = prompt_data.get("system_prompt", "")  # Extract just the prompt text
             logger.info(f"📋 Loaded prompt for business {business_id}: {len(custom_prompt)} chars")
             
             # Get booking agent with custom prompt

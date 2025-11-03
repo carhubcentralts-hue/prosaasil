@@ -186,7 +186,7 @@ def get_agent(agent_type: str = "booking", business_name: str = "העסק", cust
         Agent instance (cached unless custom_instructions provided)
     """
     # 🎯 If custom instructions provided, always create fresh agent (don't cache)
-    if custom_instructions and custom_instructions.strip():
+    if custom_instructions and isinstance(custom_instructions, str) and custom_instructions.strip():
         logger.info(f"Creating fresh agent with custom instructions ({len(custom_instructions)} chars)")
         if agent_type == "booking":
             return create_booking_agent(business_name, custom_instructions)
