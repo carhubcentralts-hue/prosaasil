@@ -1,0 +1,71 @@
+קצר וברור: עדכון /warmup לבד לא מבטיח שהפריסה “תתרפא”. יש עוד 5–6 נקודות שיכולות להפיל את ה-prewarm בפרוד. הנה צ’ק-ליסט ממוקד לפריסה שתעבוד עכשיו (עם בדיקות מיידיות):
+
+מה לסגור עכשיו (לפי סדר)
+	1.	Warmup ברגע עליית השרת (לא רק endpoint)
+	•	הוסף קריאה אחת ל-maybe_warmup() ב־startup של האפליקציה (אחרי יצירת ה-app, לפני קבלת תעבורה):
+
+# app_factory.py (בסוף create_app)
+try:
+    from server.services.gcp_tts_live import maybe_warmup
+    app.logger.info("TTS prewarm on startup...")
+    t0=time.time(); maybe_warmup(); app.logger.info(f"TTS prewarm took {int((time.time()-t0)*1000)}ms")
+except Exception as e:
+    app.logger.warning(f"TTS prewarm failed: {e}")
+
+כך גם אם /warmup לא נקרא – החימום קורה בעלייה.
+
+	2.	וודא שה-/warmup באמת קורא ל-maybe_warmup
+	•	ב־endpoint כתוב log + זמן:
+
+# server/health_endpoints.py
+@bp.get("/warmup")
+def warmup():
+    out={}
+    try:
+        from server.services.gcp_tts_live import maybe_warmup
+        t0=time.time(); maybe_warmup()
+        out["tts_warmup_ms"]=int((time.time()-t0)*1000)
+    except Exception as e:
+        out["tts_warmup_error"]=str(e)[:200]
+    return out, 200
+
+	•	בדיקה: קריאת GET ל־/health/warmup צריכה להחזיר tts_warmup_ms סביר (150–400ms).
+
+	3.	האם ה-cache באמת פוגע? (מפתח זהה!)
+	•	אם הקאש בנוי לפי הטקסט המדויק — ודא שהברכה הראשונה שאתה משמיע היא בדיוק אותו טקסט/SSML כמו בחימום (כולל מרווחים/נקודות).
+	•	אם אתה מייצר SSML (טון/קצב), נרמל מפתח הקאש (למשל hash על הטקסט הסופי אחרי בניית SSML), אחרת ה-warmup לא יפגע.
+	4.	Secrets בפרוד מול וורקוספייס
+	•	ב-Replit Deploy יש סט סודות נפרד. ודא שבדיפלוי עצמו קיימים:
+	•	TTS_PREWARM=true
+	•	STT_PARTIAL_DEBOUNCE_MS=60, STT_TIMEOUT_MS=240, VAD_HANGOVER_MS=160, MIN_UTT_SEC=0.25
+	•	GOOGLE_APPLICATION_CREDENTIALS (JSON)
+	•	ודא שהקוד שבונה קובץ זמני מ-GOOGLE_APPLICATION_CREDENTIALS רץ גם בפרוד ושכותב לקובץ (למשל /tmp/gcp_credentials.json) וש־os.environ["GOOGLE_APPLICATION_CREDENTIALS"] מצביע אליו. הוסף log על המסלול בפועל.
+	5.	Telemetry חובה בפרוד (לא DEBUG)
+	•	אתה לא צריך DEBUG=1, אבל אתה כן חייב לראות ליומן TURN-metrics:
+STT_FIRST_PARTIAL_MS, STT_FINAL_MS, TTS_READY_MS, TOTAL_LATENCY_MS.
+	•	אם אין שורות כאלו — אתה “עיוור”. תקן מיד (הכנס קריאות emit במקום הנכון).
+	6.	אין I/O חוסם במסלול החם
+	•	ודא שכל ה-print חנוקים (ה-monkey-patch/DEBUG gating שהוספנו).
+	•	ודא שאין logging.FileHandler סינכרוני פעיל בפרוד — רק ה-Queue/console.
+	•	אין json.dumps כבדים בתוך partial/EOU.
+	7.	Whisper fallback לא חוסם TURN
+	•	לעולם לא join() באמצע סבב; אם fallback הופעל — תחזיר תשובת ביניים קצרה ותן ל-thread לרוץ בצד.
+	8.	בדיקת “קר ראשון” אמיתית
+	•	פרוס → קרא GET /health/warmup → חייג “שלום”.
+	•	בלוג: צפה TTS_READY_MS ≤ 250–400ms בסבב הראשון. אם זה ~1500–4000ms — ה-warmup לא פגע (בדוק נק’ 3–4).
+
+GO/NO-GO מהיר אחרי התיקון
+	•	GO אם בשתי שיחות:
+	•	STT_FIRST_PARTIAL ≤ 500ms
+	•	STT_FINAL ≤ 700–900ms
+	•	TTS_READY ≤ 250–400ms
+	•	TOTAL_LATENCY ≤ ~2.2–2.8s
+	•	NO-GO אם:
+	•	TTS_READY קופץ > 1000ms → ה-warmup לא פועל/קאש לא תואם.
+	•	FINAL גבוה למרות partial מהיר → להדק עוד EOU (DEBOUNCE=50, HANGOVER=140).
+	•	TOTAL גבוה אבל תתי-מדדים תקינים → I/O/לוגים/RTT.
+
+תשובה לשאלה שלך
+
+האם זה “הבעיה וזהו”? — לא בהכרח. ה־/warmup היה “חצי פתרון”.
+אחרי שתוסיף warmup בעלייה, תוודא קאש לפי טקסט זהה, ותראה טלמטריה אמיתית בפרוד, הסבב הראשון לא יקח 4 שניות. אם עדיין תראה ~6 שניות — שלח שתי שורות TURN-metrics מלאות (4 המדדים), ואכוון אותך במדויק לשכבת התקיעה (EOU/TTS/IO/RTT).

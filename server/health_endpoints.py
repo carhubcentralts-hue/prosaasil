@@ -112,10 +112,13 @@ def warmup():
         # ⚡ Phase 2: Warmup TTS with actual synthesis (prevents cold start!)
         try:
             from server.services.gcp_tts_live import maybe_warmup
+            t_warmup = time.time()
             maybe_warmup()
+            warmup_ms = int((time.time() - t_warmup) * 1000)
             results['tts_warmup'] = 'ok'
+            results['tts_warmup_ms'] = warmup_ms
         except Exception as e:
-            results['tts_warmup'] = f'error: {str(e)[:30]}'
+            results['tts_warmup'] = f'error: {str(e)[:200]}'
         
         # Warmup TTS client
         client = get_tts_client()
