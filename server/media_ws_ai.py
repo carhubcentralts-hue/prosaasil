@@ -1789,13 +1789,13 @@ class MediaStreamHandler:
                 print("❌ Google STT client not available - fallback to Whisper")
                 return self._whisper_fallback(pcm16_8k)
             
-            # ⚡ BUILD 114: Use ENHANCED phone_call model for better Hebrew accuracy!
-            # With streaming STT enabled, we can afford enhanced model for quality
+            # ⚡ BUILD 117: FORCE default model - phone_call NOT supported for Hebrew!
+            # Google returns error: "The phone_call model is currently not supported for language : iw-IL"
             recognition_config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
                 sample_rate_hertz=8000,  
                 language_code="he-IL",   # עברית ישראל
-                model="phone_call",      # ✅ Telephony-optimized model
+                model="default",         # ⚡ FORCED: phone_call crashes for Hebrew!
                 use_enhanced=True,       # ✅ ENHANCED model for better Hebrew accuracy!
                 enable_automatic_punctuation=False,  # מניעת הפרעות
                 # קונטקסט קל - רק לרמז

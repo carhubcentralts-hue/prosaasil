@@ -1,0 +1,165 @@
+
+2025-11-03 18:13:53.01
+6c82033d
+User
+⏳ Waiting for Baileys to start (max 15s)...
+2025-11-03 19:13:59.53
+6c82033d
+User
+⏱️ [STT_STREAM] Calling _utterance_end...
+2025-11-03 19:13:59.53
+6c82033d
+User
+🎤 [CA02e8d4] _utterance_end: Collecting results for utterance 5766758b (timeout=0.45s)
+2025-11-03 19:13:59.53
+6c82033d
+User
+2025-11-03 19:13:59.98
+6c82033d
+User
+⚠️ [CA02e8d4] Timeout after 0.450s - using fallback
+2025-11-03 19:13:59.98
+6c82033d
+User
+⚠️ [CA02e8d4] No text available - returning empty
+2025-11-03 19:13:59.98
+6c82033d
+User
+🏁 [CA02e8d4] Utterance 5766758b COMPLETE: returning '(empty)'
+2025-11-03 19:13:59.98
+6c82033d
+User
+[LATENCY] final_wait=0.45s, utterance_total=0.45s
+2025-11-03 19:13:59.98
+6c82033d
+User
+⏱️ [STT_STREAM] _utterance_end took 0.450s, result: '(empty)'
+2025-11-03 19:13:59.98
+6c82033d
+User
+⚠️ [STT] Streaming returned empty → fallback to single
+2025-11-03 19:13:59.98
+6c82033d
+User
+🎵 STT_PROCEED: Processing 72000 bytes with Google STT (audio validated)
+2025-11-03 19:13:59.98
+6c82033d
+User
+📊 AUDIO_QUALITY_CHECK: max_amplitude=24956, rms=3361, duration=4.5s
+2025-11-03 19:13:59.98
+6c82033d
+User
+✅ AUDIO_VALIDATED: amp=24956, rms=3361, var=11302105, zcr=0.174
+2025-11-03 19:14:00.04
+6c82033d
+User
+⚠️ STT_TIMEOUT (400 Invalid recognition 'config': The phone_call model is currently not supported for language : iw-IL.) - likely silence
+2025-11-03 19:14:00.04
+6c82033d
+User
+⏱️ [STT_FALLBACK] Single-request took 0.058s, result: '(empty)'
+2025-11-03 19:14:00.04
+6c82033d
+User
+🎤 USER:
+2025-11-03 19:14:00.04
+6c82033d
+User
+📊 ASR_LATENCY: 0.508s (target: <0.7s)
+2025-11-03 19:14:00.04
+6c82033d
+User
+🚫 NO_SPEECH_DETECTED: Staying silent (attempt 1)
+2025-11-03 19:14:00.04
+6c82033d
+User
+✅ Processing complete for conversation #3
+2025-11-03 19:14:00.29
+6c82033d
+User
+🎤 [CA02e8d4] Utterance 97ce4c6c BEGIN
+2025-11-03 19:14:00.87
+6c82033d
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #4
+
+2025-11-03 19:14:00.87
+6c82033d
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=580
+2025-11-03 19:14:00.87
+6c82033d
+User
+🎤 SAFE PROCESSING: conversation #4
+2025-11-03 19:14:00.87
+6c82033d
+User
+⏱️ [STT_STREAM] Calling _utterance_end...
+2025-11-03 19:14:00.87
+6c82033d
+User
+🎤 [CA02e8d4] _utterance_end: Collecting results for utterance 97ce4c6c (timeout=0.45s)
+2025-11-03 19:14:01.32
+6c82033d
+User
+⚠️ [CA02e8d4] Timeout after 0.450s - using fallback
+2025-11-03 19:14:01.32
+6c82033d
+User
+⚠️ [CA02e8d4] No text available - returning empty
+2025-11-03 19:14:01.32
+6c82033d
+User
+🏁 [CA02e8d4] Utterance 97ce4c6c COMPLETE: returning '(empty)'
+2025-11-03 19:14:01.32
+6c82033d
+User
+[LATENCY] final_wait=0.45s, utterance_total=0.45s
+2025-11-03 19:14:01.32
+6c82033d
+User
+⏱️ [STT_STREAM] _utterance_end took 0.450s, result: '(empty)'
+2025-11-03 19:14:01.32
+6c82033d
+User
+⚠️ [STT] Streaming returned empty → fallback to single
+2025-11-03 19:14:01.32
+6c82033d
+User
+🎵 STT_PROCEED: Processing 9600 bytes with Google STT (audio validated)
+2025-11-03 19:14:01.32
+6c82033d
+User
+📊 AUDIO_QUALITY_CHECK: max_amplitude=812, rms=177, duration=0.6s
+2025-11-03 19:14:01.32
+6c82033d
+User
+✅ AUDIO_VALIDATED: amp=812, rms=177, var=31398, zcr=0.193
+2025-11-03 19:14:01.38
+6c82033d
+User
+⚠️ STT_TIMEOUT (400 Invalid recognition 'config': The phone_call model is currently not supported for language : iw-IL.) - likely silence
+2025-11-03 19:14:01.38
+6c82033d
+User
+⏱️ [STT_FALLBACK] Single-request took 0.059s, result: '(empty)'
+2025-11-03 19:14:01.38
+6c82033d
+User
+🎤 USER:
+2025-11-03 19:14:01.38
+6c82033d
+User
+📊 ASR_LATENCY: 0.510s (target: <0.7s)
+2025-11-03 19:14:01.38
+6c82033d
+User
+🚫 MULTIPLE_EMPTY_STT: Saying 'didn't understand'
+2025-11-03 19:14:01.38
+6c82033d
+User
+🔓 SHORT_RESPONSE (4 words) - BARGE-IN ENABLED
+2025-11-03 19:14:01.38
+6c82033d
+User
+🔊 TTS_START: 'לא הבנתי, אפשר לחזור?'
