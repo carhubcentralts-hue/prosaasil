@@ -227,6 +227,11 @@ Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
     if custom_instructions and custom_instructions.strip():
         # Prepend date context to custom instructions
         instructions = date_context_prefix + custom_instructions
+        print(f"\n🔥 PREPENDING DATE PREFIX TO CUSTOM INSTRUCTIONS!")
+        print(f"   Prefix length: {len(date_context_prefix)} chars")
+        print(f"   Custom length: {len(custom_instructions)} chars")
+        print(f"   Total: {len(instructions)} chars")
+        print(f"   First 200 chars of result: {instructions[:200]}")
         logger.info(f"✅ Using CUSTOM instructions for {business_name} ({len(custom_instructions)} chars) + date prefix")
     else:
         # CRITICAL: Instructions in ENGLISH for Agent SDK to understand properly!
