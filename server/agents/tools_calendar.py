@@ -138,12 +138,24 @@ def calendar_find_slots(input: FindSlotsInput) -> FindSlotsOutput:
 @function_tool
 def calendar_create_appointment(input: CreateAppointmentInput) -> CreateAppointmentOutput:
     """
-    Create a new appointment
+    Create a new appointment in the calendar
     
-    Validations:
-    - Time is within business hours (09:00-22:00)
-    - No conflicts with existing appointments
-    - Start time is in the future
+    CRITICAL - TIME FORMAT RULES:
+    - start_iso & end_iso MUST be in ISO format with timezone info
+    - Example: "2025-11-05T10:00:00+02:00" for 10:00 AM on Nov 5
+    - Always use Asia/Jerusalem timezone (+02:00 or +03:00)
+    - Calculate dates correctly: "tomorrow" = add 1 day to today
+    - "next Tuesday" = find the next Tuesday from today
+    
+    Validations (STRICTLY ENFORCED):
+    - Business hours: 09:00-22:00 Asia/Jerusalem - appointments outside will be REJECTED
+    - No conflicts with existing appointments - overlapping times will be REJECTED  
+    - Start time must be in the future
+    - Duration: 15-240 minutes
+    - Phone format: Must start with + or 0
+    - Treatment type: Required field
+    
+    Returns clear Hebrew error messages if validation fails.
     """
     try:
         # ⚡ Validate duration (15-240 minutes)

@@ -48,21 +48,24 @@ Preferred communication style: Simple, everyday language.
 
 ## System Design Choices
 - **BUILD 119 - AgentKit Integration for Real Actions**:
-  - **OpenAI Agents SDK**: Integrated `openai-agents` package for production-ready AI capabilities
+  - **OpenAI Agents SDK**: Integrated `openai-agents` package (correct import: `from agents import Agent`)
   - **Tool System**: Created comprehensive tools for calendar (find_slots, create_appointment), leads (upsert, search), and WhatsApp (send)
-  - **Agent Factory**: Central orchestration with booking and sales agent types, cached instances for performance
-  - **AIService Integration**: New `generate_response_with_agent()` method with automatic fallback to regular responses
-  - **Real Actions**: AI can now perform actual operations - schedule appointments, create leads, send confirmations
+  - **Agent Factory**: Central orchestration with booking and sales agent types, dynamic prompt loading
+  - **AIService Integration**: Replaced `generate_ai_response` with `generate_response_with_agent()` in phone calls
+  - **Real Actions**: AI performs actual operations during conversations - schedule appointments, create leads, send confirmations
   - **Smart Context**: Agents receive full business context (tenant_id, customer info, channel) for accurate operations
+  - **Dynamic Prompts**: Agents load custom instructions from BusinessSettings table (channel-specific)
   - **Error Resilience**: Multi-layer fallback ensures system stability even if agents fail
   - **API Endpoints**: `/api/agent/booking` and `/api/agent/sales` for direct agent interactions
   - **Environment Control**: `AGENTS_ENABLED` environment variable for easy enable/disable (default: enabled)
+  - **AUTO-APPOINTMENT Deprecated**: Disabled legacy auto-appointment system - Agent handles everything in real-time
   - **Production Validations**:
     - ✅ Timezone & Business Hours: Strict 09:00-22:00 Asia/Jerusalem enforcement
     - ✅ Conflict Detection: Overlapping appointments rejected with clear Hebrew error messages
     - ✅ Field Validation: Phone format (E.164), treatment_type required, duration 15-240 minutes
     - ✅ Agent Tracing: Full logging to `agent_trace` table (tool_calls, duration_ms, status, errors)
     - ✅ Kill-switch: `AGENTS_ENABLED=0` instantly disables agents with graceful fallback
+    - ✅ Time Handling: Clear ISO format requirements with timezone, date calculation guidance
 - **BUILD 118 - Fixed Timeout Issues & Reliability**:
   - **OpenAI timeout added**: 3.5s explicit timeout prevents indefinite waits
   - **Better error logging**: Now logs exact error types (APITimeoutError, RateLimitError, etc.)
