@@ -197,11 +197,17 @@ class AIService:
 
 חשוב: אל תמציא מידע! אם לא יודע משהו - הפנה לסוכן אנושי. אם הלקוח עצבני או מתלונן - היה אמפטי והצע דיבור עם מנהל."""
 
-    def generate_response(self, message: str, business_id: int = 1, context: Optional[Dict[str, Any]] = None, channel: str = "calls") -> str:
+    def generate_response(self, message: str, business_id: int = 1, context: Optional[Dict[str, Any]] = None, channel: str = "calls", is_first_turn: bool = False) -> str:
         """יצירת תגובה מפרומפט דינמי + הקשר - לפי ערוץ (calls/whatsapp)"""
         try:
             # טעינת פרומפט עסק לפי ערוץ
             prompt_data = self.get_business_prompt(business_id, channel)
+            
+            # ⚡ Phase 2C: First turn discipline - קצר ומהיר!
+            if is_first_turn:
+                max_words_first = int(os.getenv("AI_MAX_WORDS_FIRST_REPLY", "24"))
+                prompt_data["max_tokens"] = int(max_words_first * 1.7)  # ≈40 tokens עבור 24 מילים עבריות
+                logger.info(f"🎯 First turn - limiting to {prompt_data['max_tokens']} tokens (~{max_words_first} words)")
             
             # בניית הודעות
             messages: List[Dict[str, str]] = [
@@ -354,7 +360,8 @@ class AIService:
             logger.error(f"Failed to save conversation history: {e}")
 
 def generate_ai_response(message: str, business_id: int = 1, 
-                        context: Optional[Dict[str, Any]] = None, channel: str = "calls") -> str:
+                        context: Optional[Dict[str, Any]] = None, channel: str = "calls",
+                        is_first_turn: bool = False) -> str:
     """פונקציה עזר לקריאה מהירה לשירות AI - לפי ערוץ"""
-    return get_ai_service().generate_response(message, business_id, context, channel)
+    return get_ai_service().generate_response(message, business_id, context, channel, is_first_turn)
 

@@ -343,6 +343,7 @@ class MediaStreamHandler:
         
         # היסטוריית שיחה למעקב אחר הקשר
         self.conversation_history = []  # רשימה של הודעות {'user': str, 'bot': str}
+        self.turn_count = 0  # ⚡ Phase 2C: Track turns for first-turn optimization
         
         # ✅ CRITICAL: Track background threads for proper cleanup
         self.background_threads = []
@@ -2199,6 +2200,10 @@ class MediaStreamHandler:
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response using unified AIService - UPDATED for prompt auto-sync"""
         try:
+            # ⚡ Phase 2C: Track turns and optimize first turn
+            self.turn_count = getattr(self, 'turn_count', 0) + 1
+            is_first_turn = (self.turn_count == 1)
+            
             # ✅ UNIFIED: Use AIService for ALL prompt management (auto-updates!)
             from server.services.ai_service import generate_ai_response
             from server.app_factory import create_app
@@ -2239,7 +2244,8 @@ class MediaStreamHandler:
                     message=hebrew_text,
                     business_id=int(business_id),  # Ensure it's an int
                     context=context,
-                    channel='calls'  # ✅ Use 'calls' prompt for phone calls
+                    channel='calls',  # ✅ Use 'calls' prompt for phone calls
+                    is_first_turn=is_first_turn  # ⚡ Phase 2C: Optimize first turn!
                 )
             
             print(f"✅ AI_SERVICE_RESPONSE: Generated {len(ai_response)} chars for business {business_id}")
@@ -2277,7 +2283,11 @@ class MediaStreamHandler:
             
             # ✅ OPTION 2: Use upgraded TTS with SSML, natural voice, telephony profile
             try:
-                from server.services.gcp_tts_live import get_hebrew_tts
+                from server.services.gcp_tts_live import get_hebrew_tts, maybe_warmup
+                
+                # ⚡ Phase 2: Pre-warm TTS (כל 8 דקות)
+                maybe_warmup()
+                
                 tts_service = get_hebrew_tts()
                 audio_bytes = tts_service.synthesize_hebrew_pcm16_8k(text)
                 

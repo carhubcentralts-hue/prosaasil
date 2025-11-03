@@ -235,6 +235,26 @@ class HebrewTTSLive:
 
 # Global instance - lazy initialization
 _hebrew_tts = None
+_last_warm = 0  # ⚡ Phase 2: Pre-warming timestamp
+
+def maybe_warmup():
+    """
+    ⚡ Phase 2: TTS Pre-warming
+    חימום של TTS client כל 8 דקות למניעת cold starts
+    """
+    global _last_warm
+    now = time.time()
+    
+    # חימום כל 8 דקות
+    if now - _last_warm > 8 * 60:
+        try:
+            tts = get_hebrew_tts()
+            # שאילתת חימום קצרה (ייכנס ל-cache)
+            _ = tts.synthesize_hebrew_pcm16_8k("בדיקה")
+            _last_warm = now
+            log.debug(f"🔥 TTS warmed up at {now}")
+        except Exception as e:
+            log.warning(f"TTS warmup failed (non-critical): {e}")
 
 def get_hebrew_tts():
     """Get the global Hebrew TTS instance"""
