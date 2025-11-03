@@ -499,6 +499,11 @@ class AIService:
                 **(context or {})
             }
             
+            # 🔥 CRITICAL: Store context in Flask g so tools can access it!
+            from flask import g
+            g.agent_context = agent_context
+            print(f"✅ Stored agent_context in Flask g: phone={customer_phone}, name={customer_name}")
+            
             # Run agent using Runner (with proper async handling for eventlet threads)
             print(f"🤖 Running agent for business {business_id}, channel={channel}")
             print(f"   📝 User message: '{message[:100]}...'")

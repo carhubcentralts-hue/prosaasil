@@ -134,23 +134,64 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         # Wrapper for calendar_create_appointment  
         @function_tool
         def calendar_create_appointment_wrapped(
-            customer_name: str,
-            customer_phone: str, 
             treatment_type: str,
             start_iso: str,
             end_iso: str,
+            customer_phone: str = "",
+            customer_name: str = "",
             notes: str = None
         ):
-            """Create a new appointment"""
+            """
+            Create a new appointment in the calendar
+            
+            Args:
+                treatment_type: Type of treatment (required)
+                start_iso: Start time in ISO format (required)
+                end_iso: End time in ISO format (required)
+                customer_phone: Customer phone (optional - uses context if not provided)
+                customer_name: Customer name (optional - uses context if not provided)
+                notes: Additional notes (optional)
+            """
             try:
-                logger.info(f"🔧 calendar_create_appointment_wrapped called: {customer_name}, business_id={business_id}")
+                print(f"\n📞 calendar_create_appointment_wrapped called")
+                print(f"   treatment_type={treatment_type}")
+                print(f"   customer_phone (from Agent)={customer_phone}")
+                print(f"   customer_name (from Agent)={customer_name}")
+                
                 from server.agents.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
+                from flask import g
+                
+                # 🔥 USE PHONE FROM CONTEXT if not explicitly provided!
+                actual_phone = customer_phone
+                actual_name = customer_name
+                
+                # Try to get from Flask g (context passed via ai_service.py)
+                if not actual_phone or actual_phone in ["", "לא צויין", "unknown", "None"]:
+                    # Access context from ai_service
+                    if hasattr(g, 'agent_context'):
+                        context_phone = g.agent_context.get('customer_phone', '')
+                        context_name = g.agent_context.get('customer_name', '')
+                        if context_phone:
+                            actual_phone = context_phone
+                            print(f"   ✅ Using phone from context: {actual_phone}")
+                            logger.info(f"   ✅ Using phone from context: {actual_phone}")
+                        if not actual_name and context_name:
+                            actual_name = context_name
+                            print(f"   ✅ Using name from context: {actual_name}")
+                
+                if not actual_phone or actual_phone in ["", "לא צויין", "unknown", "None"]:
+                    error_msg = "Cannot create appointment without valid phone number"
+                    print(f"   ❌ {error_msg}")
+                    logger.error(f"   ❌ {error_msg}")
+                    raise ValueError(error_msg)
+                
+                logger.info(f"🔧 calendar_create_appointment_wrapped: {actual_name or 'Customer'}, phone={actual_phone}, business_id={business_id}")
                 
                 # Tools are called from ai_service.py which already has Flask context
                 input_data = CreateAppointmentInput(
                     business_id=business_id,
-                    customer_name=customer_name,
-                    customer_phone=customer_phone,
+                    customer_name=actual_name or "Customer",
+                    customer_phone=actual_phone,
                     treatment_type=treatment_type,
                     start_iso=start_iso,
                     end_iso=end_iso,
@@ -258,11 +299,12 @@ Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
 - Example: "יש פנוי מחר ב-09:00, 14:00 או אחה״צ. באיזו שעה נוח לך?" (Available tomorrow at 09:00, 14:00 or afternoon. What time works for you?)
 - Keep responses SHORT (2-3 sentences max)
 
-🚨 **CRITICAL - Before booking appointment:**
-- You MUST have: phone number, preferred time, treatment type
-- If missing phone → ASK for it FIRST, don't call calendar_create_appointment_wrapped without valid phone!
-- Phone format: must be digits (10-15 chars), like "0501234567" or "+972501234567"
-- DON'T call calendar_create_appointment_wrapped with "לא צויין" or "unknown" - this will FAIL!
+🚨 **CRITICAL - Booking appointments:**
+- Customer phone number is ALREADY AVAILABLE in context (the number they're calling from)
+- Use the context.customer_phone automatically - DON'T ask customer for their phone!
+- Just confirm: "מעולה! אני רושם אותך למחר בשעה 12:00 על המספר הזה. נתראה!" (Great! I'm booking you for tomorrow at 12:00 on this number. See you!)
+- You MUST have: preferred time and treatment type before booking
+- If customer_phone is None/empty → then ASK for phone, otherwise USE IT!
 
 ---
 
