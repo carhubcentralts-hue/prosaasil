@@ -40,6 +40,14 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
     from agents import function_tool
     from functools import partial
     
+    # Get Flask app for database context
+    def _get_flask_app():
+        """Get Flask app singleton (same as media_ws_ai.py)"""
+        if not hasattr(_get_flask_app, 'app_instance'):
+            from server.app_factory import create_app
+            _get_flask_app.app_instance = create_app()
+        return _get_flask_app.app_instance
+    
     # If business_id provided, create wrapper tools that inject it
     if business_id:
         # Wrapper for calendar_find_slots
@@ -47,12 +55,16 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         def calendar_find_slots_wrapped(date_iso: str, duration_min: int = 60):
             """Find available appointment slots"""
             from server.agents.tools_calendar import FindSlotsInput, calendar_find_slots
-            input_data = FindSlotsInput(
-                business_id=business_id,
-                date_iso=date_iso,
-                duration_min=duration_min
-            )
-            return calendar_find_slots(input_data)
+            
+            # ✅ Use Flask app context for database queries
+            app = _get_flask_app()
+            with app.app_context():
+                input_data = FindSlotsInput(
+                    business_id=business_id,
+                    date_iso=date_iso,
+                    duration_min=duration_min
+                )
+                return calendar_find_slots(input_data)
         
         # Wrapper for calendar_create_appointment  
         @function_tool
@@ -66,30 +78,38 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         ):
             """Create a new appointment"""
             from server.agents.tools_calendar import CreateAppointmentInput, calendar_create_appointment
-            input_data = CreateAppointmentInput(
-                business_id=business_id,
-                customer_name=customer_name,
-                customer_phone=customer_phone,
-                treatment_type=treatment_type,
-                start_iso=start_iso,
-                end_iso=end_iso,
-                notes=notes,
-                source="ai_agent"
-            )
-            return calendar_create_appointment(input_data)
+            
+            # ✅ Use Flask app context for database queries
+            app = _get_flask_app()
+            with app.app_context():
+                input_data = CreateAppointmentInput(
+                    business_id=business_id,
+                    customer_name=customer_name,
+                    customer_phone=customer_phone,
+                    treatment_type=treatment_type,
+                    start_iso=start_iso,
+                    end_iso=end_iso,
+                    notes=notes,
+                    source="ai_agent"
+                )
+                return calendar_create_appointment(input_data)
         
         # Wrapper for leads_upsert
         @function_tool
         def leads_upsert_wrapped(phone_e164: str, name: str = None, notes: str = None):
             """Create or update customer lead"""
             from server.agents.tools_leads import LeadsUpsertInput, leads_upsert
-            input_data = LeadsUpsertInput(
-                tenant_id=business_id,
-                phone_e164=phone_e164,
-                name=name,
-                notes=notes
-            )
-            return leads_upsert(input_data)
+            
+            # ✅ Use Flask app context for database queries
+            app = _get_flask_app()
+            with app.app_context():
+                input_data = LeadsUpsertInput(
+                    tenant_id=business_id,
+                    phone_e164=phone_e164,
+                    name=name,
+                    notes=notes
+                )
+                return leads_upsert(input_data)
         
         tools_to_use = [
             calendar_find_slots_wrapped,
