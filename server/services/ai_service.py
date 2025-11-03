@@ -465,8 +465,8 @@ class AIService:
             custom_prompt = prompt_data.get("system_prompt", "")  # Extract just the prompt text
             logger.info(f"📋 Loaded prompt for business {business_id}: {len(custom_prompt)} chars")
             
-            # Get booking agent with custom prompt
-            agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt)
+            # Get booking agent with custom prompt and business_id
+            agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt, business_id=business_id)
             
             if not agent:
                 logger.warning("Failed to create agent - falling back to regular response")

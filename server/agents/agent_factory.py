@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Check if agents are enabled
 AGENTS_ENABLED = os.getenv("AGENTS_ENABLED", "1") == "1"
 
-def create_booking_agent(business_name: str = "העסק", custom_instructions: str = None) -> Agent:
+def create_booking_agent(business_name: str = "העסק", custom_instructions: str = None, business_id: int = None) -> Agent:
     """
     Create an agent specialized in appointment booking and customer management
     
@@ -36,7 +36,80 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         logger.warning("Agents are disabled (AGENTS_ENABLED=0)")
         return None
     
-    # 🎯 Use custom instructions if provided, else use default
+    # 🎯 Create tools with business_id pre-injected
+    from agents import function_tool
+    from functools import partial
+    
+    # If business_id provided, create wrapper tools that inject it
+    if business_id:
+        # Wrapper for calendar_find_slots
+        @function_tool
+        def calendar_find_slots_wrapped(date_iso: str, duration_min: int = 60):
+            """Find available appointment slots"""
+            from server.agents.tools_calendar import FindSlotsInput, calendar_find_slots
+            input_data = FindSlotsInput(
+                business_id=business_id,
+                date_iso=date_iso,
+                duration_min=duration_min
+            )
+            return calendar_find_slots(input_data)
+        
+        # Wrapper for calendar_create_appointment  
+        @function_tool
+        def calendar_create_appointment_wrapped(
+            customer_name: str,
+            customer_phone: str, 
+            treatment_type: str,
+            start_iso: str,
+            end_iso: str,
+            notes: str = None
+        ):
+            """Create a new appointment"""
+            from server.agents.tools_calendar import CreateAppointmentInput, calendar_create_appointment
+            input_data = CreateAppointmentInput(
+                business_id=business_id,
+                customer_name=customer_name,
+                customer_phone=customer_phone,
+                treatment_type=treatment_type,
+                start_iso=start_iso,
+                end_iso=end_iso,
+                notes=notes,
+                source="ai_agent"
+            )
+            return calendar_create_appointment(input_data)
+        
+        # Wrapper for leads_upsert
+        @function_tool
+        def leads_upsert_wrapped(phone_e164: str, name: str = None, notes: str = None):
+            """Create or update customer lead"""
+            from server.agents.tools_leads import LeadsUpsertInput, leads_upsert
+            input_data = LeadsUpsertInput(
+                tenant_id=business_id,
+                phone_e164=phone_e164,
+                name=name,
+                notes=notes
+            )
+            return leads_upsert(input_data)
+        
+        tools_to_use = [
+            calendar_find_slots_wrapped,
+            calendar_create_appointment_wrapped,
+            leads_upsert_wrapped,
+            leads_search,
+            whatsapp_send
+        ]
+        logger.info(f"✅ Created business_id-injected tools for business {business_id}")
+    else:
+        # Use original tools without injection
+        tools_to_use = [
+            calendar_find_slots,
+            calendar_create_appointment,
+            leads_upsert,
+            leads_search,
+            whatsapp_send
+        ]
+    
+    # Use custom instructions if provided, else use default
     if custom_instructions and custom_instructions.strip():
         instructions = custom_instructions
         logger.info(f"✅ Using CUSTOM instructions for {business_name} ({len(instructions)} chars)")
@@ -90,13 +163,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             name=f"booking_agent_{business_name}",  # Required: Agent name
             model="gpt-4o-mini",  # ⚡ Fast model for real-time conversations
             instructions=instructions,
-            tools=[
-                calendar_find_slots,
-                calendar_create_appointment,
-                leads_upsert,
-                leads_search,
-                whatsapp_send
-            ]
+            tools=tools_to_use  # Use wrapped or original tools based on business_id
         )
         
         logger.info(f"✅ Created booking agent for '{business_name}' with 5 tools")
@@ -173,7 +240,7 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
 
 _agent_cache = {}
 
-def get_agent(agent_type: str = "booking", business_name: str = "העסק", custom_instructions: str = None) -> Agent:
+def get_agent(agent_type: str = "booking", business_name: str = "העסק", custom_instructions: str = None, business_id: int = None) -> Agent:
     """
     Get or create an agent by type
     
@@ -181,6 +248,7 @@ def get_agent(agent_type: str = "booking", business_name: str = "העסק", cust
         agent_type: Type of agent (booking/sales)
         business_name: Business name for personalization
         custom_instructions: Custom instructions from database (if provided, creates new agent)
+        business_id: Business ID for tool calls (required for booking agent)
     
     Returns:
         Agent instance (cached unless custom_instructions provided)
@@ -189,18 +257,18 @@ def get_agent(agent_type: str = "booking", business_name: str = "העסק", cust
     if custom_instructions and isinstance(custom_instructions, str) and custom_instructions.strip():
         logger.info(f"Creating fresh agent with custom instructions ({len(custom_instructions)} chars)")
         if agent_type == "booking":
-            return create_booking_agent(business_name, custom_instructions)
+            return create_booking_agent(business_name, custom_instructions, business_id)
         elif agent_type == "sales":
             return create_sales_agent(business_name)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
     
     # Otherwise use cached agent
-    cache_key = f"{agent_type}:{business_name}"
+    cache_key = f"{agent_type}:{business_name}:{business_id}"
     
     if cache_key not in _agent_cache:
         if agent_type == "booking":
-            _agent_cache[cache_key] = create_booking_agent(business_name)
+            _agent_cache[cache_key] = create_booking_agent(business_name, None, business_id)
         elif agent_type == "sales":
             _agent_cache[cache_key] = create_sales_agent(business_name)
         else:
