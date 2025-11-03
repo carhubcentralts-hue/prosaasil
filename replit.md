@@ -47,6 +47,12 @@ Preferred communication style: Simple, everyday language.
 - **Enhanced Reminders System**: Comprehensive reminder management.
 
 ## System Design Choices
+- **BUILD 118 - Fixed Timeout Issues & Reliability**:
+  - **OpenAI timeout added**: 3.5s explicit timeout prevents indefinite waits
+  - **Better error logging**: Now logs exact error types (APITimeoutError, RateLimitError, etc.)
+  - **STT streaming timeout increased**: 0.45s → 0.85s for reliable final results
+  - **Prompt length warnings**: Alert if prompt >3000 chars (causes OpenAI timeouts)
+  - **Root cause identified**: Long prompts (5,615 chars) + no timeout = 12s "latency" → fallback responses
 - **BUILD 117 - Complete Sentences & Stability**: 
   - **NO TOKEN LIMITS!** Increased max_tokens from 180→350 to allow AI to finish ALL sentences completely
   - First turn uses full 350 tokens (no special reduction) - "אם היא צריכה להסביר דקה שתסביר דקה"

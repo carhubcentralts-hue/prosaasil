@@ -130,6 +130,12 @@ class AIService:
             system_prompt = system_prompt.replace("{{BUSINESS_NAME}}", business_name)
             logger.info(f"✅ Replaced {{{{business_name}}}} with '{business_name}'")
             
+            # ⚡ BUILD 118: Warn if prompt is too long (causes OpenAI timeouts)
+            if len(system_prompt) > 3000:
+                logger.warning(f"⚠️ PROMPT_TOO_LONG: {len(system_prompt)} chars (recommended: <3000) - may cause OpenAI timeouts!")
+            else:
+                logger.info(f"✅ Prompt length OK: {len(system_prompt)} chars")
+            
             if not settings:
                 # ⚡ BUILD 117: INCREASED - allow complete sentences without truncation
                 prompt_data = {
@@ -292,27 +298,35 @@ class AIService:
             import time
             openai_start = time.time()
             
-            # קריאה ל-OpenAI
-            response = self.client.chat.completions.create(
-                model=prompt_data["model"],
-                messages=messages,  # type: ignore
-                max_tokens=prompt_data["max_tokens"],
-                temperature=prompt_data["temperature"]
-            )
-            
-            openai_time = time.time() - openai_start
-            logger.info(f"📊 OPENAI_CALL: {openai_time:.3f}s (timeout: 3.5s)")
-            
-            ai_response = response.choices[0].message.content
-            if ai_response:
-                ai_response = ai_response.strip()
-            else:
-                ai_response = "מצטער, לא הצלחתי לייצר תגובה כרגע."
-            logger.info(f"AI response generated for business {business_id}: {len(ai_response)} chars")
-            return ai_response
+            # ⚡ BUILD 118: Add explicit timeout to prevent long waits
+            try:
+                response = self.client.chat.completions.create(
+                    model=prompt_data["model"],
+                    messages=messages,  # type: ignore
+                    max_tokens=prompt_data["max_tokens"],
+                    temperature=prompt_data["temperature"],
+                    timeout=3.5  # ⚡ 3.5s timeout for real-time conversations
+                )
+                
+                openai_time = time.time() - openai_start
+                logger.info(f"✅ OPENAI_SUCCESS: {openai_time:.3f}s")
+                
+                ai_response = response.choices[0].message.content
+                if ai_response:
+                    ai_response = ai_response.strip()
+                else:
+                    ai_response = "מצטער, לא הצלחתי לייצר תגובה כרגע."
+                logger.info(f"AI response generated for business {business_id}: {len(ai_response)} chars")
+                return ai_response
+                
+            except Exception as openai_error:
+                openai_time = time.time() - openai_start
+                error_type = type(openai_error).__name__
+                logger.error(f"🔴 OPENAI_FAILED: {error_type} after {openai_time:.3f}s: {str(openai_error)[:200]}")
+                raise  # Re-raise to outer exception handler
             
         except Exception as e:
-            logger.error(f"AI generation failed: {e}")
+            logger.error(f"🔴 AI_GENERATION_FAILED: {type(e).__name__}: {str(e)[:200]}")
             return self._get_fallback_response(message)
     
     def _get_fallback_response(self, message: str) -> str:

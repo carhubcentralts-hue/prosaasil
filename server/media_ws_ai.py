@@ -449,10 +449,10 @@ class MediaStreamHandler:
             
             if DEBUG: print(f"🎤 [{self.call_sid[:8]}] Utterance {utt_state['id']} BEGIN")
     
-    def _utterance_end(self, timeout=0.450):
+    def _utterance_end(self, timeout=0.850):
         """
         Mark end of utterance.
-        ⚡ BUILD 114: OPTIMIZED timeout to 450ms - balanced speed & accuracy with streaming STT
+        ⚡ BUILD 118: Increased timeout to 850ms - streaming STT needs time for final results
         """
         if not self.call_sid:
             print("⚠️ _utterance_end: No call_sid")
@@ -466,13 +466,13 @@ class MediaStreamHandler:
         utt_id = utt_state.get("id", "???")
         print(f"🎤 [{self.call_sid[:8]}] _utterance_end: Collecting results for utterance {utt_id} (timeout={timeout}s)")
         
-        # ⚡ BUILD 114: Wait 450ms for streaming results - optimized for speed & accuracy
+        # ⚡ BUILD 118: Wait 850ms for streaming results - allows time for final transcription
         # Streaming STT enabled by default → fast partial results
         wait_start = time.time()
         wait_duration = 0.0
         final_event = utt_state.get("final_received")
         if final_event:
-            got_final = final_event.wait(timeout=timeout)  # 450ms wait for streaming
+            got_final = final_event.wait(timeout=timeout)  # 850ms wait for streaming
             wait_duration = time.time() - wait_start
             if got_final:
                 print(f"✅ [{self.call_sid[:8]}] Got final event in {wait_duration:.3f}s")
