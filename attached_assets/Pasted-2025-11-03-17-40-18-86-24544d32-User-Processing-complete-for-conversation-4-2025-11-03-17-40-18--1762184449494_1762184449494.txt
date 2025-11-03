@@ -1,0 +1,105 @@
+2025-11-03 17:40:18.86
+24544d32
+User
+✅ Processing complete for conversation #4
+
+2025-11-03 17:40:18.86
+24544d32
+User
+2025-11-03 17:40:21.58
+24544d32
+User
+📨 Received: mark
+2025-11-03 17:40:21.58
+24544d32
+User
+2025-11-03 17:40:21.58
+24544d32
+User
+🎯 TTS_MARK_ACK: assistant_tts_end -> LISTENING
+2025-11-03 17:40:21.58
+24544d32
+User
+🎤 STATE -> LISTENING | buffer_reset
+2025-11-03 17:40:21.92
+24544d32
+User
+🎙️ REAL_VOICE: rms=479, threshold=35.0
+2025-11-03 17:40:22.76
+24544d32
+User
+🎤 [CAd393fb] Utterance 95f49fc0 BEGIN
+2025-11-03 17:40:25.60
+24544d32
+User
+💓 WS_KEEPALIVE #6 (prevents 5min timeout)
+2025-11-03 17:40:26.22
+24544d32
+User
+🧠 STATE -> PROCESSING | len=55680 | silence_ms=1800
+2025-11-03 17:40:26.67
+24544d32
+User
+⚠️ [CAd393fb] Timeout after 0.450s - using fallback
+2025-11-03 17:40:26.67
+24544d32
+User
+[LATENCY] final_wait=0.45s, utterance_total=0.45s
+2025-11-03 17:40:26.67
+24544d32
+User
+⚠️ [STT] Streaming returned empty → fallback to single
+2025-11-03 17:40:26.67
+24544d32
+User
+📊 AUDIO_QUALITY_CHECK: max_amplitude=32124, rms=4077, duration=3.5s
+2025-11-03 17:40:25.64
+24544d32
+User
+📨 Received: mark
+2025-11-03 17:40:25.64
+24544d32
+User
+2025-11-03 17:40:26.22
+24544d32
+User
+🎤 END OF UTTERANCE: 3.5s audio, conversation #5
+2025-11-03 17:40:26.22
+24544d32
+User
+🎤 SAFE PROCESSING: conversation #5
+2025-11-03 17:40:26.22
+24544d32
+User
+⏱️ [STT_STREAM] Calling _utterance_end...
+2025-11-03 17:40:26.22
+24544d32
+User
+🎤 [CAd393fb] _utterance_end: Collecting results for utterance 95f49fc0 (timeout=0.45s)
+2025-11-03 17:40:26.22
+24544d32
+User
+2025-11-03 17:40:26.67
+24544d32
+User
+⚠️ [CAd393fb] No text available - returning empty
+2025-11-03 17:40:26.67
+24544d32
+User
+🏁 [CAd393fb] Utterance 95f49fc0 COMPLETE: returning '(empty)'
+2025-11-03 17:40:26.67
+24544d32
+User
+⏱️ [STT_STREAM] _utterance_end took 0.450s, result: '(empty)'
+2025-11-03 17:40:26.67
+24544d32
+User
+🎵 STT_PROCEED: Processing 55680 bytes with Google STT (audio validated)
+2025-11-03 17:40:26.67
+24544d32
+User
+✅ AUDIO_VALIDATED: amp=32124, rms=4077, var=16624727, zcr=0.204
+2025-11-03 17:40:26.73
+24544d32
+User
+⚠️ STT_TIMEOUT (400 Invalid recognition 'config': The phone_call model is currently not supported for language : iw-IL.) - likely silence

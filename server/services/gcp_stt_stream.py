@@ -27,11 +27,13 @@ PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() 
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
 
 
-# ⚡ BUILD 115.1: default תמיד - phone_call לא עובד בעברית בישראל!
-MODEL = os.getenv("GCP_STT_MODEL", "default").strip()
+# ⚡ BUILD 117: FORCE default - phone_call NOT supported for Hebrew (iw-IL)!
+# Google returns: "The phone_call model is currently not supported for language : iw-IL"
+# ALWAYS use "default" regardless of env var - ignore any GCP_STT_MODEL setting
+MODEL = "default"  # HARD-CODED - phone_call crashes for Hebrew!
 USE_ENHANCED = True  # גוגל מתעלמת אם לא נתמך; לא קורס
 
-print(f"🎯 STT Configuration: model={MODEL}, enhanced={USE_ENHANCED}, language={LANG}", flush=True)
+print(f"🎯 STT Configuration: model={MODEL} (FORCED - phone_call not supported for he-IL), enhanced={USE_ENHANCED}, language={LANG}", flush=True)
 
 
 class StreamingSTTSession:
