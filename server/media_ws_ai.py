@@ -801,21 +801,21 @@ class MediaStreamHandler:
                             continue
                         
                         # 🔓 Short response - allow barge-in with grace period
-                        grace_period = 1.5  # 1.5 שניות לתגובות קצרות
+                        grace_period = 2.5  # ✅ BUILD 117: 2.5 שניות למנוע קטיעות
                         time_since_tts_start = current_time - self.speaking_start_ts
                         
                         if time_since_tts_start < grace_period:
                             # Inside grace period - NO barge-in allowed
                             continue
                         
-                        # ✅ HEBREW BARGE-IN: Very high threshold + longer duration required
-                        barge_in_threshold = max(1200, self.noise_floor * 15.0 + 500) if self.is_calibrated else 1500
+                        # ✅ BUILD 117: ULTRA-HIGH threshold to prevent false interrupts
+                        barge_in_threshold = max(1500, self.noise_floor * 18.0 + 600) if self.is_calibrated else 1800
                         is_barge_in_voice = rms > barge_in_threshold
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                            # ✅ HEBREW SPEECH: Require 1500ms continuous LOUD voice to prevent false interrupts  
-                            if self.voice_in_row >= 75:  # 1500ms קול רציף חזק - ממש בטוח שזה הפרעה מכוונת
+                            # ✅ BUILD 117: Require 2000ms continuous LOUD voice - very strict!
+                            if self.voice_in_row >= 100:  # 2000ms קול רציף חזק - ממש ממש בטוח!
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
@@ -1309,9 +1309,9 @@ class MediaStreamHandler:
         if not text:
             return
         
-        # ⚡ BUILD 109: Count words to decide on barge-in
+        # ⚡ BUILD 117: Stricter barge-in to prevent interruptions
         word_count = len(text.split())
-        self.long_response = word_count > 20
+        self.long_response = word_count > 12  # ✅ LOWERED: 12 words = ~2 sentences, disable barge-in
         if self.long_response:
             print(f"🔒 LONG_RESPONSE ({word_count} words) - BARGE-IN DISABLED")
         else:
@@ -1356,9 +1356,9 @@ class MediaStreamHandler:
             except Exception as e:
                 print(f"⚠️ Interrupt error (non-critical): {e}")
         
-        # ⚡ BUILD 109: Count words to decide on barge-in
+        # ⚡ BUILD 117: Stricter barge-in to prevent interruptions
         word_count = len(text.split())
-        self.long_response = word_count > 20
+        self.long_response = word_count > 12  # ✅ LOWERED: 12 words = ~2 sentences, disable barge-in
         if self.long_response:
             print(f"🔒 LONG_RESPONSE ({word_count} words) - BARGE-IN DISABLED")
         else:
@@ -2445,9 +2445,9 @@ class MediaStreamHandler:
         if not text:
             return
         
-        # ⚡ BUILD 109: Count words to decide on barge-in
+        # ⚡ BUILD 117: Stricter barge-in to prevent interruptions
         word_count = len(text.split())
-        self.long_response = word_count > 20
+        self.long_response = word_count > 12  # ✅ LOWERED: 12 words = ~2 sentences, disable barge-in
         if self.long_response:
             print(f"🔒 LONG_RESPONSE ({word_count} words) - BARGE-IN DISABLED")
         else:
