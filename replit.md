@@ -47,6 +47,12 @@ Preferred communication style: Simple, everyday language.
 - **Enhanced Reminders System**: Comprehensive reminder management.
 
 ## System Design Choices
+- **BUILD 117 - Complete Sentences & Stability**: 
+  - First turn max 60 words (~100 tokens) to prevent AI truncation mid-sentence
+  - Barge-in threshold 12 words (was 20), grace period 2.5s (was 1.5s), RMS 1800 (was 1500), continuous voice 2000ms (was 1500ms)
+  - Hebrew numbers in STT contexts (אחד, שניים, שלוש...שש) with 20.0 boost for better accuracy
+  - REMOVED broken word filter that rejected valid words - now trusts Google STT completely (only rejects ≤2 chars)
+  - WebSocket stability: 120s timeout (was 30s), 10s keepalive (was 18s) to prevent ABNORMAL_CLOSURE
 - **AI Response Optimization**: Max tokens set to 180 for quality Hebrew responses using `gpt-4o-mini`, temperature 0.3-0.4.
 - **Robustness**: Implemented thread tracking, enhanced cleanup for background processes, extended ASGI handler timeout. Flask app singleton pattern to prevent app restarts mid-call.
 - **STT Reliability**: Relaxed validation for quieter speech, confidence checks, and short-utterance rejection. Streaming STT with 3-attempt retry, dynamic model selection, and early finalization.

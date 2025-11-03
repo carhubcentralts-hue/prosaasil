@@ -1182,31 +1182,14 @@ class MediaStreamHandler:
             if hasattr(self, 'consecutive_empty_stt'):
                 self.consecutive_empty_stt = 0
             
-            # ⚡ BUILD 117: Expanded common words list
-            word_count = len(text.split())
-            if word_count <= 2:
-                # Very short utterances might be noise - require them to be common words
-                common_words = {
-                    # Basic responses
-                    "כן", "לא", "שלום", "תודה", "בסדר", "נהדר", "ביי", "היי", 
-                    "אוקיי", "אוקי", "טוב", "רגע", "כן כן", "לא לא", "שלום שלום",
-                    # Common verbs/phrases
-                    "אפשר", "צריך", "רוצה", "מעניין", "מצוין", "נכון", "בטוח",
-                    "אולי", "בוודאי", "ברור", "יופי", "מעולה", "סבבה", "בטח",
-                    # Questions
-                    "מה", "למה", "איך", "מי", "מתי", "איפה", "כמה", "מדוע",
-                    # Real estate common
-                    "דירה", "בית", "חדרים", "מטר", "שקל", "מיליון", "אלף"
-                }
-                # Normalize: remove punctuation for comparison
-                normalized_text = text.strip().strip(".,!?;:\"'")
-                if normalized_text not in common_words and word_count == 1:
-                    print(f"🚫 SHORT_UNCOMMON_WORD: '{text}' (normalized: '{normalized_text}', not in common list) - likely false positive")
-                    self.state = STATE_LISTEN
-                    self.processing = False
-                    return
-                # 2-word phrases pass through (likely real speech)
-            # STT result processed")
+            # ⚡ BUILD 117: REMOVED SHORT_UNCOMMON_WORD filter - trust Google STT!
+            # If STT returned text, it's real speech. Don't reject valid words like "שוודי"
+            # Only reject if it's EXTREMELY short (1-2 chars) which is likely noise
+            if len(text.strip()) <= 2:
+                print(f"🚫 VERY_SHORT_TEXT: '{text}' (≤2 chars) - likely noise")
+                self.state = STATE_LISTEN
+                self.processing = False
+                return
             
             # PATCH 6: Anti-duplication on user text (14s window) - WITH DEBUG
             uh = zlib.crc32(text.strip().encode("utf-8"))
