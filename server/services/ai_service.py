@@ -518,27 +518,40 @@ class AIService:
                 asyncio.set_event_loop(loop)
             
             runner = Runner()
+            print(f"🔄 Created Runner, now executing agent.run()...")
             result = loop.run_until_complete(
                 runner.run(starting_agent=agent, input=message, context=agent_context)
             )
             duration_ms = int((time.time() - start_time) * 1000)
+            print(f"✅ Runner.run() completed in {duration_ms}ms")
             
             # Extract response using final_output_as
             reply_text = result.final_output_as(str)
+            print(f"📝 Agent final response: '{reply_text[:100]}...'")
+            
+            # DEBUG: Check result structure
+            print(f"🔍 Result type: {type(result).__name__}")
+            print(f"🔍 Has new_items: {hasattr(result, 'new_items')}")
+            if hasattr(result, 'new_items'):
+                print(f"🔍 new_items value: {result.new_items}")
+                print(f"🔍 new_items length: {len(result.new_items) if result.new_items else 0}")
             
             # Extract tool calls from new_items
             tool_calls_data = []
             tool_count = 0
             
             if hasattr(result, 'new_items') and result.new_items:
+                print(f"📊 Agent returned {len(result.new_items)} items")
                 logger.info(f"📊 Agent returned {len(result.new_items)} items")
                 # Filter for ToolCallItem types and extract tool names
                 for item in result.new_items:
                     item_type = type(item).__name__
+                    print(f"   - Item type: {item_type}")
                     logger.info(f"   - Item type: {item_type}")
                     if item_type == 'ToolCallItem':
                         tool_count += 1
                         tool_name = getattr(item, 'name', 'unknown')
+                        print(f"  ✅ Tool call #{tool_count}: {tool_name}")
                         logger.info(f"  ✅ Tool call #{tool_count}: {tool_name}")
                         tool_calls_data.append({
                             "tool": tool_name,
@@ -547,9 +560,13 @@ class AIService:
                         })
                 
                 if tool_count > 0:
+                    print(f"✅ Agent executed {tool_count} tool actions")
                     logger.info(f"✅ Agent executed {tool_count} tool actions")
                 else:
+                    print(f"⚠️ Agent DID NOT call any tools! (message: '{message[:50]}...')")
                     logger.warning(f"⚠️ Agent DID NOT call any tools! (message: '{message[:50]}...')")
+            else:
+                print(f"⚠️ Result has NO new_items or new_items is empty!")
             
             # ✨ Save trace to database
             try:
