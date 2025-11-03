@@ -73,11 +73,12 @@ class SyncWebSocketWrapper:
     def receive(self):
         """Sync receive - blocks until message available"""
         try:
-            msg = self.recv_queue.get(timeout=30)  # 30s timeout
+            msg = self.recv_queue.get(timeout=120)  # ✅ BUILD 117: 120s timeout (was 30s) - prevents ABNORMAL_CLOSURE
             if msg is None:  # EOF signal
                 return None
             return msg
         except Empty:
+            print("⚠️ Receive timeout after 120s - assuming call ended", flush=True)
             return None
     
     def send(self, data):

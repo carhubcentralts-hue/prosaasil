@@ -326,9 +326,9 @@ class MediaStreamHandler:
         # ⚡ BUILD 109: Smart barge-in - disable for long responses
         self.long_response = False       # האם התשובה ארוכה (>20 מילים)
         
-        # ✅ WebSocket Keepalive למניעת נפילות אחרי 5 דקות
+        # ✅ BUILD 117: WebSocket Keepalive with more frequent pings
         self.last_keepalive_ts = 0.0     # זמן keepalive אחרון
-        self.keepalive_interval = 18.0   # שלח כל 18 שניות
+        self.keepalive_interval = 10.0   # ✅ שלח כל 10 שניות (was 18s) - prevents timeouts
         self.heartbeat_counter = 0       # מונה heartbeat
         
         # ⚡ BUILD 116: Enhanced telemetry - track every stage
