@@ -2202,14 +2202,14 @@ class MediaStreamHandler:
             return "שלום! איך אפשר לעזור?"
 
     def _ai_response(self, hebrew_text: str) -> str:
-        """Generate NATURAL Hebrew AI response using unified AIService - UPDATED for prompt auto-sync"""
+        """Generate NATURAL Hebrew AI response using AgentKit - REAL ACTIONS!"""
         try:
             # ⚡ Phase 2C: Track turns and optimize first turn
             self.turn_count = getattr(self, 'turn_count', 0) + 1
             is_first_turn = (self.turn_count == 1)
             
-            # ✅ UNIFIED: Use AIService for ALL prompt management (auto-updates!)
-            from server.services.ai_service import generate_ai_response
+            # 🤖 BUILD 119: Use Agent for REAL ACTIONS (appointments, leads, WhatsApp)
+            from server.services.ai_service import AIService
             
             # Build context for the AI
             context = {
@@ -2230,6 +2230,12 @@ class MediaStreamHandler:
             if not business_id:
                 business_id = 11  # Fallback to business 11
             
+            # Get customer name from conversation if available
+            customer_name = None
+            lead_info = getattr(self, '_last_lead_analysis', None)
+            if lead_info:
+                customer_name = lead_info.get('customer_name')
+            
             # ⚡ CRITICAL: Measure AI response time
             ai_start = time.time()
             
@@ -2237,9 +2243,13 @@ class MediaStreamHandler:
             app = _get_flask_app()
             
             with app.app_context():
-                ai_response = generate_ai_response(
+                # 🤖 Use Agent for REAL booking actions!
+                ai_service = AIService()
+                ai_response = ai_service.generate_response_with_agent(
                     message=hebrew_text,
-                    business_id=int(business_id),  # Ensure it's an int
+                    business_id=int(business_id),
+                    customer_phone=getattr(self, 'phone_number', ''),
+                    customer_name=customer_name,
                     context=context,
                     channel='calls',  # ✅ Use 'calls' prompt for phone calls
                     is_first_turn=is_first_turn  # ⚡ Phase 2C: Optimize first turn!
@@ -2247,7 +2257,7 @@ class MediaStreamHandler:
             
             # ⚡ CRITICAL: Save AI timing for TOTAL_LATENCY calculation
             self.last_ai_time = time.time() - ai_start
-            print(f"✅ AI_SERVICE_RESPONSE: Generated {len(ai_response)} chars in {self.last_ai_time:.3f}s (business {business_id})")
+            print(f"🤖 AGENT_RESPONSE: Generated {len(ai_response)} chars in {self.last_ai_time:.3f}s (business {business_id})")
             print(f"📊 AI_LATENCY: {self.last_ai_time:.3f}s (target: <1.5s)")
             
             return ai_response
@@ -2659,33 +2669,9 @@ class MediaStreamHandler:
                         print(f"🎯 Intent: {summary_data.get('intent', 'N/A')}")
                         print(f"📊 Next Action: {summary_data.get('next_action', 'N/A')}")
                         
-                        # ✅ AUTO-CREATE APPOINTMENT if meeting was discussed
-                        try:
-                            from server.auto_meeting import check_and_create_appointment
-                            
-                            # בדוק אם נאסף מספיק מידע לפגישה
-                            lead_info = getattr(self, '_last_lead_analysis', None)
-                            if not lead_info and hasattr(self, 'conversation_history'):
-                                # נסה לנתח את השיחה עכשיו
-                                lead_info = self._analyze_lead_completeness()
-                            
-                            if lead_info and lead_info.get('meeting_ready') and self.call_sid:
-                                phone_number = getattr(self, 'phone_number', '')
-                                conversation = getattr(self, 'conversation_history', [])
-                                
-                                result = check_and_create_appointment(
-                                    str(self.call_sid),  # ✅ Ensure string type
-                                    lead_info,
-                                    conversation,
-                                    phone_number
-                                )
-                                
-                                if result.get('success'):
-                                    print(f"📅 AUTO-APPOINTMENT CREATED: {result.get('appointment_id')} at {result.get('meeting_time')}")
-                                else:
-                                    print(f"⚠️ No appointment created: {result.get('reason', 'Unknown')}")
-                        except Exception as appt_error:
-                            print(f"⚠️ Appointment creation failed (non-critical): {appt_error}")
+                        # 🤖 BUILD 119: Agent handles appointments during conversation!
+                        # AUTO-APPOINTMENT disabled - Agent creates appointments in real-time
+                        print(f"ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)")
                         
                 except Exception as e:
                     print(f"❌ Failed to finalize call: {e}")
