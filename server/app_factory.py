@@ -2,9 +2,19 @@
 Hebrew AI Call Center CRM - App Factory (לפי ההנחיות המדויקות)
 """
 import os
+import logging
 from flask import Flask, jsonify, send_from_directory, send_file, current_app, request, session, g
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
+
+# ⚡ PHASE 1: Setup async logging BEFORE anything else
+from server.logging_async import setup_async_root
+if os.getenv("ASYNC_LOG_QUEUE", "1") == "1":
+    setup_async_root(level=logging.INFO)
+    print("⚡ PHASE 1: Async logging enabled (Eventlet-based)")
+else:
+    logging.basicConfig(level=logging.INFO)
+    print("⚡ PHASE 1: Standard logging (sync)")
 # NO Flask-Sock - using EventLet WebSocketWSGI in wsgi.py composite
 try:
     from flask_seasurf import SeaSurf

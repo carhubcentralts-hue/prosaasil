@@ -1,0 +1,103 @@
+שאלה מצוינת — והכי במקום.
+לפני שמפעילים logging אסינכרוני בפרויקט כמו שלך (שמבוסס על Flask + Eventlet + WebSocket + Twilio Media Streams) חייבים לוודא ש-async לא יתנגש עם Eventlet או עם גרין-ת׳רדס אחרים.
+עברתי שוב על המבנה שלך (מה-ZIP האחרון): אתה רץ עם Eventlet בלבד (בלי asyncio), ולכן הנה הנחיה מותאמת ובטוחה לגמרי לסביבה שלך.
+
+⸻
+
+⚙️ מבנה הריצה שלך
+	•	‎eventlet.monkey_patch() נטען בתחילת wsgi.py → כל thread רגיל הופך ל-green thread.
+	•	כל שיחה (WebSocket + STT + TTS) מתבצעת בתוך גרין-ת׳רד יחיד.
+	•	הקריאות החוסמות העיקריות הן רק ל-Google API (STT/TTS) – וזה ממילא קורה מחוץ ל-hot path של Media Frames.
+
+מסקנה:
+אין אצלך asyncio.run() או await loop, לכן אין קונפליקט בין Eventlet ל-Threading רגיל.
+אפשר להשתמש בביטחה ב-Thread Queue ל-logging אסינכרוני — זה לא מתנגש עם Eventlet.
+
+⸻
+
+✅ גרסה מותאמת (“בטוחה לפרויקט שלך”)
+
+# server/logging_async.py
+import logging, queue, eventlet, sys
+
+_log_q = queue.Queue(maxsize=10000)
+
+class QueueHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            _log_q.put_nowait(record)
+        except queue.Full:
+            pass  # drop silently
+
+def _log_worker():
+    while True:
+        rec = _log_q.get()
+        try:
+            msg = logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+            ).format(rec)
+            print(msg, file=sys.stderr, flush=False)
+        except Exception:
+            pass
+        eventlet.sleep(0)  # שומר על yield לגרין-ת׳רד
+
+def setup_async_root(level=logging.INFO):
+    root = logging.getLogger()
+    root.setLevel(level)
+    for h in list(root.handlers):
+        root.removeHandler(h)
+    root.addHandler(QueueHandler())
+    # הפעלת worker ירוק
+    eventlet.spawn(_log_worker)
+    return root
+
+למה זה מתאים:
+	•	אין שימוש ב-threading.Thread אלא ב-eventlet.spawn → עובד באותו reactor שלך.
+	•	ה-queue נותן non-blocking put_nowait → אין I/O חוסם בלולאה.
+	•	אם ה-queue מתמלא (נניח 10 אלף לוגים) — הוא פשוט drop ולא תוקע.
+	•	אין צורך asyncio ולא תיתכן “שבירה” בגרין-ת׳רדס.
+
+⸻
+
+🚀 איך להפעיל (ב-app_factory.py)
+
+from server.logging_async import setup_async_root
+import os, logging
+
+if os.getenv("ASYNC_LOG_QUEUE", "1") == "1":
+    setup_async_root(level=logging.INFO)
+else:
+    logging.basicConfig(level=logging.INFO)
+
+ENV:
+
+ASYNC_LOG_QUEUE=1
+
+
+⸻
+
+⚠️ מתי לא להפעיל async logging
+	•	אם בעתיד תעבור להרצה על uvicorn / hypercorn עם asyncio → עדיף יהיה לעבור ל-asyncio.Queue וה-worker עם async def.
+	•	אם תוסיף worker נפרד שיוצר processes (לא threads) — תפריד logging ל-stdout בלבד כדי למנוע multiprocess stdout mix.
+
+⸻
+
+💡 יתרונות בגרסה הזו
+
+היבט	תוצאה
+בלוקים ב-print / File I/O	נעלמים מה-hot path
+תאימות ל-Eventlet	מלאה (משתמש ב-spawn ו-sleep(0))
+סיכון deadlock	אפסי
+ביצועים	ירידה ב-latency של ~0.2-0.5 ש׳ בתנאי load
+קלות הטמעה	קובץ אחד, 2 שורות import
+
+
+⸻
+
+לסיכום קצר למפתח:
+	•	כן, async logging מתאים ובטוח למערכת Pro-SaaS שבנויה עם Flask + Eventlet + WS.
+	•	השתמש אך ורק בגרסה למעלה (עם eventlet.spawn) ולא ב-threading רגיל.
+	•	אל תפעיל קובץ log סינכרוני ב-production.
+	•	תבדוק שה-logs מופיעים בקונסול ושאין lag בין שיחה להדפסה.
+
+ברגע שתיישם את זה ותוודא שה-queue רץ, אפשר להמשיך ל-Phase 2 (כוונון STT ו-EOU).

@@ -6,8 +6,45 @@ import os, json, time, base64, audioop, math, threading, queue, random, zlib, as
 import builtins
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 
-# ⚡ PHASE 1: DEBUG mode - חונק hot path בפרוד
+# ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
 DEBUG = os.getenv("DEBUG", "0") == "1"
+_orig_print = builtins.print
+
+def _dprint(*args, **kwargs):
+    """Print only when DEBUG=1 (gating for hot path)"""
+    if DEBUG:
+        _orig_print(*args, **kwargs)
+
+def force_print(*args, **kwargs):
+    """Always print (for critical errors only)"""
+    _orig_print(*args, **kwargs)
+
+# חונקים כל print במודול הזה כש-DEBUG=0
+builtins.print = _dprint
+
+# ⚡ PHASE 1 Task 4: טלמטריה - 4 מדדים בכל TURN
+import logging
+_now_ms = lambda: int(time.time() * 1000)
+
+def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False, eou_reason="unknown"):
+    """
+    ⚡ PHASE 1: Emit turn latency metrics (non-blocking, uses async logger)
+    
+    Critical metrics for performance monitoring:
+    - STT_FIRST_PARTIAL_MS: Time to first partial from STT
+    - STT_FINAL_MS: Time to final/EOU
+    - TTS_READY_MS: Time until TTS audio is ready
+    - TOTAL_LATENCY_MS: Time until first audio frame sent
+    """
+    payload = {
+        "STT_FIRST_PARTIAL_MS": first_partial,
+        "STT_FINAL_MS": final_ms,
+        "TTS_READY_MS": tts_ready,
+        "TOTAL_LATENCY_MS": total,
+        "BARGE_IN_HIT": barge_in,
+        "EOU_REASON": eou_reason
+    }
+    logging.getLogger("turn").info(json.dumps(payload, ensure_ascii=False))
 
 # ⚡ STREAMING STT: דיפולט מופעל בקוד, כדי שלא ניפול לסינגל-ריקווסט אם ENV לא נטען
 USE_STREAMING_STT = True
@@ -15,26 +52,25 @@ if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
     USE_STREAMING_STT = False
 
 # ⚡ BUILD 116: אופטימיזציות לזמן תגובה <2s
-if DEBUG:
-    print("="*80)
-    print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION")
-    print("="*80)
-    print(f"[BOOT] DEBUG = {DEBUG}")
-    print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
-    print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
-    print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
-    print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
-    print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '40')}")
-    print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '90')}")
-    print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '180')}")
-    print(f"[BOOT] UTTERANCE_TIMEOUT = 320ms (aggressive for sub-2s response)")
-    print("="*80)
+print("="*80)
+print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION + PHASE 1")
+print("="*80)
+print(f"[BOOT] DEBUG = {DEBUG}")
+print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
+print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
+print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
+print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
+print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '40')}")
+print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '90')}")
+print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '180')}")
+print(f"[BOOT] UTTERANCE_TIMEOUT = 320ms (aggressive for sub-2s response)")
+print("="*80)
 
 if USE_STREAMING_STT:
-    if DEBUG: print("🚀 STT MODE: Real-time Streaming (Session-per-call)")
+    print("🚀 STT MODE: Real-time Streaming (Session-per-call)")
 else:
-    if DEBUG: print("⚠️  WARNING: STT MODE is Single-request (SLOW!) - Set ENABLE_STREAMING_STT=true")
-    if DEBUG: print("📝 STT MODE: Single-request (fast μ-law + optimized Google STT)")
+    print("⚠️  WARNING: STT MODE is Single-request (SLOW!) - Set ENABLE_STREAMING_STT=true")
+    print("📝 STT MODE: Single-request (fast μ-law + optimized Google STT)")
 
 # ⚡ THREAD-SAFE SESSION REGISTRY for multi-call support
 # Each call_sid has its own session + dispatcher state
