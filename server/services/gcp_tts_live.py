@@ -17,6 +17,7 @@ try:
     SSML_AVAILABLE = True
 except ImportError:
     SSML_AVAILABLE = False
+    get_ssml_builder = lambda **kwargs: None  # Dummy function for type safety
     log.warning("SSML Builder not available - using plain text")
 
 

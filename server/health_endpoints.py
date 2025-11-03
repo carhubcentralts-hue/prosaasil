@@ -109,7 +109,15 @@ def warmup():
         client = get_openai_client()
         results['openai'] = 'ok' if client else 'unavailable'
         
-        # Warmup TTS
+        # ⚡ Phase 2: Warmup TTS with actual synthesis (prevents cold start!)
+        try:
+            from server.services.gcp_tts_live import maybe_warmup
+            maybe_warmup()
+            results['tts_warmup'] = 'ok'
+        except Exception as e:
+            results['tts_warmup'] = f'error: {str(e)[:30]}'
+        
+        # Warmup TTS client
         client = get_tts_client()
         results['tts'] = 'ok' if client else 'unavailable'
         
