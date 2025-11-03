@@ -2228,7 +2228,8 @@ class MediaStreamHandler:
             # ✅ CRITICAL FIX: Use shared Flask app instance (no recreation!)
             business_id = getattr(self, 'business_id', None)
             if not business_id:
-                business_id = 11  # Fallback to business 11
+                business_id = 1  # Fallback to business 1
+                print(f"⚠️ No business_id set, using fallback: {business_id}")
             
             # Get customer name from conversation if available
             customer_name = None
@@ -2263,7 +2264,10 @@ class MediaStreamHandler:
             return ai_response
             
         except Exception as e:
-            print(f"❌ AI_SERVICE_ERROR: {e} - using fallback logic")
+            print(f"❌ AI_SERVICE_ERROR: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            print(f"⚠️ Using fallback response instead of agent")
             return self._fallback_response(hebrew_text)
     
     def _fallback_response(self, hebrew_text: str) -> str:
