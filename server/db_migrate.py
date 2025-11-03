@@ -404,6 +404,38 @@ def apply_migrations():
         migrations_applied.append("add_contract_signature_data")
         log.info("Applied migration: add_contract_signature_data")
     
+    # Migration 18: Fix Deal.customer_id foreign key (leads.id → customer.id)
+    if check_table_exists('deal'):
+        from sqlalchemy import text
+        try:
+            # Check if the wrong constraint exists
+            constraint_check = db.session.execute(text("""
+                SELECT constraint_name 
+                FROM information_schema.table_constraints 
+                WHERE table_name = 'deal' 
+                AND constraint_type = 'FOREIGN KEY'
+                AND constraint_name LIKE '%customer_id%'
+            """)).fetchone()
+            
+            if constraint_check:
+                constraint_name = constraint_check[0]
+                # Drop old wrong foreign key (if it points to leads)
+                db.session.execute(text(f"ALTER TABLE deal DROP CONSTRAINT IF EXISTS {constraint_name}"))
+                log.info(f"Dropped old foreign key constraint: {constraint_name}")
+            
+            # Add correct foreign key pointing to customer.id with CASCADE
+            db.session.execute(text("""
+                ALTER TABLE deal 
+                ADD CONSTRAINT deal_customer_id_fkey 
+                FOREIGN KEY (customer_id) 
+                REFERENCES customer(id) 
+                ON DELETE CASCADE
+            """))
+            migrations_applied.append("fix_deal_customer_fkey")
+            log.info("Applied migration: fix_deal_customer_fkey - Now points to customer.id with CASCADE")
+        except Exception as e:
+            log.warning(f"Could not fix deal foreign key (may already be correct): {e}")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
