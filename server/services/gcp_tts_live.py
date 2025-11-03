@@ -248,14 +248,21 @@ def maybe_warmup():
     
     # חימום כל 8 דקות
     if now - _last_warm > 8 * 60:
-        try:
-            tts = get_hebrew_tts()
-            # שאילתת חימום קצרה (ייכנס ל-cache)
-            _ = tts.synthesize_hebrew_pcm16_8k("בדיקה")
-            _last_warm = now
-            log.debug(f"🔥 TTS warmed up at {now}")
-        except Exception as e:
-            log.warning(f"TTS warmup failed (non-critical): {e}")
+        tts = get_hebrew_tts()
+        # ✅ Force client initialization
+        if not tts._ensure_client():
+            log.error("❌ TTS warmup FAILED: Client initialization failed")
+            raise RuntimeError("TTS client initialization failed during warmup")
+        
+        # שאילתת חימום קצרה (ייכנס ל-cache)
+        result = tts.synthesize_hebrew_pcm16_8k("בדיקה")
+        if result is None:
+            log.error("❌ TTS warmup FAILED: Synthesis returned None")
+            raise RuntimeError("TTS synthesis failed during warmup")
+        
+        _last_warm = now
+        log.info(f"✅ TTS warmed up successfully (audio={len(result)} bytes)")
+        return True
 
 def get_hebrew_tts():
     """Get the global Hebrew TTS instance"""

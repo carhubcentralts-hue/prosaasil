@@ -723,17 +723,30 @@ def create_app():
     print("✅ Simple SPA routes registered (no blueprint)")
     
     # ⚡ Phase 2: TTS Pre-warming on startup (prevents 4s cold start!)
+    import traceback as tb
     try:
         from server.services.gcp_tts_live import maybe_warmup
         import time as warmup_time
+        
+        print("="*80)
+        print("🔥 STARTING TTS PRE-WARMUP...")
         app.logger.info("🔥 TTS prewarm on startup...")
+        
         t0 = warmup_time.time()
-        maybe_warmup()
+        success = maybe_warmup()
         warmup_ms = int((warmup_time.time() - t0) * 1000)
-        app.logger.info(f"✅ TTS prewarm took {warmup_ms}ms")
-        print(f"✅ TTS prewarmed on startup: {warmup_ms}ms")
+        
+        if success:
+            app.logger.info(f"✅ TTS prewarm SUCCESS: {warmup_ms}ms")
+            print(f"✅ TTS prewarmed on startup: {warmup_ms}ms")
+        else:
+            app.logger.error(f"❌ TTS prewarm returned False after {warmup_ms}ms")
+            print(f"❌ TTS prewarm FAILED (returned False): {warmup_ms}ms")
+        print("="*80)
     except Exception as e:
-        app.logger.warning(f"⚠️ TTS prewarm failed (non-critical): {e}")
-        print(f"⚠️ TTS prewarm failed: {e}")
+        app.logger.error(f"❌ TTS prewarm EXCEPTION: {e}")
+        print(f"❌ TTS prewarm EXCEPTION: {e}")
+        print(f"Traceback: {tb.format_exc()}")
+        print("="*80)
     
     return app
