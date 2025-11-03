@@ -32,6 +32,7 @@ server/extensions.py
 server/health_check_production.py
 server/health_endpoints.py
 server/init_database.py
+server/logging_async.py
 server/logging_setup.py
 server/media_ws_ai.py
 server/models_sql.py

@@ -1,0 +1,216 @@
+מעולה—נעשה אינטגרציה של AgentKit/Agents SDK לפרויקט שלך על ריפליט בצורה נקייה, מאובטחת ומותאמת לפרודקשן, כך שה-AI באמת יבצע פעולות (תיאום פגישות, לידים, וואטסאפ, CRM) ולא רק “ידבר על זה”.
+
+מה זה AgentKit / Agents SDK ולמה להשתמש בו
+	•	זה הסט הרשמי של OpenAI לבניית “סוכנים” עם כלים (Tools) — פונקציות שלך שה-AI יכול לקרוא אליהן באופן מבוקר עם סכימות JSON. כך הסוכן יכול לבצע פעולות אמיתיות במערכת: למצוא חלונות ביומן, לקבוע אירוע, ליצור ליד וכו’.  ￼
+	•	בפועל זה יושב מעל Function/Tool Calling ומאפשר סכימות קפדניות, ניטור ושדרוג עתידי (Agent Builder/ChatKit).  ￼
+
+להלן תהליך “הדבקה-לעבודה” למפתח שלך.
+
+⸻
+
+1) התקנות וסודות על ריפליט
+	•	התקן SDK:
+Python: pip install openai-agents
+Node (אם צריך בצד ה-TS/React): npm i @openai/agents zod  ￼
+	•	ודא ב-Deploy של Replit שה-Secrets זהים ל-Workspace:
+OPENAI_API_KEY, AGENTS_ENABLED=1, ועוד המפתחות הקיימים (DB/Google/‏Twilio).
+הערה: ל-Deploy של Replit יש סט סודות נפרד.
+
+⸻
+
+2) עיקרון הבטיחות: כל פעולה עוברת דרך Tools
+
+לא נותנים לסוכן גישה ישירה ל-DB. מגדירים כלים קטנים עם סכימות ברורות (קלט/פלט), והסוכן קורא רק להם. זה גם מהיר לתחזק וגם בטוח.  ￼
+
+⸻
+
+3) מימוש כלים קריטיים (Python) — “העתק-הדבק”
+
+דוגמה עם Agents SDK בפייתון לכלי יומן ותיאום פגישות. הסכימות קשוחות כדי למנוע שגיאות.
+
+# server/agents/tools_calendar.py
+from openai_agents import tool
+from pydantic import BaseModel, Field
+from typing import List, Optional
+from datetime import datetime, timedelta
+import pytz
+
+tz = pytz.timezone("Asia/Jerusalem")
+
+class FindSlotsInput(BaseModel):
+    business_id: str = Field(..., description="Business id")
+    date_iso: str = Field(..., description="ISO date like 2025-11-03")
+    duration_min: int = Field(..., ge=15, le=240)
+
+class Slot(BaseModel):
+    start_iso: str
+    end_iso: str
+
+class FindSlotsOutput(BaseModel):
+    slots: List[Slot]
+
+@tool(
+    name="calendar.find_slots",
+    description="Find available slots for a business on a given date in Asia/Jerusalem",
+    input_model=FindSlotsInput,
+    output_model=FindSlotsOutput
+)
+def calendar_find_slots(input: FindSlotsInput) -> FindSlotsOutput:
+    # קריאה לשירות הפנימי שלך (DB/Calendar service)
+    # החזר רק שעות בתוך 09:00-22:00, ושלא מתנגשות עם פגישות קיימות
+    # דוגמה פיקטיבית:
+    date = datetime.fromisoformat(input.date_iso).astimezone(tz)
+    base = date.replace(hour=9, minute=0, second=0, microsecond=0)
+    res = []
+    for h in [9, 11, 13, 15, 17, 19, 21]:
+        start = date.replace(hour=h, minute=0, second=0, microsecond=0)
+        end = start + timedelta(minutes=input.duration_min)
+        if end.hour <= 22:  # חלון חוקי
+            # כאן תבדוק קונפליקטים מול DB
+            res.append(Slot(start_iso=start.isoformat(), end_iso=end.isoformat()))
+    return FindSlotsOutput(slots=res)
+
+class CreateEventInput(BaseModel):
+    business_id: str
+    customer_name: str
+    customer_phone: str
+    treatment_type: str
+    start_iso: str
+    end_iso: str
+    notes: Optional[str] = None
+
+class CreateEventOutput(BaseModel):
+    event_id: str
+    calendar: str
+
+@tool(
+    name="calendar.create_event",
+    description="Create a confirmed calendar event. Fails if out of business hours or conflicts.",
+    input_model=CreateEventInput,
+    output_model=CreateEventOutput
+)
+def calendar_create_event(input: CreateEventInput) -> CreateEventOutput:
+    # ולידציות בסיס: לא עבר, שעות פעילות, אין קונפליקט
+    start = datetime.fromisoformat(input.start_iso).astimezone(tz)
+    end   = datetime.fromisoformat(input.end_iso).astimezone(tz)
+    if start >= end:
+        raise ValueError("Invalid time range")
+    if start.hour < 9 or end.hour > 22:
+        raise ValueError("Out of business hours")
+    # כאן כתיבה ל-DB או Google Calendar
+    # לדוגמה: event_id = calendar_service.create(...)
+    event_id = f"apt_{int(start.timestamp())}"
+    return CreateEventOutput(event_id=event_id, calendar="internal")
+
+טיפ: השתמשו ב-Structured Outputs/Strict schemas כדי להכריח את המודל להחזיר בדיוק את השדות בקלט/פלט.  ￼
+
+⸻
+
+4) רישום הסוכן והכלים
+
+יוצרים Agent שמכיר את כל הכלים הרלוונטיים (יומן, לידים, CRM, וואטסאפ). אפשר לשלב עוד בהמשך.
+
+# server/agents/agent_factory.py
+import os
+from openai_agents import Agent
+from server.agents.tools_calendar import calendar_find_slots, calendar_create_event
+# TODO: לידים/CRM/וואטסאפ – להוסיף כלים דומים (tools_leads.py, tools_crm.py, tools_whatsapp.py)
+
+def create_booking_agent() -> Agent:
+    agent = Agent(
+        model="gpt-5",  # או דגם עדכני אחר
+        instructions=(
+            "אתה סוכן תיאום פגישות. כשמבקשים פגישה: "
+            "1. קרא ל-calendar.find_slots כדי להציע 2-3 חלונות קרובים. "
+            "2. לאחר שהלקוח בוחר, קרא ל-calendar.create_event. "
+            "לא לקבוע מחוץ ל-09:00-22:00. אזור זמן Asia/Jerusalem."
+        ),
+        tools=[calendar_find_slots, calendar_create_event],
+        strict=True  # מכריח עמידה בסכימות
+    )
+    return agent
+
+strict=True עוזר למנוע קריאות עם ארגומנטים חסרים או סוגים לא חוקיים. שים לב שלעתים יש מגבלות סכימה — תבדוק לוגים אם יש חריגים.  ￼
+
+⸻
+
+5) חשיפת API פנימי (לשיחות/וואטסאפ/אתר)
+
+ב-Flask, הוסף ראוט שמקבל כוונה לקבוע פגישה, מעביר לטיפול ה-Agent, ומחזיר את ה-tool calls שבוצעו.
+
+# server/routes/agent_booking.py
+from flask import Blueprint, request, jsonify
+from server.agents.agent_factory import create_booking_agent
+
+bp = Blueprint("agent_booking", __name__)
+booking_agent = create_booking_agent()
+
+@bp.post("/api/agent/booking")
+def agent_booking():
+    data = request.get_json(force=True)
+    user_text = data.get("text","")
+    # שים קונטקסט רלוונטי: business_id, user phone וכו'
+    context = {
+        "business_id": data.get("business_id","default"),
+        "customer_name": data.get("customer_name","לקוח"),
+        "customer_phone": data.get("customer_phone",""),
+        "duration_min": data.get("duration_min", 60)
+    }
+    # תן לאייג’נט לרוץ
+    result = booking_agent.run(
+        input=user_text,
+        context=context  # אפשר להעביר לקונטקסט שהכלים משתמשים בו
+    )
+    # נחזיר טקסט ללקוח + trace של הכלים (שקיפות, דיבוג)
+    return jsonify({
+        "reply": result.output_text,
+        "tool_calls": [c.dict() for c in result.tool_calls],
+        "final_data": result.output_data  # אם יש Structured Output
+    })
+
+
+⸻
+
+6) כלים נוספים שכדאי להוסיף באותו קו
+	•	leads.upsert  יצירת ליד ושיוך תגיות
+	•	crm.search_customer / crm.update  שליפת והשלמת פרטי לקוח
+	•	whatsapp.send  שליחת אישור פגישה/תזכורת (Baileys או Twilio)
+	•	calls.attach_recording  צירוף הקלטה/סיכום לשיחה ב-CRM
+
+כל כלי = קובץ קטן עם @tool(name=..., input_model=..., output_model=...) + מימוש קצר שקורא לשירות הפנימי שלך. זה הופך את המערכת ל-LEGO.
+
+⸻
+
+7) Guardrails וניטור
+	•	אל תחשוף כלים “חזקים” (delete/charge) לסוכן הפונה ללקוחות.
+	•	שמור לוג של tool_calls לכל אינטראקציה (בטבלה agent_traces) לצורך דיבוג/חשבוניות.
+	•	אם כלי נכשל, החזר שגיאה ידידותית (“הייתה בעיה זמנית, מציע שעה אחרת”).
+
+⸻
+
+8) חיבור ל-UI קיים שלך
+	•	בדף ה-CRM/השיחה, הצג “מה הסוכן עשה” בזמן אמת: tool → args → תוצאה.
+	•	רוצה UI מוכן? יש ChatKit / Agent Builder שמקצרים לך את ההטמעה בצד לקוח, אבל אפשר להתחיל בלי ולהשאיר לזה Sprint נפרד.  ￼
+
+⸻
+
+9) בדיקות מהירות
+	1.	קריאה ל-POST /api/agent/booking עם טקסט “קבע לי מחר ב-10 עיסוי רקמות עמוק שעה” + business_id.
+	2.	מצפה:
+א. calendar.find_slots נקרא → מציע 2–3 חלונות חוקיים
+ב. לאחר בחירת הלקוח, calendar.create_event נקרא → אירוע נשמר
+ג. תשובת טקסט קצרה וברורה ללקוח + החזרת event_id ב-JSON
+	3.	בדיקת קונפליקט: נסה זמן שכבר תפוס — הכלי צריך להחזיר שגיאה מסודרת, והסוכן יציע חלון חלופי.
+
+⸻
+
+10) למה זה יפתור לך “שיהיה באמת טוב”
+	•	הסוכן לא “מבטיח” — הוא מפעיל כלי בפועל; התוצאה נכנסת ל-DB/Calendar.
+	•	הסכימות מגינות עליך משגיאות קלט.
+	•	אפשר להוסיף כלים חדשים בלי לגעת בליבת השיחות.
+	•	אפשר לשדרג מאוחר יותר ל-Agent Builder ו-UI מוכן בקליק (כשיהיה לך זמן).  ￼
+
+⸻
+
+אם תרצה, אכין לך עוד שני כלים מוכנים להדבקה:
+leads.upsert ו-whatsapp.send לאישור/תזכורת פגישה, באותו פורמט.

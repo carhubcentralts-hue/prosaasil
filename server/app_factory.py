@@ -358,6 +358,11 @@ def create_app():
         from server.routes_intelligence import intelligence_bp
         app.register_blueprint(intelligence_bp)
         
+        # Agent API - AgentKit powered AI agents with tools
+        from server.routes_agent import bp as agent_bp
+        app.register_blueprint(agent_bp)
+        print("✅ Agent API blueprint registered")
+        
         # Admin Channels API - Multi-tenant routing management
         from server.routes_admin_channels import admin_channels_bp
         app.register_blueprint(admin_channels_bp)
