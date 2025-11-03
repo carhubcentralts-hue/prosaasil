@@ -30,11 +30,14 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
   - Fixed silent TTS warmup failures - now throws exceptions on client init failure, validates synthesis result
   - **CRITICAL**: Added missing AI timing measurement (last_ai_time was never set - causing invisible 6s delays!)
   - **CRITICAL**: Added missing STT timing save (last_stt_time was never saved)
-  - **🔴 SMOKING GUN**: Fixed Flask app recreation bug - was calling `create_app()` on EVERY AI request causing full app restart mid-call! This caused:
+  - **🔴 SMOKING GUN #1**: Fixed Flask app recreation bug - was calling `create_app()` on EVERY AI request causing full app restart mid-call! This caused:
     - 🔴 5-6 second delays (full app reload per turn)
     - 🔴 503 Connection reset errors (GCP STT disconnected)
     - 🔴 `APP_START` logs appearing mid-call (proof of restart)
-  - **✅ SOLUTION**: Implemented Flask App Singleton pattern with thread-safe double-check locking. App created ONCE for entire process lifecycle, reused across all calls. Replaced all 10+ `create_app()` calls in media_ws_ai.py with `_get_flask_app()` singleton getter.
+  - **✅ SOLUTION #1**: Implemented Flask App Singleton pattern with thread-safe double-check locking. App created ONCE for entire process lifecycle, reused across all calls. Replaced all 10+ `create_app()` calls in media_ws_ai.py with `_get_flask_app()` singleton getter.
+  - **🔴 SMOKING GUN #2**: Calendar availability check (`_get_calendar_availability`) ran on EVERY phone call before AI response, causing 12s latency when DB slow/unavailable!
+  - **✅ SOLUTION #2**: Disabled calendar check for phone calls (channel=='calls'), kept only for WhatsApp where latency acceptable. Added LIMIT 10 for performance.
+  - **Migration 19**: Added missing CallLog columns (direction, duration, to_number) to fix "column does not exist" errors
   - Removed noisy media frame logs (50/sec spam in production logs)
   - All timing now logged: ASR_LATENCY, AI_LATENCY, TTS_GENERATION, TOTAL_LATENCY
   - Fixed Deal foreign key constraint to prevent orphaned deals (customer.id with CASCADE)
