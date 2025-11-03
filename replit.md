@@ -39,6 +39,10 @@ AgentLocator is a Hebrew CRM system for real estate businesses. It features an A
   - **✅ SOLUTION #2**: Disabled calendar check for phone calls (channel=='calls'), kept only for WhatsApp where latency acceptable. Added LIMIT 10 for performance.
   - **🔴 SMOKING GUN #3**: DB queries in `get_business_prompt()` took 12s on slow connections, causing "Audio Timeout" and call crashes!
   - **✅ SOLUTION #3**: (1) Cache timeout increased to 5 minutes (covers full call), (2) AI cache warmup at startup preloads business 1+11, (3) Added timing logs for DB_QUERY and OPENAI_CALL diagnostics
+  - **🔴 FRAME DROPS**: Send queue (120 frames = 2.4s) overflowed during slow AI, causing "Send queue full, dropping frame" errors
+  - **✅ SOLUTION #4**: Increased send_queue from 120→600 frames (12s buffer) in asgi.py to handle worst-case AI latency
+  - **🔴 STT TIMEOUT**: Google STT disconnected after 10s silence (during AI processing), crashing calls
+  - **✅ SOLUTION #5**: Added graceful Audio Timeout handling in gcp_stt_stream.py - treats as warning, auto-recovers on next audio
   - **Migration 19**: Added missing CallLog columns (direction, duration, to_number) to fix "column does not exist" errors
   - Removed noisy media frame logs (50/sec spam in production logs)
   - All timing now logged: ASR_LATENCY, AI_LATENCY, TTS_GENERATION, TOTAL_LATENCY

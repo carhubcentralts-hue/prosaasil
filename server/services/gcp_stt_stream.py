@@ -260,9 +260,14 @@ class StreamingSTTSession:
                             self._emit_partial(transcript)
                         
         except Exception as e:
-            log.error(f"❌ Streaming worker error: {e}")
-            import traceback
-            traceback.print_exc()
+            error_str = str(e)
+            # ⚡ CRITICAL: Handle Audio Timeout gracefully
+            if "Audio Timeout" in error_str or "OUT_OF_RANGE" in error_str:
+                log.warning(f"⚠️ STT Audio Timeout (normal during AI processing) - session will auto-recover on next audio")
+            else:
+                log.error(f"❌ Streaming worker error: {e}")
+                import traceback
+                traceback.print_exc()
         finally:
             log.info("📡 StreamingSTTSession: Worker stopped")
 
