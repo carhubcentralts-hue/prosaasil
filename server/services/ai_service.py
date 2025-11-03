@@ -483,11 +483,23 @@ class AIService:
                 **(context or {})
             }
             
-            # Run agent using Runner (run_sync for synchronous execution)
+            # Run agent using Runner (with proper async handling for eventlet threads)
             logger.info(f"🤖 Running agent for business {business_id}, channel={channel}")
             
+            import asyncio
+            
+            # Create new event loop for this thread (eventlet compatibility)
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                # No event loop in current thread - create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
             runner = Runner()
-            result = runner.run_sync(starting_agent=agent, input=message, context=agent_context)
+            result = loop.run_until_complete(
+                runner.run(starting_agent=agent, input=message, context=agent_context)
+            )
             duration_ms = int((time.time() - start_time) * 1000)
             
             # Extract response using final_output_as
