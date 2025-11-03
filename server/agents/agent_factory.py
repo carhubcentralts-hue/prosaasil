@@ -211,15 +211,37 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         
         # Wrapper for leads_upsert (simple implementation - creates lead directly)
         @function_tool
-        def leads_upsert_wrapped(phone_e164: str, name: str = None, notes: str = None):
-            """Create or update customer lead"""
+        def leads_upsert_wrapped(name: str, phone_e164: str = "", notes: str = None):
+            """
+            Create or update customer lead
+            
+            Args:
+                name: Customer name (required)
+                phone_e164: Customer phone (optional - uses context if not provided)
+                notes: Additional notes (optional)
+            """
             try:
-                logger.info(f"🔧 leads_upsert_wrapped called: {phone_e164}, business_id={business_id}")
                 from server.models_sql import db, Lead
                 from datetime import datetime
+                from flask import g
+                
+                # 🔥 USE PHONE FROM CONTEXT if not provided
+                actual_phone = phone_e164
+                if not actual_phone or actual_phone in ["", "לא צויין", "unknown", "None"]:
+                    if hasattr(g, 'agent_context'):
+                        context_phone = g.agent_context.get('customer_phone', '')
+                        if context_phone:
+                            actual_phone = context_phone
+                            print(f"   ✅ leads_upsert using phone from context: {actual_phone}")
+                            logger.info(f"   ✅ leads_upsert using phone from context: {actual_phone}")
+                
+                if not actual_phone:
+                    raise ValueError("Cannot create lead without phone number")
+                
+                logger.info(f"🔧 leads_upsert_wrapped called: {actual_phone}, name={name}, business_id={business_id}")
                 
                 # Normalize phone to E.164 format
-                phone = phone_e164.strip()
+                phone = actual_phone.strip()
                 if not phone.startswith('+'):
                     if phone.startswith('0'):
                         phone = '+972' + phone[1:]
@@ -300,11 +322,11 @@ Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
 - Keep responses SHORT (2-3 sentences max)
 
 🚨 **CRITICAL - Booking appointments:**
-- Customer phone number is ALREADY AVAILABLE in context (the number they're calling from)
-- Use the context.customer_phone automatically - DON'T ask customer for their phone!
-- Just confirm: "מעולה! אני רושם אותך למחר בשעה 12:00 על המספר הזה. נתראה!" (Great! I'm booking you for tomorrow at 12:00 on this number. See you!)
-- You MUST have: preferred time and treatment type before booking
-- If customer_phone is None/empty → then ASK for phone, otherwise USE IT!
+- Customer phone is AUTOMATIC (from their calling number) - NEVER ask for phone!
+- Only ASK for customer's NAME before booking: "על איזה שם לרשום?" (What name to book under?)
+- When calling calendar_create_appointment_wrapped: leave customer_phone parameter EMPTY (don't send it) - the system will use their calling number automatically
+- Confirm booking: "מעולה [שם]! רשמתי אותך למחר בשעה 12:00 על המספר הזה. נתראה!" (Great [name]! I booked you for tomorrow at 12:00 on this number. See you!)
+- Required before booking: customer name + preferred time + treatment type
 
 ---
 
