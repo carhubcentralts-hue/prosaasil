@@ -233,10 +233,10 @@ class AIService:
             # טעינת פרומפט עסק לפי ערוץ
             prompt_data = self.get_business_prompt(business_id, channel)
             
-            # ⚡ Phase 2C: First turn discipline - קצר ומהיר!
+            # ⚡ BUILD 117: First turn with FULL responses (no truncation!)
             if is_first_turn:
-                max_words_first = int(os.getenv("AI_MAX_WORDS_FIRST_REPLY", "24"))
-                prompt_data["max_tokens"] = int(max_words_first * 1.7)  # ≈40 tokens עבור 24 מילים עבריות
+                max_words_first = int(os.getenv("AI_MAX_WORDS_FIRST_REPLY", "60"))  # ✅ 60 words = complete sentences
+                prompt_data["max_tokens"] = int(max_words_first * 1.7)  # ≈100 tokens עבור 60 מילים עבריות
                 logger.info(f"🎯 First turn - limiting to {prompt_data['max_tokens']} tokens (~{max_words_first} words)")
             
             # בניית הודעות
