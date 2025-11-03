@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Check if agents are enabled
 AGENTS_ENABLED = os.getenv("AGENTS_ENABLED", "1") == "1"
 
-def create_booking_agent(business_name: str = "העסק") -> Agent:
+def create_booking_agent(business_name: str = "העסק", custom_instructions: str = None) -> Agent:
     """
     Create an agent specialized in appointment booking and customer management
     
@@ -27,6 +27,7 @@ def create_booking_agent(business_name: str = "העסק") -> Agent:
     
     Args:
         business_name: Name of the business for personalized responses
+        custom_instructions: Custom instructions from database (if None, uses default)
     
     Returns:
         Configured Agent ready to handle booking requests
@@ -35,7 +36,12 @@ def create_booking_agent(business_name: str = "העסק") -> Agent:
         logger.warning("Agents are disabled (AGENTS_ENABLED=0)")
         return None
     
-    instructions = f"""אתה סוכן AI של {business_name}, מתמחה בתיאום פגישות וניהול לקוחות.
+    # 🎯 Use custom instructions if provided, else use default
+    if custom_instructions and custom_instructions.strip():
+        instructions = custom_instructions
+        logger.info(f"✅ Using CUSTOM instructions for {business_name} ({len(instructions)} chars)")
+    else:
+        instructions = f"""אתה סוכן AI של {business_name}, מתמחה בתיאום פגישות וניהול לקוחות.
 
 🎯 **תפקידך:**
 1. לסייע ללקוחות למצוא זמנים פנויים ולקבוע פגישות
@@ -167,17 +173,29 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
 
 _agent_cache = {}
 
-def get_agent(agent_type: str = "booking", business_name: str = "העסק") -> Agent:
+def get_agent(agent_type: str = "booking", business_name: str = "העסק", custom_instructions: str = None) -> Agent:
     """
     Get or create an agent by type
     
     Args:
         agent_type: Type of agent (booking/sales)
         business_name: Business name for personalization
+        custom_instructions: Custom instructions from database (if provided, creates new agent)
     
     Returns:
-        Agent instance (cached)
+        Agent instance (cached unless custom_instructions provided)
     """
+    # 🎯 If custom instructions provided, always create fresh agent (don't cache)
+    if custom_instructions and custom_instructions.strip():
+        logger.info(f"Creating fresh agent with custom instructions ({len(custom_instructions)} chars)")
+        if agent_type == "booking":
+            return create_booking_agent(business_name, custom_instructions)
+        elif agent_type == "sales":
+            return create_sales_agent(business_name)
+        else:
+            raise ValueError(f"Unknown agent type: {agent_type}")
+    
+    # Otherwise use cached agent
     cache_key = f"{agent_type}:{business_name}"
     
     if cache_key not in _agent_cache:

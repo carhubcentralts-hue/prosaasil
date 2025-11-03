@@ -459,8 +459,12 @@ class AIService:
             business = Business.query.get(business_id)
             business_name = business.name if business else "העסק שלנו"
             
-            # Get booking agent
-            agent = get_agent(agent_type="booking", business_name=business_name)
+            # 🎯 BUILD 119: Load custom prompt from database!
+            custom_prompt = self.get_business_prompt(business_id, channel)
+            logger.info(f"📋 Loaded prompt for business {business_id}: {len(custom_prompt)} chars")
+            
+            # Get booking agent with custom prompt
+            agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt)
             
             if not agent:
                 logger.warning("Failed to create agent - falling back to regular response")
