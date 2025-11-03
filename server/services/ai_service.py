@@ -214,13 +214,14 @@ class AIService:
                 {"role": "system", "content": prompt_data["system_prompt"]}
             ]
             
-            # ✅ הוספת זמינות לוח שנה
-            calendar_info = self._get_calendar_availability(business_id)
-            if calendar_info:
-                messages.append({
-                    "role": "system",
-                    "content": f"📅 לוח שנה:\n{calendar_info}\nכשהלקוח מוכן לפגישה, הצע תאריכים פנויים מהרשימה למעלה."
-                })
+            # ✅ הוספת זמינות לוח שנה (רק ל-WhatsApp - לא לטלפון בגלל latency!)
+            if channel == "whatsapp":
+                calendar_info = self._get_calendar_availability(business_id)
+                if calendar_info:
+                    messages.append({
+                        "role": "system",
+                        "content": f"📅 לוח שנה:\n{calendar_info}\nכשהלקוח מוכן לפגישה, הצע תאריכים פנויים מהרשימה למעלה."
+                    })
             
             # הוספת הקשר אם קיים
             if context:
@@ -294,17 +295,18 @@ class AIService:
             from server.models_sql import Appointment
             from datetime import datetime, timedelta
             
+            # ⚡ FAST: Limit query time with LIMIT
             # טווח תאריכים: היום + 7 ימים
             today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
             week_end = today + timedelta(days=7)
             
-            # שליפת פגישות קיימות
+            # שליפת פגישות קיימות (LIMIT 10 למהירות!)
             appointments = Appointment.query.filter(
                 Appointment.business_id == business_id,
                 Appointment.start_time >= today,
                 Appointment.start_time < week_end,
                 Appointment.status.in_(['confirmed', 'pending'])
-            ).order_by(Appointment.start_time).all()
+            ).order_by(Appointment.start_time).limit(10).all()
             
             # הצעת זמנים פנויים (9:00-17:00, כל יום, למעט שבת)
             available_slots = []

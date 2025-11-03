@@ -404,6 +404,20 @@ def apply_migrations():
         migrations_applied.append("add_contract_signature_data")
         log.info("Applied migration: add_contract_signature_data")
     
+    # Migration 19: Add direction, duration, to_number to call_log table
+    call_log_columns = [
+        ('direction', 'VARCHAR(16)', "'inbound'"),
+        ('duration', 'INTEGER', '0'),
+        ('to_number', 'VARCHAR(64)', 'NULL')
+    ]
+    
+    for col_name, col_type, default_val in call_log_columns:
+        if check_table_exists('call_log') and not check_column_exists('call_log', col_name):
+            from sqlalchemy import text
+            db.session.execute(text(f"ALTER TABLE call_log ADD COLUMN {col_name} {col_type} DEFAULT {default_val}"))
+            migrations_applied.append(f"add_call_log_{col_name}")
+            log.info(f"Applied migration: add_call_log_{col_name}")
+    
     # Migration 18: Fix Deal.customer_id foreign key (leads.id → customer.id)
     if check_table_exists('deal'):
         from sqlalchemy import text
