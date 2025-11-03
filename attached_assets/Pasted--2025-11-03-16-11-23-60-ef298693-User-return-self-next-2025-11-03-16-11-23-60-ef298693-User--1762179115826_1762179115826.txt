@@ -1,0 +1,125 @@
+
+2025-11-03 16:11:23.60
+ef298693
+User
+return self._next()
+2025-11-03 16:11:23.60
+ef298693
+User
+^^^^^^^^^^^^
+2025-11-03 16:11:23.60
+ef298693
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/grpc/_channel.py", line 972, in _next
+2025-11-03 16:11:23.60
+ef298693
+User
+raise self
+
+2025-11-03 16:11:23.60
+ef298693
+User
+grpc._channel._MultiThreadedRendezvous: <_MultiThreadedRendezvous of RPC that terminated with:
+2025-11-03 16:11:23.60
+ef298693
+User
+status = StatusCode.OUT_OF_RANGE
+2025-11-03 16:11:23.60
+ef298693
+User
+debug_error_string = "UNKNOWN:Error received from peer ipv4:192.178.219.95:443 {grpc_message:"Audio Timeout Error: Long duration elapsed without audio. Audio should be sent close to real time.", grpc_status:11}"
+2025-11-03 16:11:23.60
+ef298693
+User
+>
+2025-11-03 16:11:23.60
+ef298693
+User
+for resp in responses:
+2025-11-03 16:11:23.60
+ef298693
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/google/api_core/grpc_helpers.py", line 118, in __next__
+2025-11-03 16:11:23.60
+ef298693
+User
+google.api_core.exceptions.OutOfRange: 400 Audio Timeout Error: Long duration elapsed without audio. Audio should be sent close to real time.
+2025-11-03 16:11:23.60
+ef298693
+User
+Traceback (most recent call last):
+2025-11-03 16:11:23.60
+ef298693
+User
+^^^^^^^^^^^^^^^^^^^
+2025-11-03 16:11:23.60
+ef298693
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/grpc/_channel.py", line 543, in __next__
+2025-11-03 16:11:23.60
+ef298693
+User
+details = "Audio Timeout Error: Long duration elapsed without audio. Audio should be sent close to real time."
+2025-11-03 16:11:23.60
+ef298693
+User
+The above exception was the direct cause of the following exception:
+2025-11-03 16:11:23.60
+ef298693
+User
+2025-11-03 16:11:23.60
+ef298693
+User
+Traceback (most recent call last):
+2025-11-03 16:11:23.60
+ef298693
+User
+File "/home/runner/workspace/server/services/gcp_stt_stream.py", line 233, in _run
+2025-11-03 16:11:23.60
+ef298693
+User
+raise exceptions.from_grpc_error(exc) from exc
+2025-11-03 16:11:25.73
+ef298693
+User
+✅ AI_SERVICE_RESPONSE: Generated 47 chars in 12.167s (business 1)
+2025-11-03 16:11:25.73
+ef298693
+User
+📊 AI_LATENCY: 12.167s (target: <1.5s)
+2025-11-03 16:11:25.73
+ef298693
+User
+🤖 BOT: תודה על הפנייה! אחזור אליך בהקדם עם מענה מפורט.
+2025-11-03 16:11:25.73
+ef298693
+User
+📊 AI_PROCESSING: 12.167s
+2025-11-03 16:11:25.73
+ef298693
+User
+⚠️ Missing phone_number or business_id for customer intelligence
+2025-11-03 16:11:25.73
+ef298693
+User
+🔓 SHORT_RESPONSE (9 words) - BARGE-IN ENABLED
+2025-11-03 16:11:25.73
+ef298693
+User
+🔊 TTS_START: 'תודה על הפנייה! אחזור אליך בהקדם עם מענה מפורט.'
+2025-11-03 16:11:25.73
+ef298693
+User
+🔊 TTS_START: Generating Natural Hebrew TTS for 'תודה על הפנייה! אחזור אליך בהקדם עם מענה מפורט....' (47 chars)
+2025-11-03 16:11:25.73
+ef298693
+User
+✅ Punctuation polished: 'תודה על הפנייה! אחזור אליך בהקדם עם מענה...'
+2025-11-03 16:11:26.04
+ef298693
+User
+❌ Failed to save conversation turn: (psycopg2.errors.UndefinedColumn) column call_log.direction does not exist
+2025-11-03 16:11:26.04
+ef298693
+User
+LINE 1: ...number, call_log.to_number AS call_log_to_number, call_log.d...
