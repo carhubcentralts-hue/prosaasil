@@ -1,0 +1,143 @@
+2025-11-03 20:46:17.81
+0872395c
+User
+INFO: Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+2025-11-03 20:59:21.32
+0872395c
+User
+Traceback (most recent call last):
+2025-11-03 20:59:21.32
+0872395c
+User
+File "/home/runner/workspace/server/app_factory.py", line 362, in create_app
+2025-11-03 20:59:21.32
+0872395c
+User
+from server.routes_agent import bp as agent_bp
+2025-11-03 20:59:21.32
+0872395c
+User
+File "/home/runner/workspace/server/routes_agent.py", line 6, in
+2025-11-03 20:59:21.32
+0872395c
+User
+from server.agents.agent_factory import get_agent, AGENTS_ENABLED
+2025-11-03 20:59:21.32
+0872395c
+User
+File "/home/runner/workspace/server/agents/__init__.py", line 5, in
+2025-11-03 20:59:21.32
+0872395c
+User
+from server.agents.agent_factory import get_agent, create_booking_agent, create_sales_agent, AGENTS_ENABLED
+2025-11-03 20:59:21.32
+0872395c
+User
+File "/home/runner/workspace/server/agents/agent_factory.py", line 6, in
+2025-11-03 20:59:21.32
+0872395c
+User
+from openai_agents import Agent
+2025-11-03 20:59:21.32
+0872395c
+User
+ModuleNotFoundError: No module named 'openai_agents'
+2025-11-03 20:59:27.70
+0872395c
+User
+Traceback (most recent call last):
+2025-11-03 20:59:27.70
+0872395c
+User
+File "/home/runner/workspace/server/app_factory.py", line 362, in create_app
+2025-11-03 20:59:27.70
+0872395c
+User
+from server.routes_agent import bp as agent_bp
+2025-11-03 20:59:27.70
+0872395c
+User
+File "/home/runner/workspace/server/routes_agent.py", line 6, in
+2025-11-03 20:59:27.70
+0872395c
+User
+from server.agents.agent_factory import get_agent, AGENTS_ENABLED
+2025-11-03 20:59:27.70
+0872395c
+User
+File "/home/runner/workspace/server/agents/__init__.py", line 5, in
+2025-11-03 20:59:27.70
+0872395c
+User
+from server.agents.agent_factory import get_agent, create_booking_agent, create_sales_agent, AGENTS_ENABLED
+2025-11-03 20:59:27.70
+0872395c
+User
+File "/home/runner/workspace/server/agents/agent_factory.py", line 6, in
+2025-11-03 20:59:27.70
+0872395c
+User
+from openai_agents import Agent
+2025-11-03 20:59:27.70
+0872395c
+User
+ModuleNotFoundError: No module named 'openai_agents'
+2025-11-03 21:02:50.61
+0872395c
+User
+Traceback (most recent call last):
+2025-11-03 21:02:50.61
+0872395c
+User
+File "/home/runner/workspace/server/app_factory.py", line 362, in create_app
+2025-11-03 21:02:50.61
+0872395c
+User
+from server.routes_agent import bp as agent_bp
+2025-11-03 21:02:50.61
+0872395c
+User
+File "/home/runner/workspace/server/routes_agent.py", line 6, in
+
+2025-11-03 21:02:50.61
+0872395c
+User
+from server.agents.agent_factory import get_agent, AGENTS_ENABLED
+2025-11-03 21:02:50.61
+0872395c
+User
+File "/home/runner/workspace/server/agents/__init__.py", line 5, in
+2025-11-03 21:02:50.61
+0872395c
+User
+from server.agents.agent_factory import get_agent, create_booking_agent, create_sales_agent, AGENTS_ENABLED
+2025-11-03 21:02:50.61
+0872395c
+User
+File "/home/runner/workspace/server/agents/agent_factory.py", line 6, in
+2025-11-03 21:02:50.61
+0872395c
+User
+from openai_agents import Agent
+2025-11-03 21:02:50.61
+0872395c
+User
+ModuleNotFoundError: No module named 'openai_agents'
+2025-11-03 21:02:50.87
+0872395c
+User
+INFO: connection closed
+2025-11-03 21:25:58.42
+0f1271ff
+User
+INFO: Started server process [33]
+2025-11-03 21:25:58.42
+0f1271ff
+User
+INFO: Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+
+Collapse
+
+Wrap
+
+Col
