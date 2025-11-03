@@ -59,11 +59,44 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             """
             try:
                 print(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_find_slots_wrapped 🔧 🔧 🔧")
-                print(f"   📅 date_iso={date_iso}")
+                print(f"   📅 date_iso (RAW from Agent)={date_iso}")
                 print(f"   ⏱️  duration_min={duration_min}")
                 print(f"   🏢 business_id={business_id}")
+                
+                # 🔥 CRITICAL FIX: Agent often sends 2023 dates due to training data
+                # Force-correct any year <2025 to 2025 (or map relative dates)
+                from datetime import datetime
+                import pytz
+                import re
+                
+                corrected_date = date_iso
+                match = re.match(r'(\d{4})-(\d{2})-(\d{2})', date_iso)
+                if match:
+                    year, month, day = match.groups()
+                    year_int = int(year)
+                    
+                    if year_int < 2025:
+                        # Agent sent old year - recalculate based on TODAY
+                        now_israel = datetime.now(tz=pytz.timezone('Asia/Jerusalem'))
+                        
+                        # If month/day match tomorrow or day-after, use that
+                        tomorrow = now_israel + timedelta(days=1)
+                        day_after = now_israel + timedelta(days=2)
+                        
+                        if int(month) == tomorrow.month and int(day) == tomorrow.day:
+                            corrected_date = tomorrow.strftime('%Y-%m-%d')
+                            print(f"   🔧 CORRECTED 'tomorrow': {date_iso} → {corrected_date}")
+                        elif int(month) == day_after.month and int(day) == day_after.day:
+                            corrected_date = day_after.strftime('%Y-%m-%d')
+                            print(f"   🔧 CORRECTED 'day after': {date_iso} → {corrected_date}")
+                        else:
+                            # Just fix the year to 2025
+                            corrected_date = f"2025-{month}-{day}"
+                            print(f"   🔧 CORRECTED year: {date_iso} → {corrected_date}")
+                
+                print(f"   ✅ date_iso (CORRECTED)={corrected_date}")
                 logger.info(f"🔧 TOOL CALLED: calendar_find_slots_wrapped")
-                logger.info(f"   📅 date_iso={date_iso}")
+                logger.info(f"   📅 date_iso: {date_iso} → {corrected_date}")
                 logger.info(f"   ⏱️  duration_min={duration_min}")
                 logger.info(f"   🏢 business_id={business_id}")
                 
@@ -72,7 +105,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 # Tools are called from ai_service.py which already has Flask context
                 input_data = FindSlotsInput(
                     business_id=business_id,
-                    date_iso=date_iso,
+                    date_iso=corrected_date,  # Use corrected date!
                     duration_min=duration_min
                 )
                 # Call internal implementation function directly
