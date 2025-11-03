@@ -440,10 +440,12 @@ class AIService:
         """
         # Check if agents are enabled (default: enabled)
         agents_enabled = os.getenv("AGENTS_ENABLED", "1") == "1"
+        print(f"🎯 AGENTS_ENABLED = {agents_enabled}")
         logger.info(f"🎯 AGENTS_ENABLED = {agents_enabled}")
         
         if not agents_enabled:
             # Fallback to regular response
+            print("⚠️ Agents disabled - using regular response")
             logger.warning("⚠️ Agents disabled - using regular response")
             return self.generate_response(message, business_id, context, channel, is_first_turn)
         
@@ -451,13 +453,16 @@ class AIService:
         start_time = time.time()
         
         try:
+            print("📦 Importing agent modules...")
             logger.info("📦 Importing agent modules...")
             from server.agents import get_agent, AGENTS_ENABLED
             from agents import Runner
+            print(f"✅ Agent modules imported. AGENTS_ENABLED={AGENTS_ENABLED}")
             logger.info(f"✅ Agent modules imported. AGENTS_ENABLED={AGENTS_ENABLED}")
             
             if not AGENTS_ENABLED:
                 # Double-check - agents not available
+                print("⚠️ AGENTS_ENABLED=False in module - using regular response")
                 logger.warning("⚠️ AGENTS_ENABLED=False in module - using regular response")
                 return self.generate_response(message, business_id, context, channel, is_first_turn)
             
@@ -471,13 +476,16 @@ class AIService:
             logger.info(f"📋 Loaded prompt for business {business_id}: {len(custom_prompt)} chars")
             
             # Get booking agent with custom prompt and business_id
+            print(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}")
             logger.info(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}")
             agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt, business_id=business_id)
             
             if not agent:
+                print("❌ Failed to create agent - falling back to regular response")
                 logger.error("❌ Failed to create agent - falling back to regular response")
                 return self.generate_response(message, business_id, context, channel, is_first_turn)
             
+            print(f"✅ Agent created successfully: {agent.name}")
             logger.info(f"✅ Agent created successfully: {agent.name}")
             
             # Build enhanced context for agent
@@ -492,6 +500,9 @@ class AIService:
             }
             
             # Run agent using Runner (with proper async handling for eventlet threads)
+            print(f"🤖 Running agent for business {business_id}, channel={channel}")
+            print(f"   📝 User message: '{message[:100]}...'")
+            print(f"   📋 Context: business_id={business_id}, phone={customer_phone}, name={customer_name}")
             logger.info(f"🤖 Running agent for business {business_id}, channel={channel}")
             logger.info(f"   📝 User message: '{message[:100]}...'")
             logger.info(f"   📋 Context: business_id={business_id}, phone={customer_phone}, name={customer_name}")
