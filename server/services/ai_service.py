@@ -478,13 +478,31 @@ class AIService:
             print(f"⏱️ DB query time: {db_time:.0f}ms")
             logger.info(f"📋 Loaded prompt for business {business_id}: {len(custom_prompt)} chars")
             
-            # Get booking agent with custom prompt and business_id
+            # 🔥 NEW: Try to get cached agent first!
+            from server.services.agent_cache import get_agent_cache
+            agent_cache = get_agent_cache()
+            
             agent_create_start = time.time()
-            print(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}, channel={channel}")
-            logger.info(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}, channel={channel}")
-            agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt, business_id=business_id, channel=channel)
-            agent_create_time = (time.time() - agent_create_start) * 1000
-            print(f"⏱️ Agent creation time: {agent_create_time:.0f}ms")
+            agent = agent_cache.get(business_id, channel)
+            
+            if agent:
+                # Cache HIT - reuse existing agent!
+                agent_create_time = (time.time() - agent_create_start) * 1000
+                print(f"♻️  REUSING cached agent: business={business_name}, business_id={business_id}, channel={channel}")
+                print(f"⏱️ Cache lookup time: {agent_create_time:.0f}ms")
+                logger.info(f"♻️  Agent CACHE HIT for {business_name} ({channel})")
+            else:
+                # Cache MISS - create new agent and cache it
+                print(f"🏗️  Creating NEW agent: type=booking, business={business_name}, business_id={business_id}, channel={channel}")
+                logger.info(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}, channel={channel}")
+                agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt, business_id=business_id, channel=channel)
+                agent_create_time = (time.time() - agent_create_start) * 1000
+                print(f"⏱️ Agent creation time: {agent_create_time:.0f}ms")
+                
+                # Cache the new agent for future reuse
+                if agent:
+                    agent_cache.set(business_id, channel, agent, business_name)
+                    print(f"💾 Agent cached for future reuse")
             
             if not agent:
                 print("❌ Failed to create agent - falling back to regular response")
