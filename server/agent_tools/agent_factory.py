@@ -477,16 +477,14 @@ Default assumption for 1-8: PM hours (13:00-20:00)
 
 """
     
-    # Use custom instructions if provided, else use default
+    # 🔥 BUILD 134: LOAD ONLY FROM DATABASE - NO hardcoded prompts!
     if custom_instructions and custom_instructions.strip():
-        # Prepend date context AND response style to custom instructions
-        instructions = date_context_prefix + response_style + "\n\n" + custom_instructions
-        print(f"\n🔥 PREPENDING DATE PREFIX TO CUSTOM INSTRUCTIONS!")
-        print(f"   Prefix length: {len(date_context_prefix)} chars")
-        print(f"   Custom length: {len(custom_instructions)} chars")
-        print(f"   Total: {len(instructions)} chars")
-        print(f"   First 200 chars of result: {instructions[:200]}")
-        logger.info(f"✅ Using CUSTOM instructions for {business_name} ({len(custom_instructions)} chars) + date prefix")
+        # ✅ Add ONLY minimal date context (no hardcoded instructions!)
+        today_context = f"TODAY: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')} Israel\n\n"
+        instructions = today_context + custom_instructions
+        print(f"\n✅ Using DB prompt for {business_name}: {len(custom_instructions)} chars")
+        print(f"   First 150 chars: {custom_instructions[:150]}")
+        logger.info(f"✅ Using DATABASE prompt for {business_name} ({len(custom_instructions)} chars)")
     else:
         # CRITICAL: Instructions in ENGLISH for Agent SDK (better understanding)
         # Agent MUST always respond in HEBREW to customers
