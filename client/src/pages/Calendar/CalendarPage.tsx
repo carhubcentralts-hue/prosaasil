@@ -223,25 +223,19 @@ export function CalendarPage() {
     if (!confirm('האם אתה בטוח שברצונך למחוק פגישה זו?')) return;
     
     try {
-      // Get CSRF token from cookie
-      const csrfToken = document.cookie.split('; ').find(row => row.startsWith('csrf_token='))?.split('=')[1];
-      const headers: HeadersInit = {};
-      if (csrfToken) {
-        headers['X-CSRFToken'] = csrfToken;
-      }
+      // ✅ משתמש ב-http service שמטפל אוטומטית ב-CSRF ו-credentials
+      await http.delete(`/api/calendar/appointments/${id}`);
       
-      const response = await fetch(`/api/calendar/appointments/${id}`, {
-        method: 'DELETE',
-        headers,
-        credentials: 'include'
-      });
-
-      if (response.ok) {
-        await fetchAppointments();
-      } else {
-        console.error('שגיאה במחיקת הפגישה');
-      }
-    } catch (error) {
+      // רענן את רשימת הפגישות
+      await fetchAppointments();
+      
+      // הודעה למשתמש
+      alert('הפגישה נמחקה בהצלחה!');
+      
+    } catch (error: any) {
+      // הצג שגיאה למשתמש
+      const errorMessage = error?.message || 'שגיאה לא ידועה';
+      alert(`שגיאה במחיקת הפגישה: ${errorMessage}`);
       console.error('שגיאה במחיקת הפגישה:', error);
     }
   };
