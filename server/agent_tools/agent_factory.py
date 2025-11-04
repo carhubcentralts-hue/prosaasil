@@ -206,23 +206,29 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 logger.info(f"🔧 calendar_create_appointment_wrapped: {customer_name}, phone={customer_phone}, business_id={business_id}")
                 
                 # Call internal implementation with context/session
+                print(f"🚀 CALLING _calendar_create_appointment_impl...")
                 result = _calendar_create_appointment_impl(input_data, context=context, session=session)
+                print(f"📥 RESULT from _calendar_create_appointment_impl: {result}")
                 
                 # Check if result is error dict or success object
                 if isinstance(result, dict):
                     # Error response from _calendar_create_appointment_impl
+                    print(f"❌ Got ERROR dict: {result}")
                     logger.warning(f"❌ calendar_create_appointment_wrapped returned error: {result}")
                     return result
                 
+                print(f"✅ SUCCESS! Appointment ID: {result.appointment_id}")
                 logger.info(f"✅ calendar_create_appointment_wrapped success: appointment_id={result.appointment_id}")
                 
                 # Return success response
-                return {
+                success_response = {
                     "ok": True,
                     "appointment_id": result.appointment_id,
                     "status": result.status,
                     "confirmation_message": result.confirmation_message
                 }
+                print(f"📤 Returning success: {success_response}")
+                return success_response
                 
             except Exception as e:
                 # 🔥 DON'T raise - return controlled error for Agent to handle

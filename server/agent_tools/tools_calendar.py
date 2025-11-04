@@ -308,6 +308,15 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         
         # Create appointment (phone can be None - that's OK!)
         customer_name = input.customer_name or "לקוח"
+        
+        print(f"\n🔥🔥🔥 CREATING APPOINTMENT IN DATABASE 🔥🔥🔥")
+        print(f"   business_id: {input.business_id}")
+        print(f"   customer_name: {customer_name}")
+        print(f"   phone: {phone}")
+        print(f"   treatment_type: {input.treatment_type}")
+        print(f"   start_time: {start_naive}")
+        print(f"   end_time: {end_naive}")
+        
         appointment = Appointment(
             business_id=input.business_id,
             title=f"{input.treatment_type} - {customer_name}",
@@ -322,8 +331,13 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             notes=f"נקבע ע״י AI Agent\nמקור: {input.source}\nסוג טיפול: {input.treatment_type}"
         )
         
+        print(f"   Appointment object created: {appointment}")
+        
         db.session.add(appointment)
+        print(f"   Added to session")
+        
         db.session.commit()
+        print(f"   ✅✅✅ COMMITTED TO DATABASE! Appointment ID: {appointment.id}")
         
         # Generate confirmation message
         day_name = start.strftime("%A")
