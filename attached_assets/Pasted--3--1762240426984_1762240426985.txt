@@ -1,0 +1,101 @@
+יש פה כמה דברים טובים—אבל לפי הלוגים עדיין יש 3 בעיות קשות שמסבירות למה “לא מצליח לתאם” ולמה קיבלת קריסות ו-latency מופרע. זה מה שצריך לתקן, בסדר עדיפויות, עם פתרונות מדויקים:
+	1.	תפיסת חריגים בכלי התיאום – לא להפיל TURN
+מהלוג:
+ValueError: מספר טלפון חייב להתחיל ב-+ או 0
+אסור של־ValueError מתוך tool יפיל את כל ה-TURN/השיחה. תעטוף את המימוש ב־try/except ותסב את זה ל־tool_error “רך” כדי שה-Agent יבקש תיקון קצר ולא יתרסק.
+
+# server/agents/agent_factory.py
+def calendar_create_appointment_wrapped(input_data):
+    try:
+        return _calendar_create_appointment_impl(input_data)
+    except Exception as e:
+        return {
+          "ok": False,
+          "error": "validation_error",
+          "message": str(e)[:120]
+        }  # החזר מבנה מסודר; אל תרים חריג החוצה
+
+ובתוך ה-Agent instructions (באנגלית):
+If a tool returns ok=false or error=validation_error, ask one brief clarification in Hebrew and retry the tool.
+	2.	ניהול טלפון לקוח – אל “UNKNOWN” כברירת מחדל
+להכניס “UNKNOWN” כטלפון זו פלסטר בעייתי. סדר עדיפויות נכון:
+
+	1.	input.customer_phone (אם הגיע)
+	2.	context.customer_phone
+	3.	session.call.caller_number (מספר המתקשר מה-Twilio)
+	4.	אם אין – בקש שם בלבד וסמן בטופס “ללא טלפון” ל-follow-up, אבל אל תכשיל יצירת פגישה.
+
+# server/agents/tools_calendar.py
+def _choose_phone(input_phone, ctx, session):
+    cands = [
+      input_phone,
+      (ctx or {}).get("customer_phone"),
+      getattr(session, "caller_number", None)
+    ]
+    for p in cands:
+        if p and (p.startswith("+") or p.startswith("0")):
+            return p
+    return None  # אין? לא להפיל – להמשיך בלי, או לבקש אחרי קיבוע שעה
+
+ב־impl:
+
+phone = _choose_phone(input.customer_phone, context, session)
+# אל תזרוק ValueError אם phone ריק. שמור None, ותן לסוכן להגיד:
+# "קבעתי. אם תרצה, אפשר לשלוח אישור לוואטסאפ, מה המספר?"
+
+	3.	“Send queue full” ו-TTS_SEND=32s — ניהול זרימה לקוי
+זה גורם לזחילת השמע ולתורים מלאים. שלושה צעדים:
+
+	•	פייסינג אמיתי לשידור פריימים: שלח ~20ms PCM בכל איטרציה עם eventlet.sleep(0.02); אל תדחוף את כל 6.36 השניות מידית לתור.
+	•	תור שליחה לא־חוסם: put_nowait + דרופ עדין אם התמלא, או חסימה קצרה עם sleep(0).
+	•	להחזיר BARGE-IN: אל תשבית “BARGE-IN” בגלל 14 מילים. קבע סף קצר יותר (למשל 10–12 מילים) ושמור תשובות ≤ 24 מילים כמו שכבר עשינו. זה יקטין דרמטית את כמות הפריימים המצטברת.
+
+פסאודו־קוד לשידור:
+
+for frame in tts_frames:  # כל פריים ~20ms
+    try:
+        send_q.put_nowait(frame)
+    except queue.Full:
+        eventlet.sleep(0.01)
+        continue
+    eventlet.sleep(0.02)  # פייסינג בזמן אמת
+
+וגם: אם יש לך “batch synthesize” שמחזיר 6+ שניות, שקול streaming TTS או חיתוך לפסקאות קצרות.
+	4.	למה עדיין מבקש שם ואז “שלום שי!” — זיכרון הודעות
+כבר תיקנת להעביר messages. וודא שזה אכן בשימוש (ולא input=), ושיש כלל מפורש:
+
+If this is not the first user turn in messages, do not greet. Continue the slot-filling and call tools.
+
+וגם שמור תמיד את תשובת העוזר למסד בסוף כל TURN, כדי שה-buffer הבא יכיל אותה.
+	5.	הכרחת שימוש בכלים + עברית בהוראות
+ה-Agent צריך להיות עם instructions באנגלית, אבל לענות בעברית, ועם כללים קשיחים:
+
+	•	tool_choice=“required”, strict=True, temperature=0.2, max_output_tokens≈200
+	•	“Always respond in Hebrew.”
+	•	“Before claiming no availability, you must call calendar.find_slots.”
+	•	“On validation_error, ask one short clarification and retry the tool.”
+
+	6.	תיארוך בעברית
+אם עוד לא חיווטת, הוסף parser קצר ל“ראשון הבא/מחר/היום” והעבר date_iso לכלי find_slots. בלי זה, מודל עלול לנחש.
+	7.	מדידה כדי לאתר צווארי בקבוק
+תוסיף סביב ה-tools מדדים:
+TOOL_FIND_SLOTS_MS, TOOL_CREATE_EVENT_MS, TTS_SEND_MS, QUEUE_MAX_DEPTH.
+כך תדע אם העיכוב ב-Agent (2.7s), בכלי (DB), או בשליחה (TTS_SEND).
+
+מה הייתי משאיר כרגע “לא לגעת”
+אל תחזיר “UNKNOWN” כטלפון כברירת מחדל. זה יחלחל לרשומות אמיתיות. עדיף None + שמירה של מספר השיחה ב-call_log.
+
+בדיקת עשן אחרי התיקונים
+	1.	אמור: “תקבע לי מחר ב-12 שוודי שעה. דני.”
+בלוג צריך להופיע: tool_calls → find_slots → create_event, ללא ValueError.
+	2.	TTS_SEND צריך לרדת ל-~6–7s לכל ה-6.36s אודיו (או פחות, אם מקצרים תשובה), ללא “Send queue full”.
+	3.	TURN_LATENCY (EOU→TTS start) ≤ 1.2s; AI_LATENCY ≤ ~1.5s; TTS_GENERATION ≤ ~0.5–0.7s.
+
+שורה תחתונה
+הפתרון “הטלפון = UNKNOWN” רק מסתיר את הבאג. התיקון האמיתי הוא:
+	•	לא להפיל חריגים מכלי – להחזיר error מבוקר ולבקש הבהרה קצרה.
+	•	להשתמש בפולבאקים למספר מה-session.
+	•	לתקן ניהול זרימת TTS כדי למנוע “Send queue full”.
+	•	להמשיך לאכוף שימוש בכלים ולזיכרון שיחה תקין.
+
+תיישם את הארבעה הראשונים — ותראה קביעה רציפה, ללא קריסות ועם זמני תגובה כמו שהשגת בשיחות.

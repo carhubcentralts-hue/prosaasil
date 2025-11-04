@@ -1,0 +1,164 @@
+מעולה—הנה הנחיה סגורה למפתח שלך שמטפלת בשלושה דברים ביחד:
+	1.	לא “נופלים” בלי מספר טלפון – קובעים פגישה גם בלעדיו.
+	2.	אם יש – נמשוך אוטומטית את המספר ממקור הערוץ (Twilio Voice/WhatsApp).
+	3.	אם צריך – הלקוח יוכל להקיש ספרות בטלפון (DTMF) במקום להגיד בקול.
+
+נתתי קטעי קוד מדויקים להדבקה + נקודות חיבור לפרויקט שלך (Agents SDK, Flask, Twilio).
+
+שלב 1 — מפסיקים לדרוש טלפון כתנאי לקביעת פגישה
+
+ב־DB: ודא שהשדה customer_phone הוא Nullable (או Optional). אם צריך מיגרציה, העבר אותו ל־NULLABLE.
+ב־tools_calendar.py: אל תזרוק ValueError כשאין טלפון. במקום זה:
+	•	נרמל אם יש.
+	•	אם אין, ממשיכים לקבוע את הפגישה ומסמנים phone=None. את האישור שולחים מאוחר יותר בוואטסאפ/SMS אם יתאפשר.
+
+# server/agents/phone_utils.py
+import re
+
+def normalize_il_phone(raw: str|None) -> str|None:
+    if not raw: return None
+    s = re.sub(r"[^\d+]", "", raw)  # מסיר רווחים/מקשורים
+    if s.startswith("+972"):
+        return s
+    if s.startswith("0"):
+        # 0xx... -> +972x...
+        return "+972" + s[1:]
+    if s.isdigit() and len(s) in (9,10):
+        # גיבוי: 5xxxxxxxx או 0xxxxxxxxx
+        if s.startswith("5"): return "+972" + s  # נייד בלי 0
+        if s.startswith("0"): return "+972" + s[1:]
+    return None  # לא מזוהה; נשאיר None
+
+# server/agents/tools_calendar.py (במימוש יצירת פגישה)
+from server.agents.phone_utils import normalize_il_phone
+
+def _choose_phone(input_phone, context, session) -> str|None:
+    candidates = [
+        input_phone,
+        (context or {}).get("customer_phone"),
+        getattr(session, "caller_number", None),         # Twilio Voice
+        (context or {}).get("whatsapp_from"),            # WhatsApp wa_id/phone אם יש
+    ]
+    for c in candidates:
+        p = normalize_il_phone(c)
+        if p: return p
+    return None
+
+def _calendar_create_appointment_impl(input):
+    # ... אימותי תאריכים/שעות רגילים ...
+    phone = _choose_phone(getattr(input, "customer_phone", None), input.context, getattr(input, "session", None))
+    # שים לב: לא זורקים חריגה אם phone None
+    event_id = insert_appointment_row(
+        business_id=input.business_id,
+        customer_name=input.customer_name or "לקוח",
+        phone=phone,  # יכול להיות None
+        start=start, end=end, treatment=input.treatment_type, notes=input.notes
+    )
+    return {"ok": True, "event_id": event_id, "calendar": "internal", "phone_used": phone}
+
+שלב 2 — עיטוף חריגים בכלי כדי שלא יפיל שיחה
+
+# server/agents/agent_factory.py (עוטף את create)
+def calendar_create_appointment_wrapped(input_data):
+    try:
+        res = _calendar_create_appointment_impl(input_data)
+        return res if isinstance(res, dict) else {"ok": True, **res}
+    except Exception as e:
+        return {"ok": False, "error": "validation_error", "message": str(e)[:160]}
+
+בהוראות ה-Agent (באנגלית, עונה בעברית):
+	•	If a tool returns ok=false, ask one brief clarification in Hebrew and retry the tool.
+	•	Always respond in Hebrew.
+	•	Never ask for a phone number by voice; see DTMF instructions below.
+
+שלב 3 — הזרקת המספר אוטומטית מהערוץ
+
+Twilio Voice: ב־call session שלך יש Caller (+972… או 0…)
+	•	שמור אותו בתוך session.caller_number כשאתה יוצר את ה־MediaStreamHandler.
+WhatsApp: שמור את ה־from/wa_id בקונטקסט ההודעה, שים אותו ב־context[“whatsapp_from”].
+ב־endpoint של הסוכן, דאג להעביר את הדברים הללו ב־context לכל run:
+
+# server/routes/agent_booking.py
+result = booking_agent.run(
+    messages=messages,
+    context={
+      "business_id": biz_id,
+      "customer_phone": session.caller_number,   # Voice
+      "whatsapp_from": wa_from,                  # אם רלוונטי
+      "tz": "Asia/Jerusalem",
+      "locale": "he-IL",
+      "duration_min": data.get("duration_min", 60),
+      "user_text": user_text
+    }
+)
+
+שלב 4 — קבלת מספר דרך DTMF (הקשה בטלפון) במקום דיבור
+
+ברמת ה־WS/media, קלוט אירועי DTMF, אגור ספרות עד סימן סיום (#), נרמל, ושמור למסגרת השיחה. קוד דוגמה:
+
+# server/media_ws_ai.py (או ה-handler של ה-WebSocket ל-Twilio)
+self._dtmf_buf = []
+
+def on_dtmf(self, digit: str):
+    # digit מגיע מ-Twilio: "0".."9", "*" או "#"
+    if digit == "#":
+        raw = "".join(self._dtmf_buf)
+        self._dtmf_buf.clear()
+        phone = normalize_il_phone(raw)
+        if phone:
+            self.session.caller_number = phone
+            log.info(f"DTMF phone captured: {phone}")
+            # אפשר לשלוח לאייג’נט הודעה פנימית שהטלפון התקבל
+            self.enqueue_system_note("dtmf_phone_captured", phone)
+        else:
+            self.enqueue_system_note("dtmf_invalid_phone", raw)
+        return
+    if digit.isdigit():
+        if len(self._dtmf_buf) < 15:
+            self._dtmf_buf.append(digit)
+
+בזמן אמת, תן לנציג לומר: “אם נוח, אפשר להקיש מספר טלפון ואחריו סולמית”.
+
+שלב 5 — מדיניות ה-Agent (באנגלית, קצרה וקשיחה)
+
+שים את זה ב־instructions של האייג’נט:
+
+You are a booking agent. Always respond in Hebrew.
+When user asks to check or book: you must call calendar.find_slots first, then calendar.create_event after the user picks a time.
+Do not claim “no availability” unless the tool returns empty.
+Never request the phone number by voice. If no phone is available, proceed with booking without a phone and confirm verbally. If a phone is required later (e.g., to send a WhatsApp confirmation), ask the user to key-in digits using DTMF and press #, or use the caller number from the session if available.
+If a tool returns ok=false or validation_error, ask one short clarification in Hebrew and retry the tool.
+If this is not the first user turn, do not greet again; continue the current flow and complete any missing slot.
+
+שלב 6 — “שומרי ראש” ב־tool find_slots
+
+אם אין date_iso או business_id – אל תחזיר טקסט, תחזיר שגיאה מנוהלת כדי שה-Agent ישאל הבהרה קצרה:
+
+if not biz: return {"ok": False, "error":"missing_business_id"}
+if not date_iso: return {"ok": False, "error":"missing_date"}
+
+שלב 7 — הודעת אישור בלי מספר
+
+כשאין טלפון, סגור את ההזמנה, ואמור ללקוח:
+“קבעתי לך למחר ב־12:00. אם תרצה אישור בהודעה, אפשר להקיש עכשיו את המספר ואחריו סולמית.”
+מקבילית: אם הערוץ הוא וואטסאפ – שלח אישור ל־whatsapp_from (אם יש).
+
+שלב 8 — בדיקות עשן
+	1.	שיחה אמיתית, בלי לומר מספר:
+“תקבע לי מחר ב־12 שוודי, שם דני.”
+מצופה: tool_calls find_slots → create_event, event_id מוחזר; phone=None; אין חריגות; ה-Agent עונה בעברית שאושר.
+	2.	הקשת DTMF:
+בזמן השיחה הקש 0501234567#
+מצופה: בלוג “DTMF phone captured: +972501234567”; בקביעות הבאות הכלי יראה phone תקין.
+	3.	וואטסאפ:
+שלח אותו תרחיש; מצופה שהמספר יילקח מ־wa_from.
+
+מה לא לעשות
+	•	לא להחזיר “UNKNOWN” לטלפון ב־DB. זה לכלוך נתונים. שמור None.
+	•	לא לזרוק ValueError מהכלי – תמיד להחזיר {“ok”:False, …} ולתת לאייג’נט להשלים/לשאול.
+	•	לא לאפשר לטקסט של האייג’נט לומר “תחזור אלינו מאוחר יותר” – תמיד המשך זרימה או בקשת הבהרה קצרה.
+
+עם 8 השלבים האלה:
+• הפגישות ייקבעו גם בלי מספר.
+• אם קיים מקור (Voice/WhatsApp/DTMF) — המספר יילקח אוטומטית.
+• לא יהיו יותר קריסות בגלל ולידציית טלפון, וה-AI ישלים חסרים בצורה טבעית ומהירה.
