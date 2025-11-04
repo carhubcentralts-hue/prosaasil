@@ -13,18 +13,21 @@ AgentLocator is a Hebrew CRM system tailored for real estate businesses. Its cor
 - PostgreSQL: `14:00 - 2 hours = 12:00 UTC` → Saves `12:00` (naive) ❌
 - Result: 2-hour shift!
 
-**Complete Fix (5 Files)**:
+**Complete Fix (4 Files)**:
 1. **server/agents/tools_calendar.py**:
    - `_calendar_create_appointment_impl`: Strip timezone before DB save → `start.replace(tzinfo=None)`
    - `_calendar_find_slots_impl`: Add timezone when reading → `tz.localize(apt.start_time)`
 2. **server/routes_calendar.py**:
    - POST/PUT (create/update): Strip timezone before DB save
    - GET endpoints: Add timezone before `.isoformat()` for API responses
+   - **GET filters**: Convert to Israel time FIRST → `.astimezone(tz)` then strip → `.replace(tzinfo=None)`
 3. **server/whatsapp_appointment_handler.py**: Add timezone to all API responses
+4. **server/auto_meeting.py**: Add timezone to API response
 
 **Technical Solution**:
 - **SAVE to DB**: Always strip timezone → `datetime.replace(tzinfo=None)`
 - **READ from DB**: Always add timezone back → `tz.localize(naive_datetime)` for API
+- **QUERY filters**: Convert to Israel time → `.astimezone(tz)` then strip → `.replace(tzinfo=None)`
 - **DB stores**: Naive datetime (local Israel time: 14:00 stays 14:00)
 - **API returns**: ISO with timezone (`"2025-11-05T14:00:00+02:00"`)
 
