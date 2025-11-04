@@ -2,11 +2,16 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses, designed to streamline the sales pipeline. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. Its primary goal is to provide fully customizable AI assistants and business names to real estate professionals.
 
-## BUILD 124 - WhatsApp UX Fix + Timezone Correction (IN PROGRESS)
+## BUILD 125 - Calendar Delete Fix (COMPLETED)
+- **Fixed Delete Button**: Calendar delete button now works properly with http service
+- **User Feedback**: Added success/error messages when deleting appointments
+- **Proper Error Handling**: Shows clear error messages instead of silent failures
+
+## BUILD 124 - WhatsApp UX Fix + Timezone Correction (COMPLETED)
 - **WhatsApp DTMF Removal**: WhatsApp now asks nicely "על איזה שם לרשום ומה מספר הטלפון?" (NO keypad/DTMF!)
 - **Phone Calls Keep DTMF**: Phone calls still use "תקליד במקלדת והקש #" for phone input
 - **Channel-Specific Prompts**: Agent factory now accepts `channel` parameter and builds different instructions
-- **Timezone Debugging**: Added detailed logs to track timezone conversion (12:00 → 10:00 bug)
+- **Timezone Debugging**: Added detailed logs to track timezone conversion (need to test with real data)
 - **Goal**: WhatsApp = simple text, Phone = DTMF, and times saved correctly in Asia/Jerusalem
 
 ## BUILD 123 - Agent SDK Performance Optimization (COMPLETED)
