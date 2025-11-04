@@ -68,6 +68,12 @@ def get_appointments():
         if start_date:
             try:
                 start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                # 🔥 CRITICAL: Convert to Israel timezone FIRST, then strip timezone
+                # This ensures UTC/Z inputs map to correct local naive values
+                # Example: "2025-11-05T00:00:00Z" → "2025-11-05T02:00:00+02:00" → "2025-11-05 02:00" (naive)
+                if start_dt.tzinfo is not None:
+                    start_dt = start_dt.astimezone(tz)  # Convert to Israel time
+                    start_dt = start_dt.replace(tzinfo=None)  # Strip timezone
                 query = query.filter(Appointment.start_time >= start_dt)
             except ValueError:
                 return jsonify({'error': 'Invalid start_date format'}), 400
@@ -75,6 +81,10 @@ def get_appointments():
         if end_date:
             try:
                 end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                # 🔥 CRITICAL: Convert to Israel timezone FIRST, then strip timezone
+                if end_dt.tzinfo is not None:
+                    end_dt = end_dt.astimezone(tz)  # Convert to Israel time
+                    end_dt = end_dt.replace(tzinfo=None)  # Strip timezone
                 query = query.filter(Appointment.end_time <= end_dt)
             except ValueError:
                 return jsonify({'error': 'Invalid end_date format'}), 400

@@ -7,6 +7,10 @@ from server.db import db
 from sqlalchemy import and_
 import re
 import time
+import pytz
+
+# 🔥 Israel timezone for converting naive datetimes
+tz = pytz.timezone("Asia/Jerusalem")
 
 def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversation_history: list, phone_number: str = ""):
     """
@@ -179,10 +183,13 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         db.session.add(appointment)
         db.session.commit()
         
+        # 🔥 Add timezone before returning for API responses
+        meeting_time_aware = tz.localize(meeting_time)
+        
         return {
             'success': True,
             'appointment_id': appointment.id,
-            'meeting_time': meeting_time.isoformat(),
+            'meeting_time': meeting_time_aware.isoformat(),  # With timezone
             'customer_name': customer_name,
             'title': appointment_title,
             'message': f'נוצרה פגישה ל{meeting_time.strftime("%d/%m/%Y בשעה %H:%M")}'
