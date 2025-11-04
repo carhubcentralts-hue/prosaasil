@@ -2,6 +2,14 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses, designed to automate the sales pipeline with an AI-powered assistant. It offers real-time call processing, intelligent lead information collection, and meeting scheduling using advanced audio processing for natural conversations. The system aims to provide customizable AI assistants and business branding to real estate professionals, enhancing efficiency and sales conversion.
 
+# Recent Changes (BUILD 133)
+
+**Critical Fixes:**
+- Agent modules now imported at module level (not per-request) - eliminates "Importing agent modules" delay
+- Fixed Foreign Key violations in Invoice/Contract creation - auto-creates Customer records
+- Enhanced WhatsApp send debugging with comprehensive logging
+- All Agent tools (calendar, invoices, contracts, WhatsApp) tested and functional
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

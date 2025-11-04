@@ -46,6 +46,11 @@ def whatsapp_send(input: SendWhatsAppInput) -> SendWhatsAppOutput:
     - Twilio: for templates and out-of-window messages
     """
     try:
+        print(f"\n🔥🔥🔥 WHATSAPP_SEND CALLED! 🔥🔥🔥")
+        print(f"   Message: '{input.message[:60] if len(input.message) > 60 else input.message}...'")
+        print(f"   To (provided): {input.to}")
+        logger.info(f"📱 whatsapp_send called: message='{input.message[:60]}...', to={input.to}")
+        
         # 🔥 SMART PHONE RESOLUTION: Use provided 'to' or auto-detect from context
         recipient_phone = input.to
         
