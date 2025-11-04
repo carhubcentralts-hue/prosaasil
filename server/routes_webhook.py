@@ -98,7 +98,7 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
     try:
         from server.services.business_resolver import resolve_business_with_fallback
         from server.whatsapp_provider import get_whatsapp_service
-        from server.services.ai_service import generate_ai_response
+        from server.services.ai_service import get_ai_service
         from server.services.customer_intelligence import CustomerIntelligence
         from server.models_sql import WhatsAppMessage, Lead
         from server.db import db
@@ -156,19 +156,24 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                                 # Don't truncate - keep full message
                                 previous_messages.append(f"{'לקוח' if sender == 'WhatsApp' else 'עוזר'}: {content}")  # ✅ עוזר!
                     
-                    # ⚡ STEP 4: Fast AI response with SHORT timeout
+                    # ⚡ STEP 4: Agent SDK response with FULL automation (appointments, leads, WhatsApp)
                     ai_start = time.time()
-                    ai_response = generate_ai_response(
+                    ai_service = get_ai_service()
+                    ai_response = ai_service.generate_response_with_agent(
                         message=message_text,
                         business_id=business_id,
+                        customer_phone=phone_number,
+                        customer_name=customer.name,
                         context={
                             'customer_name': customer.name,
                             'phone_number': phone_number,
-                            'previous_messages': previous_messages
+                            'previous_messages': previous_messages,
+                            'channel': 'whatsapp'
                         },
-                        channel='whatsapp'
+                        channel='whatsapp',
+                        is_first_turn=(len(previous_messages) == 0)  # First message = no history
                     )
-                    logger.info(f"⏱️ AI response took: {time.time() - ai_start:.2f}s")
+                    logger.info(f"⏱️ AI Agent response took: {time.time() - ai_start:.2f}s")
                     
                     # ⚡ STEP 5: Send response
                     send_start = time.time()
