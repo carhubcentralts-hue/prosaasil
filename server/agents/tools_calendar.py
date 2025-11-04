@@ -211,11 +211,31 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         if duration_min < 15 or duration_min > 240:
             raise ValueError(f"משך הפגישה חייב להיות בין 15-240 דקות (קיבלתי: {duration_min:.0f} דקות)")
         
-        # 🔥 USE SMART PHONE SELECTION - allows None!
+        # ⚡ Validate customer name (MUST be clear and specific!)
+        if not input.customer_name or input.customer_name.strip() == "":
+            raise ValueError("חובה לציין שם לקוח מלא. אנא שאל: 'על איזה שם לרשום?'")
+        
+        # Don't allow generic names
+        generic_names = ["לקוח", "customer", "client", "unknown", "לא ידוע"]
+        if input.customer_name.strip().lower() in generic_names:
+            raise ValueError(f"שם הלקוח '{input.customer_name}' אינו ספציפי מספיק. אנא בקש שם מלא.")
+        
+        # Name must be at least 2 characters
+        if len(input.customer_name.strip()) < 2:
+            raise ValueError("שם הלקוח חייב להכיל לפחות 2 תווים")
+        
+        # 🔥 USE SMART PHONE SELECTION
         phone = _choose_phone(input.customer_phone, context, session)
         logger.info(f"📞 Final phone for appointment: {phone}")
         
-        # Note: phone can be None - that's OK! It will be in call log/WhatsApp
+        # ⚡ Validate phone number (MUST exist!)
+        if not phone or phone.strip() == "":
+            raise ValueError("חובה לציין מספר טלפון. אנא שאל: 'איזה מספר טלפון להשאיר?'")
+        
+        # Phone must be reasonable length (10-15 digits with +)
+        phone_digits = ''.join(c for c in phone if c.isdigit())
+        if len(phone_digits) < 9 or len(phone_digits) > 15:
+            raise ValueError(f"מספר הטלפון '{phone}' אינו תקין. אנא בקש את המספר שוב.")
         
         # ⚡ Validate treatment type
         if not input.treatment_type or input.treatment_type.strip() == "":

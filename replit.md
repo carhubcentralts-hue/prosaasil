@@ -47,12 +47,17 @@ Preferred communication style: Simple, everyday language.
 - **Enhanced Reminders System**: Comprehensive reminder management.
 
 ## System Design Choices
+- **BUILD 121 - Mandatory Name & Phone Confirmation** ✅ PRODUCTION READY:
+  - **Name Confirmation Required**: Agent MUST confirm customer name by repeating ("תודה דני! אז דני, נכון?")
+  - **Phone Collection Enhanced**: If no phone from call context, Agent asks and confirms phone number
+  - **Strict Validation**: Cannot create appointment without clear name (no "לקוח", "customer") AND valid phone (9-15 digits)
+  - **Time Confirmation**: Agent confirms exact time before booking ("אז קבעתי לך תור למחר ב-12:00, נכון?")
+  - **Full Details Summary**: After booking, Agent repeats ALL details (name, time, phone) for customer confirmation
+  - **No Generic Names**: Validation rejects generic names like "לקוח", requires specific customer names
 - **BUILD 120 - Agent Memory & Phone Handling Fix** ✅ PRODUCTION READY:
   - **Conversation Memory Fixed**: Agent now receives full conversation history via `input` parameter in Runner.run()
   - **Phone Fallback System**: New _choose_phone() with hierarchy: input → context → session → None
   - **Graceful Error Handling**: All tools return {ok: false, error, message} instead of raising exceptions
-  - **No Phone Required**: Appointments can be created with phone=None (auto-captured from call context)
-  - **Agent Instructions Updated**: NEVER ask for phone in voice calls (auto-captured), always respond in Hebrew, handle tool failures gracefully
   - **Phone Utilities**: Created phone_utils.py with normalize_il_phone for Israeli phone number normalization
 - **BUILD 119 - AgentKit Integration for Real Actions** ✅ PRODUCTION READY:
   - **OpenAI Agents SDK**: Integrated `openai-agents` package (correct import: `from agents import Agent`)
