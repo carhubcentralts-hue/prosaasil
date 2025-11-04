@@ -1,0 +1,118 @@
+
+2025-11-04 12:49:28.26
+5a6412ac
+User
+{'OPTIONS', 'HEAD', 'GET'} /api/crm/contracts
+2025-11-04 12:51:36.99
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/crm/threads HTTP/1.1" 200 OK
+2025-11-04 12:51:39.51
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "POST /api/whatsapp/start HTTP/1.1" 200 OK
+2025-11-04 12:51:40.19
+5a6412ac
+User
+INFO: 104.196.198.220:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-11-04 12:51:40.36
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+2025-11-04 12:51:43.06
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-11-04 12:51:43.23
+5a6412ac
+User
+INFO: 104.196.198.220:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+2025-11-04 12:51:45.56
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-11-04 12:51:45.73
+5a6412ac
+User
+INFO: 104.196.198.220:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+2025-11-04 12:51:51.88
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-11-04 12:51:52.05
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+2025-11-04 12:51:53.89
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-11-04 12:51:54.06
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+
+2025-11-04 12:51:56.41
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-11-04 12:51:56.58
+5a6412ac
+User
+INFO: 104.196.198.220:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+2025-11-04 12:51:58.87
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-11-04 12:51:59.04
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+2025-11-04 12:52:00.88
+5a6412ac
+User
+INFO: 35.196.143.163:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-11-04 12:52:26.57
+11c206cb
+System
+system: received signal terminated
+2025-11-04 12:52:46.12
+5a6412ac
+User
+🎯 AGENTS_ENABLED = True
+2025-11-04 12:52:46.32
+5a6412ac
+User
+📦 Importing agent modules...
+2025-11-04 12:52:46.32
+5a6412ac
+User
+✅ Agent modules imported. AGENTS_ENABLED=True
+2025-11-04 12:52:46.32
+5a6412ac
+User
+🏗️ Creating agent: type=booking, business=שי דירות, business_id=1
+2025-11-04 12:52:48.02
+5a6412ac
+User
+🔥 PREPENDING DATE PREFIX TO CUSTOM INSTRUCTIONS!
+2025-11-04 12:52:48.02
+5a6412ac
+User
+Prefix length: 3613 chars
+2025-11-04 12:52:48.02
+5a6412ac
+User
+Custom length: 1557 chars
+2025-11-04 12:52:48.02
+5a6412ac
+User
+Total: 5170 chars
+2025-11-04 12:52:48.02
+5a6412ac
+User
+First 200 chars of result: 📅 **CRITICAL DATE CONTEXT:**
+2025-11-04 12:52:48.02
+5a6412ac
+User
+Today is 2025-11-04 (Tuesday), current time: 12:52 Israel time.

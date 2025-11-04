@@ -1,0 +1,128 @@
+2025-11-04 12:52:48.02
+5a6412ac
+User
+Today is 2025-11-04 (Tuesday), current time: 12:52 Israel time.
+2025-11-04 12:52:48.02
+5a6412ac
+User
+2025-11-04 12:52:48.02
+5a6412ac
+User
+When customer says "מחר" (tomorrow), that means: 2025-11-05
+2025-11-04 12:52:48.02
+5a6412ac
+User
+When customer says "מחרתיים" (day after tomorr
+2025-11-04 12:52:48.02
+5a6412ac
+User
+2025-11-04 12:52:48.02
+5a6412ac
+User
+================================================================================
+2025-11-04 12:52:48.02
+5a6412ac
+User
+📜 AGENT INSTRUCTIONS (first 500 chars):
+2025-11-04 12:52:48.02
+5a6412ac
+User
+================================================================================
+2025-11-04 12:52:48.02
+5a6412ac
+User
+📅 **CRITICAL DATE CONTEXT:**
+2025-11-04 12:52:48.02
+5a6412ac
+User
+Today is 2025-11-04 (Tuesday), current time: 12:52 Israel time.
+2025-11-04 12:52:48.02
+5a6412ac
+User
+2025-11-04 12:52:48.02
+5a6412ac
+User
+When customer says "מחר" (tomorrow), that means: 2025-11-05
+2025-11-04 12:52:48.02
+5a6412ac
+User
+When customer says "מחרתיים" (day after tomorrow), that means: 2025-11-06
+2025-11-04 12:52:48.02
+5a6412ac
+User
+2025-11-04 12:52:48.02
+5a6412ac
+User
+**ALWAYS use year 2025 for dates! Never use 2023 or 2024.**
+2025-11-04 12:52:48.02
+5a6412ac
+User
+Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
+2025-11-04 12:52:48.02
+5a6412ac
+User
+2025-11-04 12:52:48.02
+5a6412ac
+User
+🎯 **IMPORTANT - When showing available times:**
+2025-11-04 12:52:48.02
+5a6412ac
+User
+- DON'T read ALL available times (boring and long!)
+2025-11-04 12:52:48.02
+5a6412ac
+User
+- DO mention 2-3 example times and ASK whi
+2025-11-04 12:52:48.02
+5a6412ac
+User
+...
+2025-11-04 12:52:48.02
+5a6412ac
+User
+================================================================================
+2025-11-04 12:52:48.02
+5a6412ac
+User
+📅 Today calculated as: 2025-11-04 (Tuesday)
+2025-11-04 12:52:48.02
+5a6412ac
+User
+📅 Tomorrow calculated as: 2025-11-05
+2025-11-04 12:52:48.02
+5a6412ac
+User
+================================================================================
+2025-11-04 12:52:48.02
+5a6412ac
+User
+✅ Agent created successfully: booking_agent_שי דירות
+2025-11-04 12:52:48.02
+5a6412ac
+User
+✅ Stored agent_context in Flask g: phone=972549750505, name=WhatsApp 0505
+2025-11-04 12:52:48.02
+5a6412ac
+User
+🤖 Running agent for business 1, channel=whatsapp
+2025-11-04 12:52:48.02
+5a6412ac
+User
+📝 User message: 'הי...'
+2025-11-04 12:52:48.02
+5a6412ac
+User
+📋 Context: business_id=1, phone=972549750505, name=WhatsApp 0505
+2025-11-04 12:52:48.02
+5a6412ac
+User
+📚 Found 10 previous messages in context
+
+2025-11-04 12:52:48.02
+5a6412ac
+User
+✅ Converted to 0 messages for Agent
+2025-11-04 12:52:48.02
+5a6412ac
+User
+🔄 Created Runner with 0 history messages, executing agent.run()..
