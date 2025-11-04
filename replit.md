@@ -4,6 +4,60 @@ AgentLocator is a Hebrew CRM system tailored for real estate businesses. Its cor
 
 # Recent Changes
 
+## BUILD 130 - AGENTKIT FULL OPERATIONS (9-TOOL AGENT) ✅
+**Goal**: Complete AgentKit implementation with ALL business operations through Agent tools
+
+**Implementation**:
+1. **New Agent Tools (6 tools added)**:
+   - `invoices.create`: Generate invoices with line items (description, quantity, unit_price)
+   - `payments.link`: Create payment links for invoices
+   - `contracts.generate_and_send`: Generate contracts from templates and send signature links
+   - `summarize.thread`: Summarize conversation threads for CRM notes
+   - Total: 9 tools (calendar×2, leads×2, whatsapp×1, invoices×2, contracts×1, summarize×1)
+
+2. **Database Models Updated**:
+   - **Invoice**: Added `business_id`, `customer_id`, `appointment_id`, `customer_name`, `customer_phone`, `currency`, `status`, `vat_rate`, `vat_amount`
+   - **InvoiceItem** (NEW): `invoice_id`, `description`, `quantity`, `unit_price`, `total`
+   - **Contract**: Added `business_id`, `customer_id`, `appointment_id`, `customer_name`, `content`, `status`, `variables`, `template_id`
+   - Changed numeric fields from `Integer` to `Numeric(10,2)` for proper decimal handling
+
+3. **Agent Factory - create_ops_agent()**:
+   - Unified operations agent with all 9 tools
+   - Instructions in English, responses in Hebrew
+   - Model: `gpt-4o-mini`, temp: 0.2, max_tokens: 350
+   - Settings: `tool_choice="required"`, `parallel_tool_calls=True`
+   - Comprehensive Hebrew instructions with workflow examples
+
+4. **API Endpoint - /api/agent/ops**:
+   - POST endpoint for agent operations
+   - Context: `business_id`, `customer_phone`, `whatsapp_from`, `channel`, `conversation_id`
+   - Returns: `reply`, `tool_calls`, `data`, `status`, `duration_ms`
+   - Automatic AgentTrace logging for monitoring
+
+5. **Tool Implementation Files**:
+   - `server/agents/tools_invoices.py`: Invoice and payment tools
+   - `server/agents/tools_contracts.py`: Contract generation tool
+   - `server/agents/tools_summarize.py`: Conversation summarization tool
+   - All tools follow strict OpenAI schema validation
+   - Error handling with Hebrew-friendly messages
+
+6. **Model Settings Standardization**:
+   - Created `AGENT_MODEL_SETTINGS` constant in agent_factory.py
+   - Applied to all agents for consistency
+   - Optimized for <2s response latency requirement
+
+**Result**: 
+- ✅ Complete AgentKit implementation with 9 tools
+- ✅ Agent can book appointments AND generate invoices AND send contracts - all in one conversation
+- ✅ All business operations go through Agent tools (no direct API calls needed)
+- ✅ Comprehensive Hebrew instructions with workflow examples
+- ✅ AgentTrace logging for all operations
+
+**Example Workflow**:
+User: "תקבע לי מחר ב-14:00 עיסוי, תוציא חשבונית על 420 שקלים ותשלח אישור בוואטסאפ"
+→ Agent calls: calendar_find_slots → calendar_create_appointment → invoices_create → payments_link → whatsapp_send
+→ Response: "מעולה! קבעתי לך עיסוי מחר ב-14:00, יצרתי חשבונית על 420 ₪ ושלחתי קישור תשלום בווטסאפ."
+
 ## BUILD 129 - DOUBLE BOOKING PREVENTION (CRITICAL FIX) ✅
 **Problem**: System allowed creating multiple appointments at the same time (15:00 duplicate bookings)
 
