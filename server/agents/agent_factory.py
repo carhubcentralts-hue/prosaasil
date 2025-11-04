@@ -507,11 +507,20 @@ Turn 4: Customer: "כן"
         print(f"📅 Tomorrow calculated as: {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}")
         print("="*80 + "\n")
         
+        # ⚡ CRITICAL: Add model_settings with timeout for fast responses!
+        from agents import ModelSettings
+        
+        model_settings = ModelSettings(
+            max_tokens=300,  # Limit response length for speed
+            temperature=0.3,  # Lower temperature for faster, more focused responses
+        )
+        
         agent = Agent(
             name=f"booking_agent_{business_name}",  # Required: Agent name
             model="gpt-4o-mini",  # ⚡ Fast model for real-time conversations
             instructions=instructions,
-            tools=tools_to_use  # Use wrapped or original tools based on business_id
+            tools=tools_to_use,  # Use wrapped or original tools based on business_id
+            model_settings=model_settings  # ⚡ Performance settings
         )
         
         logger.info(f"✅ Created booking agent for '{business_name}' with 5 tools")

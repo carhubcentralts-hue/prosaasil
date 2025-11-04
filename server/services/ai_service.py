@@ -467,18 +467,24 @@ class AIService:
                 return self.generate_response(message, business_id, context, channel, is_first_turn)
             
             # Get business name
+            db_start = time.time()
             business = Business.query.get(business_id)
             business_name = business.name if business else "העסק שלנו"
             
             # 🎯 BUILD 119: Load custom prompt from database!
             prompt_data = self.get_business_prompt(business_id, channel)
             custom_prompt = prompt_data.get("system_prompt", "")  # Extract just the prompt text
+            db_time = (time.time() - db_start) * 1000
+            print(f"⏱️ DB query time: {db_time:.0f}ms")
             logger.info(f"📋 Loaded prompt for business {business_id}: {len(custom_prompt)} chars")
             
             # Get booking agent with custom prompt and business_id
+            agent_create_start = time.time()
             print(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}")
             logger.info(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}")
             agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt, business_id=business_id)
+            agent_create_time = (time.time() - agent_create_start) * 1000
+            print(f"⏱️ Agent creation time: {agent_create_time:.0f}ms")
             
             if not agent:
                 print("❌ Failed to create agent - falling back to regular response")
@@ -524,6 +530,7 @@ class AIService:
             
             # 🔥 BUILD CONVERSATION HISTORY for Agent SDK
             # Agent SDK needs conversation history in specific format
+            history_start = time.time()
             conversation_messages = []
             if context and "previous_messages" in context:
                 prev_msgs = context["previous_messages"]
@@ -545,7 +552,8 @@ class AIService:
                             "content": msg.replace("עוזר:", "").strip()
                         })
                 
-                print(f"✅ Converted to {len(conversation_messages)} messages for Agent")
+                history_time = (time.time() - history_start) * 1000
+                print(f"✅ Converted to {len(conversation_messages)} messages for Agent ({history_time:.0f}ms)")
                 
             # Add current message
             conversation_messages.append({
@@ -555,23 +563,15 @@ class AIService:
             
             runner = Runner()
             print(f"🔄 Created Runner with {len(conversation_messages)-1} history messages, executing agent.run()...")
+            logger.info(f"⏱️ PERFORMANCE: Starting Runner.run() at {time.time()}")
             
-            # Use input parameter with conversation history + TIMEOUT!
-            # ⚡ CRITICAL: Add timeout to prevent 175-second delays!
-            try:
-                result = loop.run_until_complete(
-                    asyncio.wait_for(
-                        runner.run(starting_agent=agent, input=conversation_messages, context=agent_context),
-                        timeout=15.0  # ✅ 15 second max - prevent long delays!
-                    )
-                )
-                duration_ms = int((time.time() - start_time) * 1000)
-                print(f"✅ Runner.run() completed in {duration_ms}ms")
-            except asyncio.TimeoutError:
-                duration_ms = int((time.time() - start_time) * 1000)
-                print(f"❌ Agent timeout after {duration_ms}ms - falling back to regular AI")
-                logger.error(f"❌ Agent timeout after {duration_ms}ms for message: {message[:100]}")
-                return self.generate_response(message, business_id, context, channel, is_first_turn)
+            # Use input parameter with conversation history
+            result = loop.run_until_complete(
+                runner.run(starting_agent=agent, input=conversation_messages, context=agent_context)
+            )
+            duration_ms = int((time.time() - start_time) * 1000)
+            print(f"✅ Runner.run() completed in {duration_ms}ms")
+            logger.info(f"⏱️ PERFORMANCE: Runner.run() completed in {duration_ms}ms")
             
             # Extract response using final_output_as
             reply_text = result.final_output_as(str)
