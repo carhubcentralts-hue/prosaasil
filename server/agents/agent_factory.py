@@ -165,12 +165,16 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 actual_phone = customer_phone
                 actual_name = customer_name
                 
+                print(f"   🔍 Checking Flask g for context...")
+                print(f"   hasattr(g, 'agent_context'): {hasattr(g, 'agent_context')}")
+                
                 # Try to get from Flask g (context passed via ai_service.py)
                 if not actual_phone or actual_phone in ["", "לא צויין", "unknown", "None"]:
                     # Access context from ai_service
                     if hasattr(g, 'agent_context'):
                         context_phone = g.agent_context.get('customer_phone', '')
                         context_name = g.agent_context.get('customer_name', '')
+                        print(f"   📋 g.agent_context found: phone={context_phone}, name={context_name}")
                         if context_phone:
                             actual_phone = context_phone
                             print(f"   ✅ Using phone from context: {actual_phone}")
@@ -178,19 +182,24 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                         if not actual_name and context_name:
                             actual_name = context_name
                             print(f"   ✅ Using name from context: {actual_name}")
+                    else:
+                        print(f"   ⚠️ g.agent_context NOT FOUND!")
                 
+                # 🔥 FIX: Allow appointment without phone (will be captured in call log)
                 if not actual_phone or actual_phone in ["", "לא צויין", "unknown", "None"]:
-                    error_msg = "Cannot create appointment without valid phone number"
-                    print(f"   ❌ {error_msg}")
-                    logger.error(f"   ❌ {error_msg}")
-                    raise ValueError(error_msg)
+                    print(f"   ⚠️ No phone available - using placeholder")
+                    actual_phone = "UNKNOWN"  # Placeholder - phone will be in call log/transcript
                 
-                logger.info(f"🔧 calendar_create_appointment_wrapped: {actual_name or 'Customer'}, phone={actual_phone}, business_id={business_id}")
+                # Ensure name has minimum length (fallback to placeholder)
+                if not actual_name or len(actual_name.strip()) < 2:
+                    actual_name = "לקוח"  # Hebrew "Customer"
+                
+                logger.info(f"🔧 calendar_create_appointment_wrapped: {actual_name}, phone={actual_phone}, business_id={business_id}")
                 
                 # Tools are called from ai_service.py which already has Flask context
                 input_data = CreateAppointmentInput(
                     business_id=business_id,
-                    customer_name=actual_name or "Customer",
+                    customer_name=actual_name,
                     customer_phone=actual_phone,
                     treatment_type=treatment_type,
                     start_iso=start_iso,
