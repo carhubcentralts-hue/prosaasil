@@ -1052,17 +1052,17 @@ class MediaStreamHandler:
                                 traceback.print_exc()
                         else:
                             print(f"⚠️ DTMF input too short: {self.dtmf_buffer} (need 9+ digits)")
-                            # Play error message
-                            self._speak("המספר לא תקין. אנא נסה שוב.")
+                            # Don't speak - just reset and let user retry
                         
                         # Reset buffer anyway
                         self.dtmf_buffer = ""
+                        self.waiting_for_dtmf = False
                         
                     elif digit == "*":
                         # Clear/restart input
                         print(f"🔄 DTMF cleared (was: {self.dtmf_buffer})")
                         self.dtmf_buffer = ""
-                        self._speak("אנא הקלד שוב.")
+                        # Don't speak - just clear buffer
                         
                     elif digit.isdigit():
                         # Append digit
@@ -2281,9 +2281,9 @@ class MediaStreamHandler:
         # Get AI response (Agent will process the phone)
         ai_response = self._ai_response(hebrew_text)
         
-        # Speak the response
+        # Speak the response using the correct method
         if ai_response:
-            self._speak(ai_response)
+            self._speak_simple(ai_response)
             
             # Save to conversation history
             self.conversation_history.append({

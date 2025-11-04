@@ -47,7 +47,7 @@ Preferred communication style: Simple, everyday language.
 - **Enhanced Reminders System**: Comprehensive reminder management.
 
 ## System Design Choices
-- **BUILD 121 - Mandatory Name & Phone Confirmation + DTMF Support** ✅ 100% PRODUCTION READY:
+- **BUILD 121 - Mandatory Name & Phone Confirmation + DTMF Support** ✅ STABLE & TESTED:
   - **Name Confirmation Required**: Agent MUST confirm customer name by repeating ("תודה דני! אז דני, נכון?")
   - **DTMF Phone Input**: Agent instructs user to type phone number on keypad + press # ("תקליד את המספר טלפון במקלדת ואחרי זה תקיש סולמית (#)")
   - **DTMF Processing**: WebSocket handles "dtmf" events, buffers digits until #, validates 9+ digits, processes as AI input
