@@ -89,19 +89,33 @@ def invoices_create(
         Dict with ok, invoice_id, payment_link, total_amount, reason
     """
     try:
-        logger.info(f"🧾 Creating invoice for {customer_name}, business_id={business_id}")
-        logger.info(f"   Items: {items}")
-        
-        # Validate items
-        if not items or len(items) == 0:
+        # ✅ Validate ALL inputs using Pydantic model (strict mode safety)
+        try:
+            input_data = InvoiceCreateInput(
+                business_id=business_id,
+                customer_name=customer_name,
+                items=items,
+                currency=currency,
+                vat_rate=vat_rate,
+                issue_status=issue_status,
+                lead_id=lead_id,
+                appointment_id=appointment_id,
+                customer_phone=customer_phone,
+                send_channel=send_channel
+            )
+        except Exception as e:
+            logger.error(f"Validation error: {e}")
             return {
                 "ok": False,
-                "reason": "חסרים פריטים בחשבונית"
+                "reason": f"נתונים לא תקינים: {str(e)[:80]}"
             }
+        
+        logger.info(f"🧾 Creating invoice for {input_data.customer_name}, business_id={input_data.business_id}")
+        logger.info(f"   Items: {input_data.items}")
         
         # Validate each item using Pydantic (strict mode safety)
         validated_items = []
-        for raw_item in items:
+        for raw_item in input_data.items:
             try:
                 # Coerce to InvoiceItem model (handles string→float conversion)
                 item_obj = InvoiceItem(**raw_item)
@@ -115,7 +129,7 @@ def invoices_create(
         
         # Calculate totals with validated numeric types
         subtotal = sum(float(item.quantity) * float(item.unit_price) for item in validated_items)
-        vat_amount = subtotal * float(vat_rate)
+        vat_amount = subtotal * float(input_data.vat_rate)
         total_amount = subtotal + vat_amount
         
         logger.info(f"   Subtotal: {subtotal}, VAT: {vat_amount}, Total: {total_amount}")
@@ -123,20 +137,20 @@ def invoices_create(
         # Import models
         from server.models_sql import db, Invoice, InvoiceItem as DBInvoiceItem
         
-        # Create invoice
+        # Create invoice using validated input
         invoice = Invoice()
-        invoice.business_id = business_id
-        invoice.customer_id = lead_id  # Using lead_id as customer_id
-        invoice.appointment_id = appointment_id
-        invoice.customer_name = customer_name
-        invoice.customer_phone = customer_phone
-        invoice.currency = currency
+        invoice.business_id = int(input_data.business_id)
+        invoice.customer_id = int(input_data.lead_id) if input_data.lead_id else None
+        invoice.appointment_id = int(input_data.appointment_id) if input_data.appointment_id else None
+        invoice.customer_name = input_data.customer_name
+        invoice.customer_phone = input_data.customer_phone
+        invoice.currency = input_data.currency
         invoice.subtotal = subtotal
-        invoice.vat_rate = vat_rate
+        invoice.vat_rate = float(input_data.vat_rate)
         invoice.vat_amount = vat_amount
         invoice.total = total_amount
-        invoice.status = issue_status  # draft or final
-        invoice.issue_date = datetime.utcnow() if issue_status == "final" else None
+        invoice.status = input_data.issue_status  # draft or final
+        invoice.issue_date = datetime.utcnow() if input_data.issue_status == "final" else None
         
         db.session.add(invoice)
         db.session.flush()  # Get invoice ID
@@ -153,19 +167,19 @@ def invoices_create(
         
         db.session.commit()
         
-        logger.info(f"✅ Invoice created: ID={invoice.id}, Total={total_amount} {currency}")
+        logger.info(f"✅ Invoice created: ID={invoice.id}, Total={total_amount} {input_data.currency}")
         
         # Generate payment link (placeholder - integrate with actual payment provider)
         payment_link = f"https://pay.example.com/invoice/{invoice.id}"
         
         # TODO: Integrate with actual payment provider (Stripe, PayPal, etc.)
-        # payment_link = stripe_service.create_payment_link(invoice.id, total_amount, currency)
+        # payment_link = stripe_service.create_payment_link(invoice.id, total_amount, input_data.currency)
         
         # Send via channel if requested
-        if send_channel and customer_phone:
+        if input_data.send_channel and input_data.customer_phone:
             # TODO: Integrate with notification service
-            logger.info(f"📱 Sending invoice via {send_channel} to {customer_phone}")
-            # notify_service.send_invoice(send_channel, customer_phone, invoice.id, payment_link)
+            logger.info(f"📱 Sending invoice via {input_data.send_channel} to {input_data.customer_phone}")
+            # notify_service.send_invoice(input_data.send_channel, input_data.customer_phone, invoice.id, payment_link)
         
         return {
             "ok": True,
