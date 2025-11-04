@@ -629,14 +629,24 @@ class MediaStreamHandler:
                             custom_params.get("called")
                         )
                         
-                        # ✅ DEBUG: הדפסת המידע שמגיע מ-Twilio
-                        print(f"🔍 DEBUG TO_NUMBER: evt[start].get('to')={evt['start'].get('to')}, customParams={custom_params}, final to_number={self.to_number}")
+                        # 🔍 DEBUG: Log phone numbers from customParameters
+                        print(f"\n📞 START EVENT (customParameters path):")
+                        print(f"   customParams.From: {custom_params.get('From')}")
+                        print(f"   customParams.CallFrom: {custom_params.get('CallFrom')}")
+                        print(f"   ✅ self.phone_number set to: '{self.phone_number}'")
+                        print(f"   ✅ self.to_number set to: '{self.to_number}'")
                     else:
                         # Direct format: {"event": "start", "streamSid": "...", "callSid": "..."}
                         self.stream_sid = evt.get("streamSid")
                         self.call_sid = evt.get("callSid")
                         self.phone_number = evt.get("from") or evt.get("phone_number")
                         self.to_number = evt.get("to") or evt.get("called")
+                        
+                        # 🔍 DEBUG: Log phone number on start
+                        print(f"\n📞 START EVENT - Phone numbers:")
+                        print(f"   from field: {evt.get('from')}")
+                        print(f"   phone_number field: {evt.get('phone_number')}")
+                        print(f"   ✅ self.phone_number set to: '{self.phone_number}'")
                         
                     self.last_rx_ts = time.time()
                     self.last_keepalive_ts = time.time()  # ✅ התחל keepalive
@@ -2246,10 +2256,18 @@ class MediaStreamHandler:
             with app.app_context():
                 # 🤖 Use Agent for REAL booking actions!
                 ai_service = AIService()
+                
+                # 🔍 DEBUG: Check if phone_number is set
+                caller_phone = getattr(self, 'phone_number', '')
+                print(f"\n📞 DEBUG: Caller phone = '{caller_phone}' (type: {type(caller_phone).__name__})")
+                print(f"   self.phone_number exists: {hasattr(self, 'phone_number')}")
+                if hasattr(self, 'phone_number'):
+                    print(f"   self.phone_number value: '{self.phone_number}'")
+                
                 ai_response = ai_service.generate_response_with_agent(
                     message=hebrew_text,
                     business_id=int(business_id),
-                    customer_phone=getattr(self, 'phone_number', ''),
+                    customer_phone=caller_phone,
                     customer_name=customer_name,
                     context=context,
                     channel='calls',  # ✅ Use 'calls' prompt for phone calls
