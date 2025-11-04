@@ -363,6 +363,11 @@ def create_app():
         app.register_blueprint(agent_bp)
         print("✅ Agent API blueprint registered")
         
+        # Agent Ops API - Unified AgentKit operations (appointments, invoices, contracts, etc.)
+        from server.routes_agent_ops import ops_bp
+        app.register_blueprint(ops_bp)
+        print("✅ Agent Ops API blueprint registered")
+        
         # Admin Channels API - Multi-tenant routing management
         from server.routes_admin_channels import admin_channels_bp
         app.register_blueprint(admin_channels_bp)

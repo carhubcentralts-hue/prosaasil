@@ -5,16 +5,28 @@ Integrates with OpenAI Agents SDK for production-ready agent capabilities
 import os
 from datetime import datetime, timedelta
 import pytz
-from agents import Agent
+from agents import Agent, ModelSettings
 from server.agents.tools_calendar import calendar_find_slots, calendar_create_appointment
 from server.agents.tools_leads import leads_upsert, leads_search
 from server.agents.tools_whatsapp import whatsapp_send
+from server.agents.tools_invoices import invoices_create, payments_link
+from server.agents.tools_contracts import contracts_generate_and_send
+from server.agents.tools_summarize import summarize_thread
 import logging
 
 logger = logging.getLogger(__name__)
 
 # Check if agents are enabled
 AGENTS_ENABLED = os.getenv("AGENTS_ENABLED", "1") == "1"
+
+# 🎯 Model settings for all agents - matching AgentKit best practices
+AGENT_MODEL_SETTINGS = ModelSettings(
+    model="gpt-4o-mini",  # Fast and cost-effective
+    temperature=0.2,       # Low temperature for consistent, predictable responses
+    max_tokens=350,        # Enough for detailed Hebrew responses
+    tool_choice="required", # Always use tools (no text-only responses)
+    parallel_tool_calls=True  # Enable parallel tool execution
+)
 
 def create_booking_agent(business_name: str = "העסק", custom_instructions: str = None, business_id: int = None, channel: str = "phone") -> Agent:
     """
@@ -615,6 +627,168 @@ Turn 4: Customer: "כן"
         raise
 
 
+def create_ops_agent(business_name: str = "העסק", business_id: int = None, channel: str = "phone") -> Agent:
+    """
+    Create an operations agent with ALL tools - AgentKit full implementation
+    
+    This agent can:
+    - Find and book appointments (calendar tools)
+    - Create and manage leads (CRM tools)
+    - Generate invoices and payment links (billing tools)
+    - Create and send contracts (legal tools)
+    - Send WhatsApp messages (communication tools)
+    - Summarize conversations (analytics tools)
+    
+    Args:
+        business_name: Business name for personalization
+        business_id: Business ID (optional, will be injected in context)
+        channel: Communication channel (phone/whatsapp/web)
+        
+    Returns:
+        Configured Agent ready for full operations
+    """
+    if not AGENTS_ENABLED:
+        logger.warning("Agents are disabled (AGENTS_ENABLED=0)")
+        return None
+    
+    # Today's date context
+    tz = pytz.timezone("Asia/Jerusalem")
+    today = datetime.now(tz)
+    tomorrow = today + timedelta(days=1)
+    day_after = today + timedelta(days=2)
+    
+    instructions = f"""You are an operations agent for {business_name}. Always respond in natural Hebrew.
+
+📅 **DATE CONTEXT:**
+Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M')} Israel time (Asia/Jerusalem).
+- "מחר" (tomorrow) = {tomorrow.strftime('%Y-%m-%d')}
+- "מחרתיים" (day after tomorrow) = {day_after.strftime('%Y-%m-%d')}
+
+🎯 **YOUR CAPABILITIES:**
+
+1. **APPOINTMENTS (Calendar Tools):**
+   - Find available slots: calendar_find_slots
+   - Create appointments: calendar_create_appointment
+   - ALWAYS check availability before confirming
+   - Business hours: 09:00-22:00 Israel time
+
+2. **LEADS/CRM (Customer Management):**
+   - Create or update leads: leads_upsert
+   - Search existing customers: leads_search
+   - Automatically link leads to appointments
+
+3. **INVOICES & PAYMENTS:**
+   - Create invoices: invoices_create
+   - Generate payment links: payments_link
+   - Send invoices via WhatsApp if requested
+
+4. **CONTRACTS:**
+   - Generate contracts from templates: contracts_generate_and_send
+   - Available templates: treatment_series, rental, purchase
+   - Send signature links via WhatsApp
+
+5. **WHATSAPP:**
+   - Send confirmations: whatsapp_send
+   - Share payment links, contract links, appointment details
+
+6. **SUMMARIES:**
+   - Summarize conversations: summarize_thread
+   - Extract key information for CRM notes
+
+🚨 **CRITICAL RULES:**
+
+1. **ALWAYS USE TOOLS - NEVER MAKE CLAIMS WITHOUT VERIFICATION:**
+   - For availability → MUST call calendar_find_slots first
+   - For customer info → call leads_search first
+   - Never say "no availability" without checking
+   - Never claim "invoice sent" without calling the tool
+
+2. **ERROR HANDLING:**
+   - If a tool returns ok=false or error: Ask ONE brief clarification in Hebrew, then retry
+   - Never expose technical errors to customer - handle gracefully
+   - Example: "רגע, בוא נוודא שהפרטים נכונים..."
+
+3. **PHONE IS OPTIONAL:**
+   - Can proceed with booking/invoice without phone number
+   - If needed later, request DTMF digits (#) or use WhatsApp context
+   - Phone from context (customer_phone or whatsapp_from) is preferred
+
+4. **CONVERSATION FLOW:**
+   - Keep responses SHORT (1-2 sentences max)
+   - Never repeat greetings if conversation already started
+   - Check message history before responding
+   - Complete tasks efficiently without unnecessary back-and-forth
+
+5. **CHANNEL-SPECIFIC BEHAVIOR:**
+   - Phone: Can request DTMF input (keypad + #)
+   - WhatsApp: Natural text conversation
+   - Both: Always confirm important details before final action
+
+📋 **EXAMPLE WORKFLOWS:**
+
+**Appointment + WhatsApp Confirmation:**
+User: "תקבע לי מחר ב-14:00 עיסוי, שלח אישור בוואטסאפ"
+→ calendar_find_slots(date="2025-11-05")
+→ calendar_create_appointment(start="2025-11-05T14:00:00+02:00", treatment="עיסוי")
+→ whatsapp_send(text="✅ אישור: עיסוי מחר ב-14:00. נתראה!")
+→ Response: "מעולה! קבעתי לך עיסוי מחר ב-14:00 ושלחתי אישור בווטסאפ."
+
+**Invoice + Payment Link:**
+User: "תוציא חשבונית על 420 שקלים ותשלח קישור תשלום"
+→ invoices_create(customer_name="...", items=[{{"description":"טיפול","quantity":1,"unit_price":420}}])
+→ payments_link(invoice_id=X)
+→ whatsapp_send(text="חשבונית: 420 ₪. קישור תשלום: https://...")
+→ Response: "יצרתי חשבונית ושלחתי קישור תשלום בווטסאפ."
+
+**Contract Generation:**
+User: "שלח לי חוזה לסדרת טיפולים, שם דני"
+→ contracts_generate_and_send(template_id="treatment_series", variables={{"customer_name":"דני",...}})
+→ whatsapp_send(text="חוזה מוכן לחתימה: https://...")
+→ Response: "שלחתי לך חוזה לחתימה בווטסאפ."
+
+⚠️ **KEY POINTS:**
+- Hebrew responses only
+- Always verify with tools before confirming
+- Keep it short and friendly
+- Business hours: 09:00-22:00
+- Never mention technical details or tool names
+- If unsure → ASK instead of guessing
+
+**RESPOND IN HEBREW. USE TOOLS FOR EVERYTHING. KEEP IT SHORT!**
+"""
+
+    # Prepare tools
+    tools_to_use = [
+        calendar_find_slots,
+        calendar_create_appointment,
+        leads_upsert,
+        leads_search,
+        invoices_create,
+        payments_link,
+        contracts_generate_and_send,
+        whatsapp_send,
+        summarize_thread
+    ]
+    
+    # If business_id provided, could wrap tools here (similar to booking_agent)
+    # For now, business_id will come from context
+    
+    try:
+        agent = Agent(
+            name=f"ops_agent_{business_name}",
+            model="gpt-4o-mini",
+            instructions=instructions,
+            tools=tools_to_use,
+            model_settings=AGENT_MODEL_SETTINGS
+        )
+        
+        logger.info(f"✅ Created ops agent for '{business_name}' with {len(tools_to_use)} tools")
+        return agent
+        
+    except Exception as e:
+        logger.error(f"Failed to create ops agent: {e}")
+        raise
+
 def create_sales_agent(business_name: str = "העסק") -> Agent:
     """
     Create an agent specialized in sales and lead qualification
@@ -686,10 +860,11 @@ def get_agent(agent_type: str = "booking", business_name: str = "העסק", cust
     Get or create an agent by type
     
     Args:
-        agent_type: Type of agent (booking/sales)
+        agent_type: Type of agent (booking/sales/ops)
         business_name: Business name for personalization
         custom_instructions: Custom instructions from database (if provided, creates new agent)
         business_id: Business ID for tool calls (required for booking agent)
+        channel: Communication channel (phone/whatsapp/web)
     
     Returns:
         Agent instance (cached unless custom_instructions provided)
@@ -701,6 +876,8 @@ def get_agent(agent_type: str = "booking", business_name: str = "העסק", cust
             return create_booking_agent(business_name, custom_instructions, business_id, channel)
         elif agent_type == "sales":
             return create_sales_agent(business_name)
+        elif agent_type == "ops":
+            return create_ops_agent(business_name, business_id, channel)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
     
@@ -712,6 +889,8 @@ def get_agent(agent_type: str = "booking", business_name: str = "העסק", cust
             _agent_cache[cache_key] = create_booking_agent(business_name, None, business_id, channel)
         elif agent_type == "sales":
             _agent_cache[cache_key] = create_sales_agent(business_name)
+        elif agent_type == "ops":
+            _agent_cache[cache_key] = create_ops_agent(business_name, business_id, channel)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
     

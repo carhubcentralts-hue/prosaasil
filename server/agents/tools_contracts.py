@@ -1,0 +1,154 @@
+"""
+Contracts and Digital Signatures Tools for AgentKit
+Handles contract generation and signature collection
+"""
+from agents import function_tool
+from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any
+from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ================================================================================
+# INPUT/OUTPUT SCHEMAS
+# ================================================================================
+
+class ContractGenerateInput(BaseModel):
+    """Input for generating a contract"""
+    business_id: int = Field(..., description="Business ID", ge=1)
+    template_id: str = Field(..., description="Contract template ID (e.g., 'treatment_series', 'rental')")
+    lead_id: Optional[int] = Field(None, description="Related lead ID")
+    appointment_id: Optional[int] = Field(None, description="Related appointment ID")
+    variables: Dict[str, str] = Field(..., description="Template variables like customer_name, date, price, etc.")
+
+class ContractGenerateOutput(BaseModel):
+    """Contract generation result"""
+    ok: bool
+    contract_id: Optional[int] = None
+    sign_url: Optional[str] = None
+    reason: Optional[str] = None
+
+# ================================================================================
+# TOOL FUNCTIONS
+# ================================================================================
+
+@function_tool
+def contracts_generate_and_send(
+    business_id: int,
+    template_id: str,
+    variables: Dict[str, str],
+    lead_id: Optional[int] = None,
+    appointment_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Generate a contract from template and send for digital signature
+    
+    Args:
+        business_id: Business ID
+        template_id: Contract template ID (e.g., 'treatment_series', 'rental', 'purchase')
+        variables: Template variables dict (customer_name, date, price, service_description, etc.)
+        lead_id: Related lead ID (optional)
+        appointment_id: Related appointment ID (optional)
+        
+    Returns:
+        Dict with ok, contract_id, sign_url, reason
+    """
+    try:
+        logger.info(f"📝 Generating contract template_id={template_id}, business_id={business_id}")
+        logger.info(f"   Variables: {variables}")
+        
+        # Validate required variables
+        if "customer_name" not in variables:
+            return {
+                "ok": False,
+                "reason": "חסר שם לקוח (customer_name) במשתנים"
+            }
+        
+        # Import models
+        from server.models_sql import db, Contract
+        
+        # Get template (placeholder - would load from database)
+        templates = {
+            "treatment_series": {
+                "name": "חוזה לסדרת טיפולים",
+                "content": """
+חוזה טיפולים
+
+בין: {business_name}
+לבין: {customer_name}
+
+הלקוח מתחייב לרכישת סדרת טיפולים:
+- סוג הטיפול: {service_description}
+- מספר טיפולים: {treatment_count}
+- מחיר כולל: {price} ₪
+- תוקף: {validity_date}
+
+תנאי ביטול: ניתן לבטל עד 24 שעות לפני הטיפול.
+
+חתימת הלקוח: _______________
+תאריך: {date}
+                """
+            },
+            "rental": {
+                "name": "חוזה שכירות",
+                "content": "חוזה שכירות בין {landlord} ל-{tenant}..."
+            },
+            "purchase": {
+                "name": "חוזה רכישה",
+                "content": "חוזה רכישה של {property_description}..."
+            }
+        }
+        
+        template = templates.get(template_id)
+        if not template:
+            return {
+                "ok": False,
+                "reason": f"תבנית {template_id} לא נמצאה"
+            }
+        
+        # Fill template with variables
+        try:
+            contract_content = template["content"].format(**variables)
+        except KeyError as e:
+            return {
+                "ok": False,
+                "reason": f"חסר משתנה נדרש: {str(e)}"
+            }
+        
+        # Create contract record
+        contract = Contract()
+        contract.business_id = business_id
+        contract.customer_id = lead_id
+        contract.appointment_id = appointment_id
+        contract.template_id = template_id
+        contract.customer_name = variables.get("customer_name")
+        contract.content = contract_content
+        contract.status = "pending_signature"
+        contract.variables = variables  # Store as JSON
+        
+        db.session.add(contract)
+        db.session.commit()
+        
+        # Generate signature URL (placeholder - integrate with DocuSign/HelloSign/etc.)
+        sign_url = f"https://sign.example.com/contract/{contract.id}"
+        
+        # TODO: Integrate with actual e-signature provider
+        # sign_url = docusign_service.create_signature_request(contract.id, contract_content, customer_email)
+        
+        logger.info(f"✅ Contract created: ID={contract.id}, template={template_id}")
+        logger.info(f"   Signature URL: {sign_url}")
+        
+        return {
+            "ok": True,
+            "contract_id": contract.id,
+            "sign_url": sign_url
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating contract: {e}")
+        db.session.rollback()
+        return {
+            "ok": False,
+            "reason": str(e)[:160]
+        }

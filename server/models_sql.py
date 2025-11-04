@@ -341,20 +341,44 @@ class PaymentGateway(db.Model):
 class Invoice(db.Model):
     __tablename__ = "invoice"
     id = db.Column(db.Integer, primary_key=True)
-    deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=False, index=True)
+    deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=True, index=True)  # nullable for direct invoices
     payment_id = db.Column(db.Integer, db.ForeignKey("payment.id"), nullable=True, index=True)  # Direct link to payment
     invoice_number = db.Column(db.String(40), unique=True, index=True)
-    subtotal = db.Column(db.Integer)
-    tax = db.Column(db.Integer)
-    total = db.Column(db.Integer)
+    subtotal = db.Column(db.Numeric(10, 2))  # Changed to Numeric for proper decimals
+    tax = db.Column(db.Numeric(10, 2))  # VAT amount
+    vat_amount = db.Column(db.Numeric(10, 2))  # Alias for tax
+    vat_rate = db.Column(db.Numeric(5, 4), default=0.17)  # VAT rate
+    total = db.Column(db.Numeric(10, 2))
     pdf_path = db.Column(db.String(260))  # נתיב יחסי ל-static
     issued_at = db.Column(db.DateTime, default=datetime.utcnow)
+    issue_date = db.Column(db.DateTime)  # Alias for issued_at
+    
+    # AgentKit additions
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=True, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=True, index=True)
+    appointment_id = db.Column(db.Integer, db.ForeignKey("appointments.id"), nullable=True, index=True)
+    customer_name = db.Column(db.String(255))
+    customer_phone = db.Column(db.String(64))
+    currency = db.Column(db.String(8), default="ILS")  # ILS/USD
+    status = db.Column(db.String(32), default="draft")  # draft/final/paid/cancelled
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class InvoiceItem(db.Model):
+    """Invoice line items"""
+    __tablename__ = "invoice_item"
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey("invoice.id"), nullable=False, index=True)
+    description = db.Column(db.String(500), nullable=False)
+    quantity = db.Column(db.Numeric(10, 2), default=1.0)
+    unit_price = db.Column(db.Numeric(10, 2), nullable=False)
+    total = db.Column(db.Numeric(10, 2), nullable=False)
 
 class Contract(db.Model):
     __tablename__ = "contract"
     id = db.Column(db.Integer, primary_key=True)
-    deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=False, index=True)
+    deal_id = db.Column(db.Integer, db.ForeignKey("deal.id"), nullable=True, index=True)  # nullable for direct contracts
     template_name = db.Column(db.String(80))
+    template_id = db.Column(db.String(80))  # AgentKit: template identifier
     version = db.Column(db.String(20), default='v1')
     html_path = db.Column(db.String(260))
     pdf_path = db.Column(db.String(260))
@@ -363,6 +387,15 @@ class Contract(db.Model):
     signed_ip = db.Column(db.String(64))
     signature_data = db.Column(db.Text)  # Base64 encoded signature image
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # AgentKit additions
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=True, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=True, index=True)
+    appointment_id = db.Column(db.Integer, db.ForeignKey("appointments.id"), nullable=True, index=True)
+    customer_name = db.Column(db.String(255))
+    content = db.Column(db.Text)  # Contract content (filled template)
+    status = db.Column(db.String(32), default="pending_signature")  # pending_signature/signed/cancelled
+    variables = db.Column(db.JSON)  # Template variables as JSON
 
 # === CALENDAR & APPOINTMENTS ===
 
