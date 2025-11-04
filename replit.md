@@ -4,12 +4,15 @@ AgentLocator is a Hebrew CRM system for real estate businesses, designed to auto
 
 # Recent Changes (BUILD 134)
 
-**Performance + Accuracy Optimization:**
+**Performance + Accuracy + Prompt Optimization:**
+- **CRITICAL FIX**: Removed ALL hardcoded prompts - Agent now loads prompts EXCLUSIVELY from database (BusinessSettings.ai_prompt)
+- **Response Length**: `max_tokens=150` (reduced from 250/350) for SHORT 1-2 sentence responses
 - **STT Accuracy**: Expanded speech_contexts from 30→80+ Hebrew phrases, boost=20.0, stricter confidence (0.4→0.7)
-- **Performance**: `tool_choice="auto"` (saves 1-2s), `max_tokens=250`, OpenAI timeout=2.5s
-- **Target**: <2s WhatsApp response, <2.5s phone calls
+- **Performance**: `tool_choice="auto"` (saves 1-2s), OpenAI timeout=2.5s
+- **Target**: <2s WhatsApp response, <2.5s phone calls, natural SHORT conversations
 - Agent modules imported at module level - eliminates import overhead
 - Fixed Foreign Key violations in Invoice/Contract creation - auto-creates Customer records
+- Prompt system: NO hardcoded text prepended - only minimal date context + database prompt
 
 # User Preferences
 
@@ -22,7 +25,7 @@ AgentLocator utilizes a multi-tenant architecture with business-based data isola
 
 The AI uses an Agent SDK for actions like appointment scheduling and lead creation, maintaining robust conversation memory for contextual responses. **Agent Cache System**: Agents persist for 30 minutes per business+channel combination, improving response time from 100ms to 1ms (30x faster) and maintaining conversation state across multiple turns. It enforces mandatory name and phone confirmation during scheduling, with dual input collection (verbal name, DTMF phone number) and streamlined 4-turn booking flows. **Channel-Aware Responses**: Agent adapts messaging based on communication channel - mentions WhatsApp confirmation only during phone calls, not when already conversing via WhatsApp. **DTMF Menu System**: Interactive voice menu for phone calls (press 1 for appointments, 2 for info, 3 for representative) with fallback to natural conversation. Error handling provides structured messages.
 
-Performance is optimized with explicit OpenAI timeouts, increased STT streaming timeouts, and warnings for long prompts. AI responses prioritize completeness with increased `max_tokens` (350) for `gpt-4o-mini` and a `temperature` of 0.3-0.4 for consistent Hebrew sentences. Robustness is ensured through thread tracking, enhanced cleanup, and a Flask app singleton pattern. STT reliability is improved with relaxed validation, confidence checks, and a 3-attempt retry mechanism. Voice consistency is maintained with a male Hebrew voice (`he-IL-Wavenet-D`) and masculine phrasing. Cold start optimization includes automatic service warmup.
+Performance is optimized with explicit OpenAI timeouts, increased STT streaming timeouts, and warnings for long prompts. AI responses prioritize SHORT natural conversations with `max_tokens=150` for `gpt-4o-mini` and a `temperature` of 0.3-0.4 for consistent Hebrew sentences. **Prompt Loading**: Agent loads prompts EXCLUSIVELY from BusinessSettings.ai_prompt with NO hardcoded text prepended (only minimal date context). Fallback prompt is minimal and asterisk-free. Robustness is ensured through thread tracking, enhanced cleanup, and a Flask app singleton pattern. STT reliability is improved with relaxed validation, confidence checks, and a 3-attempt retry mechanism. Voice consistency is maintained with a male Hebrew voice (`he-IL-Wavenet-D`) and masculine phrasing. Cold start optimization includes automatic service warmup.
 
 ## Technical Implementations
 ### Backend

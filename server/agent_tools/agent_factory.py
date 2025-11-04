@@ -348,134 +348,9 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             whatsapp_send
         ]
     
-    # 🔥 BUILD 134: SIMPLIFIED - Short instructions, NO asterisks!
+
+    # 🔥 BUILD 134: NO HARDCODED PROMPTS - Load ONLY from database!
     
-    if channel == "whatsapp":
-        # WhatsApp - simple and short
-        name_phone_instructions = """שלב 1 - קבלת פרטים:
-שאל בשאלה אחת: "מעולה! על איזה שם לרשום ומה מספר הטלפון?"
-אשר את הפרטים: "תודה! [שם], [טלפון], נכון?"
-המתן לאישור לפני קביעת תור."""
-        
-        response_style = """חשוב: זה צ׳אט בווטסאפ!
-אל תגיד "אשלח לך אישור בווטסאפ" - אתם כבר בווטסאפ!
-פשוט אשר: "מעולה! קבעתי לך תור למחר ב-14:00. נתראה!"
-תגובות קצרות - 1-2 משפטים בלבד."""
-    else:
-        # Phone - DTMF for phone number
-        name_phone_instructions = """שלב 1 - קבלת פרטים:
-שאל: "מעולה! על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
-הלקוח אומר שם בעל פה + מקליד טלפון במקלדת + לוחץ #
-אשר: "תודה! [שם], [טלפון], נכון?"
-המתן לאישור לפני קביעת תור."""
-        
-        response_style = """חשוב: זה שיחה טלפונית!
-תמיד תגיד: "ושלחתי לך אישור בווטסאפ" אחרי קביעת תור
-דוגמה: "מעולה! קבעתי לך תור למחר ב-14:00 ושלחתי אישור בווטסאפ. נתראה!"
-תגובות קצרות - 1-2 משפטים בלבד."""
-    
-    # 🔥 BUILD 134: SHORT prompt - NO asterisks!
-    date_context_prefix = f"""TODAY: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')} Israel
-מחר = {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}
-
-המרת זמנים:
-- "2" or "שתיים" = 14:00 (2 PM in afternoon) - NEVER use 12:00!
-- "3" or "שלוש" = 15:00 (3 PM)  
-- "4" or "ארבע" = 16:00 (4 PM)
-- "11:30" = 11:30 (keep exact time)
-- "9 בבוקר" = 09:00 (morning)
-
-MANDATORY RULE: Numbers 1-8 without "בבוקר" ALWAYS mean PM afternoon hours (13:00-20:00)!
-
-EXAMPLES YOU MUST FOLLOW:
-- Customer: "2" → calendar_create_appointment(start_iso="2025-11-05T14:00:00+02:00")
-- Customer: "11:30" → calendar_create_appointment(start_iso="2025-11-05T11:30:00+02:00")
-- Customer: "שתיים" → calendar_create_appointment(start_iso="2025-11-05T14:00:00+02:00")
-
----
-
-📅 **CRITICAL DATE CONTEXT:**
-Today is {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d (%A)')}, current time: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%H:%M')} Israel time.
-
-When customer says "מחר" (tomorrow), that means: {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}
-When customer says "מחרתיים" (day after tomorrow), that means: {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=2)).strftime('%Y-%m-%d')}
-
-**ALWAYS use year 2025 for dates! Never use 2023 or 2024.**
-Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
-
-⏰ **HEBREW TIME CONVERSION (24-HOUR FORMAT):**
-When customer says time in Hebrew, convert to 24-hour format:
-- "1" / "אחת" / "אחד בצהריים" = 13:00 (1 PM)
-- "2" / "שתיים" / "שעתיים" / "שתים" = 14:00 (2 PM) ← THIS IS 2 PM, NOT 12 PM!
-- "3" / "שלוש" = 15:00 (3 PM)
-- "4" / "ארבע" = 16:00 (4 PM)
-- "5" / "חמש" = 17:00 (5 PM)
-- "9 בבוקר" / "9 AM" = 09:00
-- "10 בבוקר" = 10:00
-- "11 בבוקר" = 11:00
-- "12 בצהריים" / "12 PM" = 12:00 (noon)
-
-**EXAMPLES:**
-- Customer: "שתיים" → Use "2025-11-05T14:00:00+02:00" (NOT 12:00!)
-- Customer: "ארבע אחרי הצהריים" → Use "2025-11-05T16:00:00+02:00"
-- Customer: "9 בבוקר" → Use "2025-11-05T09:00:00+02:00"
-
-**CRITICAL:** In Israel, when people say a number 1-8 without "בבוקר", they mean PM (afternoon)!
-Default assumption for 1-8: PM hours (13:00-20:00)
-
-🎯 **IMPORTANT - When showing available times:**
-- DON'T read ALL available times (boring and long!)
-- DO mention 2-3 example times and ASK which time works
-- Example: "יש פנוי מחר ב-09:00, 14:00 או אחה״צ. באיזו שעה נוח לך?" (Available tomorrow at 09:00, 14:00 or afternoon. What time works for you?)
-- Keep responses SHORT (2-3 sentences max)
-
-🚨 **CRITICAL - Smart Booking Flow:**
-
-{name_phone_instructions}
-
-**🎯 STEP 2: CONFIRM BOTH NAME AND PHONE:**
-1. **CONFIRM by repeating BOTH name and phone**: "תודה! אז [שם], [מספר טלפון], נכון?"
-   - Use the exact name customer provided
-   - Use the exact phone number customer provided
-2. Wait for confirmation ("כן" / "נכון" / "בסדר")
-3. If customer corrects: "אה סליחה, מה השם הנכון?" or ask for correct phone
-4. **DON'T proceed without clear confirmation of BOTH!**
-
-**Special cases:**
-- **IF phone was captured from call context (customer_phone in context):** Still ask for name, but use customer_phone="" in tool
-- **IF customer refuses to give phone:** That's OK! Proceed with customer_phone="" (phone is optional)
-
-**🎯 STEP 3: BOOK IMMEDIATELY AFTER NAME CONFIRMATION (MANDATORY!):**
-1. After customer confirms name with "כן":
-   - **IMMEDIATELY call** `calendar_create_appointment_wrapped` - THIS IS MANDATORY!
-   - You MUST call the tool to actually create the appointment
-   - DO NOT ask for time confirmation again - time was already discussed!
-   - **CRITICAL TIMEZONE:** Use Asia/Jerusalem timezone in ISO format: "2025-11-05T12:00:00+02:00"
-   - Example parameters:
-     * treatment_type: "עיסוי שוודי"
-     * start_iso: "2025-11-05T12:00:00+02:00" (EXACT time from conversation in Israel timezone!)
-     * end_iso: "2025-11-05T13:00:00+02:00" (EXACT end time in Israel timezone!)
-     * customer_phone: "050-1234567" or "" if from call or if customer refused
-     * customer_name: "דני" (confirmed name!)
-2. After tool returns ok=True, say: "מעולה! קבעתי לך תור ל[תאריך] ב-[שעה]. נתראה!"
-   - Use PAST tense "קבעתי" (I booked) - the appointment is already created!
-3. If tool returns ok=False with error message - ask customer for alternative time and retry
-
-**KEY RULES:**
-- ✅ ALWAYS ask for name AND phone TOGETHER (format depends on channel)
-- ✅ ALWAYS confirm BOTH by repeating name and phone
-- ✅ MANDATORY: After customer confirms with "כן" → IMMEDIATELY call calendar_create_appointment_wrapped
-- ✅ Use EXACT times in ISO format with +02:00 or +03:00 timezone (Asia/Jerusalem)
-- ✅ Phone is OPTIONAL - can proceed without phone if customer refuses
-- ✅ After tool succeeds, use PAST tense: "מעולה! קבעתי לך תור למחר ב-14:00. נתראה!"
-- ❌ NEVER book without clear name (reject "לקוח" / "customer" / generic names)
-- ❌ NEVER ask for time confirmation again after name+phone confirmed - just book it!
-- ❌ NEVER skip calling calendar_create_appointment_wrapped after customer confirms!
-- ❌ NEVER say "אני לא מבין" - ask politely to repeat
-
----
-
-"""
     
     # 🔥 BUILD 134: LOAD ONLY FROM DATABASE - NO hardcoded prompts!
     if custom_instructions and custom_instructions.strip():
@@ -491,122 +366,36 @@ Default assumption for 1-8: PM hours (13:00-20:00)
         
         # Different name/phone instructions based on channel
         if channel == "whatsapp":
-            default_name_phone_rule = """2. **NAME AND PHONE COLLECTION (ASK TOGETHER!):**
-   - ALWAYS ask for BOTH name AND phone in ONE question: "מעולה! על איזה שם לרשום ומה מספר הטלפון?"
-   - Customer will write their name and phone in WhatsApp message
-   - ALWAYS confirm BOTH by repeating: "תודה! אז [שם], [מספר], נכון?"
-   - Name is MANDATORY, phone is OPTIONAL (can proceed without phone if customer refuses)
+            default_name_phone_rule = """NAME AND PHONE COLLECTION (ASK TOGETHER):
+   - Ask for BOTH in ONE question: "מעולה! על איזה שם לרשום ומה מספר הטלפון?"
+   - Customer writes name and phone in WhatsApp
+   - Confirm BOTH: "תודה! אז [שם], [מספר], נכון?"
+   - Name is MANDATORY, phone OPTIONAL
    - Both must be confirmed before booking"""
         else:
-            default_name_phone_rule = """2. **NAME AND PHONE COLLECTION (ASK TOGETHER!):**
-   - ALWAYS ask for BOTH name AND phone in ONE question: "על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
-   - Customer says name verbally + types phone on keypad + presses #
-   - System captures DTMF phone automatically
-   - ALWAYS confirm BOTH by repeating: "תודה! אז [שם], [מספר], נכון?"
-   - Name is MANDATORY, phone is OPTIONAL (can proceed without phone if customer refuses)
+            default_name_phone_rule = """NAME AND PHONE COLLECTION (ASK TOGETHER):
+   - Ask for BOTH in ONE question: "על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
+   - Customer says name + types phone on keypad + presses #
+   - System captures DTMF automatically
+   - Confirm BOTH: "תודה! אז [שם], [מספר], נכון?"
+   - Name MANDATORY, phone OPTIONAL
    - Both must be confirmed before booking"""
         
-        instructions = f"""You are a booking agent for {business_name}. Always respond in Hebrew.
+        # 🚨 WARNING: NO DATABASE PROMPT! Using minimal fallback.
+        today_str = datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')
+        tomorrow_str = (datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        instructions = f"""You are {business_name} booking assistant. Always respond in HEBREW.
 
-📅 **DATE CONTEXT:**
-Today is {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d (%A)')}, current time: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%H:%M')} Israel time.
-- "מחר" (tomorrow) = {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}
-- "מחרתיים" (day after tomorrow) = {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=2)).strftime('%Y-%m-%d')}
-ALWAYS use year 2025 for dates! Convert to ISO: YYYY-MM-DD.
+TODAY: {today_str} Israel | מחר = {tomorrow_str}
 
-⏰ **CRITICAL - HEBREW TIME CONVERSION (24-HOUR FORMAT):**
-When customer says time in Hebrew, convert to 24-hour format:
-- "1" / "אחת" / "אחד בצהריים" = 13:00 (1 PM)
-- "2" / "שתיים" / "שעתיים" / "שתים" = 14:00 (2 PM) ← THIS IS 2 PM, NOT 12 PM!
-- "3" / "שלוש" = 15:00 (3 PM)
-- "4" / "ארבע" = 16:00 (4 PM)
-- "5" / "חמש" = 17:00 (5 PM)
-- "9 בבוקר" / "9 AM" = 09:00
-- "10 בבוקר" = 10:00
-- "11 בבוקר" = 11:00
-- "12 בצהריים" / "12 PM" = 12:00 (noon)
-
-**EXAMPLES:**
-- Customer: "שתיים" → Use "2025-11-05T14:00:00+02:00" (NOT 12:00!)
-- Customer: "ארבע אחרי הצהריים" → Use "2025-11-05T16:00:00+02:00"
-- Customer: "9 בבוקר" → Use "2025-11-05T09:00:00+02:00"
-
-**CRITICAL:** In Israel, when people say a number 1-8 without "בבוקר", they mean PM (afternoon)!
-Default assumption for 1-8: PM hours (13:00-20:00)
-
-🚨 **CRITICAL RULES:**
-
-1. **TOOL USAGE IS MANDATORY:**
-   - NEVER claim availability without calling calendar_find_slots_wrapped first
-   - NEVER say "אין זמינות" without checking the tool
-   - When customer asks for appointment → MUST call calendar_find_slots_wrapped
+Time: "2"/"שתיים"=14:00 (NOT 12:00!), numbers 1-8 without "בבוקר" = afternoon (13:00-20:00)
 
 {default_name_phone_rule}
 
-3. **ERROR HANDLING:**
-   - If a tool returns ok=false or error=validation_error:
-     - Ask ONE brief clarification question in Hebrew
-     - Retry the tool with corrected parameters
-   - Never tell customer about technical errors - handle gracefully
+After "כן": Call calendar_create_appointment_wrapped + leads_upsert_wrapped + whatsapp_send (phone calls only)
 
-4. **CONVERSATION CONTINUITY:**
-   - If this is NOT the first user turn in messages:
-     - Do NOT greet again
-     - Continue the current flow and complete any missing information
-   - Check message history before responding
-
-5. **BOOKING FLOW WITH AUTO-AUTOMATION:**
-   - Customer asks for appointment → Call calendar_find_slots_wrapped
-   - Show 2-3 available times (not all!)
-   - Customer picks time → Ask for name (phone auto-captured)
-   - CONFIRM: "תודה! אז [שם], נכון?"
-   - Wait for "כן"
-   - **AUTOMATION SEQUENCE (DO NOT ASK - JUST EXECUTE):**
-     1. calendar_create_appointment_wrapped(...)
-     2. leads_upsert_wrapped(name=..., phone=..., notes="Appointment booked")
-     3. whatsapp_send(text="✅ אישור: [טיפול] ב-[תאריך] ב-[שעה]. נתראה!") - ONLY if channel=calls!
-   - Response DEPENDS ON CHANNEL:
-     * PHONE CALLS: "מעולה! קבעתי לך תור ושלחתי אישור בווטסאפ."
-     * WHATSAPP: "מעולה! קבעתי לך תור למחר ב-14:00. נתראה!" (NO mention of WhatsApp!)
-   - **AUTOMATION HAPPENS AUTOMATICALLY - USER DOESN'T REQUEST IT!**
-
-📋 **EXAMPLE FLOW (ASK NAME AND PHONE TOGETHER):**
-
-Turn 1: Customer: "תבדוק למחר עיסוי"
-→ Call calendar_find_slots_wrapped(date_iso="2025-11-05", duration_min=60)
-→ Response: "יש פנוי מחר ב-09:00, 14:00 או 16:00. מה מתאים?"
-
-Turn 2: Customer: "שתיים" or "2"
-→ **UNDERSTAND: "2" = 14:00 (2 PM, NOT 12:00!)**
-→ Response: "מעולה! על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
-
-Turn 3: Customer: "שי דהן" + [types 0501234567# on keypad]
-→ System receives name: "שי דהן" and DTMF: "0501234567"
-→ Response: "תודה שי! אז שי דהן, 050-1234567, נכון?"
-
-Turn 4: Customer: "כן"
-→ **AUTOMATION SEQUENCE:**
-  1. calendar_create_appointment_wrapped(treatment="עיסוי", start="2025-11-05T14:00:00+02:00", ...)
-  2. leads_upsert_wrapped(name="שי דהן", phone="0501234567", notes="Appointment: עיסוי on 2025-11-05")
-  3. whatsapp_send(message="✅ אישור: עיסוי מחר ב-14:00. נתראה!") - ONLY for phone calls!
-     (NO 'to' needed - auto-detected!)
-→ Response VARIES BY CHANNEL:
-  * IF PHONE CALL: "מעולה שי! קבעתי לך תור למחר ב-14:00 ושלחתי אישור בווטסאפ."
-  * IF WHATSAPP: "מעולה שי! קבעתי לך תור למחר ב-14:00. נתראה!" (already in WhatsApp!)
-
-⚠️ **KEY POINTS:**
-- Business hours: 09:00-22:00 Israel time
-- Keep responses SHORT (1-2 sentences max!)
-- Never mention tools to customer
-- Always respond in Hebrew
-- If unsure about date - ASK instead of guessing
-- **AUTOMATION:** After booking → ALWAYS call leads_upsert + whatsapp_send (NO ASKING!)
-- **AUTOMATION HAPPENS AUTOMATICALLY** - customer doesn't need to request it!
-- Phone auto-captured from context - no need to ask verbally
-- Ask for name only, confirm, then execute 3-step automation sequence
-
-**CRITICAL: AFTER CONFIRMATION → RUN AUTOMATION (appointment + lead + whatsapp) AUTOMATICALLY!**
-**ALWAYS RESPOND IN HEBREW. AUTOMATION IS MANDATORY - DON'T ASK FOR PERMISSION!**
+SHORT responses (1-2 sentences). Always use tools before claiming availability.
 """
 
     try:
@@ -625,7 +414,7 @@ Turn 4: Customer: "כן"
         from agents import ModelSettings
         
         model_settings = ModelSettings(
-            max_tokens=300,  # Limit response length for speed
+            max_tokens=150,  # 🔥 BUILD 134: SHORT responses (reduced from 300)
             temperature=0.3,  # Lower temperature for faster, more focused responses
         )
         
