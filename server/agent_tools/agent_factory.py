@@ -25,9 +25,9 @@ AGENTS_ENABLED = os.getenv("AGENTS_ENABLED", "1") == "1"
 AGENT_MODEL_SETTINGS = ModelSettings(
     model="gpt-4o-mini",  # Fast and cost-effective
     temperature=0.2,       # Low temperature for consistent, predictable responses
-    max_tokens=350,        # Enough for detailed Hebrew responses
-    tool_choice="required", # Always use tools (no text-only responses)
-    parallel_tool_calls=True  # Enable parallel tool execution
+    max_tokens=200,        # 🔥 REDUCED: 200 tokens for faster responses (was 350)
+    tool_choice="auto",    # 🔥 CHANGED: "auto" allows simple greetings without tools (was "required")
+    parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
 
 def create_booking_agent(business_name: str = "העסק", custom_instructions: str = None, business_id: int = None, channel: str = "phone") -> Agent:

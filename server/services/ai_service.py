@@ -79,7 +79,7 @@ class AIService:
         # ⚡ RELIABLE OpenAI client with production timeout
         self.client = OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
-            timeout=3.5  # ✅ Production timeout - allows Hebrew responses with margin
+            timeout=2.5  # 🔥 REDUCED: 2.5s timeout for faster real-time conversations (was 3.5s)
         )
         self._cache = {}  # קאש פרומפטים לביצועים
         self._cache_timeout = 300  # ⚡ 5 דקות - מספיק ארוך לשיחה שלמה
@@ -321,7 +321,7 @@ class AIService:
                     messages=messages,  # type: ignore
                     max_tokens=prompt_data["max_tokens"],
                     temperature=prompt_data["temperature"],
-                    timeout=3.5  # ⚡ 3.5s timeout for real-time conversations
+                    timeout=2.5  # 🔥 REDUCED: 2.5s timeout for real-time conversations (was 3.5s)
                 )
                 
                 openai_time = time.time() - openai_start
