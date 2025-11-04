@@ -99,9 +99,23 @@ def invoices_create(
                 "reason": "חסרים פריטים בחשבונית"
             }
         
-        # Calculate totals
-        subtotal = sum(item.get("quantity", 1) * item.get("unit_price", 0) for item in items)
-        vat_amount = subtotal * vat_rate
+        # Validate each item using Pydantic (strict mode safety)
+        validated_items = []
+        for raw_item in items:
+            try:
+                # Coerce to InvoiceItem model (handles string→float conversion)
+                item_obj = InvoiceItem(**raw_item)
+                validated_items.append(item_obj)
+            except Exception as e:
+                logger.error(f"Invalid item: {raw_item}, error: {e}")
+                return {
+                    "ok": False,
+                    "reason": f"פריט לא תקין בחשבונית: {str(e)[:80]}"
+                }
+        
+        # Calculate totals with validated numeric types
+        subtotal = sum(float(item.quantity) * float(item.unit_price) for item in validated_items)
+        vat_amount = subtotal * float(vat_rate)
         total_amount = subtotal + vat_amount
         
         logger.info(f"   Subtotal: {subtotal}, VAT: {vat_amount}, Total: {total_amount}")
@@ -127,13 +141,13 @@ def invoices_create(
         db.session.add(invoice)
         db.session.flush()  # Get invoice ID
         
-        # Add line items
-        for item_data in items:
+        # Add line items (using validated items)
+        for item_obj in validated_items:
             item = DBInvoiceItem()
             item.invoice_id = invoice.id
-            item.description = item_data.get("description", "")
-            item.quantity = item_data.get("quantity", 1)
-            item.unit_price = item_data.get("unit_price", 0)
+            item.description = item_obj.description
+            item.quantity = float(item_obj.quantity)
+            item.unit_price = float(item_obj.unit_price)
             item.total = item.quantity * item.unit_price
             db.session.add(item)
         
