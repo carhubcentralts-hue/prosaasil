@@ -54,9 +54,10 @@ Preferred communication style: Simple, everyday language.
   - **Barge-in Disabled During DTMF**: System disables voice interruption when waiting for keypad input to prevent false triggers
   - **Phone Collection Enhanced**: If no phone from call context, Agent uses DTMF input (more accurate than voice)
   - **Phone is OPTIONAL**: System can create appointments without phone number (nullable in DB), graceful handling if unavailable
-  - **Graceful Error Handling**: All validation errors return {ok: false, error, message} instead of raising exceptions
+  - **Graceful Error Handling**: All validation errors return {ok: false, error, message} with isinstance() checks, never raise exceptions
   - **Strict Name Validation**: Cannot create appointment without clear name (no "לקוח", "customer", generic names)
-  - **Time Confirmation**: Agent confirms exact time before booking ("אז קבעתי לך תור למחר ב-12:00, נכון?")
+  - **Time Confirmation BEFORE Booking**: Agent uses future tense "אז לקבוע לך תור למחר ב-12:00, נכון?" BEFORE calling tool
+  - **Success Message AFTER Booking**: Agent uses past tense "מעולה! קבעתי לך תור" only AFTER tool returns ok=true
   - **Full Details Summary**: After booking, Agent repeats ALL details (name, time, phone if available) for customer confirmation
 - **BUILD 120 - Agent Memory & Phone Handling Fix** ✅ PRODUCTION READY:
   - **Conversation Memory Fixed**: Agent now receives full conversation history via `input` parameter in Runner.run()
