@@ -352,6 +352,13 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
    - Customer will write their name and phone in WhatsApp message
 2. Wait for customer to provide both details
 3. System will automatically capture the information from WhatsApp text"""
+        
+        # WhatsApp-specific response style
+        response_style = """**🎯 CRITICAL - CHANNEL IS WHATSAPP:**
+- You are ALREADY chatting in WhatsApp with the customer!
+- NEVER say "אשלח לך אישור בווטסאפ" or "שלחתי אישור בווטסאפ"
+- Just confirm the appointment: "מעולה! קבעתי לך תור למחר ב-14:00. נתראה!"
+- Keep it SHORT and natural - you're texting, not calling!"""
     else:
         # Phone calls - USE DTMF for phone number
         name_phone_instructions = """**🎯 STEP 1: GET NAME AND PHONE TOGETHER (MANDATORY!):**
@@ -360,6 +367,13 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
    - Customer will type phone on keypad and press #
 2. Wait for customer to provide name (verbally) and phone (via DTMF keypad)
 3. System will automatically capture DTMF digits when customer presses #"""
+        
+        # Phone call-specific response style
+        response_style = """**🎯 CRITICAL - CHANNEL IS PHONE CALL:**
+- You are speaking on the PHONE with the customer
+- ALWAYS say "ושלחתי לך אישור בווטסאפ" after booking
+- This reminds them to check WhatsApp for confirmation
+- Example: "מעולה! קבעתי לך תור למחר ב-14:00 ושלחתי אישור בווטסאפ. נתראה!" """
     
     date_context_prefix = f"""⏰ ⏰ ⏰ ULTRA CRITICAL - TIME CONVERSION (READ THIS FIRST!) ⏰ ⏰ ⏰
 
@@ -464,8 +478,8 @@ Default assumption for 1-8: PM hours (13:00-20:00)
     
     # Use custom instructions if provided, else use default
     if custom_instructions and custom_instructions.strip():
-        # Prepend date context to custom instructions
-        instructions = date_context_prefix + custom_instructions
+        # Prepend date context AND response style to custom instructions
+        instructions = date_context_prefix + response_style + "\n\n" + custom_instructions
         print(f"\n🔥 PREPENDING DATE PREFIX TO CUSTOM INSTRUCTIONS!")
         print(f"   Prefix length: {len(date_context_prefix)} chars")
         print(f"   Custom length: {len(custom_instructions)} chars")
@@ -551,8 +565,10 @@ Default assumption for 1-8: PM hours (13:00-20:00)
    - **AUTOMATION SEQUENCE (DO NOT ASK - JUST EXECUTE):**
      1. calendar_create_appointment_wrapped(...)
      2. leads_upsert_wrapped(name=..., phone=..., notes="Appointment booked")
-     3. whatsapp_send(text="✅ אישור: [טיפול] ב-[תאריך] ב-[שעה]. נתראה!")
-   - Response: "מעולה! קבעתי לך תור ושלחתי אישור בווטסאפ."
+     3. whatsapp_send(text="✅ אישור: [טיפול] ב-[תאריך] ב-[שעה]. נתראה!") - ONLY if channel=calls!
+   - Response DEPENDS ON CHANNEL:
+     * PHONE CALLS: "מעולה! קבעתי לך תור ושלחתי אישור בווטסאפ."
+     * WHATSAPP: "מעולה! קבעתי לך תור למחר ב-14:00. נתראה!" (NO mention of WhatsApp!)
    - **AUTOMATION HAPPENS AUTOMATICALLY - USER DOESN'T REQUEST IT!**
 
 📋 **EXAMPLE FLOW (ASK NAME AND PHONE TOGETHER):**
@@ -573,9 +589,11 @@ Turn 4: Customer: "כן"
 → **AUTOMATION SEQUENCE:**
   1. calendar_create_appointment_wrapped(treatment="עיסוי", start="2025-11-05T14:00:00+02:00", ...)
   2. leads_upsert_wrapped(name="שי דהן", phone="0501234567", notes="Appointment: עיסוי on 2025-11-05")
-  3. whatsapp_send(message="✅ אישור: עיסוי מחר ב-14:00. נתראה!")
+  3. whatsapp_send(message="✅ אישור: עיסוי מחר ב-14:00. נתראה!") - ONLY for phone calls!
      (NO 'to' needed - auto-detected!)
-→ Response: "מעולה שי! קבעתי לך תור למחר ב-14:00 ושלחתי אישור בווטסאפ."
+→ Response VARIES BY CHANNEL:
+  * IF PHONE CALL: "מעולה שי! קבעתי לך תור למחר ב-14:00 ושלחתי אישור בווטסאפ."
+  * IF WHATSAPP: "מעולה שי! קבעתי לך תור למחר ב-14:00. נתראה!" (already in WhatsApp!)
 
 ⚠️ **KEY POINTS:**
 - Business hours: 09:00-22:00 Israel time
@@ -738,9 +756,11 @@ Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M
 When customer books appointment:
 → calendar_create_appointment(...)
 → leads_upsert(name=customer_name, phone=customer_phone, notes="Appointment: [treatment] on [date]")
-→ whatsapp_send(message="✅ אישור: [treatment] ב-[date] ב-[time]. נתראה!")
+→ whatsapp_send(message="✅ אישור: [treatment] ב-[date] ב-[time]. נתראה!") - ONLY for phone calls!
   (NO 'to' needed - auto-sends to customer!)
-→ Hebrew Response: "מעולה! קבעתי לך [treatment] ב-[date] ב-[time]. שלחתי אישור בווטסאפ."
+→ Hebrew Response DEPENDS ON CHANNEL:
+  * IF PHONE CALL: "מעולה! קבעתי לך [treatment] ב-[date] ב-[time]. שלחתי אישור בווטסאפ."
+  * IF WHATSAPP: "מעולה! קבעתי לך [treatment] ב-[date] ב-[time]. נתראה!" (already in WhatsApp!)
 
 **2. INVOICE + PAYMENT WORKFLOW:**
 When creating invoice:
