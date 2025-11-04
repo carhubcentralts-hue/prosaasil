@@ -522,10 +522,45 @@ class AIService:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
             
+            # 🔥 BUILD CONVERSATION HISTORY for Agent SDK
+            # Agent SDK needs conversation history in specific format
+            conversation_messages = []
+            if context and "previous_messages" in context:
+                prev_msgs = context["previous_messages"]
+                print(f"📚 Found {len(prev_msgs)} previous messages in context")
+                
+                # Convert to Agent SDK format
+                for msg in prev_msgs:
+                    # Format is "לקוח: XXX\nעוזר: YYY"
+                    if "\nעוזר:" in msg:
+                        parts = msg.split("\nעוזר:")
+                        user_part = parts[0].replace("לקוח:", "").strip()
+                        bot_part = parts[1].strip()
+                        
+                        # Add both to history
+                        conversation_messages.append({
+                            "role": "user",
+                            "content": user_part
+                        })
+                        conversation_messages.append({
+                            "role": "assistant",
+                            "content": bot_part
+                        })
+                
+                print(f"✅ Converted to {len(conversation_messages)} messages for Agent")
+                
+            # Add current message
+            conversation_messages.append({
+                "role": "user",
+                "content": message
+            })
+            
             runner = Runner()
-            print(f"🔄 Created Runner, now executing agent.run()...")
+            print(f"🔄 Created Runner with {len(conversation_messages)-1} history messages, executing agent.run()...")
+            
+            # Use messages instead of single input
             result = loop.run_until_complete(
-                runner.run(starting_agent=agent, input=message, context=agent_context)
+                runner.run(starting_agent=agent, messages=conversation_messages, context=agent_context)
             )
             duration_ms = int((time.time() - start_time) * 1000)
             print(f"✅ Runner.run() completed in {duration_ms}ms")

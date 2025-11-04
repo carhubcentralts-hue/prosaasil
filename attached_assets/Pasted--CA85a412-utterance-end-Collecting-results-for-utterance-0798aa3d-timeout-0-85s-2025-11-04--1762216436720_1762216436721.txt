@@ -1,0 +1,108 @@
+
+🎤 [CA85a412] _utterance_end: Collecting results for utterance 0798aa3d (timeout=0.85s)
+2025-11-04 02:30:01.26
+eb531349
+User
+2025-11-04 02:30:02.11
+eb531349
+User
+⚠️ [CA85a412] Timeout after 0.850s - using fallback
+2025-11-04 02:30:02.11
+eb531349
+User
+✅ [CA85a412] Using partial: 'שי דהאן...' (7 chars)
+2025-11-04 02:30:02.11
+eb531349
+User
+🏁 [CA85a412] Utterance 0798aa3d COMPLETE: returning 'שי דהאן'
+2025-11-04 02:30:02.11
+eb531349
+User
+[LATENCY] final_wait=0.85s, utterance_total=0.85s
+2025-11-04 02:30:02.11
+eb531349
+User
+⏱️ [STT_STREAM] _utterance_end took 0.850s, result: 'שי דהאן'
+2025-11-04 02:30:02.11
+eb531349
+User
+🎤 USER: שי דהאן
+2025-11-04 02:30:02.11
+eb531349
+User
+📊 ASR_LATENCY: 0.850s (target: <0.7s)
+2025-11-04 02:30:02.12
+eb531349
+User
+📞 DEBUG: Caller phone = 'None' (type: NoneType)
+2025-11-04 02:30:02.12
+eb531349
+User
+self.phone_number exists: True
+2025-11-04 02:30:02.12
+eb531349
+User
+self.phone_number value: 'None'
+2025-11-04 02:30:02.12
+eb531349
+User
+🎯 AGENTS_ENABLED = True
+2025-11-04 02:30:02.12
+eb531349
+User
+📦 Importing agent modules...
+2025-11-04 02:30:02.12
+eb531349
+User
+✅ Agent modules imported. AGENTS_ENABLED=True
+2025-11-04 02:30:02.44
+eb531349
+User
+🏗️ Creating agent: type=booking, business=שי דירות, business_id=1
+2025-11-04 02:30:02.45
+eb531349
+User
+🔥 PREPENDING DATE PREFIX TO CUSTOM INSTRUCTIONS!
+2025-11-04 02:30:02.45
+eb531349
+User
+Prefix length: 2063 chars
+2025-11-04 02:30:02.45
+eb531349
+User
+Custom length: 1603 chars
+2025-11-04 02:30:02.45
+eb531349
+User
+Total: 3666 chars
+2025-11-04 02:30:02.45
+eb531349
+User
+First 200 chars of result: 📅 **CRITICAL DATE CONTEXT:**
+
+2025-11-04 02:30:02.45
+eb531349
+User
+Today is 2025-11-04 (Tuesday), current time: 02:30 Israel time.
+2025-11-04 02:30:02.45
+eb531349
+User
+2025-11-04 02:30:02.45
+eb531349
+User
+When customer says "מחר" (tomorrow), that means: 2025-11-05
+2025-11-04 02:30:02.45
+eb531349
+User
+When customer says "מחרתיים" (day after tomorr
+2025-11-04 02:30:02.45
+eb531349
+User
+================================================================================
+2025-11-04 02:30:02.45
+eb531349
+User
+📜 AGENT INSTRUCTIONS (first 500 chars):
+2025-11-04 02:30:02.45
+eb531349
+User

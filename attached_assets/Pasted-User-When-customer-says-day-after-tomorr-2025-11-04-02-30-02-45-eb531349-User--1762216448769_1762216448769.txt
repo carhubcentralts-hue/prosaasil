@@ -1,0 +1,110 @@
+User
+When customer says "מחרתיים" (day after tomorr
+2025-11-04 02:30:02.45
+eb531349
+User
+================================================================================
+2025-11-04 02:30:02.45
+eb531349
+User
+📜 AGENT INSTRUCTIONS (first 500 chars):
+2025-11-04 02:30:02.45
+eb531349
+User
+================================================================================
+2025-11-04 02:30:02.45
+eb531349
+User
+📅 **CRITICAL DATE CONTEXT:**
+2025-11-04 02:30:02.45
+eb531349
+User
+2025-11-04 02:30:02.45
+eb531349
+User
+When customer says "מחר" (tomorrow), that means: 2025-11-05
+2025-11-04 02:30:02.45
+eb531349
+User
+When customer says "מחרתיים" (day after tomorrow), that means: 2025-11-06
+2025-11-04 02:30:02.45
+eb531349
+User
+**ALWAYS use year 2025 for dates! Never use 2023 or 2024.**
+2025-11-04 02:30:02.45
+eb531349
+User
+Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
+2025-11-04 02:30:05.15
+eb531349
+User
+✅ Runner.run() completed in 3028ms
+2025-11-04 02:30:05.15
+eb531349
+User
+📝 Agent final response: 'שלום שי! איך אפשר לעזור לך היום? מחפש טיפול מסוים או חבילת ספא זוגית?...'
+2025-11-04 02:30:05.15
+eb531349
+User
+🔍 Result type: RunResult
+2025-11-04 02:30:05.15
+eb531349
+User
+🔍 Has new_items: True
+2025-11-04 02:30:05.15
+eb531349
+User
+🔍 new_items value: [MessageOutputItem(agent=Agent(name='booking_agent_שי דירות', handoff_description=None, tools=[FunctionTool(name='calendar_find_slots_wrapped', description='Find available appointment slots for a specific date', params_json_schema={'properties': {'date_iso': {'description': 'Date in ISO format (YYYY-MM-DD) like "2025-11-10"', 'title': 'Date Iso', 'type': 'string'}, 'duration_min': {'default': 60, 'description': 'Duration in minutes (default 60)', 'title': 'Duration Min', 'type': 'integer'}}, 'required': ['date_iso', 'duration_min'], 'title': 'calendar_find_slots_wrapped_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f8f445207c0>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='calendar_create_appointment_wrapped', description='Create a new appointment in the calendar', params_json_schema={'properties': {'treatment_type': {'description': 'Type of treatment (required)', 'title': 'Treatment Type', 'type': 'string'}, 'start_iso': {'description': 'Start time in ISO format (required)', 'title': 'Start Iso', 'type': 'string'}, 'end_iso': {'description': 'End time in ISO format (required)', 'title': 'End Iso', 'type': 'string'}, 'customer_phone': {'default': '', 'description': 'Customer phone (optional - uses context if not provided)', 'title': 'Customer Phone', 'type': 'string'}, 'customer_name': {'default': '', 'description': 'Customer name (optional - uses context if not provided)', 'title': 'Customer Name', 'type': 'string'}, 'notes': {'description': 'Additional notes (optional)', 'title': 'Notes', 'type': 'string'}}, 'required': ['treatment_type', 'start_iso', 'end_iso', 'customer_phone', 'customer_name', 'notes'], 'title': 'calendar_create_appointment_wrapped_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f8f44521620>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='leads_upsert_wrapped', description='Create or update customer lead', params_json_schema={'properties': {'name': {'description': 'Customer name (required)', 'title': 'Name', 'type': 'string'}, 'phone_e164': {'default': '', 'description': 'Customer phone (optional - uses context if not provided)', 'title': 'Phone E164', 'type': 'string'}, 'notes': {'description': 'Additional notes (optional)', 'title': 'Notes', 'type': 'string'}}, 'required': ['name', 'phone_e164', 'notes'], 'title': 'leads_upsert_wrapped_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f8f44523ba0>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='leads_search', description='Search for leads\n\nFilters:\n- Phone number (E.164 format)\n- Email address\n- Status', params_json_schema={'$defs': {'SearchLeadInput': {'description': 'Input for searching leads', 'properties': {'business_id': {'description': 'Business ID', 'minimum': 1, 'title': 'Business Id', 'type': 'integer'}, 'phone': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Phone number to search', 'title': 'Phone'}, 'email': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Email to search', 'title': 'Email'}, 'status': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Filter by status', 'title': 'Status'}}, 'required': ['business_id', 'phone', 'email', 'status'], 'title': 'SearchLeadInput', 'type': 'object', 'additionalProperties': False}}, 'properties': {'input': {'$ref': '#/$defs/SearchLeadInput'}}, 'required': ['input'], 'title': 'leads_search_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f8f4d8d6660>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='whatsapp_send', description='Send WhatsApp message\n\nProvider logic:\n- Auto: tries Baileys first, falls back to Twilio\n- Baileys: for real-time conversations (24h window)\n- Twilio: for templates and out-of-window messages', params_json_schema={'$defs': {'SendWhatsAppInput': {'description': 'Input for sending WhatsApp message', 'properties': {'to': {'description': 'Recipient phone in E.164 format (+972...)', 'title': 'To', 'type': 'string'}, 'message': {'description': 'Message text to send', 'maxLength': 4000, 'minLength': 1, 'title': 'Message', 'type': 'string'}, 'provider': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Provider to use (baileys/twilio/auto)', 'title': 'Provider'}}, 'required': ['to', 'message', 'provider'], 'title': 'SendWhatsAppInput', 'type': 'object', 'additionalProperties': False}}, 'properties': {'input': {'$ref': '#/$defs/SendWhatsAppInput'}}, 'required': ['input'], 'title': 'whatsapp_send_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f8f4d8d60c0>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None)], mcp_servers=[], mcp_config={}, instructions='📅 **CRITICAL DATE CONTEXT:**\nToday is 2025-11-04 (Tuesday), current time: 02:30 Israel time.\n\nWhen customer says "מחר" (tomorrow), that means: 2025-11-05\nWhen customer says "מחרתיים" (day after tomorrow), that means: 2025-11-06\n\n**ALWAYS use year 2025 for dates! Never use 2023 or 2024.**\nConvert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")\n\n🎯 **IMPORTANT - When showing available times:**\n- DON\'T read ALL available times (boring and long!)\n- DO mention 2-3 example times and ASK which time works\n- Example: "יש פנוי מחר ב-09:00, 14:00 או אחה״צ. באיזו שעה נוח לך?" (Available tomorrow at 09:00, 14:00 or afternoon. What time works for you?)\n- Keep responses SHORT (2-3 sentences max)\n\n🚨 **CRITICAL - Smart Booking Flow:**\n\n**When customer picks a time:**\n\n**OPTION 1 - Happy path (customer cooperates):**\n1. Customer picks time: "12:00"\n2. Ask for name ONCE: "מעולה! על איזה שם לרשום?" (Great! What name to book under?)\n3. Customer gives name: "דני"\n4. **IMMEDIATELY call** `calendar_create_appointment_wrapped`:\n - treatment_type: "עיסוי שוודי"\n - start_iso: "2025-11-05T12:00:00+02:00"\n - end_iso: "2025-11-05T13:00:00+02:00"\n - customer_phone: "" (EMPTY - system auto-fills!)\n - customer_name: "דני"\n5. Confirm: "מעולה דני! קבעתי לך תור למחר ב-12:00. נתראה!"\n\n**OPTION 2 - Customer confused/doesn\'t answer name:**\n1. Customer picks time: "12:00"\n2. Ask for name: "על איזה שם?"\n3. Customer says something unclear or off-topic\n4. **DON\'T WASTE TIME - JUST BOOK IT!**\n5. **IMMEDIATELY call** `calendar_create_appointment_wrapped`:\n - treatment_type: "עיסוי שוודי"\n - start_iso: "2025-11-05T12:00:00+02:00"\n - end_iso: "2025-11-05T13:00:00+02:00"\n - customer_phone: "" (EMPTY)\n - customer_name: "" (EMPTY - no problem!)\n6. Confirm: "בסדר! קבעתי לך תור למחר ב-12:00!"\n\n**KEY RULES:**\n- ✅ ASK for name once (be friendly!)\n- ✅ If customer gives name → use it\n- ✅ If customer doesn\'t cooperate → book anyway with empty name\n- ❌ NEVER ask for phone number (automatic!)\n- ❌ NEVER say "אני לא מבין" - just book the appointment!\n\n---\n\n\nשם: דניאל\nתפקיד: נציג ספא מקצועי, אנושי וחמים\nסגנון דיבור: רגוע, בטוח ונעים, כמו אדם אמיתי ולא רובוט\nמטרה: לענות על כל שאלה ישירות ובמיידי, להציע טיפולים וחבילות ולסגור טיפול במקום\nחשוב מאוד: כל תשובה חייבת להיות קצרה, ברורה וממוקדת עד 3 משפטים בלבד, כדי לא לעבור את מגבלת 300 טוקנים.\nהתאריך של היום הוא 4.11 חשוב מאוד לפגישות!\nתיאור הספא:\nספא יוקרתי במרכז הארץ הכולל בריכה מחוממת, ג׳קוזי, סאונה רטובה ויבשה, חדרי טיפול פרטיים, חלוקים, מגבות, שתייה חמה וקרה ויין לזוגות. פתוח כל יום מ09:00 עד 22:00.\n\nסוגי טיפולים עיקריים:\nמסאז׳ שוודי קלאסי - 50 דקות, יחיד 320 ש״ח, זוגי 600 ש״ח\nמסאז׳ רקמות עמוק - 60 דקות, יחיד 360 ש״ח, זוגי 670 ש״ח\nמסאז׳ ארומתרפי - 60 דקות, יחיד 340 ש״ח, זוגי 630 ש״ח\nאבנים חמות - 70 דקות, יחיד 390 ש״ח, זוגי 720 ש״ח\nחבילת ספא זוגית מלאה - עיסוי זוגי, יין, ג׳קוזי ושימוש במתחם, 90 דקות, זוגי 890 ש״ח\n\nחוקי שיחה:\nדבר תמיד בשפה טבעית וחמה.\nענה מיידית על השאלה בלי להתחמק או לומר אחזור אליך.\nאם הלקוח מתלבט שאל שאלה מנחה, לדוגמה אתה מחפש טיפול יחיד או חבילה זוגית.\nבסוף כל תשובה הצע פעולה ברורה כמו רוצה שאשריין לך שעה או לשלוח את הפרטים בווטסאפ.\n\nדוגמאות תשובות קצרות:\nשאלה: איזה טיפולים יש אצלכם\nתשובה: יש שוודי, רקמות עמוק, ארומתרפי ואבנים חמות. רוצה שאעזור לך לבחור לפי מה שאתה מחפש\n\nשאלה: כמה עולה חבילת זוגית\nתשובה: חבילת ספא זוגית עם עיסוי, ג׳קוזי ויין עולה 890 שקלים לזוג. רוצה שאבדוק לך שעה פנויה\n\nשאלה: יש בריכה וסאונה\nתשובה: כן, יש בריכה מחוממת, ג׳קוזי וסאונה יבשה ורטובה, הכול כלול בחבילה\n\nשאלה: יש טיפול לנשים בהריון\nתשובה: כן, יש עיסוי עדין עם שמן טבעי לנשים בהריון, רק צריך לציין מראש בזמן ההזמנה\n\nמשפט סיום רגיל:\nבשמחה, רוצה שאקבע לך שעה נוחה או שאשלח את הפרטים בווטסאפ\n', prompt=None, handoffs=[], model='gpt-4o-mini', model_settings=ModelSettings(temperature=None, top_p=None, frequency_penalty=None, presence_penalty=None, tool_choice=None, parallel_tool_calls=None, truncation=None, max_tokens=None, reasoning=None, verbosity=None, metadata=None, store=None, include_usage=None, response_include=None, top_logprobs=None, extra_query=None, extra_body=None, extra_headers=None, extra_args=None), input_guardrails=[], output_guardrails=[], output_type=None, hooks=None, tool_use_behavior='run_llm_again', reset_tool_choice=True), raw_item=ResponseOutputMessage(id='msg_061d9404a85f1bb9006909490bc5048193a568cdb670b4b8cb', content=[ResponseOutputText(annotations=[], text='שלום שי! איך אפשר לעזור לך היום? מחפש טיפול מסוים או חבילת ספא זוגית?', type='output_text', logprobs=[])], role='assistant', status='completed', type='message'), type='message_output_item')]
+2025-11-04 02:30:05.15
+eb531349
+User
+🔍 new_items length: 1
+2025-11-04 02:30:05.15
+eb531349
+User
+📊 Agent returned 1 items
+2025-11-04 02:30:05.15
+eb531349
+User
+- Item #0: MessageOutputItem
+2025-11-04 02:30:05.15
+eb531349
+User
+⚠️ Agent DID NOT call any tools! (message: 'שי דהאן...')
+2025-11-04 02:30:05.22
+eb531349
+User
+🤖 AGENT_RESPONSE: Generated 69 chars in 3.103s (business 1)
+2025-11-04 02:30:05.22
+eb531349
+User
+📊 AI_LATENCY: 3.103s (target: <1.5s)
+2025-11-04 02:30:05.22
+eb531349
+User
+🤖 BOT: שלום שי! איך אפשר לעזור לך היום? מחפש טיפול מסוים או חבילת ספא זוגית?
+2025-11-04 02:30:05.22
+eb531349
+User
+📊 AI_PROCESSING: 3.103s
+2025-11-04 02:30:05.22
+eb531349
+User
+⚠️ Missing phone_number or business_id for customer intelligence
+
+2025-11-04 02:30:05.22
+eb531349
+User
+🔒 LONG_RESPONSE (14 words) - BARGE-IN DISABLED
+2025-11-04 02:30:05.22
+eb531349
+User
+🔊 TTS_START: 'שלום שי! איך אפשר לעזור לך היום? מחפש טיפול מסוים או חבילת ספא זוגית?'
+2025-11-04 02:30:05.22
+eb531349
+User
+🔊 TTS_START: Generating Natural Hebrew TTS for 'שלום שי! איך אפשר לעזור לך היום? מחפש טיפול מסוים ...' (69 chars)
+2025-11-04 02:30:05.22
+eb531349
+User
+✅ Punctuation polished: 'שלום שי! איך אפשר לעזור לך היום? מחפש ט
