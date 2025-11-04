@@ -69,7 +69,7 @@ def contracts_generate_and_send(
         logger.info(f"   Customer: {customer_name}, Service: {service_description}")
         
         # Import models
-        from server.models_sql import db, Contract
+        from server.models_sql import db, Contract, Customer, Lead
         
         # Prepare variables for template
         variables = {
@@ -130,10 +130,35 @@ def contracts_generate_and_send(
                 "reason": f"חסר משתנה נדרש: {str(e)}"
             }
         
+        # 🔥 FIX: Create or find Customer (not Lead!)
+        # Contract.customer_id points to Customer table, not Lead table!
+        customer = None
+        # Try to find from lead_id first
+        if lead_id:
+            lead = Lead.query.filter_by(id=lead_id).first()
+            if lead and lead.phone_e164:
+                # Try to find existing customer by phone
+                customer = Customer.query.filter_by(
+                    tenant_id=business_id,
+                    phone=lead.phone_e164
+                ).first()
+                
+                if not customer:
+                    # Create new customer from lead
+                    customer = Customer(
+                        tenant_id=business_id,
+                        name=customer_name,
+                        phone=lead.phone_e164,
+                        source="ai_agent"
+                    )
+                    db.session.add(customer)
+                    db.session.flush()  # Get customer ID
+                    logger.info(f"✅ Created new Customer from Lead: ID={customer.id}")
+        
         # Create contract record
         contract = Contract()
         contract.business_id = business_id
-        contract.customer_id = lead_id
+        contract.customer_id = customer.id if customer else None  # Now uses real customer_id!
         contract.appointment_id = appointment_id
         contract.template_id = template_id
         contract.customer_name = customer_name
