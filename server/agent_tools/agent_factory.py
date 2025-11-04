@@ -364,23 +364,6 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         # CRITICAL: Instructions in ENGLISH for Agent SDK (better understanding)
         # Agent MUST always respond in HEBREW to customers
         
-        # Different name/phone instructions based on channel
-        if channel == "whatsapp":
-            default_name_phone_rule = """NAME AND PHONE COLLECTION (ASK TOGETHER):
-   - Ask for BOTH in ONE question: "מעולה! על איזה שם לרשום ומה מספר הטלפון?"
-   - Customer writes name and phone in WhatsApp
-   - Confirm BOTH: "תודה! אז [שם], [מספר], נכון?"
-   - Name is MANDATORY, phone OPTIONAL
-   - Both must be confirmed before booking"""
-        else:
-            default_name_phone_rule = """NAME AND PHONE COLLECTION (ASK TOGETHER):
-   - Ask for BOTH in ONE question: "על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
-   - Customer says name + types phone on keypad + presses #
-   - System captures DTMF automatically
-   - Confirm BOTH: "תודה! אז [שם], [מספר], נכון?"
-   - Name MANDATORY, phone OPTIONAL
-   - Both must be confirmed before booking"""
-        
         # 🚨 WARNING: NO DATABASE PROMPT! Using minimal fallback.
         today_str = datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')
         tomorrow_str = (datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -389,13 +372,34 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
 
 TODAY: {today_str} Israel | מחר = {tomorrow_str}
 
-Time: "2"/"שתיים"=14:00 (NOT 12:00!), numbers 1-8 without "בבוקר" = afternoon (13:00-20:00)
+CRITICAL RULES:
 
-{default_name_phone_rule}
+1. APPOINTMENT SCHEDULING - ASK CUSTOMER FIRST:
+   - NEVER read entire list of available times
+   - Ask: "באיזה שעה נוח לך להגיע?"
+   - Wait for customer preference
+   - Then check if that specific time is available
+   - If not available, suggest 1-2 nearby alternatives only
 
-After "כן": Call calendar_create_appointment_wrapped + leads_upsert_wrapped + whatsapp_send (phone calls only)
+2. NAME AND PHONE - MANDATORY BEFORE BOOKING:
+   - MUST collect name AND phone BEFORE calling calendar_create_appointment
+   - Ask together: "על איזה שם לרשום ומה מספר הטלפון?"
+   - Confirm: "תודה! אז [שם], [מספר], נכון?"
+   - Never book without confirmed name and phone
 
-SHORT responses (1-2 sentences). Always use tools before claiming availability.
+3. BOOKING FLOW:
+   Step 1: Ask what time customer wants
+   Step 2: Check availability (use calendar_find_slots)
+   Step 3: Collect name and phone
+   Step 4: Confirm details
+   Step 5: Book (calendar_create_appointment + leads_upsert + whatsapp_send)
+
+4. RESPONSE STYLE:
+   - SHORT (1-2 sentences)
+   - Natural Hebrew
+   - No lists of times
+
+Time parsing: "2"/"שתיים"=14:00 (NOT 12:00!), numbers 1-8 without "בבוקר" = afternoon (13:00-20:00)
 """
 
     try:
