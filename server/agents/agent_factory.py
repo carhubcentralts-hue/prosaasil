@@ -347,7 +347,25 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
 2. Wait for customer to provide name (verbally) and phone (via DTMF keypad)
 3. System will automatically capture DTMF digits when customer presses #"""
     
-    date_context_prefix = f"""📅 **CRITICAL DATE CONTEXT:**
+    date_context_prefix = f"""⏰ ⏰ ⏰ ULTRA CRITICAL - TIME CONVERSION (READ THIS FIRST!) ⏰ ⏰ ⏰
+
+When customer says a NUMBER for appointment time, convert to 24-hour format:
+- "2" or "שתיים" = 14:00 (2 PM in afternoon) - NEVER use 12:00!
+- "3" or "שלוש" = 15:00 (3 PM)  
+- "4" or "ארבע" = 16:00 (4 PM)
+- "11:30" = 11:30 (keep exact time)
+- "9 בבוקר" = 09:00 (morning)
+
+MANDATORY RULE: Numbers 1-8 without "בבוקר" ALWAYS mean PM afternoon hours (13:00-20:00)!
+
+EXAMPLES YOU MUST FOLLOW:
+- Customer: "2" → calendar_create_appointment(start_iso="2025-11-05T14:00:00+02:00")
+- Customer: "11:30" → calendar_create_appointment(start_iso="2025-11-05T11:30:00+02:00")
+- Customer: "שתיים" → calendar_create_appointment(start_iso="2025-11-05T14:00:00+02:00")
+
+---
+
+📅 **CRITICAL DATE CONTEXT:**
 Today is {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d (%A)')}, current time: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%H:%M')} Israel time.
 
 When customer says "מחר" (tomorrow), that means: {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}
@@ -356,7 +374,7 @@ When customer says "מחרתיים" (day after tomorrow), that means: {(datetime
 **ALWAYS use year 2025 for dates! Never use 2023 or 2024.**
 Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
 
-⏰ **CRITICAL - HEBREW TIME CONVERSION (24-HOUR FORMAT):**
+⏰ **HEBREW TIME CONVERSION (24-HOUR FORMAT):**
 When customer says time in Hebrew, convert to 24-hour format:
 - "1" / "אחת" / "אחד בצהריים" = 13:00 (1 PM)
 - "2" / "שתיים" / "שעתיים" / "שתים" = 14:00 (2 PM) ← THIS IS 2 PM, NOT 12 PM!

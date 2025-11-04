@@ -1,35 +1,6 @@
 # Overview
 
-AgentLocator is a Hebrew CRM system for real estate businesses, designed to streamline the sales pipeline. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. Its primary goal is to provide fully customizable AI assistants and business names to real estate professionals.
-
-## BUILD 127 - Hebrew Time Understanding Fix (COMPLETED)
-- **Fixed Time Conversion**: Agent now correctly understands Hebrew times ("שתיים" = 14:00, NOT 12:00!)
-- **Added Conversion Rules**: Comprehensive Hebrew-to-24h mapping (1-8 default to PM, בבוקר = AM)
-- **Clear Examples**: "שתיים" → 14:00, "9 בבוקר" → 09:00, "ארבע" → 16:00
-- **Applied to Both**: Added to both default instructions AND custom instructions prefix
-- **CRITICAL**: Numbers 1-8 without "בבוקר" always mean PM (afternoon) in Israel!
-
-## BUILD 126 - ASR Short Text Filter Fix (COMPLETED)
-- **Fixed Name Rejection**: "שי" and other 2-character names are now accepted
-- **Updated Filter**: Changed threshold from ≤2 to ≤1 char (only single characters rejected as noise)
-- **Trust Google STT**: System now accepts all valid 2+ character Hebrew speech
-
-## BUILD 125 - Calendar Delete Fix (COMPLETED)
-- **Fixed Delete Button**: Calendar delete button now works properly with http service
-- **User Feedback**: Added success/error messages when deleting appointments
-- **Proper Error Handling**: Shows clear error messages instead of silent failures
-
-## BUILD 124 - WhatsApp UX Fix + Timezone Correction (COMPLETED)
-- **WhatsApp DTMF Removal**: WhatsApp now asks nicely "על איזה שם לרשום ומה מספר הטלפון?" (NO keypad/DTMF!)
-- **Phone Calls Keep DTMF**: Phone calls still use "תקליד במקלדת והקש #" for phone input
-- **Channel-Specific Prompts**: Agent factory now accepts `channel` parameter and builds different instructions
-- **Timezone Debugging**: Added detailed logs to track timezone conversion (need to test with real data)
-- **Goal**: WhatsApp = simple text, Phone = DTMF, and times saved correctly in Asia/Jerusalem
-
-## BUILD 123 - Agent SDK Performance Optimization (COMPLETED)
-- **Performance Tracking**: Added detailed timing logs for DB, Agent creation, history conversion, and execution
-- **ModelSettings**: Added max_tokens=300, temperature=0.3 for faster Agent responses
-- **Conversation History**: Kept 10 messages as requested by user (no reduction)
+AgentLocator is a Hebrew CRM system tailored for real estate businesses. Its core purpose is to streamline the sales pipeline through an AI-powered assistant that automates lead management. Key capabilities include real-time call processing, intelligent lead information collection, and meeting scheduling, all powered by advanced audio processing for natural conversations. The system aims to provide fully customizable AI assistants and business branding to real estate professionals, enhancing efficiency and sales conversion.
 
 # User Preferences
 
@@ -37,116 +8,40 @@ Preferred communication style: Simple, everyday language.
 
 # System Architecture
 
-## Backend
+## System Design Choices
+AgentLocator employs a multi-tenant architecture with business-based data isolation for CRM features. The system is designed for real-time communication, integrating Twilio Media Streams via WebSockets for telephony and WhatsApp. It features sophisticated audio processing, including smart barge-in detection, calibrated VAD for Hebrew speech, immediate TTS interruption, and seamless turn-taking. Custom greetings are dynamically loaded from business configurations.
+
+The AI utilizes an Agent SDK for real actions, enabling appointment scheduling and lead creation during conversations. It incorporates robust conversation memory, passing full history for contextual responses. The system ensures mandatory name and phone confirmation during scheduling, with dual input collection (verbal name, DTMF phone number) and streamlined 4-turn booking flows. Error handling is graceful, returning structured error messages rather than raising exceptions.
+
+Performance is optimized with explicit OpenAI timeouts, increased STT streaming timeouts, and warnings for long prompts. AI responses prioritize completeness with increased `max_tokens` (350) for `gpt-4o-mini` and a `temperature` of 0.3-0.4 for consistent Hebrew sentences. Robustness is ensured through thread tracking, enhanced cleanup, and a Flask app singleton pattern. STT reliability is improved with relaxed validation, confidence checks, and a 3-attempt retry mechanism. Voice consistency is maintained with a male Hebrew voice (`he-IL-Wavenet-D`) and masculine phrasing. Cold start optimization includes automatic service warmup.
+
+## Technical Implementations
+### Backend
 - **Framework**: Flask with SQLAlchemy ORM.
-- **WebSocket Support**: Starlette-based native WebSocket handling for Twilio Media Streams.
-- **ASGI Server**: Uvicorn.
+- **Real-time**: Starlette-based native WebSocket handling for Twilio Media Streams, Uvicorn ASGI server.
 - **Database**: PostgreSQL (production), SQLite (development).
 - **Authentication**: JWT-based with role-based access control and SeaSurf CSRF protection.
 - **AI Prompt System**: Real-time prompt management with versioning and channel-specific prompts.
 
-## Frontend
+### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
 - **Styling**: Tailwind CSS v4 with RTL support and Hebrew typography (Heebo font).
 - **Routing**: React Router v7 with AuthGuard/RoleGuard.
 - **State Management**: Context API for authentication.
-- **Components**: Production-grade, accessible, mobile-first design.
 - **Security**: CSRF protection, secure redirects, and role-based access control.
 
-## Real-time Communication
-- **Twilio Integration**: Media Streams WebSocket with Starlette/ASGI for Cloud Run native WebSocket support.
-- **Audio Processing**: Smart barge-in detection, calibrated VAD for Hebrew speech, immediate TTS interruption, and seamless turn-taking.
-- **Custom Greetings**: Initial phone greeting loads from business configuration with dynamic placeholders.
-- **Natural TTS**: Production-grade Hebrew TTS with WaveNet-D voice (8kHz telephony optimization), SSML smart pronunciation, TTS caching, and accelerated speaking rate.
-- **Performance Optimization**: Streaming STT with 3-attempt retry + early finalization, dynamic model selection, europe-west1 region for low RTT. Optimized parameters for fast response times. Comprehensive latency tracking. Achieves ≤2 second response times with excellent Hebrew accuracy.
-- **Intelligent Error Handling**: Smart responses for STT failures with consecutive failure tracking.
-
-## CRM Features
-- **Multi-tenant Architecture**: Business-based data isolation.
-- **Call Logging**: Comprehensive call tracking with transcription, status management, duration, and direction.
+### Feature Specifications
+- **Call Logging**: Comprehensive call tracking with transcription, status, duration, and direction.
 - **Conversation Memory**: Full conversation history for contextual AI responses.
-- **WhatsApp Integration**: Supports both Twilio and Baileys with optimized response times and context management.
+- **WhatsApp Integration**: Supports Twilio and Baileys with optimized response times and context management.
 - **Intelligent Lead Collection**: Automated capture of key lead information with real-time creation and deduplication.
 - **Calendar & Meeting Scheduling**: AI checks real-time availability and suggests appointment slots with explicit time confirmation.
 - **Customizable AI Assistant**: Customizable names and introductions via prompts and greetings.
-- **Greeting Management UI**: Dedicated fields for initial greetings supporting dynamic placeholders and real-time cache invalidation.
+- **Greeting Management UI**: Dedicated fields for initial greetings supporting dynamic placeholders.
 - **Customizable Status Management**: Per-business custom lead statuses.
 - **Billing and Contracts**: Integrated payment processing and contract generation.
 - **Automatic Recording Cleanup**: 2-day retention policy for recordings.
 - **Enhanced Reminders System**: Comprehensive reminder management.
-
-## System Design Choices
-- **BUILD 122 - WhatsApp Agent SDK Integration** ✅ PRODUCTION READY:
-  - **Agent SDK for WhatsApp**: WhatsApp now uses `generate_response_with_agent` instead of basic AI
-  - **Real Actions**: Agent performs appointments, lead creation during WhatsApp conversations
-  - **Duplicate Prevention**: Checks for duplicate messages within 10 seconds (webhook retries)
-  - **Full Context**: Conversation history (10 messages) passed to Agent for context - FIXED history format conversion
-  - **Complete Conversation Management**: Agent handles ALL messages (greetings, questions, appointments) per WhatsApp prompt
-  - **Empty Response Validation**: Fallback to regular AI if Agent returns empty response
-  - **Performance**: Agent optimized for fast WhatsApp responses
-- **BUILD 121 - Mandatory Name+Phone Confirmation + DTMF Support** ✅ STABLE & TESTED:
-  - **Ask Name AND Phone Together**: Agent asks "על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #" in single turn
-  - **Dual Input Collection**: Customer provides name verbally + phone via DTMF keypad simultaneously
-  - **DTMF Phone Input**: Agent instructs user to type phone number on keypad + press # for submission
-  - **DTMF Processing**: WebSocket handles "dtmf" events, buffers digits until #, validates 9+ digits, processes as AI input
-  - **Barge-in Disabled During DTMF**: System disables voice interruption when waiting for keypad input to prevent false triggers
-  - **Combined Confirmation**: Agent confirms BOTH name AND phone: "תודה שי! אז שי דהן, 050-1234567, נכון?"
-  - **Phone is OPTIONAL**: System can create appointments without phone number (nullable in DB), graceful handling if unavailable
-  - **Graceful Error Handling**: All validation errors return {ok: false, error, message} with isinstance() checks, never raise exceptions
-  - **Strict Name Validation**: Cannot create appointment without clear name (no "לקוח", "customer", generic names)
-  - **Immediate Booking After Confirmation**: Agent books IMMEDIATELY after name+phone confirmation - NO extra time confirmation needed
-  - **Success Message**: Agent uses past tense "מעולה שי! קבעתי לך תור למחר ב-14:00. נתראה!" after tool succeeds
-  - **Streamlined 4-Turn Flow**: Customer requests → Agent shows times → Customer picks → Agent asks name+phone → Customer provides → Agent confirms both → Customer says "כן" → Agent books immediately
-- **BUILD 120 - Agent Memory & Phone Handling Fix** ✅ PRODUCTION READY:
-  - **Conversation Memory Fixed**: Agent now receives full conversation history via `input` parameter in Runner.run()
-  - **Phone Fallback System**: New _choose_phone() with hierarchy: input → context → session → None
-  - **Graceful Error Handling**: All tools return {ok: false, error, message} instead of raising exceptions
-  - **Phone Utilities**: Created phone_utils.py with normalize_il_phone for Israeli phone number normalization
-- **BUILD 119 - AgentKit Integration for Real Actions** ✅ PRODUCTION READY:
-  - **OpenAI Agents SDK**: Integrated `openai-agents` package (correct import: `from agents import Agent`)
-  - **Tool System**: Comprehensive tools for calendar (find_slots, create_appointment), leads (upsert, search), and WhatsApp (send)
-  - **Agent Factory**: Central orchestration with booking and sales agent types, fresh agent creation per request
-  - **AIService Integration**: `generate_response_with_agent()` extracts `system_prompt` from prompt_data dict
-  - **Real Actions**: AI performs actual operations during conversations - schedule appointments, create leads, send confirmations
-  - **Smart Context**: Agents receive full business context (tenant_id, customer info, channel) for accurate operations
-  - **Dynamic Prompts**: Agents load custom instructions from BusinessSettings.ai_prompt (channel-specific JSON)
-  - **Error Resilience**: Multi-layer fallback ensures system stability even if agents fail
-  - **API Endpoints**: `/api/agent/booking` and `/api/agent/sales` for direct agent interactions
-  - **Environment Control**: `AGENTS_ENABLED` environment variable for easy enable/disable (default: enabled)
-  - **AUTO-APPOINTMENT Deprecated**: Disabled legacy auto-appointment system - Agent handles everything in real-time
-  - **Production Validations**:
-    - ✅ Timezone & Business Hours: Strict 09:00-22:00 Asia/Jerusalem enforcement
-    - ✅ Conflict Detection: Overlapping appointments rejected with clear Hebrew error messages
-    - ✅ Field Validation: Phone format (E.164), treatment_type required, duration 15-240 minutes
-    - ✅ Agent Tracing: Full logging to `agent_trace` table (tool_calls, duration_ms, status, errors)
-    - ✅ Kill-switch: `AGENTS_ENABLED=0` instantly disables agents with graceful fallback
-    - ✅ Time Handling: Clear ISO format requirements with timezone, date calculation guidance
-    - ✅ Deduplication: Leads deduped by phone+tenant_id, appointments conflict-checked before creation
-    - ✅ Type Safety: isinstance() checks prevent dict/string type errors
-- **BUILD 118 - Fixed Timeout Issues & Reliability**:
-  - **OpenAI timeout added**: 3.5s explicit timeout prevents indefinite waits
-  - **Better error logging**: Now logs exact error types (APITimeoutError, RateLimitError, etc.)
-  - **STT streaming timeout increased**: 0.45s → 0.85s for reliable final results
-  - **Prompt length warnings**: Alert if prompt >3000 chars (causes OpenAI timeouts)
-  - **Root cause identified**: Long prompts (5,615 chars) + no timeout = 12s "latency" → fallback responses
-- **BUILD 117 - Complete Sentences & Stability**: 
-  - **NO TOKEN LIMITS!** Increased max_tokens from 180→350 to allow AI to finish ALL sentences completely
-  - First turn uses full 350 tokens (no special reduction) - "אם היא צריכה להסביר דקה שתסביר דקה"
-  - Barge-in threshold 12 words (was 20), grace period 2.5s (was 1.5s), RMS 1800 (was 1500), continuous voice 2000ms (was 1500ms)
-  - Hebrew numbers in STT contexts (אחד, שניים, שלוש...שש) with 20.0 boost for better accuracy
-  - REMOVED broken word filter that rejected valid words - now trusts Google STT completely (only rejects ≤2 chars)
-  - WebSocket stability: 120s timeout (was 30s), 10s keepalive (was 18s) to prevent ABNORMAL_CLOSURE
-  - **CRITICAL FIX: STT model hard-coded to "default"** - Google STT phone_call model NOT supported for Hebrew (iw-IL)
-- **AI Response Optimization**: Max tokens set to 350 for COMPLETE Hebrew sentences using `gpt-4o-mini`, temperature 0.3-0.4.
-- **Robustness**: Implemented thread tracking, enhanced cleanup for background processes, extended ASGI handler timeout. Flask app singleton pattern to prevent app restarts mid-call.
-- **STT Reliability**: Relaxed validation for quieter speech, confidence checks, and short-utterance rejection. Streaming STT with 3-attempt retry, dynamic model selection, and early finalization.
-- **Voice Consistency**: Standardized on a male voice (`he-IL-Wavenet-D`) and masculine Hebrew phrasing.
-- **Cold Start Optimization**: Automatic warmup of services on startup and via a dedicated `/warmup` endpoint.
-- **Business Auto-Detection**: Smart normalization of identifiers for automatic detection of new businesses.
-- **Hebrew TTS Improvements**: Enhanced pronunciation for large numbers and common Hebrew words using nikud.
-- **Streaming STT**: Session-per-call architecture with 3-attempt retry mechanism before fallback to single-request.
-- **Thread-Safe Multi-Call Support**: Complete registry system with `RLock` protection for concurrent calls.
-- **Perfect Multi-Tenant Isolation**: Every session registered with `tenant_id`, all Lead queries filtered by `tenant_id`.
 
 # External Dependencies
 
