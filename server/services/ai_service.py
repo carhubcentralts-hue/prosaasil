@@ -455,7 +455,7 @@ class AIService:
         try:
             print("📦 Importing agent modules...")
             logger.info("📦 Importing agent modules...")
-            from server.agents import get_agent, AGENTS_ENABLED
+            from server.agent_tools import get_agent, AGENTS_ENABLED
             from agents import Runner
             print(f"✅ Agent modules imported. AGENTS_ENABLED={AGENTS_ENABLED}")
             logger.info(f"✅ Agent modules imported. AGENTS_ENABLED={AGENTS_ENABLED}")

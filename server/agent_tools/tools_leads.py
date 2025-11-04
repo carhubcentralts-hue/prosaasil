@@ -2,7 +2,7 @@
 Lead Management Tools for AgentKit - Create and update leads
 Integrates with existing Lead model and CRM system
 """
-from agents.tool import function_tool
+from agents import function_tool
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime

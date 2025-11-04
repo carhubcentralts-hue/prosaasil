@@ -2,7 +2,7 @@
 WhatsApp Tools for AgentKit - Send messages and confirmations
 Integrates with existing WhatsApp service (Baileys/Twilio)
 """
-from agents.tool import function_tool
+from agents import function_tool
 from pydantic import BaseModel, Field
 from typing import Optional
 from server.whatsapp_provider import get_whatsapp_service

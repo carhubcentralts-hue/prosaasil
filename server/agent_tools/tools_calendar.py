@@ -2,7 +2,7 @@
 Calendar Tools for AgentKit - Find slots and create appointments
 Integrates with existing Appointment model
 """
-from agents.tool import function_tool
+from agents import function_tool
 from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Dict
 from datetime import datetime, timedelta
