@@ -144,12 +144,15 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             """
             Create a new appointment in the calendar
             
+            CRITICAL: Agent should NEVER ask for phone by voice!
+            Phone is automatically captured from call/WhatsApp context.
+            
             Args:
                 treatment_type: Type of treatment (required)
                 start_iso: Start time in ISO format (required)
                 end_iso: End time in ISO format (required)
-                customer_phone: Customer phone (optional - uses context if not provided)
-                customer_name: Customer name (optional - uses context if not provided)
+                customer_phone: Leave EMPTY - system captures automatically
+                customer_name: Customer name (optional)
                 notes: Additional notes (optional)
             """
             try:
@@ -161,62 +164,49 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 from server.agents.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
                 from flask import g
                 
-                # 🔥 USE PHONE FROM CONTEXT if not explicitly provided!
-                actual_phone = customer_phone
-                actual_name = customer_name
+                # Get context and session for _choose_phone
+                context = getattr(g, 'agent_context', None)
+                session = None  # TODO: pass session if available
                 
-                print(f"   🔍 Checking Flask g for context...")
-                print(f"   hasattr(g, 'agent_context'): {hasattr(g, 'agent_context')}")
-                
-                # Try to get from Flask g (context passed via ai_service.py)
-                if not actual_phone or actual_phone in ["", "לא צויין", "unknown", "None"]:
-                    # Access context from ai_service
-                    if hasattr(g, 'agent_context'):
-                        context_phone = g.agent_context.get('customer_phone', '')
-                        context_name = g.agent_context.get('customer_name', '')
-                        print(f"   📋 g.agent_context found: phone={context_phone}, name={context_name}")
-                        if context_phone:
-                            actual_phone = context_phone
-                            print(f"   ✅ Using phone from context: {actual_phone}")
-                            logger.info(f"   ✅ Using phone from context: {actual_phone}")
-                        if not actual_name and context_name:
-                            actual_name = context_name
-                            print(f"   ✅ Using name from context: {actual_name}")
-                    else:
-                        print(f"   ⚠️ g.agent_context NOT FOUND!")
-                
-                # 🔥 FIX: Allow appointment without phone (will be captured in call log)
-                if not actual_phone or actual_phone in ["", "לא צויין", "unknown", "None"]:
-                    print(f"   ⚠️ No phone available - using placeholder")
-                    actual_phone = "UNKNOWN"  # Placeholder - phone will be in call log/transcript
-                
-                # Ensure name has minimum length (fallback to placeholder)
-                if not actual_name or len(actual_name.strip()) < 2:
-                    actual_name = "לקוח"  # Hebrew "Customer"
-                
-                logger.info(f"🔧 calendar_create_appointment_wrapped: {actual_name}, phone={actual_phone}, business_id={business_id}")
-                
-                # Tools are called from ai_service.py which already has Flask context
+                # Build input - _choose_phone will handle phone fallback
                 input_data = CreateAppointmentInput(
                     business_id=business_id,
-                    customer_name=actual_name,
-                    customer_phone=actual_phone,
+                    customer_name=customer_name or "לקוח",
+                    customer_phone=customer_phone,  # Can be empty
                     treatment_type=treatment_type,
                     start_iso=start_iso,
                     end_iso=end_iso,
                     notes=notes,
                     source="ai_agent"
                 )
-                # Call internal implementation function directly
-                result = _calendar_create_appointment_impl(input_data)
+                
+                logger.info(f"🔧 calendar_create_appointment_wrapped: {customer_name}, phone={customer_phone}, business_id={business_id}")
+                
+                # Call internal implementation with context/session
+                result = _calendar_create_appointment_impl(input_data, context=context, session=session)
                 logger.info(f"✅ calendar_create_appointment_wrapped success: appointment_id={result.appointment_id}")
-                # Convert Pydantic model to dict for Agent SDK
-                return result.model_dump()
+                
+                # Return success response
+                return {
+                    "ok": True,
+                    "appointment_id": result.appointment_id,
+                    "status": result.status,
+                    "confirmation_message": result.confirmation_message
+                }
+                
             except Exception as e:
-                logger.error(f"❌ calendar_create_appointment_wrapped error: {e}")
+                # 🔥 DON'T raise - return controlled error for Agent to handle
+                error_msg = str(e)[:120]  # Limit message length
+                logger.error(f"❌ calendar_create_appointment_wrapped error: {error_msg}")
                 import traceback
                 traceback.print_exc()
-                raise
+                
+                # Return structured error instead of raising
+                return {
+                    "ok": False,
+                    "error": "validation_error",
+                    "message": error_msg
+                }
         
         # Wrapper for leads_upsert (simple implementation - creates lead directly)
         @function_tool
