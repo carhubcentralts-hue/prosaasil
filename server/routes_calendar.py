@@ -458,6 +458,26 @@ def update_appointment(appointment_id):
         if appointment.end_time and appointment.start_time and appointment.end_time <= appointment.start_time:
             return jsonify({'error': 'זמן סיום חייב להיות אחרי זמן התחלה'}), 400
         
+        # 🔥 CRITICAL: Check for overlapping appointments (exclude current appointment)
+        if appointment.start_time and appointment.end_time and appointment.business_id:
+            existing = check_appointment_overlap(
+                appointment.business_id, 
+                appointment.start_time, 
+                appointment.end_time,
+                exclude_id=appointment_id  # Exclude current appointment from overlap check
+            )
+            if existing:
+                conflict_start = tz.localize(existing.start_time) if existing.start_time.tzinfo is None else existing.start_time
+                return jsonify({
+                    'error': f'קיימת חפיפה עם פגישה "{existing.title}" בשעה {conflict_start.strftime("%H:%M")}. אנא בחר זמן אחר.',
+                    'conflict': True,
+                    'conflicting_appointment': {
+                        'id': existing.id,
+                        'title': existing.title,
+                        'start_time': conflict_start.isoformat()
+                    }
+                }), 409  # 409 Conflict
+        
         appointment.updated_at = datetime.utcnow()
         
         db.session.commit()
