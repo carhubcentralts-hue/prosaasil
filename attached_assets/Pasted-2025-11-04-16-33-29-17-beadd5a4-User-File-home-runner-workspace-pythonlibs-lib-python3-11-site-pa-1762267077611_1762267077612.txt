@@ -1,0 +1,182 @@
+2025-11-04 16:33:29.17
+beadd5a4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+2025-11-04 16:33:29.17
+beadd5a4
+User
+self._handle_dbapi_exception(
+2025-11-04 16:33:29.17
+beadd5a4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+2025-11-04 16:33:29.17
+beadd5a4
+User
+raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+2025-11-04 16:33:29.17
+beadd5a4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+2025-11-04 16:33:29.17
+beadd5a4
+User
+self.dialect.do_execute(
+2025-11-04 16:33:29.17
+beadd5a4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+2025-11-04 16:33:29.17
+beadd5a4
+User
+sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column invoice.payment_id does not exist
+2025-11-04 16:33:29.17
+beadd5a4
+User
+^
+2025-11-04 16:33:29.17
+beadd5a4
+User
+2025-11-04 16:33:29.17
+beadd5a4
+User
+FROM invoice JOIN payment ON invoice.payment_id = payment.id OR invoice.payment_id IS NULL AND invoice.deal_id = payment.deal_id JOIN deal ON payment.deal_id = deal.id
+2025-11-04 16:33:29.17
+beadd5a4
+User
+WHERE payment.business_id = %(business_id_1)s ORDER BY invoice.issued_at DESC]
+2025-11-04 16:33:29.17
+beadd5a4
+User
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-11-04 16:34:48.01
+beadd5a4
+User
+Traceback (most recent call last):
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/server/app_factory.py", line 362, in create_app
+2025-11-04 16:34:48.01
+beadd5a4
+User
+from server.routes_agent import bp as agent_bp
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/server/routes_agent.py", line 6, in
+2025-11-04 16:34:48.01
+beadd5a4
+User
+from server.agents.agent_factory import get_agent, AGENTS_ENABLED
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/server/agents/__init__.py", line 5, in
+2025-11-04 16:34:48.01
+beadd5a4
+User
+from server.agents.agent_factory import get_agent, create_booking_agent, create_sales_agent, AGENTS_ENABLED
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/server/agents/agent_factory.py", line 12, in
+2025-11-04 16:34:48.01
+beadd5a4
+User
+from server.agents.tools_invoices import invoices_create, payments_link
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/server/agents/tools_invoices.py", line 60, in
+2025-11-04 16:34:48.01
+beadd5a4
+User
+@function_tool
+2025-11-04 16:34:48.01
+beadd5a4
+User
+^^^^^^^^^^^^^
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/agents/tool.py", line 563, in function_tool
+2025-11-04 16:34:48.01
+beadd5a4
+User
+return _create_function_tool(func)
+2025-11-04 16:34:48.01
+beadd5a4
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/agents/tool.py", line 472, in _create_function_tool
+2025-11-04 16:34:48.01
+beadd5a4
+User
+schema = function_schema(
+2025-11-04 16:34:48.01
+beadd5a4
+User
+^^^^^^^^^^^^^^^^
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/agents/function_schema.py", line 386, in function_schema
+2025-11-04 16:34:48.01
+beadd5a4
+User
+json_schema = ensure_strict_json_schema(json_schema)
+2025-11-04 16:34:48.01
+beadd5a4
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/agents/strict_schema.py", line 26, in ensure_strict_json_schema
+2025-11-04 16:34:48.01
+beadd5a4
+User
+return _ensure_strict_json_schema(schema, path=(), root=schema)
+2025-11-04 16:34:48.01
+beadd5a4
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/agents/strict_schema.py", line 71, in _ensure_strict_json_schema
+2025-11-04 16:34:48.01
+beadd5a4
+User
+json_schema["properties"] = {
+2025-11-04 16:34:48.01
+beadd5a4
+User
+^
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/agents/strict_schema.py", line 72, in
+2025-11-04 16:34:48.01
+beadd5a4
+User
+key: _ensure_strict_json_schema(prop_schema, path=(*path, "properties", key), root=root)
+2025-11-04 16:34:48.01
+beadd5a4
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-04 16:34:48.01
+beadd5a4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/agents/strict_schema.py", line 80, in _ensure_strict_json_schema
+
+Collapse
+
+Wrap
+
+Colors
