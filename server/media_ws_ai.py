@@ -1246,10 +1246,10 @@ class MediaStreamHandler:
                 self.consecutive_empty_stt = 0
             
             # ⚡ BUILD 117: REMOVED SHORT_UNCOMMON_WORD filter - trust Google STT!
-            # If STT returned text, it's real speech. Don't reject valid words like "שוודי"
-            # Only reject if it's EXTREMELY short (1-2 chars) which is likely noise
-            if len(text.strip()) <= 2:
-                print(f"🚫 VERY_SHORT_TEXT: '{text}' (≤2 chars) - likely noise")
+            # If STT returned text, it's real speech. Don't reject valid words like "שוודי" or names like "שי"
+            # Only reject if it's EXTREMELY short (1 char) which is likely noise
+            if len(text.strip()) <= 1:
+                print(f"🚫 VERY_SHORT_TEXT: '{text}' (≤1 char) - likely noise")
                 self.state = STATE_LISTEN
                 self.processing = False
                 return

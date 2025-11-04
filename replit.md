@@ -2,6 +2,11 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses, designed to streamline the sales pipeline. It features an AI-powered assistant that automates lead management through integrations with Twilio and WhatsApp. The system processes real-time calls, collects lead information, and schedules meetings using advanced audio processing for natural conversations. Its primary goal is to provide fully customizable AI assistants and business names to real estate professionals.
 
+## BUILD 126 - ASR Short Text Filter Fix (COMPLETED)
+- **Fixed Name Rejection**: "שי" and other 2-character names are now accepted
+- **Updated Filter**: Changed threshold from ≤2 to ≤1 char (only single characters rejected as noise)
+- **Trust Google STT**: System now accepts all valid 2+ character Hebrew speech
+
 ## BUILD 125 - Calendar Delete Fix (COMPLETED)
 - **Fixed Delete Button**: Calendar delete button now works properly with http service
 - **User Feedback**: Added success/error messages when deleting appointments
