@@ -12,6 +12,20 @@ from server.models_sql import BusinessSettings, PromptRevisions, Business, Agent
 from server.db import db
 from datetime import datetime
 
+# 🔥 CRITICAL: Import agent modules at TOP of file (not inside function!)
+# This prevents re-importing on every call and speeds up response time
+try:
+    from server.agent_tools import get_agent, AGENTS_ENABLED
+    from agents import Runner
+    AGENT_MODULES_LOADED = True
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.info("✅ Agent modules pre-loaded at module level")
+except ImportError as e:
+    AGENT_MODULES_LOADED = False
+    AGENTS_ENABLED = False
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.warning(f"⚠️ Agent modules not available: {e}")
+
 logger = logging.getLogger(__name__)
 
 # Global AI service instance for cache sharing
@@ -453,14 +467,8 @@ class AIService:
         start_time = time.time()
         
         try:
-            print("📦 Importing agent modules...")
-            logger.info("📦 Importing agent modules...")
-            from server.agent_tools import get_agent, AGENTS_ENABLED
-            from agents import Runner
-            print(f"✅ Agent modules imported. AGENTS_ENABLED={AGENTS_ENABLED}")
-            logger.info(f"✅ Agent modules imported. AGENTS_ENABLED={AGENTS_ENABLED}")
-            
-            if not AGENTS_ENABLED:
+            # 🔥 FIX: Modules now imported at top of file - no re-import needed!
+            if not AGENT_MODULES_LOADED:
                 # Double-check - agents not available
                 print("⚠️ AGENTS_ENABLED=False in module - using regular response")
                 logger.warning("⚠️ AGENTS_ENABLED=False in module - using regular response")

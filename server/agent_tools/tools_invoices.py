@@ -113,12 +113,34 @@ def invoices_create(
         logger.info(f"   Subtotal: {subtotal}, VAT: {vat_amount}, Total: {total_amount}")
         
         # Import models
-        from server.models_sql import db, Invoice, InvoiceItem as DBInvoiceItem
+        from server.models_sql import db, Invoice, InvoiceItem as DBInvoiceItem, Customer, Lead
+        
+        # 🔥 FIX: Create or find Customer (not Lead!)
+        # Invoice.customer_id points to Customer table, not Lead table!
+        customer = None
+        if customer_phone:
+            # Try to find existing customer by phone
+            customer = Customer.query.filter_by(
+                tenant_id=int(business_id),
+                phone=customer_phone
+            ).first()
+            
+            if not customer:
+                # Create new customer
+                customer = Customer(
+                    tenant_id=int(business_id),
+                    name=customer_name,
+                    phone=customer_phone,
+                    source="ai_agent"
+                )
+                db.session.add(customer)
+                db.session.flush()  # Get customer ID
+                logger.info(f"✅ Created new Customer: ID={customer.id}, name={customer_name}")
         
         # Create invoice
         invoice = Invoice()
         invoice.business_id = int(business_id)
-        invoice.customer_id = int(lead_id) if lead_id else None
+        invoice.customer_id = customer.id if customer else None  # Now uses real customer_id!
         invoice.appointment_id = int(appointment_id) if appointment_id else None
         invoice.customer_name = customer_name
         invoice.customer_phone = customer_phone
