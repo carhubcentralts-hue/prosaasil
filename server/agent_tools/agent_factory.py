@@ -25,8 +25,8 @@ AGENTS_ENABLED = os.getenv("AGENTS_ENABLED", "1") == "1"
 AGENT_MODEL_SETTINGS = ModelSettings(
     model="gpt-4o-mini",  # Fast and cost-effective
     temperature=0.2,       # Low temperature for consistent, predictable responses
-    max_tokens=200,        # 🔥 REDUCED: 200 tokens for faster responses (was 350)
-    tool_choice="auto",    # 🔥 CHANGED: "auto" allows simple greetings without tools (was "required")
+    max_tokens=250,        # 🔥 OPTIMIZED: 250 tokens for complete, natural responses
+    tool_choice="auto",    # 🔥 OPTIMIZED: "auto" allows simple greetings without tools (saves 1-2s)
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
 
