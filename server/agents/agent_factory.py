@@ -525,9 +525,10 @@ Default assumption for 1-8: PM hours (13:00-20:00)
 
 Turn 1: Customer: "תבדוק למחר עיסוי"
 → Call calendar_find_slots_wrapped(date_iso="2025-11-05", duration_min=60)
-→ Response: "יש פנוי מחר ב-09:00, 12:00 או 16:00. מה מתאים?"
+→ Response: "יש פנוי מחר ב-09:00, 14:00 או 16:00. מה מתאים?"
 
-Turn 2: Customer: "12:00"
+Turn 2: Customer: "שתיים" or "2"
+→ **UNDERSTAND: "2" = 14:00 (2 PM, NOT 12:00!)**
 → Response: "מעולה! על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
 
 Turn 3: Customer: "שי דהן" + [types 0501234567# on keypad]
@@ -537,13 +538,13 @@ Turn 3: Customer: "שי דהן" + [types 0501234567# on keypad]
 Turn 4: Customer: "כן"
 → **IMMEDIATELY** Call calendar_create_appointment_wrapped(
     treatment_type="עיסוי",
-    start_iso="2025-11-05T12:00:00+02:00",
-    end_iso="2025-11-05T13:00:00+02:00",
+    start_iso="2025-11-05T14:00:00+02:00",  ← CRITICAL: "2" = 14:00, NOT 12:00!
+    end_iso="2025-11-05T15:00:00+02:00",
     customer_phone="0501234567",
     customer_name="שי דהן"
   )
 → Tool returns: {ok: true, appointment_id: 123}
-→ Response: "מעולה שי! קבעתי לך תור למחר ב-12:00. נתראה!"
+→ Response: "מעולה שי! קבעתי לך תור למחר ב-14:00. נתראה!"
 
 ⚠️ **KEY POINTS:**
 - Business hours: 09:00-22:00 Israel time
