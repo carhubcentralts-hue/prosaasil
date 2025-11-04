@@ -2,17 +2,19 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses, designed to automate the sales pipeline with an AI-powered assistant. It offers real-time call processing, intelligent lead information collection, and meeting scheduling using advanced audio processing for natural conversations. The system aims to provide customizable AI assistants and business branding to real estate professionals, enhancing efficiency and sales conversion.
 
-# Recent Changes (BUILD 134)
+# Recent Changes (BUILD 135)
 
-**Performance + Accuracy + Prompt Optimization:**
-- **CRITICAL FIX**: Removed ALL hardcoded prompts - Agent now loads prompts EXCLUSIVELY from database (BusinessSettings.ai_prompt)
-- **Response Length**: `max_tokens=150` (reduced from 250/350) for SHORT 1-2 sentence responses
-- **STT Accuracy**: Expanded speech_contexts from 30→80+ Hebrew phrases, boost=20.0, stricter confidence (0.4→0.7)
+**CRITICAL BOOKING FIX + Response Optimization:**
+- **BOOKING VALIDATION**: Fixed bug where Agent claimed "קבעתי תור" but didn't actually save to DB
+  - Removed default "לקוח" name - Agent MUST collect customer name before booking
+  - Added strict validation: calendar_create_appointment fails with clear error if name missing
+  - Updated fallback prompt with explicit booking flow rules (ask preference first, collect name+phone, then book)
+- **Response Length**: `max_tokens=200` (increased from 150) for balanced 2-3 sentence responses
+- **Database Prompts**: Agent loads prompts EXCLUSIVELY from BusinessSettings.ai_prompt (no hardcoded text)
+- **STT Accuracy**: 80+ Hebrew phrases, boost=20.0, confidence thresholds 0.4/0.7
 - **Performance**: `tool_choice="auto"` (saves 1-2s), OpenAI timeout=2.5s
-- **Target**: <2s WhatsApp response, <2.5s phone calls, natural SHORT conversations
-- Agent modules imported at module level - eliminates import overhead
-- Fixed Foreign Key violations in Invoice/Contract creation - auto-creates Customer records
-- Prompt system: NO hardcoded text prepended - only minimal date context + database prompt
+- **Target**: 1.5-2.5s WhatsApp, 2-3.5s phone calls, SHORT natural conversations
+- Fallback prompt now emphasizes: (1) ask customer preference first, (2) mandatory name+phone collection, (3) check tool responses
 
 # User Preferences
 

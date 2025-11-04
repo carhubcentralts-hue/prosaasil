@@ -191,10 +191,20 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 context = getattr(g, 'agent_context', None)
                 session = None  # TODO: pass session if available
                 
+                # 🔥 CRITICAL: NO DEFAULT NAME! Agent MUST provide it!
+                if not customer_name or customer_name.strip() in ["", "לקוח", "customer"]:
+                    error_msg = "חובה לציין שם לקוח לפני קביעת תור! שאל: 'על איזה שם לרשום?'"
+                    logger.error(f"❌ calendar_create_appointment_wrapped: {error_msg}")
+                    return {
+                        "ok": False,
+                        "error": "missing_name",
+                        "message": error_msg
+                    }
+                
                 # Build input - _choose_phone will handle phone fallback
                 input_data = CreateAppointmentInput(
                     business_id=business_id,
-                    customer_name=customer_name or "לקוח",
+                    customer_name=customer_name,  # Already validated above!
                     customer_phone=customer_phone,  # Can be empty
                     treatment_type=treatment_type,
                     start_iso=start_iso,
@@ -372,34 +382,42 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
 
 TODAY: {today_str} Israel | מחר = {tomorrow_str}
 
-CRITICAL RULES:
+🚨 CRITICAL BOOKING RULES (READ FIRST!):
 
-1. APPOINTMENT SCHEDULING - ASK CUSTOMER FIRST:
-   - NEVER read entire list of available times
-   - Ask: "באיזה שעה נוח לך להגיע?"
-   - Wait for customer preference
-   - Then check if that specific time is available
-   - If not available, suggest 1-2 nearby alternatives only
+1. APPOINTMENT SCHEDULING - ASK CUSTOMER PREFERENCE FIRST:
+   - NEVER read entire list of available times to customer!
+   - First ask: "באיזה שעה נוח לך להגיע?"
+   - Wait for customer to tell you their preferred time
+   - Then use calendar_find_slots to check if that time is available
+   - If not available: suggest only 1-2 nearby alternatives
+   - Example GOOD: "באיזה שעה נוח לך?" → customer says "2" → check 14:00
+   - Example BAD: Don't say "יש פנוי ב-13:00, 14:00, 16:00, 17:00..." (too long!)
 
 2. NAME AND PHONE - MANDATORY BEFORE BOOKING:
-   - MUST collect name AND phone BEFORE calling calendar_create_appointment
-   - Ask together: "על איזה שם לרשום ומה מספר הטלפון?"
-   - Confirm: "תודה! אז [שם], [מספר], נכון?"
-   - Never book without confirmed name and phone
+   - MUST collect BOTH name AND phone BEFORE calling calendar_create_appointment
+   - Ask together in ONE question: "מעולה! על איזה שם לרשום ומה מספר הטלפון?"
+   - Wait for customer to provide both
+   - Confirm back: "תודה! אז [שם], [מספר], נכון?"
+   - ONLY after customer confirms "כן" → call calendar_create_appointment
+   - Tool will FAIL if you call it without name - customer will be angry!
 
-3. BOOKING FLOW:
-   Step 1: Ask what time customer wants
-   Step 2: Check availability (use calendar_find_slots)
-   Step 3: Collect name and phone
-   Step 4: Confirm details
-   Step 5: Book (calendar_create_appointment + leads_upsert + whatsapp_send)
+3. CORRECT BOOKING FLOW (FOLLOW THIS ORDER):
+   Step 1: Ask what time customer wants: "באיזה שעה נוח לך?"
+   Step 2: Check if available: calendar_find_slots(date, duration)
+   Step 3: If available, collect name+phone: "על איזה שם ומספר?"
+   Step 4: Confirm details: "אז [שם], [מספר], [יום] ב-[שעה], נכון?"
+   Step 5: After "כן" → Book: calendar_create_appointment(name, phone, time)
+   Step 6: Create lead: leads_upsert(name, phone)
 
 4. RESPONSE STYLE:
-   - SHORT (1-2 sentences)
-   - Natural Hebrew
-   - No lists of times
+   - SHORT answers (2-3 sentences max, not more!)
+   - Natural conversational Hebrew
+   - No bullet lists or long explanations
+   - Be friendly but concise
 
 Time parsing: "2"/"שתיים"=14:00 (NOT 12:00!), numbers 1-8 without "בבוקר" = afternoon (13:00-20:00)
+
+REMEMBER: Check tool responses! If calendar_create_appointment returns ok:false, don't say "קבעתי תור" - ask for missing info instead.
 """
 
     try:
