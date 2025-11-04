@@ -1,0 +1,63 @@
+קצר ולעניין: זה נשמע טוב ומדויק ברמת הקוד–אבל כדי שזה יעבוד באמת בשיחות חיות צריך לוודא 4 דברים תשתיתיים. הנה בדיקת-עשן + תיקונים אם צריך.
+	1.	האם אתה באמת מקבל אירועי DTMF מהשיחה?
+שני מסלולים אפשריים. תבחר אחד ותאשר בלוגים.
+
+מסלול A – דרך Media Streams
+מה לבדוק: בהודעות ה-WebSocket שמגיעות מטוויליו תופיע מסגרת עם event=“dtmf” (או שדה דומה) והספרה שנלחצה.
+אם אתה רואה את זה בלוג – הסבבה, ההטמעה שלך ב-media_ws_ai.py תעבוד כפי שהיא.
+
+מסלול B (פולבאק בטוח) – דרך TwiML Gather
+אם אינך רואה event של DTMF ב-Media Streams, הוסף זרימה קצרה עם <Gather input="dtmf" finishOnKey="#" timeout="6"> כשאתה מבקש מספר. בזמן ה-Gather ה-ASR יכול להיות מושהה; בסיום, קבל Digits ב-webhook ולאחר מכן חזור ל-Media Stream.
+
+דוגמת TwiML לפולבאק:
+
+
+הקישו את מספר הטלפון ואחר כך סולמית
+
+לא התקבל קלט. ננסה שוב בהמשך.
+
+
+ב־/webhook/dtmf_done קבל את request.form[‘Digits’], נרמל ל־+972 ושמור ל-session, ואז חזור לזרימת ה-WS.
+	2.	מצב המכונה בזמן איסוף ספרות
+גם אם אתה ב-Media Streams, קבע מצב ברור:
+
+	•	waiting_for_dtmf=true:
+• כבה barge-in כדי שלא נקטע בטעות,
+• אל תשלח TTS ארוך – רק משפט הנחיה קצר.
+	•	on_dtmf(digit):
+• 0-9 → לצבור,
+• * → איפוס באפר,
+• # → Commit: נרמול → שמירה ל־session.caller_number → החזרת waiting_for_dtmf=false והמשך הזרימה.
+
+	3.	נרמול ואכיפת “לא נופלים בלי מספר”
+
+	•	השדה customer_phone בבסיס נתונים צריך להיות Nullable.
+	•	במימוש כלי יצירת הפגישה:
+• נסה לאסוף בסדר: input.customer_phone → context.customer_phone → session.caller_number (מה-DTMF/טוויליו).
+• אם אין – המשך לקבוע את הפגישה בלי מספר (phone=None) ותגיד ללקוח שאפשר להקיש מספר עכשיו/מאוחר יותר.
+• אל תזרוק ValueError על טלפון ריק; אם יש בעיית ולידציה – החזר {“ok”:false,“error”:“validation_error”} כדי שה-Agent יבקש הבהרה קצרה וינסה שוב, בלי להפיל TURN.
+
+	4.	הוראות Agent קצרות ונכונות
+
+	•	ההנחיות הפנימיות באנגלית (כדי ש-Agent יפעיל כלים), התשובות בעברית.
+	•	כללים קריטיים:
+• Always respond in Hebrew.
+• When phone is needed: do not ask by voice; instruct the caller to type digits and press #, or use the caller number from session.
+• If tool returns ok=false (validation_error), ask one short clarification in Hebrew and retry.
+• If this is not the first turn, do not greet again; continue slot-filling and call tools.
+• For booking: must call calendar.find_slots first, then calendar.create_event after user picks a time.
+
+בדיקות קבלה מהירות (עשה עכשיו)
+	1.	DTMF דרך ה-WS: לחץ 0501234567#
+מצופה בלוג: DTMF phone captured: +972501234567, waiting_for_dtmf=false.
+	2.	קביעת פגישה בלי מספר: “תקבע לי מחר ב-12 שוודי, השם דני.”
+מצופה: tool_calls find_slots→create_event, event_id מוחזר; phone=None; אין חריגות.
+	3.	Gather fallback (אם השתמשת): ה-webhook מחזיר Digits, נרמל, ושב ל-WS.
+	4.	ללא “Send queue full”: בזמן ההנחיה ל-DTMF שלח TTS קצר בלבד; שמור pacing של פריימים (כ-20ms/פריים עם sleep קצר), כדי למנוע מילוי תור.
+
+מה לשים עין עליו
+	•	אם אתה עדיין רואה “Send queue full” או TTS_SEND גבוה: קצץ את ההנחיה ל-DTMF למשפט אחד, והקפד על pacing בשידור האודיו.
+	•	אם ה-Agent שוב “שוכח” וקופץ לברכת פתיחה: ודא שאתה שולח messages=[...] עם היסטוריית 8–12 ההודעות האחרונות ולא מתחיל סשן חדש לכל TURN.
+
+שורה תחתונה
+כן — התיאור שלו נשמע תקין, אבל ההצלחה תלויה בכך שבאמת מגיעים אירועי DTMF (או ש-Gather מופעל כפולבאק), ובכך שהכלי לא מפיל את ה-TURN כשאין טלפון. תפעיל את בדיקות הקבלה למעלה; אם אחת נופלת, אכוון אותך עם פאטצ’ ספציפי.

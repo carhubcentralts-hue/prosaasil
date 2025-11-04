@@ -228,14 +228,20 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         phone = _choose_phone(input.customer_phone, context, session)
         logger.info(f"📞 Final phone for appointment: {phone}")
         
-        # ⚡ Validate phone number (MUST exist!)
-        if not phone or phone.strip() == "":
-            raise ValueError("חובה לציין מספר טלפון. אנא שאל: 'איזה מספר טלפון להשאיר?'")
-        
-        # Phone must be reasonable length (10-15 digits with +)
-        phone_digits = ''.join(c for c in phone if c.isdigit())
-        if len(phone_digits) < 9 or len(phone_digits) > 15:
-            raise ValueError(f"מספר הטלפון '{phone}' אינו תקין. אנא בקש את המספר שוב.")
+        # ⚡ Validate phone number IF provided
+        if phone and phone.strip():
+            # Phone must be reasonable length (9-15 digits with +)
+            phone_digits = ''.join(c for c in phone if c.isdigit())
+            if len(phone_digits) < 9 or len(phone_digits) > 15:
+                return {
+                    "ok": False,
+                    "error": "validation_error",
+                    "message": f"מספר הטלפון '{phone}' אינו תקין. אנא בקש את המספר שוב."
+                }
+        else:
+            # No phone provided - that's OK, continue without it
+            logger.warning("⚠️ Creating appointment without phone number")
+            phone = None
         
         # ⚡ Validate treatment type
         if not input.treatment_type or input.treatment_type.strip() == "":
@@ -316,13 +322,21 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         )
         
     except ValueError as e:
-        # Re-raise validation errors
+        # Return structured error instead of raising
         logger.warning(f"Validation error: {e}")
-        raise
+        return {
+            "ok": False,
+            "error": "validation_error",
+            "message": str(e)
+        }
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error creating appointment: {e}")
-        raise ValueError(f"Failed to create appointment: {str(e)}")
+        return {
+            "ok": False,
+            "error": "appointment_error",
+            "message": f"Failed to create appointment: {str(e)}"
+        }
 
 # Wrapped version for Agent SDK
 @function_tool

@@ -809,7 +809,8 @@ class MediaStreamHandler:
                         self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
 
                     # ⚡ BUILD 109: SMART BARGE-IN - Disable for long responses, enable for short ones
-                    if self.speaking and BARGE_IN:
+                    # ⚡ BUILD 121: DISABLE barge-in when waiting for DTMF input!
+                    if self.speaking and BARGE_IN and not self.waiting_for_dtmf:
                         # 🧠 SMART: If response is long (>20 words), DISABLE barge-in completely!
                         if self.long_response:
                             # 🔒 Long response - let it finish! No interruptions allowed
