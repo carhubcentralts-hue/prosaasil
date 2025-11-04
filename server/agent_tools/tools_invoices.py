@@ -2,7 +2,9 @@
 Invoices and Payments Tools for AgentKit
 Handles invoice creation, payment links, and billing operations
 """
+# 🔥 CRITICAL FIX: Import OpenAI Agents SDK directly (server/agents/__init__.py is now empty)
 from agents import function_tool
+
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal, Dict, Any
 from datetime import datetime
@@ -61,7 +63,9 @@ class PaymentLinkOutput(BaseModel):
 def invoices_create(
     business_id: int,
     customer_name: str,
-    items: List[Dict[str, Any]],
+    description: str,
+    quantity: float,
+    unit_price: float,
     currency: str = "ILS",
     vat_rate: float = 0.17,
     issue_status: str = "final",
@@ -71,12 +75,14 @@ def invoices_create(
     send_channel: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Create an invoice with line items and optionally generate payment link
+    Create a single-line invoice and optionally generate payment link
     
     Args:
         business_id: Business ID
         customer_name: Customer full name
-        items: List of items, each with description, quantity, unit_price
+        description: Item description (e.g., "עיסוי מרגיע", "שירותי תיווך")
+        quantity: Quantity (default 1.0)
+        unit_price: Price per unit in currency
         currency: Currency code (ILS/USD)
         vat_rate: VAT rate (default 0.17 for Israel)
         issue_status: "draft" or "final"
@@ -89,47 +95,19 @@ def invoices_create(
         Dict with ok, invoice_id, payment_link, total_amount, reason
     """
     try:
-        # ✅ Validate ALL inputs using Pydantic model (strict mode safety)
-        try:
-            input_data = InvoiceCreateInput(
-                business_id=business_id,
-                customer_name=customer_name,
-                items=items,
-                currency=currency,
-                vat_rate=vat_rate,
-                issue_status=issue_status,
-                lead_id=lead_id,
-                appointment_id=appointment_id,
-                customer_phone=customer_phone,
-                send_channel=send_channel
-            )
-        except Exception as e:
-            logger.error(f"Validation error: {e}")
+        logger.info(f"🧾 Creating invoice for {customer_name}, business_id={business_id}")
+        logger.info(f"   Item: {description} x {quantity} @ {unit_price} {currency}")
+        
+        # Validate inputs
+        if quantity <= 0 or unit_price < 0:
             return {
                 "ok": False,
-                "reason": f"נתונים לא תקינים: {str(e)[:80]}"
+                "reason": "כמות וסכום חייבים להיות מספרים חיוביים"
             }
         
-        logger.info(f"🧾 Creating invoice for {input_data.customer_name}, business_id={input_data.business_id}")
-        logger.info(f"   Items: {input_data.items}")
-        
-        # Validate each item using Pydantic (strict mode safety)
-        validated_items = []
-        for raw_item in input_data.items:
-            try:
-                # Coerce to InvoiceItem model (handles string→float conversion)
-                item_obj = InvoiceItem(**raw_item)
-                validated_items.append(item_obj)
-            except Exception as e:
-                logger.error(f"Invalid item: {raw_item}, error: {e}")
-                return {
-                    "ok": False,
-                    "reason": f"פריט לא תקין בחשבונית: {str(e)[:80]}"
-                }
-        
-        # Calculate totals with validated numeric types
-        subtotal = sum(float(item.quantity) * float(item.unit_price) for item in validated_items)
-        vat_amount = subtotal * float(input_data.vat_rate)
+        # Calculate totals
+        subtotal = float(quantity) * float(unit_price)
+        vat_amount = subtotal * float(vat_rate)
         total_amount = subtotal + vat_amount
         
         logger.info(f"   Subtotal: {subtotal}, VAT: {vat_amount}, Total: {total_amount}")
@@ -137,49 +115,48 @@ def invoices_create(
         # Import models
         from server.models_sql import db, Invoice, InvoiceItem as DBInvoiceItem
         
-        # Create invoice using validated input
+        # Create invoice
         invoice = Invoice()
-        invoice.business_id = int(input_data.business_id)
-        invoice.customer_id = int(input_data.lead_id) if input_data.lead_id else None
-        invoice.appointment_id = int(input_data.appointment_id) if input_data.appointment_id else None
-        invoice.customer_name = input_data.customer_name
-        invoice.customer_phone = input_data.customer_phone
-        invoice.currency = input_data.currency
+        invoice.business_id = int(business_id)
+        invoice.customer_id = int(lead_id) if lead_id else None
+        invoice.appointment_id = int(appointment_id) if appointment_id else None
+        invoice.customer_name = customer_name
+        invoice.customer_phone = customer_phone
+        invoice.currency = currency
         invoice.subtotal = subtotal
-        invoice.vat_rate = float(input_data.vat_rate)
+        invoice.vat_rate = float(vat_rate)
         invoice.vat_amount = vat_amount
         invoice.total = total_amount
-        invoice.status = input_data.issue_status  # draft or final
-        invoice.issue_date = datetime.utcnow() if input_data.issue_status == "final" else None
+        invoice.status = issue_status  # draft or final
+        invoice.issue_date = datetime.utcnow() if issue_status == "final" else None
         
         db.session.add(invoice)
         db.session.flush()  # Get invoice ID
         
-        # Add line items (using validated items)
-        for item_obj in validated_items:
-            item = DBInvoiceItem()
-            item.invoice_id = invoice.id
-            item.description = item_obj.description
-            item.quantity = float(item_obj.quantity)
-            item.unit_price = float(item_obj.unit_price)
-            item.total = item.quantity * item.unit_price
-            db.session.add(item)
+        # Add single line item
+        item = DBInvoiceItem()
+        item.invoice_id = invoice.id
+        item.description = description
+        item.quantity = float(quantity)
+        item.unit_price = float(unit_price)
+        item.total = item.quantity * item.unit_price
+        db.session.add(item)
         
         db.session.commit()
         
-        logger.info(f"✅ Invoice created: ID={invoice.id}, Total={total_amount} {input_data.currency}")
+        logger.info(f"✅ Invoice created: ID={invoice.id}, Total={total_amount} {currency}")
         
         # Generate payment link (placeholder - integrate with actual payment provider)
         payment_link = f"https://pay.example.com/invoice/{invoice.id}"
         
         # TODO: Integrate with actual payment provider (Stripe, PayPal, etc.)
-        # payment_link = stripe_service.create_payment_link(invoice.id, total_amount, input_data.currency)
+        # payment_link = stripe_service.create_payment_link(invoice.id, total_amount, currency)
         
         # Send via channel if requested
-        if input_data.send_channel and input_data.customer_phone:
+        if send_channel and customer_phone:
             # TODO: Integrate with notification service
-            logger.info(f"📱 Sending invoice via {input_data.send_channel} to {input_data.customer_phone}")
-            # notify_service.send_invoice(input_data.send_channel, input_data.customer_phone, invoice.id, payment_link)
+            logger.info(f"📱 Sending invoice via {send_channel} to {customer_phone}")
+            # notify_service.send_invoice(send_channel, customer_phone, invoice.id, payment_link)
         
         return {
             "ok": True,

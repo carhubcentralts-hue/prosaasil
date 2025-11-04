@@ -3,7 +3,7 @@ Agent API Routes - Endpoints for AI Agent interactions
 Provides REST API for agent-powered conversations and actions
 """
 from flask import Blueprint, request, jsonify
-from server.agents.agent_factory import get_agent, AGENTS_ENABLED
+from server.agent_tools.agent_factory import get_agent, AGENTS_ENABLED
 from server.models_sql import db, Business
 import logging
 

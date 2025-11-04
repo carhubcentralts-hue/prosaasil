@@ -5,13 +5,15 @@ Integrates with OpenAI Agents SDK for production-ready agent capabilities
 import os
 from datetime import datetime, timedelta
 import pytz
+
+# 🔥 CRITICAL FIX: Import OpenAI Agents SDK directly (server/agents/__init__.py is now empty)
 from agents import Agent, ModelSettings
-from server.agents.tools_calendar import calendar_find_slots, calendar_create_appointment
-from server.agents.tools_leads import leads_upsert, leads_search
-from server.agents.tools_whatsapp import whatsapp_send
-from server.agents.tools_invoices import invoices_create, payments_link
-from server.agents.tools_contracts import contracts_generate_and_send
-from server.agents.tools_summarize import summarize_thread
+from server.agent_tools.tools_calendar import calendar_find_slots, calendar_create_appointment
+from server.agent_tools.tools_leads import leads_upsert, leads_search
+from server.agent_tools.tools_whatsapp import whatsapp_send
+from server.agent_tools.tools_invoices import invoices_create, payments_link
+from server.agent_tools.tools_contracts import contracts_generate_and_send
+from server.agent_tools.tools_summarize import summarize_thread
 import logging
 
 logger = logging.getLogger(__name__)
@@ -112,7 +114,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 logger.info(f"   ⏱️  duration_min={duration_min}")
                 logger.info(f"   🏢 business_id={business_id}")
                 
-                from server.agents.tools_calendar import FindSlotsInput, _calendar_find_slots_impl
+                from server.agent_tools.tools_calendar import FindSlotsInput, _calendar_find_slots_impl
                 
                 # Tools are called from ai_service.py which already has Flask context
                 input_data = FindSlotsInput(
@@ -182,7 +184,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 print(f"   customer_phone (from Agent)={customer_phone}")
                 print(f"   customer_name (from Agent)={customer_name}")
                 
-                from server.agents.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
+                from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
                 from flask import g
                 
                 # Get context and session for _choose_phone

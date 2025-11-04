@@ -2,7 +2,9 @@
 Conversation Summarization Tools for AgentKit
 Generates structured summaries of calls and WhatsApp conversations for CRM
 """
+# 🔥 CRITICAL FIX: Import OpenAI Agents SDK directly (server/agents/__init__.py is now empty)
 from agents import function_tool
+
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal
 import logging

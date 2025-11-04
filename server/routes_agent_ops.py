@@ -3,7 +3,7 @@ Agent Operations API - Unified endpoint for AgentKit full operations
 Handles appointments, leads, invoices, contracts, WhatsApp, and summaries
 """
 from flask import Blueprint, request, jsonify, g
-from server.agents.agent_factory import create_ops_agent, get_agent
+from server.agent_tools.agent_factory import create_ops_agent, get_agent
 from server.models_sql import db, AgentTrace
 from datetime import datetime
 import logging

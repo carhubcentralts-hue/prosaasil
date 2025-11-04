@@ -19,37 +19,27 @@ def list_receipts():
         if not business_id:
             return jsonify({'success': False, 'message': 'Business ID נדרש'}), 400
         
-        # Get all invoices (prefer payment_id, fallback to deal_id for legacy)
-        from sqlalchemy import or_
-        invoices = db.session.query(Invoice, Payment, Deal).join(
-            Payment,
-            or_(
-                Invoice.payment_id == Payment.id,
-                (Invoice.payment_id.is_(None) & (Invoice.deal_id == Payment.deal_id))
-            )
-        ).join(
-            Deal,
-            Payment.deal_id == Deal.id
-        ).filter(
-            Payment.business_id == business_id
-        ).order_by(Invoice.issued_at.desc()).all()
+        # Get all invoices for this business (AgentKit invoices may not have payment/deal)
+        invoices_raw = Invoice.query.filter_by(business_id=business_id).order_by(Invoice.issue_date.desc()).all()
         
         invoices_list = []
-        for invoice, payment, deal in invoices:
+        for invoice in invoices_raw:
+            # AgentKit invoices: use fields directly from invoice
+            # Legacy invoices: try to load from related payment/deal
             invoices_list.append({
-                'id': invoice.id,  # Always use invoice ID for PDF endpoints
-                'payment_id': payment.id,
+                'id': invoice.id,
+                'payment_id': invoice.payment_id,
                 'invoice_id': invoice.id,
-                'invoice_number': invoice.invoice_number,
-                'amount': invoice.subtotal / 100,
-                'tax': invoice.tax / 100,
-                'total': invoice.total / 100,
-                'description': payment.description,
-                'customer_name': payment.customer_name,
-                'status': payment.status,
-                'lead_id': deal.customer_id,  # Add lead_id for filtering in frontend
-                'created_at': invoice.issued_at.isoformat() if invoice.issued_at else None,
-                'paid_at': payment.paid_at.isoformat() if payment.paid_at else None
+                'invoice_number': invoice.invoice_number or f"INV-{invoice.id}",
+                'amount': float(invoice.subtotal) if invoice.subtotal else 0,
+                'tax': float(invoice.vat_amount) if invoice.vat_amount else 0,
+                'total': float(invoice.total) if invoice.total else 0,
+                'description': f"{invoice.customer_name} - חשבונית",
+                'customer_name': invoice.customer_name,
+                'status': invoice.status or 'final',
+                'lead_id': invoice.customer_id,
+                'created_at': invoice.issue_date.isoformat() if invoice.issue_date else None,
+                'paid_at': None  # TODO: Track payment date
             })
         
         return jsonify({

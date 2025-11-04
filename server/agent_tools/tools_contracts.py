@@ -2,7 +2,9 @@
 Contracts and Digital Signatures Tools for AgentKit
 Handles contract generation and signature collection
 """
+# 🔥 CRITICAL FIX: Import OpenAI Agents SDK directly (server/agents/__init__.py is now empty)
 from agents import function_tool
+
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -37,7 +39,11 @@ class ContractGenerateOutput(BaseModel):
 def contracts_generate_and_send(
     business_id: int,
     template_id: str,
-    variables: Dict[str, str],
+    customer_name: str,
+    service_description: str = "טיפולים",
+    price: str = "0",
+    treatment_count: str = "1",
+    validity_date: str = "",
     lead_id: Optional[int] = None,
     appointment_id: Optional[int] = None
 ) -> Dict[str, Any]:
@@ -47,7 +53,11 @@ def contracts_generate_and_send(
     Args:
         business_id: Business ID
         template_id: Contract template ID (e.g., 'treatment_series', 'rental', 'purchase')
-        variables: Template variables dict (customer_name, date, price, service_description, etc.)
+        customer_name: Customer full name
+        service_description: Service description (default "טיפולים")
+        price: Price as string (default "0")
+        treatment_count: Number of treatments (default "1")
+        validity_date: Expiration date (optional)
         lead_id: Related lead ID (optional)
         appointment_id: Related appointment ID (optional)
         
@@ -56,17 +66,21 @@ def contracts_generate_and_send(
     """
     try:
         logger.info(f"📝 Generating contract template_id={template_id}, business_id={business_id}")
-        logger.info(f"   Variables: {variables}")
-        
-        # Validate required variables
-        if "customer_name" not in variables:
-            return {
-                "ok": False,
-                "reason": "חסר שם לקוח (customer_name) במשתנים"
-            }
+        logger.info(f"   Customer: {customer_name}, Service: {service_description}")
         
         # Import models
         from server.models_sql import db, Contract
+        
+        # Prepare variables for template
+        variables = {
+            "customer_name": customer_name,
+            "service_description": service_description,
+            "price": price,
+            "treatment_count": treatment_count,
+            "validity_date": validity_date or datetime.now().strftime("%Y-%m-%d"),
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "business_name": "העסק"  # TODO: Load from business settings
+        }
         
         # Get template (placeholder - would load from database)
         templates = {
@@ -92,11 +106,11 @@ def contracts_generate_and_send(
             },
             "rental": {
                 "name": "חוזה שכירות",
-                "content": "חוזה שכירות בין {landlord} ל-{tenant}..."
+                "content": f"חוזה שכירות עבור {customer_name} - {service_description}"
             },
             "purchase": {
                 "name": "חוזה רכישה",
-                "content": "חוזה רכישה של {property_description}..."
+                "content": f"חוזה רכישה עבור {customer_name} - {service_description}"
             }
         }
         
@@ -122,7 +136,7 @@ def contracts_generate_and_send(
         contract.customer_id = lead_id
         contract.appointment_id = appointment_id
         contract.template_id = template_id
-        contract.customer_name = variables.get("customer_name")
+        contract.customer_name = customer_name
         contract.content = contract_content
         contract.status = "pending_signature"
         contract.variables = variables  # Store as JSON

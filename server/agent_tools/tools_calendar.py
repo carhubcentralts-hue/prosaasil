@@ -8,7 +8,7 @@ from typing import List, Optional, Any, Dict
 from datetime import datetime, timedelta
 import pytz
 from server.models_sql import db, Appointment, BusinessSettings
-from server.agents.phone_utils import normalize_il_phone
+from server.agent_tools.phone_utils import normalize_il_phone
 import logging
 
 logger = logging.getLogger(__name__)
