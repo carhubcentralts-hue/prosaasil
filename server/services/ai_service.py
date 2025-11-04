@@ -556,12 +556,22 @@ class AIService:
             runner = Runner()
             print(f"🔄 Created Runner with {len(conversation_messages)-1} history messages, executing agent.run()...")
             
-            # Use input parameter with conversation history
-            result = loop.run_until_complete(
-                runner.run(starting_agent=agent, input=conversation_messages, context=agent_context)
-            )
-            duration_ms = int((time.time() - start_time) * 1000)
-            print(f"✅ Runner.run() completed in {duration_ms}ms")
+            # Use input parameter with conversation history + TIMEOUT!
+            # ⚡ CRITICAL: Add timeout to prevent 175-second delays!
+            try:
+                result = loop.run_until_complete(
+                    asyncio.wait_for(
+                        runner.run(starting_agent=agent, input=conversation_messages, context=agent_context),
+                        timeout=15.0  # ✅ 15 second max - prevent long delays!
+                    )
+                )
+                duration_ms = int((time.time() - start_time) * 1000)
+                print(f"✅ Runner.run() completed in {duration_ms}ms")
+            except asyncio.TimeoutError:
+                duration_ms = int((time.time() - start_time) * 1000)
+                print(f"❌ Agent timeout after {duration_ms}ms - falling back to regular AI")
+                logger.error(f"❌ Agent timeout after {duration_ms}ms for message: {message[:100]}")
+                return self.generate_response(message, business_id, context, channel, is_first_turn)
             
             # Extract response using final_output_as
             reply_text = result.final_output_as(str)

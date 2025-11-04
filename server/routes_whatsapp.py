@@ -396,13 +396,13 @@ def baileys_webhook():
                 except Exception as e:
                     log.warning(f"⚠️ Appointment check failed: {e}")
                 
-                # ✅ BUILD 92: Load conversation history for AI context (10 messages)
+                # ✅ BUILD 122: Load conversation history for AI context (5 messages for speed!)
                 previous_messages = []
                 try:
                     recent_msgs = WhatsAppMessage.query.filter_by(
                         business_id=business_id,
                         to_number=from_number
-                    ).order_by(WhatsAppMessage.created_at.desc()).limit(10).all()
+                    ).order_by(WhatsAppMessage.created_at.desc()).limit(5).all()
                     
                     # Format as conversation (reversed to chronological order)
                     for msg_hist in reversed(recent_msgs):
@@ -411,7 +411,7 @@ def baileys_webhook():
                         else:
                             previous_messages.append(f"עוזר: {msg_hist.body}")  # ✅ כללי - לא hardcoded!
                     
-                    log.info(f"📚 Loaded {len(previous_messages)} previous messages for context")
+                    log.info(f"📚 Loaded {len(previous_messages)} previous messages for context (5 max for speed)")
                 except Exception as e:
                     log.warning(f"⚠️ Could not load conversation history: {e}")
                 
