@@ -558,9 +558,9 @@ class AIService:
             runner = Runner()
             print(f"🔄 Created Runner with {len(conversation_messages)-1} history messages, executing agent.run()...")
             
-            # Use messages instead of single input
+            # Use input parameter with conversation history
             result = loop.run_until_complete(
-                runner.run(starting_agent=agent, messages=conversation_messages, context=agent_context)
+                runner.run(starting_agent=agent, input=conversation_messages, context=agent_context)
             )
             duration_ms = int((time.time() - start_time) * 1000)
             print(f"✅ Runner.run() completed in {duration_ms}ms")
