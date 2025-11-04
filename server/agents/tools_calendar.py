@@ -4,16 +4,46 @@ Integrates with existing Appointment model
 """
 from agents.tool import function_tool
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 from datetime import datetime, timedelta
 import pytz
 from server.models_sql import db, Appointment, BusinessSettings
+from server.agents.phone_utils import normalize_il_phone
 import logging
 
 logger = logging.getLogger(__name__)
 
 # ⚡ Israel timezone
 tz = pytz.timezone("Asia/Jerusalem")
+
+
+def _choose_phone(input_phone: Optional[str], context: Optional[Dict[str, Any]] = None, session: Optional[Any] = None) -> Optional[str]:
+    """
+    Smart phone number selection with fallback hierarchy
+    
+    Priority order:
+    1. input_phone (if Agent provided it)
+    2. context["customer_phone"] (from Flask g.agent_context)
+    3. session.caller_number (from Twilio call)
+    4. context["whatsapp_from"] (from WhatsApp message)
+    
+    Returns normalized E.164 format (+972...) or None
+    """
+    candidates = [
+        input_phone,
+        (context or {}).get("customer_phone"),
+        getattr(session, "caller_number", None) if session else None,
+        (context or {}).get("whatsapp_from"),
+    ]
+    
+    for candidate in candidates:
+        normalized = normalize_il_phone(candidate)
+        if normalized:
+            logger.info(f"📞 _choose_phone: selected '{normalized}' from candidate '{candidate}'")
+            return normalized
+    
+    logger.info("📞 _choose_phone: No valid phone number found in any source")
+    return None
 
 # ================================================================================
 # INPUT/OUTPUT SCHEMAS
@@ -150,7 +180,7 @@ def calendar_find_slots(input: FindSlotsInput) -> FindSlotsOutput:
     return _calendar_find_slots_impl(input)
 
 
-def _calendar_create_appointment_impl(input: CreateAppointmentInput) -> CreateAppointmentOutput:
+def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Optional[Dict[str, Any]] = None, session: Optional[Any] = None) -> CreateAppointmentOutput:
     """
     Create a new appointment in the calendar
     
@@ -161,12 +191,16 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput) -> CreateAp
     - Calculate dates correctly: "tomorrow" = add 1 day to today
     - "next Tuesday" = find the next Tuesday from today
     
+    Phone Number Handling:
+    - Uses _choose_phone with fallback hierarchy
+    - Can proceed with phone=None if not available
+    - Phone will be in call log/WhatsApp context
+    
     Validations (STRICTLY ENFORCED):
     - Business hours: 09:00-22:00 Asia/Jerusalem - appointments outside will be REJECTED
     - No conflicts with existing appointments - overlapping times will be REJECTED  
     - Start time must be in the future
     - Duration: 15-240 minutes
-    - Phone format: Must start with + or 0
     - Treatment type: Required field
     
     Returns clear Hebrew error messages if validation fails.
@@ -177,17 +211,11 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput) -> CreateAp
         if duration_min < 15 or duration_min > 240:
             raise ValueError(f"משך הפגישה חייב להיות בין 15-240 דקות (קיבלתי: {duration_min:.0f} דקות)")
         
-        # ⚡ Validate phone format - ALLOW EMPTY (will use UNKNOWN)
-        phone = input.customer_phone.strip() if input.customer_phone else ""
+        # 🔥 USE SMART PHONE SELECTION - allows None!
+        phone = _choose_phone(input.customer_phone, context, session)
+        logger.info(f"📞 Final phone for appointment: {phone}")
         
-        # If empty, use UNKNOWN placeholder (phone will be in call log)
-        if not phone or phone in ["", "None", "null"]:
-            phone = "UNKNOWN"
-        # Otherwise validate format
-        elif not phone.startswith('+') and not phone.startswith('0') and phone != "UNKNOWN":
-            raise ValueError("מספר טלפון חייב להתחיל ב-+ או 0")
-        elif phone.startswith('0') and len(phone) < 9:
-            raise ValueError("מספר טלפון לא תקין (קצר מדי)")
+        # Note: phone can be None - that's OK! It will be in call log/WhatsApp
         
         # ⚡ Validate treatment type
         if not input.treatment_type or input.treatment_type.strip() == "":
@@ -227,17 +255,18 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput) -> CreateAp
         if existing:
             raise ValueError(f"יש חפיפה עם פגישה קיימת בשעה {existing.start_time.strftime('%H:%M')}")
         
-        # Create appointment
+        # Create appointment (phone can be None - that's OK!)
+        customer_name = input.customer_name or "לקוח"
         appointment = Appointment(
             business_id=input.business_id,
-            title=f"{input.treatment_type} - {input.customer_name}",
+            title=f"{input.treatment_type} - {customer_name}",
             description=input.notes,
             start_time=start,
             end_time=end,
             status='confirmed',
             appointment_type='treatment',
-            contact_name=input.customer_name,
-            contact_phone=input.customer_phone,
+            contact_name=customer_name,
+            contact_phone=phone,  # Can be None! Phone is in call log
             auto_generated=True,
             notes=f"נקבע ע״י AI Agent\nמקור: {input.source}\nסוג טיפול: {input.treatment_type}"
         )
