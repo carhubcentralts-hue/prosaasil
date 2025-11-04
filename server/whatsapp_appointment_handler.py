@@ -165,6 +165,35 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
         meeting_time = potential_date.replace(hour=meeting_hour, minute=0, second=0, microsecond=0)
         end_time = meeting_time + timedelta(hours=1)
         
+        # 🔥 CRITICAL: Check for overlapping appointments before creating
+        existing = Appointment.query.filter(
+            Appointment.business_id == business_id,
+            Appointment.start_time < end_time,
+            Appointment.end_time > meeting_time,
+            Appointment.status.in_(['scheduled', 'confirmed'])
+        ).first()
+        
+        if existing:
+            # Try to find next available slot (1 hour later)
+            meeting_time = meeting_time + timedelta(hours=1)
+            end_time = meeting_time + timedelta(hours=1)
+            
+            # Check again
+            existing = Appointment.query.filter(
+                Appointment.business_id == business_id,
+                Appointment.start_time < end_time,
+                Appointment.end_time > meeting_time,
+                Appointment.status.in_(['scheduled', 'confirmed'])
+            ).first()
+            
+            if existing:
+                # If still conflicted, return error
+                return {
+                    'success': False,
+                    'reason': f'חפיפה עם פגישה קיימת בשעה {existing.start_time.strftime("%H:%M")}',
+                    'conflict': True
+                }
+        
         # יצירת הפגישה
         appointment = Appointment()
         appointment.business_id = customer.business_id
