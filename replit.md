@@ -51,7 +51,9 @@ Preferred communication style: Simple, everyday language.
   - **Agent SDK for WhatsApp**: WhatsApp now uses `generate_response_with_agent` instead of basic AI
   - **Real Actions**: Agent performs appointments, lead creation during WhatsApp conversations
   - **Duplicate Prevention**: Checks for duplicate messages within 10 seconds (webhook retries)
-  - **Full Context**: Conversation history (10 messages) passed to Agent for context
+  - **Full Context**: Conversation history (10 messages) passed to Agent for context - FIXED history format conversion
+  - **Complete Conversation Management**: Agent handles ALL messages (greetings, questions, appointments) per WhatsApp prompt
+  - **Empty Response Validation**: Fallback to regular AI if Agent returns empty response
   - **Performance**: Agent optimized for fast WhatsApp responses
 - **BUILD 121 - Mandatory Name+Phone Confirmation + DTMF Support** ✅ STABLE & TESTED:
   - **Ask Name AND Phone Together**: Agent asks "על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #" in single turn

@@ -530,21 +530,19 @@ class AIService:
                 print(f"📚 Found {len(prev_msgs)} previous messages in context")
                 
                 # Convert to Agent SDK format
+                # prev_msgs is list of strings like "לקוח: XXX" or "עוזר: YYY"
                 for msg in prev_msgs:
-                    # Format is "לקוח: XXX\nעוזר: YYY"
-                    if "\nעוזר:" in msg:
-                        parts = msg.split("\nעוזר:")
-                        user_part = parts[0].replace("לקוח:", "").strip()
-                        bot_part = parts[1].strip()
-                        
-                        # Add both to history
+                    if msg.startswith("לקוח:"):
+                        # User message
                         conversation_messages.append({
                             "role": "user",
-                            "content": user_part
+                            "content": msg.replace("לקוח:", "").strip()
                         })
+                    elif msg.startswith("עוזר:"):
+                        # Assistant message
                         conversation_messages.append({
                             "role": "assistant",
-                            "content": bot_part
+                            "content": msg.replace("עוזר:", "").strip()
                         })
                 
                 print(f"✅ Converted to {len(conversation_messages)} messages for Agent")
@@ -567,7 +565,13 @@ class AIService:
             
             # Extract response using final_output_as
             reply_text = result.final_output_as(str)
-            print(f"📝 Agent final response: '{reply_text[:100]}...'")
+            print(f"📝 Agent final response: '{reply_text[:100] if reply_text else '(EMPTY!)'}...'")
+            
+            # ✅ CRITICAL: Validate that agent returned a response!
+            if not reply_text or not reply_text.strip():
+                print(f"❌ CRITICAL: Agent returned EMPTY response! Falling back...")
+                logger.error(f"❌ Agent returned empty response for message: {message[:100]}")
+                return self.generate_response(message, business_id, context, channel, is_first_turn)
             
             # DEBUG: Check result structure
             print(f"🔍 Result type: {type(result).__name__}")
