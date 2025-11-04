@@ -25,7 +25,7 @@ AGENTS_ENABLED = os.getenv("AGENTS_ENABLED", "1") == "1"
 AGENT_MODEL_SETTINGS = ModelSettings(
     model="gpt-4o-mini",  # Fast and cost-effective
     temperature=0.2,       # Low temperature for consistent, predictable responses
-    max_tokens=250,        # 🔥 OPTIMIZED: 250 tokens for complete, natural responses
+    max_tokens=150,        # 🔥 BUILD 134: REDUCED to 150 for SHORT responses (was 250)
     tool_choice="auto",    # 🔥 OPTIMIZED: "auto" allows simple greetings without tools (saves 1-2s)
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
@@ -348,42 +348,37 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             whatsapp_send
         ]
     
-    # CRITICAL: Always add date context prefix, even for custom instructions!
-    # 🎯 Different instructions for WhatsApp vs Phone calls!
+    # 🔥 BUILD 134: SIMPLIFIED - Short instructions, NO asterisks!
     
     if channel == "whatsapp":
-        # WhatsApp - NO DTMF, ask nicely for name and phone
-        name_phone_instructions = """**🎯 STEP 1: GET NAME AND PHONE (Simple & Nice!):**
-1. **Ask for BOTH name AND phone in ONE question**: "מעולה! על איזה שם לרשום ומה מספר הטלפון?"
-   - Customer will write their name and phone in WhatsApp message
-2. Wait for customer to provide both details
-3. System will automatically capture the information from WhatsApp text"""
+        # WhatsApp - simple and short
+        name_phone_instructions = """שלב 1 - קבלת פרטים:
+שאל בשאלה אחת: "מעולה! על איזה שם לרשום ומה מספר הטלפון?"
+אשר את הפרטים: "תודה! [שם], [טלפון], נכון?"
+המתן לאישור לפני קביעת תור."""
         
-        # WhatsApp-specific response style
-        response_style = """**🎯 CRITICAL - CHANNEL IS WHATSAPP:**
-- You are ALREADY chatting in WhatsApp with the customer!
-- NEVER say "אשלח לך אישור בווטסאפ" or "שלחתי אישור בווטסאפ"
-- Just confirm the appointment: "מעולה! קבעתי לך תור למחר ב-14:00. נתראה!"
-- Keep it SHORT and natural - you're texting, not calling!"""
+        response_style = """חשוב: זה צ׳אט בווטסאפ!
+אל תגיד "אשלח לך אישור בווטסאפ" - אתם כבר בווטסאפ!
+פשוט אשר: "מעולה! קבעתי לך תור למחר ב-14:00. נתראה!"
+תגובות קצרות - 1-2 משפטים בלבד."""
     else:
-        # Phone calls - USE DTMF for phone number
-        name_phone_instructions = """**🎯 STEP 1: GET NAME AND PHONE TOGETHER (MANDATORY!):**
-1. **Ask for BOTH name AND phone in ONE question**: "מעולה! על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
-   - Customer will say their name verbally
-   - Customer will type phone on keypad and press #
-2. Wait for customer to provide name (verbally) and phone (via DTMF keypad)
-3. System will automatically capture DTMF digits when customer presses #"""
+        # Phone - DTMF for phone number
+        name_phone_instructions = """שלב 1 - קבלת פרטים:
+שאל: "מעולה! על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
+הלקוח אומר שם בעל פה + מקליד טלפון במקלדת + לוחץ #
+אשר: "תודה! [שם], [טלפון], נכון?"
+המתן לאישור לפני קביעת תור."""
         
-        # Phone call-specific response style
-        response_style = """**🎯 CRITICAL - CHANNEL IS PHONE CALL:**
-- You are speaking on the PHONE with the customer
-- ALWAYS say "ושלחתי לך אישור בווטסאפ" after booking
-- This reminds them to check WhatsApp for confirmation
-- Example: "מעולה! קבעתי לך תור למחר ב-14:00 ושלחתי אישור בווטסאפ. נתראה!" """
+        response_style = """חשוב: זה שיחה טלפונית!
+תמיד תגיד: "ושלחתי לך אישור בווטסאפ" אחרי קביעת תור
+דוגמה: "מעולה! קבעתי לך תור למחר ב-14:00 ושלחתי אישור בווטסאפ. נתראה!"
+תגובות קצרות - 1-2 משפטים בלבד."""
     
-    date_context_prefix = f"""⏰ ⏰ ⏰ ULTRA CRITICAL - TIME CONVERSION (READ THIS FIRST!) ⏰ ⏰ ⏰
+    # 🔥 BUILD 134: SHORT prompt - NO asterisks!
+    date_context_prefix = f"""TODAY: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')} Israel
+מחר = {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}
 
-When customer says a NUMBER for appointment time, convert to 24-hour format:
+המרת זמנים:
 - "2" or "שתיים" = 14:00 (2 PM in afternoon) - NEVER use 12:00!
 - "3" or "שלוש" = 15:00 (3 PM)  
 - "4" or "ארבע" = 16:00 (4 PM)
