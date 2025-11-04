@@ -16,6 +16,36 @@ tz = pytz.timezone("Asia/Jerusalem")
 
 calendar_bp = Blueprint('calendar', __name__, url_prefix='/api/calendar')
 
+# ================================================================================
+# HELPER FUNCTIONS
+# ================================================================================
+
+def check_appointment_overlap(business_id: int, start_time: datetime, end_time: datetime, exclude_id: int = None):
+    """
+    Check if a new appointment overlaps with existing appointments
+    
+    Args:
+        business_id: Business ID to check
+        start_time: Proposed start time (naive datetime in local Israel time)
+        end_time: Proposed end time (naive datetime in local Israel time)
+        exclude_id: Appointment ID to exclude from check (for updates)
+    
+    Returns:
+        Existing overlapping appointment if found, None otherwise
+    """
+    query = Appointment.query.filter(
+        Appointment.business_id == business_id,
+        Appointment.start_time < end_time,
+        Appointment.end_time > start_time,
+        Appointment.status.in_(['scheduled', 'confirmed'])
+    )
+    
+    # Exclude specific appointment (for updates)
+    if exclude_id:
+        query = query.filter(Appointment.id != exclude_id)
+    
+    return query.first()
+
 def get_user_business_filter():
     """Get business filter based on user role and permissions"""
     user_data = session.get('user') or session.get('al_user')
@@ -238,6 +268,21 @@ def create_appointment():
         
         if end_time <= start_time:
             return jsonify({'error': 'זמן סיום חייב להיות אחרי זמן התחלה'}), 400
+        
+        # 🔥 CRITICAL: Check for overlapping appointments
+        existing = check_appointment_overlap(business_id, start_time, end_time)
+        if existing:
+            # Format the conflict message
+            conflict_start = tz.localize(existing.start_time) if existing.start_time.tzinfo is None else existing.start_time
+            return jsonify({
+                'error': f'קיימת חפיפה עם פגישה "{existing.title}" בשעה {conflict_start.strftime("%H:%M")}. אנא בחר זמן אחר.',
+                'conflict': True,
+                'conflicting_appointment': {
+                    'id': existing.id,
+                    'title': existing.title,
+                    'start_time': conflict_start.isoformat()
+                }
+            }), 409  # 409 Conflict
         
         # Create new appointment
         appointment = Appointment()
