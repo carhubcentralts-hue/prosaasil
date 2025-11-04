@@ -4,6 +4,54 @@ AgentLocator is a Hebrew CRM system tailored for real estate businesses. Its cor
 
 # Recent Changes
 
+## BUILD 131 - PERFECT AUTOMATION WITH AGENTKIT (FULL INTEGRATION) ✅
+**Goal**: Complete automation - Agent SDK handles ALL calls/WhatsApp with automatic workflows
+
+**Implementation**:
+1. **Agent Instructions - Smart Automation Rules**:
+   - **APPOINTMENT WORKFLOW**: appointment → leads_upsert → whatsapp_send (automatic!)
+   - **INVOICE WORKFLOW**: invoice → payments_link → whatsapp_send (automatic!)
+   - **CONTRACT WORKFLOW**: contract → whatsapp_send with signature link (automatic!)
+   - **POST-CALL SUMMARY** (phone only): summarize_thread → whatsapp_send (automatic!)
+   - **LEAD-FIRST PRINCIPLE**: Always check/create lead before any operation
+   - Automation happens **WITHOUT asking** - user doesn't request it!
+
+2. **WhatsApp Integration - Full Agent SDK**:
+   - Changed `routes_webhook.py` to use `generate_response_with_agent` (not simple AI)
+   - WhatsApp now has access to ALL 9 Agent tools (calendar, leads, invoices, contracts, WhatsApp, summarize)
+   - Same automation workflows as phone calls
+
+3. **Context Propagation - Smart Phone Detection**:
+   - Updated `tools_whatsapp.py`: `whatsapp_send` auto-detects recipient from context
+   - NO need to specify 'to' parameter - Agent uses `customer_phone` from Flask g.agent_context
+   - Falls back to `whatsapp_from` if no customer_phone
+   - Agent instructions: "NEVER specify 'to' parameter - auto-detected!"
+
+4. **Unified Agent Experience**:
+   - Phone calls: Agent SDK ✓ (already implemented in media_ws_ai.py)
+   - WhatsApp: Agent SDK ✓ (NOW implemented in routes_webhook.py)
+   - Both channels: Same 9 tools, same automation workflows
+   - Context shared: business_id, customer_phone, customer_name, channel
+
+**Result**: 
+- ✅ User books appointment → Agent AUTOMATICALLY creates lead + sends WhatsApp confirmation
+- ✅ User asks for invoice → Agent AUTOMATICALLY creates invoice + sends payment link via WhatsApp
+- ✅ Phone call ends → Agent AUTOMATICALLY sends summary via WhatsApp
+- ✅ WhatsApp conversation → Full access to all business operations (appointments, invoices, contracts)
+- ✅ Zero manual intervention - complete automation!
+
+**Example Flow**:
+Phone User: "קבע לי מחר ב-14:00 עיסוי"
+→ Agent calls: calendar_find_slots → calendar_create_appointment → leads_upsert → whatsapp_send
+→ Agent responds: "מעולה! קבעתי לך עיסוי מחר ב-14:00 ושלחתי אישור בווטסאפ."
+→ Customer receives WhatsApp: "✅ אישור: עיסוי מחר ב-14:00. נתראה!"
+→ Lead created in CRM automatically!
+
+**Files Changed**:
+- `server/agents/agent_factory.py`: Updated booking_agent & ops_agent instructions with automation workflows
+- `server/routes_webhook.py`: Changed to use `generate_response_with_agent` for WhatsApp
+- `server/agents/tools_whatsapp.py`: Added auto-detection of recipient from context
+
 ## BUILD 130 - AGENTKIT FULL OPERATIONS (9-TOOL AGENT) ✅
 **Goal**: Complete AgentKit implementation with ALL business operations through Agent tools
 
