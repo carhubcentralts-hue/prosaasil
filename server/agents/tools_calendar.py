@@ -285,22 +285,21 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         if start.hour < 9 or end.hour > 22 or (end.hour == 22 and end.minute > 0):
             raise ValueError("שעות הפעילות הן 09:00-22:00 (שעון ישראל)")
         
-        # Check for conflicts
+        # 🔥 CRITICAL FIX: Remove timezone BEFORE checking conflicts
+        # DB stores naive datetimes, so comparison must use naive datetimes too
+        start_naive = start.replace(tzinfo=None)
+        end_naive = end.replace(tzinfo=None)
+        
+        # Check for conflicts (using naive datetimes to match DB storage)
         existing = Appointment.query.filter(
             Appointment.business_id == input.business_id,
-            Appointment.start_time < end,
-            Appointment.end_time > start,
+            Appointment.start_time < end_naive,
+            Appointment.end_time > start_naive,
             Appointment.status.in_(['scheduled', 'confirmed'])
         ).first()
         
         if existing:
             raise ValueError(f"יש חפיפה עם פגישה קיימת בשעה {existing.start_time.strftime('%H:%M')}")
-        
-        # 🔥 CRITICAL FIX: Remove timezone before saving to DB
-        # DB columns are DateTime (not DateTimeTZ), so we save local Israel time without timezone
-        # This prevents PostgreSQL from converting to UTC which causes 2-hour shift!
-        start_naive = start.replace(tzinfo=None)
-        end_naive = end.replace(tzinfo=None)
         
         print(f"   🔥 TIMEZONE FIX:")
         print(f"      Before: start={start} (with timezone)")
