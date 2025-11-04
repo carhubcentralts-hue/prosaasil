@@ -480,9 +480,9 @@ class AIService:
             
             # Get booking agent with custom prompt and business_id
             agent_create_start = time.time()
-            print(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}")
-            logger.info(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}")
-            agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt, business_id=business_id)
+            print(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}, channel={channel}")
+            logger.info(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}, channel={channel}")
+            agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt, business_id=business_id, channel=channel)
             agent_create_time = (time.time() - agent_create_start) * 1000
             print(f"⏱️ Agent creation time: {agent_create_time:.0f}ms")
             

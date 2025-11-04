@@ -248,14 +248,26 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             raise ValueError("חובה לציין סוג טיפול/שירות")
         
         # Parse times
+        print(f"📅 TIMEZONE DEBUG:")
+        print(f"   Raw start_iso from Agent: '{input.start_iso}'")
+        print(f"   Raw end_iso from Agent: '{input.end_iso}'")
+        
         start = datetime.fromisoformat(input.start_iso)
         end = datetime.fromisoformat(input.end_iso)
+        
+        print(f"   Parsed start (before timezone): {start} (tzinfo={start.tzinfo})")
+        print(f"   Parsed end (before timezone): {end} (tzinfo={end.tzinfo})")
         
         # Add timezone if not present
         if start.tzinfo is None:
             start = tz.localize(start)
+            print(f"   ✅ Added timezone to start: {start}")
         if end.tzinfo is None:
             end = tz.localize(end)
+            print(f"   ✅ Added timezone to end: {end}")
+        
+        print(f"   Final start for DB: {start} (tzinfo={start.tzinfo})")
+        print(f"   Final end for DB: {end} (tzinfo={end.tzinfo})")
         
         # Validate time range
         if start >= end:

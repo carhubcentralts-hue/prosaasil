@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Check if agents are enabled
 AGENTS_ENABLED = os.getenv("AGENTS_ENABLED", "1") == "1"
 
-def create_booking_agent(business_name: str = "העסק", custom_instructions: str = None, business_id: int = None) -> Agent:
+def create_booking_agent(business_name: str = "העסק", custom_instructions: str = None, business_id: int = None, channel: str = "phone") -> Agent:
     """
     Create an agent specialized in appointment booking and customer management
     
@@ -329,6 +329,24 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         ]
     
     # CRITICAL: Always add date context prefix, even for custom instructions!
+    # 🎯 Different instructions for WhatsApp vs Phone calls!
+    
+    if channel == "whatsapp":
+        # WhatsApp - NO DTMF, ask nicely for name and phone
+        name_phone_instructions = """**🎯 STEP 1: GET NAME AND PHONE (Simple & Nice!):**
+1. **Ask for BOTH name AND phone in ONE question**: "מעולה! על איזה שם לרשום ומה מספר הטלפון?"
+   - Customer will write their name and phone in WhatsApp message
+2. Wait for customer to provide both details
+3. System will automatically capture the information from WhatsApp text"""
+    else:
+        # Phone calls - USE DTMF for phone number
+        name_phone_instructions = """**🎯 STEP 1: GET NAME AND PHONE TOGETHER (MANDATORY!):**
+1. **Ask for BOTH name AND phone in ONE question**: "מעולה! על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
+   - Customer will say their name verbally
+   - Customer will type phone on keypad and press #
+2. Wait for customer to provide name (verbally) and phone (via DTMF keypad)
+3. System will automatically capture DTMF digits when customer presses #"""
+    
     date_context_prefix = f"""📅 **CRITICAL DATE CONTEXT:**
 Today is {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d (%A)')}, current time: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%H:%M')} Israel time.
 
@@ -346,23 +364,18 @@ Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
 
 🚨 **CRITICAL - Smart Booking Flow:**
 
-**🎯 STEP 1: GET NAME AND PHONE TOGETHER (MANDATORY!):**
-1. **Ask for BOTH name AND phone in ONE question**: "מעולה! על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
-   - Customer will say their name verbally
-   - Customer will type phone on keypad and press #
-2. Wait for customer to provide name (verbally) and phone (via DTMF keypad)
-3. System will automatically capture DTMF digits when customer presses #
+{name_phone_instructions}
 
 **🎯 STEP 2: CONFIRM BOTH NAME AND PHONE:**
-1. **CONFIRM by repeating BOTH name and phone**: "תודה שי! אז שי דהן, 050-1234567, נכון?"
-   - Use the exact name customer said
-   - Use the exact phone number from DTMF input
+1. **CONFIRM by repeating BOTH name and phone**: "תודה! אז [שם], [מספר טלפון], נכון?"
+   - Use the exact name customer provided
+   - Use the exact phone number customer provided
 2. Wait for confirmation ("כן" / "נכון" / "בסדר")
-3. If customer corrects: "אה סליחה, מה השם הנכון?" or ask to retype phone
+3. If customer corrects: "אה סליחה, מה השם הנכון?" or ask for correct phone
 4. **DON'T proceed without clear confirmation of BOTH!**
 
 **Special cases:**
-- **IF phone was captured from call (customer_phone in context):** Still ask for name, but use customer_phone="" in tool
+- **IF phone was captured from call context (customer_phone in context):** Still ask for name, but use customer_phone="" in tool
 - **IF customer refuses to give phone:** That's OK! Proceed with customer_phone="" (phone is optional)
 
 **🎯 STEP 3: BOOK IMMEDIATELY AFTER NAME CONFIRMATION (MANDATORY!):**
@@ -370,23 +383,23 @@ Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
    - **IMMEDIATELY call** `calendar_create_appointment_wrapped` - THIS IS MANDATORY!
    - You MUST call the tool to actually create the appointment
    - DO NOT ask for time confirmation again - time was already discussed!
+   - **CRITICAL TIMEZONE:** Use Asia/Jerusalem timezone in ISO format: "2025-11-05T12:00:00+02:00"
    - Example parameters:
      * treatment_type: "עיסוי שוודי"
-     * start_iso: "2025-11-05T12:00:00+02:00" (EXACT time from earlier in conversation!)
-     * end_iso: "2025-11-05T13:00:00+02:00" (EXACT end time!)
+     * start_iso: "2025-11-05T12:00:00+02:00" (EXACT time from conversation in Israel timezone!)
+     * end_iso: "2025-11-05T13:00:00+02:00" (EXACT end time in Israel timezone!)
      * customer_phone: "050-1234567" or "" if from call or if customer refused
      * customer_name: "דני" (confirmed name!)
-2. After tool returns ok=True, say: "מעולה דני! קבעתי לך תור למחר ב-12:00. נתראה!"
-   - If phone was provided, add: "המספר שלך הוא 050-1234567."
+2. After tool returns ok=True, say: "מעולה! קבעתי לך תור ל[תאריך] ב-[שעה]. נתראה!"
    - Use PAST tense "קבעתי" (I booked) - the appointment is already created!
 3. If tool returns ok=False with error message - ask customer for alternative time and retry
 
 **KEY RULES:**
-- ✅ ALWAYS ask for name AND phone TOGETHER: "על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
-- ✅ ALWAYS confirm BOTH by repeating: "תודה שי! אז שי דהן, 050-1234567, נכון?"
+- ✅ ALWAYS ask for name AND phone TOGETHER (format depends on channel)
+- ✅ ALWAYS confirm BOTH by repeating name and phone
 - ✅ MANDATORY: After customer confirms with "כן" → IMMEDIATELY call calendar_create_appointment_wrapped
-- ✅ Use EXACT times in ISO format (never approximate!)
-- ✅ Phone is OPTIONAL - can proceed without phone if customer refuses or DTMF fails
+- ✅ Use EXACT times in ISO format with +02:00 or +03:00 timezone (Asia/Jerusalem)
+- ✅ Phone is OPTIONAL - can proceed without phone if customer refuses
 - ✅ After tool succeeds, use PAST tense: "מעולה! קבעתי לך תור למחר ב-14:00. נתראה!"
 - ❌ NEVER book without clear name (reject "לקוח" / "customer" / generic names)
 - ❌ NEVER ask for time confirmation again after name+phone confirmed - just book it!
@@ -410,6 +423,24 @@ Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
     else:
         # CRITICAL: Instructions in ENGLISH for Agent SDK (better understanding)
         # Agent MUST always respond in HEBREW to customers
+        
+        # Different name/phone instructions based on channel
+        if channel == "whatsapp":
+            default_name_phone_rule = """2. **NAME AND PHONE COLLECTION (ASK TOGETHER!):**
+   - ALWAYS ask for BOTH name AND phone in ONE question: "מעולה! על איזה שם לרשום ומה מספר הטלפון?"
+   - Customer will write their name and phone in WhatsApp message
+   - ALWAYS confirm BOTH by repeating: "תודה! אז [שם], [מספר], נכון?"
+   - Name is MANDATORY, phone is OPTIONAL (can proceed without phone if customer refuses)
+   - Both must be confirmed before booking"""
+        else:
+            default_name_phone_rule = """2. **NAME AND PHONE COLLECTION (ASK TOGETHER!):**
+   - ALWAYS ask for BOTH name AND phone in ONE question: "על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
+   - Customer says name verbally + types phone on keypad + presses #
+   - System captures DTMF phone automatically
+   - ALWAYS confirm BOTH by repeating: "תודה! אז [שם], [מספר], נכון?"
+   - Name is MANDATORY, phone is OPTIONAL (can proceed without phone if customer refuses)
+   - Both must be confirmed before booking"""
+        
         instructions = f"""You are a booking agent for {business_name}. Always respond in Hebrew.
 
 📅 **DATE CONTEXT:**
@@ -425,13 +456,7 @@ ALWAYS use year 2025 for dates! Convert to ISO: YYYY-MM-DD.
    - NEVER say "אין זמינות" without checking the tool
    - When customer asks for appointment → MUST call calendar_find_slots_wrapped
 
-2. **NAME AND PHONE COLLECTION (ASK TOGETHER!):**
-   - ALWAYS ask for BOTH name AND phone in ONE question: "על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #"
-   - Customer says name verbally + types phone on keypad + presses #
-   - System captures DTMF phone automatically
-   - ALWAYS confirm BOTH by repeating: "תודה שי! אז שי דהן, 050-1234567, נכון?"
-   - Name is MANDATORY, phone is OPTIONAL (can proceed without phone if customer refuses)
-   - Both must be confirmed before booking
+{default_name_phone_rule}
 
 3. **ERROR HANDLING:**
    - If a tool returns ok=false or error=validation_error:
@@ -597,7 +622,7 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
 
 _agent_cache = {}
 
-def get_agent(agent_type: str = "booking", business_name: str = "העסק", custom_instructions: str = None, business_id: int = None) -> Agent:
+def get_agent(agent_type: str = "booking", business_name: str = "העסק", custom_instructions: str = None, business_id: int = None, channel: str = "phone") -> Agent:
     """
     Get or create an agent by type
     
@@ -614,18 +639,18 @@ def get_agent(agent_type: str = "booking", business_name: str = "העסק", cust
     if custom_instructions and isinstance(custom_instructions, str) and custom_instructions.strip():
         logger.info(f"Creating fresh agent with custom instructions ({len(custom_instructions)} chars)")
         if agent_type == "booking":
-            return create_booking_agent(business_name, custom_instructions, business_id)
+            return create_booking_agent(business_name, custom_instructions, business_id, channel)
         elif agent_type == "sales":
             return create_sales_agent(business_name)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
     
-    # Otherwise use cached agent
-    cache_key = f"{agent_type}:{business_name}:{business_id}"
+    # Otherwise use cached agent (include channel in cache key!)
+    cache_key = f"{agent_type}:{business_name}:{business_id}:{channel}"
     
     if cache_key not in _agent_cache:
         if agent_type == "booking":
-            _agent_cache[cache_key] = create_booking_agent(business_name, None, business_id)
+            _agent_cache[cache_key] = create_booking_agent(business_name, None, business_id, channel)
         elif agent_type == "sales":
             _agent_cache[cache_key] = create_sales_agent(business_name)
         else:
