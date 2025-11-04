@@ -360,8 +360,8 @@ Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
 - Use the confirmed phone in customer_phone parameter
 
 **🎯 STEP 3: CONFIRM TIME AND BOOK:**
-1. **Repeat the EXACT time**: "אז קבעתי לך תור ל{יום} ב-{שעה מדויקת}, נכון?"
-   - Example: "אז קבעתי לך תור למחר ב-12:00, נכון?"
+1. **Repeat the EXACT time**: "אז קבעתי לך תור למחר ב-12:00, נכון?"
+   - Always use specific day and time, not generic placeholders
 2. Wait for final confirmation
 3. **ONLY THEN call** `calendar_create_appointment_wrapped`:
    - treatment_type: "עיסוי שוודי"
