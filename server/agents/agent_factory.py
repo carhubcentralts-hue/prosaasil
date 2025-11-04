@@ -126,10 +126,19 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 print(f"📤 Returning dict with {len(result_dict.get('slots', []))} slots")
                 return result_dict
             except Exception as e:
-                logger.error(f"❌ calendar_find_slots_wrapped FAILED: {e}")
+                # 🔥 DON'T raise - return controlled error for Agent to handle
+                error_msg = str(e)[:120]
+                logger.error(f"❌ calendar_find_slots_wrapped FAILED: {error_msg}")
                 import traceback
                 traceback.print_exc()
-                raise
+                
+                # Return structured error instead of raising
+                return {
+                    "ok": False,
+                    "error": "calendar_error",
+                    "message": f"לא ניתן למצוא שעות פנויות: {error_msg}",
+                    "slots": []
+                }
         
         # Wrapper for calendar_create_appointment  
         @function_tool
@@ -280,11 +289,19 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                     return {"lead_id": lead.id, "action": "created", "phone": phone, "name": name or ""}
                     
             except Exception as e:
-                logger.error(f"❌ leads_upsert_wrapped error: {e}")
+                # 🔥 DON'T raise - return controlled error for Agent to handle
+                error_msg = str(e)[:120]
+                logger.error(f"❌ leads_upsert_wrapped error: {error_msg}")
                 db.session.rollback()
                 import traceback
                 traceback.print_exc()
-                raise
+                
+                # Return structured error instead of raising
+                return {
+                    "ok": False,
+                    "error": "lead_error",
+                    "message": f"לא ניתן לשמור פרטי לקוח: {error_msg}"
+                }
         
         tools_to_use = [
             calendar_find_slots_wrapped,

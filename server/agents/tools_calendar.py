@@ -70,7 +70,7 @@ class CreateAppointmentInput(BaseModel):
     """Input for creating a new appointment"""
     business_id: int = Field(..., description="Business ID", ge=1)
     customer_name: str = Field(..., description="Customer full name or placeholder", max_length=200)
-    customer_phone: str = Field(..., description="Customer phone in E.164 format (+972...) or UNKNOWN if not available")
+    customer_phone: Optional[str] = Field(None, description="Customer phone in E.164 format (+972...) - optional, will use call context if not provided")
     treatment_type: str = Field(..., description="Type of service/treatment", min_length=2, max_length=100)
     start_iso: str = Field(..., description="Start time in ISO format")
     end_iso: str = Field(..., description="End time in ISO format")

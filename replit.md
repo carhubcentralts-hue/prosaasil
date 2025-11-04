@@ -47,6 +47,13 @@ Preferred communication style: Simple, everyday language.
 - **Enhanced Reminders System**: Comprehensive reminder management.
 
 ## System Design Choices
+- **BUILD 120 - Agent Memory & Phone Handling Fix** ✅ PRODUCTION READY:
+  - **Conversation Memory Fixed**: Agent now receives full conversation history via `input` parameter in Runner.run()
+  - **Phone Fallback System**: New _choose_phone() with hierarchy: input → context → session → None
+  - **Graceful Error Handling**: All tools return {ok: false, error, message} instead of raising exceptions
+  - **No Phone Required**: Appointments can be created with phone=None (auto-captured from call context)
+  - **Agent Instructions Updated**: NEVER ask for phone in voice calls (auto-captured), always respond in Hebrew, handle tool failures gracefully
+  - **Phone Utilities**: Created phone_utils.py with normalize_il_phone for Israeli phone number normalization
 - **BUILD 119 - AgentKit Integration for Real Actions** ✅ PRODUCTION READY:
   - **OpenAI Agents SDK**: Integrated `openai-agents` package (correct import: `from agents import Agent`)
   - **Tool System**: Comprehensive tools for calendar (find_slots, create_appointment), leads (upsert, search), and WhatsApp (send)
