@@ -47,15 +47,17 @@ Preferred communication style: Simple, everyday language.
 - **Enhanced Reminders System**: Comprehensive reminder management.
 
 ## System Design Choices
-- **BUILD 121 - Mandatory Name & Phone Confirmation + DTMF Support** ✅ PRODUCTION READY:
+- **BUILD 121 - Mandatory Name & Phone Confirmation + DTMF Support** ✅ 100% PRODUCTION READY:
   - **Name Confirmation Required**: Agent MUST confirm customer name by repeating ("תודה דני! אז דני, נכון?")
   - **DTMF Phone Input**: Agent instructs user to type phone number on keypad + press # ("תקליד את המספר טלפון במקלדת ואחרי זה תקיש סולמית (#)")
   - **DTMF Processing**: WebSocket handles "dtmf" events, buffers digits until #, validates 9+ digits, processes as AI input
+  - **Barge-in Disabled During DTMF**: System disables voice interruption when waiting for keypad input to prevent false triggers
   - **Phone Collection Enhanced**: If no phone from call context, Agent uses DTMF input (more accurate than voice)
-  - **Strict Validation**: Cannot create appointment without clear name (no "לקוח", "customer") AND valid phone (9-15 digits)
+  - **Phone is OPTIONAL**: System can create appointments without phone number (nullable in DB), graceful handling if unavailable
+  - **Graceful Error Handling**: All validation errors return {ok: false, error, message} instead of raising exceptions
+  - **Strict Name Validation**: Cannot create appointment without clear name (no "לקוח", "customer", generic names)
   - **Time Confirmation**: Agent confirms exact time before booking ("אז קבעתי לך תור למחר ב-12:00, נכון?")
-  - **Full Details Summary**: After booking, Agent repeats ALL details (name, time, phone) for customer confirmation
-  - **No Generic Names**: Validation rejects generic names like "לקוח", requires specific customer names
+  - **Full Details Summary**: After booking, Agent repeats ALL details (name, time, phone if available) for customer confirmation
 - **BUILD 120 - Agent Memory & Phone Handling Fix** ✅ PRODUCTION READY:
   - **Conversation Memory Fixed**: Agent now receives full conversation history via `input` parameter in Runner.run()
   - **Phone Fallback System**: New _choose_phone() with hierarchy: input → context → session → None
