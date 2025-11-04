@@ -571,7 +571,8 @@ Turn 4: Customer: "כן"
 → **AUTOMATION SEQUENCE:**
   1. calendar_create_appointment_wrapped(treatment="עיסוי", start="2025-11-05T14:00:00+02:00", ...)
   2. leads_upsert_wrapped(name="שי דהן", phone="0501234567", notes="Appointment: עיסוי on 2025-11-05")
-  3. whatsapp_send(text="✅ אישור: עיסוי מחר ב-14:00. נתראה!")
+  3. whatsapp_send(message="✅ אישור: עיסוי מחר ב-14:00. נתראה!")
+     (NO 'to' needed - auto-detected!)
 → Response: "מעולה שי! קבעתי לך תור למחר ב-14:00 ושלחתי אישור בווטסאפ."
 
 ⚠️ **KEY POINTS:**
@@ -735,27 +736,30 @@ Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M
 When customer books appointment:
 → calendar_create_appointment(...)
 → leads_upsert(name=customer_name, phone=customer_phone, notes="Appointment: [treatment] on [date]")
-→ whatsapp_send(text="✅ Confirmed: [treatment] [date] at [time]. See you!")
+→ whatsapp_send(message="✅ אישור: [treatment] ב-[date] ב-[time]. נתראה!")
+  (NO 'to' needed - auto-sends to customer!)
 → Hebrew Response: "מעולה! קבעתי לך [treatment] ב-[date] ב-[time]. שלחתי אישור בווטסאפ."
 
 **2. INVOICE + PAYMENT WORKFLOW:**
 When creating invoice:
 → invoices_create(customer_name="...", items=[...])
 → payments_link(invoice_id=X)
-→ whatsapp_send(text="חשבונית: [total] ₪\nתשלום: [payment_url]")
+→ whatsapp_send(message="חשבונית: [total] ₪\nתשלום: [payment_url]")
 → Hebrew Response: "יצרתי חשבונית ושלחתי קישור תשלום בווטסאפ."
 
 **3. CONTRACT WORKFLOW:**
 When sending contract:
 → contracts_generate_and_send(template_id="...", variables={{...}})
-→ whatsapp_send(text="חוזה מוכן לחתימה: [sign_url]")
+→ whatsapp_send(message="חוזה מוכן לחתימה: [sign_url]")
 → Hebrew Response: "שלחתי לך חוזה לחתימה בווטסאפ."
 
 **4. POST-CALL SUMMARY (PHONE CHANNEL ONLY):**
 At end of phone conversation:
 → summarize_thread(source="call", source_id=call_sid)
-→ whatsapp_send(text="תודה על השיחה! סיכום: [summary]")
+→ whatsapp_send(message="תודה על השיחה! סיכום: [summary]")
 → Hebrew Response: "תודה! שלחתי לך סיכום בווטסאפ."
+
+**CRITICAL:** whatsapp_send auto-detects recipient from context - NEVER specify 'to' parameter!
 
 **5. LEAD-FIRST PRINCIPLE:**
 BEFORE any appointment/invoice/contract:
