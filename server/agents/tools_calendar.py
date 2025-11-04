@@ -177,11 +177,16 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput) -> CreateAp
         if duration_min < 15 or duration_min > 240:
             raise ValueError(f"משך הפגישה חייב להיות בין 15-240 דקות (קיבלתי: {duration_min:.0f} דקות)")
         
-        # ⚡ Validate phone format
-        phone = input.customer_phone.strip()
-        if not phone.startswith('+') and not phone.startswith('0'):
+        # ⚡ Validate phone format - ALLOW EMPTY (will use UNKNOWN)
+        phone = input.customer_phone.strip() if input.customer_phone else ""
+        
+        # If empty, use UNKNOWN placeholder (phone will be in call log)
+        if not phone or phone in ["", "None", "null"]:
+            phone = "UNKNOWN"
+        # Otherwise validate format
+        elif not phone.startswith('+') and not phone.startswith('0') and phone != "UNKNOWN":
             raise ValueError("מספר טלפון חייב להתחיל ב-+ או 0")
-        if phone.startswith('0') and len(phone) < 9:
+        elif phone.startswith('0') and len(phone) < 9:
             raise ValueError("מספר טלפון לא תקין (קצר מדי)")
         
         # ⚡ Validate treatment type
