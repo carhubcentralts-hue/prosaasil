@@ -47,8 +47,8 @@ Preferred communication style: Simple, everyday language.
 - **Enhanced Reminders System**: Comprehensive reminder management.
 
 ## System Design Choices
-- **BUILD 121 - Mandatory Name & Phone Confirmation + DTMF Support** ✅ STABLE & TESTED:
-  - **Name Confirmation Required**: Agent MUST confirm customer name by repeating ("תודה דני! אז דני, נכון?")
+- **BUILD 121 - Mandatory Name Confirmation + DTMF Support** ✅ STABLE & TESTED:
+  - **Name Confirmation Required**: Agent MUST confirm customer name by repeating ("תודה שי! אז שי דהן, נכון?")
   - **DTMF Phone Input**: Agent instructs user to type phone number on keypad + press # ("תקליד את המספר טלפון במקלדת ואחרי זה תקיש סולמית (#)")
   - **DTMF Processing**: WebSocket handles "dtmf" events, buffers digits until #, validates 9+ digits, processes as AI input
   - **Barge-in Disabled During DTMF**: System disables voice interruption when waiting for keypad input to prevent false triggers
@@ -56,9 +56,9 @@ Preferred communication style: Simple, everyday language.
   - **Phone is OPTIONAL**: System can create appointments without phone number (nullable in DB), graceful handling if unavailable
   - **Graceful Error Handling**: All validation errors return {ok: false, error, message} with isinstance() checks, never raise exceptions
   - **Strict Name Validation**: Cannot create appointment without clear name (no "לקוח", "customer", generic names)
-  - **Time Confirmation BEFORE Booking**: Agent uses future tense "אז לקבוע לך תור למחר ב-12:00, נכון?" BEFORE calling tool
-  - **Success Message AFTER Booking**: Agent uses past tense "מעולה! קבעתי לך תור" only AFTER tool returns ok=true
-  - **Full Details Summary**: After booking, Agent repeats ALL details (name, time, phone if available) for customer confirmation
+  - **Immediate Booking After Name**: Agent books IMMEDIATELY after name confirmation - NO extra time confirmation needed
+  - **Success Message**: Agent uses past tense "מעולה שי! קבעתי לך תור למחר ב-14:00. נתראה!" after tool succeeds
+  - **Simple & Direct Flow**: Minimal confirmations for natural, efficient conversation (5 turns instead of 7)
 - **BUILD 120 - Agent Memory & Phone Handling Fix** ✅ PRODUCTION READY:
   - **Conversation Memory Fixed**: Agent now receives full conversation history via `input` parameter in Runner.run()
   - **Phone Fallback System**: New _choose_phone() with hierarchy: input → context → session → None
