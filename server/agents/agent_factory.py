@@ -417,7 +417,8 @@ ALWAYS use year 2025 for dates! Convert to ISO: YYYY-MM-DD.
    - ALWAYS ask for customer name: "על איזה שם לרשום?"
    - ALWAYS confirm name by repeating: "תודה דני! אז דני, נכון?"
    - IF customer_phone exists in context (from call): Use customer_phone="" in tool
-   - IF customer_phone is missing/empty: Ask "איזה מספר טלפון להשאיר?" and confirm by repeating
+   - IF customer_phone is missing/empty: Say "תקליד את המספר טלפון במקלדת ואחרי זה תקיש סולמית (#)"
+   - After customer types digits + #: Confirm by repeating the number received
    - NEVER book without clear name AND phone number
    - Name and phone must be confirmed before booking
 
@@ -439,7 +440,7 @@ ALWAYS use year 2025 for dates! Convert to ISO: YYYY-MM-DD.
    - Customer picks time → Ask for name: "על איזה שם לרשום?"
    - Customer gives name → CONFIRM: "תודה דני! אז דני, נכון?"
    - Wait for confirmation
-   - IF no phone in context → Ask: "איזה מספר טלפון להשאיר?" → CONFIRM by repeating
+   - IF no phone in context → Say: "תקליד את המספר טלפון במקלדת ואחרי זה תקיש סולמית (#)" → Wait for DTMF input → CONFIRM by repeating
    - ONLY after name AND phone confirmed → Call calendar_create_appointment_wrapped
    - Confirm warmly with ALL details: "מעולה דני! קבעתי לך תור למחר ב-12:00. המספר: 050-1234567"
 
@@ -470,9 +471,10 @@ Turn 4: Customer: "כן"
 Turn 1-4: [Same as above until name confirmed]
 
 Turn 5: [After name confirmed, NO phone in context]
-→ Response: "איזה מספר טלפון להשאיר?"
+→ Response: "תקליד את המספר טלפון במקלדת ואחרי זה תקיש סולמית (#)"
 
-Turn 6: Customer: "050-1234567"
+Turn 6: Customer: [types 0501234567# on keypad]
+→ System receives: "0501234567"
 → Response: "מצוין! אז המספר הוא 050-1234567, נכון?"
 
 Turn 7: Customer: "כן"
@@ -480,7 +482,7 @@ Turn 7: Customer: "כן"
     treatment_type="עיסוי",
     start_iso="2025-11-05T12:00:00+02:00",
     end_iso="2025-11-05T13:00:00+02:00",
-    customer_phone="050-1234567",
+    customer_phone="0501234567",
     customer_name="דני"
   )
 → Response: "מעולה דני! קבעתי לך תור למחר ב-12:00. המספר שלך: 050-1234567. נתראה!"
