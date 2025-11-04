@@ -4,6 +4,38 @@ AgentLocator is a Hebrew CRM system tailored for real estate businesses. Its cor
 
 # Recent Changes
 
+## BUILD 129 - DOUBLE BOOKING PREVENTION (CRITICAL FIX) ✅
+**Problem**: System allowed creating multiple appointments at the same time (15:00 duplicate bookings)
+
+**Root Cause**: Only Agent SDK had overlap detection - manual API, WhatsApp, and auto-meeting paths had NO conflict checking!
+
+**Complete Fix (4 Files)**:
+1. **server/routes_calendar.py**:
+   - Added `check_appointment_overlap()` helper function
+   - POST `/api/calendar/appointments`: Returns 409 Conflict if overlap detected
+   - PUT `/api/calendar/appointments/<id>`: Checks overlap (excludes current appointment)
+   - Returns Hebrew error message with conflicting appointment details
+2. **server/agents/tools_calendar.py**:
+   - Fixed overlap check to use **naive datetimes** (matches DB storage)
+   - Previously compared timezone-aware with naive datetimes (potential bugs)
+3. **server/whatsapp_appointment_handler.py**:
+   - Added overlap check before creating appointment
+   - Smart fallback: tries 1 hour later if conflict detected
+   - Returns error if both slots occupied
+4. **server/auto_meeting.py**:
+   - Added overlap check before creating appointment
+   - Smart fallback: tries 1 hour later if conflict detected
+   - Returns error if both slots occupied
+
+**Overlap Detection Logic**:
+```python
+# Check: start_time < new_end AND end_time > new_start
+# Filter: business_id + status in ['scheduled', 'confirmed']
+# Update: exclude current appointment ID
+```
+
+**Result**: **IMPOSSIBLE** to create double bookings from any path (Agent, API, WhatsApp, Phone) ✅
+
 ## BUILD 128 - TIMEZONE BUG FIX (CRITICAL - FULLY SOLVED!) ✅
 **Problem**: Appointments saved 2 hours earlier than requested (14:00 → 12:00, 13:00 → 11:00, 11:30 → 09:30)
 
