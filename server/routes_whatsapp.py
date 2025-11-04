@@ -352,6 +352,21 @@ def baileys_webhook():
                 action = "created" if was_created else "updated"
                 log.info(f"✅ {action} customer/lead for {from_number}")
                 
+                # ✅ Check if message already exists (prevent duplicates from webhook retries)
+                existing_msg = WhatsAppMessage.query.filter_by(
+                    business_id=business_id,
+                    to_number=from_number,
+                    body=message_text,
+                    direction='inbound'
+                ).order_by(WhatsAppMessage.created_at.desc()).first()
+                
+                # Skip if same message was received in last 10 seconds (webhook retry)
+                if existing_msg:
+                    from datetime import datetime, timedelta
+                    if (datetime.utcnow() - existing_msg.created_at) < timedelta(seconds=10):
+                        log.warning(f"⚠️ Duplicate message detected, skipping: {message_text[:50]}...")
+                        continue
+                
                 # Save incoming message to DB
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
@@ -400,12 +415,14 @@ def baileys_webhook():
                 except Exception as e:
                     log.warning(f"⚠️ Could not load conversation history: {e}")
                 
-                # ✅ BUILD 92: Generate AI response with conversation history
+                # ✅ BUILD 119: Generate AI response with Agent SDK (real actions!)
                 try:
                     ai_start = time.time()
                     
-                    from server.services.ai_service import generate_ai_response
-                    response_text = generate_ai_response(
+                    from server.services.ai_service import get_ai_service
+                    ai_service = get_ai_service()
+                    
+                    response_text = ai_service.generate_response_with_agent(
                         message=message_text,
                         business_id=business_id,
                         context={
@@ -415,13 +432,17 @@ def baileys_webhook():
                             'previous_messages': previous_messages,  # ✅ זיכרון שיחה - 10 הודעות!
                             'appointment_created': appointment_created  # ✅ BUILD 93: הפגישה נקבעה!
                         },
-                        channel='whatsapp'
+                        channel='whatsapp',
+                        customer_phone=from_number,
+                        customer_name=customer.name if customer else None
                     )
                     
                     ai_duration = time.time() - ai_start
-                    log.info(f"✅ AI response ({ai_duration:.2f}s): {response_text[:50]}...")
+                    log.info(f"✅ Agent response ({ai_duration:.2f}s): {response_text[:50]}...")
                 except Exception as e:
-                    log.error(f"⚠️ AI response failed, using fallback: {e}")
+                    log.error(f"⚠️ Agent response failed, using fallback: {e}")
+                    import traceback
+                    traceback.print_exc()
                     response_text = "שלום! קיבלתי את ההודעה שלך. נציג יחזור אליך בהקדם."
                 
                 # Send response via Baileys

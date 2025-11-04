@@ -47,6 +47,12 @@ Preferred communication style: Simple, everyday language.
 - **Enhanced Reminders System**: Comprehensive reminder management.
 
 ## System Design Choices
+- **BUILD 122 - WhatsApp Agent SDK Integration** ✅ PRODUCTION READY:
+  - **Agent SDK for WhatsApp**: WhatsApp now uses `generate_response_with_agent` instead of basic AI
+  - **Real Actions**: Agent performs appointments, lead creation during WhatsApp conversations
+  - **Duplicate Prevention**: Checks for duplicate messages within 10 seconds (webhook retries)
+  - **Full Context**: Conversation history (10 messages) passed to Agent for context
+  - **Performance**: Agent optimized for fast WhatsApp responses
 - **BUILD 121 - Mandatory Name+Phone Confirmation + DTMF Support** ✅ STABLE & TESTED:
   - **Ask Name AND Phone Together**: Agent asks "על איזה שם לרשום? ומספר טלפון - תקליד במקלדת והקש #" in single turn
   - **Dual Input Collection**: Customer provides name verbally + phone via DTMF keypad simultaneously
