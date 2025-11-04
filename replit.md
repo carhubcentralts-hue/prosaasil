@@ -23,10 +23,10 @@ AgentLocator is a Hebrew CRM system tailored for real estate businesses. Its cor
 
 3. **Agent Factory - create_ops_agent()**:
    - Unified operations agent with all 9 tools
-   - Instructions in English, responses in Hebrew
+   - **Instructions in ENGLISH, responses in HEBREW** (critical for model performance)
    - Model: `gpt-4o-mini`, temp: 0.2, max_tokens: 350
    - Settings: `tool_choice="required"`, `parallel_tool_calls=True`
-   - Comprehensive Hebrew instructions with workflow examples
+   - Comprehensive English instructions with workflow examples
 
 4. **API Endpoint - /api/agent/ops**:
    - POST endpoint for agent operations
