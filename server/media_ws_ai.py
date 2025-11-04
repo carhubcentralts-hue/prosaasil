@@ -357,6 +357,11 @@ class MediaStreamHandler:
         self.business_id = None  # ✅ יזוהה דינמית לפי to_number
         self.phone_number = None
         
+        # ⚡ DTMF phone collection (digits gathered from keypad)
+        self.dtmf_buffer = ""  # Accumulated digits from phone keypad
+        self.waiting_for_dtmf = False  # Are we waiting for phone input?
+        self.dtmf_purpose = None  # What are we collecting? 'phone', etc.
+        
         # היסטוריית שיחה למעקב אחר הקשר
         self.conversation_history = []  # רשימה של הודעות {'user': str, 'bot': str}
         self.turn_count = 0  # ⚡ Phase 2C: Track turns for first-turn optimization
@@ -1015,6 +1020,53 @@ class MediaStreamHandler:
                             if self.state == STATE_THINK:
                                 self.state = STATE_LISTEN
                             print(f"✅ Emergency processing complete for conversation #{current_id}")
+                    
+                    continue
+                
+                if et == "dtmf":
+                    # ⚡ BUILD 121: DTMF digit collection for phone number input
+                    digit = evt.get("dtmf", {}).get("digit", "")
+                    print(f"📞 DTMF pressed: {digit} (buffer={self.dtmf_buffer})")
+                    
+                    if digit == "#":
+                        # End of input - process collected digits
+                        if self.dtmf_buffer and len(self.dtmf_buffer) >= 9:
+                            phone_number = self.dtmf_buffer
+                            print(f"✅ DTMF phone collected: {phone_number}")
+                            
+                            # Clear buffer
+                            self.dtmf_buffer = ""
+                            self.waiting_for_dtmf = False
+                            
+                            # Inject as if customer said the number
+                            hebrew_text = f"המספר שלי הוא {phone_number}"
+                            print(f"🎯 DTMF -> AI: '{hebrew_text}'")
+                            
+                            # Process as normal utterance (trigger AI response)
+                            try:
+                                self._process_dtmf_phone(phone_number)
+                            except Exception as e:
+                                print(f"❌ DTMF processing failed: {e}")
+                                import traceback
+                                traceback.print_exc()
+                        else:
+                            print(f"⚠️ DTMF input too short: {self.dtmf_buffer} (need 9+ digits)")
+                            # Play error message
+                            self._speak("המספר לא תקין. אנא נסה שוב.")
+                        
+                        # Reset buffer anyway
+                        self.dtmf_buffer = ""
+                        
+                    elif digit == "*":
+                        # Clear/restart input
+                        print(f"🔄 DTMF cleared (was: {self.dtmf_buffer})")
+                        self.dtmf_buffer = ""
+                        self._speak("אנא הקלד שוב.")
+                        
+                    elif digit.isdigit():
+                        # Append digit
+                        self.dtmf_buffer += digit
+                        print(f"📝 DTMF buffer: {self.dtmf_buffer}")
                     
                     continue
 
@@ -2211,6 +2263,35 @@ class MediaStreamHandler:
             print(f"❌ Traceback: {traceback.format_exc()}")
             return "שלום! איך אפשר לעזור?"
 
+    def _process_dtmf_phone(self, phone_number: str):
+        """
+        ⚡ BUILD 121: Process phone number collected via DTMF
+        Inject as conversation input and generate AI response
+        """
+        print(f"📞 Processing DTMF phone: {phone_number}")
+        
+        # Format as Israeli phone number if needed
+        if not phone_number.startswith("+") and not phone_number.startswith("0"):
+            phone_number = "0" + phone_number
+        
+        # Create Hebrew text as if customer said it
+        hebrew_text = phone_number  # Just the digits
+        
+        # Get AI response (Agent will process the phone)
+        ai_response = self._ai_response(hebrew_text)
+        
+        # Speak the response
+        if ai_response:
+            self._speak(ai_response)
+            
+            # Save to conversation history
+            self.conversation_history.append({
+                "user": f"[DTMF] {phone_number}",
+                "bot": ai_response
+            })
+        
+        print(f"✅ DTMF phone processed: {phone_number}")
+    
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response using AgentKit - REAL ACTIONS!"""
         try:
