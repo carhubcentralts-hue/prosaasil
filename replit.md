@@ -4,13 +4,12 @@ AgentLocator is a Hebrew CRM system for real estate businesses, designed to auto
 
 # Recent Changes (BUILD 134)
 
-**Performance Optimization - Target: <2s Response Time:**
-- `tool_choice="auto"` instead of "required" - allows greetings without tools (saves 1-2s)
-- `max_tokens=200` instead of 350 - faster, more concise responses
-- OpenAI timeout: 2.5s instead of 3.5s - prevents long delays
+**Performance + Accuracy Optimization:**
+- **STT Accuracy**: Expanded speech_contexts from 30→80+ Hebrew phrases, boost=20.0, stricter confidence (0.4→0.7)
+- **Performance**: `tool_choice="auto"` (saves 1-2s), `max_tokens=250`, OpenAI timeout=2.5s
+- **Target**: <2s WhatsApp response, <2.5s phone calls
 - Agent modules imported at module level - eliminates import overhead
 - Fixed Foreign Key violations in Invoice/Contract creation - auto-creates Customer records
-- Enhanced WhatsApp send debugging with comprehensive logging
 
 # User Preferences
 

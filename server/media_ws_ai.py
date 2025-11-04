@@ -1864,11 +1864,16 @@ class MediaStreamHandler:
                 # קונטקסט קל - רק לרמז
                 speech_contexts=[
                     speech.SpeechContext(phrases=[
-                        "שלום", "תודה", "כן", "לא", "בסדר", "נהדר", "ביי",
-                        "דירה", "בית", "נדלן", "משרד", "חדרים", "שכירות", "קניה",
-                        "תל אביב", "רמת גן", "רמלה", "לוד", "מודיעין",
-                        "אלף", "מיליון", "שקל", "תקציב", "מחיר"
-                    ], boost=2.0)
+                        # 🔥 BUILD 134: EXPANDED for accuracy - same as streaming STT
+                        "שלום", "היי", "בוקר טוב", "תודה", "תודה רבה", "בבקשה",
+                        "כן", "לא", "בסדר", "מעולה", "נהדר", "מצוין", "אוקיי",
+                        "דירה", "משרד", "חדרים", "שכירות", "מכירה", "קניה", "שכר",
+                        "מטר", "קומה", "מעלית", "חניה", "מרפסת", "ממד", "מחסן",
+                        "תל אביב", "ירושלים", "חיפה", "רמת גן", "פתח תקווה", "רמלה", "לוד", "מודיעין",
+                        "שקל", "שקלים", "אלף", "אלפים", "מיליון", "תקציב", "מחיר", "נדלן",
+                        "תור", "פגישה", "מחר", "מחרתיים", "יום", "שבוע", "חודש",
+                        "אחד", "שניים", "שלוש", "ארבע", "חמש", "שש", "עשר", "עשרים"
+                    ], boost=20.0)  # 🔥 Increased boost for better accuracy
                 ]
             )
             
@@ -1894,16 +1899,21 @@ class MediaStreamHandler:
                 confidence = response.results[0].alternatives[0].confidence
                 print(f"📊 GOOGLE_STT_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
                 
-                # ⚡ BUILD 111: SMART confidence - prevent false positives
-                if confidence < 0.3:  # Very low confidence = not reliable
-                    print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.3 - rejecting result")
+                # 🔥 BUILD 134: STRICTER confidence thresholds for accuracy!
+                if confidence < 0.4:  # 🔥 INCREASED: 0.4 instead of 0.3 for better accuracy
+                    print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.4 - rejecting result")
                     return ""  # Return empty instead of nonsense
                 
-                # ⚡ BUILD 111: Additional check - reject very short results with low-medium confidence
+                # 🔥 BUILD 134: Stricter check for short results
                 word_count = len(hebrew_text.split())
-                if word_count <= 2 and confidence < 0.6:
-                    print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.6 - likely noise")
+                if word_count <= 2 and confidence < 0.7:  # 🔥 INCREASED: 0.7 instead of 0.6
+                    print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.7 - likely noise")
                     return ""
+                
+                # 🔥 BUILD 134: Log alternative transcripts for debugging
+                if len(response.results[0].alternatives) > 1:
+                    alt_text = response.results[0].alternatives[1].transcript
+                    print(f"   📝 Alternative: '{alt_text}'")
                 
                 print(f"✅ GOOGLE_STT_SUCCESS: '{hebrew_text}' ({word_count} words, confidence: {confidence:.2f})")
                 return hebrew_text
