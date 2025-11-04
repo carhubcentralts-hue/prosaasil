@@ -9,6 +9,10 @@ import json
 from typing import Dict, List, Optional
 import requests
 import os
+import pytz
+
+# 🔥 Israel timezone for converting naive datetimes
+tz = pytz.timezone("Asia/Jerusalem")
 
 def extract_appointment_info_from_whatsapp(message_text: str, customer_phone: str) -> Dict:
     """
@@ -182,10 +186,13 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
         db.session.add(appointment)
         db.session.commit()
         
+        # 🔥 Add timezone before returning for API responses
+        meeting_time_aware = tz.localize(meeting_time)
+        
         return {
             'success': True,
             'appointment_id': appointment.id,
-            'meeting_time': meeting_time.isoformat(),
+            'meeting_time': meeting_time_aware.isoformat(),  # With timezone
             'customer_name': customer.name,
             'title': title,
             'urgency': appointment_info['urgency'],
@@ -373,11 +380,13 @@ def get_upcoming_appointments_for_reminders() -> List[Dict]:
         reminders_needed = []
         for apt in appointments:
             if not apt.notes or 'תזכורת נשלחה:' not in apt.notes:
+                # 🔥 Add timezone before returning
+                start_time_aware = tz.localize(apt.start_time) if apt.start_time.tzinfo is None else apt.start_time
                 reminders_needed.append({
                     'appointment_id': apt.id,
                     'contact_phone': apt.contact_phone,
                     'contact_name': apt.contact_name,
-                    'start_time': apt.start_time.isoformat(),
+                    'start_time': start_time_aware.isoformat(),  # With timezone
                     'title': apt.title
                 })
         

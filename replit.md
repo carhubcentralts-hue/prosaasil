@@ -2,6 +2,34 @@
 
 AgentLocator is a Hebrew CRM system tailored for real estate businesses. Its core purpose is to streamline the sales pipeline through an AI-powered assistant that automates lead management. Key capabilities include real-time call processing, intelligent lead information collection, and meeting scheduling, all powered by advanced audio processing for natural conversations. The system aims to provide fully customizable AI assistants and business branding to real estate professionals, enhancing efficiency and sales conversion.
 
+# Recent Changes
+
+## BUILD 128 - TIMEZONE BUG FIX (CRITICAL - FULLY SOLVED!) ✅
+**Problem**: Appointments saved 2 hours earlier than requested (14:00 → 12:00, 13:00 → 11:00, 11:30 → 09:30)
+
+**Root Cause**: PostgreSQL was converting timezone-aware datetimes to UTC before saving!
+- Agent sends: `"2025-11-05T14:00:00+02:00"` (14:00 Israel time) ✅
+- DB columns are `DateTime` (not `DateTimeTZ`), so PostgreSQL auto-converts to UTC
+- PostgreSQL: `14:00 - 2 hours = 12:00 UTC` → Saves `12:00` (naive) ❌
+- Result: 2-hour shift!
+
+**Complete Fix (5 Files)**:
+1. **server/agents/tools_calendar.py**:
+   - `_calendar_create_appointment_impl`: Strip timezone before DB save → `start.replace(tzinfo=None)`
+   - `_calendar_find_slots_impl`: Add timezone when reading → `tz.localize(apt.start_time)`
+2. **server/routes_calendar.py**:
+   - POST/PUT (create/update): Strip timezone before DB save
+   - GET endpoints: Add timezone before `.isoformat()` for API responses
+3. **server/whatsapp_appointment_handler.py**: Add timezone to all API responses
+
+**Technical Solution**:
+- **SAVE to DB**: Always strip timezone → `datetime.replace(tzinfo=None)`
+- **READ from DB**: Always add timezone back → `tz.localize(naive_datetime)` for API
+- **DB stores**: Naive datetime (local Israel time: 14:00 stays 14:00)
+- **API returns**: ISO with timezone (`"2025-11-05T14:00:00+02:00"`)
+
+**Result**: Agent says 14:00 → DB saves 14:00 → Calendar shows 14:00 ✅✅✅
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

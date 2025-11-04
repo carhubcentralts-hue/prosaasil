@@ -9,6 +9,10 @@ from server.routes_admin import require_api_auth  # Standardized import per guid
 from server.routes_crm import get_business_id
 import json
 from sqlalchemy import and_, or_, desc, asc
+import pytz
+
+# 🔥 Israel timezone for converting naive datetimes to timezone-aware
+tz = pytz.timezone("Asia/Jerusalem")
 
 calendar_bp = Blueprint('calendar', __name__, url_prefix='/api/calendar')
 
@@ -107,6 +111,12 @@ def get_appointments():
         # Format appointments for response
         appointments_data = []
         for apt in appointments:
+            # 🔥 Convert naive datetime to timezone-aware before isoformat()
+            # DB stores naive datetimes (local Israel time), so we add timezone back for Frontend
+            # This ensures Frontend gets "2025-11-05T14:00:00+02:00" instead of "2025-11-05T14:00:00"
+            start_time_aware = tz.localize(apt.start_time) if apt.start_time and apt.start_time.tzinfo is None else apt.start_time
+            end_time_aware = tz.localize(apt.end_time) if apt.end_time and apt.end_time.tzinfo is None else apt.end_time
+            
             appointment_data = {
                 'id': apt.id,
                 'business_id': apt.business_id,
@@ -116,8 +126,8 @@ def get_appointments():
                 'whatsapp_message_id': apt.whatsapp_message_id,
                 'title': apt.title,
                 'description': apt.description,
-                'start_time': apt.start_time.isoformat() if apt.start_time else None,
-                'end_time': apt.end_time.isoformat() if apt.end_time else None,
+                'start_time': start_time_aware.isoformat() if start_time_aware else None,
+                'end_time': end_time_aware.isoformat() if end_time_aware else None,
                 'location': apt.location,
                 'status': apt.status,
                 'appointment_type': apt.appointment_type,
@@ -205,6 +215,14 @@ def create_appointment():
         try:
             start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
             end_time = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
+            
+            # 🔥 CRITICAL FIX: Remove timezone before saving to DB
+            # DB columns are DateTime (not DateTimeTZ), so we save local Israel time without timezone
+            # This prevents PostgreSQL from converting to UTC which causes 2-hour shift!
+            if start_time.tzinfo is not None:
+                start_time = start_time.replace(tzinfo=None)
+            if end_time.tzinfo is not None:
+                end_time = end_time.replace(tzinfo=None)
         except ValueError:
             return jsonify({'error': 'פורמט תאריך לא תקין'}), 400
         
@@ -220,8 +238,8 @@ def create_appointment():
         appointment.whatsapp_message_id = data.get('whatsapp_message_id')
         appointment.title = data['title']
         appointment.description = data.get('description')
-        appointment.start_time = start_time
-        appointment.end_time = end_time
+        appointment.start_time = start_time  # Now naive datetime (local Israel time)
+        appointment.end_time = end_time      # Now naive datetime (local Israel time)
         appointment.location = data.get('location')
         appointment.status = data.get('status', 'scheduled')
         appointment.appointment_type = data.get('appointment_type', 'viewing')
@@ -277,6 +295,11 @@ def get_appointment(appointment_id):
         deal = Deal.query.get(appointment.deal_id) if appointment.deal_id else None
         call_log = CallLog.query.get(appointment.call_log_id) if appointment.call_log_id else None
         
+        # 🔥 Convert naive datetime to timezone-aware before isoformat()
+        # DB stores naive datetimes (local Israel time), so we add timezone back for Frontend
+        start_time_aware = tz.localize(appointment.start_time) if appointment.start_time and appointment.start_time.tzinfo is None else appointment.start_time
+        end_time_aware = tz.localize(appointment.end_time) if appointment.end_time and appointment.end_time.tzinfo is None else appointment.end_time
+        
         appointment_data = {
             'id': appointment.id,
             'business_id': appointment.business_id,
@@ -286,8 +309,8 @@ def get_appointment(appointment_id):
             'whatsapp_message_id': appointment.whatsapp_message_id,
             'title': appointment.title,
             'description': appointment.description,
-            'start_time': appointment.start_time.isoformat() if appointment.start_time else None,
-            'end_time': appointment.end_time.isoformat() if appointment.end_time else None,
+            'start_time': start_time_aware.isoformat() if start_time_aware else None,
+            'end_time': end_time_aware.isoformat() if end_time_aware else None,
             'location': appointment.location,
             'status': appointment.status,
             'appointment_type': appointment.appointment_type,
@@ -356,13 +379,17 @@ def update_appointment(appointment_id):
         # Handle date fields
         if 'start_time' in data:
             try:
-                appointment.start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
+                start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
+                # 🔥 Remove timezone before saving to DB
+                appointment.start_time = start_time.replace(tzinfo=None) if start_time.tzinfo else start_time
             except ValueError:
                 return jsonify({'error': 'פורמט זמן התחלה לא תקין'}), 400
         
         if 'end_time' in data:
             try:
-                appointment.end_time = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
+                end_time = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
+                # 🔥 Remove timezone before saving to DB
+                appointment.end_time = end_time.replace(tzinfo=None) if end_time.tzinfo else end_time
             except ValueError:
                 return jsonify({'error': 'פורמט זמן סיום לא תקין'}), 400
         

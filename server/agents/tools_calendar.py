@@ -121,8 +121,9 @@ def _calendar_find_slots_impl(input: FindSlotsInput) -> FindSlotsOutput:
             end_hour = int(parts[1].split(':')[0])
         
         # Get existing appointments for this date
-        start_of_day = date.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_of_day = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        # 🔥 DB stores naive datetimes (local Israel time), so we need naive comparisons
+        start_of_day = date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+        end_of_day = date.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=None)
         
         existing = Appointment.query.filter(
             Appointment.business_id == input.business_id,
@@ -149,8 +150,10 @@ def _calendar_find_slots_impl(input: FindSlotsInput) -> FindSlotsOutput:
             # Check for conflicts with existing appointments
             has_conflict = False
             for apt in existing:
-                apt_start = apt.start_time.replace(tzinfo=tz) if apt.start_time.tzinfo is None else apt.start_time
-                apt_end = apt.end_time.replace(tzinfo=tz) if apt.end_time.tzinfo is None else apt.end_time
+                # 🔥 DB returns naive datetimes (local Israel time)
+                # We need to add timezone awareness for comparison
+                apt_start = tz.localize(apt.start_time) if apt.start_time.tzinfo is None else apt.start_time
+                apt_end = tz.localize(apt.end_time) if apt.end_time.tzinfo is None else apt.end_time
                 
                 # Check if slots overlap
                 if (slot_start < apt_end and slot_end > apt_start):
@@ -293,14 +296,25 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         if existing:
             raise ValueError(f"יש חפיפה עם פגישה קיימת בשעה {existing.start_time.strftime('%H:%M')}")
         
+        # 🔥 CRITICAL FIX: Remove timezone before saving to DB
+        # DB columns are DateTime (not DateTimeTZ), so we save local Israel time without timezone
+        # This prevents PostgreSQL from converting to UTC which causes 2-hour shift!
+        start_naive = start.replace(tzinfo=None)
+        end_naive = end.replace(tzinfo=None)
+        
+        print(f"   🔥 TIMEZONE FIX:")
+        print(f"      Before: start={start} (with timezone)")
+        print(f"      After: start={start_naive} (naive, local Israel time)")
+        print(f"      This ensures 14:00 Israel time saves as 14:00 in DB (not 12:00 UTC!)")
+        
         # Create appointment (phone can be None - that's OK!)
         customer_name = input.customer_name or "לקוח"
         appointment = Appointment(
             business_id=input.business_id,
             title=f"{input.treatment_type} - {customer_name}",
             description=input.notes,
-            start_time=start,
-            end_time=end,
+            start_time=start_naive,  # Save naive datetime (local Israel time)
+            end_time=end_naive,      # Save naive datetime (local Israel time)
             status='confirmed',
             appointment_type='treatment',
             contact_name=customer_name,
