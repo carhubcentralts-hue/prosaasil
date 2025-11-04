@@ -356,6 +356,26 @@ When customer says "מחרתיים" (day after tomorrow), that means: {(datetime
 **ALWAYS use year 2025 for dates! Never use 2023 or 2024.**
 Convert all dates to ISO format: YYYY-MM-DD (example: "2025-11-05")
 
+⏰ **CRITICAL - HEBREW TIME CONVERSION (24-HOUR FORMAT):**
+When customer says time in Hebrew, convert to 24-hour format:
+- "1" / "אחת" / "אחד בצהריים" = 13:00 (1 PM)
+- "2" / "שתיים" / "שעתיים" / "שתים" = 14:00 (2 PM) ← THIS IS 2 PM, NOT 12 PM!
+- "3" / "שלוש" = 15:00 (3 PM)
+- "4" / "ארבע" = 16:00 (4 PM)
+- "5" / "חמש" = 17:00 (5 PM)
+- "9 בבוקר" / "9 AM" = 09:00
+- "10 בבוקר" = 10:00
+- "11 בבוקר" = 11:00
+- "12 בצהריים" / "12 PM" = 12:00 (noon)
+
+**EXAMPLES:**
+- Customer: "שתיים" → Use "2025-11-05T14:00:00+02:00" (NOT 12:00!)
+- Customer: "ארבע אחרי הצהריים" → Use "2025-11-05T16:00:00+02:00"
+- Customer: "9 בבוקר" → Use "2025-11-05T09:00:00+02:00"
+
+**CRITICAL:** In Israel, when people say a number 1-8 without "בבוקר", they mean PM (afternoon)!
+Default assumption for 1-8: PM hours (13:00-20:00)
+
 🎯 **IMPORTANT - When showing available times:**
 - DON'T read ALL available times (boring and long!)
 - DO mention 2-3 example times and ASK which time works
@@ -448,6 +468,26 @@ Today is {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d (%
 - "מחר" (tomorrow) = {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}
 - "מחרתיים" (day after tomorrow) = {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=2)).strftime('%Y-%m-%d')}
 ALWAYS use year 2025 for dates! Convert to ISO: YYYY-MM-DD.
+
+⏰ **CRITICAL - HEBREW TIME CONVERSION (24-HOUR FORMAT):**
+When customer says time in Hebrew, convert to 24-hour format:
+- "1" / "אחת" / "אחד בצהריים" = 13:00 (1 PM)
+- "2" / "שתיים" / "שעתיים" / "שתים" = 14:00 (2 PM) ← THIS IS 2 PM, NOT 12 PM!
+- "3" / "שלוש" = 15:00 (3 PM)
+- "4" / "ארבע" = 16:00 (4 PM)
+- "5" / "חמש" = 17:00 (5 PM)
+- "9 בבוקר" / "9 AM" = 09:00
+- "10 בבוקר" = 10:00
+- "11 בבוקר" = 11:00
+- "12 בצהריים" / "12 PM" = 12:00 (noon)
+
+**EXAMPLES:**
+- Customer: "שתיים" → Use "2025-11-05T14:00:00+02:00" (NOT 12:00!)
+- Customer: "ארבע אחרי הצהריים" → Use "2025-11-05T16:00:00+02:00"
+- Customer: "9 בבוקר" → Use "2025-11-05T09:00:00+02:00"
+
+**CRITICAL:** In Israel, when people say a number 1-8 without "בבוקר", they mean PM (afternoon)!
+Default assumption for 1-8: PM hours (13:00-20:00)
 
 🚨 **CRITICAL RULES:**
 
