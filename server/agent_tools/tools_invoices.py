@@ -162,7 +162,7 @@ def invoices_create(
         invoice.vat_amount = vat_amount
         invoice.total = total_amount
         invoice.status = issue_status  # draft or final
-        invoice.issue_date = datetime.utcnow() if issue_status == "final" else None
+        invoice.issued_at = datetime.utcnow() if issue_status == "final" else None
         
         db.session.add(invoice)
         db.session.flush()  # Get invoice ID

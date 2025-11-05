@@ -20,7 +20,7 @@ def list_receipts():
             return jsonify({'success': False, 'message': 'Business ID נדרש'}), 400
         
         # Get all invoices for this business (AgentKit invoices may not have payment/deal)
-        invoices_raw = Invoice.query.filter_by(business_id=business_id).order_by(Invoice.issue_date.desc()).all()
+        invoices_raw = Invoice.query.filter_by(business_id=business_id).order_by(Invoice.issued_at.desc()).all()
         
         invoices_list = []
         for invoice in invoices_raw:
@@ -38,7 +38,7 @@ def list_receipts():
                 'customer_name': invoice.customer_name,
                 'status': invoice.status or 'final',
                 'lead_id': invoice.customer_id,
-                'created_at': invoice.issue_date.isoformat() if invoice.issue_date else None,
+                'created_at': invoice.issued_at.isoformat() if invoice.issued_at else None,
                 'paid_at': None  # TODO: Track payment date
             })
         
