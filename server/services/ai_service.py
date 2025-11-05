@@ -665,6 +665,27 @@ class AIService:
             else:
                 print(f"⚠️ Result has NO new_items or new_items is empty!")
             
+            # 🚨 BUILD 137: VALIDATION - Detect "hallucinated bookings"
+            # If agent claims action without executing tool, BLOCK response
+            claim_words = ["קבעתי", "שלחתי", "יצרתי", "הפגישה נקבעה", "הפגישה קבועה", "סגרתי", "נקבע", "התור נקבע", "התור קבוע"]
+            claimed_action = any(word in reply_text for word in claim_words)
+            
+            # Check if calendar_create_appointment was called
+            booking_tool_called = any(
+                tc.get("tool") == "calendar_create_appointment" 
+                for tc in tool_calls_data
+            )
+            
+            if claimed_action and not booking_tool_called:
+                print(f"🚨 BLOCKED HALLUCINATED BOOKING!")
+                print(f"   Agent claimed: '{reply_text[:80]}...'")
+                print(f"   But NO calendar_create_appointment was called!")
+                logger.error(f"🚨 Blocked hallucinated booking: agent claimed action without tool call")
+                
+                # Override response with corrective message
+                reply_text = "אני עדיין צריך לבדוק זמינות. איזה יום ושעה היית רוצה?"
+                print(f"   ✅ Replaced with: '{reply_text}'")
+            
             # ✨ Save trace to database
             try:
                 trace = AgentTrace(
