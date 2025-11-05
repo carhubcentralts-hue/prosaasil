@@ -6,8 +6,12 @@ AgentLocator is a Hebrew CRM system for real estate businesses, designed to auto
 
 **CRITICAL FIX - Runtime Validation Bug:**
 - **VALIDATION BUG FIXED** (`server/services/ai_service.py`):
-  - Runtime validation was **blocking legitimate bookings** - checked for `calendar_create_appointment` but tool is named `calendar_create_appointment_wrapped`
-  - Fixed to check for BOTH names: `["calendar_create_appointment", "calendar_create_appointment_wrapped"]`
+  - Runtime validation was **blocking legitimate bookings** even when agent successfully created appointments
+  - **DUAL DETECTION STRATEGY**: Checks BOTH tool name AND output result
+    1. Checks if tool name matches `calendar_create_appointment` or `calendar_create_appointment_wrapped`
+    2. **WORKAROUND**: Also checks if ToolCallOutputItem contains `ok: True` + `appointment_id` (successful booking proof)
+  - If **EITHER** condition is met → Allows agent's confirmation message through
+  - Added comprehensive debug logging to track tool calls and outputs
   - Prevents false-positive hallucination blocks when agent actually did call the tool
 - **WHATSAPP CONFIRMATION ADDED** (`server/agent_tools/agent_factory.py`):
   - **STATE 7 WORKFLOW**: After successful booking, agent MUST:

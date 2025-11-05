@@ -619,6 +619,7 @@ class AIService:
             # Extract tool calls from new_items
             tool_calls_data = []
             tool_count = 0
+            booking_successful = False  # Track if booking actually succeeded
             
             if hasattr(result, 'new_items') and result.new_items:
                 print(f"📊 Agent returned {len(result.new_items)} items")
@@ -631,17 +632,37 @@ class AIService:
                     
                     if item_type == 'ToolCallItem':
                         tool_count += 1
+                        
+                        # 🔍 FULL DEBUG: Print ALL attributes to find tool name
+                        print(f"  🔍 DEBUG ToolCallItem #{tool_count}:")
+                        all_attrs = [a for a in dir(item) if not a.startswith('_')]
+                        print(f"     All attributes: {all_attrs}")
+                        
+                        # Try to access common attributes
+                        for attr in ['name', 'tool_name', 'tool_call', 'function', 'tool']:
+                            if hasattr(item, attr):
+                                val = getattr(item, attr)
+                                print(f"     {attr} = {val}")
+                        
                         # Try multiple ways to get tool name
                         tool_name = getattr(item, 'name', None)
                         if not tool_name:
                             tool_name = getattr(item, 'tool_name', None)
+                        if not tool_name and hasattr(item, 'tool_call'):
+                            tc = getattr(item, 'tool_call')
+                            if isinstance(tc, dict):
+                                tool_name = tc.get('name') or tc.get('function', {}).get('name')
+                            elif hasattr(tc, 'name'):
+                                tool_name = tc.name
+                            elif hasattr(tc, 'function'):
+                                tool_name = getattr(tc.function, 'name', None)
                         if not tool_name and hasattr(item, 'tool'):
-                            tool_name = getattr(item.tool, 'name', None)
+                            tool_obj = getattr(item, 'tool')
+                            tool_name = getattr(tool_obj, 'name', None)
                         if not tool_name:
                             tool_name = 'unknown'
                         
                         print(f"  🔧 Tool call #{tool_count}: {tool_name}")
-                        print(f"     📋 Item attributes: {dir(item)[:10]}...")  # First 10 attributes
                         logger.info(f"  ✅ Tool call #{tool_count}: {tool_name}")
                         tool_calls_data.append({
                             "tool": tool_name,
@@ -655,6 +676,12 @@ class AIService:
                         print(f"  📤 Tool output: {str(output)[:200] if output else 'None'}...")
                         if output:
                             logger.info(f"     Tool returned: {str(output)[:100]}")
+                            
+                            # 🔍 CHECK if this is a successful booking
+                            if isinstance(output, dict):
+                                if output.get('ok') is True and output.get('appointment_id'):
+                                    booking_successful = True
+                                    print(f"     ✅ DETECTED SUCCESSFUL BOOKING: appointment_id={output.get('appointment_id')}")
                 
                 if tool_count > 0:
                     print(f"✅ Agent executed {tool_count} tool actions")
@@ -665,7 +692,7 @@ class AIService:
             else:
                 print(f"⚠️ Result has NO new_items or new_items is empty!")
             
-            # 🚨 BUILD 137: VALIDATION - Detect "hallucinated bookings"
+            # 🚨 BUILD 138: VALIDATION - Detect "hallucinated bookings"
             # If agent claims action without executing tool, BLOCK response
             claim_words = ["קבעתי", "שלחתי", "יצרתי", "הפגישה נקבעה", "הפגישה קבועה", "סגרתי", "נקבע", "התור נקבע", "התור קבוע"]
             claimed_action = any(word in reply_text for word in claim_words)
@@ -676,10 +703,17 @@ class AIService:
                 for tc in tool_calls_data
             )
             
-            if claimed_action and not booking_tool_called:
+            # 🔥 WORKAROUND: Also check if we detected a successful booking in the output
+            # (in case tool name extraction failed but booking actually succeeded)
+            print(f"  🔍 VALIDATION CHECK:")
+            print(f"     claimed_action={claimed_action}")
+            print(f"     booking_tool_called={booking_tool_called}")
+            print(f"     booking_successful={booking_successful}")
+            
+            if claimed_action and not booking_tool_called and not booking_successful:
                 print(f"🚨 BLOCKED HALLUCINATED BOOKING!")
                 print(f"   Agent claimed: '{reply_text[:80]}...'")
-                print(f"   But NO calendar_create_appointment was called!")
+                print(f"   But NO calendar_create_appointment was called AND no successful booking detected!")
                 logger.error(f"🚨 Blocked hallucinated booking: agent claimed action without tool call")
                 
                 # Override response with corrective message
