@@ -155,7 +155,7 @@ def invoices_create(
         invoice.customer_id = customer.id if customer else None  # Now uses real customer_id!
         invoice.appointment_id = int(appointment_id) if appointment_id else None
         invoice.customer_name = customer_name
-        invoice.customer_phone = customer_phone
+        invoice.customer_phone = phone_to_use  # Use the resolved phone
         invoice.currency = currency
         invoice.subtotal = subtotal
         invoice.vat_rate = float(vat_rate)

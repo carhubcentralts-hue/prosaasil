@@ -85,11 +85,30 @@ def create_receipt():
         if not customer_name:
             customer_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip() or "לקוח"
         
-        # Create deal if doesn't exist
-        deal = Deal.query.filter_by(customer_id=lead_id).first()
+        # 🔥 FIX: Create or find Customer (not use lead_id directly!)
+        from server.models_sql import Customer
+        customer = None
+        if lead.phone_e164:
+            customer = Customer.query.filter_by(
+                business_id=business_id,
+                phone_e164=lead.phone_e164
+            ).first()
+        
+        if not customer:
+            # Create new customer from lead
+            customer = Customer()
+            customer.business_id = business_id
+            customer.name = customer_name
+            customer.phone_e164 = lead.phone_e164
+            customer.status = "new"
+            db.session.add(customer)
+            db.session.flush()  # Get customer ID
+        
+        # Create deal if doesn't exist (use real customer_id!)
+        deal = Deal.query.filter_by(customer_id=customer.id).first()
         if not deal:
             deal = Deal()
-            deal.customer_id = lead_id
+            deal.customer_id = customer.id  # ✅ Now uses real Customer ID!
             deal.title = f"עסקה - {customer_name}"
             deal.stage = "new"
             deal.amount = int(amount)
@@ -224,11 +243,30 @@ def create_contract():
         
         customer_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip() or "לקוח"
         
-        # Create deal if doesn't exist
-        deal = Deal.query.filter_by(customer_id=lead_id).first()
+        # 🔥 FIX: Create or find Customer (not use lead_id directly!)
+        from server.models_sql import Customer
+        customer = None
+        if lead.phone_e164:
+            customer = Customer.query.filter_by(
+                business_id=business_id,
+                phone_e164=lead.phone_e164
+            ).first()
+        
+        if not customer:
+            # Create new customer from lead
+            customer = Customer()
+            customer.business_id = business_id
+            customer.name = customer_name
+            customer.phone_e164 = lead.phone_e164
+            customer.status = "new"
+            db.session.add(customer)
+            db.session.flush()  # Get customer ID
+        
+        # Create deal if doesn't exist (use real customer_id!)
+        deal = Deal.query.filter_by(customer_id=customer.id).first()
         if not deal:
             deal = Deal()
-            deal.customer_id = lead_id
+            deal.customer_id = customer.id  # ✅ Now uses real Customer ID!
             deal.title = f"עסקה - {customer_name}"
             deal.stage = "new"
             deal.created_at = datetime.utcnow()
