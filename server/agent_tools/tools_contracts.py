@@ -133,27 +133,43 @@ def contracts_generate_and_send(
         # 🔥 FIX: Create or find Customer (not Lead!)
         # Contract.customer_id points to Customer table, not Lead table!
         customer = None
+        customer_phone = None
+        
         # Try to find from lead_id first
         if lead_id:
             lead = Lead.query.filter_by(id=lead_id).first()
             if lead and lead.phone_e164:
-                # Try to find existing customer by phone
-                customer = Customer.query.filter_by(
+                customer_phone = lead.phone_e164
+        
+        # If no phone from lead, try to get from Flask context (for AI Agent calls)
+        if not customer_phone:
+            from flask import g
+            if hasattr(g, 'agent_context'):
+                customer_phone = g.agent_context.get('customer_phone') or g.agent_context.get('whatsapp_from')
+                if customer_phone:
+                    logger.info(f"✅ Got customer phone from context: {customer_phone}")
+        
+        # If we have a phone, find or create customer
+        if customer_phone:
+            # Try to find existing customer by phone
+            customer = Customer.query.filter_by(
+                tenant_id=business_id,
+                phone=customer_phone
+            ).first()
+            
+            if not customer:
+                # Create new customer
+                customer = Customer(
                     tenant_id=business_id,
-                    phone=lead.phone_e164
-                ).first()
-                
-                if not customer:
-                    # Create new customer from lead
-                    customer = Customer(
-                        tenant_id=business_id,
-                        name=customer_name,
-                        phone=lead.phone_e164,
-                        source="ai_agent"
-                    )
-                    db.session.add(customer)
-                    db.session.flush()  # Get customer ID
-                    logger.info(f"✅ Created new Customer from Lead: ID={customer.id}")
+                    name=customer_name,
+                    phone=customer_phone,
+                    source="ai_agent"
+                )
+                db.session.add(customer)
+                db.session.flush()  # Get customer ID
+                logger.info(f"✅ Created new Customer: ID={customer.id}, name={customer_name}, phone={customer_phone}")
+            else:
+                logger.info(f"✅ Found existing Customer: ID={customer.id}")
         
         # Create contract record
         contract = Contract()

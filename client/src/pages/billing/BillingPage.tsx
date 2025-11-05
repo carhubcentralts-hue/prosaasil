@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CreditCard, FileText, Download, Eye, Plus, DollarSign, Calendar, AlertCircle, Clock, X, PenTool } from 'lucide-react';
+import { CreditCard, FileText, Download, Eye, Plus, DollarSign, Calendar, AlertCircle, Clock, X, PenTool, MessageSquare } from 'lucide-react';
 import { http } from '../../services/http';
 import { SignatureCanvas } from '../../components/SignatureCanvas';
 
@@ -92,6 +92,10 @@ export function BillingPage() {
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
   const [signatureName, setSignatureName] = useState('');
   const [leads, setLeads] = useState<Array<{id: number; name: string; phone: string}>>([]);
+  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+  const [selectedItemType, setSelectedItemType] = useState<'invoice' | 'contract'>('invoice');
+  const [selectedItemId, setSelectedItemId] = useState('');
+  const [whatsappPhone, setWhatsappPhone] = useState('');
   
   // Form states
   const [paymentForm, setPaymentForm] = useState({
@@ -432,6 +436,35 @@ export function BillingPage() {
     }
   };
 
+  const handleSendWhatsApp = async () => {
+    if (!whatsappPhone.trim()) {
+      alert('נא להזין מספר טלפון');
+      return;
+    }
+
+    try {
+      const message = selectedItemType === 'invoice' ? 'חשבונית נשלח' : 'חוזה נשלח';
+      
+      const response = await http.post('/api/whatsapp/send', {
+        to: whatsappPhone,
+        message: message,
+        type: selectedItemType,
+        id: selectedItemId
+      }) as any;
+
+      if (response.success || response.status === 'sent') {
+        alert(`${message} בהצלחה ל-${whatsappPhone}`);
+        setShowWhatsAppModal(false);
+        setWhatsappPhone('');
+      } else {
+        alert('שגיאה בשליחת ההודעה: ' + (response.message || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error sending WhatsApp:', error);
+      alert('שגיאה בשליחת הודעת WhatsApp');
+    }
+  };
+
   // Calculate summary stats
   const totalRevenue = payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
   const pendingPayments = payments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
@@ -630,6 +663,20 @@ export function BillingPage() {
                           >
                             <Download className="w-4 h-4" />
                           </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                            onClick={() => {
+                              setSelectedItemType('invoice');
+                              setSelectedItemId(payment.id);
+                              setShowWhatsAppModal(true);
+                            }}
+                            title="שלח ב-WhatsApp"
+                            data-testid={`button-whatsapp-invoice-${payment.id}`}
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -692,38 +739,55 @@ export function BillingPage() {
                   </div>
                 </div>
                 
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="flex-1"
+                      onClick={() => handleViewContract(contract.id)}
+                      title="צפייה בחוזה"
+                      data-testid={`button-view-contract-${contract.id}`}
+                    >
+                      <Eye className="w-4 h-4 mr-2" />
+                      הצג
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="flex-1"
+                      onClick={() => handleDownloadContract(contract.id)}
+                      title="הורדת חוזה"
+                      data-testid={`button-download-contract-${contract.id}`}
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      הורד
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      className="flex-1"
+                      onClick={() => handleOpenSignatureModal(contract)}
+                      title="חתימה דיגיטלית"
+                      data-testid={`button-sign-contract-${contract.id}`}
+                    >
+                      <PenTool className="w-4 h-4 mr-2" />
+                      חתום
+                    </Button>
+                  </div>
                   <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="flex-1"
-                    onClick={() => handleViewContract(contract.id)}
-                    title="צפייה בחוזה"
-                    data-testid={`button-view-contract-${contract.id}`}
+                    variant="outline"
+                    size="sm"
+                    className="w-full bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+                    onClick={() => {
+                      setSelectedItemType('contract');
+                      setSelectedItemId(contract.id);
+                      setShowWhatsAppModal(true);
+                    }}
+                    title="שלח ב-WhatsApp"
+                    data-testid={`button-whatsapp-contract-${contract.id}`}
                   >
-                    <Eye className="w-4 h-4 mr-2" />
-                    הצג
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="flex-1"
-                    onClick={() => handleDownloadContract(contract.id)}
-                    title="הורדת חוזה"
-                    data-testid={`button-download-contract-${contract.id}`}
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    הורד
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    className="flex-1"
-                    onClick={() => handleOpenSignatureModal(contract)}
-                    title="חתימה דיגיטלית"
-                    data-testid={`button-sign-contract-${contract.id}`}
-                  >
-                    <PenTool className="w-4 h-4 mr-2" />
-                    חתום
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    שלח ב-WhatsApp
                   </Button>
                 </div>
               </Card>
@@ -1066,6 +1130,86 @@ export function BillingPage() {
                   width={600}
                   height={200}
                 />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp Modal */}
+      {showWhatsAppModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
+          <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-md shadow-xl">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  שליחה ב-WhatsApp
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowWhatsAppModal(false);
+                    setWhatsappPhone('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                  data-testid="button-close-whatsapp-modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <MessageSquare className="w-5 h-5 text-green-600" />
+                    <span className="font-medium text-green-900">
+                      {selectedItemType === 'invoice' ? 'שליחת חשבונית' : 'שליחת חוזה'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-green-700">
+                    {selectedItemType === 'invoice' 
+                      ? 'החשבונית תישלח ללקוח דרך WhatsApp'
+                      : 'החוזה יישלח ללקוח דרך WhatsApp'}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    מספר טלפון <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="972501234567"
+                    value={whatsappPhone}
+                    onChange={(e) => setWhatsappPhone(e.target.value)}
+                    data-testid="input-whatsapp-phone"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    הזן מספר בפורמט בינלאומי (לדוגמה: 972501234567)
+                  </p>
+                </div>
+                
+                <div className="flex gap-3 pt-4">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      setShowWhatsAppModal(false);
+                      setWhatsappPhone('');
+                    }}
+                    data-testid="button-cancel-whatsapp"
+                  >
+                    ביטול
+                  </Button>
+                  <Button
+                    className="flex-1 bg-green-600 hover:bg-green-700"
+                    onClick={handleSendWhatsApp}
+                    data-testid="button-send-whatsapp"
+                  >
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    שלח
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
