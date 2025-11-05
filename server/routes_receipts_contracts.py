@@ -129,7 +129,7 @@ def create_receipt():
         payment.currency = 'ils'
         payment.status = 'created'
         payment.customer_name = customer_name
-        payment.description = description
+        # payment.description = description  # ❌ Column doesn't exist in DB
         payment.created_at = datetime.utcnow()
         
         db.session.add(payment)
