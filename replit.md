@@ -23,6 +23,12 @@ AgentLocator is a Hebrew CRM system for real estate businesses, designed to auto
   - Changed from "להקיש את הספרות בסולמית" (confusing) → "להקיש את הספרות ואז סולמית" (clear)
   - Sulmit (סולמית) = # key, NOT * (which is כוכבית)
   - Customer presses: [digits] then [#] to submit phone number
+- **NAME COLLECTION FLEXIBILITY**:
+  - Agent now accepts ANY name: first name only ("שישי"), full name ("יוסי כהן"), or nickname ("ביבי")
+  - NO rejection of short names - "DO NOT say 'I need your full name'"
+  - If customer gives only name → accept and ask for phone separately
+  - If customer gives only phone → accept and ask for name separately
+  - Prevents repetitive "what's your name?" loops
 
 # Recent Changes (BUILD 137)
 
