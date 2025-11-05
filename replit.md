@@ -2,19 +2,28 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses, designed to automate the sales pipeline with an AI-powered assistant. It offers real-time call processing, intelligent lead information collection, and meeting scheduling using advanced audio processing for natural conversations. The system aims to provide customizable AI assistants and business branding to real estate professionals, enhancing efficiency and sales conversion.
 
-# Recent Changes (BUILD 135)
+# Recent Changes (BUILD 136)
 
-**CRITICAL BOOKING FIX + Response Optimization:**
-- **BOOKING VALIDATION**: Fixed bug where Agent claimed "קבעתי תור" but didn't actually save to DB
+**CRITICAL FIXES - Customer Creation & WhatsApp UI:**
+- **CUSTOMER AUTO-CREATE**: Fixed Foreign Key violations in contracts/invoices
+  - `contracts_generate_and_send` now creates Customer from context (phone + name) even without lead_id
+  - Uses Flask g.agent_context to get customer_phone/whatsapp_from from conversation
+  - Auto-creates or finds existing Customer by phone to prevent FK constraint failures
+  - Logs clear messages: "✅ Created new Customer: ID=X, name=Y, phone=Z"
+- **WHATSAPP UI**: Added WhatsApp send buttons to billing pages
+  - Invoice page: Green MessageSquare button next to Download for each invoice
+  - Contracts page: Green MessageSquare button next to Download for each contract
+  - Modal with phone input for sending invoices/contracts via WhatsApp
+  - Uses existing `/api/whatsapp/send` endpoint (business_id from auth context)
+- **BOOKING VALIDATION**: (BUILD 135) Fixed bug where Agent claimed "קבעתי תור" but didn't save
   - Removed default "לקוח" name - Agent MUST collect customer name before booking
   - Added strict validation: calendar_create_appointment fails with clear error if name missing
-  - Updated fallback prompt with explicit booking flow rules (ask preference first, collect name+phone, then book)
 - **Response Length**: `max_tokens=200` (increased from 150) for balanced 2-3 sentence responses
 - **Database Prompts**: Agent loads prompts EXCLUSIVELY from BusinessSettings.ai_prompt (no hardcoded text)
 - **STT Accuracy**: 80+ Hebrew phrases, boost=20.0, confidence thresholds 0.4/0.7
 - **Performance**: `tool_choice="auto"` (saves 1-2s), OpenAI timeout=2.5s
 - **Target**: 1.5-2.5s WhatsApp, 2-3.5s phone calls, SHORT natural conversations
-- Fallback prompt now emphasizes: (1) ask customer preference first, (2) mandatory name+phone collection, (3) check tool responses
+- Fallback prompt emphasizes: (1) ask customer preference first, (2) mandatory name+phone collection, (3) check tool responses
 
 # User Preferences
 
