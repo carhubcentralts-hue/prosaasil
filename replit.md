@@ -5,8 +5,9 @@ AgentLocator is a Hebrew CRM system for real estate businesses, designed to auto
 # Recent Changes (BUILD 136)
 
 **CRITICAL FIXES - Customer Creation & WhatsApp UI:**
-- **CUSTOMER AUTO-CREATE**: Fixed Foreign Key violations in contracts/invoices
+- **CUSTOMER AUTO-CREATE**: Fixed Foreign Key violations in contracts/invoices/deals
   - `contracts_generate_and_send` now creates Customer from context (phone + name) even without lead_id
+  - `invoices_create` now creates Customer from context (phone + name) even without customer_phone param
   - Uses Flask g.agent_context to get customer_phone/whatsapp_from from conversation
   - Auto-creates or finds existing Customer by phone to prevent FK constraint failures
   - Logs clear messages: "✅ Created new Customer: ID=X, name=Y, phone=Z"

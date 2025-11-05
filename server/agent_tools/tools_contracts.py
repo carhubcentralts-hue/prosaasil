@@ -153,18 +153,17 @@ def contracts_generate_and_send(
         if customer_phone:
             # Try to find existing customer by phone
             customer = Customer.query.filter_by(
-                tenant_id=business_id,
-                phone=customer_phone
+                business_id=business_id,
+                phone_e164=customer_phone
             ).first()
             
             if not customer:
                 # Create new customer
-                customer = Customer(
-                    tenant_id=business_id,
-                    name=customer_name,
-                    phone=customer_phone,
-                    source="ai_agent"
-                )
+                customer = Customer()
+                customer.business_id = business_id
+                customer.name = customer_name
+                customer.phone_e164 = customer_phone
+                customer.status = "new"
                 db.session.add(customer)
                 db.session.flush()  # Get customer ID
                 logger.info(f"✅ Created new Customer: ID={customer.id}, name={customer_name}, phone={customer_phone}")
@@ -202,6 +201,7 @@ def contracts_generate_and_send(
         
     except Exception as e:
         logger.error(f"❌ Error generating contract: {e}")
+        from server.models_sql import db
         db.session.rollback()
         return {
             "ok": False,

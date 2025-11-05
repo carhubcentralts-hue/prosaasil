@@ -118,24 +118,36 @@ def invoices_create(
         # 🔥 FIX: Create or find Customer (not Lead!)
         # Invoice.customer_id points to Customer table, not Lead table!
         customer = None
-        if customer_phone:
+        phone_to_use = customer_phone
+        
+        # If no phone provided, try to get from Flask context (for AI Agent calls)
+        if not phone_to_use:
+            from flask import g
+            if hasattr(g, 'agent_context'):
+                phone_to_use = g.agent_context.get('customer_phone') or g.agent_context.get('whatsapp_from')
+                if phone_to_use:
+                    logger.info(f"✅ Got customer phone from context: {phone_to_use}")
+        
+        # If we have a phone, find or create customer
+        if phone_to_use:
             # Try to find existing customer by phone
             customer = Customer.query.filter_by(
-                tenant_id=int(business_id),
-                phone=customer_phone
+                business_id=int(business_id),
+                phone_e164=phone_to_use
             ).first()
             
             if not customer:
                 # Create new customer
-                customer = Customer(
-                    tenant_id=int(business_id),
-                    name=customer_name,
-                    phone=customer_phone,
-                    source="ai_agent"
-                )
+                customer = Customer()
+                customer.business_id = int(business_id)
+                customer.name = customer_name
+                customer.phone_e164 = phone_to_use
+                customer.status = "new"
                 db.session.add(customer)
                 db.session.flush()  # Get customer ID
-                logger.info(f"✅ Created new Customer: ID={customer.id}, name={customer_name}")
+                logger.info(f"✅ Created new Customer: ID={customer.id}, name={customer_name}, phone={phone_to_use}")
+            else:
+                logger.info(f"✅ Found existing Customer: ID={customer.id}")
         
         # Create invoice
         invoice = Invoice()
@@ -189,6 +201,7 @@ def invoices_create(
         
     except Exception as e:
         logger.error(f"❌ Error creating invoice: {e}")
+        from server.models_sql import db
         db.session.rollback()
         return {
             "ok": False,
