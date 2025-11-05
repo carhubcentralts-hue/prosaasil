@@ -1,0 +1,182 @@
+2025-11-05 11:53:12.21
+668dd9c8
+User
+Traceback (most recent call last):
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+2025-11-05 11:53:12.21
+668dd9c8
+User
+self.dialect.do_execute(
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+2025-11-05 11:53:12.21
+668dd9c8
+User
+cursor.execute(statement, parameters)
+2025-11-05 11:53:12.21
+668dd9c8
+User
+psycopg2.errors.UndefinedColumn: column "description" of relation "payment" does not exist
+2025-11-05 11:53:12.21
+668dd9c8
+User
+LINE 1: ...der_ref, amount, currency, status, customer_name, descriptio...
+2025-11-05 11:53:12.21
+668dd9c8
+User
+^
+2025-11-05 11:53:12.21
+668dd9c8
+User
+The above exception was the direct cause of the following exception:
+2025-11-05 11:53:12.21
+668dd9c8
+User
+Traceback (most recent call last):
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/server/routes_receipts_contracts.py", line 136, in create_receipt
+2025-11-05 11:53:12.21
+668dd9c8
+User
+db.session.flush()
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/scoping.py", line 938, in flush
+2025-11-05 11:53:12.21
+668dd9c8
+User
+return self._proxied.flush(objects=objects)
+2025-11-05 11:53:12.21
+668dd9c8
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4345, in flush
+2025-11-05 11:53:12.21
+668dd9c8
+User
+self._flush(objects)
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4480, in _flush
+2025-11-05 11:53:12.21
+668dd9c8
+User
+with util.safe_reraise():
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 224, in __exit__
+2025-11-05 11:53:12.21
+668dd9c8
+User
+raise exc_value.with_traceback(exc_tb)
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4441, in _flush
+2025-11-05 11:53:12.21
+668dd9c8
+User
+flush_context.execute()
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 466, in execute
+2025-11-05 11:53:12.21
+668dd9c8
+User
+rec.execute(self)
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 642, in execute
+
+2025-11-05 11:53:12.21
+668dd9c8
+User
+util.preloaded.orm_persistence.save_obj(
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py", line 93, in save_obj
+2025-11-05 11:53:12.21
+668dd9c8
+User
+_emit_insert_statements(
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py", line 1233, in _emit_insert_statements
+2025-11-05 11:53:12.21
+668dd9c8
+User
+result = connection.execute(
+2025-11-05 11:53:12.21
+668dd9c8
+User
+^^^^^^^^^^^^^^^^^^^
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+2025-11-05 11:53:12.21
+668dd9c8
+User
+return meth(
+2025-11-05 11:53:12.21
+668dd9c8
+User
+^^^^^
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+2025-11-05 11:53:12.21
+668dd9c8
+User
+return connection._execute_clauseelement(
+2025-11-05 11:53:12.21
+668dd9c8
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+2025-11-05 11:53:12.21
+668dd9c8
+User
+ret = self._execute_context(
+2025-11-05 11:53:12.21
+668dd9c8
+User
+^^^^^^^^^^^^^^^^^^^^^^
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+2025-11-05 11:53:12.21
+668dd9c8
+User
+return self._exec_single_context(
+2025-11-05 11:53:12.21
+668dd9c8
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-05 11:53:12.21
+668dd9c8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+
