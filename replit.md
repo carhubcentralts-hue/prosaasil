@@ -4,10 +4,25 @@ AgentLocator is a Hebrew CRM system for real estate businesses, designed to auto
 
 # Recent Changes (BUILD 137)
 
-**CRITICAL FIXES - Database Schema, Agent Tools, UI:**
+**CRITICAL FIXES - Agent Hallucination Prevention:**
+- **STATE-BASED BOOKING PROTOCOL** (`server/agent_tools/agent_factory.py`):
+  - **COMPLETE PROMPT REWRITE**: Replaced soft warnings with strict STATE-BASED protocol (7 states)
+  - **FORBIDDEN RULE**: "YOU ARE FORBIDDEN FROM SAYING 'קבעתי' UNLESS: (1) You called calendar_create_appointment() in THIS TURN, (2) Tool returned ok:true, (3) You can see confirmation"
+  - **Mandatory Flow**: STATE 1 (Greeting) → STATE 2 (Collect Time) → STATE 3 (Check Availability - TOOL REQUIRED) → STATE 4 (Collect Name+Phone) → STATE 5 (Confirm Details) → STATE 6 (Execute Booking - TOOL REQUIRED) → STATE 7 (Confirm to Customer ONLY after ok:true)
+  - **Explicit Tool Requirements**: States 3 and 6 MANDATE tool calls - agent cannot skip to next state without tool execution
+  - **Clear Success Criteria**: Agent can only say "קבעתי" in STATE 7, after calendar_create_appointment returns ok:true
+- **RUNTIME VALIDATION** (`server/services/ai_service.py`, lines 671-690):
+  - **Detects Hallucinated Bookings**: Scans agent response for claim words ("קבעתי", "שלחתי", "יצרתי", "סגרתי", "נקבע", "הפגישה נקבעה", etc.)
+  - **Verifies Tool Execution**: Checks if calendar_create_appointment was actually called in the same turn
+  - **Blocks False Claims**: If agent claims action without tool call → BLOCKS response, logs error, replaces with corrective message
+  - **User Feedback**: Blocked responses replaced with "אני עדיין צריך לבדוק זמינות. איזה יום ושעה היית רוצה?"
+  - **Logging**: Prints "🚨 BLOCKED HALLUCINATED BOOKING!" with details for monitoring
+- **ARCHITECT APPROVED**: Both fixes reviewed and confirmed effective at preventing hallucinated confirmations
+
+**DATABASE & API FIXES:**
 - **DATABASE SCHEMA FIXES**:
+  - Removed `payment.description` from ALL code (routes_crm.py line 527, routes_receipts_contracts.py) - column doesn't exist in DB
   - Added 11 missing columns to `invoice` table: `business_id`, `customer_id`, `appointment_id`, `payment_id`, `customer_name`, `customer_phone`, `currency`, `status`, `vat_amount`, `vat_rate`, `created_at`
-  - Removed `payment.description` from all code (column doesn't exist in DB)
   - Fixed `issue_date` → `issued_at` (correct column name)
   - Fixed `/api/leads` authentication to use `@require_api_auth()` for frontend compatibility
 - **CUSTOMER AUTO-CREATE**: Fixed Foreign Key violations in contracts/invoices/deals
@@ -16,10 +31,6 @@ AgentLocator is a Hebrew CRM system for real estate businesses, designed to auto
   - `contracts_generate_and_send` creates Customer from context (phone + name)
   - `invoices_create` creates Customer from context (phone + name)
   - Auto-creates or finds existing Customer by phone to prevent FK constraint failures
-- **AGENT INTEGRITY**: Strengthened instructions to prevent "hallucinated bookings"
-  - Added critical rule: "🚨 NEVER say 'קבעתי', 'שלחתי', 'יצרתי' unless you ACTUALLY called the tool!"
-  - Prevents agent from claiming success without calling calendar_create_appointment
-  - Agent must verify tool response before confirming to customer
 - **WHATSAPP UI**: Added WhatsApp send buttons to billing pages
   - Invoice page: Green MessageSquare button next to Download for each invoice
   - Contracts page: Green MessageSquare button next to Download for each contract
