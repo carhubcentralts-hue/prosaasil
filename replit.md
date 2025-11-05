@@ -6,11 +6,14 @@ AgentLocator is a Hebrew CRM system for real estate businesses, designed to auto
 
 **CRITICAL FIXES - Agent Hallucination Prevention:**
 - **STATE-BASED BOOKING PROTOCOL** (`server/agent_tools/agent_factory.py`):
-  - **COMPLETE PROMPT REWRITE**: Replaced soft warnings with strict STATE-BASED protocol (7 states)
-  - **FORBIDDEN RULE**: "YOU ARE FORBIDDEN FROM SAYING 'קבעתי' UNLESS: (1) You called calendar_create_appointment() in THIS TURN, (2) Tool returned ok:true, (3) You can see confirmation"
-  - **Mandatory Flow**: STATE 1 (Greeting) → STATE 2 (Collect Time) → STATE 3 (Check Availability - TOOL REQUIRED) → STATE 4 (Collect Name+Phone) → STATE 5 (Confirm Details) → STATE 6 (Execute Booking - TOOL REQUIRED) → STATE 7 (Confirm to Customer ONLY after ok:true)
+  - **COMPLETE PROMPT REWRITE IN ENGLISH**: AgentKit performs better with English instructions - full prompt rewritten in professional English with Hebrew customer responses
+  - **FORBIDDEN RULE**: "YOU ARE ABSOLUTELY FORBIDDEN from saying 'קבעתי' (I booked) UNLESS: (1) You called calendar_create_appointment() in THIS TURN, (2) Tool returned ok:true, (3) You can see confirmation"
+  - **Mandatory Flow**: STATE 1 (Greeting - don't push) → STATE 2 (Ask Preferred Time) → STATE 3 (Check Availability - TOOL REQUIRED) → STATE 4 (Collect Name+Phone with DTMF option) → STATE 5 (Confirm Details) → STATE 6 (Execute Booking - TOOL REQUIRED) → STATE 7 (Confirm to Customer ONLY after ok:true)
   - **Explicit Tool Requirements**: States 3 and 6 MANDATE tool calls - agent cannot skip to next state without tool execution
   - **Clear Success Criteria**: Agent can only say "קבעתי" in STATE 7, after calendar_create_appointment returns ok:true
+  - **DTMF Support**: Instructions for phone number collection via keypad: "אפשר גם להקיש את המספר בטלפון"
+  - **Don't Push Appointments**: STATE 1 explicitly instructs "DO NOT push appointments - wait for customer request"
+  - **All Critical Rules Included**: Time parsing, conversation style, absolute prohibitions - everything in one comprehensive English prompt
 - **RUNTIME VALIDATION** (`server/services/ai_service.py`, lines 671-690):
   - **Detects Hallucinated Bookings**: Scans agent response for claim words ("קבעתי", "שלחתי", "יצרתי", "סגרתי", "נקבע", "הפגישה נקבעה", etc.)
   - **Verifies Tool Execution**: Checks if calendar_create_appointment was actually called in the same turn
