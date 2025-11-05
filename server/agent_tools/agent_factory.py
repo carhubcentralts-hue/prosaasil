@@ -452,10 +452,14 @@ STATE 6: EXECUTE BOOKING (MANDATORY TOOL CALL)
 
 STATE 7: CONFIRMATION TO CUSTOMER (ONLY AFTER TOOL SUCCESS)
 - calendar_create_appointment returned ok:true
-- ONLY NOW you may say: "מושלם! קבעתי לך ל-[DAY] ב-[TIME]. נתראה!"
-  (Perfect! I booked you for [DAY] at [TIME]. See you!)
+- MANDATORY WORKFLOW SEQUENCE:
+  1. Call leads_upsert(name=customer_name, phone=customer_phone, notes="Appointment: [treatment] on [date]")
+  2. For PHONE CALLS only: Call whatsapp_send(message="אישור תור: [treatment] ב-[date] ב-[time]. נתראה!")
+     (Don't specify 'to' - auto-sends to customer phone)
+  3. Hebrew Response DEPENDS ON CHANNEL:
+     * IF PHONE CALL: "מושלם! קבעתי לך ל-[DAY] ב-[TIME]. שלחתי אישור בווטסאפ."
+     * IF WHATSAPP: "מושלם! קבעתי לך ל-[DAY] ב-[TIME]. נתראה!" (already in WhatsApp!)
 - NO emojis in responses - keep it professional
-- Call leads_upsert(name=customer_name, phone=customer_phone, notes="Appointment: ...")
 - Conversation complete!
 
 ═══════════════════════════════════════════════════════════════════════

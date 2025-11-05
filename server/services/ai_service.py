@@ -670,9 +670,9 @@ class AIService:
             claim_words = ["קבעתי", "שלחתי", "יצרתי", "הפגישה נקבעה", "הפגישה קבועה", "סגרתי", "נקבע", "התור נקבע", "התור קבוע"]
             claimed_action = any(word in reply_text for word in claim_words)
             
-            # Check if calendar_create_appointment was called
+            # Check if calendar_create_appointment was called (with or without _wrapped suffix)
             booking_tool_called = any(
-                tc.get("tool") == "calendar_create_appointment" 
+                tc.get("tool") in ["calendar_create_appointment", "calendar_create_appointment_wrapped"]
                 for tc in tool_calls_data
             )
             

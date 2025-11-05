@@ -2,6 +2,24 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses, designed to automate the sales pipeline with an AI-powered assistant. It offers real-time call processing, intelligent lead information collection, and meeting scheduling using advanced audio processing for natural conversations. The system aims to provide customizable AI assistants and business branding to real estate professionals, enhancing efficiency and sales conversion.
 
+# Recent Changes (BUILD 138)
+
+**CRITICAL FIX - Runtime Validation Bug:**
+- **VALIDATION BUG FIXED** (`server/services/ai_service.py`):
+  - Runtime validation was **blocking legitimate bookings** - checked for `calendar_create_appointment` but tool is named `calendar_create_appointment_wrapped`
+  - Fixed to check for BOTH names: `["calendar_create_appointment", "calendar_create_appointment_wrapped"]`
+  - Prevents false-positive hallucination blocks when agent actually did call the tool
+- **WHATSAPP CONFIRMATION ADDED** (`server/agent_tools/agent_factory.py`):
+  - **STATE 7 WORKFLOW**: After successful booking, agent MUST:
+    1. Call `leads_upsert` to save customer info
+    2. For PHONE CALLS only: Call `whatsapp_send` with confirmation message (auto-sends to customer)
+    3. Respond based on channel: "שלחתי אישור בווטסאפ" for phone, "נתראה!" for WhatsApp
+  - Channel-aware responses: mentions WhatsApp confirmation only during phone calls
+- **DTMF INSTRUCTIONS IMPROVED**:
+  - Changed from "להקיש את הספרות בסולמית" (confusing) → "להקיש את הספרות ואז סולמית" (clear)
+  - Sulmit (סולמית) = # key, NOT * (which is כוכבית)
+  - Customer presses: [digits] then [#] to submit phone number
+
 # Recent Changes (BUILD 137)
 
 **CRITICAL FIXES - Agent Hallucination Prevention:**
