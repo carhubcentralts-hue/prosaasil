@@ -5,6 +5,7 @@ Modern lead management with Kanban board support, reminders, and activity tracki
 from flask import Blueprint, jsonify, request, session, g
 from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, User, Business
 from server.db import db
+from server.auth_api import require_api_auth
 from datetime import datetime, timezone
 from sqlalchemy import or_, and_, func, desc
 from sqlalchemy.orm import joinedload
@@ -143,11 +144,9 @@ def get_valid_statuses_for_business(business_id):
 # === LEAD MANAGEMENT ENDPOINTS ===
 
 @leads_bp.route("/api/leads", methods=["GET"])
+@require_api_auth()
 def list_leads():
     """List leads with filtering and pagination"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
     
     user = get_current_user()
     is_admin = user.get('role') in ['admin', 'superadmin'] if user else False
