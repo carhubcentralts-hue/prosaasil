@@ -2,22 +2,28 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses, designed to automate the sales pipeline with an AI-powered assistant. It offers real-time call processing, intelligent lead information collection, and meeting scheduling using advanced audio processing for natural conversations. The system aims to provide customizable AI assistants and business branding to real estate professionals, enhancing efficiency and sales conversion.
 
-# Recent Changes (BUILD 136)
+# Recent Changes (BUILD 137)
 
-**CRITICAL FIXES - Customer Creation & WhatsApp UI:**
+**CRITICAL FIXES - Database Schema, Agent Tools, UI:**
+- **DATABASE SCHEMA FIXES**:
+  - Added 11 missing columns to `invoice` table: `business_id`, `customer_id`, `appointment_id`, `payment_id`, `customer_name`, `customer_phone`, `currency`, `status`, `vat_amount`, `vat_rate`, `created_at`
+  - Removed `payment.description` from all code (column doesn't exist in DB)
+  - Fixed `issue_date` → `issued_at` (correct column name)
+  - Fixed `/api/leads` authentication to use `@require_api_auth()` for frontend compatibility
 - **CUSTOMER AUTO-CREATE**: Fixed Foreign Key violations in contracts/invoices/deals
-  - `contracts_generate_and_send` now creates Customer from context (phone + name) even without lead_id
-  - `invoices_create` now creates Customer from context (phone + name) even without customer_phone param
-  - **ROUTES FIX**: `routes_receipts_contracts.py` now creates Customer from Lead before creating Deal
+  - `routes_receipts_contracts.py` now creates Customer from Lead before creating Deal
   - Previously used `deal.customer_id = lead_id` (WRONG!) - now creates Customer first
-  - Uses Flask g.agent_context to get customer_phone/whatsapp_from from conversation
+  - `contracts_generate_and_send` creates Customer from context (phone + name)
+  - `invoices_create` creates Customer from context (phone + name)
   - Auto-creates or finds existing Customer by phone to prevent FK constraint failures
-  - Logs clear messages: "✅ Created new Customer: ID=X, name=Y, phone=Z"
+- **AGENT INTEGRITY**: Strengthened instructions to prevent "hallucinated bookings"
+  - Added critical rule: "🚨 NEVER say 'קבעתי', 'שלחתי', 'יצרתי' unless you ACTUALLY called the tool!"
+  - Prevents agent from claiming success without calling calendar_create_appointment
+  - Agent must verify tool response before confirming to customer
 - **WHATSAPP UI**: Added WhatsApp send buttons to billing pages
   - Invoice page: Green MessageSquare button next to Download for each invoice
   - Contracts page: Green MessageSquare button next to Download for each contract
   - Modal with phone input for sending invoices/contracts via WhatsApp
-  - Uses existing `/api/whatsapp/send` endpoint (business_id from auth context)
 - **BOOKING VALIDATION**: (BUILD 135) Fixed bug where Agent claimed "קבעתי תור" but didn't save
   - Removed default "לקוח" name - Agent MUST collect customer name before booking
   - Added strict validation: calendar_create_appointment fails with clear error if name missing

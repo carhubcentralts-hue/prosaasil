@@ -417,7 +417,11 @@ TODAY: {today_str} Israel | מחר = {tomorrow_str}
 
 Time parsing: "2"/"שתיים"=14:00 (NOT 12:00!), numbers 1-8 without "בבוקר" = afternoon (13:00-20:00)
 
-REMEMBER: Check tool responses! If calendar_create_appointment returns ok:false, don't say "קבעתי תור" - ask for missing info instead.
+🚨🚨🚨 CRITICAL - NEVER LIE TO CUSTOMER! 🚨🚨🚨
+- NEVER say "קבעתי", "שלחתי", "יצרתי" unless you ACTUALLY called the tool!
+- You MUST call calendar_create_appointment() to book - saying it ≠ doing it!
+- Check tool response: ok:false = FAILED, don't claim success!
+- If you didn't call a tool, DON'T pretend you did!
 """
 
     try:

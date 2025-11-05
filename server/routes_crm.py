@@ -524,7 +524,7 @@ def payments_create():
         pay.currency = currency.lower()
         pay.status = "created"
         pay.customer_name = data.get("customer_name") or data.get("client_name")  # Support both field names
-        pay.description = data.get("description") or f"תשלום #{int(time.time())}"
+        # pay.description = data.get("description") or f"תשלום #{int(time.time())}"  # ❌ Column doesn't exist
         db.session.add(pay)
         db.session.commit()
 
