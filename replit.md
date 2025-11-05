@@ -29,6 +29,16 @@ AgentLocator is a Hebrew CRM system for real estate businesses, designed to auto
   - If customer gives only name → accept and ask for phone separately
   - If customer gives only phone → accept and ask for name separately
   - Prevents repetitive "what's your name?" loops
+- **STT ACCURACY BOOST** (`server/services/gcp_stt_stream.py`):
+  - **150+ Hebrew phrases** added to speech_contexts for maximum STT accuracy
+  - Includes: common names, booking phrases, time expressions, locations, numbers
+  - Critical phrases: "קבע תור", "לקבוע", "זמין", "פנוי", "מחר", "שישי", "דוד"
+  - boost=20.0 (maximum) for best recognition accuracy
+- **RESPONSE LENGTH OPTIMIZED**:
+  - max_tokens set to 200 (safe for complete booking confirmations)
+  - Prevents "rambling" while ensuring confirmations aren't clipped
+  - Previous builds showed 170-190 token usage during bookings
+  - Target: 2-3 sentences with full time/date details
 
 # Recent Changes (BUILD 137)
 

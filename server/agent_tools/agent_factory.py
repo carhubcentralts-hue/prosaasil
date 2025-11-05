@@ -549,7 +549,7 @@ Remember: EVERY action requires a tool call. Claiming an action without executin
         from agents import ModelSettings
         
         model_settings = ModelSettings(
-            max_tokens=200,  # 🔥 BUILD 134: 200 tokens = 2-3 sentence responses
+            max_tokens=200,  # 🔥 BUILD 138: 200 tokens for SAFE booking confirmations (logs show 170-190 usage)
             temperature=0.3,  # Lower temperature for faster, more focused responses
         )
         
