@@ -11,7 +11,7 @@ AgentLocator is a Hebrew CRM system for real estate businesses, designed to auto
   - **Mandatory Flow**: STATE 1 (Greeting - don't push) → STATE 2 (Ask Preferred Time) → STATE 3 (Check Availability - TOOL REQUIRED) → STATE 4 (Collect Name+Phone with DTMF option) → STATE 5 (Confirm Details) → STATE 6 (Execute Booking - TOOL REQUIRED) → STATE 7 (Confirm to Customer ONLY after ok:true)
   - **Explicit Tool Requirements**: States 3 and 6 MANDATE tool calls - agent cannot skip to next state without tool execution
   - **Clear Success Criteria**: Agent can only say "קבעתי" in STATE 7, after calendar_create_appointment returns ok:true
-  - **DTMF Support**: Clear instructions in Hebrew for keypad input: "אפשר גם להקיש את הספרות בסולמית ואחרי זה כוכבית" (type digits on keypad then press star)
+  - **DTMF Support**: Clear instructions in Hebrew for keypad input: "אפשר גם להקיש את הספרות ואז סולמית" (type digits then press # which is called "sulmit" in Hebrew)
   - **Don't Push Appointments**: STATE 1 explicitly instructs "DO NOT push appointments - wait for customer request"
   - **All Critical Rules Included**: Time parsing, conversation style, absolute prohibitions - everything in one comprehensive English prompt
   - **No Emojis**: Professional responses without emojis per user preference

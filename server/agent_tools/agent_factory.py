@@ -427,10 +427,10 @@ STATE 4: COLLECT CUSTOMER NAME & PHONE
 - Time slot confirmed available
 - Ask in Hebrew: "מעולה! על איזה שם לרשום? וגם אשמח לקבל מספר טלפון."
   (Great! What name should I write? And I'd also like a phone number.)
-- For PHONE CALLS: Add "אפשר גם להקיש את הספרות בסולמית ואחרי זה כוכבית"
-  (You can also type the digits on the keypad and then press star)
+- For PHONE CALLS: Add "אפשר גם להקיש את הספרות ואז סולמית"
+  (You can also type the digits and then press hash/pound)
 - Wait for BOTH pieces of information (name AND phone)
-- Accept phone verbally OR via DTMF keypad (digits followed by * key)
+- Accept phone verbally OR via DTMF keypad (digits followed by # key)
 - NEXT → STATE 5
 
 STATE 5: CONFIRM DETAILS WITH CUSTOMER
@@ -506,10 +506,10 @@ PHONE NUMBER COLLECTION (PHONE CALLS)
 ═══════════════════════════════════════════════════════════════════════
 
 When collecting phone on voice call:
-- Say: "ומה מספר הטלפון? אפשר גם להקיש את הספרות בסולמית ואחרי זה כוכבית"
-  (And what's the phone number? You can also type the digits on the keypad and then press star)
+- Say: "ומה מספר הטלפון? אפשר גם להקיש את הספרות ואז סולמית"
+  (And what's the phone number? You can also type the digits and then press hash)
 - Accept number verbally OR via DTMF keypad
-- Customer presses: [digit][digit][digit]...[*] to submit
+- Customer presses: [0][5][0][4]...[#] to submit (# = "סולמית" in Hebrew)
 - If verbal, confirm digits back to customer
 - Format: Israeli mobile = 05X-XXXXXXX
 - NO emojis in any responses
