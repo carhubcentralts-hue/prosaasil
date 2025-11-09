@@ -1,0 +1,224 @@
+קיבלת—הנה “מפרט סגירה” מלא, מותאם ל-Pro-SaaS שלך, שמסדר את הכל מקצה לקצה: קביעות, חשבוניות, חוזים, וואטסאפ אחרי שיחה, מדיניות עסק דינמית (ללא hardcode), AgentKit מוגן, ודף הזמנה ויזואלי באתר (בלי להגיד ל-Agent—פועל בנוסף לשיחות).
+
+אני מחלק לשכבות: נתונים/מדיניות → כלים (Tools) → זרימת שיחה וקול → אוטומציות (Flows) → UI אתר → ניטור ובדיקות. בכל סעיף יש בדיוק מה לשנות/להוסיף ואיפה.
+
+⸻
+
+0) עקרונות (להפעיל עכשיו)
+	•	תשובות ללקוח בעברית; הנחיות פנימיות של האייג’נט באנגלית קצרה וקשיחה.
+	•	שום Exception מכלי AgentKit: החזרות תמיד {ok: true|false, error?, reason?}.
+	•	כל כתיבה ל־DB מסתיימת ב־commit מיידי.
+	•	tool_choice="required" באייג’נט התפעולי (Ops/Booking).
+	•	אין hardcode לשעות—הכול מגיע ממדיניות עסק (DB + prompt).
+
+⸻
+
+1) שכבת מדיניות עסק (DB + Prompt Parser)
+
+1.1 הרחבת DB (models_sql.py)
+
+הוסף לטבלת BusinessSettings (או צור אם חסרה):
+	•	tz: str (ברירת מחדל “Asia/Jerusalem”)
+	•	slot_size_min: int (ברירת מחדל 60; תומך גם 15/30)
+	•	allow_24_7: bool (ברירת מחדל False)
+	•	opening_hours_json: JSON (לפי ימים: {"sun":[["10:00","20:00"]], "mon":[...], ...})
+	•	booking_window_days: int (ברירת מחדל 30)
+	•	min_notice_min: int (ברירת מחדל 0)
+	•	require_phone_before_booking: bool (ברירת מחדל True)
+
+מיגרציה: להוסיף עמודות, ערכי ברירת מחדל.
+
+1.2 מנוע מדיניות (server/policy/business_policy.py)
+	•	get_business_policy(business_id, business_prompt=None) -> BusinessPolicy
+	•	טען מה-DB.
+	•	נתח את ה-prompt של העסק (רג׳קסים פשוטים):
+	•	“24/7” → allow_24_7=True
+	•	“כל רבע שעה” → slot_size_min=15
+	•	“שעה עגולה בלבד” → slot_size_min=60
+	•	“ימים ראשון-חמישי 10–20” → מלא opening_hours_json
+	•	מיזוג: DEFAULTS ← DB ← Prompt.
+
+⸻
+
+2) יומן/קביעות – Refactor ללא hardcode
+
+2.1 יצירת סלוטים (server/agents/tools_calendar.py)
+	•	calendar.find_slots:
+	•	קבל policy דרך get_business_policy(business_id, context.get("business_prompt")).
+	•	אם allow_24_7: בנה את היום כולו במרווחים slot_size_min.
+	•	אחרת: עבור על חלונות opening_hours_json[weekday] וייצר סלוטים במרווחים slot_size_min.
+	•	סנן לפי min_notice_min ו־booking_window_days.
+	•	החזר {ok:true, slots:[{"start_iso", "end_iso"}]}.
+	•	calendar.create_appointment:
+	•	Guard: התחלה על גריד: minute % slot_size_min == 0; אם לא, {ok:false,error:"off_grid",suggestions:[שעתיים קרובות]}.
+	•	שם וטלפון: אם require_phone_before_booking=True ואין טלפון → {ok:false,error:"need_phone"}.
+	•	כתיבה ל־DB (Appointment) + commit() + קישור ל־Lead אם קיים/נוצר (ראה סעיף לידים).
+	•	החזר {ok:true, appointment_id, start_iso, end_iso}.
+
+2.2 טלפון (DTMF/WA/Call Context)
+	•	נרמול במסייע: server/agents/phone_utils.py (כבר יש).
+	•	_choose_phone: input.customer_phone → context.customer_phone → session.caller_number → context.whatsapp_from.
+	•	אין Exceptions על טלפון חסר. אם require_phone_before_booking=True – החזר ok:false ושה-Agent יבקש DTMF (#).
+
+⸻
+
+3) לידים/CRM – יציב וקושר לפגישה
+
+3.1 כלים (server/agents/tools_leads.py)
+	•	leads.upsert: יצירה/עדכון לפי business_id + phone ואם אין טלפון—לפי business_id + name.
+	•	שדה appointment_id לקישור.
+	•	אין דרישת טלפון קשיחה (משלים בהמשך אם הגיע).
+
+3.2 התנהגות בפועל
+	•	אחרי create_appointment (אם אין lead_id), קרא אוטומטית ל־leads.upsert(name, phone=None, appointment_id)—לא לעצור את הזרימה.
+
+⸻
+
+4) חשבוניות ותשלומים – פעולה אמיתית
+
+4.1 שירותי תשלום/חשבוניות (server/services/billing_service.py)
+	•	create_invoice(business_id, lead_id?, appointment_id?, customer_name, customer_phone?, items, currency, vat_rate, issue_status) -> (invoice_id, payment_url)
+	•	ייצור רשומה ב־DB + commit.
+	•	יצירת PDF (שימוש ב־invoice_generator.py) + שמירה (storage).
+	•	payment_url – מכל ספק (אפילו placeholder בשלב ראשון, אבל מוחזר כתוקף).
+	•	get_or_create_payment_link(business_id, invoice_id) -> url
+
+4.2 כלי אייג’נט (server/agents/tools_invoices.py)
+	•	invoices.create:
+	•	קורא ל־billing_service.create_invoice(...).
+	•	אם send_channel=="whatsapp":
+	•	to = input.customer_phone or context.whatsapp_from or lead.phone
+	•	אם אין to → {ok:true, invoice_id, payment_link, reason:"no_phone_for_send"} (לא נכשלים; ה-Agent יבקש DTMF/WA).
+	•	אם יש → קרא whatsapp.send עם טקסט + קישור.
+	•	payments.link: תן כתובת תשלום ולינק WhatsApp אם התבקש.
+
+⸻
+
+5) חוזים/חתימות – פעולה אמיתית
+
+5.1 שירות חתימות (server/services/contracts_service.py)
+	•	generate_and_send(business_id, template_id, variables, lead_id?, appointment_id?) -> (contract_id, sign_url)
+	•	שימוש ב־digital_signature_service.py או ספק חיצוני.
+	•	שמירה ב־DB + commit.
+
+5.2 כלי אייג’נט (server/agents/tools_contracts.py)
+	•	contracts.generate_and_send: קורא לשירות, מחזיר {ok:true, contract_id, sign_url}.
+	•	שליחה: אם לקוח ביקש “שלח” ואין טלפון—פעל כמו חשבונית (קבל מ־context/WA/DTMF, ואם אין—ok:true, reason:"no_phone_for_send").
+
+⸻
+
+6) WhatsApp – שליחה אחרי שיחה ואוטומציות
+
+6.1 כלי (server/agents/tools_whatsapp.py)
+	•	whatsapp.send: Baileys → fallback Twilio.
+	•	health check לפני שליחה; לוג Trace.
+
+6.2 Orchestrator “כמו Monday” (server/flows)
+	•	flows_repo.py: טען Flows מ-DB/JSON.
+	•	engine.py: on_event(event_type, payload) → match → run actions (כולן agent.call_tool).
+	•	טריגרים בשלב ראשון:
+	•	appointment.created → whatsapp.send אישור.
+	•	appointment.created & price>0 → invoices.create(final, send=wa) → payments.link → whatsapp.send(payment_link).
+	•	call.ended → summarize.thread → crm.add_note (אם תוסיף כלי כזה).
+	•	חשיפת /flows/test ל־test run.
+
+⸻
+
+7) AgentKit – הקשחה + חוקים
+
+7.1 Agent Ops (server/agents/agent_factory.py)
+	•	tool_choice="required", strict=True, temperature=0.2, max_output_tokens=200.
+	•	instructions (באנגלית, קצר):
+
+You are an operations agent. Always respond in Hebrew.
+Booking policy:
+1) Ask the user for the desired hour first; do not list hours.
+2) Call calendar.find_slots for that hour; if unavailable, offer up to two nearby slots from business policy (DB/prompt).
+3) Collect name+phone together; confirm both.
+4) Only then call calendar.create_appointment.
+Business rules (hours/slot-size) come from business policy. Do not assume defaults.
+If a tool returns ok=false, ask one brief clarification in Hebrew and retry.
+If WhatsApp sending is requested and no phone is available, use DTMF (#) or the WhatsApp sender.
+
+
+	•	הכלים הרשומים: calendar*, leads*, invoices*, payments.link, contracts.generate_and_send, whatsapp.send, summarize.thread.
+	•	הקפד להעביר ל־context: business_id, business_prompt, customer_phone, whatsapp_from, channel, tz.
+
+⸻
+
+8) קול/DTMF – מדיניות “חובה טלפון לפני קביעה”
+	•	ב־media_ws_ai.py:
+	•	WAITING_FOR_DTMF state; # → commit; * → clear.
+	•	כשנדרש טלפון: שלח TTS קצר (משפט אחד), השבת barge-in זמנית, אל תשלח אודיו ארוך.
+	•	ב־calendar.create_appointment: אם require_phone_before_booking=True ואין—ok:false,error:"need_phone".
+	•	הלוגיקה ב-Agent: כשמקבל error כזה—להורות ללקוח להקיש ספרות ולסיים ב־#.
+
+⸻
+
+9) דף הזמנה ויזואלי באתר (ללא Agent—בנוסף)
+
+9.1 API
+	•	GET /api/booking/availability?business_id=...&date=YYYY-MM-DD&duration=60
+	•	חוזר סלוטים לפי policy (אותו קוד של find_slots).
+	•	POST /api/booking/create
+	•	קלט: business_id, start_iso, name, phone, participants?, room/treatment?
+	•	ולידציה: minute % slot_size_min == 0, שעות פעילות/24/7, min_notice, כפילויות.
+	•	יצירה + commit → {ok:true, appointment_id}.
+
+9.2 UI (דף “קבעו תור”)
+	•	סלוטים מושכים ע”י ה-API; כפתורים לפי שעות עגולות/15 דק לפי העסק.
+	•	טופס קצר: שם + טלפון (נרמול בזמן אמת), בחירת טיפול/חדר/זוגי.
+	•	כפתור “אשר” → POST create → toast “נקבע!”.
+	•	אם send_confirmation=true → קריאה ל־whatsapp.send עם אישור.
+
+9.3 UX (בקצר)
+	•	RTL מלא, פונט Assistant, צבעי מותג.
+	•	מסכים: בחירת תאריך → סלוטים → פרטים אישיים → אישור.
+	•	שגיאות קצרות וברורות (למשל: “נדרש מספר טלפון תקין”).
+
+⸻
+
+10) ניטור, אבטחה, DevOps
+	•	/healthz, /readyz, /warmup (כבר יש) – ודא שמחזיר גם סטטוס Baileys ו־TTS warm.
+	•	AgentTrace: כתוב רשומה לכל tool call (tool, args, ok, latency).
+	•	Secrets לפרוד: AGENTS_ENABLED=1, BAILEYS_BASE_URL, DATABASE_URL, GOOGLE_APPLICATION_CREDENTIALS, RUN_MIGRATIONS_ON_START=1.
+	•	לוגים: DEBUG=0 בפרוד, Async logging מופעל.
+
+⸻
+
+11) בדיקות GO/NO-GO (לרוץ אחת-אחת)
+
+A. עסק A – שעה עגולה בלבד 10–20
+	•	“מחר 10:15” → {ok:false, off_grid} וה-Agent מציע 10:00/11:00.
+	•	“מחר 12:00” + שם+טל → {ok:true, appointment_id} + Flow שולח וואטסאפ אישור.
+
+B. עסק B – 24/7 כל 15 דק
+	•	“הלילה 03:15” + שם+טל → {ok:true}; אם min_notice לא מאפשר—שגיאת מדיניות.
+
+C. חשבונית + תשלום
+	•	“תוציא חשבונית 390 ותשלח קישור תשלום בוואטסאפ” → tools: invoices.create(final, send=wa) → payments.link → whatsapp.send(link); בקונסולה: AgentTrace מציג את שלושת הקריאות.
+
+D. חוזה/חתימה
+	•	“שלח חוזה קצר לזוגי” → contracts.generate_and_send(template_id=...) → whatsapp.send(sign_url).
+
+E. אחרי שיחה
+	•	call.ended → Flow summarize.thread נשמר ב-CRM.
+
+F. דף אתר
+	•	בחר תאריך → ראה סלוטים נכונים לפי העסק → קבע → קבל אישור ו-WA.
+
+⸻
+
+12) מה להגיד למפתח שלך (בדיוק)
+	1.	ליישם את policy/business_policy.py ולחבר את find_slots/create_appointment אליו.
+	2.	לממש billing_service + tools_invoices לקריאות אמיתיות (PDF/commit/WA).
+	3.	לממש contracts_service + tools_contracts לקריאות אמיתיות (sign_url/commit/WA).
+	4.	להקשיח agent_factory: tool_choice=“required”, הוראות באנגלית, תשובות בעברית.
+	5.	להפעיל flows engine עם 3 טריגרים: appointment.created, appointment.created+price>0, call.ended.
+	6.	להוציא דף הזמנה ויזואלי באתר (API + React/HTML פשוט).
+	7.	להפעיל DTMF חובה-טלפון לפי המדיניות (כבר קיים ברובו, רק לוודא guard ב-create_appointment).
+	8.	להשלים AgentTrace+ניטור.
+
+כשזה מבוצע—המערכת “סגורה”: השיחות מהירות, הקביעות לפי מדיניות עסק, חשבוניות/חוזים יוצאים ונשלחים, וואטסאפ אחרי שיחה פועל אוטומטית, ויש גם דף הזמנה עצמאי באתר.
+
+צריך שאנסח לך את זה גם כ-PR-diff ממוקד (שמות קבצים, פונקציות, ובלוקים להדבקה)?
