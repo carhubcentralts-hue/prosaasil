@@ -10,6 +10,7 @@ import pytz
 from server.models_sql import db, Appointment, BusinessSettings
 from server.agent_tools.phone_utils import normalize_il_phone
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,7 @@ def _calendar_find_slots_impl(input: FindSlotsInput, context: Optional[Dict[str,
     - Booking window
     - Minimum notice
     """
+    tool_start = time.time()
     try:
         from server.policy.business_policy import get_business_policy
         
@@ -221,11 +223,13 @@ def _calendar_find_slots_impl(input: FindSlotsInput, context: Optional[Dict[str,
                             start_display=slot_start.strftime("%H:%M")
                         ))
         
-        logger.info(f"📅 RESULT: {len(slots)} available slots (slot_size={policy.slot_size_min}min)")
+        tool_latency = (time.time() - tool_start) * 1000  # ms
+        logger.info(f"📅 RESULT: {len(slots)} available slots (slot_size={policy.slot_size_min}min, latency={tool_latency:.0f}ms)")
         return FindSlotsOutput(slots=slots, business_hours="24/7" if policy.allow_24_7 else "dynamic")
         
     except Exception as e:
-        logger.error(f"Error finding slots: {e}")
+        tool_latency = (time.time() - tool_start) * 1000
+        logger.error(f"Error finding slots: {e}, latency={tool_latency:.0f}ms")
         raise ValueError(f"Failed to find slots: {str(e)}")
 
 # Wrapped version for Agent SDK
@@ -448,6 +452,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                 customer_phone_wa = phone or agent_context.get('customer_phone')
                 
                 if customer_phone_wa:
+                    wa_start = time.time()
                     logger.info(f"📱 Sending WhatsApp confirmation to {customer_phone_wa} (booked via phone)")
                     
                     # Compute day name in Hebrew for WhatsApp message
@@ -472,13 +477,19 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                     from server.whatsapp_provider import get_whatsapp_service
                     wa_service = get_whatsapp_service()
                     
-                    # Send WhatsApp message
-                    result = wa_service.send_message(to=customer_phone_wa, message=wa_message)
-                    
-                    if result.get('status') == 'sent':
-                        logger.info(f"✅ WhatsApp confirmation sent successfully to {customer_phone_wa}")
-                    else:
-                        logger.warning(f"⚠️ WhatsApp confirmation failed: {result.get('error')}")
+                    # Send WhatsApp message with error handling
+                    try:
+                        result = wa_service.send_message(to=customer_phone_wa, message=wa_message)
+                        wa_latency = (time.time() - wa_start) * 1000  # Convert to ms
+                        
+                        if result.get('status') == 'sent':
+                            logger.info(f"✅ WhatsApp confirmation sent successfully to {customer_phone_wa} (latency: {wa_latency:.0f}ms)")
+                        else:
+                            logger.warning(f"⚠️ WhatsApp confirmation failed: {result.get('error')} (latency: {wa_latency:.0f}ms)")
+                    except Exception as wa_error:
+                        wa_latency = (time.time() - wa_start) * 1000
+                        logger.error(f"❌ WhatsApp send exception: {wa_error} (latency: {wa_latency:.0f}ms)")
+                        # Don't re-raise - booking should succeed even if WhatsApp fails
                 else:
                     logger.info("📱 Skipping WhatsApp confirmation - no phone number available")
             else:
