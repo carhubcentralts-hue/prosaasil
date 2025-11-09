@@ -1541,19 +1541,18 @@ class MediaStreamHandler:
             # בדיקת ברג-אין
             if not self.speaking:
                 print(f"🚨 BARGE-IN! Stopped at frame {frames_sent}/{total_frames}")
-                self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+                # 🔥 IMMEDIATE clear - bypass queue for instant interruption!
+                self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
                 self._finalize_speaking()
                 return
                 
-            # שלח פריים
+            # 🔥 Phase 2E: Use tx_enqueue for 20ms pacing (NOT direct _ws_send!)
             frame = mulaw[i:i+FR].ljust(FR, b'\x00')
             payload = base64.b64encode(frame).decode()
-            media_msg = json.dumps({
-                "event": "media",
-                "streamSid": self.stream_sid,
-                "media": {"payload": payload}
+            self._tx_enqueue({
+                "type": "media",
+                "payload": payload
             })
-            self._ws_send(media_msg)
             frames_sent += 1
             
             # Yield לeventlet
@@ -1567,23 +1566,19 @@ class MediaStreamHandler:
             if not self.speaking:
                 break
             payload = base64.b64encode(silence_mulaw).decode()
-            media_msg = json.dumps({
-                "event": "media", 
-                "streamSid": self.stream_sid,
-                "media": {"payload": payload}
+            self._tx_enqueue({
+                "type": "media",
+                "payload": payload
             })
-            self._ws_send(media_msg)
             time.sleep(0)  # yield
         
         # שלח סימון לטוויליו
         self.mark_pending = True
         self.mark_sent_ts = time.time()
-        mark_msg = json.dumps({
-            "event": "mark",
-            "streamSid": self.stream_sid,
-            "mark": {"name": "assistant_tts_end"}
+        self._tx_enqueue({
+            "type": "mark",
+            "name": "assistant_tts_end"
         })
-        self._ws_send(mark_msg)
         print("🎯 TTS_MARK_SENT: assistant_tts_end")
         
         # ✅ BUILD 100.4 FIX: סיים דיבור מיד וחזור להאזנה!
