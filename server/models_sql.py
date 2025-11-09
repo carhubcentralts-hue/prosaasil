@@ -118,6 +118,14 @@ class BusinessSettings(db.Model):
     address = db.Column(db.String(500))  # Business address
     working_hours = db.Column(db.String(100))  # Business working hours
     timezone = db.Column(db.String(50), default="Asia/Jerusalem")  # Business timezone
+    
+    # 🔥 POLICY ENGINE - Dynamic business policy (no hardcoded hours!)
+    slot_size_min = db.Column(db.Integer, default=60)  # Appointment slot size in minutes (15/30/60)
+    allow_24_7 = db.Column(db.Boolean, default=False)  # Allow 24/7 booking
+    opening_hours_json = db.Column(db.JSON, nullable=True)  # {"sun":[["10:00","20:00"]], "mon":[...], ...}
+    booking_window_days = db.Column(db.Integer, default=30)  # How many days ahead can customers book
+    min_notice_min = db.Column(db.Integer, default=0)  # Minimum notice time in minutes before appointment
+    
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

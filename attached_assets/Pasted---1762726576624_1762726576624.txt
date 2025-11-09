@@ -1,0 +1,112 @@
+אתה בדיוק בכיוון הנכון 👏 — והגישה שלך מדויקת ומקצועית.
+זו בדיוק הדרך הנכונה ליישם מפרט כזה מסודר בלי לשבור את המערכת: חמישה שלבים הדרגתיים, עם בדיקה ובקרה בכל שלב.
+
+✅ אני מאשר לחלוטין את הסדר שהצעת
+ואני ממליץ להתחיל בדיוק כמו שציינת — בשלב 1: תשתית מדיניות (Policy Engine).
+
+זה הבסיס של הכל — ברגע שהמדיניות העסקית תעבוד בצורה דינמית (DB + Prompt),
+כל שאר השכבות — Flows, חשבוניות, חוזים, אתר וכו’ — יתחברו אוטומטית אליה.
+
+⸻
+
+🚀 אז נתחיל כך:
+
+שלב 1: תשתית מדיניות (Policy Layer)
+מטרה:
+שהמערכת תבין לבד את שעות הפעילות, מרווחי התורים, זמינות 24/7, התראות מינימום, ושעות עבודה — לפי כל עסק.
+
+🧱 מבנה המשימה:
+	1.	הרחבת מודל BusinessSettings
+	•	הוסף:
+
+slot_size_min = db.Column(db.Integer, default=60)
+allow_24_7 = db.Column(db.Boolean, default=False)
+opening_hours_json = db.Column(db.JSON, nullable=True)
+booking_window_days = db.Column(db.Integer, default=30)
+min_notice_min = db.Column(db.Integer, default=0)
+
+
+	•	בצע מיגרציה.
+
+	2.	יצירת קובץ חדש
+server/policy/business_policy.py
+תוכן ראשוני:
+
+import re
+from dataclasses import dataclass
+from datetime import time
+
+@dataclass
+class BusinessPolicy:
+    tz: str
+    slot_size_min: int
+    allow_24_7: bool
+    opening_hours: dict
+    booking_window_days: int
+    min_notice_min: int
+
+DEFAULT_POLICY = BusinessPolicy(
+    tz="Asia/Jerusalem",
+    slot_size_min=60,
+    allow_24_7=False,
+    opening_hours={"sun":[["09:00","22:00"]],"mon":[["09:00","22:00"]],"tue":[["09:00","22:00"]],"wed":[["09:00","22:00"]],"thu":[["09:00","22:00"]]},
+    booking_window_days=30,
+    min_notice_min=0
+)
+
+def parse_policy_from_prompt(prompt: str) -> dict:
+    prompt = prompt or ""
+    data = {}
+    if "24/7" in prompt:
+        data["allow_24_7"] = True
+    if "רבע שעה" in prompt:
+        data["slot_size_min"] = 15
+    elif "חצי שעה" in prompt:
+        data["slot_size_min"] = 30
+    elif "שעה עגולה" in prompt:
+        data["slot_size_min"] = 60
+    hours_match = re.findall(r"(\d{1,2}):?00[–\-](\d{1,2}):?00", prompt)
+    if hours_match:
+        start, end = hours_match[0]
+        data["opening_hours"] = {"sun":[[f"{start}:00", f"{end}:00"]]}
+    return data
+
+def get_business_policy(business_id: int, prompt_text=None, db=None) -> BusinessPolicy:
+    db_policy = db.query(BusinessSettings).filter_by(business_id=business_id).first()
+    parsed = parse_policy_from_prompt(prompt_text or getattr(db_policy, "ai_prompt", ""))
+    merged = {**DEFAULT_POLICY.__dict__, **(db_policy.__dict__ if db_policy else {}), **parsed}
+    return BusinessPolicy(**{k:v for k,v in merged.items() if k in BusinessPolicy.__annotations__})
+
+
+	3.	חיבור לקובץ tools_calendar.py
+	•	בתחילת כל פונקציה (find_slots, create_appointment), הוסף:
+
+from server.policy.business_policy import get_business_policy
+policy = get_business_policy(business_id, context.get("business_prompt"), db=session)
+
+
+	•	החלף לוגיקה של שעות קשיחות (range(9,22)) לשימוש ב־policy.opening_hours.
+	•	השתמש ב־policy.slot_size_min לקביעת מרווחי התורים.
+
+	4.	בדיקה
+	•	שנה ל־business_prompt של עסק אחד:
+
+פתוח 24/7, קביעת תורים כל רבע שעה
+
+ותוודא ב־find_slots שנוצרים 96 סלוטים ביום.
+
+	•	שנה לעסק אחר:
+
+פתוח ראשון עד חמישי 10:00-20:00, רק שעה עגולה
+
+ותוודא שיש רק 10 סלוטים ביום.
+
+⸻
+
+✅ אחרי שלב 1 — המערכת שלך תדע לבד להבין וליצור תורים לפי כל עסק, בלי hardcode.
+מפה נתקדם ל־Phase 2: Flows Engine (שולח וואטסאפ אחרי שיחה ומפעיל חשבוניות/חוזים).
+
+⸻
+
+רוצה שאכין לך עכשיו את קוד שלב 1 מוכן להדבקה (כולל כל הפונקציות המלאות וההחלפות המדויקות)
+כדי שתוכל פשוט להכניס את זה ולהתחיל לבדוק?

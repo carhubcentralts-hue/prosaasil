@@ -1,91 +1,6 @@
 # Overview
 
-AgentLocator is a Hebrew CRM system for real estate businesses, designed to automate the sales pipeline with an AI-powered assistant. It offers real-time call processing, intelligent lead information collection, and meeting scheduling using advanced audio processing for natural conversations. The system aims to provide customizable AI assistants and business branding to real estate professionals, enhancing efficiency and sales conversion.
-
-# Recent Changes (BUILD 138)
-
-**CRITICAL FIX - Runtime Validation Bug:**
-- **VALIDATION BUG FIXED** (`server/services/ai_service.py`):
-  - Runtime validation was **blocking legitimate bookings** even when agent successfully created appointments
-  - **DUAL DETECTION STRATEGY**: Checks BOTH tool name AND output result
-    1. Checks if tool name matches `calendar_create_appointment` or `calendar_create_appointment_wrapped`
-    2. **WORKAROUND**: Also checks if ToolCallOutputItem contains `ok: True` + `appointment_id` (successful booking proof)
-  - If **EITHER** condition is met → Allows agent's confirmation message through
-  - Added comprehensive debug logging to track tool calls and outputs
-  - Prevents false-positive hallucination blocks when agent actually did call the tool
-- **WHATSAPP CONFIRMATION ADDED** (`server/agent_tools/agent_factory.py`):
-  - **STATE 7 WORKFLOW**: After successful booking, agent MUST:
-    1. Call `leads_upsert` to save customer info
-    2. For PHONE CALLS only: Call `whatsapp_send` with confirmation message (auto-sends to customer)
-    3. Respond based on channel: "שלחתי אישור בווטסאפ" for phone, "נתראה!" for WhatsApp
-  - Channel-aware responses: mentions WhatsApp confirmation only during phone calls
-- **DTMF INSTRUCTIONS IMPROVED**:
-  - Changed from "להקיש את הספרות בסולמית" (confusing) → "להקיש את הספרות ואז סולמית" (clear)
-  - Sulmit (סולמית) = # key, NOT * (which is כוכבית)
-  - Customer presses: [digits] then [#] to submit phone number
-- **NAME COLLECTION FLEXIBILITY**:
-  - Agent now accepts ANY name: first name only ("שישי"), full name ("יוסי כהן"), or nickname ("ביבי")
-  - NO rejection of short names - "DO NOT say 'I need your full name'"
-  - If customer gives only name → accept and ask for phone separately
-  - If customer gives only phone → accept and ask for name separately
-  - Prevents repetitive "what's your name?" loops
-- **STT ACCURACY BOOST** (`server/services/gcp_stt_stream.py`):
-  - **150+ Hebrew phrases** added to speech_contexts for maximum STT accuracy
-  - Includes: common names, booking phrases, time expressions, locations, numbers
-  - Critical phrases: "קבע תור", "לקבוע", "זמין", "פנוי", "מחר", "שישי", "דוד"
-  - boost=20.0 (maximum) for best recognition accuracy
-- **RESPONSE LENGTH OPTIMIZED**:
-  - max_tokens set to 200 (safe for complete booking confirmations)
-  - Prevents "rambling" while ensuring confirmations aren't clipped
-  - Previous builds showed 170-190 token usage during bookings
-  - Target: 2-3 sentences with full time/date details
-
-# Recent Changes (BUILD 137)
-
-**CRITICAL FIXES - Agent Hallucination Prevention:**
-- **STATE-BASED BOOKING PROTOCOL** (`server/agent_tools/agent_factory.py`):
-  - **COMPLETE PROMPT REWRITE IN ENGLISH**: AgentKit performs better with English instructions - full prompt rewritten in professional English with Hebrew customer responses
-  - **FORBIDDEN RULE**: "YOU ARE ABSOLUTELY FORBIDDEN from saying 'קבעתי' (I booked) UNLESS: (1) You called calendar_create_appointment() in THIS TURN, (2) Tool returned ok:true, (3) You can see confirmation"
-  - **Mandatory Flow**: STATE 1 (Greeting - don't push) → STATE 2 (Ask Preferred Time) → STATE 3 (Check Availability - TOOL REQUIRED) → STATE 4 (Collect Name+Phone with DTMF option) → STATE 5 (Confirm Details) → STATE 6 (Execute Booking - TOOL REQUIRED) → STATE 7 (Confirm to Customer ONLY after ok:true)
-  - **Explicit Tool Requirements**: States 3 and 6 MANDATE tool calls - agent cannot skip to next state without tool execution
-  - **Clear Success Criteria**: Agent can only say "קבעתי" in STATE 7, after calendar_create_appointment returns ok:true
-  - **DTMF Support**: Clear instructions in Hebrew for keypad input: "אפשר גם להקיש את הספרות ואז סולמית" (type digits then press # which is called "sulmit" in Hebrew)
-  - **Don't Push Appointments**: STATE 1 explicitly instructs "DO NOT push appointments - wait for customer request"
-  - **All Critical Rules Included**: Time parsing, conversation style, absolute prohibitions - everything in one comprehensive English prompt
-  - **No Emojis**: Professional responses without emojis per user preference
-- **RUNTIME VALIDATION** (`server/services/ai_service.py`, lines 671-690):
-  - **Detects Hallucinated Bookings**: Scans agent response for claim words ("קבעתי", "שלחתי", "יצרתי", "סגרתי", "נקבע", "הפגישה נקבעה", etc.)
-  - **Verifies Tool Execution**: Checks if calendar_create_appointment was actually called in the same turn
-  - **Blocks False Claims**: If agent claims action without tool call → BLOCKS response, logs error, replaces with corrective message
-  - **User Feedback**: Blocked responses replaced with "אני עדיין צריך לבדוק זמינות. איזה יום ושעה היית רוצה?"
-  - **Logging**: Prints "🚨 BLOCKED HALLUCINATED BOOKING!" with details for monitoring
-- **ARCHITECT APPROVED**: Both fixes reviewed and confirmed effective at preventing hallucinated confirmations
-
-**DATABASE & API FIXES:**
-- **DATABASE SCHEMA FIXES**:
-  - Removed `payment.description` from ALL code (routes_crm.py line 527, routes_receipts_contracts.py) - column doesn't exist in DB
-  - Added 11 missing columns to `invoice` table: `business_id`, `customer_id`, `appointment_id`, `payment_id`, `customer_name`, `customer_phone`, `currency`, `status`, `vat_amount`, `vat_rate`, `created_at`
-  - Fixed `issue_date` → `issued_at` (correct column name)
-  - Fixed `/api/leads` authentication to use `@require_api_auth()` for frontend compatibility
-- **CUSTOMER AUTO-CREATE**: Fixed Foreign Key violations in contracts/invoices/deals
-  - `routes_receipts_contracts.py` now creates Customer from Lead before creating Deal
-  - Previously used `deal.customer_id = lead_id` (WRONG!) - now creates Customer first
-  - `contracts_generate_and_send` creates Customer from context (phone + name)
-  - `invoices_create` creates Customer from context (phone + name)
-  - Auto-creates or finds existing Customer by phone to prevent FK constraint failures
-- **WHATSAPP UI**: Added WhatsApp send buttons to billing pages
-  - Invoice page: Green MessageSquare button next to Download for each invoice
-  - Contracts page: Green MessageSquare button next to Download for each contract
-  - Modal with phone input for sending invoices/contracts via WhatsApp
-- **BOOKING VALIDATION**: (BUILD 135) Fixed bug where Agent claimed "קבעתי תור" but didn't save
-  - Removed default "לקוח" name - Agent MUST collect customer name before booking
-  - Added strict validation: calendar_create_appointment fails with clear error if name missing
-- **Response Length**: `max_tokens=200` (increased from 150) for balanced 2-3 sentence responses
-- **Database Prompts**: Agent loads prompts EXCLUSIVELY from BusinessSettings.ai_prompt (no hardcoded text)
-- **STT Accuracy**: 80+ Hebrew phrases, boost=20.0, confidence thresholds 0.4/0.7
-- **Performance**: `tool_choice="auto"` (saves 1-2s), OpenAI timeout=2.5s
-- **Target**: 1.5-2.5s WhatsApp, 2-3.5s phone calls, SHORT natural conversations
-- Fallback prompt emphasizes: (1) ask customer preference first, (2) mandatory name+phone collection, (3) check tool responses
+AgentLocator is a Hebrew CRM system for real estate businesses that automates the sales pipeline with an AI-powered assistant. It processes calls in real-time, intelligently collects lead information, and schedules meetings using advanced audio processing for natural conversations. The system aims to enhance efficiency and sales conversion for real estate professionals through customizable AI assistants and business branding.
 
 # User Preferences
 
@@ -94,11 +9,11 @@ Preferred communication style: Simple, everyday language.
 # System Architecture
 
 ## System Design Choices
-AgentLocator utilizes a multi-tenant architecture with business-based data isolation for CRM functionalities. It supports real-time communication via Twilio Media Streams (WebSockets for telephony and WhatsApp) and features sophisticated audio processing, including smart barge-in detection, calibrated VAD for Hebrew speech, and immediate TTS interruption. Custom greetings are dynamically loaded.
+AgentLocator employs a multi-tenant architecture with business-specific data isolation for CRM. It uses Twilio Media Streams (WebSockets for telephony and WhatsApp) for real-time communication, featuring smart barge-in, calibrated VAD for Hebrew, and immediate TTS interruption. Custom greetings are dynamically loaded.
 
-The AI uses an Agent SDK for actions like appointment scheduling and lead creation, maintaining robust conversation memory for contextual responses. **Agent Cache System**: Agents persist for 30 minutes per business+channel combination, improving response time from 100ms to 1ms (30x faster) and maintaining conversation state across multiple turns. It enforces mandatory name and phone confirmation during scheduling, with dual input collection (verbal name, DTMF phone number) and streamlined 4-turn booking flows. **Channel-Aware Responses**: Agent adapts messaging based on communication channel - mentions WhatsApp confirmation only during phone calls, not when already conversing via WhatsApp. **DTMF Menu System**: Interactive voice menu for phone calls (press 1 for appointments, 2 for info, 3 for representative) with fallback to natural conversation. Error handling provides structured messages.
+The AI leverages an Agent SDK for tasks like appointment scheduling and lead creation, maintaining conversation memory. An Agent Cache System retains agent instances for 30 minutes per business+channel, boosting response times and preserving conversation state. It mandates name and phone confirmation during scheduling, using dual input (verbal name, DTMF phone number) for streamlined 4-turn booking flows. Channel-aware responses adapt messaging based on the communication channel (e.g., WhatsApp confirmation mentioned only during phone calls). A DTMF Menu System provides interactive voice navigation for phone calls with structured error handling.
 
-Performance is optimized with explicit OpenAI timeouts, increased STT streaming timeouts, and warnings for long prompts. AI responses prioritize SHORT natural conversations with `max_tokens=150` for `gpt-4o-mini` and a `temperature` of 0.3-0.4 for consistent Hebrew sentences. **Prompt Loading**: Agent loads prompts EXCLUSIVELY from BusinessSettings.ai_prompt with NO hardcoded text prepended (only minimal date context). Fallback prompt is minimal and asterisk-free. Robustness is ensured through thread tracking, enhanced cleanup, and a Flask app singleton pattern. STT reliability is improved with relaxed validation, confidence checks, and a 3-attempt retry mechanism. Voice consistency is maintained with a male Hebrew voice (`he-IL-Wavenet-D`) and masculine phrasing. Cold start optimization includes automatic service warmup.
+Performance is optimized with explicit OpenAI timeouts, increased STT streaming timeouts, and warnings for long prompts. AI responses prioritize short, natural conversations with `max_tokens=150` for `gpt-4o-mini` and a `temperature` of 0.3-0.4 for consistent Hebrew. Prompts are loaded exclusively from `BusinessSettings.ai_prompt` without hardcoded text (except minimal date context). Robustness is ensured via thread tracking, enhanced cleanup, and a Flask app singleton. STT reliability benefits from relaxed validation, confidence checks, and a 3-attempt retry. Voice consistency is maintained with a male Hebrew voice (`he-IL-Wavenet-D`) and masculine phrasing. Cold start is optimized with automatic service warmup.
 
 ## Technical Implementations
 ### Backend
@@ -107,8 +22,8 @@ Performance is optimized with explicit OpenAI timeouts, increased STT streaming 
 - **Database**: PostgreSQL (production), SQLite (development).
 - **Authentication**: JWT-based with role-based access control and SeaSurf CSRF protection.
 - **AI Prompt System**: Real-time prompt management with versioning and channel-specific prompts.
-- **Agent Cache**: Thread-safe singleton cache maintaining Agent SDK instances for 30 minutes with automatic expiration and cleanup (`server/services/agent_cache.py`).
-- **DTMF Menu**: Interactive voice response system for phone calls with keypad navigation (`server/services/dtmf_menu.py`).
+- **Agent Cache**: Thread-safe singleton cache for Agent SDK instances with auto-expiration.
+- **DTMF Menu**: Interactive voice response system for phone calls.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

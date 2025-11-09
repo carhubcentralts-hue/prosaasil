@@ -450,6 +450,22 @@ def apply_migrations():
         except Exception as e:
             log.warning(f"Could not fix deal foreign key (may already be correct): {e}")
     
+    # Migration 19: Add Policy Engine fields to business_settings
+    policy_fields = [
+        ('slot_size_min', 'INTEGER', '60'),
+        ('allow_24_7', 'BOOLEAN', 'FALSE'),
+        ('opening_hours_json', 'JSON', 'NULL'),
+        ('booking_window_days', 'INTEGER', '30'),
+        ('min_notice_min', 'INTEGER', '0')
+    ]
+    
+    for col_name, col_type, default_val in policy_fields:
+        if check_table_exists('business_settings') and not check_column_exists('business_settings', col_name):
+            from sqlalchemy import text
+            db.session.execute(text(f"ALTER TABLE business_settings ADD COLUMN {col_name} {col_type} DEFAULT {default_val}"))
+            migrations_applied.append(f"add_business_settings_{col_name}")
+            log.info(f"✅ Applied migration: add_business_settings_{col_name} - Policy Engine field")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
