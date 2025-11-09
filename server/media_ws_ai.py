@@ -72,7 +72,7 @@ print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHAN
 print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
 print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '40')}")
 print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '90')}")
-print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '180')}")
+print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '120')}")
 print(f"[BOOT] UTTERANCE_TIMEOUT = 320ms (aggressive for sub-2s response)")
 print("="*80)
 
@@ -228,7 +228,7 @@ MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפ�
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
 VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
 BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # ⚡ BUILD 116: 180ms - aggressive for sub-2s response
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "120"))  # 🔥 Phase 2D: 120ms - ultra-aggressive for ≤2s response
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
