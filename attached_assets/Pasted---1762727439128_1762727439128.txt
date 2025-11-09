@@ -1,0 +1,163 @@
+מעולה. אני מרכז לך עכשיו “תיקון מסיבי” ממוקד לפרויקט האחרון — עם סדר פעולה חד, נקודות בדיקה, ומה בדיוק לשנות כדי:
+	1.	לעצור APP_STARTים בזמן שיחה
+	2.	לייצב את ה-Agent כך שלא יפיל את האפליקציה
+	3.	להפוך את קביעת הפגישות ל“צבאית” (עובד תמיד, לפי המדיניות הדינמית שכבר הוספת)
+	4.	לשפר STT/Latency מתחת ל-~2–2.5 שניות
+	5.	למנוע שוב “send queue full” ב-TTS/WS
+	6.	לוודא ש־WhatsApp יוצא אחרי שיחה, ואישורי פגישה יוצאים אוטומטית
+
+⸻
+
+A) לעצור APP_START באמצע שיחה (קריטי)
+
+בדיקות “חובה” בקוד (חפש/תקן):
+	1.	אין קריאות ל־create_app() בשום “מסלול חם”
+• אסור ב־server/media_ws_ai.py, server/agents/agent_factory.py, server/services/, server/routes_
+• אם מצאת – החלף ל־current_app או הזרק app דרך constructor/DI.
+• החזק את ה-Flask app יחיד שנוצר ב־app_factory.py בלבד.
+	2.	אין import מעגלי שמניע reload
+• אל תייבא app_factory מתוך agent_factory או services.
+• אם צריך Logger/DB: תביא מ־extensions (session_factory, logger) במקום “app”.
+	3.	Eventlet monkey_patch — רק ב-entrypoint
+• ב־wsgi/main.py (או run.py) לפני כל import:
+
+import eventlet; eventlet.monkey_patch()
+
+• אל תעשו monkey_patch בתוך קבצי services/agents — זה גורם להתנהגות לא צפויה.
+
+	4.	ריסטארטים עקב כשל Init “כבד”
+• אתחול לקוחות “כבדים” (OpenAI, GCP TTS, Baileys HTTP, DB engine) — פעם אחת ב-startup, שמור אותם כ-singletons ברמת מודול (עם Lock) ולא כל טורן.
+• עטוף Init ב-try/except עם לוג אזהרה — לא להפיל את התהליך.
+	5.	פרמטרי הפעלה (בפרוד)
+• Gunicorn/Eventlet: --worker-class eventlet --workers 1 --threads 1 --max-requests 0 --timeout 120
+• השבת auto-reload בפרוד.
+• RUN_MIGRATIONS_ON_START=1 רק בעלייה — לא בתוך בקשה/שיחה.
+	6.	אל תשמיד תהליך על שגיאה
+• אין sys.exit() / os._exit() בשום מסלול.
+• כל חריגה בכלי Agent → חוזר {ok:false, error, reason} — לעולם לא Exception לא מטופל.
+
+👉 אחרי התיקונים, תריץ grep:
+	•	“create_app(” מחוץ ל-app_factory = 0
+	•	“monkey_patch(” מחוץ ל-entrypoint = 0
+
+⸻
+
+B) לייצב את ה-Agent (בלי להפיל את האפליקציה)
+	1.	איחוד יצירת האייג’נט (Singleton + Lock) – ב־server/agents/agent_factory.py:
+• מודול-לבל משתנה OPS_AGENT = None ו־AGENT_LOCK
+• get_ops_agent() בודק אם קיים, ואם לא – יוצר פעם אחת (בתוך lock).
+• אל תיצור Agent חדש בכל turn.
+	2.	בלי תלות ב-Flask App
+• agent_factory לא מייבא app_factory ולא יוצר app.
+• הכלים מקבלים db_session/logger/policy בהזרקה, או שואבים מ־extensions.
+	3.	tool_choice ו-strict
+• ל-Ops/Booking: tool_choice="required", strict=True, temperature=0.2, max_output_tokens=200
+• ההוראות (באנגלית קצרה) מחייבות סדר: שעה → find_slots → שם+טל → אישור → create_appointment. תשובות בעברית.
+
+⸻
+
+C) קביעת פגישות “צבאית” לפי המדיניות הדינמית
+
+יש לך כבר Phase 1 (Policy). עכשיו תוודא בכלי היומן:
+	1.	calendar.find_slots
+• טען policy דרך get_business_policy(business_id, context.get("business_prompt"))
+• אם allow_24_7 → כל היום במרווח slot_size_min
+• אחרת לפי opening_hours_json[weekday]
+• סנן לפי min_notice_min, booking_window_days
+• החזר slots=[{start_iso,end_iso}]
+	2.	calendar.create_appointment
+• Guard: minute % slot_size_min == 0 → אחרת {ok:false,error:"off_grid",suggestions:[שעתיים קרובות]}
+• אם require_phone_before_booking=True ואין טל → {ok:false,error:"need_phone"} (האייג’נט ינחה DTMF)
+• כתוב Appointment + commit; קשר ל-Lead (ראה סעיף לידים)
+	3.	דיאלוג “חובה טלפון” (DTMF):
+• media_ws_ai: מצב WAITING_FOR_DTMF עם buffer; ‘#’ → commit; ‘*’ → clear
+• בקבלת error:"need_phone" האייג’נט אומר משפט קצר: “תקליד את המספר וסיים ב-#”.
+
+⸻
+
+D) STT/Latency — להגיע ל־~2–2.5 שניות
+	1.	פרמטרים (Secrets שכבר יש, עדכון עדין):
+• STT_PARTIAL_DEBOUNCE_MS=40–60 (נסה 40)
+• VAD_HANGOVER_MS=120–160 (נסה 120)
+• MIN_UTT_SEC=0.20–0.25
+• STT_TIMEOUT_MS=240
+	2.	Google STT (אם בשימוש):
+• language_code=“he-IL”
+• enable_automatic_punctuation=False ב-partials (חוסך זמן)
+• phrase_hints למספרים, ימים, “שעה”, “תור”.
+• ודא stream 8k/mono וטיימרים לא חוסמים.
+	3.	Loop “חם”
+• עיבוד פרגמנטים כל 20ms–40ms frames, בלי sleep ארוך
+• אל תעשה file I/O או DB כבד במעבר PARTIAL → עשה זאת ב-FINAL בלבד
+	4.	תשובה ראשונה קצרה
+• כבר קבעת מקסימום 200 טוקנים; טוב. תעדף ≤24 מילים בתשובה ראשונה בשיחה (יש לך turn_count).
+
+⸻
+
+E) למנוע “send queue full” ו-32s TTS_SEND
+	1.	קצב שידור אודיו ל-Twilio
+• שלח פריימים של ≈20ms (160 דגימות ב-8k PCM16) בקצב קבוע.
+• יישם backpressure: אם send queue > N → await drain()/sleep קטן; לא “לשפוך” 6 שניות באבחת אחת.
+• ודא ש-barge-in מכבה שידור כשיש קוטע (לא ממשיך להשפריץ אודיו “ישנים”).
+	2.	צמצום לוגים ב-hot path
+• DEBUG=0 בפרוד; אל תדפיס גודל פריים לכל פריים.
+
+⸻
+
+F) Warmup/Clients (למנוע 4s cold-start)
+	1.	app_factory startup
+• maybe_warmup() נקרא פעם אחת; לוג “TTS prewarm took XXXms”.
+• תזמן ping פנימי כל 7–8 דקות (thread/greenlet) שקורא maybe_warmup().
+	2.	לקוחות כבדים
+• GCP TTS/STT/OpenAI clients נוצרים פעם אחת ושמורים במודול.
+• אל תיצור-תשמיד בכל turn.
+
+⸻
+
+G) WhatsApp אחרי שיחה + אישורי פגישה (אוטומטיות)
+
+אם עדיין לא הפעלת Flows — תוסיף עכשיו (דק/יעיל):
+	1.	server/flows/engine.py — on_event(event_type, payload)
+	2.	טריגרים ראשונים:
+• appointment.created → whatsapp.send("נקבע לך תור ל-{date} {hh:mm}")
+• call.ended → summarize.thread(...); whatsapp.send("סיכום השיחה…")
+	3.	חיבור: כש-create_appointment מחזיר {ok:true, appointment_id}, שגר event ל-engine.
+
+—
+
+H) דיאגנוסטיקה “לפי ספר” כדי לסגור פינות
+	1.	לוג “סיבת ריסטארט”
+• מסביב ל-app_factory.init הדפס פעם אחת APP_START {build, ts}
+• חפש בקוד מי עוד מדפיס APP_START — אמור להיות רק שם.
+• אם אתה רואה APP_START באמצע שיחה → מישהו יצר app מחדש / תהליך עלה מחדש.
+	2.	Latency Marks לכל Turn
+• [STT_FIRST_PARTIAL_MS], [STT_FINAL_MS], [AI_LATENCY_MS], [TTS_READY_MS], [TOTAL_MS].
+• תוודא שכל אחד נכתב פעם אחת ל-log/DB (AgentTrace/CallLog).
+	3.	AgentTrace לכל tool_call
+• tool, args snapshot (בלי PII מלאה), ok, reason, latency_ms.
+• ככה תראה למה חשבונית/חוזה לא נשלחו (חסר phone? כשל ספק?).
+
+⸻
+
+צ’קליסט GO/NO-GO (תריץ אחד-אחד)
+	•	אין “create_app(” מחוץ ל-app_factory ✅
+	•	אין monkey_patch מחוץ ל-entrypoint ✅
+	•	OPS_AGENT נוצר פעם אחת בלבד, אין יצירה בכל turn ✅
+	•	STT partial ≤ 0.6s, final ≤ 0.9s ✅
+	•	AI ≤ 1.5–1.8s ✅
+	•	TTS_READY ≤ 0.4s; TTS_SEND לא חוצה 1.0–1.5s ✅
+	•	“send queue full” איננו בלוגים ✅
+	•	קביעת תור: אם off-grid → החזר הצעות, לא Exception ✅
+	•	require_phone_before_booking: אם חסר → WAITING_FOR_DTMF עובד, ‘#’ מאשר ✅
+	•	appointment.created יורה whatsapp.send אישור ✅
+	•	call.ended יורה summarize.thread (ואופציונלי WA) ✅
+
+—
+
+אם תרצה, אתן לך עכשיו “פאץ’ מדויק” (קטעי קוד מוכנים להדבקה) ל-4 נקודות הרגישות ביותר:
+	1.	agent_factory singleton + tool_choice=“required”
+	2.	media_ws_ai frame-pacing/backpressure לשליחת TTS
+	3.	calendar.create_appointment guards (off-grid/phone)
+	4.	flows.engine hook ב-appointment.created
+
+תגיד לי — מעדיף שנתחיל מה-Agent singleton וה-frame pacing (שתי המחלות שהפילו לך שיחות), או מה-calendar guards?
