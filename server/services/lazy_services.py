@@ -169,3 +169,100 @@ def get_service_status():
             status[service_name] = "pending"
             
     return status
+
+def start_periodic_warmup():
+    """
+    🔥 Phase 2F: Periodic warmup ping every 7-8 minutes
+    Prevents cold start by keeping Google STT/TTS clients warm
+    """
+    import random
+    
+    def _warmup_loop():
+        """Background loop that pings services every 7-8 minutes"""
+        # First ping immediately (don't wait 7-8min on startup)
+        first_run = True
+        
+        while True:
+            if not first_run:
+                # Random interval 7-8 minutes (420-480 seconds)
+                interval = random.uniform(420, 480)
+                log.info(f"🔥 PERIODIC_WARMUP: Next ping in {interval/60:.1f}min")
+                time.sleep(interval)
+            else:
+                first_run = False
+                log.info("🔥 PERIODIC_WARMUP: First ping starting immediately")
+            
+            try:
+                # 🔥 CRITICAL: Make ACTUAL API requests to keep connections alive!
+                
+                # Ping TTS with real synthesis request
+                tts_client = get_tts_client()
+                if tts_client:
+                    try:
+                        from google.cloud import texttospeech
+                        
+                        # Synthesize 1 Hebrew word to keep connection alive
+                        synthesis_input = texttospeech.SynthesisInput(text="שלום")
+                        voice = texttospeech.VoiceSelectionParams(
+                            language_code="he-IL",
+                            name="he-IL-Wavenet-D"
+                        )
+                        audio_config = texttospeech.AudioConfig(
+                            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+                            sample_rate_hertz=8000
+                        )
+                        
+                        # Actual API call!
+                        response = tts_client.synthesize_speech(
+                            input=synthesis_input,
+                            voice=voice,
+                            audio_config=audio_config,
+                            timeout=5.0
+                        )
+                        
+                        log.info(f"WARMUP_TTS_PING: OK (generated {len(response.audio_content)} bytes)")
+                    except Exception as e:
+                        log.warning(f"WARMUP_TTS_PING: FAILED - {e}")
+                else:
+                    log.warning("WARMUP_TTS_PING: No client")
+                
+                # Ping STT with minimal audio (100ms silence)
+                stt_client = get_stt_client()
+                if stt_client:
+                    try:
+                        from google.cloud import speech
+                        
+                        # Create 100ms of silence at 8kHz PCM16
+                        # 8000 samples/sec * 0.1 sec * 2 bytes/sample = 1600 bytes
+                        silent_audio = b'\x00' * 1600
+                        
+                        # Minimal STT config
+                        config = speech.RecognitionConfig(
+                            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                            sample_rate_hertz=8000,
+                            language_code="he-IL",
+                            max_alternatives=1
+                        )
+                        
+                        audio = speech.RecognitionAudio(content=silent_audio)
+                        
+                        # Actual API call!
+                        response = stt_client.recognize(
+                            config=config,
+                            audio=audio,
+                            timeout=5.0
+                        )
+                        
+                        log.info(f"WARMUP_STT_PING: OK (results={len(response.results)})")
+                    except Exception as e:
+                        log.warning(f"WARMUP_STT_PING: FAILED - {e}")
+                else:
+                    log.warning("WARMUP_STT_PING: No client")
+                    
+            except Exception as e:
+                log.error(f"WARMUP_PING_ERROR: {e}")
+    
+    # Start warmup loop in background daemon thread
+    warmup_thread = threading.Thread(target=_warmup_loop, daemon=True, name="periodic-warmup")
+    warmup_thread.start()
+    log.info("🔥 Periodic warmup started (every 7-8 minutes)")

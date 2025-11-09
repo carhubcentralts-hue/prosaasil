@@ -684,9 +684,13 @@ def create_app():
     # Health endpoints removed - using health_endpoints.py blueprint only
     
     # ✅ WARMUP: Preload services after startup to avoid cold start
-    from server.services.lazy_services import warmup_services_async
+    from server.services.lazy_services import warmup_services_async, start_periodic_warmup
     warmup_services_async()
     print("🔥 Service warmup initiated")
+    
+    # 🔥 Phase 2F: Periodic warmup every 7-8 minutes to prevent cold start
+    start_periodic_warmup()
+    print("🔥 Periodic warmup started (every 7-8 minutes)")
     
     # דיבוג זמני CSRF (מוחקים אחרי שזה עובד) 
     @app.before_request

@@ -435,6 +435,61 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         
         logger.info(f"✅ Created appointment #{appointment.id} for {input.customer_name} on {start}")
         
+        # 🔥 Phase 2G: Auto-send WhatsApp confirmation after phone bookings
+        try:
+            from flask import g
+            # Safe dict retrieval to avoid AttributeError
+            agent_context = getattr(g, 'agent_context', {}) or {}
+            channel = agent_context.get('channel')
+            
+            # Send WhatsApp confirmation ONLY for phone calls (not for WhatsApp conversations)
+            if channel == 'phone' or channel == 'calls':
+                # Check if we have customer phone
+                customer_phone_wa = phone or agent_context.get('customer_phone')
+                
+                if customer_phone_wa:
+                    logger.info(f"📱 Sending WhatsApp confirmation to {customer_phone_wa} (booked via phone)")
+                    
+                    # Compute day name in Hebrew for WhatsApp message
+                    day_name_eng = start.strftime("%A")
+                    day_name_hebrew = {
+                        "Monday": "שני", "Tuesday": "שלישי", "Wednesday": "רביעי",
+                        "Thursday": "חמישי", "Friday": "שישי", "Sunday": "ראשון", "Saturday": "שבת"
+                    }.get(day_name_eng, day_name_eng)
+                    
+                    # Format WhatsApp confirmation message
+                    wa_message = (
+                        f"🎉 *אישור פגישה*\n\n"
+                        f"שלום {customer_name}!\n\n"
+                        f"פגישתך נקבעה בהצלחה:\n"
+                        f"📅 יום {day_name_hebrew} {start.strftime('%d/%m/%Y')}\n"
+                        f"🕐 שעה {start.strftime('%H:%M')}\n"
+                        f"💼 {input.treatment_type}\n\n"
+                        f"נתראה! 😊"
+                    )
+                    
+                    # Import WhatsApp service
+                    from server.whatsapp_provider import get_whatsapp_service
+                    wa_service = get_whatsapp_service()
+                    
+                    # Send WhatsApp message
+                    result = wa_service.send_message(to=customer_phone_wa, message=wa_message)
+                    
+                    if result.get('status') == 'sent':
+                        logger.info(f"✅ WhatsApp confirmation sent successfully to {customer_phone_wa}")
+                    else:
+                        logger.warning(f"⚠️ WhatsApp confirmation failed: {result.get('error')}")
+                else:
+                    logger.info("📱 Skipping WhatsApp confirmation - no phone number available")
+            else:
+                logger.info(f"📱 Skipping WhatsApp confirmation - channel is '{channel}' (not phone)")
+                
+        except Exception as e:
+            # Don't fail the booking if WhatsApp send fails
+            logger.error(f"❌ WhatsApp confirmation error: {e}")
+            import traceback
+            traceback.print_exc()
+        
         return CreateAppointmentOutput(
             appointment_id=appointment.id,
             status='confirmed',
