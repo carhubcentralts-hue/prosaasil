@@ -35,14 +35,13 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
 - **Files**: `services/gcp_stt_stream.py`, `app_factory.py`
 - **Benefits**: ✅ 180ms faster turn latency, meets <2s target
 
-### **E) TTS Send Queue Pacing**
+### **E) TTS Send Queue Pacing** ❌ REVERTED
 - **Problem**: Media frames sent in bursts, causing queue overflow
-- **Solution**: 
-  - All media frames paced at 20ms intervals via `_tx_enqueue()`
-  - Barge-in clear bypasses queue (immediate response)
-  - Drop-oldest policy prevents blocking
+- **Attempted Solution**: Queue pacing via `_tx_enqueue()`
+- **Result**: FAILED - Queue (120 frames) too small for full responses, caused 11 drops and choppy audio
+- **Final Solution**: **Reverted to direct `_ws_send()`** - smooth audio, no drops, barge-in still works
 - **Files**: `media_ws_ai.py`
-- **Benefits**: ✅ No overflow errors, smooth audio, immediate barge-in
+- **Status**: ❌ Queue pacing idea abandoned, using original direct send
 
 ### **F) Periodic Warmup**
 - **Problem**: Cold start latency on first API call
