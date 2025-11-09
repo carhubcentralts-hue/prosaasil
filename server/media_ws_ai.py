@@ -1025,7 +1025,24 @@ class MediaStreamHandler:
                     
                     if digit == "#":
                         # End of input - process collected digits
-                        if self.dtmf_buffer and len(self.dtmf_buffer) >= 9:
+                        if not self.dtmf_buffer:
+                            # 🎯 תרחיש 1: סולמית בלבד = דילוג
+                            print(f"⏭️ DTMF skip: empty buffer, user skipped phone input")
+                            self.waiting_for_dtmf = False
+                            
+                            # Inject skip message to AI
+                            skip_text = "אני מדלג על מתן המספר"
+                            print(f"🎯 DTMF skip -> AI: '{skip_text}'")
+                            
+                            try:
+                                self._process_dtmf_skip()
+                            except Exception as e:
+                                print(f"❌ DTMF skip processing failed: {e}")
+                                import traceback
+                                traceback.print_exc()
+                        
+                        elif len(self.dtmf_buffer) >= 9:
+                            # 🎯 תרחיש 2: ספרות + # = שליחה
                             phone_number = self.dtmf_buffer
                             print(f"✅ DTMF phone collected: {phone_number}")
                             
@@ -1045,8 +1062,10 @@ class MediaStreamHandler:
                                 import traceback
                                 traceback.print_exc()
                         else:
+                            # Buffer too short
                             print(f"⚠️ DTMF input too short: {self.dtmf_buffer} (need 9+ digits)")
-                            # Don't speak - just reset and let user retry
+                            # Speak error message
+                            self._speak_tts("המספר קצר מדי, נא להקיש 9 ספרות לפחות או לחץ סולמית כדי לדלג")
                         
                         # Reset buffer anyway
                         self.dtmf_buffer = ""
@@ -2268,6 +2287,31 @@ class MediaStreamHandler:
             print(f"❌ Traceback: {traceback.format_exc()}")
             return "שלום! איך אפשר לעזור?"
 
+    def _process_dtmf_skip(self):
+        """
+        🎯 Process DTMF skip (# pressed with empty buffer)
+        Customer chose to skip phone number input
+        """
+        print(f"⏭️ Processing DTMF skip")
+        
+        # Create skip message in Hebrew
+        skip_text = "אני מעדיף לא לתת את המספר"
+        
+        # Get AI response (Agent will handle the skip)
+        ai_response = self._ai_response(skip_text)
+        
+        # Speak the response
+        if ai_response:
+            self._speak_simple(ai_response)
+            
+            # Save to conversation history
+            self.conversation_history.append({
+                "user": "[DTMF skip]",
+                "bot": ai_response
+            })
+        
+        print(f"✅ DTMF skip processed")
+    
     def _process_dtmf_phone(self, phone_number: str):
         """
         ⚡ BUILD 121: Process phone number collected via DTMF
