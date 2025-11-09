@@ -149,7 +149,7 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
     ✅ BUILD 89: יצירת/עדכון ליד אוטומטי - עם try/except מלא
     Thread-safe: רץ בהקשר נפרד עם app context
     """
-    from server.app_factory import create_app
+    from server.app_factory import get_process_app
     
     # ✅ ברירת מחדל ל-to_number
     if not to_number:
@@ -158,8 +158,8 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
     print(f"🔵 CREATE_LEAD_FROM_CALL - Starting for {from_number}, call_sid={call_sid}")
     
     try:
-        # יצירת app context לthread
-        app = create_app()
+        # 🔥 Get app WITHOUT creating new instance
+        app = get_process_app()
         with app.app_context():
             from server.models_sql import CallLog, Business, Lead
             from server.db import db

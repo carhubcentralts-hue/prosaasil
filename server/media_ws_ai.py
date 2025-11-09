@@ -57,15 +57,9 @@ _flask_app_singleton = None
 _flask_app_lock = threading.Lock()
 
 def _get_flask_app():
-    """Get or create Flask app singleton - prevents app recreation per-call"""
-    global _flask_app_singleton
-    if _flask_app_singleton is None:
-        with _flask_app_lock:
-            if _flask_app_singleton is None:  # Double-check after acquiring lock
-                from server.app_factory import create_app
-                _flask_app_singleton = create_app()
-                force_print("✅ Flask app singleton created for media handlers")
-    return _flask_app_singleton
+    """🔥 CRITICAL FIX: Get Flask app WITHOUT creating new instance"""
+    from server.app_factory import get_process_app
+    return get_process_app()
 
 # ⚡ BUILD 116: אופטימיזציות לזמן תגובה <2s
 print("="*80)

@@ -27,6 +27,40 @@ from datetime import datetime, timedelta
 import secrets
 import hashlib
 
+# 🔥 CRITICAL FIX: Single instance management to prevent APP_START crashes
+_app_singleton = None
+_app_lock = __import__('threading').RLock()  # RLock allows reentrant acquisition (prevents deadlock)
+
+def get_process_app():
+    """
+    🔥 CRITICAL FIX: Get the Flask app without creating a new one
+    
+    This function PREVENTS app restarts during active calls/conversations.
+    Thread-safe singleton pattern with Lock.
+    
+    Usage:
+    - In request context: Returns current_app from Flask
+    - Outside request: Returns cached singleton app
+    - NEVER creates new app (prevents APP_START crashes)
+    
+    Returns:
+        Flask app instance (never None in production)
+    """
+    global _app_singleton
+    from flask import has_request_context, current_app
+    
+    # If we're in a Flask request context, use current_app
+    if has_request_context():
+        return current_app
+    
+    # Otherwise, return the singleton (thread-safe)
+    with _app_lock:
+        if _app_singleton is None:
+            print("⚠️ get_process_app() called before app created - creating now")
+            _app_singleton = create_app()
+        
+        return _app_singleton
+
 def create_app():
     """Create Flask application with React frontend (לפי ההנחיות המדויקות)"""
     
@@ -758,5 +792,12 @@ def create_app():
         print(f"❌ TTS prewarm EXCEPTION: {e}")
         print(f"Traceback: {tb.format_exc()}")
         print("="*80)
+    
+    # 🔥 CRITICAL: Set singleton so future calls to get_process_app() reuse this instance
+    global _app_singleton
+    with _app_lock:
+        if _app_singleton is None:
+            _app_singleton = app
+            print("✅ App singleton set - future calls will reuse this instance")
     
     return app

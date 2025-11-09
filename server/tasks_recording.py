@@ -102,12 +102,12 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
     """✨ שמור שיחה + תמלול + סיכום ל-DB + יצירת לקוח/ליד אוטומטית"""
     try:
         # ✅ Use PostgreSQL + SQLAlchemy instead of SQLite
-        from server.app_factory import create_app
+        from server.app_factory import get_process_app
         from server.db import db
         from server.models_sql import CallLog, Business
         from server.services.customer_intelligence import CustomerIntelligence
         
-        app = create_app()
+        app = get_process_app()
         with app.app_context():
             # 1. שמור בCallLog
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
@@ -247,11 +247,11 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound"):
     """עדכון סטטוס שיחה אסינכרוני מלא - PostgreSQL מתוקן - BUILD 106"""
     try:
         # שימוש ב-PostgreSQL דרך SQLAlchemy במקום SQLite
-        from server.app_factory import create_app
+        from server.app_factory import get_process_app
         from server.db import db
         from server.models_sql import CallLog
         
-        app = create_app()
+        app = get_process_app()
         with app.app_context():
             # עדכון מהיר ישירות ב-PostgreSQL 
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
@@ -288,13 +288,13 @@ def transcribe_with_whisper_api(audio_file):
 def auto_cleanup_old_recordings():
     """✨ מחיקה אוטומטית של הקלטות ישנות (יותר מיומיים) + קבצים מהדיסק"""
     try:
-        from server.app_factory import create_app
+        from server.app_factory import get_process_app
         from server.db import db
         from server.models_sql import CallLog
         from datetime import datetime, timedelta
         import os
         
-        app = create_app()
+        app = get_process_app()
         with app.app_context():
             # מחק הקלטות מעל יומיים
             cutoff_date = datetime.utcnow() - timedelta(days=2)

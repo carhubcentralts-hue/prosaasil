@@ -1,10 +1,17 @@
 """
 Agent Factory - Create and configure AI agents with tools
 Integrates with OpenAI Agents SDK for production-ready agent capabilities
+
+🔥 CRITICAL FIX (Phase 2): SINGLETON PATTERN with LOCK
+- Agents are created ONCE per business+channel and cached for 30min
+- Prevents app crashes from repeated agent initialization
+- Thread-safe with Lock to prevent race conditions
 """
 import os
 from datetime import datetime, timedelta
 import pytz
+import threading
+from typing import Dict, Tuple, Optional
 
 # 🔥 CRITICAL FIX: Import OpenAI Agents SDK directly (server/agents/__init__.py is now empty)
 from agents import Agent, ModelSettings
@@ -21,18 +28,92 @@ logger = logging.getLogger(__name__)
 # Check if agents are enabled
 AGENTS_ENABLED = os.getenv("AGENTS_ENABLED", "1") == "1"
 
+# 🔥 SINGLETON CACHE: Store agents by (business_id, channel) key
+_AGENT_CACHE: Dict[Tuple[int, str], Tuple[Agent, datetime]] = {}
+_AGENT_LOCK = threading.Lock()
+_CACHE_TTL_MINUTES = 30  # Agent lives for 30 minutes
+
 # 🎯 Model settings for all agents - matching AgentKit best practices
 AGENT_MODEL_SETTINGS = ModelSettings(
     model="gpt-4o-mini",  # Fast and cost-effective
     temperature=0.2,       # Low temperature for consistent, predictable responses
     max_tokens=200,        # 🔥 BUILD 134: 200 tokens = 2-3 sentence responses (balanced)
-    tool_choice="auto",    # 🔥 OPTIMIZED: "auto" allows simple greetings without tools (saves 1-2s)
+    tool_choice="auto",    # 🔥 "auto" allows greetings without tools, switches to tools when needed
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
+
+def get_or_create_agent(business_id: int, channel: str, business_name: str = "העסק", custom_instructions: str = None) -> Optional[Agent]:
+    """
+    🔥 SINGLETON PATTERN: Get cached agent or create new one
+    
+    Thread-safe singleton that caches agents per (business_id, channel).
+    Agents live for 30 minutes to preserve conversation context while
+    allowing prompt updates to take effect after timeout.
+    
+    Args:
+        business_id: Business ID (required for cache key)
+        channel: Channel type ("phone", "whatsapp")
+        business_name: Business name for personalized responses
+        custom_instructions: Custom instructions from database
+    
+    Returns:
+        Cached or newly created Agent instance
+    """
+    if not AGENTS_ENABLED:
+        logger.warning("Agents are disabled (AGENTS_ENABLED=0)")
+        return None
+    
+    if not business_id:
+        logger.error("❌ Cannot create agent without business_id")
+        return None
+    
+    cache_key = (business_id, channel)
+    now = datetime.now(tz=pytz.UTC)
+    
+    # 🔒 THREAD-SAFE: Acquire lock for cache access
+    with _AGENT_LOCK:
+        # Check if we have a valid cached agent
+        if cache_key in _AGENT_CACHE:
+            cached_agent, cached_time = _AGENT_CACHE[cache_key]
+            age_minutes = (now - cached_time).total_seconds() / 60
+            
+            if age_minutes < _CACHE_TTL_MINUTES:
+                logger.info(f"✅ Using cached agent for business={business_id}, channel={channel} (age={age_minutes:.1f}min)")
+                return cached_agent
+            else:
+                logger.info(f"🔄 Agent cache expired for business={business_id}, channel={channel} (age={age_minutes:.1f}min > {_CACHE_TTL_MINUTES}min)")
+                # Remove expired entry
+                del _AGENT_CACHE[cache_key]
+        
+        # No valid cache - create new agent
+        logger.info(f"🆕 Creating NEW agent for business={business_id}, channel={channel}")
+        
+        try:
+            new_agent = create_booking_agent(
+                business_name=business_name,
+                custom_instructions=custom_instructions,
+                business_id=business_id,
+                channel=channel
+            )
+            
+            if new_agent:
+                # Cache the new agent
+                _AGENT_CACHE[cache_key] = (new_agent, now)
+                logger.info(f"✅ Agent created and cached for business={business_id}, channel={channel}")
+            
+            return new_agent
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to create agent for business={business_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
 def create_booking_agent(business_name: str = "העסק", custom_instructions: str = None, business_id: int = None, channel: str = "phone") -> Agent:
     """
     Create an agent specialized in appointment booking and customer management
+    
+    ⚠️ INTERNAL USE: Call get_or_create_agent() instead for singleton behavior
     
     Tools available:
     - calendar.find_slots: Find available appointment times

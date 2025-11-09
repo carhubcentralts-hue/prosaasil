@@ -32,9 +32,9 @@ def get_or_create_app():
     if _cached_app is None:
         with _cached_app_lock:
             if _cached_app is None:  # Double-check pattern
-                from server.app_factory import create_app
-                _cached_app = create_app()
-                logger.info("✅ Created cached app instance")
+                from server.app_factory import get_process_app
+                _cached_app = get_process_app()
+                logger.info("✅ Got process app instance")
     
     return _cached_app
 
