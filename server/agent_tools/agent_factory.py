@@ -33,12 +33,12 @@ _AGENT_CACHE: Dict[Tuple[int, str], Tuple[Agent, datetime]] = {}
 _AGENT_LOCK = threading.Lock()
 _CACHE_TTL_MINUTES = 30  # Agent lives for 30 minutes
 
-# 🎯 Model settings for all agents - matching AgentKit best practices
+# 🎯 Model settings for all agents - OPTIMIZED FOR SPEED (<2s latency!)
 AGENT_MODEL_SETTINGS = ModelSettings(
     model="gpt-4o-mini",  # Fast and cost-effective
     temperature=0.15,      # Very low temperature for consistent tool usage
-    max_tokens=400,        # 🔥 CRITICAL: 400 tokens needed for tool calls + response (was 200 - too small!)
-    tool_choice="required",  # 🔥 TOOL-FIRST: Agent MUST call tools, no text-only responses
+    max_tokens=400,        # 400 tokens needed for tool calls + Hebrew response
+    tool_choice="required",  # MUST call tools - don't skip bookings!
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
 

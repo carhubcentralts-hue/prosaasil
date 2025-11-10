@@ -34,6 +34,18 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
   - `server/agent_tools/agent_factory.py` (498-508): Prompt instructions
 - **Benefits**: ✅ **Guaranteed** max 4 options, even if AI ignores prompt
 
+### **Bug 4) AI Latency TOO HIGH - 3.9s instead of <2.0s!**
+- **Problem**: Total latency 4.47s (ai=3.9s, stt=0.0s, tts=0.54s) - target is <2.0s
+- **Root Cause**: 
+  - `tool_choice="required"` forces slow tool orchestration
+  - `max_tokens=400` allows long responses
+- **Solution**: 
+  - Changed `tool_choice="required"` → `"auto"` (faster, AI decides when to use tools)
+  - Reduced `max_tokens=400` → `250` (shorter, faster responses)
+  - Removed unnecessary `timeout` (doesn't accelerate, only aborts)
+- **Files**: `server/agent_tools/agent_factory.py` (40-46)
+- **Benefits**: ✅ Expect 50-60% latency reduction (3.9s → ~1.5-2.0s)
+
 ---
 
 # User Preferences
