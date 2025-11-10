@@ -160,43 +160,57 @@ def warmup_services_async():
             # 🔥 ARCHITECT FIX: Need app context for database operations!
             app = get_process_app()
             with app.app_context():
-                # Load business data from DB
-                business = Business.query.get(1)
-                if not business:
-                    log.warning("WARMUP_AGENT_ERR: Business ID 1 not found")
+                # 🔥 MULTI-TENANT: Warmup ALL active businesses (up to 10 for reasonable startup time)
+                businesses = Business.query.filter_by(is_active=True).limit(10).all()
+                
+                if not businesses:
+                    log.warning("WARMUP_AGENT_ERR: No active businesses found")
                 else:
-                    business_name = business.name
+                    log.info(f"🔥 WARMUP: Found {len(businesses)} active businesses to warm up")
+                    print(f"🔥 WARMUP: Heating {len(businesses)} active businesses...")
                     
-                    # Warmup business 1 for both channels
-                    for channel in ['calls', 'whatsapp']:
-                        try:
-                            # Get prompt from database
-                            settings = BusinessSettings.query.filter_by(tenant_id=1).first()
-                            custom_instructions = ""  # Default empty string
-                            if settings and settings.ai_prompt:
-                                import json
-                                prompts = json.loads(settings.ai_prompt)
-                                custom_instructions = prompts.get(channel, prompts.get('calls', '')) or ""
-                            
-                            # Create agent (will cache it)
-                            warmup_start = time.time()
-                            agent = get_or_create_agent(
-                                business_id=1,
-                                channel=channel,
-                                business_name=business_name,
-                                custom_instructions=custom_instructions
-                            )
-                            warmup_time = (time.time() - warmup_start) * 1000
-                            
-                            if agent:
-                                log.info(f"WARMUP_AGENT_OK: business=1, channel={channel} ({warmup_time:.0f}ms)")
-                                print(f"🔥 WARMUP_AGENT_OK: business=1, channel={channel} ({warmup_time:.0f}ms)")
-                            else:
-                                log.warning(f"WARMUP_AGENT_ERR: business=1, channel={channel} - agent is None")
-                        except Exception as e:
-                            log.warning(f"WARMUP_AGENT_ERR: business=1, channel={channel} - {e}")
-                            import traceback
-                            traceback.print_exc()
+                    total_start = time.time()
+                    success_count = 0
+                    
+                    for business in businesses:
+                        business_id = business.id
+                        business_name = business.name
+                        
+                        # Warmup both channels for each business
+                        for channel in ['calls', 'whatsapp']:
+                            try:
+                                # Get prompt from database for THIS business
+                                settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                                custom_instructions = ""  # Default empty string
+                                if settings and settings.ai_prompt:
+                                    import json
+                                    prompts = json.loads(settings.ai_prompt)
+                                    custom_instructions = prompts.get(channel, prompts.get('calls', '')) or ""
+                                
+                                # Create agent (will cache it)
+                                warmup_start = time.time()
+                                agent = get_or_create_agent(
+                                    business_id=business_id,
+                                    channel=channel,
+                                    business_name=business_name,
+                                    custom_instructions=custom_instructions
+                                )
+                                warmup_time = (time.time() - warmup_start) * 1000
+                                
+                                if agent:
+                                    success_count += 1
+                                    log.info(f"WARMUP_AGENT_OK: business={business_id} ({business_name}), channel={channel} ({warmup_time:.0f}ms)")
+                                    print(f"  ✅ {business_name} ({channel}): {warmup_time:.0f}ms")
+                                else:
+                                    log.warning(f"WARMUP_AGENT_ERR: business={business_id}, channel={channel} - agent is None")
+                            except Exception as e:
+                                log.warning(f"WARMUP_AGENT_ERR: business={business_id}, channel={channel} - {e}")
+                                import traceback
+                                traceback.print_exc()
+                    
+                    total_time = (time.time() - total_start) * 1000
+                    print(f"🔥 WARMUP COMPLETE: {success_count}/{len(businesses)*2} agents warmed in {total_time:.0f}ms")
+                    log.info(f"🔥 WARMUP COMPLETE: {success_count} agents warmed in {total_time:.0f}ms")
         except Exception as e:
             log.warning(f"WARMUP_AGENT_FAILED: {e}")
             import traceback
