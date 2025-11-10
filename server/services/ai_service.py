@@ -1168,6 +1168,9 @@ class AIService:
                                 if output.get('ok') is True and output.get('appointment_id'):
                                     booking_successful = True
                                     print(f"     ✅ DETECTED SUCCESSFUL BOOKING: appointment_id={output.get('appointment_id')}")
+                                    # Store appointment details for WhatsApp validation
+                                    if not hasattr(result, 'appointment_details'):
+                                        result.appointment_details = output
                 
                 if tool_count > 0:
                     print(f"✅ Agent executed {tool_count} tool actions")
@@ -1196,6 +1199,12 @@ class AIService:
             # Check if calendar_find_slots was called
             check_availability_called = any(
                 tc.get("tool") in ["calendar_find_slots", "calendar_find_slots_wrapped"]
+                for tc in tool_calls_data
+            )
+            
+            # Check if whatsapp_send was called (for phone channel only)
+            whatsapp_sent = any(
+                tc.get("tool") == "whatsapp_send"
                 for tc in tool_calls_data
             )
             
@@ -1229,6 +1238,13 @@ class AIService:
                 # Override response with corrective message
                 reply_text = "באיזה יום ושעה נוח לך?"
                 print(f"   ✅ Replaced with: '{reply_text}'")
+            
+            # 🚨 BLOCK 3: Missing WhatsApp confirmation (NEW!)
+            elif booking_successful and channel == "phone" and not whatsapp_sent:
+                print(f"⚠️  WARNING: Booking successful but NO WhatsApp sent!")
+                print(f"   Agent should have called whatsapp_send but didn't")
+                logger.warning(f"⚠️  Missing WhatsApp confirmation after successful booking")
+                # Don't block - just log warning (WhatsApp is nice-to-have, not critical)
             
             # ✨ Save trace to database
             try:
