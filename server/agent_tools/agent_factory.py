@@ -36,8 +36,8 @@ _CACHE_TTL_MINUTES = 30  # Agent lives for 30 minutes
 # 🎯 Model settings for all agents - matching AgentKit best practices
 AGENT_MODEL_SETTINGS = ModelSettings(
     model="gpt-4o-mini",  # Fast and cost-effective
-    temperature=0.2,       # Low temperature for consistent, predictable responses
-    max_tokens=200,        # 🔥 BUILD 134: 200 tokens = 2-3 sentence responses (balanced)
+    temperature=0.15,      # Very low temperature for consistent tool usage
+    max_tokens=400,        # 🔥 CRITICAL: 400 tokens needed for tool calls + response (was 200 - too small!)
     tool_choice="auto",    # 🔥 "auto" allows greetings without tools, switches to tools when needed
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
@@ -626,20 +626,16 @@ Remember: EVERY action requires a tool call. Claiming an action without executin
         print(f"📅 Tomorrow calculated as: {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}")
         print("="*80 + "\n")
         
-        # ⚡ CRITICAL: Add model_settings with timeout for fast responses!
-        from agents import ModelSettings
-        
-        model_settings = ModelSettings(
-            max_tokens=200,  # 🔥 BUILD 138: 200 tokens for SAFE booking confirmations (logs show 170-190 usage)
-            temperature=0.3,  # Lower temperature for faster, more focused responses
-        )
+        # ⚡ CRITICAL: Use global AGENT_MODEL_SETTINGS for consistent tool execution!
+        # max_tokens=400 needed for tool calls + response (200 was too small, caused truncation)
+        # temperature=0.15 ensures consistent tool usage without hallucinations
         
         agent = Agent(
             name=f"booking_agent_{business_name}",  # Required: Agent name
             model="gpt-4o-mini",  # ⚡ Fast model for real-time conversations
             instructions=instructions,
             tools=tools_to_use,  # Use wrapped or original tools based on business_id
-            model_settings=model_settings  # ⚡ Performance settings
+            model_settings=AGENT_MODEL_SETTINGS  # ⚡ Use global settings: max_tokens=400, temperature=0.15
         )
         
         logger.info(f"✅ Created booking agent for '{business_name}' with 5 tools")
