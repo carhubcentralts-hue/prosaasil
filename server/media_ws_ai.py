@@ -1456,10 +1456,29 @@ class MediaStreamHandler:
             # ⚡ ULTRA-SPEED: No delay before TTS - immediately start speaking
             # time.sleep removed for minimum latency
                 
-            # קיצור טקסט ארוך
+            # ⚡ TTS Shortening - prevent cutoff mid-word
             if len(text) > 150:
-                text = text[:150].rsplit(' ', 1)[0] + '.'
-                print(f"🔪 TTS_SHORTENED: {text}")
+                # Find last complete sentence within 150 chars
+                shortened = text[:150]
+                # Try to end at sentence boundary (., !, ?)
+                for delimiter in ['. ', '! ', '? ']:
+                    last_sent = shortened.rfind(delimiter)
+                    if last_sent > 80:  # Only if we have enough text
+                        text = shortened[:last_sent + 1]
+                        print(f"🔪 TTS_SHORTENED (sentence): {text}")
+                        break
+                else:
+                    # Fall back to word boundary - NEVER cut mid-word!
+                    last_space = shortened.rfind(' ')
+                    if last_space > 0:
+                        text = shortened[:last_space]
+                        if not text.endswith(('.', '!', '?')):
+                            text += '.'
+                        print(f"🔪 TTS_SHORTENED (word): {text}")
+                    else:
+                        # Emergency fallback (shouldn't happen)
+                        text = shortened + '.'
+                        print(f"🔪 TTS_SHORTENED (fallback): {text}")
             
             # ⏱️ TTS timing instrumentation
             tts_start = time.time()
