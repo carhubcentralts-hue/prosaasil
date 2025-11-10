@@ -811,21 +811,21 @@ class MediaStreamHandler:
                             continue
                         
                         # 🔓 Short response - allow barge-in with grace period
-                        grace_period = 2.5  # ✅ BUILD 117: 2.5 שניות למנוע קטיעות
+                        grace_period = 3.5  # 🔥 FIX: 3.5s - תן לה לסיים רוב המשפטים!
                         time_since_tts_start = current_time - self.speaking_start_ts
                         
                         if time_since_tts_start < grace_period:
                             # Inside grace period - NO barge-in allowed
                             continue
                         
-                        # ✅ BUILD 117: ULTRA-HIGH threshold to prevent false interrupts
-                        barge_in_threshold = max(1500, self.noise_floor * 18.0 + 600) if self.is_calibrated else 1800
+                        # 🔥 FIX: HIGH threshold - ONLY LOUD interrupts (2200+ RMS), not background noise
+                        barge_in_threshold = max(2200, self.noise_floor * 22.0 + 800) if self.is_calibrated else 2500
                         is_barge_in_voice = rms > barge_in_threshold
                         
                         if is_barge_in_voice:
                             self.voice_in_row += 1
-                            # ✅ BUILD 117: Require 2000ms continuous LOUD voice - very strict!
-                            if self.voice_in_row >= 100:  # 2000ms קול רציף חזק - ממש ממש בטוח!
+                            # 🔥 FIX: Require 2400ms (2.4s) continuous LOUD voice - balanced!
+                            if self.voice_in_row >= 120:  # 2400ms = 2.4 שניות קול חזק רציף!
                                 print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                 
                                 # ✅ מדידת Interrupt Halt Time
@@ -2352,7 +2352,8 @@ class MediaStreamHandler:
             # Build context for the AI
             context = {
                 "phone_number": getattr(self, 'phone_number', ''),
-                "channel": "voice_call",
+                "channel": "phone",  # 🔥 FIX: "phone" for WhatsApp confirmation detection
+                "customer_phone": getattr(self, 'phone_number', ''),  # 🔥 FIX: Add for WhatsApp send
                 "previous_messages": []
             }
             

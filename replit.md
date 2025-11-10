@@ -2,6 +2,28 @@
 
 AgentLocator is a Hebrew CRM system for real estate businesses that automates the sales pipeline with an AI-powered assistant. It processes calls in real-time, intelligently collects lead information, and schedules meetings using advanced audio processing for natural conversations. The system aims to enhance efficiency and sales conversion for real estate professionals through customizable AI assistants and business branding.
 
+# Recent Changes
+
+## PHASE 2K - BARGE-IN & WHATSAPP FIX (COMPLETED - November 10, 2025)
+
+**CRITICAL USER-REPORTED BUGS FIXED** - Architect-reviewed!
+
+### **Bug 1) Barge-in Too Sensitive - Stops Mid-Sentence**
+- **Problem**: Background noise (רעש קטן) interrupted Agent mid-sentence  
+- **Root Cause**: grace_period=2.5s too short, barge_in_threshold=1500-1800 RMS too low
+- **Solution**: grace_period→3.5s, barge_in_threshold→2200-2500 RMS, voice_in_row→120 frames (2.4s)
+- **Files**: `server/media_ws_ai.py` (lines 817-831)
+- **Benefits**: ✅ Agent finishes sentences, only genuine loud interruptions work
+
+### **Bug 2) WhatsApp Confirmation Not Sending**
+- **Problem**: User log showed booking success but NO "📱 Sending WhatsApp" message
+- **Root Cause**: Code tried `flask.g.agent_context` inside Agent SDK tool (not available)
+- **Solution**: Use `context` parameter, added logging, fixed channel mismatch ("phone" not "voice_call")
+- **Files**: `server/agent_tools/tools_calendar.py` (457-467), `server/media_ws_ai.py` (2358-2359)
+- **Benefits**: ✅ WhatsApp confirmation now sends after phone call bookings
+
+---
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

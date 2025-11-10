@@ -451,15 +451,17 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         
         # 🔥 Phase 2G: Auto-send WhatsApp confirmation after phone bookings
         try:
-            from flask import g
-            # Safe dict retrieval to avoid AttributeError
-            agent_context = getattr(g, 'agent_context', {}) or {}
+            # 🔥 FIX: Use context parameter (passed from wrapper) instead of flask.g
+            agent_context = context or {}
             channel = agent_context.get('channel')
             
+            logger.info(f"📱 WhatsApp check: channel={channel}, context_keys={list(agent_context.keys())}")
+            
             # Send WhatsApp confirmation ONLY for phone calls (not for WhatsApp conversations)
-            if channel == 'phone' or channel == 'calls':
+            # Support multiple channel names: 'phone', 'calls', 'voice_call'
+            if channel in ['phone', 'calls', 'voice_call']:
                 # Check if we have customer phone
-                customer_phone_wa = phone or agent_context.get('customer_phone')
+                customer_phone_wa = phone or agent_context.get('customer_phone') or agent_context.get('whatsapp_from')
                 
                 if customer_phone_wa:
                     wa_start = time.time()
