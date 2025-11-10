@@ -1943,15 +1943,17 @@ class MediaStreamHandler:
                 confidence = response.results[0].alternatives[0].confidence
                 print(f"📊 GOOGLE_STT_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
                 
-                # 🔥 BUILD 134: STRICTER confidence thresholds for accuracy!
-                if confidence < 0.4:  # 🔥 INCREASED: 0.4 instead of 0.3 for better accuracy
-                    print(f"🚫 LOW_CONFIDENCE: {confidence:.2f} < 0.4 - rejecting result")
+                # ⚡ ACCURACY FIX: LOWER confidence thresholds to accept more valid Hebrew
+                # Hebrew speech often has lower confidence scores than English
+                if confidence < 0.25:  # ⚡ LOWERED: 0.25 instead of 0.4 - accept more valid Hebrew
+                    print(f"🚫 VERY_LOW_CONFIDENCE: {confidence:.2f} < 0.25 - rejecting result")
                     return ""  # Return empty instead of nonsense
                 
-                # 🔥 BUILD 134: Stricter check for short results
+                # ⚡ ACCURACY FIX: Accept short phrases with lower confidence
+                # "חמישים אפשר" might have 0.5-0.6 confidence but is valid!
                 word_count = len(hebrew_text.split())
-                if word_count <= 2 and confidence < 0.7:  # 🔥 INCREASED: 0.7 instead of 0.6
-                    print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.7 - likely noise")
+                if word_count <= 2 and confidence < 0.4:  # ⚡ LOWERED: 0.4 instead of 0.7
+                    print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.4 - likely noise")
                     return ""
                 
                 # 🔥 BUILD 134: Log alternative transcripts for debugging

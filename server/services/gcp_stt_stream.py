@@ -114,6 +114,13 @@ class StreamingSTTSession:
         speech_contexts = [
             speech.SpeechContext(
                 phrases=[
+                    # ⚡ ACCURACY FIX: Added ALL Hebrew numbers for "חמישים אפשר" etc.
+                    # Numbers 1-100 in Hebrew
+                    "אחד", "שניים", "שנים", "שלוש", "שלושה", "ארבע", "ארבעה", "חמש", "חמישה", 
+                    "שש", "שישה", "שבע", "שבעה", "שמונה", "תשע", "תשעה", "עשר", "עשרה",
+                    "עשרים", "שלושים", "ארבעים", "חמישים", "שישים", "שבעים", "שמונים", "תשעים", "מאה",
+                    "מאתיים", "שלוש מאות", "ארבע מאות", "חמש מאות", "אלף", "אלפים",
+                    
                     # 🔥 BUILD 138: MASSIVELY EXPANDED - 150+ phrases for perfect STT!
                     # Greetings & politeness
                     "שלום", "היי", "בוקר טוב", "צהריים טובים", "ערב טוב", "להתראות", "תודה", "תודה רבה",
