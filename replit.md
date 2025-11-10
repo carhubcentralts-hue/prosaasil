@@ -4,6 +4,20 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
 
 # Recent Changes
 
+## PHASE 2M - DTMF PRIMARY METHOD (COMPLETED - November 10, 2025)
+
+**Phone Number Collection via DTMF Keypad** - Improved UX for phone calls!
+
+### **Changes**
+- **Primary Method**: AgentKit now instructs customers to use DTMF keypad (not verbal)
+- **Instruction**: "ומה מספר הטלפון? תקליד/י את הספרות במקלדת ואז סולמית (#)"
+  - Translation: "And the phone number? Type the digits on the keypad and then hash"
+- **Fallback**: Still accepts verbal input if customer speaks number instead
+- **Files**: `server/agent_tools/agent_factory.py` (lines 510-517, 606-618)
+- **Benefits**: ✅ Clearer UX, fewer transcription errors, faster data entry
+
+---
+
 ## PHASE 2K - BARGE-IN & WHATSAPP FIX (COMPLETED - November 10, 2025)
 
 **CRITICAL USER-REPORTED BUGS FIXED** - Architect-reviewed!
