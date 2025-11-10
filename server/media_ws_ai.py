@@ -1633,37 +1633,6 @@ class MediaStreamHandler:
         # הבעיה: המערכת נשארה ב-STATE_SPEAK אחרי ברכה ולא חזרה להאזנה
         self._finalize_speaking()
         print("✅ GREETING_COMPLETE -> LISTEN STATE")
-    
-    def _send_pcm16_chunk_streaming(self, pcm16_chunk: bytes):
-        """
-        🚀 Send PCM16 audio chunk immediately for STREAMING TTS
-        Called in tight loop - must be FAST!
-        """
-        if not self.stream_sid or not pcm16_chunk:
-            return
-        
-        # Convert PCM16 to μ-law
-        mulaw = audioop.lin2ulaw(pcm16_chunk, 2)
-        FR = 160  # 20ms @ 8kHz
-        
-        # Send frames immediately (no buffering!)
-        for i in range(0, len(mulaw), FR):
-            # Check barge-in (only if not protected)
-            if not self.speaking:
-                return
-            
-            # Send frame
-            frame = mulaw[i:i+FR].ljust(FR, b'\x00')
-            payload = base64.b64encode(frame).decode()
-            self._ws_send(json.dumps({
-                "event": "media",
-                "streamSid": self.stream_sid,
-                "media": {"payload": payload}
-            }))
-            
-            # Cooperative yield every 5 frames (100ms)
-            if (i // FR) % 5 == 0:
-                time.sleep(0)
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
         """שליחת אודיו עם יכולת עצירה באמצע (BARGE-IN) - גרסה ישנה"""
