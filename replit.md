@@ -6,6 +6,24 @@ AgentLocator is a Hebrew CRM system for real estate, designed to automate the sa
 
 Preferred communication style: Simple, everyday language.
 
+# Recent Changes (November 11, 2025)
+
+**Critical Agent Fixes:**
+1. ✅ Fixed Runner.run() initialization (TypeError resolved)
+2. ✅ Added RULE #1: Agent never verbalizes internal processes
+3. ✅ Added availability verification guard (blocks "תפוס/פנוי" without tool calls)
+4. ✅ Enhanced DTMF phone collection instructions
+5. ✅ Added WhatsApp confirmation tracking
+
+**WhatsApp QR Code Fix:**
+- Fixed `tenant_id_from_ctx()` to correctly retrieve business_id from session['al_user']
+- Now supports impersonation (admin can act as business owner)
+
+**Agent Behavior Improvement:**
+- Removed overly restrictive guard-rails that rejected legitimate business questions
+- Agent now answers questions about: services, bookings, business info, location, hours, prices
+- Only rejects: recipes, cooking, jokes, trivia, general knowledge
+
 # System Architecture
 
 ## System Design Choices
