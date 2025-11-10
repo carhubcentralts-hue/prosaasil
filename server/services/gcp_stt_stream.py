@@ -127,6 +127,9 @@ class StreamingSTTSession:
                     "סליחה", "בבקשה", "כן", "לא", "בסדר", "מעולה", "נהדר", "מצוין", "מעניין", "אוקיי",
                     "שלום לך", "מה שלומך", "איך אתה", "כל טוב", "יופי", "מצוין", "סבבה", "אחלה",
                     
+                    # 🔥 FIX: Short words that STT struggles with (user reported)
+                    "כשר", "כשרות", "מיקום", "כתובת", "איפה", "מתי", "מה", "איך", "למה", "כמה",
+                    
                     # Business & property types
                     "שי דירות ומשרדים", "לאה", "דירה", "משרד", "שכר", "שכירות", "מכירה", "קניה",
                     "חדרים", "חדר", "שירותים", "מטבח", "מרפסת", "מחסן", "ממד", "חניה",
@@ -172,6 +175,10 @@ class StreamingSTTSession:
                     
                     # Services
                     "חדר קריוקי", "טיפול", "עיסוי", "ייעוץ", "שירות", "סידור",
+                    
+                    # 🔥 FIX: Food & Kashrut (user reported STT issues)
+                    "האוכל", "אוכל", "תפריט", "כשרות", "כשר", "בשרי", "חלבי", "פרווה", 
+                    "משקאות", "שתייה", "מנות", "ארוחה", "אוכלים",
                     
                     # Time expressions
                     "עכשיו", "מיד", "היום", "מחר", "מחרתיים", "השבוע", "שבוע הבא",
