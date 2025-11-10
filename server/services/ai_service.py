@@ -748,28 +748,34 @@ class AIService:
             print(f"\n📚 FAQ: Extracting facts from prompt ({len(system_prompt)} chars)")
             extract_start = time.time()
             faq_facts = self._extract_faq_facts(system_prompt) if system_prompt else "מידע עסקי"
+            
+            # ⚡ SPEED FIX: Limit facts to 500 chars MAX (was getting 1440!)
+            if len(faq_facts) > 500:
+                faq_facts = faq_facts[:500] + "..."
+                print(f"✂️  FAQ: Truncated facts to 500 chars for speed")
+            
             extract_time = (time.time() - extract_start) * 1000
             print(f"⏱️  FAQ: Fact extraction took {extract_time:.0f}ms")
             print(f"📊 FAQ: Extracted {len(faq_facts)} chars of facts")
             print(f"📝 FAQ: Facts preview: {faq_facts[:200]}...")
             
             # 🔥 CRITICAL FIX: ULTRA-MINIMAL prompt - just answer the question!
-            faq_system = f"""השב על השאלה בעברית בקצרה (2-3 משפטים) על בסיס המידע שניתן."""
+            faq_system = f"""השב בקצרה (2 משפטים)."""
             
             # 🔥 FIX: First attempt with full token budget
             try:
-                print(f"🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=150, timeout=3.5s)")
+                print(f"🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=80, timeout=2.0s)")
                 llm_start = time.time()
                 
                 response = self.client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": faq_system},
-                        {"role": "user", "content": f"מידע:\n{faq_facts}\n\nשאלה: {question}"}
+                        {"role": "user", "content": f"{faq_facts}\n\n{question}"}
                     ],
-                    temperature=0.2,  # ⚡ Lower temperature for more factual responses
-                    max_tokens=150,  # ⚡ SPEED: Reduced from 180 to 150 for faster FAQ responses
-                    timeout=3.5  # ⚡ SPEED: Reduced from 5.0s to 3.5s for faster FAQ
+                    temperature=0.3,  # ⚡ Balanced for speed vs quality
+                    max_tokens=80,  # ⚡ SPEED: Reduced from 150 to 80 for faster FAQ
+                    timeout=2.0  # ⚡ SPEED: Reduced from 3.5s to 2.0s
                 )
                 
                 llm_time = (time.time() - llm_start) * 1000
@@ -812,11 +818,11 @@ class AIService:
                     model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": faq_system},
-                        {"role": "user", "content": f"מידע: {faq_facts[:1500]}\n\nשאלה: {question}"}
+                        {"role": "user", "content": f"{faq_facts[:400]}\n\n{question}"}
                     ],
-                    temperature=0.2,  # Lower for factual
-                    max_tokens=120,
-                    timeout=4.0  # 🔥 PRODUCTION FIX: Increased from 1.8s to 4.0s
+                    temperature=0.3,
+                    max_tokens=60,  # ⚡ Even shorter for retry
+                    timeout=2.5  # ⚡ Shorter timeout for retry
                 )
                 # 🔥 ARCHITECT FIX: Apply guard-rail detection to retry path too!
                 answer = response.choices[0].message.content
