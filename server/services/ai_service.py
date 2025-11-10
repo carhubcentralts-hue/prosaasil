@@ -34,8 +34,9 @@ logger = logging.getLogger(__name__)
 _global_ai_service = None
 
 # 🚀 Phase 2K: Intent Router Configuration
-AGENTKIT_BOOKING_ONLY = os.getenv("AGENTKIT_BOOKING_ONLY", "1") == "1"
-FAST_PATH_ENABLED = os.getenv("FAST_PATH_ENABLED", "1") == "1"
+# 🔥 DISABLED: Fast path needs better FAQ context - using AgentKit for all intents now
+AGENTKIT_BOOKING_ONLY = os.getenv("AGENTKIT_BOOKING_ONLY", "0") == "1"  # Default OFF
+FAST_PATH_ENABLED = os.getenv("FAST_PATH_ENABLED", "0") == "1"  # Default OFF
 
 def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "info", "whatsapp", "human", "other"]:
     """
