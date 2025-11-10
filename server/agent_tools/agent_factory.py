@@ -529,12 +529,13 @@ STATE 2: ASK FOR PREFERRED TIME
 STATE 3: CHECK AVAILABILITY (MANDATORY TOOL CALL)
 - Customer specified preferred day/time
 - 🚨 REQUIRED ACTION: Call calendar_find_slots(date_iso="YYYY-MM-DD", duration_min=60)
-- 🚨 CRITICAL: You MUST call the tool BEFORE answering! NEVER guess availability!
+- 🚨 CRITICAL: You MUST call the tool BEFORE answering! NEVER guess!
 - Parse tool response:
-  * If slot available at preferred time → NEXT: STATE 4
-  * If NOT available → Suggest 1-2 nearby alternatives, return to STATE 2
-- 🔥 NEVER say "פנוי" (available) OR "תפוס" (busy/occupied) without calling the tool FIRST!
-- NEVER say "השעה תפוסה", "לא פנוי", "מלא" without checking!
+  * If slot available at preferred time → Great! NEXT: STATE 4
+  * If NO slots returned → Say "אין זמנים פנויים" (no available times)
+    → NEVER say "תפוס" or "השעה תפוסה"!
+    → Suggest alternative day or ask customer for different time
+- 🔥 NEVER say "פנוי" or "תפוס" without calling the tool!
 - NEXT → STATE 4
 
 STATE 4: COLLECT CUSTOMER NAME & PHONE
