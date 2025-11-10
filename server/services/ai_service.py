@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 _global_ai_service = None
 
 # 🚀 Phase 2K: Intent Router Configuration
-# 🔥 DISABLED: Fast path needs better FAQ context - using AgentKit for all intents now
-AGENTKIT_BOOKING_ONLY = os.getenv("AGENTKIT_BOOKING_ONLY", "0") == "1"  # Default OFF
-FAST_PATH_ENABLED = os.getenv("FAST_PATH_ENABLED", "0") == "1"  # Default OFF
+# ✅ ENABLED: FAQ fast-path with improved context and token limits
+AGENTKIT_BOOKING_ONLY = os.getenv("AGENTKIT_BOOKING_ONLY", "1") == "1"  # Default ON
+FAST_PATH_ENABLED = os.getenv("FAST_PATH_ENABLED", "1") == "1"  # Default ON
 
 def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "info", "whatsapp", "human", "other"]:
     """
@@ -577,10 +577,14 @@ class AIService:
             logger.error(f"Failed to save conversation history: {e}")
     
     def _handle_lightweight_intent(self, intent: str, message: str, business_id: int, 
-                                   channel: str, context: Optional[Dict], customer_phone: Optional[str]) -> str:
+                                   channel: str, context: Optional[Dict], customer_phone: Optional[str]) -> Optional[str]:
         """
         🚀 Fast FAQ/Info handler - NO AgentKit!
         Target latency: ~1.0-1.5s
+        
+        Returns:
+            str: Fast response
+            None: Signal to fallback to AgentKit
         """
         start = time.time()
         
@@ -590,11 +594,16 @@ class AIService:
             system_prompt = prompt_data.get("system_prompt", "")
             business_name = prompt_data.get("business_name", "העסק")
             
-            response = ""
+            response = None
             
             if intent == "info":
                 # Extract FAQ from prompt - lightweight LLM call
                 response = self._get_faq_response(message, system_prompt, business_name)
+                
+                # 🔥 FIX: If FAQ failed (returned None), signal fallback to AgentKit
+                if response is None:
+                    logger.warning(f"FAQ failed for info query, falling back to AgentKit")
+                    return None
             
             elif intent == "whatsapp":
                 if customer_phone:
@@ -605,9 +614,9 @@ class AIService:
             elif intent == "human":
                 response = "אעביר אותך לנציג. רגע אחד בבקשה."
             
-            else:  # "other"
-                # Fallback - simple helpful response
-                response = "איך אוכל לעזור לך? אפשר לברר מידע או לקבוע תור."
+            else:  # Should not reach here (gate filters this)
+                logger.warning(f"Unexpected intent in fast path: {intent}")
+                return None
             
             latency = (time.time() - start) * 1000
             print(f"⚡ FAST_PATH_LATENCY: {latency:.0f}ms (intent={intent})")
@@ -617,37 +626,68 @@ class AIService:
             
         except Exception as e:
             logger.error(f"❌ Fast path failed: {e}")
-            # Fallback to simple response
-            return "איך אוכל לעזור לך?"
+            # Return None to signal fallback to AgentKit
+            return None
     
     def _get_faq_response(self, question: str, system_prompt: str, business_name: str) -> str:
         """
-        🚀 Ultra-fast FAQ using small LLM call
-        Target: ~800ms-1.2s
+        🚀 Fast FAQ using optimized LLM call
+        Target: ~1.0-1.5s with FULL prompt context
+        
+        🔥 ARCHITECT-REVIEWED FIX:
+        - Use FULL prompt (up to 3000 chars) not just 800
+        - Increase max_tokens: 80 → 180 for complete Hebrew answers
+        - Increase timeout: 1.5s → 2.2s for reliability
+        - Add retry logic for robustness
         """
         try:
-            # Extract only relevant FAQ info from prompt (first 800 chars)
-            faq_context = system_prompt[:800] if system_prompt else "מתחם קריוקי"
+            # 🔥 FIX: Use FULL prompt context (up to 3000 chars)
+            faq_context = system_prompt[:3000] if system_prompt else "מתחם קריוקי"
             
-            # Ultra-short system prompt for FAQ
-            faq_system = f"אתה {business_name}. ענה בקצרה (1-2 משפטים) על שאלות מידע בעברית."
+            # Clear system prompt with business identity
+            faq_system = f"אתה {business_name}. ענה בקצרה (2-3 משפטים) על שאלות מידע בעברית. השתמש במידע המדויק מהפרומפט."
             
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": faq_system},
-                    {"role": "user", "content": f"מידע: {faq_context}\n\nשאלה: {question}"}
-                ],
-                temperature=0.3,
-                max_tokens=80,  # Ultra-short for FAQ
-                timeout=1.5  # Fast timeout
-            )
-            
-            return response.choices[0].message.content.strip()
+            # 🔥 FIX: First attempt with full token budget
+            try:
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": faq_system},
+                        {"role": "user", "content": f"מידע: {faq_context}\n\nשאלה: {question}"}
+                    ],
+                    temperature=0.3,
+                    max_tokens=180,  # 🔥 FIX: Increased from 80 to 180 for complete answers
+                    timeout=2.2  # 🔥 FIX: Increased from 1.5s to 2.2s
+                )
+                
+                answer = response.choices[0].message.content.strip()
+                
+                # Validate answer is not generic/empty
+                if answer and len(answer) > 10 and "אשמח לעזור" not in answer:
+                    return answer
+                else:
+                    logger.warning(f"FAQ gave generic answer: {answer}")
+                    raise ValueError("Generic answer - retry needed")
+                    
+            except Exception as retry_err:
+                # 🔥 FIX: Quick retry with shorter response
+                logger.warning(f"FAQ first attempt failed, retrying: {retry_err}")
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": faq_system},
+                        {"role": "user", "content": f"{faq_context[:1500]}\n\n{question}"}
+                    ],
+                    temperature=0.3,
+                    max_tokens=120,
+                    timeout=1.8
+                )
+                return response.choices[0].message.content.strip()
             
         except Exception as e:
-            logger.error(f"FAQ LLM failed: {e}")
-            return "אשמח לעזור! אפשר לברר מידע או לקבוע תור."
+            logger.error(f"❌ FAQ LLM failed after retry: {e}")
+            # Return None to signal fallback to AgentKit needed
+            return None
     
     def generate_response_with_agent(self, message: str, business_id: int = 1, 
                                      context: Optional[Dict[str, Any]] = None,
@@ -694,7 +734,14 @@ class AIService:
         # 🔥 FIX: "other" goes to AgentKit for natural conversation handling
         if AGENTKIT_BOOKING_ONLY and intent in ["info", "whatsapp", "human"]:
             print(f"🚀 FAST_PATH: Handling {intent} without AgentKit")
-            return self._handle_lightweight_intent(intent, message, business_id, channel, context, customer_phone)
+            fast_response = self._handle_lightweight_intent(intent, message, business_id, channel, context, customer_phone)
+            
+            # 🔥 FIX: If fast path failed (returned None), fall through to AgentKit
+            if fast_response is not None:
+                return fast_response
+            else:
+                print(f"⚠️ Fast path failed for {intent}, falling back to AgentKit")
+                logger.warning(f"Fast path returned None for {intent}, using AgentKit fallback")
         
         # ⚡ Capture start time BEFORE try block for error logging
         start_time = time.time()
