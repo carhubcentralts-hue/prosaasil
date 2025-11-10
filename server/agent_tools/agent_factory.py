@@ -33,14 +33,13 @@ _AGENT_CACHE: Dict[Tuple[int, str], Tuple[Agent, datetime]] = {}
 _AGENT_LOCK = threading.Lock()
 _CACHE_TTL_MINUTES = 30  # Agent lives for 30 minutes
 
-# 🎯 Model settings - OPTIMIZED FOR <2s LATENCY
+# 🎯 Model settings for all agents - BALANCED for speed + quality
 AGENT_MODEL_SETTINGS = ModelSettings(
-    model="gpt-4o-mini",
-    temperature=0.2,
-    max_output_tokens=160,  # 🔥 SHORT responses only (was 400)
-    tool_choice="required",  # Force tool usage
-    parallel_tool_calls=True,
-    strict=True
+    model="gpt-4o-mini",  # Fast and cost-effective
+    temperature=0.15,      # Very low temperature for consistent tool usage
+    max_tokens=300,        # 300 tokens (reduced from 400, but enough for Hebrew + tools)
+    tool_choice="required",  # MUST call tools - don't skip bookings!
+    parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
 
 def get_or_create_agent(business_id: int, channel: str, business_name: str = "העסק", custom_instructions: str = None) -> Optional[Agent]:
@@ -460,29 +459,32 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         today_str = datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')
         tomorrow_str = (datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')
         
-        instructions = f"""You are a Hebrew booking assistant for {business_name}. Reply in short, natural Hebrew.
+        instructions = f"""You are a booking assistant for {business_name}. Always respond in Hebrew.
 
 TODAY: {today_str} Israel | TOMORROW: {tomorrow_str}
 
-⚡ CRITICAL RULES:
-1. NEVER say "קבעתי" unless calendar_create_appointment returned ok:true
-2. Use tools to perform actions (don't just describe them)
-3. Keep responses 1-2 sentences max, no lists
+🚨 CRITICAL: NEVER say "קבעתי" (booked) unless calendar_create_appointment returned ok:true!
 
-📞 BOOKING FLOW:
-1. Ask: "באיזה יום ושעה נוח לך?" (don't list all slots)
-2. Call calendar_find_slots for that time
-3. If unavailable, offer max 2 alternatives: "09:00 או 14:00?"
-4. Collect name + phone together: "על איזה שם? ומספר טלפון?"
-5. For phone calls add: "אפשר להקיש ספרות ואז #"
-6. Confirm: "אז [name], [phone], ל-[day] ב-[time], נכון?"
-7. Call calendar_create_appointment
-8. Call leads_upsert + whatsapp_send (phone calls only)
-9. Respond: "מושלם! קבעתי לך. שלחתי אישור בווטסאפ"
+📋 BOOKING STEPS:
+1. Customer wants appointment → Ask: "באיזה יום ושעה נוח לך?"
+2. Customer says time → Call calendar_find_slots(date_iso="YYYY-MM-DD")
+3. If unavailable → Suggest max 2 alternatives only: "יש 09:00 או 14:00"
+4. Time confirmed → Collect both: "על איזה שם? ומספר טלפון?"
+   (Phone calls: add "אפשר להקיש ספרות ואז #")
+5. Have name+phone → Confirm: "אז [name], [phone], ל-[day] ב-[time], נכון?"
+6. Customer confirms → Call calendar_create_appointment
+7. Booking succeeded → Call leads_upsert + whatsapp_send (phone only)
+8. Respond: "מושלם! קבעתי לך ל-[day] ב-[time]. שלחתי אישור בווטסאפ"
 
-⏰ TIME: "2"/"שתיים" = 14:00 (afternoon default), not 02:00
-🚫 NO emojis, NO long explanations
-✅ Accept any name (first name OK: "דוד", "שישי")"""
+💬 RESPONSE STYLE:
+- Keep responses 2-3 sentences max
+- No long explanations or lists
+- Accept any name (first name OK: "דוד", "משה")
+- Time interpretation: "2"/"שתיים" = 14:00 (afternoon), NOT 02:00
+
+🛑 DON'T explain business details unless asked - just book appointments!
+🚫 NO emojis in responses
+✅ Use tools for actions - don't just describe them"""
 
     try:
         # DEBUG: Print the actual instructions the agent receives

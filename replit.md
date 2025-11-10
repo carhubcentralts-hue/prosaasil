@@ -34,27 +34,21 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
   - `server/agent_tools/agent_factory.py` (498-508): Prompt instructions
 - **Benefits**: ✅ **Guaranteed** max 4 options, even if AI ignores prompt
 
-### **Bug 4) AI Latency TOO HIGH - 3.9s instead of <2.0s!**
-- **Problem**: Total latency 4.47s (ai=3.9s, stt=0.0s, tts=0.54s) - **target: <2.3s**
-- **Root Cause**: 
-  - System prompts too long (~2.8k chars)
-  - Conversation history too long (10 messages)
-  - max_output_tokens=400 too high
-- **Solution - COMPREHENSIVE OPTIMIZATION**:
-  1. **Shortened prompts**: 2.8k → 400 chars (~85% reduction!)
+### **Bug 4) AI Latency Optimization Attempt (ROLLED BACK)**
+- **Problem**: Total latency 4.47s (ai=3.9s, stt=0.0s, tts=0.54s)
+- **Attempted Solution**: Shortened prompts to 400 chars, reduced max_tokens to 160
+- **Result**: FAILED - latency increased to 7.6s, bot became incoherent and verbose
+- **Root Cause of Failure**: Prompt too short caused AI confusion, leading to longer processing
+- **Final Solution - BALANCED OPTIMIZATION**:
+  1. **Moderate prompt compression**: 2.8k → ~800 chars (still clear and functional)
   2. **Truncated history**: 10 messages → 8 messages (4 full conversation turns)
   3. **Message truncation**: Long messages cut to 250 chars max
-  4. **Reduced max_output_tokens**: 400 → 160 tokens
-  5. **Fast-path parsing**: Direct time detection skips AI for simple requests
-  6. **TTS optimization**: speaking_rate=1.05 (already configured)
+  4. **Reduced max_tokens**: 400 → 300 tokens (enough for Hebrew + tools)
+  5. **TTS optimization**: speaking_rate=1.05 (already configured)
 - **Files**: 
-  - `server/agent_tools/agent_factory.py` (40-46, 465-487): Prompts + settings
-  - `server/services/ai_service.py` (469-496, 565-577): Fast-path + history truncation
-- **Expected Impact**: 
-  - STT: 0.8s → 0.5s (optimized)
-  - AI: 3.9s → 1.3-1.5s (60% reduction!)
-  - TTS: 0.5s → 0.3s (faster speaking rate)
-  - **Total: 4.4s → 1.9-2.3s** ✅
+  - `server/agent_tools/agent_factory.py` (40-46, 465-490): Prompts + settings
+  - `server/services/ai_service.py` (597-599): History truncation
+- **Expected Impact**: Modest improvement (~10-20%) without breaking functionality
 
 ---
 
