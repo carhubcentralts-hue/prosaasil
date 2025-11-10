@@ -339,8 +339,8 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # ⚡ BUILD 115.1: Reduced to 120 frames (~2.4s buffer) to prevent lag
-        self.tx_q = queue.Queue(maxsize=120)
+        # 🔥 FIX: Increased to 800 frames (~16s buffer) to prevent drops for long TTS
+        self.tx_q = queue.Queue(maxsize=800)  # Support up to 16s TTS without drops
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
@@ -2539,15 +2539,11 @@ class MediaStreamHandler:
                 print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
                 continue
             
-            # Handle "media" event with back-pressure and rate limiting
+            # Handle "media" event with rate limiting
             if item.get("type") == "media":
-                # ⚡ Back-pressure: If tx_q is getting full (>90%), slow down
+                # 🔥 FIX: Removed back-pressure - causes frame drops!
+                # Queue is now 800 frames (16s) to handle long TTS
                 queue_size = self.tx_q.qsize()
-                if queue_size > 108:  # 90% of 120
-                    print(f"⚠️ tx_q nearly full ({queue_size}/120) – applying back-pressure", flush=True)
-                    drops_last_sec += 1
-                    time.sleep(FRAME_INTERVAL * 2)  # Double wait to drain queue
-                    continue
                 
                 # Send frame
                 success = self._ws_send(json.dumps({
@@ -2571,9 +2567,9 @@ class MediaStreamHandler:
                 now = time.monotonic()
                 if now - last_telemetry_time >= 1.0:
                     queue_size = self.tx_q.qsize()
-                    # Only log if there are drops or queue is getting full
-                    if drops_last_sec > 0 or queue_size > 60:
-                        print(f"[TX] fps={frames_sent_last_sec} q={queue_size} drops={drops_last_sec}", flush=True)
+                    # Only log if queue is getting full (>400 frames = >50%)
+                    if queue_size > 400:
+                        print(f"[TX] fps={frames_sent_last_sec} q={queue_size}/800", flush=True)
                     frames_sent_last_sec = 0
                     drops_last_sec = 0
                     last_telemetry_time = now
