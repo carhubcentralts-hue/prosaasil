@@ -8,19 +8,14 @@ export FLASK_BASE_URL="${FLASK_BASE_URL:-http://localhost:5000}"
 export BAILEYS_PORT="${BAILEYS_PORT:-3300}"
 export RUN_MIGRATIONS_ON_START=1
 
-# ✅ BUILD Frontend if not exists or is outdated
+# ✅ PRODUCTION: Frontend should be pre-built (skip slow npm install/build)
 echo "🔍 Checking frontend build..."
 if [ ! -d "client/dist" ] || [ ! -f "client/dist/index.html" ]; then
-    echo "⚠️ Frontend build not found - building now..."
-    cd client
-    echo "📦 Installing frontend dependencies..."
-    npm install --prefer-offline --no-audit --no-fund
-    echo "🏗️ Building frontend with Vite..."
-    npm run build
-    cd ..
-    echo "✅ Frontend build complete!"
+    echo "⚠️ WARNING: Frontend build not found!"
+    echo "⚠️ In production, frontend should be pre-built in BUILD stage"
+    echo "⚠️ Continuing anyway - frontend routes may not work!"
 else
-    echo "✅ Frontend build found - skipping rebuild"
+    echo "✅ Frontend build found"
 fi
 
 # ✅ BUILD 103: Fixed Baileys startup - always start unless explicitly external
@@ -60,25 +55,16 @@ fi
 
 # 1) Start Baileys ONLY if not using external service
 if [ "$SKIP_BAILEYS" = "false" ]; then
-    echo "🟡 Installing Node dependencies for Baileys..."
+    echo "🟡 Checking Baileys dependencies..."
     cd services/whatsapp
     
-    # Try to install dependencies with verbose error handling
-    if [ ! -d "node_modules" ] || [ ! -f "node_modules/.package-lock.json" ]; then
-        echo "📦 Installing Node dependencies..."
-        npm install --omit=dev --prefer-offline --no-audit --no-fund 2>&1 | tee /tmp/npm_install.log
-        NPM_EXIT=$?
-        if [ $NPM_EXIT -ne 0 ]; then
-            echo "⚠️ npm install failed with code $NPM_EXIT. Trying npm ci..."
-            npm ci --omit=dev 2>&1 | tee -a /tmp/npm_install.log
-            NPM_EXIT=$?
-            if [ $NPM_EXIT -ne 0 ]; then
-                echo "❌ Failed to install Node dependencies. Check /tmp/npm_install.log"
-                echo "Continuing anyway - modules may be pre-installed..."
-            fi
-        fi
+    # PRODUCTION: node_modules should be pre-installed (skip slow npm install)
+    if [ ! -d "node_modules" ]; then
+        echo "⚠️ WARNING: Baileys node_modules not found!"
+        echo "⚠️ In production, dependencies should be pre-installed in BUILD stage"
+        echo "⚠️ Continuing anyway - Baileys may not work!"
     else
-        echo "✅ Node modules already installed"
+        echo "✅ Baileys node_modules found"
     fi
     
     cd ../..
@@ -92,13 +78,13 @@ if [ "$SKIP_BAILEYS" = "false" ]; then
     nohup node services/whatsapp/baileys_service.js > /tmp/baileys_prod.log 2>&1 &
     BAI=$!
     
-    # Wait for Baileys to be ready (with timeout)
-    echo "⏳ Waiting for Baileys to start (max 15s)..."
+    # Wait for Baileys to be ready (with timeout) - FAST for production deployment
+    echo "⏳ Quick Baileys check (max 3s)..."
     BAILEYS_READY=false
-    for i in {1..15}; do
+    for i in {1..3}; do
         sleep 1
         if curl -sf http://127.0.0.1:${BAILEYS_PORT}/healthz > /dev/null 2>&1; then
-            echo "✅ Baileys is ready! (PID: $BAI, 127.0.0.1:${BAILEYS_PORT})"
+            echo "✅ Baileys is ready! (PID: $BAI)"
             BAILEYS_READY=true
             break
         fi
@@ -106,18 +92,11 @@ if [ "$SKIP_BAILEYS" = "false" ]; then
     done
     echo ""
     
-    # Show Baileys logs if it failed to start
+    # Don't fail if Baileys isn't ready yet - it will warm up in background
     if [ "$BAILEYS_READY" = "false" ]; then
-        echo "⚠️ Baileys may not be responding. Last 30 lines of logs:"
-        tail -30 /tmp/baileys_prod.log 2>/dev/null || echo "No logs available yet"
-        echo ""
-        echo "🔍 Checking if process is still running..."
-        if kill -0 $BAI 2>/dev/null; then
-            echo "✅ Baileys process is running (PID: $BAI) - may just be slow to start"
-        else
-            echo "❌ Baileys process died immediately - check /tmp/baileys_prod.log"
-            echo "Showing full log:"
-            cat /tmp/baileys_prod.log 2>/dev/null || echo "No logs available"
+        echo "⚠️ Baileys starting in background (PID: $BAI) - will be ready soon"
+        if ! kill -0 $BAI 2>/dev/null; then
+            echo "❌ WARNING: Baileys process died - check /tmp/baileys_prod.log"
         fi
     fi
 else
@@ -136,9 +115,9 @@ echo "📊 EXTERNAL Access: Port ${PORT} (exposed)"
 echo "📊 INTERNAL Baileys: 127.0.0.1:${BAILEYS_PORT} (not exposed)"
 echo "📝 Logs: /tmp/baileys_prod.log"
 
-# Give services time to fully start up before announcing ready
-sleep 5
-echo "🔍 Final status check..."
+# Quick health check - Flask must be ready immediately for Replit health checks
+sleep 1
+echo "🔍 Quick status check..."
 
 # Check Flask (always required)
 if ! kill -0 $FL 2>/dev/null; then
