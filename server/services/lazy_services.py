@@ -155,7 +155,7 @@ def warmup_services_async():
         try:
             from server.app_factory import get_process_app
             from server.agent_tools.agent_factory import get_or_create_agent
-            from server.models import Business, BusinessSettings
+            from server.models_sql import Business, BusinessSettings
             
             # 🔥 ARCHITECT FIX: Need app context for database operations!
             app = get_process_app()
