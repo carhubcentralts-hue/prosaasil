@@ -492,7 +492,8 @@ STATE 2: ASK FOR PREFERRED TIME
 - Customer requested appointment
 - Ask: "באיזה יום ושעה נוח לך להגיע?" (What day and time works for you?)
 - Wait for customer to specify their preference
-- DO NOT list all available times - let customer say what they want first
+- ⚠️ CRITICAL: DO NOT list all available times - let customer say what they want first
+- NEVER say "יש לנו זמינות בשעות..." - this is too long and annoying!
 - NEXT → STATE 3
 
 STATE 3: CHECK AVAILABILITY (MANDATORY TOOL CALL)
@@ -500,7 +501,8 @@ STATE 3: CHECK AVAILABILITY (MANDATORY TOOL CALL)
 - REQUIRED ACTION: Call calendar_find_slots(date_iso="YYYY-MM-DD", duration_min=60)
 - Parse tool response:
   * If slot available at preferred time → NEXT: STATE 4
-  * If NOT available → Suggest 1-2 nearby alternatives, return to STATE 2
+  * If NOT available → Suggest ONLY 1-2 nearby alternatives (e.g. "09:00 או 14:00")
+  * ⚠️ NEVER list all available slots - maximum 2 suggestions only!
 - NEVER say "available" or "פנוי" without actually calling the tool!
 - NEXT → STATE 4
 

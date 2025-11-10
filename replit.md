@@ -22,6 +22,18 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
 - **Files**: `server/agent_tools/tools_calendar.py` (457-467), `server/media_ws_ai.py` (2358-2359)
 - **Benefits**: ✅ WhatsApp confirmation now sends after phone call bookings
 
+### **Bug 3) AI Reads ALL Available Times - TOO LONG!**
+- **Problem**: AI said "יש לנו זמינות בשעות 09:00, 10:00, 11:00..." (23 words, 24s TTS!)
+- **Root Cause**: Tool returned ALL slots, AI read them all (no code enforcement)
+- **Solution**: 
+  - **CODE ENFORCEMENT**: Tool now returns MAX 4 slots (truncates at tool level)
+  - Updated agent_factory.py STATE 2/3: "NEVER list all slots - max 2 suggestions!"
+  - Updated calendar_find_slots tool description with examples
+- **Files**: 
+  - `server/agent_tools/tools_calendar.py` (229-235): **Max 4 slots hardcoded**
+  - `server/agent_tools/agent_factory.py` (498-508): Prompt instructions
+- **Benefits**: ✅ **Guaranteed** max 4 options, even if AI ignores prompt
+
 ---
 
 # User Preferences
