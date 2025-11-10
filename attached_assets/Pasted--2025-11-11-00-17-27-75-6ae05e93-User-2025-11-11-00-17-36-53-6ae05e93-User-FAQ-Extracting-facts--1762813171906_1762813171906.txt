@@ -1,0 +1,133 @@
+
+2025-11-11 00:17:27.75
+6ae05e93
+User
+2025-11-11 00:17:36.53
+6ae05e93
+User
+📚 FAQ: Extracting facts from prompt (3566 chars)
+2025-11-11 00:17:36.53
+6ae05e93
+User
+✂️ FAQ: Truncated facts to 500 chars for speed
+2025-11-11 00:17:36.53
+6ae05e93
+User
+⏱️ FAQ: Fact extraction took 0ms
+2025-11-11 00:17:36.53
+6ae05e93
+User
+📊 FAQ: Extracted 503 chars of facts
+2025-11-11 00:17:36.53
+6ae05e93
+User
+📝 FAQ: Facts preview: 💰 מחירים:
+2025-11-11 00:17:36.53
+6ae05e93
+User
+- חדר "דובאי" – עד 15 משתתפים – 280 ₪ לשעה באמצע שבוע, 320 ₪ בסופי שבוע.
+2025-11-11 00:17:36.53
+6ae05e93
+User
+- חדר "ברצלונה" – עד 10 משתתפים – 200 ₪ לשעה באמצע שבוע, 250 ₪ בסופי שבוע.
+2025-11-11 00:17:36.53
+6ae05e93
+User
+- חדר "טוקיו" – עד 12 משתתפים – 230 ₪ לשעה...
+2025-11-11 00:17:36.53
+6ae05e93
+User
+🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=80, timeout=2.0s)
+2025-11-11 00:17:37.65
+6ae05e93
+User
+⏱️ FAQ: OpenAI call took 1124ms
+2025-11-11 00:17:37.65
+6ae05e93
+User
+✅ FAQ SUCCESS! Total time: 1124ms
+2025-11-11 00:17:37.65
+6ae05e93
+User
+📝 FAQ Answer: לא צויין במידע שסופק אם יש אוכל זמין. מומלץ לבדוק ישירות עם המקום לגבי אפשרויות המזון....
+2025-11-11 00:17:37.65
+6ae05e93
+User
+⚡ FAST_PATH_LATENCY: 1341ms (intent=info)
+2025-11-11 00:17:37.67
+6ae05e93
+User
+🤖 AGENT_RESPONSE: Generated 86 chars in 1.372s (business 1)
+2025-11-11 00:17:37.67
+6ae05e93
+User
+📊 AI_LATENCY: 1.372s (target: <1.5s)
+2025-11-11 00:17:37.67
+6ae05e93
+User
+🤖 BOT: לא צויין במידע שסופק אם יש אוכל זמין. מומלץ לבדוק ישירות עם המקום לגבי אפשרויות המזון.
+
+2025-11-11 00:17:37.67
+6ae05e93
+User
+📊 AI_PROCESSING: 1.372s
+2025-11-11 00:17:37.67
+6ae05e93
+User
+⚠️ Missing phone_number or business_id for customer intelligence
+2025-11-11 00:17:37.67
+6ae05e93
+User
+🔒 PROTECTED_RESPONSE (16 words) - BARGE-IN COMPLETELY DISABLED
+2025-11-11 00:17:37.67
+6ae05e93
+User
+🔊 TTS_START: 'לא צויין במידע שסופק אם יש אוכל זמין. מומלץ לבדוק ישירות עם המקום לגבי אפשרויות המזון.'
+2025-11-11 00:17:37.67
+6ae05e93
+User
+Traceback (most recent call last):
+2025-11-11 00:17:37.67
+6ae05e93
+User
+File "/home/runner/workspace/server/services/gcp_tts_live.py", line 265, in synthesize_hebrew_pcm16_8k_streaming
+2025-11-11 00:17:37.67
+6ae05e93
+User
+streaming_config = texttospeech.StreamingSynthesizeConfig(
+2025-11-11 00:17:37.67
+6ae05e93
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-11 00:17:37.67
+6ae05e93
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/proto/message.py", line 724, in __init__
+2025-11-11 00:17:37.67
+6ae05e93
+User
+raise ValueError(
+2025-11-11 00:17:37.67
+6ae05e93
+User
+ValueError: Unknown field for StreamingSynthesizeConfig: audio_config
+2025-11-11 00:17:37.67
+6ae05e93
+User
+⚠️ Streaming TTS returned 0 chunks, falling back to blocking mode
+2025-11-11 00:17:37.67
+6ae05e93
+User
+⚠️ Streaming TTS failed (No audio chunks received from streaming TTS), falling back to blocking mode...
+2025-11-11 00:17:37.67
+6ae05e93
+User
+🔊 TTS_START: Generating Natural Hebrew TTS for 'לא צויין במידע שסופק אם יש אוכל זמין. מומלץ לבדוק ...' (86 chars)
+2025-11-11 00:17:37.67
+6ae05e93
+User
+✅ Punctuation polished: 'לא, צויין במידע שסופק אם יש אוכל זמין. מ...'
+2025-11-11 00:17:38.08
+6ae05e93
+User
+✅ Saved conversation turn to DB: call_log_id=537

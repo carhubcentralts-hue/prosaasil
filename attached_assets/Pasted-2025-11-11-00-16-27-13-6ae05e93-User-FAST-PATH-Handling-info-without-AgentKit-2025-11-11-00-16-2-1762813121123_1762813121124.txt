@@ -1,0 +1,129 @@
+2025-11-11 00:16:27.13
+6ae05e93
+User
+🚀 FAST_PATH: Handling info without AgentKit
+2025-11-11 00:16:27.36
+6ae05e93
+User
+✂️ FAQ: Truncated facts to 500 chars for speed
+2025-11-11 00:16:27.36
+6ae05e93
+User
+⏱️ FAQ: Fact extraction took 1ms
+2025-11-11 00:16:27.36
+6ae05e93
+User
+📊 FAQ: Extracted 503 chars of facts
+2025-11-11 00:16:27.36
+6ae05e93
+User
+- חדר "דובאי" – עד 15 משתתפים – 280 ₪ לשעה באמצע שבוע, 320 ₪ בסופי שבוע.
+2025-11-11 00:16:27.36
+6ae05e93
+User
+- חדר "טוקיו" – עד 12 משתתפים – 230 ₪ לשעה...
+2025-11-11 00:16:34.31
+6ae05e93
+User
+⏱️ FAQ: OpenAI call took 6950ms
+2025-11-11 00:16:34.31
+6ae05e93
+User
+✅ FAQ SUCCESS! Total time: 6951ms
+2025-11-11 00:16:34.31
+6ae05e93
+User
+📝 FAQ Answer: בצפון ישנם ארבעה חדרי קריוקי: "דובאי", "ברצלונה", "טוקיו" ו"ניו יורק". כל חדר מציע קיבולת שונה ומחיר...
+2025-11-11 00:16:34.31
+6ae05e93
+User
+⚡ FAST_PATH_LATENCY: 7187ms (intent=info)
+2025-11-11 00:16:34.34
+6ae05e93
+User
+🤖 AGENT_RESPONSE: Generated 126 chars in 7.222s (business 1)
+2025-11-11 00:16:34.34
+6ae05e93
+User
+📊 AI_LATENCY: 7.222s (target: <1.5s)
+2025-11-11 00:16:34.34
+6ae05e93
+User
+🤖 BOT: בצפון ישנם ארבעה חדרי קריוקי: "דובאי", "ברצלונה", "טוקיו" ו"ניו יורק". כל חדר מציע קיבולת שונה ומחירים שונים בהתאם ליום בשבוע.
+2025-11-11 00:16:34.34
+6ae05e93
+User
+📊 AI_PROCESSING: 7.248s
+2025-11-11 00:16:34.34
+6ae05e93
+User
+⚠️ Missing phone_number or business_id for customer intelligence
+2025-11-11 00:16:34.34
+6ae05e93
+User
+🔒 PROTECTED_RESPONSE (20 words) - BARGE-IN COMPLETELY DISABLED
+2025-11-11 00:16:34.34
+6ae05e93
+User
+🔊 TTS_START: 'בצפון ישנם ארבעה חדרי קריוקי: "דובאי", "ברצלונה", "טוקיו" ו"ניו יורק". כל חדר מציע קיבולת שונה ומחירים שונים בהתאם ליום בשבוע.'
+2025-11-11 00:16:34.34
+6ae05e93
+User
+Traceback (most recent call last):
+2025-11-11 00:16:34.34
+6ae05e93
+User
+File "/home/runner/workspace/server/services/gcp_tts_live.py", line 265, in synthesize_hebrew_pcm16_8k_streaming
+2025-11-11 00:16:34.34
+6ae05e93
+User
+streaming_config = texttospeech.StreamingSynthesizeConfig(
+2025-11-11 00:16:34.34
+6ae05e93
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2025-11-11 00:16:34.34
+6ae05e93
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/proto/message.py", line 724, in __init__
+2025-11-11 00:16:34.34
+6ae05e93
+User
+raise ValueError(
+2025-11-11 00:16:34.34
+6ae05e93
+User
+ValueError: Unknown field for StreamingSynthesizeConfig: audio_config
+2025-11-11 00:16:34.34
+6ae05e93
+User
+⚠️ Streaming TTS returned 0 chunks, falling back to blocking mode
+2025-11-11 00:16:34.34
+6ae05e93
+User
+⚠️ Streaming TTS failed (No audio chunks received from streaming TTS), falling back to blocking mode...
+2025-11-11 00:16:34.34
+6ae05e93
+User
+🔊 TTS_START: Generating Natural Hebrew TTS for 'בצפון ישנם ארבעה חדרי קריוקי: "דובאי", "ברצלונה", ...' (126 chars)
+2025-11-11 00:16:34.34
+6ae05e93
+User
+✅ Punctuation polished: 'בצפון ישנם ארבעה חדרי קריוקי: "דובאי", "...'
+2025-11-11 00:16:34.73
+6ae05e93
+User
+✅ Saved conversation turn to DB: call_log_id=537
+2025-11-11 00:16:34.83
+6ae05e93
+User
+✅ TTS_SUCCESS: 174994 bytes Natural Wavenet (10.9s)
+2025-11-11 00:16:34.83
+6ae05e93
+User
+📊 TTS_GENERATION (blocking): 0.496s
+2025-11-11 00:16:34.83
+6ae05e93
+User
+🔊 TTS SUCCESS (blocki
