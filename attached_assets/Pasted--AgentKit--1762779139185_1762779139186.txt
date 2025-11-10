@@ -1,0 +1,112 @@
+כן — זו פשרה חכמה ומהירה: להפעיל את AgentKit רק כשהמשתמש מבקש לקבוע/לשנות/לבטל תור. בכל שאר השיחה לרוץ במסלול קל־משקל ומהיר. ככה משיגים גם יציבות וגם ≤2.3 שנ׳.
+
+הנה הנחיה ממוקדת לביצוע במבנה הפרויקט שלך:
+
+מה עושים בקצרה
+	1.	מוסיפים “שער” (Gate) לפני הקריאה ל-AgentKit.
+	2.	מזהים כוונה בעברית באופן דטרמיניסטי (רג׳קס/כללים מהירים).
+	3.	אם הכוונה היא Booking/Reschedule/Cancel → מפעילים AgentKit (tool-first).
+אחרת → עונים במסלול קל ומהיר (FAQ קצר, מידע, small talk) בלי AgentKit.
+	4.	אם הכוונה Booking פשוטה וברורה (“מחר ב-12”) → Fast-Path: גש ישר ל־calendar tools בלי Agent.
+
+⸻
+
+1) דגלי שליטה (Secrets/env)
+	•	AGENTS_ENABLED=1
+	•	AGENTKIT_BOOKING_ONLY=1      ← חדש (שער)
+	•	FAST_PATH_ENABLED=1
+	•	AI_MAX_OUTPUT_TOKENS=160
+	•	AI_FIRST_TURN_MAX_WORDS=12
+	•	STT_PARTIAL_DEBOUNCE_MS=60, VAD_HANGOVER_MS=120, STT_TIMEOUT_MS=240, MIN_UTT_SEC=0.25
+
+(כדי לבטל זמנית: AGENTS_ENABLED=0 או AGENTKIT_BOOKING_ONLY=0)
+
+⸻
+
+2) Intent Router מהיר (Hebrew)
+
+ב־server/services/ai_service.py הוסף פונקציה קצרה שמחזירה intent:
+	•	book: “לקבוע/תיאום/בדוק לי שעה/יש פנוי/תור ל…”
+	•	reschedule: “להזיז/להקדים/לדחות/להחליף שעה”
+	•	cancel: “לבטל/תבטל/אני לא מגיע”
+	•	info: “כמה עולה/מחיר/כשר/מיקום/חניה/גדלי חדרים/שעות”
+	•	whatsapp: “שלח לי בוואטסאפ/אשמח לקישור”
+	•	human: “נציג/בנאדם”
+	•	other
+
+אל תגזים – 10–15 ביטויים מספיקים. שמור על ביצועים: בלי LLM בשלב הזה.
+
+⸻
+
+3) שער לפני AgentKit (ב־generate_ai_response)
+
+זרימה מומלצת:
+	1.	intent = route_intent(user_text)
+	2.	אם FAST_PATH_ENABLED=1 ו־intent == book ויש “זמן ברור” (regex שעה+יום) →
+• הפעל calendar.find_slots → calendar.create_appointment (אכוף policy)
+• שלח אישור ב-WhatsApp אם יש מספר
+• חזור עם תשובה קצרה ללקוח → סיימת turn ב~1–1.5s
+	3.	אחרת אם AGENTKIT_BOOKING_ONLY=1:
+	•	אם intent ב-{book, reschedule, cancel} → קרא AgentKit (tool_choice=“required”, strict=True)
+	•	אחרת → מסלול קל:
+• תשובת FAQ קצרה, או חיווי סטטי (שעות, מיקום, “כשר למהדרין”) מתוך ה־ai_prompt/DB
+• בלי AgentKit
+	4.	אם AGENTKIT_BOOKING_ONLY=0 → ההתנהגות הישנה (אם תרצה).
+
+כרטיס הקשר ל-AgentKit: מסור שדות מדיניות (tz, slot_size_min, opening_hours_json, min_notice_min, require_phone_before_booking), channel, customer_phone. בלי לשפוך ai_prompt ארוך.
+
+היסטוריה: שמור 6–8 הודעות אחרונות (truncate ל-≤250 תווים כל אחת).
+
+⸻
+
+4) AgentKit “דק” למסלול הזמנה בלבד
+
+ב־server/agent_tools/agent_factory.py:
+	•	tool_choice=“required”, strict=True, temperature=0.2, max_output_tokens=160 (ובתור ראשון הגבל ל-12–16 מילים אם יש לך flag).
+	•	הוראות System קצרות (אנגלית), תשובות בעברית:
+Ask preferred hour → call calendar.find_slots → if unavailable offer two nearby → collect name+phone together (DTMF # on phone) → call calendar.create_appointment → confirm on WhatsApp. Keep replies short in Hebrew. Never book without explicit consent.
+
+זה מונע “דחיפת” הזמנות כשלא ביקשו.
+
+⸻
+
+5) אכיפה בקוד (Policy & DTMF)
+
+ב־tools_calendar.py:
+	•	על create_appointment:
+• בדוק on-grid לפי slot_size_min מה-policy
+• בדוק opening_hours / min_notice
+• אם require_phone_before_booking=True ואין מספר → החזר {ok:false, error:“need_phone”} (לא Exception)
+	•	ב-media_ws_ai.py (כבר אצלך): מצב איסוף DTMF (# לאישור, * למחיקה).
+כשה־tool מחזיר need_phone → ה-Agent אומר “תקליד/י את המספר וסיים/י ב-#”.
+
+⸻
+
+6) מסלול מהיר לשאלות נפוצות (ללא AgentKit)
+
+כש-intent == info/whatsapp/human/other:
+	•	info: השב קצר מתוך ai_prompt/DB (כמו הדוגמה לקריוקי: מיקום, שעות, כשרות, טווח מחירים).
+	•	whatsapp: קרא tools_whatsapp.send עם מספר קיים (או בקש DTMF אם חסר).
+	•	human: העבר לשיחה לנציג/קח פרטים וחזור.
+	•	other: תשובה קצרה “איך אפשר לעזור?” — בלי AgentKit.
+
+⸻
+
+7) בדיקות GO/NO-GO (מה לראות בלוגים)
+	•	בשאלות “מידע/מחיר/מיקום” → אין AgentTrace של כלי Booking; זמן Total ≤ ~1.2–1.6s.
+	•	“תבדוק לי מחר ב-12” → Fast-Path: calendar.find_slots→create_appointment, Total ≤ ~1.5–2.0s.
+	•	“ראשון 10:15” בעסק שעה-עגולה → error off_grid + שתי חלופות.
+	•	אם חסר טלפון ויש דרישה → need_phone → DTMF → הזמנה + אישור WhatsApp.
+	•	0 מקרים של APP_START באמצע; אין “send queue full”.
+
+⸻
+
+למה זה יפתור לך את הבעיות שראית
+	•	AgentKit כבר לא רץ על כל דבר → חיסכון 1–1.5 שנ׳ ברוב ה-turns.
+	•	כשהוא כן רץ (רק להזמנות) — הוא “דק” ומחוייב לכלים → התנהגות צפויה ומהירה.
+	•	Fast-Path מחפה על רוב המקרים הפשוטים → חוויית “מיידי”.
+	•	ה-policy נאכף בקוד, לא בפרומפט → פחות חוסר־ודאות, פחות סיבובים.
+
+⸻
+
+אם תרצה, אנסח לך עכשיו שלושה קטעי קוד להדבקה (route_intent, ה-Gate ב-generate_ai_response, וה-Fast-Path), בדיוק לפי שמות הקבצים אצלך — כדי שתדביק ותבדוק על המקום.
