@@ -895,10 +895,15 @@ class MediaStreamHandler:
                         if is_strong_voice or len(self.buf) > 0:
                             # ⚡ STREAMING STT: Mark start of new utterance (once) + save partial text
                             if len(self.buf) == 0 and is_strong_voice:
-                                # Callback to save partial text for early EOU detection
+                                # Callback to save BEST (longest) partial text for early EOU detection
                                 def save_partial(text):
-                                    self.last_partial_text = text
-                                    print(f"🔊 PARTIAL: '{text}'")
+                                    # 🔥 FIX: Save LONGEST partial, not last! Google STT sometimes sends shorter corrections
+                                    current_best = getattr(self, "last_partial_text", "")
+                                    if len(text) > len(current_best):
+                                        self.last_partial_text = text
+                                        print(f"🔊 PARTIAL (best): '{text}' ({len(text)} chars)")
+                                    else:
+                                        print(f"🔊 PARTIAL (ignored): '{text}' ({len(text)} chars) - keeping '{current_best}' ({len(current_best)} chars)")
                                 
                                 self.last_partial_text = ""  # Reset
                                 self._utterance_begin(partial_cb=save_partial)

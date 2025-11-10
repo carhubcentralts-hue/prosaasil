@@ -530,11 +530,21 @@ class GcpStreamingSTT:
                         time_since_last = (current_time - self._last_partial_time) * 1000
                         
                         # Debounce: only send if enough time passed OR text changed significantly
-                        if time_since_last >= DEBOUNCE_MS or transcript != self._last_partial_text:
+                        # 🔥 FIX: Save LONGEST partial, not last! Google STT sometimes sends shorter corrections
+                        should_emit = time_since_last >= DEBOUNCE_MS or transcript != self._last_partial_text
+                        
+                        if should_emit:
                             log.debug(f"🟡 PARTIAL: {transcript}")
                             self._last_partial_time = current_time
-                            self._last_partial_text = transcript
                             
+                            # Only update if new partial is longer (better)
+                            if len(transcript) > len(self._last_partial_text):
+                                self._last_partial_text = transcript
+                                log.debug(f"✅ BEST_PARTIAL updated: '{transcript}' ({len(transcript)} chars)")
+                            else:
+                                log.debug(f"⚠️ PARTIAL ignored (shorter): '{transcript}' ({len(transcript)} chars) vs '{self._last_partial_text}' ({len(self._last_partial_text)} chars)")
+                            
+                            # Always call callback with current transcript (even if not saved)
                             if self._partial_callback:
                                 self._partial_callback(transcript)
                                 
