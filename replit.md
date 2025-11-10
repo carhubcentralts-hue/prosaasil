@@ -73,6 +73,24 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
 - **Files**: `agent_tools/tools_calendar.py`
 - **Benefits**: ✅ Production debugging, performance monitoring
 
+### **I) Agent Model Settings Fix - Tool Execution** 🔥 CRITICAL
+- **Problem**: Agent hallucinating bookings ("קבעתי לך") without calling `calendar_create_appointment` tool
+- **Root Cause**: 
+  - `max_tokens=200` too small - insufficient space for tool calls + response
+  - `create_booking_agent` created local `ModelSettings` overriding global config
+  - Agent truncated before completing tool execution
+- **Solution**: 
+  - Increased global `AGENT_MODEL_SETTINGS`: `max_tokens=400` (was 200), `temperature=0.15` (was 0.2)
+  - Fixed `create_booking_agent` to use global `AGENT_MODEL_SETTINGS` instead of local override
+  - Ensures 400 tokens available for: tool call (~100-150 tokens) + response (~50-100 tokens)
+- **Files**: `server/agent_tools/agent_factory.py` (lines 40-46, 632-641)
+- **Benefits**: 
+  - ✅ Agent calls tools BEFORE claiming success
+  - ✅ More deterministic behavior (lower temperature)
+  - ✅ Hallucination blocker still active as safety net
+  - ⚠️ Cost: ~2x tokens per call (acceptable for reliability)
+- **Testing**: Agent must call `calendar_find_slots` → collect info → `calendar_create_appointment` → only then say "קבעתי"
+
 ### **Production Deployment Checklist**
 - [x] Migration 19 ready (set `RUN_MIGRATIONS_ON_START=1`)
 - [x] All hot paths thread-safe
@@ -119,7 +137,7 @@ AgentLocator employs a multi-tenant architecture with business-specific data iso
 
 The AI leverages an Agent SDK for tasks like appointment scheduling and lead creation, maintaining conversation memory. An Agent Cache System retains agent instances for 30 minutes per business+channel, boosting response times and preserving conversation state. It mandates name and phone confirmation during scheduling, using dual input (verbal name, DTMF phone number) for streamlined 4-turn booking flows. Channel-aware responses adapt messaging based on the communication channel (e.g., WhatsApp confirmation mentioned only during phone calls). A DTMF Menu System provides interactive voice navigation for phone calls with structured error handling.
 
-Performance is optimized with explicit OpenAI timeouts, increased STT streaming timeouts, and warnings for long prompts. AI responses prioritize short, natural conversations with `max_tokens=150` for `gpt-4o-mini` and a `temperature` of 0.3-0.4 for consistent Hebrew. Prompts are loaded exclusively from `BusinessSettings.ai_prompt` without hardcoded text (except minimal date context). Robustness is ensured via thread tracking, enhanced cleanup, and a Flask app singleton. STT reliability benefits from relaxed validation, confidence checks, and a 3-attempt retry. Voice consistency is maintained with a male Hebrew voice (`he-IL-Wavenet-D`) and masculine phrasing. Cold start is optimized with automatic service warmup.
+Performance is optimized with explicit OpenAI timeouts, increased STT streaming timeouts, and warnings for long prompts. AI responses prioritize short, natural conversations with `max_tokens=400` for `gpt-4o-mini` (increased from 150/200 to prevent tool call truncation) and a `temperature` of 0.15 for consistent tool usage and deterministic Hebrew. Prompts are loaded exclusively from `BusinessSettings.ai_prompt` without hardcoded text (except minimal date context). Robustness is ensured via thread tracking, enhanced cleanup, and a Flask app singleton. STT reliability benefits from relaxed validation, confidence checks, and a 3-attempt retry. Voice consistency is maintained with a male Hebrew voice (`he-IL-Wavenet-D`) and masculine phrasing. Cold start is optimized with automatic service warmup.
 
 ## Technical Implementations
 ### Backend
