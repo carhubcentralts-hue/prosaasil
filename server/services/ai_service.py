@@ -76,21 +76,33 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
     # ℹ️ INFO: General information (CHECK FIFTH - before booking!)
     # 🔥 FIX: Check info patterns BEFORE book patterns to avoid "מתי פתוחים מחר?" → "book"
     info_patterns = [
+        # 🔥 CRITICAL: Question words → info (אלה שאלות מידע!)
+        r'^(מה|איזה|איזו|כמה|למה|מדוע|איך|היכן|מתי)\s',  # Start with question word
+        r'\s(מה|איזה|איזו|כמה)\s',  # Question word in middle
+        
         # 🔥 CRITICAL FIX: "יש..." questions - SPECIFIC amenities only (not "יש לכם תור")
         r'יש\s+(אוכל|שתיי?ה|תפריט|מנות|אלכוהול|בר|משקאות|קפה|מזון)',
         r'יש\s+(חניה|חנייה|גישה|מיזוג|wifi|אינטרנט|מעלית)',
-        r'יש\s+לכם\s+(אוכל|שתיי?ה|תפריט|חניה|wifi)',  # "יש לכם אוכל?" ✅, but not "יש לכם תור?" ❌
-        r'מה\s+יש\s+(לאכול|לשתות|בתפריט)',   # "מה יש לאכול?" → info
+        r'יש\s+(חדר|חדרים|שירות|שירותים|סוג|סוגים)',  # "יש חדר קריוקי?"
+        r'יש\s+לכם\s+(אוכל|שתיי?ה|תפריט|חניה|wifi|חדר|שירות)',
+        r'מה\s+יש\s+(לאכול|לשתות|בתפריט)',
+        
         # Pricing
         r'כמה.*עולה|מחיר|עלות|תשלום|כמה.*זה',
+        
         # Location
         r'איפה|מיקום|כתובת|היכן',
+        
         # Hours
         r'שעות.*פתיחה|מתי.*פתוח|שעות.*עבודה|מה.*שעות',
-        # Amenities
+        
+        # Amenities & Services - EXPANDED!
         r'כשר|כשרות',
         r'גודל.*חדר|כמה.*אנשים|כמה.*משתתפים',
         r'מה.*הכתובת|מה.*המיקום',
+        r'חדר\s+(קריוקי|ישיבות|אירועים)',  # "חדר קריוקי"
+        r'(סוגי|סוג)\s+(חדר|שירות)',  # "איזה סוגי חדרים"
+        
         # Menu/food (standalone) - LAST to avoid conflicts
         r'\b(תפריט|מנות|משקאות)\b',
     ]
@@ -133,8 +145,10 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
         if re.search(pattern, text_lower):
             return "book"
     
-    # Default fallback
-    return "other"
+    # 🔥 CRITICAL FIX: Default to "info" (FAQ), NOT "other" (Agent)!
+    # Most questions are info questions - FAQ is fast (~1.2s), Agent is slow (~6-8s)
+    # Better to answer with FAQ than wait for Agent SDK!
+    return "info"  # Changed from "other" → FAQ fast-path by default!
 
 def extract_time_hebrew(text: str) -> Optional[Dict[str, Any]]:
     """
