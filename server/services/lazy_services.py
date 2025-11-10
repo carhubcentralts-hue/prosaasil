@@ -149,6 +149,42 @@ def warmup_services_async():
             log.info("WARMUP_STT_OK")
         else:
             log.warning("WARMUP_STT_ERR")
+        
+        # 🔥 CRITICAL: Warmup Agent Kit to avoid first-call latency
+        try:
+            from server.app_factory import get_process_app
+            from server.agent_tools.agent_factory import get_or_create_agent
+            from server.policy.business_policy import get_business_prompt
+            
+            # 🔥 ARCHITECT FIX: Need app context for database operations!
+            app = get_process_app()
+            with app.app_context():
+                # Warmup business 1 for both channels
+                for channel in ['calls', 'whatsapp']:
+                    try:
+                        # Get prompt (will cache it)
+                        prompt_result = get_business_prompt(1, channel)
+                        custom_instructions = prompt_result.get('system_prompt') if prompt_result else None
+                        
+                        # Create agent (will cache it)
+                        agent = get_or_create_agent(
+                            business_id=1,
+                            channel=channel,
+                            business_name="Vibe Rooms",
+                            custom_instructions=custom_instructions
+                        )
+                        if agent:
+                            log.info(f"WARMUP_AGENT_OK: business=1, channel={channel}")
+                        else:
+                            log.warning(f"WARMUP_AGENT_ERR: business=1, channel={channel} - agent is None")
+                    except Exception as e:
+                        log.warning(f"WARMUP_AGENT_ERR: business=1, channel={channel} - {e}")
+                        import traceback
+                        traceback.print_exc()
+        except Exception as e:
+            log.warning(f"WARMUP_AGENT_FAILED: {e}")
+            import traceback
+            traceback.print_exc()
             
         log.info("🔥 Service warmup completed")
     
