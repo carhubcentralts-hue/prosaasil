@@ -753,11 +753,9 @@ class AIService:
             print(f"📊 FAQ: Extracted {len(faq_facts)} chars of facts")
             print(f"📝 FAQ: Facts preview: {faq_facts[:200]}...")
             
-            # Clear system prompt that EXPLICITLY allows business questions
-            faq_system = f"""אתה {business_name}. ענה על שאלות מידע על העסק בעברית בקצרה (2-3 משפטים).
-
-🔥 CRITICAL: שאלות על מחירים, שעות פתיחה, מיקום הן שאלות עסקיות לגיטימיות - ענה עליהן!
-השתמש במידע המדויק מהנתונים שקיבלת."""
+            # 🔥 CRITICAL FIX: Direct factual system prompt - NO guard-rails!
+            faq_system = f"""ענה על שאלת הלקוח על {business_name} בעברית, 2-3 משפטים.
+השתמש במידע המדויק מהנתונים."""
             
             # 🔥 FIX: First attempt with full token budget
             try:
