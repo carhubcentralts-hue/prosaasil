@@ -587,11 +587,12 @@ class AIService:
                 asyncio.set_event_loop(loop)
             
             # 🔥 BUILD CONVERSATION HISTORY for Agent SDK
-            # ⚡ OPTIMIZATION: Keep ONLY last 3 messages to reduce latency!
+            # ⚡ OPTIMIZATION: Keep last 8 messages - balances latency with booking context
+            # (8 messages = 4 turns, enough for most booking flows while reducing tokens)
             history_start = time.time()
             conversation_messages = []
             if context and "previous_messages" in context:
-                prev_msgs = context["previous_messages"][-3:]  # 🔥 CRITICAL: Only 3 messages (was -10)
+                prev_msgs = context["previous_messages"][-8:]  # 🔥 8 messages = 4 full turns
                 print(f"📚 Found {len(context['previous_messages'])} messages, using last {len(prev_msgs)} for latency")
                 
                 # Convert to Agent SDK format

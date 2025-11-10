@@ -42,7 +42,7 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
   - max_output_tokens=400 too high
 - **Solution - COMPREHENSIVE OPTIMIZATION**:
   1. **Shortened prompts**: 2.8k → 400 chars (~85% reduction!)
-  2. **Truncated history**: 10 messages → 3 messages (last 3 only)
+  2. **Truncated history**: 10 messages → 8 messages (4 full conversation turns)
   3. **Message truncation**: Long messages cut to 250 chars max
   4. **Reduced max_output_tokens**: 400 → 160 tokens
   5. **Fast-path parsing**: Direct time detection skips AI for simple requests
