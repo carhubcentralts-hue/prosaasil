@@ -44,47 +44,58 @@ def route_intent(message: str) -> str:
     """
     msg_lower = message.lower().strip()
     
-    # Booking intent (schedule appointment)
-    booking_keywords = [
-        "לקבוע", "תור", "פגישה", "תיאום", "בדוק לי", "זמין", "פנוי",
-        "אפשר", "יש מקום", "להזמין", "רוצה לקבוע", "מעוניין",
-        "מחר", "היום", "ראשון", "שני", "שלישי", "רביעי", "חמישי",
-        "שבת", "מוצ״ש"
-    ]
-    
-    # Reschedule intent
-    reschedule_keywords = ["להזיז", "להקדים", "לדחות", "להחליף", "לשנות"]
-    
-    # Cancel intent
-    cancel_keywords = ["לבטל", "תבטל", "לא מגיע", "לא יכול", "ביטול"]
-    
-    # Info intent (no booking needed)
+    # Info intent - CHECK FIRST (before booking)
+    # People asking about hours/price/location shouldn't trigger booking
     info_keywords = [
         "כמה עולה", "מחיר", "עלות", "תשלום", "כשר", "כשרות",
         "מיקום", "איפה", "כתובת", "חניה", "אזור", 
-        "שעות", "פתוח", "סגור", "עובדים", "מתי",
-        "גודל", "חדר", "אנשים", "מקסימום"
+        "שעות פתיחה", "פתוח", "סגור", "עובדים", "מתי פתוחים",
+        "גודל", "חדר", "אנשים", "מקסימום", "מה יש", "מה זה"
     ]
+    
+    if any(kw in msg_lower for kw in info_keywords):
+        return "info"
     
     # WhatsApp intent
     whatsapp_keywords = ["וואטסאפ", "whatsapp", "שלח לי", "קישור"]
+    if any(kw in msg_lower for kw in whatsapp_keywords):
+        return "whatsapp"
     
     # Human intent
     human_keywords = ["נציג", "בן אדם", "בנאדם", "לדבר עם", "מנהל"]
-    
-    # Check intents (order matters - booking is most common)
-    if any(kw in msg_lower for kw in booking_keywords):
-        return "book"
-    if any(kw in msg_lower for kw in reschedule_keywords):
-        return "reschedule"
-    if any(kw in msg_lower for kw in cancel_keywords):
-        return "cancel"
-    if any(kw in msg_lower for kw in info_keywords):
-        return "info"
-    if any(kw in msg_lower for kw in whatsapp_keywords):
-        return "whatsapp"
     if any(kw in msg_lower for kw in human_keywords):
         return "human"
+    
+    # Reschedule intent
+    reschedule_keywords = ["להזיז", "להקדים", "לדחות", "להחליף", "לשנות תור"]
+    if any(kw in msg_lower for kw in reschedule_keywords):
+        return "reschedule"
+    
+    # Cancel intent
+    cancel_keywords = ["לבטל", "תבטל", "לא מגיע", "לא יכול", "ביטול"]
+    if any(kw in msg_lower for kw in cancel_keywords):
+        return "cancel"
+    
+    # Booking intent - REQUIRES explicit scheduling action + time/day
+    # Strong booking signals (explicit intent)
+    strong_booking = ["לקבוע", "תור", "פגישה", "תיאום", "בדוק לי", 
+                      "זמין", "פנוי", "יש מקום", "להזמין", "רוצה לקבוע"]
+    
+    # Time expressions (need these WITH day words)
+    import re
+    has_time = bool(re.search(r'\d{1,2}(:\d{2})?|\bב-\d|\bבשעה', msg_lower))
+    
+    # Day words (only booking if combined with time or strong intent)
+    day_words = ["מחר", "היום", "ראשון", "שני", "שלישי", "רביעי", "חמישי", "שבת", "מוצ״ש"]
+    has_day = any(day in msg_lower for day in day_words)
+    
+    # Classify as booking ONLY if:
+    # 1. Strong booking keyword, OR
+    # 2. Day word + time expression together
+    if any(kw in msg_lower for kw in strong_booking):
+        return "book"
+    if has_day and has_time:
+        return "book"
     
     return "other"
 

@@ -4,6 +4,56 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
 
 # Recent Changes
 
+## PHASE 2L - AGENTKIT GATE SYSTEM (IN PROGRESS - November 10, 2025)
+
+**SMART ROUTING ARCHITECTURE - AgentKit Only When Needed**
+
+### **Problem**: AgentKit running on EVERY message → slow responses (4-7s)
+- Info questions ("כמה עולה?") don't need AgentKit
+- Simple bookings ("מחר ב-2") can be faster with direct calendar calls
+- Only complex bookings need full AgentKit orchestration
+
+### **Solution - 3-Route Architecture**:
+
+**Route 1: FAQ Path** (~0.8s latency)
+- **Intents**: info, other, whatsapp, human
+- **Method**: Lightweight GPT-4o-mini, no tools, 50 max_tokens
+- **Example**: "כמה עולה?" → Quick answer from business prompt
+
+**Route 2: Fast-Path** (~1.5s latency)
+- **Intents**: book (simple time pattern detected)
+- **Method**: Regex time parsing + direct calendar tool calls
+- **Example**: "מחר ב-2" → Parse time → Check availability → Respond
+- **Fallback**: If parsing fails or needs name/phone → Route 3
+
+**Route 3: Full AgentKit** (~2-3s latency)
+- **Intents**: book (complex), reschedule, cancel
+- **Method**: Full Agent SDK with all tools
+- **Example**: Multi-turn booking with name/phone collection
+
+### **Implementation**:
+1. **Intent Router** (`route_intent()`) - Fast Hebrew keyword detection
+   - No LLM needed - simple keyword matching
+   - Detects: book, reschedule, cancel, info, whatsapp, human, other
+   
+2. **AgentKit Gate** - Controls when to invoke Agent SDK
+   - `AGENTKIT_BOOKING_ONLY=1` (default) - Only for booking intents
+   - `FAST_PATH_ENABLED=1` (default) - Try fast-path before AgentKit
+   
+3. **Helper Functions**:
+   - `_generate_faq_response()` - Quick GPT-4o-mini for info
+   - `_handle_direct_booking()` - Regex parsing + calendar tools
+
+### **Files Modified**:
+- `server/services/ai_service.py` (34-93, 494-617, 656-678): Intent router, helpers, gate logic
+
+### **Expected Impact**:
+- Info questions: 4s → **0.8s** (80% faster!)
+- Simple bookings: 4s → **1.5s** (60% faster!)
+- Complex bookings: ~3s (unchanged, still need full AgentKit)
+
+---
+
 ## PHASE 2K - BARGE-IN & WHATSAPP FIX (COMPLETED - November 10, 2025)
 
 **CRITICAL USER-REPORTED BUGS FIXED** - Architect-reviewed!
