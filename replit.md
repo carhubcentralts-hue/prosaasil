@@ -36,19 +36,20 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
 - **Files**: `server/agent_tools/agent_factory.py` (line 44), `business_settings.ai_prompt`
 - **Benefits**: ✅ Natural conversation, uses tools only when needed, answers questions directly
 
-### **Performance Optimization - Intent Router (Phase 2K)**
+### **Performance Optimization - Intent Router (Phase 2K - FIXED)**
 - **Problem**: AgentKit adds 1-1.5s latency to EVERY turn, even for simple info questions
-- **Solution**: Intent-based routing - AgentKit ONLY for bookings, FAQ path for everything else
+- **Solution**: Intent-based routing - FAQ handler ONLY for clear info/whatsapp/human intents
 - **Architecture**:
   - **Intent Router**: Fast regex-based Hebrew intent detection (<10ms)
-  - **AgentKit Gate**: Only runs for `book|reschedule|cancel` intents
-  - **FAQ Handler**: Lightweight LLM call (80 tokens) for info questions (~800ms-1.2s)
+  - **FAQ Fast Path**: Only for explicit `info|whatsapp|human` intents (~800ms-1.2s)
+  - **AgentKit Path**: All other intents (book/reschedule/cancel/other) use AgentKit
   - **Environment Flags**: `AGENTKIT_BOOKING_ONLY=1`, `FAST_PATH_ENABLED=1`
 - **Files**: `server/services/ai_service.py` (Intent Router, FAQ handler, Gate)
+- **Critical Fix**: "other" intent goes to AgentKit (not FAQ) for natural conversation handling
 - **Benefits**: 
-  - ✅ Info questions: ~1.0-1.5s (was 3-4s with AgentKit)
-  - ✅ Booking flows: Still use AgentKit for reliability
-  - ✅ Overall target: ≤2.3s for most conversations
+  - ✅ Clear info questions: ~1.0-1.5s (was 3-4s with AgentKit)
+  - ✅ Booking/natural conversation: AgentKit handles with full context
+  - ✅ Conservative routing: Only bypass AgentKit for obvious info queries
 
 ### **STT Accuracy Improvements (Recommended - Phase 2K)**
 **Current Configuration** (Working):

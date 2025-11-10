@@ -689,8 +689,9 @@ class AIService:
         print(f"🎯 INTENT_DETECTED: {intent} (message: {message[:50]}...)")
         logger.info(f"🎯 Intent detected: {intent}")
         
-        # ⚡ FAQ/Lightweight Path - NO AgentKit needed!
-        if AGENTKIT_BOOKING_ONLY and intent in ["info", "whatsapp", "human", "other"]:
+        # ⚡ FAQ/Lightweight Path - ONLY for clear info/whatsapp/human intents
+        # 🔥 FIX: "other" goes to AgentKit for natural conversation handling
+        if AGENTKIT_BOOKING_ONLY and intent in ["info", "whatsapp", "human"]:
             print(f"🚀 FAST_PATH: Handling {intent} without AgentKit")
             return self._handle_lightweight_intent(intent, message, business_id, channel, context, customer_phone)
         
