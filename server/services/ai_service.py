@@ -1071,17 +1071,15 @@ class AIService:
                 "content": message
             })
             
-            # 🔥 CRITICAL: Pass OpenAI client with timeout to Runner!
-            from server.agent_tools.agent_factory import get_openai_client
-            openai_client_with_timeout = get_openai_client()
+            # 🔥 FIX: Runner is a static class - use Runner.run() directly!
+            from agents import Runner
             
-            runner = Runner(openai_client=openai_client_with_timeout)  # ⚡ 4s timeout!
-            print(f"🔄 Created Runner with {len(conversation_messages)-1} history messages + 4s timeout, executing agent.run()...")
-            logger.info(f"⏱️ PERFORMANCE: Starting Runner.run() with 4s timeout at {time.time()}")
+            print(f"🔄 Starting Runner.run() with {len(conversation_messages)-1} history messages...")
+            logger.info(f"⏱️ PERFORMANCE: Starting Runner.run() at {time.time()}")
             
-            # Use input parameter with conversation history
+            # Use Runner.run() directly (it's a static method, not an instance!)
             result = loop.run_until_complete(
-                runner.run(starting_agent=agent, input=conversation_messages, context=agent_context)
+                Runner.run(starting_agent=agent, input=conversation_messages, context=agent_context)
             )
             duration_ms = int((time.time() - start_time) * 1000)
             print(f"✅ Runner.run() completed in {duration_ms}ms")
