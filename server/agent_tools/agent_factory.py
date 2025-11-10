@@ -33,6 +33,21 @@ _AGENT_CACHE: Dict[Tuple[int, str], Tuple[Agent, datetime]] = {}
 _AGENT_LOCK = threading.Lock()
 _CACHE_TTL_MINUTES = 30  # Agent lives for 30 minutes
 
+def invalidate_agent_cache(business_id: int):
+    """
+    🔥 CRITICAL: Invalidate agent cache for specific business
+    Called after prompt updates to ensure new conversations use updated prompts
+    """
+    with _AGENT_LOCK:
+        keys_to_remove = [k for k in _AGENT_CACHE.keys() if k[0] == business_id]
+        for key in keys_to_remove:
+            del _AGENT_CACHE[key]
+            logger.info(f"✅ Agent cache invalidated: business={key[0]}, channel={key[1]}")
+        if keys_to_remove:
+            logger.info(f"♻️  Cleared {len(keys_to_remove)} cached agents for business {business_id}")
+        else:
+            logger.info(f"♻️  No cached agents found for business {business_id}")
+
 # 🎯 Model settings for all agents - matching AgentKit best practices
 AGENT_MODEL_SETTINGS = ModelSettings(
     model="gpt-4o-mini",  # Fast and cost-effective
@@ -492,7 +507,8 @@ STATE 2: ASK FOR PREFERRED TIME
 - Customer requested appointment
 - Ask: "באיזה יום ושעה נוח לך להגיע?" (What day and time works for you?)
 - Wait for customer to specify their preference
-- DO NOT list all available times - let customer say what they want first
+- 🚨 CRITICAL: DO NOT list available times! Let customer say their preference first
+- NEVER say "יש לי פנוי ב-..." or "השעות הפנויות הן..." - just ask their preference
 - NEXT → STATE 3
 
 STATE 3: CHECK AVAILABILITY (MANDATORY TOOL CALL)
@@ -509,8 +525,9 @@ STATE 4: COLLECT CUSTOMER NAME & PHONE
 - Ask in Hebrew: "מעולה! על איזה שם לרשום?"
   (Great! What name should I write?)
 - After getting name, ask for phone:
-  * For PHONE CALLS: "ומה מספר הטלפון? תקליד/י את הספרות במקלדת ואז סולמית (#)"
+  * 🚨 For PHONE CALLS: "ומה מספר הטלפון? תקליד/י את הספרות במקלדת ואז סולמית (#)"
     (And the phone number? Type the digits on the keypad and then hash)
+    → CRITICAL: ALWAYS include the keypad instruction! Don't just say "ומה מספר הטלפון?"
   * For WHATSAPP: "ומה מספר הטלפון?" (And the phone number?)
 
 CRITICAL - ACCEPT ANY NAME:
@@ -597,8 +614,9 @@ When customer says a number without context:
 3. NEVER skip calendar_find_slots - ALWAYS verify availability before collecting details
 4. NEVER proceed to booking without BOTH name AND phone number
 5. NEVER assume - if missing info, ask for it explicitly
-6. NEVER list all 10 available slots - ask customer preference first
-7. SAYING YOU DID SOMETHING ≠ ACTUALLY DOING IT. TOOLS = REAL ACTIONS!
+6. 🚨 NEVER list all available slots - ask customer preference first, then check availability
+7. 🚨 For PHONE CALLS: ALWAYS use DTMF instruction when asking for phone number
+8. SAYING YOU DID SOMETHING ≠ ACTUALLY DOING IT. TOOLS = REAL ACTIONS!
 
 ═══════════════════════════════════════════════════════════════════════
 PHONE NUMBER COLLECTION (PHONE CALLS)

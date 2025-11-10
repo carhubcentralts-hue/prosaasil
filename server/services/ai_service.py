@@ -211,6 +211,8 @@ def _warmup_ai_cache(service: 'AIService'):
 def invalidate_business_cache(business_id: int):
     """🔥 CRITICAL: Invalidate cache for business - called after prompt updates"""
     service = get_ai_service()
+    
+    # 1. Clear prompt cache (AIService)
     cache_keys_to_remove = [
         f"business_{business_id}_calls",
         f"business_{business_id}_whatsapp"
@@ -218,7 +220,15 @@ def invalidate_business_cache(business_id: int):
     for key in cache_keys_to_remove:
         if key in service._cache:
             del service._cache[key]
-            logger.info(f"✅ Cache invalidated: {key}")
+            logger.info(f"✅ Prompt cache invalidated: {key}")
+    
+    # 2. 🔥 NEW: Clear agent cache (agent_factory)
+    try:
+        from server.agent_tools.agent_factory import invalidate_agent_cache
+        invalidate_agent_cache(business_id)
+        logger.info(f"✅ Agent cache invalidated for business {business_id}")
+    except Exception as e:
+        logger.error(f"⚠️ Failed to invalidate agent cache: {e}")
 
 class AIService:
     """מנגנון AI מרכזי שטוען פרומפטים מהמסד נתונים ומחבר עם OpenAI"""
