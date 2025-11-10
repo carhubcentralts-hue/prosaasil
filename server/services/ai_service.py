@@ -881,31 +881,30 @@ class AIService:
             print(f"⏱️ DB query time: {db_time:.0f}ms")
             logger.info(f"📋 Loaded prompt for business {business_id}: {len(custom_prompt)} chars")
             
-            # 🔥 NEW: Try to get cached agent first!
-            from server.services.agent_cache import get_agent_cache
-            agent_cache = get_agent_cache()
+            # 🔥 CRITICAL FIX: Use get_or_create_agent (singleton cache) instead of get_agent (legacy)!
+            from server.agent_tools.agent_factory import get_or_create_agent
             
             agent_create_start = time.time()
-            agent = agent_cache.get(business_id, channel)
+            agent = get_or_create_agent(
+                business_id=business_id,
+                channel=channel,
+                business_name=business_name,
+                custom_instructions=custom_prompt
+            )
+            agent_create_time = (time.time() - agent_create_start) * 1000
             
-            if agent:
-                # Cache HIT - reuse existing agent!
-                agent_create_time = (time.time() - agent_create_start) * 1000
-                print(f"♻️  REUSING cached agent: business={business_name}, business_id={business_id}, channel={channel}")
-                print(f"⏱️ Cache lookup time: {agent_create_time:.0f}ms")
-                logger.info(f"♻️  Agent CACHE HIT for {business_name} ({channel})")
+            if agent_create_time < 100:
+                # Cache HIT - agent was already warmed!
+                print(f"♻️  CACHE HIT: Agent already warmed! ({agent_create_time:.0f}ms)")
+                logger.info(f"♻️  Agent CACHE HIT for {business_name} ({channel}): {agent_create_time:.0f}ms")
+            elif agent_create_time < 2000:
+                # Cache MISS but creation was fast
+                print(f"🆕 NEW Agent created in {agent_create_time:.0f}ms (business={business_name}, channel={channel})")
+                logger.info(f"🆕 Agent created: {agent_create_time:.0f}ms")
             else:
-                # Cache MISS - create new agent and cache it
-                print(f"🏗️  Creating NEW agent: type=booking, business={business_name}, business_id={business_id}, channel={channel}")
-                logger.info(f"🏗️  Creating agent: type=booking, business={business_name}, business_id={business_id}, channel={channel}")
-                agent = get_agent(agent_type="booking", business_name=business_name, custom_instructions=custom_prompt, business_id=business_id, channel=channel)
-                agent_create_time = (time.time() - agent_create_start) * 1000
-                print(f"⏱️ Agent creation time: {agent_create_time:.0f}ms")
-                
-                # Cache the new agent for future reuse
-                if agent:
-                    agent_cache.set(business_id, channel, agent, business_name)
-                    print(f"💾 Agent cached for future reuse")
+                # SLOW creation - log warning!
+                print(f"⚠️  SLOW AGENT CREATION: {agent_create_time:.0f}ms (expected <2000ms)")
+                logger.warning(f"⚠️  SLOW AGENT CREATION: {agent_create_time:.0f}ms for business={business_id}, channel={channel}")
             
             if not agent:
                 print("❌ Failed to create agent - falling back to regular response")
