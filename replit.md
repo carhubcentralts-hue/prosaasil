@@ -22,6 +22,13 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
 - **Files**: `server/agent_tools/tools_calendar.py` (457-467), `server/media_ws_ai.py` (2358-2359)
 - **Benefits**: ✅ WhatsApp confirmation now sends after phone call bookings
 
+### **Bug 3) App Crash - "Send queue full, dropping frame"**
+- **Problem**: App crashed when TTS generated 606 frames (12s audio), queue overflowed
+- **Root Cause**: TX queue too small (120 frames = 2.4s), back-pressure logic dropped frames
+- **Solution**: Increased queue 120→800 frames (16s buffer), removed back-pressure continue
+- **Files**: `server/media_ws_ai.py` (lines 346, 2547-2549, 2574-2575)
+- **Benefits**: ✅ Supports long TTS (up to 16s) without drops or crashes
+
 ---
 
 # User Preferences
