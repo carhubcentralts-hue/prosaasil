@@ -2,11 +2,13 @@
 AI Service - Unified OpenAI Service for All Communication Channels
 שירות AI מאוחד - מחבר פרומפטים דינמיים מהמסד נתונים עם OpenAI
 ✨ BUILD 119: AgentKit integration for real actions (appointments, leads, WhatsApp)
+🚀 Phase 2K: Fast Intent Router - run AgentKit only for bookings (≤2s target)
 """
 import os
 import logging
 import time
-from typing import Dict, Any, Optional, List
+import re
+from typing import Dict, Any, Optional, List, Literal
 from openai import OpenAI
 from server.models_sql import BusinessSettings, PromptRevisions, Business, AgentTrace
 from server.db import db
@@ -30,6 +32,143 @@ logger = logging.getLogger(__name__)
 
 # Global AI service instance for cache sharing
 _global_ai_service = None
+
+# 🚀 Phase 2K: Intent Router Configuration
+AGENTKIT_BOOKING_ONLY = os.getenv("AGENTKIT_BOOKING_ONLY", "1") == "1"
+FAST_PATH_ENABLED = os.getenv("FAST_PATH_ENABLED", "1") == "1"
+
+def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "info", "whatsapp", "human", "other"]:
+    """
+    🚀 Fast Hebrew intent detection - NO LLM!
+    Returns intent category for routing decisions.
+    Target: <10ms for classification
+    """
+    text_lower = text.lower().strip()
+    
+    # 📅 BOOK: Scheduling keywords
+    book_patterns = [
+        r'לקבוע|תיאום|תור|פנוי|זמין|להזמין|רוצה לבוא',
+        r'יש.*מקום|יש.*זמן|יש.*פנוי',
+        r'מחר|היום|שבוע|ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת',
+        r'\d+:\d+|\d+\s*(בבוקר|בצהריים|אחה״צ|בערב)',  # Times
+        r'ב-\d+|בשעה',
+    ]
+    
+    # 🔄 RESCHEDULE: Change appointment
+    reschedule_patterns = [
+        r'להזיז|להקדים|לדחות|להחליף.*שעה|לשנות.*תור',
+        r'אפשר.*לשנות|אפשר.*להזיז'
+    ]
+    
+    # ❌ CANCEL: Cancel appointment
+    cancel_patterns = [
+        r'לבטל|תבטל|ביטול.*תור|לא.*מגיע',
+        r'אני.*לא.*יכול|אין.*אפשרות'
+    ]
+    
+    # ℹ️ INFO: General information
+    info_patterns = [
+        r'כמה.*עולה|מחיר|עלות|תשלום',
+        r'איפה|מיקום|כתובת|היכן',
+        r'שעות.*פתיחה|מתי.*פתוח|שעות.*עבודה',
+        r'כשר|כשרות',
+        r'חניה|חנייה',
+        r'גודל.*חדר|כמה.*אנשים'
+    ]
+    
+    # 📱 WHATSAPP: Send info via WhatsApp
+    whatsapp_patterns = [
+        r'שלח.*לי|תשלח.*לי',
+        r'וואטסאפ|whatsapp',
+        r'הודעה|מסרון'
+    ]
+    
+    # 👤 HUMAN: Transfer to agent
+    human_patterns = [
+        r'נציג|בן.*אדם|איש.*אמיתי',
+        r'לדבר.*עם|להעביר'
+    ]
+    
+    # Check patterns in order of priority
+    for pattern in book_patterns:
+        if re.search(pattern, text_lower):
+            return "book"
+    
+    for pattern in reschedule_patterns:
+        if re.search(pattern, text_lower):
+            return "reschedule"
+    
+    for pattern in cancel_patterns:
+        if re.search(pattern, text_lower):
+            return "cancel"
+    
+    for pattern in whatsapp_patterns:
+        if re.search(pattern, text_lower):
+            return "whatsapp"
+    
+    for pattern in human_patterns:
+        if re.search(pattern, text_lower):
+            return "human"
+    
+    for pattern in info_patterns:
+        if re.search(pattern, text_lower):
+            return "info"
+    
+    # Default fallback
+    return "other"
+
+def extract_time_hebrew(text: str) -> Optional[Dict[str, Any]]:
+    """
+    🚀 Extract explicit date/time from Hebrew text
+    Returns: {"day": "tomorrow", "time": "14:00"} or None
+    """
+    text_lower = text.lower()
+    result = {}
+    
+    # Day extraction
+    day_map = {
+        "מחר": "tomorrow",
+        "היום": "today",
+        "ראשון": "sunday",
+        "שני": "monday",
+        "שלישי": "tuesday",
+        "רביעי": "wednesday",
+        "חמישי": "thursday",
+        "שישי": "friday",
+        "שבת": "saturday"
+    }
+    
+    for heb, eng in day_map.items():
+        if heb in text_lower:
+            result["day"] = eng
+            break
+    
+    # Time extraction
+    # Format: "14:00", "2:30", "בשעה 12", "ב-3"
+    time_patterns = [
+        r'(\d{1,2}):(\d{2})',  # 14:00, 2:30
+        r'בשעה?\s*(\d{1,2})',  # בשעה 12
+        r'ב-(\d{1,2})',         # ב-3
+        r'(\d{1,2})\s*(בבוקר|בצהריים|אחה״צ|בערב)',  # 3 בבוקר
+    ]
+    
+    for pattern in time_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            hour = int(match.group(1))
+            
+            # Adjust for AM/PM context
+            if len(match.groups()) > 1:
+                context = match.group(2) if match.group(2) else ""
+                if "בבוקר" in context and hour <= 8:
+                    hour = hour  # Keep as is
+                elif hour <= 8:  # Assume PM for 1-8 without context
+                    hour += 12
+            
+            result["time"] = f"{hour:02d}:00"
+            break
+    
+    return result if result else None
 
 def get_ai_service():
     """Get or create global AI service instance"""
@@ -428,6 +567,79 @@ class AIService:
         except Exception as e:
             logger.error(f"Failed to save conversation history: {e}")
     
+    def _handle_lightweight_intent(self, intent: str, message: str, business_id: int, 
+                                   channel: str, context: Optional[Dict], customer_phone: Optional[str]) -> str:
+        """
+        🚀 Fast FAQ/Info handler - NO AgentKit!
+        Target latency: ~1.0-1.5s
+        """
+        start = time.time()
+        
+        try:
+            # Get business prompt for FAQ info
+            prompt_data = self.get_business_prompt(business_id, channel)
+            system_prompt = prompt_data.get("system_prompt", "")
+            business_name = prompt_data.get("business_name", "העסק")
+            
+            response = ""
+            
+            if intent == "info":
+                # Extract FAQ from prompt - lightweight LLM call
+                response = self._get_faq_response(message, system_prompt, business_name)
+            
+            elif intent == "whatsapp":
+                if customer_phone:
+                    response = f"נשלח לך את כל הפרטים בוואטסאפ ל-{customer_phone}. תודה!"
+                else:
+                    response = "בשמחה! מה מספר הטלפון שלך כדי שאוכל לשלוח לך את הפרטים בוואטסאפ?"
+            
+            elif intent == "human":
+                response = "אעביר אותך לנציג. רגע אחד בבקשה."
+            
+            else:  # "other"
+                # Fallback - simple helpful response
+                response = "איך אוכל לעזור לך? אפשר לברר מידע או לקבוע תור."
+            
+            latency = (time.time() - start) * 1000
+            print(f"⚡ FAST_PATH_LATENCY: {latency:.0f}ms (intent={intent})")
+            logger.info(f"⚡ Fast path response: {latency:.0f}ms")
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"❌ Fast path failed: {e}")
+            # Fallback to simple response
+            return "איך אוכל לעזור לך?"
+    
+    def _get_faq_response(self, question: str, system_prompt: str, business_name: str) -> str:
+        """
+        🚀 Ultra-fast FAQ using small LLM call
+        Target: ~800ms-1.2s
+        """
+        try:
+            # Extract only relevant FAQ info from prompt (first 800 chars)
+            faq_context = system_prompt[:800] if system_prompt else "מתחם קריוקי"
+            
+            # Ultra-short system prompt for FAQ
+            faq_system = f"אתה {business_name}. ענה בקצרה (1-2 משפטים) על שאלות מידע בעברית."
+            
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": faq_system},
+                    {"role": "user", "content": f"מידע: {faq_context}\n\nשאלה: {question}"}
+                ],
+                temperature=0.3,
+                max_tokens=80,  # Ultra-short for FAQ
+                timeout=1.5  # Fast timeout
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error(f"FAQ LLM failed: {e}")
+            return "אשמח לעזור! אפשר לברר מידע או לקבוע תור."
+    
     def generate_response_with_agent(self, message: str, business_id: int = 1, 
                                      context: Optional[Dict[str, Any]] = None,
                                      channel: str = "calls",
@@ -436,9 +648,10 @@ class AIService:
                                      customer_name: Optional[str] = None) -> str:
         """
         ✨ BUILD 119: Agent-enhanced response generation
+        🚀 Phase 2K: Intent-based routing - AgentKit only for bookings (≤2s target)
         
         Uses AgentKit to perform real actions (appointments, leads, WhatsApp)
-        Falls back to regular generate_response if agents are disabled
+        Falls back to FAQ/lightweight responses for info questions
         
         Args:
             message: Customer's message
@@ -462,6 +675,16 @@ class AIService:
             print("⚠️ Agents disabled - using regular response")
             logger.warning("⚠️ Agents disabled - using regular response")
             return self.generate_response(message, business_id, context, channel, is_first_turn)
+        
+        # 🚀 Phase 2K: INTENT ROUTING GATE
+        intent = route_intent_hebrew(message)
+        print(f"🎯 INTENT_DETECTED: {intent} (message: {message[:50]}...)")
+        logger.info(f"🎯 Intent detected: {intent}")
+        
+        # ⚡ FAQ/Lightweight Path - NO AgentKit needed!
+        if AGENTKIT_BOOKING_ONLY and intent in ["info", "whatsapp", "human", "other"]:
+            print(f"🚀 FAST_PATH: Handling {intent} without AgentKit")
+            return self._handle_lightweight_intent(intent, message, business_id, channel, context, customer_phone)
         
         # ⚡ Capture start time BEFORE try block for error logging
         start_time = time.time()
