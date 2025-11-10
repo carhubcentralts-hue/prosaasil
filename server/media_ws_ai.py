@@ -2346,15 +2346,10 @@ class MediaStreamHandler:
         if normalized_phone:
             print(f"✅ Phone normalized: {phone_number} → {normalized_phone}")
             
-            # 🔥 CRITICAL FIX: Store normalized phone in context with app context!
-            from server.app_factory import get_process_app
-            from flask import g
-            
-            app = get_process_app()
-            with app.app_context():
-                if hasattr(g, 'agent_context'):
-                    g.agent_context['customer_phone'] = normalized_phone
-                    print(f"✅ Stored customer_phone in context: {normalized_phone}")
+            # 🔥 CRITICAL FIX: Store normalized phone in instance variable!
+            # Don't use flask.g - WebSocket runs outside request context
+            self.customer_phone_dtmf = normalized_phone
+            print(f"✅ Stored customer_phone_dtmf: {normalized_phone}")
             
             phone_to_show = normalized_phone
         else:
@@ -2390,10 +2385,13 @@ class MediaStreamHandler:
             from server.services.ai_service import AIService
             
             # Build context for the AI
+            # 🔥 CRITICAL: Use DTMF phone if available (normalized E.164)
+            customer_phone = getattr(self, 'customer_phone_dtmf', None) or getattr(self, 'phone_number', '')
+            
             context = {
                 "phone_number": getattr(self, 'phone_number', ''),
                 "channel": "phone",  # 🔥 FIX: "phone" for WhatsApp confirmation detection
-                "customer_phone": getattr(self, 'phone_number', ''),  # 🔥 FIX: Add for WhatsApp send
+                "customer_phone": customer_phone,  # 🔥 FIX: Use DTMF phone if available
                 "previous_messages": []
             }
             
