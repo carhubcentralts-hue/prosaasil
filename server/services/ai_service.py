@@ -42,57 +42,59 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
     🚀 Fast Hebrew intent detection - NO LLM!
     Returns intent category for routing decisions.
     Target: <10ms for classification
+    
+    Priority order: reschedule > cancel > whatsapp > human > info > book > other
     """
     text_lower = text.lower().strip()
     
-    # 📅 BOOK: Scheduling keywords
-    book_patterns = [
-        r'לקבוע|תיאום|תור|פנוי|זמין|להזמין|רוצה לבוא',
-        r'יש.*מקום|יש.*זמן|יש.*פנוי',
-        r'מחר|היום|שבוע|ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת',
-        r'\d+:\d+|\d+\s*(בבוקר|בצהריים|אחה״צ|בערב)',  # Times
-        r'ב-\d+|בשעה',
-    ]
-    
-    # 🔄 RESCHEDULE: Change appointment
+    # 🔄 RESCHEDULE: Change appointment (CHECK FIRST - more specific)
     reschedule_patterns = [
         r'להזיז|להקדים|לדחות|להחליף.*שעה|לשנות.*תור',
         r'אפשר.*לשנות|אפשר.*להזיז'
     ]
     
-    # ❌ CANCEL: Cancel appointment
+    # ❌ CANCEL: Cancel appointment (CHECK SECOND - specific action)
     cancel_patterns = [
         r'לבטל|תבטל|ביטול.*תור|לא.*מגיע',
         r'אני.*לא.*יכול|אין.*אפשרות'
     ]
     
-    # ℹ️ INFO: General information
-    info_patterns = [
-        r'כמה.*עולה|מחיר|עלות|תשלום',
-        r'איפה|מיקום|כתובת|היכן',
-        r'שעות.*פתיחה|מתי.*פתוח|שעות.*עבודה',
-        r'כשר|כשרות',
-        r'חניה|חנייה',
-        r'גודל.*חדר|כמה.*אנשים'
-    ]
-    
-    # 📱 WHATSAPP: Send info via WhatsApp
+    # 📱 WHATSAPP: Send info via WhatsApp (CHECK THIRD - clear intent)
     whatsapp_patterns = [
         r'שלח.*לי|תשלח.*לי',
         r'וואטסאפ|whatsapp',
         r'הודעה|מסרון'
     ]
     
-    # 👤 HUMAN: Transfer to agent
+    # 👤 HUMAN: Transfer to agent (CHECK FOURTH - escalation)
     human_patterns = [
         r'נציג|בן.*אדם|איש.*אמיתי',
         r'לדבר.*עם|להעביר'
     ]
     
-    # Check patterns in order of priority
-    for pattern in book_patterns:
-        if re.search(pattern, text_lower):
-            return "book"
+    # ℹ️ INFO: General information (CHECK FIFTH - before booking!)
+    # 🔥 FIX: Check info patterns BEFORE book patterns to avoid "מתי פתוחים מחר?" → "book"
+    info_patterns = [
+        r'כמה.*עולה|מחיר|עלות|תשלום',
+        r'איפה|מיקום|כתובת|היכן',
+        r'שעות.*פתיחה|מתי.*פתוח|שעות.*עבודה|מה.*שעות',
+        r'כשר|כשרות',
+        r'חניה|חנייה',
+        r'גודל.*חדר|כמה.*אנשים',
+        r'מה.*הכתובת|מה.*המיקום',  # "מה הכתובת ביום ראשון" → info
+    ]
+    
+    # 📅 BOOK: Scheduling keywords (CHECK LAST - most generic)
+    # 🔥 FIX: Require scheduling VERB + time/day to avoid false positives
+    book_patterns = [
+        r'לקבוע|תיאום|להזמין|רוצה.*תור|אפשר.*תור',  # Explicit booking verbs
+        r'יש.*מקום|יש.*זמן|יש.*פנוי|פנוי.*ל',  # Availability questions
+        r'(לבוא|להגיע).*(מחר|היום|ב-\d+|בשעה)',  # "לבוא מחר"
+        r'(רוצה|צריך).*(תור|פגישה|תיאום)',  # "רוצה תור"
+    ]
+    
+    # 🔥 FIX: Check patterns in CORRECT priority order
+    # Most specific first, most generic last
     
     for pattern in reschedule_patterns:
         if re.search(pattern, text_lower):
@@ -110,9 +112,15 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
         if re.search(pattern, text_lower):
             return "human"
     
+    # 🔥 CHECK INFO BEFORE BOOK!
     for pattern in info_patterns:
         if re.search(pattern, text_lower):
             return "info"
+    
+    # Only check book patterns AFTER info has been ruled out
+    for pattern in book_patterns:
+        if re.search(pattern, text_lower):
+            return "book"
     
     # Default fallback
     return "other"
