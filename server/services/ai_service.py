@@ -716,9 +716,18 @@ class AIService:
         - Increase timeout: 1.5s → 2.2s for reliability
         - Add retry logic for robustness
         """
+        import time
+        faq_start = time.time()
+        
         try:
             # 🔥 CRITICAL FIX: Extract ONLY factual data, strip guard-rails!
+            print(f"\n📚 FAQ: Extracting facts from prompt ({len(system_prompt)} chars)")
+            extract_start = time.time()
             faq_facts = self._extract_faq_facts(system_prompt) if system_prompt else "מידע עסקי"
+            extract_time = (time.time() - extract_start) * 1000
+            print(f"⏱️  FAQ: Fact extraction took {extract_time:.0f}ms")
+            print(f"📊 FAQ: Extracted {len(faq_facts)} chars of facts")
+            print(f"📝 FAQ: Facts preview: {faq_facts[:200]}...")
             
             # Clear system prompt that EXPLICITLY allows business questions
             faq_system = f"""אתה {business_name}. ענה על שאלות מידע על העסק בעברית בקצרה (2-3 משפטים).
@@ -728,6 +737,9 @@ class AIService:
             
             # 🔥 FIX: First attempt with full token budget
             try:
+                print(f"🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=180, timeout=2.2s)")
+                llm_start = time.time()
+                
                 response = self.client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
@@ -738,6 +750,9 @@ class AIService:
                     max_tokens=180,  # 🔥 FIX: Increased from 80 to 180 for complete answers
                     timeout=2.2  # 🔥 FIX: Increased from 1.5s to 2.2s
                 )
+                
+                llm_time = (time.time() - llm_start) * 1000
+                print(f"⏱️  FAQ: OpenAI call took {llm_time:.0f}ms")
                 
                 # 🔥 FIX: Safely handle None content
                 answer = response.choices[0].message.content
@@ -757,9 +772,15 @@ class AIService:
                 
                 # Validate answer is not generic/empty/guard-rail
                 if answer and len(answer) > 10 and "אשמח לעזור" not in answer and not is_guard_rail:
+                    total_time = (time.time() - faq_start) * 1000
+                    print(f"✅ FAQ SUCCESS! Total time: {total_time:.0f}ms")
+                    print(f"📝 FAQ Answer: {answer[:100]}...")
                     logger.info(f"✅ FAQ success: {answer[:50]}...")
                     return answer
                 else:
+                    print(f"⚠️  FAQ: Generic/guard-rail answer detected!")
+                    print(f"   Answer: {answer}")
+                    print(f"   is_guard_rail={is_guard_rail}")
                     logger.warning(f"FAQ gave generic/guard-rail answer: {answer}")
                     raise ValueError("Generic/guard-rail answer - retry needed")
                     
@@ -800,7 +821,12 @@ class AIService:
                 return answer
             
         except Exception as e:
+            total_time = (time.time() - faq_start) * 1000
+            print(f"❌ FAQ FAILED! Total time: {total_time:.0f}ms")
+            print(f"   Error: {type(e).__name__}: {str(e)[:200]}")
             logger.error(f"❌ FAQ LLM failed after retry: {e}")
+            import traceback
+            traceback.print_exc()
             # Return None to signal fallback to AgentKit needed
             return None
     
