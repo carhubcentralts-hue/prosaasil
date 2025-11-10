@@ -138,6 +138,7 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
     # 🔥 CHECK INFO BEFORE BOOK!
     for pattern in info_patterns:
         if re.search(pattern, text_lower):
+            print(f"🎯 INTENT_MATCH: pattern='{pattern}' matched in '{text_lower[:50]}'")
             return "info"
     
     # Only check book patterns AFTER info has been ruled out
@@ -145,10 +146,10 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
         if re.search(pattern, text_lower):
             return "book"
     
-    # 🔥 CRITICAL FIX: Default to "info" (FAQ), NOT "other" (Agent)!
-    # Most questions are info questions - FAQ is fast (~1.2s), Agent is slow (~6-8s)
-    # Better to answer with FAQ than wait for Agent SDK!
-    return "info"  # Changed from "other" → FAQ fast-path by default!
+    # 🔥 FIX: Default to "other" (Agent) for unmatched questions
+    # Quality/experience questions ("האוכל קשה?") need full Agent conversation handling
+    # Only explicit info patterns should trigger FAQ fast-path
+    return "other"  # Agent handles ambiguous/quality questions correctly
 
 def extract_time_hebrew(text: str) -> Optional[Dict[str, Any]]:
     """
@@ -680,67 +681,88 @@ class AIService:
             # Return None to signal fallback to AgentKit
             return None
     
-    def _extract_faq_facts(self, full_prompt: str) -> str:
+    def _extract_faq_facts(self, question: str, full_prompt: str) -> Optional[str]:
         """
-        🔥 ARCHITECT-REVIEWED FIX (Phase 2O): Extract ONLY factual sections from prompt
-        Strips guard-rails (🔥 STAY ON-TOPIC) and keeps pricing/hours/location data
+        🔥 ARCHITECT-REVIEWED FIX: Keyword-based topic matching
+        Extracts ONLY sections relevant to the question, not all sections blindly.
         
-        Strategy: Split on emoji section headers and extract relevant facts
+        Strategy:
+        1. Parse prompt into labeled sections (pricing, menu, location, hours, description)
+        2. Map question keywords to relevant section labels
+        3. Return only matching sections (max 500 chars)
+        4. Return None if no relevant section → fallback to Agent
         """
         try:
             import re
             
-            # Extract sections by emoji markers
-            factual_sections = []
+            question_lower = question.lower()
+            
+            # Parse all sections once into a dict
+            sections = {}
             
             # Pricing section (💰)
             pricing_match = re.search(r'💰\s*מחירים:.*?(?=\n\n|$)', full_prompt, re.DOTALL)
             if pricing_match:
-                factual_sections.append(pricing_match.group(0))
+                sections['pricing'] = pricing_match.group(0)
             
-            # Hours/schedule (⏰, 🕒, or text like "פתוחים")
-            hours_match = re.search(r'(פתוחים.*?(?=\n\n|$))', full_prompt, re.DOTALL | re.IGNORECASE)
+            # Menu/food section (🍕, 🍴, or keywords)
+            menu_match = re.search(r'(🍕|🍴|תפריט|אוכל|משקאות|מנות).*?(?=\n\n|$)', full_prompt, re.DOTALL | re.IGNORECASE)
+            if menu_match:
+                sections['menu'] = menu_match.group(0)
+            
+            # Hours/schedule (⏰, 🕒, or "פתוחים")
+            hours_match = re.search(r'(⏰|🕒|פתוחים|שעות).*?(?=\n\n|$)', full_prompt, re.DOTALL | re.IGNORECASE)
             if hours_match:
-                factual_sections.append(hours_match.group(0))
+                sections['hours'] = hours_match.group(0)
             
-            # Location (ממוקם, מיקום, כתובת, רחוב)
-            location_match = re.search(r'(ממוקם|מיקום|כתובת|רחוב התערוכה).*?(?=\n\n|$)', full_prompt, re.DOTALL)
+            # Location (📍 or keywords)
+            location_match = re.search(r'(📍|ממוקם|מיקום|כתובת|רחוב).*?(?=\n\n|$)', full_prompt, re.DOTALL)
             if location_match:
-                factual_sections.append(location_match.group(0))
+                sections['location'] = location_match.group(0)
             
-            # Description sections (Vibe Rooms, מתחם, העסק)
-            # Extract business description (usually at start or after dashes)
-            desc_match = re.search(r'(Vibe Rooms|מתחם קריוקי|העסק).*?(?=\n🔥|💬|$)', full_prompt, re.DOTALL)
-            if desc_match:
-                desc = desc_match.group(0)
-                # Only take first 500 chars of description
-                factual_sections.append(desc[:500])
+            # General description
+            desc_match = re.search(r'^(.*?)(?=\n💰|\n🔥|\n💬|$)', full_prompt, re.DOTALL)
+            if desc_match and len(desc_match.group(0).strip()) > 50:
+                sections['description'] = desc_match.group(0)[:500]
             
-            if factual_sections:
-                logger.info(f"✅ FAQ: Extracted {len(factual_sections)} factual sections")
-                return "\n\n".join(factual_sections)
-            else:
-                # Fallback: return prompt without guard-rails
-                # Remove lines starting with 🔥, ❌, ✅ and behavior rules
-                clean_lines = []
-                for line in full_prompt.split("\n"):
-                    stripped = line.strip()
-                    if (not stripped.startswith("🔥") and
-                        not stripped.startswith("❌") and
-                        not stripped.startswith("✅") and
-                        "STAY ON-TOPIC" not in line and
-                        "NEVER CLAIM" not in line and
-                        "כללי קביעת תור" not in line):
-                        clean_lines.append(line)
-                
-                clean_prompt = "\n".join(clean_lines)
-                logger.info(f"⚠️ FAQ: No emoji sections found, using cleaned prompt ({len(clean_prompt)} chars)")
-                return clean_prompt[:2000]  # Limit size
+            # Topic keyword mapping
+            topic_keywords = {
+                'pricing': r'(מחיר|כמה עולה|כמה זה|עלות|תשלום|עולה)',
+                'menu': r'(אוכל|תפריט|מנות|משקאות|שתיה|מזון|בר|קפה|אלכוהול)',
+                'hours': r'(מתי|שעות|פתוח|סגור|זמן|עבודה)',
+                'location': r'(איפה|מיקום|כתובת|היכן|רחוב|אזור)',
+            }
+            
+            # Find matching sections
+            matched_sections = []
+            
+            for topic, pattern in topic_keywords.items():
+                if re.search(pattern, question_lower) and topic in sections:
+                    matched_sections.append(sections[topic])
+                    print(f"✅ FAQ_MATCH: topic='{topic}' matched in question")
+            
+            # If no topic match, return general description if it exists
+            if not matched_sections and 'description' in sections:
+                matched_sections.append(sections['description'])
+                print(f"ℹ️ FAQ_FALLBACK: Using general description (no topic match)")
+            
+            # If still no match, return None → Agent fallback
+            if not matched_sections:
+                print(f"⚠️ FAQ_NO_MATCH: No relevant section found, routing to Agent")
+                return None
+            
+            # Combine matched sections (max 500 chars)
+            result = "\n\n".join(matched_sections)
+            if len(result) > 500:
+                result = result[:500] + "..."
+            
+            print(f"✅ FAQ_EXTRACTED: {len(matched_sections)} section(s), {len(result)} chars")
+            return result
                 
         except Exception as e:
             logger.error(f"FAQ fact extraction failed: {e}")
-            # Fallback: return shortened prompt
-            return full_prompt[:1500]
+            # Fallback to Agent
+            return None
     
     def _get_faq_response(self, question: str, system_prompt: str, business_name: str) -> Optional[str]:
         """
@@ -758,15 +780,15 @@ class AIService:
         faq_start = time.time()
         
         try:
-            # 🔥 CRITICAL FIX: Extract ONLY factual data, strip guard-rails!
+            # 🔥 CRITICAL FIX: Extract ONLY relevant facts based on question!
             print(f"\n📚 FAQ: Extracting facts from prompt ({len(system_prompt)} chars)")
             extract_start = time.time()
-            faq_facts = self._extract_faq_facts(system_prompt) if system_prompt else "מידע עסקי"
+            faq_facts = self._extract_faq_facts(question, system_prompt) if system_prompt else None
             
-            # ⚡ SPEED FIX: Limit facts to 500 chars MAX (was getting 1440!)
-            if len(faq_facts) > 500:
-                faq_facts = faq_facts[:500] + "..."
-                print(f"✂️  FAQ: Truncated facts to 500 chars for speed")
+            # If no relevant facts found, return None → Agent fallback
+            if faq_facts is None:
+                print(f"⚠️ FAQ: No relevant facts found, routing to Agent")
+                return None
             
             extract_time = (time.time() - extract_start) * 1000
             print(f"⏱️  FAQ: Fact extraction took {extract_time:.0f}ms")
