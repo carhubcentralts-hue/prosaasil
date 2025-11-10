@@ -76,13 +76,23 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
     # ℹ️ INFO: General information (CHECK FIFTH - before booking!)
     # 🔥 FIX: Check info patterns BEFORE book patterns to avoid "מתי פתוחים מחר?" → "book"
     info_patterns = [
-        r'כמה.*עולה|מחיר|עלות|תשלום',
+        # 🔥 CRITICAL FIX: "יש..." questions - SPECIFIC amenities only (not "יש לכם תור")
+        r'יש\s+(אוכל|שתיי?ה|תפריט|מנות|אלכוהול|בר|משקאות|קפה|מזון)',
+        r'יש\s+(חניה|חנייה|גישה|מיזוג|wifi|אינטרנט|מעלית)',
+        r'יש\s+לכם\s+(אוכל|שתיי?ה|תפריט|חניה|wifi)',  # "יש לכם אוכל?" ✅, but not "יש לכם תור?" ❌
+        r'מה\s+יש\s+(לאכול|לשתות|בתפריט)',   # "מה יש לאכול?" → info
+        # Pricing
+        r'כמה.*עולה|מחיר|עלות|תשלום|כמה.*זה',
+        # Location
         r'איפה|מיקום|כתובת|היכן',
+        # Hours
         r'שעות.*פתיחה|מתי.*פתוח|שעות.*עבודה|מה.*שעות',
+        # Amenities
         r'כשר|כשרות',
-        r'חניה|חנייה',
-        r'גודל.*חדר|כמה.*אנשים',
-        r'מה.*הכתובת|מה.*המיקום',  # "מה הכתובת ביום ראשון" → info
+        r'גודל.*חדר|כמה.*אנשים|כמה.*משתתפים',
+        r'מה.*הכתובת|מה.*המיקום',
+        # Menu/food (standalone) - LAST to avoid conflicts
+        r'\b(תפריט|מנות|משקאות)\b',
     ]
     
     # 📅 BOOK: Scheduling keywords (CHECK LAST - most generic)
