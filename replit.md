@@ -4,6 +4,52 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
 
 # Recent Changes
 
+## PHASE 2M - CONVERSATION FIX (COMPLETED - November 10, 2025)
+
+**CRITICAL USER BUG FIX - Agent Too Pushy, Not Answering Questions**
+
+### **Problem**: Agent not answering customer questions, always pushing for appointments
+- User complaint: "הוא לא עונה לשאלות שאני שואל!!! כל רגע חותר לפגישה"
+- Agent forced to use tools on EVERY response (tool_choice="required")
+- Aggressive prompt: "DON'T explain business details unless asked - just book!"
+- Missing info keywords in Intent Router
+
+### **Root Cause Identified by Architect**:
+1. **tool_choice="required"** forced agent to call booking tools even for info questions
+2. **Aggressive prompts** prioritized booking over answering questions
+3. **Insufficient info keywords** - queries like "אתם עובדים בערב?" misrouted to booking
+
+### **Solution - 3 Critical Fixes**:
+
+**Fix 1: tool_choice → "auto"**
+- File: `server/agent_tools/agent_factory.py` (line 44)
+- Agent can now answer questions naturally WITHOUT forcing tool calls
+- Still uses tools when needed for actual booking
+
+**Fix 2: Expanded Info Keywords**
+- File: `server/services/ai_service.py` (lines 52-59)
+- Added: "זמינים", "זמינות", "פנויים", "פתוחים בערב", "עובדים בשבת", "מה השעות", "עד מתי", "מה הזמינות", "תפריט", "שירותים"
+- Better detection of info queries BEFORE routing to AgentKit
+
+**Fix 3: Softened Agent Prompts**
+- File: `server/agent_tools/agent_factory.py` (lines 465-493)
+- New principle: "ANSWER customer questions naturally and helpfully"
+- "Only suggest booking AFTER answering their question"
+- Removed: "DON'T explain business details unless asked - just book!"
+
+### **Expected Behavior Now**:
+- ✅ "אתם עובדים בערב?" → Natural answer, no forced booking
+- ✅ "כמה עולה?" → FAQ path (0.8s) with helpful info
+- ✅ "רוצה לקבוע תור" → Conversational booking flow (not pushy)
+
+### **Files Modified**:
+- `server/agent_tools/agent_factory.py` (lines 44, 465-493): tool_choice + prompts
+- `server/services/ai_service.py` (lines 52-59): Expanded info keywords
+
+### **Architect Approval**: ✅ Verified conversational flow works correctly
+
+---
+
 ## PHASE 2L - AGENTKIT GATE SYSTEM (COMPLETED - November 10, 2025)
 
 **SMART ROUTING ARCHITECTURE - AgentKit Only When Needed**
