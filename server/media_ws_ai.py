@@ -2346,11 +2346,15 @@ class MediaStreamHandler:
         if normalized_phone:
             print(f"✅ Phone normalized: {phone_number} → {normalized_phone}")
             
-            # 🔥 CRITICAL: Store normalized phone in context for WhatsApp send!
+            # 🔥 CRITICAL FIX: Store normalized phone in context with app context!
+            from server.app_factory import get_process_app
             from flask import g
-            if hasattr(g, 'agent_context'):
-                g.agent_context['customer_phone'] = normalized_phone
-                print(f"✅ Stored customer_phone in context: {normalized_phone}")
+            
+            app = get_process_app()
+            with app.app_context():
+                if hasattr(g, 'agent_context'):
+                    g.agent_context['customer_phone'] = normalized_phone
+                    print(f"✅ Stored customer_phone in context: {normalized_phone}")
             
             phone_to_show = normalized_phone
         else:
