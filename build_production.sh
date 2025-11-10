@@ -12,6 +12,13 @@ echo "🔨 Building frontend with Vite..."
 npm run build
 cd ..
 
+echo "🏗️ PRODUCTION BUILD - Phase 3: Baileys WhatsApp Service"
+cd services/whatsapp
+echo "📦 Installing Baileys dependencies..."
+npm install --prefer-offline --no-audit --no-fund --legacy-peer-deps
+cd ../..
+
 echo "✅ PRODUCTION BUILD COMPLETE"
 echo "📦 Python packages installed"
 echo "📦 Frontend built at client/dist/"
+echo "📦 Baileys dependencies installed at services/whatsapp/node_modules/"
