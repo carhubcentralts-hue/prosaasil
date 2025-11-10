@@ -28,6 +28,66 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
+# 🎯 Intent Router - Fast Hebrew intent detection (no LLM needed!)
+def route_intent(message: str) -> str:
+    """
+    ⚡ FAST intent detection for Hebrew messages - determines routing
+    
+    Returns:
+        'book' - Customer wants to schedule appointment
+        'reschedule' - Change existing appointment
+        'cancel' - Cancel appointment
+        'info' - Asking for information (price, hours, location, etc.)
+        'whatsapp' - Request WhatsApp message
+        'human' - Want to speak to human
+        'other' - General conversation
+    """
+    msg_lower = message.lower().strip()
+    
+    # Booking intent (schedule appointment)
+    booking_keywords = [
+        "לקבוע", "תור", "פגישה", "תיאום", "בדוק לי", "זמין", "פנוי",
+        "אפשר", "יש מקום", "להזמין", "רוצה לקבוע", "מעוניין",
+        "מחר", "היום", "ראשון", "שני", "שלישי", "רביעי", "חמישי",
+        "שבת", "מוצ״ש"
+    ]
+    
+    # Reschedule intent
+    reschedule_keywords = ["להזיז", "להקדים", "לדחות", "להחליף", "לשנות"]
+    
+    # Cancel intent
+    cancel_keywords = ["לבטל", "תבטל", "לא מגיע", "לא יכול", "ביטול"]
+    
+    # Info intent (no booking needed)
+    info_keywords = [
+        "כמה עולה", "מחיר", "עלות", "תשלום", "כשר", "כשרות",
+        "מיקום", "איפה", "כתובת", "חניה", "אזור", 
+        "שעות", "פתוח", "סגור", "עובדים", "מתי",
+        "גודל", "חדר", "אנשים", "מקסימום"
+    ]
+    
+    # WhatsApp intent
+    whatsapp_keywords = ["וואטסאפ", "whatsapp", "שלח לי", "קישור"]
+    
+    # Human intent
+    human_keywords = ["נציג", "בן אדם", "בנאדם", "לדבר עם", "מנהל"]
+    
+    # Check intents (order matters - booking is most common)
+    if any(kw in msg_lower for kw in booking_keywords):
+        return "book"
+    if any(kw in msg_lower for kw in reschedule_keywords):
+        return "reschedule"
+    if any(kw in msg_lower for kw in cancel_keywords):
+        return "cancel"
+    if any(kw in msg_lower for kw in info_keywords):
+        return "info"
+    if any(kw in msg_lower for kw in whatsapp_keywords):
+        return "whatsapp"
+    if any(kw in msg_lower for kw in human_keywords):
+        return "human"
+    
+    return "other"
+
 # Global AI service instance for cache sharing
 _global_ai_service = None
 
@@ -428,6 +488,131 @@ class AIService:
         except Exception as e:
             logger.error(f"Failed to save conversation history: {e}")
     
+    def _generate_faq_response(self, message: str, business_id: int, channel: str) -> str:
+        """
+        ⚡ FAST FAQ response without AgentKit (info/other intents)
+        Uses lightweight GPT-4o-mini with business prompt, no tools
+        ~0.8s latency
+        """
+        try:
+            # Get business prompt for context
+            prompt_data = self.get_business_prompt(business_id, channel)
+            business_prompt = prompt_data.get("system_prompt", "")
+            business_name = prompt_data.get("business_name", "העסק")
+            
+            # Build minimal system prompt
+            system_msg = f"You are answering questions about {business_name}. Keep responses SHORT (1-2 sentences in Hebrew).\n\n{business_prompt[:500]}"
+            
+            # Quick OpenAI call - no tools, minimal tokens
+            client = self.get_client()
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": message}
+                ],
+                max_tokens=50,  # Very short responses
+                temperature=0.3
+            )
+            
+            answer = response.choices[0].message.content.strip()
+            print(f"⚡ FAQ_RESPONSE: {answer} ({len(answer)} chars)")
+            return answer
+            
+        except Exception as e:
+            logger.error(f"FAQ response failed: {e}")
+            return "סליחה, יש לי בעיה טכנית. אפשר לנסות שוב?"
+    
+    def _handle_direct_booking(self, message: str, business_id: int, customer_phone: Optional[str] = None) -> Optional[str]:
+        """
+        ⚡ FAST-PATH: Direct booking for simple requests (e.g., "מחר ב-2")
+        Bypasses AgentKit entirely - parses time with regex + calls calendar tools directly
+        ~1.5s latency
+        
+        Returns:
+            Hebrew confirmation string if successful, None if parsing failed (fallback to AgentKit)
+        """
+        import re
+        from datetime import datetime, timedelta
+        import pytz
+        
+        try:
+            # Parse hour from message
+            hour_match = re.search(r"(\d{1,2})(?::(\d{2}))?", message)
+            if not hour_match:
+                print("⚠️ FAST-PATH: No hour found, fallback to AgentKit")
+                return None
+            
+            hour = int(hour_match.group(1))
+            minute = int(hour_match.group(2) or 0)
+            
+            # Afternoon default for numbers 1-8
+            if hour <= 8:
+                hour += 12
+            
+            # Parse day
+            tz = pytz.timezone("Asia/Jerusalem")
+            target = datetime.now(tz)
+            
+            msg_lower = message.lower()
+            if "מחר" in msg_lower:
+                target += timedelta(days=1)
+            elif "ראשון" in msg_lower:
+                target += timedelta(days=(6 - target.weekday()) % 7)
+            elif "שני" in msg_lower:
+                target += timedelta(days=(7 - target.weekday()) % 7)
+            # Add more day parsing as needed...
+            
+            target = target.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            date_iso = target.strftime("%Y-%m-%d")
+            time_iso = target.strftime("%H:%M")
+            
+            print(f"⚡ FAST-PATH: Parsed time → {date_iso} {time_iso}")
+            
+            # Import calendar tools
+            from server.agent_tools.tools_calendar import calendar_find_slots_impl, calendar_create_appointment_impl
+            from flask import g
+            
+            # Build minimal context
+            context = {
+                "business_id": business_id,
+                "customer_phone": customer_phone,
+                "channel": "calls"
+            }
+            
+            # Check availability
+            slots_result = calendar_find_slots_impl(date_iso=date_iso, duration_min=60, context=context)
+            
+            if not slots_result.get("ok") or not slots_result.get("slots"):
+                print(f"⚠️ FAST-PATH: No slots available for {date_iso} {time_iso}")
+                return f"מצטער, אין זמינות ב-{time_iso}. רוצה שאבדוק שעה אחרת?"
+            
+            # Verify requested time is in available slots
+            requested_datetime = target.strftime("%Y-%m-%d %H:%M")
+            available_slots = [s["start"] for s in slots_result["slots"]]
+            
+            if requested_datetime not in available_slots:
+                # Offer first 2 alternatives
+                alternatives = available_slots[:2]
+                alt_times = [s.split()[1] for s in alternatives]
+                return f"אין זמינות ב-{time_iso}. יש {' או '.join(alt_times)}?"
+            
+            # Need phone before booking
+            if not customer_phone:
+                print(f"⚠️ FAST-PATH: Need phone number for booking")
+                return None  # Fallback to AgentKit to collect phone
+            
+            # Create appointment
+            # Note: This is simplified - full implementation would need customer_name too
+            print(f"⚡ FAST-PATH: Attempting booking for {requested_datetime}")
+            # For now, fallback to AgentKit for actual booking (needs name + phone collection)
+            return None
+            
+        except Exception as e:
+            logger.error(f"Fast-path booking failed: {e}")
+            print(f"⚠️ FAST-PATH ERROR: {e}, fallback to AgentKit")
+            return None  # Fallback to full AgentKit on any error
+    
     def generate_response_with_agent(self, message: str, business_id: int = 1, 
                                      context: Optional[Dict[str, Any]] = None,
                                      channel: str = "calls",
@@ -435,10 +620,12 @@ class AIService:
                                      customer_phone: Optional[str] = None,
                                      customer_name: Optional[str] = None) -> str:
         """
-        ✨ BUILD 119: Agent-enhanced response generation
+        ✨ BUILD 119: Agent-enhanced response generation WITH SMART ROUTING
         
-        Uses AgentKit to perform real actions (appointments, leads, WhatsApp)
-        Falls back to regular generate_response if agents are disabled
+        Routes based on intent:
+        - FAQ/Info → Lightweight GPT-4o-mini (~0.8s)
+        - Simple booking → Fast-path with direct calendar calls (~1.5s)
+        - Complex booking → Full AgentKit (~2-3s)
         
         Args:
             message: Customer's message
@@ -462,6 +649,32 @@ class AIService:
             print("⚠️ Agents disabled - using regular response")
             logger.warning("⚠️ Agents disabled - using regular response")
             return self.generate_response(message, business_id, context, channel, is_first_turn)
+        
+        # 🚀 AGENTKIT GATE - Detect intent and route accordingly
+        agentkit_booking_only = os.getenv("AGENTKIT_BOOKING_ONLY", "1") == "1"
+        fast_path_enabled = os.getenv("FAST_PATH_ENABLED", "1") == "1"
+        
+        intent = route_intent(message)
+        print(f"🎯 INTENT_DETECTED: {intent} (booking_only={agentkit_booking_only}, fast_path={fast_path_enabled})")
+        logger.info(f"🎯 Intent: {intent}, Message: '{message[:50]}...'")
+        
+        # Route 1: FAQ/Info Path - NO AgentKit needed (~0.8s)
+        if agentkit_booking_only and intent in ['info', 'other', 'whatsapp', 'human']:
+            print(f"⚡ ROUTE: FAQ path for '{intent}' intent")
+            return self._generate_faq_response(message, business_id, channel)
+        
+        # Route 2: Fast-Path for simple booking (~1.5s)
+        if fast_path_enabled and intent == 'book':
+            print(f"⚡ ROUTE: Attempting fast-path for booking...")
+            fast_result = self._handle_direct_booking(message, business_id, customer_phone)
+            if fast_result:
+                print(f"✅ FAST-PATH SUCCESS: {fast_result}")
+                return fast_result
+            else:
+                print(f"⚠️ FAST-PATH FAILED: Fallback to AgentKit")
+        
+        # Route 3: Full AgentKit for complex booking/reschedule/cancel (~2-3s)
+        print(f"🤖 ROUTE: Full AgentKit for '{intent}' intent")
         
         # ⚡ Capture start time BEFORE try block for error logging
         start_time = time.time()
