@@ -304,6 +304,7 @@ class AIService:
                 # ⚡ BUILD 117: INCREASED - allow complete sentences without truncation
                 prompt_data = {
                     "system_prompt": system_prompt,
+                    "business_name": business_name,  # 🔥 FIX: Include business name for FAQ handler
                     "model": "gpt-4o-mini",  # Fast model
                     "max_tokens": 350,  # ⚡ BUILD 117: 350 tokens for COMPLETE sentences (no mid-sentence cuts!)
                     "temperature": 0.3  # Balanced temperature for natural responses
@@ -311,6 +312,7 @@ class AIService:
             else:
                 prompt_data = {
                     "system_prompt": system_prompt,
+                    "business_name": business_name,  # 🔥 FIX: Include business name for FAQ handler
                     "model": settings.model,
                     "max_tokens": min(settings.max_tokens, 350),  # ⚡ BUILD 117: Cap at 350 for complete sentences
                     "temperature": min(settings.temperature, 0.4)  # Balanced temperature
@@ -331,6 +333,7 @@ class AIService:
             
             return {
                 "system_prompt": self._get_default_hebrew_prompt(business_name, channel),
+                "business_name": business_name,  # 🔥 FIX: Include business name for FAQ handler
                 "model": "gpt-4o-mini",
                 "max_tokens": 350,  # ⚡ BUILD 117: 350 tokens for COMPLETE sentences
                 "temperature": 0.3  # Balanced
@@ -629,7 +632,7 @@ class AIService:
             # Return None to signal fallback to AgentKit
             return None
     
-    def _get_faq_response(self, question: str, system_prompt: str, business_name: str) -> str:
+    def _get_faq_response(self, question: str, system_prompt: str, business_name: str) -> Optional[str]:
         """
         🚀 Fast FAQ using optimized LLM call
         Target: ~1.0-1.5s with FULL prompt context
@@ -660,7 +663,10 @@ class AIService:
                     timeout=2.2  # 🔥 FIX: Increased from 1.5s to 2.2s
                 )
                 
-                answer = response.choices[0].message.content.strip()
+                # 🔥 FIX: Safely handle None content
+                answer = response.choices[0].message.content
+                if answer:
+                    answer = answer.strip()
                 
                 # Validate answer is not generic/empty
                 if answer and len(answer) > 10 and "אשמח לעזור" not in answer:
@@ -682,7 +688,9 @@ class AIService:
                     max_tokens=120,
                     timeout=1.8
                 )
-                return response.choices[0].message.content.strip()
+                # 🔥 FIX: Safely handle None content
+                answer = response.choices[0].message.content
+                return answer.strip() if answer else None
             
         except Exception as e:
             logger.error(f"❌ FAQ LLM failed after retry: {e}")
