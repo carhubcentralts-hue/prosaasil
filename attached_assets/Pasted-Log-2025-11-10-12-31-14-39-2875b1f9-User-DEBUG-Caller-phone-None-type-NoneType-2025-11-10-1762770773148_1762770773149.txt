@@ -1,0 +1,177 @@
+Log
+2025-11-10 12:31:14.39
+2875b1f9
+User
+📞 DEBUG: Caller phone = 'None' (type: NoneType)
+2025-11-10 12:31:18.57
+2875b1f9
+User
+treatment_type: קריוקי
+2025-11-10 12:31:18.57
+2875b1f9
+User
+start_time: 2025-11-11 15:00:00
+2025-11-10 12:31:18.57
+2875b1f9
+User
+end_time: 2025-11-11 16:00:00
+2025-11-10 12:31:18.57
+2875b1f9
+User
+Appointment object created: <Appointment (transient 139952481966544)>
+2025-11-10 12:31:18.57
+2875b1f9
+User
+Added to session
+2025-11-10 12:31:18.90
+2875b1f9
+User
+✅✅✅ COMMITTED TO DATABASE! Appointment ID: 55
+2025-11-10 12:31:18.90
+2875b1f9
+User
+📥 RESULT from _calendar_create_appointment_impl: appointment_id=55 status='confirmed' confirmation_message='מעולה! קבעתי לך קריוקי ליום שלישי 11/11 בשעה 15:00. נתראה! 😊'
+2025-11-10 12:31:18.90
+2875b1f9
+User
+✅ SUCCESS! Appointment ID: 55
+2025-11-10 12:31:18.90
+2875b1f9
+User
+📤 Returning success: {'ok': True, 'appointment_id': 55, 'status': 'confirmed', 'confirmation_message': 'מעולה! קבעתי לך קריוקי ליום שלישי 11/11 בשעה 15:00. נתראה! 😊'}
+2025-11-10 12:31:19.91
+2875b1f9
+User
+✅ Runner.run() completed in 5518ms
+2025-11-10 12:31:19.91
+2875b1f9
+User
+📝 Agent final response: 'מעולה, קבעתי לך קריוקי ליום שלישי 11/11 בשעה 15:00. נתראה!...'
+2025-11-10 12:31:19.91
+2875b1f9
+User
+🔍 Result type: RunResult
+2025-11-10 12:31:19.91
+2875b1f9
+User
+🔍 Has new_items: True
+2025-11-10 12:31:19.91
+2875b1f9
+User
+on': 'Customer phone (optional - uses context if not provided)', 'title': 'Phone E164', 'type': 'string'}, 'notes': {'description': 'Additional notes (optional)', 'title': 'Notes', 'type': 'string'}}, 'required': ['name', 'phone_e164', 'notes'], 'title': 'leads_upsert_wrapped_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f493bf8f420>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='leads_search', description='Search for leads\n\nFilters:\n- Phone number (E.164 format)\n- Email address\n- Status', params_json_schema={'$defs': {'SearchLeadInput': {'description': 'Input for searching leads', 'properties': {'business_id': {'description': 'Business ID', 'minimum': 1, 'title': 'Business Id', 'type': 'integer'}, 'phone': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Phone number to search', 'title': 'Phone'}, 'email': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Email to search', 'title': 'Email'}, 'status': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Filter by status', 'title': 'Status'}}, 'required': ['business_id', 'phone', 'email', 'status'], 'title': 'SearchLeadInput', 'type': 'object', 'additionalProperties': False}}, 'properties': {'input': {'$ref': '#/$defs/SearchLeadInput'}}, 'required': ['input'], 'title': 'leads_search_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f493e0f3920>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='whatsapp_send', description='Send WhatsApp message\n\nRecipient (to):\n- If provided: use it\n- If not provided: auto-use customer_phone from context (conversation partner)\n\nProvider logic:\n- Auto: tries Baileys first, falls back to Twilio\n- Baileys: for real-time conversations (24h window)\n- Twilio: for templates and out-of-window messages', params_json_schema={'$defs': {'SendWhatsAppInput': {'description': 'Input for sending WhatsApp message', 'properties': {'to': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Recipient phone in E.164 format (+972...). Leave empty to auto-use customer from context.', 'title': 'To'}, 'message': {'description': 'Message text to send', 'maxLength': 4000, 'minLength': 1, 'title': 'Message', 'type': 'string'}, 'provider': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Provider to use (baileys/twilio/auto)', 'title': 'Provider'}}, 'required': ['to', 'message', 'provider'], 'title': 'SendWhatsAppInput', 'type': 'object', 'additionalProperties': False}}, 'properties': {'input': {'$ref': '#/$defs/SendWhatsAppInput'}}, 'required': ['input'], 'title': 'whatsapp_send_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f493e148d60>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None)], mcp_servers=[], mcp_config={}, instructions='TODAY: 2025-11-10 12:29 Israel\n\nשם: דניאל\nתפקיד: נציג מתחם הקריוקי "SingStar"\nשפה: עברית בלבד\nמטרה: לעזור ללקוחות להזמין חדר קריוקי בצורה אנושית, נעימה וברורה, לפי כללי ההזמנה והזמן.\nטון: חם, רגוע, שירותי, טבעי – לא רובוטי, לא שיווקי.\nאיסורים מוחלטים: אין אימוג׳ים, אין סימני קריאה, אין פתיחות חוזרות ("שלום שוב"), אין הצעות כפולות לקביעת תור.\nדניאל מדבר כמו אדם אמיתי בשיחת טלפון, בקצב נורמלי, עם משפטים קצרים וברורים.\n\n⸻\n\n🚨 CRITICAL - TOOL USAGE RULES:\n1. ALWAYS call calendar_find_slots BEFORE saying "פנוי" (available)\n2. ALWAYS call calendar_create_appointment BEFORE saying "קבעתי" (I booked)\n3. VERIFY tool returned ok=true before claiming success\n4. If tool fails, say "מצטער, הייתה בעיה" - never claim without verification\n\n⸻\n\n⏰ כללי המרת זמן\n\nכאשר לקוח אומר שעה במילים או במספרים:\n\t•\tאם נאמר מספר 1–8 ללא "בבוקר" → לפרש כשעות אחה״צ (13:00–20:00).\nלדוגמה: "2" או "שתיים" = 14:00, "3" = 15:00, "8" = 20:00.\n\t•\t"9 בבוקר" = 09:00.\n\t•\t"11:30" נשאר 11:30, אבל אין לקבוע חצאי ורבעי שעות.\n\t•\tאם נאמר זמן שאינו שעה עגולה (כמו 10:15, 10:30, 11:45) יש להשיב:\n"אפשר להזמין רק לשעה עגולה, כמו 10:00, 11:00 או 12:00."\n\n⸻\n\n📅 כללי קביעת תור\n\t1.\tניתן להזמין רק לשעות עגולות.\n\t2.\tתמיד לשאול קודם: "באיזו שעה נוח לכם להגיע?"\n\t3.\tלבדוק זמינות רק לשעה שביקשו - MUST call calendar_find_slots(date_iso="YYYY-MM-DD") to check!\n\t4.\tאם לא פנוי, להציע עד שתי שעות קרובות בלבד.\n\t5.\tלפני קביעה – חובה לאסוף שם וטלפון.\n\t6.\tלבקש טלפון כך: "נא להקליד את מספר הטלפון ולהקיש סולמית בסיום."\n\t7.\tלאשר: "תודה, אז [שם], [טלפון], נכון?"\n\t8.\tאחרי אישור - MUST call calendar_create_appointment() to actually book!\n\t9.\tלאשר הזמנה רק אם באמת נקבעה (tool returned ok=true): "מעולה, קבעתי לך ל-[יום] ב-[שעה]."\nאין לומר "קבעתי" אם ההזמנה לא נשמרה בפועל.\n\t10.\tלדבר בעברית טבעית, קצרה וברורה בלבד.\n\t11.\tלהיות תמיד מדויק – לא לנחש, לא לשקר, לא להמציא זמינות.\n\n⸻\n\n🏠 מידע שדניאל תמיד יודע\n\nמתחם "SingStar" כולל 6 חדרי קריוקי פרטיים עם מערכת סאונד מקצועית, מסכים גדולים ומיקרופונים אלחוטיים.\nניתן להזמין לפי שעה, לזוגות, משפחות או קבוצות עד 15 איש.\nהמקום כשר למהדרין – גם האוכל וגם השתייה.\nיש תפריט של פיצות, נשנושים, שתייה קלה ואלכוהולית.\nשעות פעילות:\n\t•\tראשון עד חמישי 10:00–00:00\n\t•\tשישי 10:00–15:00\n\t•\tמוצאי שבת – כחצי שעה אחרי יציאת שבת עד 01:00.\n\n⸻\n\n💬 סגנון תגובה ודוגמאות\n\nלקוח: מה כולל המקום?\nדניאל: יש אצלנו חדרים פרטיים עם סאונד מקצועי, מסך גדול ומיקרופונים אלחוטיים.\n\nלקוח: זה כשר?\nדניאל: כן, הכל כשר למהדרין – גם האוכל וגם השתייה.\n\nלקוח: אפשר להזמין לשעה שתיים?\nדניאל: הבנתי, 14:00. רגע בודק אם פנוי.\n[MUST call calendar_find_slots here!]\nאם פנוי: "פנוי. על איזה שם לרשום ומה מספר הטלפון שלך?"\nאם לא פנוי: "14:00 תפוס, פנוי ב-13:00 או ב-15:00, מה מתאים?"\n\nלקוח: 11:30 מתאים?\nדניאל: אנחנו קובעים רק בשעות עגולות. רוצה שאבדוק 11:00 או 12:00?\n\nלקוח: עדי 0541234567#\nדניאל: תודה, עדי, 0541234567, נכון?\n[After confirmation, MUST call calendar_create_appointment!]\nלאחר אישור אמיתי מהכלי: "מעולה, קבעתי לך למחר ב-14:00."\n\n⸻\n\n❌ דניאל לא עושה\n\t•\tלא משתמש באימוג׳ים, סימני קריאה או סלנג.\n\t•\tלא פותח מחדש "שלום", "אהלן", "היי".\n\t•\tלא דוחף לקביעה אם לא התבקש.\n\t•\tלא נותן רשימת שעות.\n\t•\tלא אומר שנקבע תור אם זה לא באמת קרה (לא קרא ל-calendar_create_appointment).\n\t•\tלא מדבר ארוך מדי או חוזר על עצמו.\n\n⸻\n\n🧠 מטרת דניאל\n\nדניאל נועד לנהל שיחות שירות אמיתיות, בדיוק כמו עובד אנושי במוקד.\nהמטרה היא להבין את רצון הלקוח, להסביר בקצרה, לקבוע רק כשמבוקש, ולשמור על אמינות מלאה.\nשפה: עברית טבעית, קול רגוע, בלי הצגה מיותרת – רק שירות נקי, אנושי ומדויק', prompt=None, handoffs=[], model='gpt-4o-mini', model_settings=ModelSettings(temperature=0.15, top_p=None, frequency_penalty=None, presence_penalty=None, tool_choice='required', parallel_tool_calls=True, truncation=None, max_tokens=400, reasoning=None, verbosity=None, metadata=None, store=None, include_usage=None, response_include=None, top_logprobs=None, extra_query=None, extra_body=None, extra_headers=None, extra_args=None), input_guardrails=[], output_guardrails=[], output_type=None, hooks=None, tool_use_behavior='run_llm_again', reset_tool_choice=True), raw_item={'call_id': 'call_Ggj1pbGqVKIKh7Z2Amt9gKtq', 'output': "{'ok': True, 'appointment_id': 55, 'status': 'confirmed', 'confirmation_message': 'מעולה! קבעתי לך קריוקי ליום שלישי 11/11 בשעה 15:00. נתראה! 😊'}", 'type': 'function_call_output'}, output={'ok': True, 'appointment_id': 55, 'status': 'confirmed', 'confirmation_message': 'מעולה! קבעתי לך קריוקי ליום שלישי 11/11 בשעה 15:00. נתראה! 😊'}, type='tool_call_output_item'), MessageOutputItem(agent=Agent(name='booking_agent_שי דירות', handoff_description=None, tools=[FunctionTool(name='calendar_find_slots_wrapped', description='Find available appointment slots for a specific date', params_json_schema={'properties': {'date_iso': {'description': 'Date in ISO format (YYYY-MM-DD) like "2025-11-10"', 'title': 'Date Iso', 'type': 'string'}, 'duration_min': {'default': 60, 'description': 'Duration in minutes (default 60)', 'title': 'Duration Min', 'type': 'integer'}}, 'required': ['date_iso', 'duration_min'], 'title': 'calendar_find_slots_wrapped_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f493cb30040>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='calendar_create_appointment_wrapped', description='Create a new appointment in the calendar\n\nCRITICAL: Agent should NEVER ask for phone by voice!\nPhone is automatically captured from call/WhatsApp context.', params_json_schema={'properties': {'treatment_type': {'description': 'Type of treatment (required)', 'title': 'Treatment Type', 'type': 'string'}, 'start_iso': {'description': 'Start time in ISO format (required)', 'title': 'Start Iso', 'type': 'string'}, 'end_iso': {'description': 'End time in ISO format (required)', 'title': 'End Iso', 'type': 'string'}, 'customer_phone': {'default': '', 'description': 'Leave EMPTY - system captures automatically', 'title': 'Customer Phone', 'type': 'string'}, 'customer_name': {'default': '', 'description': 'Customer name (optional)', 'title': 'Customer Name', 'type': 'string'}, 'notes': {'description': 'Additional notes (optional)', 'title': 'Notes', 'type': 'string'}}, 'required': ['treatment_type', 'start_iso', 'end_iso', 'customer_phone', 'customer_name', 'notes'], 'title': 'calendar_create_appointment_wrapped_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f493c6ea840>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='leads_upsert_wrapped', description='Create or update customer lead', params_json_schema={'properties': {'name': {'description': 'Customer name (required)', 'title': 'Name', 'type': 'string'}, 'phone_e164': {'default': '', 'description': 'Customer phone (optional - uses context if not provided)', 'title': 'Phone E164', 'type': 'string'}, 'notes': {'description': 'Additional notes (optional)', 'title': 'Notes', 'type': 'string'}}, 'required': ['name', 'phone_e164', 'notes'], 'title': 'leads_upsert_wrapped_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f493bf8f420>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='leads_search', description='Search for leads\n\nFilters:\n- Phone number (E.164 format)\n- Email address\n- Status', params_json_schema={'$defs': {'SearchLeadInput': {'description': 'Input for searching leads', 'properties': {'business_id': {'description': 'Business ID', 'minimum': 1, 'title': 'Business Id', 'type': 'integer'}, 'phone': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Phone number to search', 'title': 'Phone'}, 'email': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Email to search', 'title': 'Email'}, 'status': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Filter by status', 'title': 'Status'}}, 'required': ['business_id', 'phone', 'email', 'status'], 'title': 'SearchLeadInput', 'type': 'object', 'additionalProperties': False}}, 'properties': {'input': {'$ref': '#/$defs/SearchLeadInput'}}, 'required': ['input'], 'title': 'leads_search_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f493e0f3920>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='whatsapp_send', description='Send WhatsApp message\n\nRecipient (to):\n- If provided: use it\n- If not provided: auto-use customer_phone from context (conversation partner)\n\nProvider logic:\n- Auto: tries Baileys first, falls back to Twilio\n- Baileys: for real-time conversations (24h window)\n- Twilio: for templates and out-of-window messages', params_json_schema={'$defs': {'SendWhatsAppInput': {'description': 'Input for sending WhatsApp message', 'properties': {'to': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Recipient phone in E.164 format (+972...). Leave empty to auto-use customer from context.', 'title': 'To'}, 'message': {'description': 'Message text to send', 'maxLength': 4000, 'minLength': 1, 'title': 'Message', 'type': 'string'}, 'provider': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Provider to use (baileys/twilio/auto)', 'title': 'Provider'}}, 'required': ['to', 'message', 'provider'], 'title': 'SendWhatsAppInput', 'type': 'object', 'additionalProperties': False}}, 'properties': {'input': {'$ref': '#/$defs/SendWhatsAppInput'}}, 'required': ['input'], 'title': 'whatsapp_send_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f493e148d60>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None)], mcp_servers=[], mcp_config={}, instructions='TODAY: 2025-11-10 12:29 Israel\n\nשם: דניאל\nתפקיד: נציג מתחם הקריוקי "SingStar"\nשפה: עברית בלבד\nמטרה: לעזור ללקוחות להזמין חדר קריוקי בצורה אנושית, נעימה וברורה, לפי כללי ההזמנה והזמן.\nטון: חם, רגוע, שירותי, טבעי – לא רובוטי, לא שיווקי.\nאיסורים מוחלטים: אין אימוג׳ים, אין סימני קריאה, אין פתיחות חוזרות ("שלום שוב"), אין הצעות כפולות לקביעת תור.\nדניאל מדבר כמו אדם אמיתי בשיחת טלפון, בקצב נורמלי, עם משפטים קצרים וברורים.\n\n⸻\n\n🚨 CRITICAL - TOOL USAGE RULES:\n1. ALWAYS call calendar_find_slots BEFORE saying "פנוי" (available)\n2. ALWAYS call calendar_create_appointment BEFORE saying "קבעתי" (I booked)\n3. VERIFY tool returned ok=true before claiming success\n4. If tool fails, say "מצטער, הייתה בעיה" - never claim without verification\n\n⸻\n\n⏰ כללי המרת זמן\n\nכאשר לקוח אומר שעה במילים או במספרים:\n\t•\tאם נאמר מספר 1–8 ללא "בבוקר" → לפרש כשעות אחה״צ (13:00–20:00).\nלדוגמה: "2" או "שתיים" = 14:00, "3" = 15:00, "8" = 20:00.\n\t•\t"9 בבוקר" = 09:00.\n\t•\t"11:30" נשאר 11:30, אבל אין לקבוע חצאי ורבעי שעות.\n\t•\tאם נאמר זמן שאינו שעה עגולה (כמו 10:15, 10:30, 11:45) יש להשיב:\n"אפשר להזמין רק לשעה עגולה, כמו 10:00, 11:00 או 12:00."\n\n⸻\n\n📅 כללי קביעת תור\n\t1.\tניתן להזמין רק לשעות עגולות.\n\t2.\tתמיד לשאול קודם: "באיזו שעה נוח לכם להגיע?"\n\t3.\tלבדוק זמינות רק לשעה שביקשו - MUST call calendar_find_slots(date_iso="YYYY-MM-DD") to check!\n\t4.\tאם לא פנוי, להציע עד שתי שעות קרובות בלבד.\n\t5.\tלפני קביעה – חובה לאסוף שם וטלפון.\n\t6.\tלבקש טלפון כך: "נא להקליד את מספר הטלפון ולהקיש סולמית בסיום."\n\t7.\tלאשר: "תודה, אז [שם], [טלפון], נכון?"\n\t8.\tאחרי אישור - MUST call calendar_create_appointment() to actually book!\n\t9.\tלאשר הזמנה רק אם באמת נקבעה (tool returned ok=true): "מעולה, קבעתי לך ל-[יום] ב-[שעה]."\nאין לומר "קבעתי" אם ההזמנה לא נשמרה בפועל.\n\t10.\tלדבר בעברית טבעית, קצרה וברורה בלבד.\n\t11.\tלהיות תמיד מדויק – לא לנחש, לא לשקר, לא להמציא זמינות.\n\n⸻\n\n🏠 מידע שדניאל תמיד יודע\n\nמתחם "SingStar" כולל 6 חדרי קריוקי פרטיים עם מערכת סאונד מקצועית, מסכים גדולים ומיקרופונים אלחוטיים.\nניתן להזמין לפי שעה, לזוגות, משפחות או קבוצות עד 15 איש.\nהמקום כשר למהדרין – גם האוכל וגם השתייה.\nיש תפריט של פיצות, נשנושים, שתייה קלה ואלכוהולית.\nשעות פעילות:\n\t•\tראשון עד חמישי 10:00–00:00\n\t•\tשישי 10:00–15:00\n\t•\tמוצאי שבת – כחצי שעה אחרי יציאת שבת עד 01:00.\n\n⸻\n\n💬 סגנון תגובה ודוגמאות\n\nלקוח: מה כולל המקום?\nדניאל: יש אצלנו חדרים פרטיים עם סאונד מקצועי, מסך גדול ומיקרופונים אלחוטיים.\n\nלקוח: זה כשר?\nדניאל: כן, הכל כשר למהדרין – גם האוכל וגם השתייה.\n\nלקוח: אפשר להזמין לשעה שתיים?\nדניאל: הבנתי, 14:00. רגע בודק אם פנוי.\n[MUST call calendar_find_slots here!]\nאם פנוי: "פנוי. על איזה שם לרשום ומה מספר הטלפון שלך?"\nאם לא פנוי: "14:00 תפוס, פנוי ב-13:00 או ב-15:00, מה מתאים?"\n\nלקוח: 11:30 מתאים?\nדניאל: אנחנו קובעים רק בשעות עגולות. רוצה שאבדוק 11:00 או 12:00?\n\nלקוח: עדי 0541234567#\nדניאל: תודה, עדי, 0541234567, נכון?\n[After confirmation, MUST call calendar_create_appointment!]\nלאחר אישור אמיתי מהכלי: "מעולה, קבעתי לך למחר ב-14:00."\n\n⸻\n\n❌ דניאל לא עושה\n\t•\tלא משתמש באימוג׳ים, סימני קריאה או סלנג.\n\t•\tלא פותח מחדש "שלום", "אהלן", "היי".\n\t•\tלא דוחף לקביעה אם לא התבקש.\n\t•\tלא נותן רשימת שעות.\n\t•\tלא אומר שנקבע תור אם זה לא באמת קרה (לא קרא ל-calendar_create_appointment).\n\t•\tלא מדבר ארוך מדי או חוזר על עצמו.\n\n⸻\n\n🧠 מטרת דניאל\n\nדניאל נועד לנהל שיחות שירות אמיתיות, בדיוק כמו עובד אנושי במוקד.\nהמטרה היא להבין את רצון הלקוח, להסביר בקצרה, לקבוע רק כשמבוקש, ולשמור על אמינות מלאה.\nשפה: עברית טבעית, קול רגוע, בלי הצגה מיותרת – רק שירות נקי, אנושי ומדויק', prompt=None, handoffs=[], model='gpt-4o-mini', model_settings=ModelSettings(temperature=0.15, top_p=None, frequency_penalty=None, presence_penalty=None, tool_choice='required', parallel_tool_calls=True, truncation=None, max_tokens=400, reasoning=None, verbosity=None, metadata=None, store=None, include_usage=None, response_include=None, top_logprobs=None, extra_query=None, extra_body=None, extra_headers=None, extra_args=None), input_guardrails=[], output_guardrails=[], output_type=None, hooks=None, tool_use_behavior='run_llm_again', reset_tool_choice=True), raw_item=ResponseOutputMessage(id='msg_092b249546895f38006911bef76d30819d858df289a4de4319', content=[ResponseOutputText(annotations=[], text='מעולה, קבעתי לך קריוקי ליום שלישי 11/11 בשעה 15:00. נתראה!', type='output_text', logprobs=[])], role='assistant', status='completed', type='message'), type='message_output_item')]
+2025-11-10 12:31:19.91
+2875b1f9
+User
+🔍 new_items length: 7
+2025-11-10 12:31:19.91
+2875b1f9
+User
+📊 Agent returned 7 items
+2025-11-10 12:31:19.91
+2875b1f9
+User
+- Item #0: ToolCallItem
+2025-11-10 12:31:19.91
+2875b1f9
+User
+🔍 DEBUG ToolCallItem #1:
+2025-11-10 12:31:19.91
+2875b1f9
+User
+2025-11-10 12:31:19.91
+2875b1f9
+User
+All attributes: ['agent', 'raw_item', 'to_input_item', 'type']
+2025-11-10 12:31:19.91
+2875b1f9
+User
+🔧 Tool call #1: unknown
+2025-11-10 12:31:19.91
+2875b1f9
+User
+- Item #1: ToolCallItem
+2025-11-10 12:31:19.91
+2875b1f9
+User
+🔍 DEBUG ToolCallItem #2:
+2025-11-10 12:31:19.91
+2875b1f9
+User
+All attributes: ['agent', 'raw_item', 'to_input_item', 'type']
+2025-11-10 12:31:19.91
+2875b1f9
+User
+🔧 Tool call #2: unknown
+
+2025-11-10 12:31:19.91
+2875b1f9
+User
+- Item #2: ToolCallOutputItem
+2025-11-10 12:31:19.91
+2875b1f9
+User
+📤 Tool output: {'lead_id': 96, 'action': 'updated', 'phone': '+972504294724', 'name': 'שי'}...
+2025-11-10 12:31:19.91
+2875b1f9
+User
+📤 Tool output: {'slots': [{'start_iso': '2025-11-11T09:00:00+02:00', 'end_iso': '2025-11-11T10:00:00+02:00', 'start_display': '09:00'}, {'start_iso': '2025-11-11T10:00:00+02:00', 'end_iso': '2025-11-11T11:00:00+02:0...
+2025-11-10 12:31:19.91
+2875b1f9
+User
+- Item #4: ToolCallItem
+2025-11-10 12:31:19.91
+2875b1f9
+User
+All attributes: ['agent', 'raw_item', 'to_input_item', 'type']
+2025-11-10 12:31:19.91
+2875b1f9
+User
+🔧 Tool call #3: unknown
+2025-11-10 12:31:19.92
+2875b1f9
+User
+✅ DETECTED SUCCESSFUL BOOKING: appointment_id=55
+2025-11-10 12:31:19.92
+2875b1f9
+User
+- Item #6: MessageOutputItem
+2025-11-10 12:31:19.92
+2875b1f9
+User
+✅ Agent executed 3 tool actions
+2025-11-10 12:31:19.92
+2875b1f9
+User
+🔍 VALIDATION CHECK:
+2025-11-10 12:31:19.92
+2875b1f9
+User
+booking_tool_called=False
+2025-11-10 12:31:19.92
+2875b1f9
+User
+booking_successful=True
+2025-11-10 12:31:19.98
+2875b1f9
+User
+📊 AI_LATENCY: 5.592s (target: <1.5s)
+2025-11-10 12:31:19.98
+2875b1f9
+User
+🔊 TTS_START: 'מעולה, קבעתי לך קריוקי ליום שלישי 11/11 בשעה 15:00. נתראה!'
+2025-11-10 12:31:19.98
+2875b1f9
+User
+✅ Punctuation polished: 'מעולה, קבעתי לך קריוקי ליום שלישי 11/11 ...'
+2025-11-10 12:31:20.34
+2875b1f9
+User
+✅ TTS_SUCCESS: 125572 bytes Natural Wavenet (7.8s)
+2025-11-10 12:31:20.34
+2875b1f9
+User
+🔊 TTS SUCCESS: 125572 bytes
+2025-11-10 12:31:20.36
+2875b1f9
+User
+🎤 SPEAKING_END -> LISTEN STATE | buffer_reset
