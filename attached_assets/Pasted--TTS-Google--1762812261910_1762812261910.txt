@@ -1,0 +1,224 @@
+סגור. הנה הנחיה מפורטת, ממוקדת לפרויקט שלך, כדי להחליף את ה-TTS לסטרימינג דו־כיווני של Google (בעברית), לחבר ישירות ל-Twilio Media Streams, לטפל ב־backpressure, ולשמור על חימום/נפילות.
+
+מה משיגים
+	•	TTS_READY יורד ~0.2–0.35s במקום ~0.6–1.5s
+	•	השמע מתחיל לזרום מיד (chunk-by-chunk) תוך כדי שהטקסט עוד מעובד
+	•	תואם he-IL Wavenet, μ-law 8k לטלפוניה, ותואם ל-_tx_loop הקיים
+
+0) תלויות ו-Secrets
+	1.	requirements.txt / pyproject.toml — ודא:
+
+	•	google-cloud-texttospeech >= 2.18.0  (גרסת v2 עם Streaming)
+	•	grpcio >= 1.60.0
+
+	2.	Secrets/ENV:
+
+	•	GOOGLE_APPLICATION_CREDENTIALS_JSON (או GOOGLE_APPLICATION_CREDENTIALS path)
+	•	GCP_TTS_VOICE=he-IL-Wavenet-B
+	•	GCP_TTS_RATE=1.05
+	•	GCP_TTS_SAMPLE_RATE=8000
+	•	GCP_TTS_ENCODING=MULAW
+	•	TTS_STREAMING_ENABLED=1
+	•	TTS_CHUNK_MS=20           (גודל פריים ל-Twilio; 160 דגימות ב-8k)
+	•	TTS_MAX_QUEUE=30          (הגבלת תור שידור)
+	•	TTS_FALLBACK_NONSTREAM=1  (פולבאק לסינתזה רגילה אם סטרים נופל)
+	•	TTS_WARMUP_INTERVAL_MIN=8
+
+1) gcp_tts_live.py — יצירת לקוח סטרימינג ו-API
+
+ב־server/services/gcp_tts_live.py הוסף/עדכן:
+	•	אתחל לקוח v2 פעם אחת (singleton) עם lazy init + lock.
+	•	פונקציה אסינכרונית: streaming_synthesize_hebrew(text, *, speaking_rate, voice, encoding, sample_rate)
+שמחזירה async generator של audio chunks.
+
+דוגמת מימוש (תתאים לשמות אצלך; שמור על μ-law 8k):
+
+# server/services/gcp_tts_live.py
+import os, asyncio, time, json
+from google.cloud import texttospeech_v2
+from google.api_core import exceptions as g_ex
+
+_client_v2 = None
+_client_lock = asyncio.Lock()
+
+def _get_client_v2():
+    global _client_v2
+    if _client_v2 is not None:
+        return _client_v2
+    # תמיכה ב-JSON ב-ENV
+    creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+    if creds_json:
+        import google.auth
+        from google.oauth2 import service_account
+        info = json.loads(creds_json)
+        creds = service_account.Credentials.from_service_account_info(info)
+        _client_v2 = texttospeech_v2.TextToSpeechClient(credentials=creds)
+    else:
+        _client_v2 = texttospeech_v2.TextToSpeechClient()
+    return _client_v2
+
+def _voice_params():
+    return texttospeech_v2.VoiceSelectionParams(
+        language_code="he-IL",
+        name=os.getenv("GCP_TTS_VOICE","he-IL-Wavenet-B")
+    )
+
+def _audio_cfg():
+    enc = os.getenv("GCP_TTS_ENCODING","MULAW").upper()
+    enc_enum = getattr(texttospeech_v2.AudioEncoding, enc)
+    return texttospeech_v2.AudioConfig(
+        audio_encoding=enc_enum,
+        sample_rate_hertz=int(os.getenv("GCP_TTS_SAMPLE_RATE","8000")),
+        speaking_rate=float(os.getenv("GCP_TTS_RATE","1.05")),
+    )
+
+async def streaming_synthesize_hebrew(text: str):
+    """
+    Async generator: yields MULAW@8k chunks for Twilio.
+    """
+    client = _get_client_v2()
+    inp = texttospeech_v2.SynthesisInput(text=text)
+
+    req = texttospeech_v2.StreamingSynthesizeSpeechRequest(
+        input=inp,
+        voice=_voice_params(),
+        audio_config=_audio_cfg()
+    )
+
+    # gRPC bidi stream
+    stream = client.streaming_synthesize_speech(iter([req]))
+
+    try:
+        async for resp in stream:
+            # resp.audio_chunk is bytes
+            if resp.audio_chunk:
+                yield resp.audio_chunk
+    except g_ex.GoogleAPICallError as e:
+        raise
+
+פולבאק לא־סטרימינג (הישן) תשמור כ־synthesize_hebrew_pcm16_8k() לשימוש אם יש כשל/דפדפן ישן.
+
+2) media_ws_ai.py — שילוב הזרמה אל ה-_tx_loop
+
+במקום לבנות קובץ שלם ואז לשדר, נזרים מייד לפריימים של Twilio.
+
+ב־server/media_ws_ai.py:
+	•	ודא שיש לך תור שידור _tx_queue ותווך _tx_loop ששולח frames בקצב TTS_CHUNK_MS.
+	•	הוסף פונקציה tts_stream_and_send(text, mark_label):
+	1.	פותחת סטרים דרך streaming_synthesize_hebrew(text)
+	2.	חותכת ל־frames בגודל 20ms (160 דגימות μ-law) אם צריך
+	3.	דוחפת ל־_tx_queue dict עם {"type":"audio","payload":bytes}
+	4.	בסיום דוחפת mark assistant_tts_end+flush
+
+דוגמה (התאם לאובייקטים שלך):
+
+# server/media_ws_ai.py
+import os, asyncio, math
+from server.services.gcp_tts_live import streaming_synthesize_hebrew, _audio_cfg
+
+TTS_CHUNK_MS = int(os.getenv("TTS_CHUNK_MS","20"))  # 20ms
+MAX_Q = int(os.getenv("TTS_MAX_QUEUE","30"))
+
+def _split_to_frames(mu_bytes: bytes, sample_rate=8000, frame_ms=20):
+    frame_size = int(sample_rate * (frame_ms/1000.0))  # 160 samples @8k
+    # μ-law is 1 byte per sample
+    out = []
+    for i in range(0, len(mu_bytes), frame_size):
+        out.append(mu_bytes[i:i+frame_size])
+    return out
+
+async def tts_stream_and_send(self, text: str, mark_label="assistant_tts_end"):
+    """
+    Streams Hebrew μ-law audio to the tx queue in near-real-time.
+    """
+    try:
+        async for chunk in streaming_synthesize_hebrew(text):
+            frames = _split_to_frames(chunk, 8000, TTS_CHUNK_MS)
+            for fr in frames:
+                # backpressure: אם התור מלא נזרוק את הפריים הישן ביותר
+                while self._tx_queue.qsize() >= MAX_Q:
+                    try:
+                        self._tx_queue.get_nowait()
+                    except Exception:
+                        break
+                await self._tx_queue.put({"type":"audio","payload":fr})
+        # סימון סוף
+        await self._tx_queue.put({"type":"mark","label":mark_label})
+    except Exception as e:
+        self.log_warn(f"TTS stream failed: {e}")
+        if os.getenv("TTS_FALLBACK_NONSTREAM","1") == "1":
+            # פולבאק: קרא למנוע הלא-סטרימי הקיים אצלך
+            audio = self.tts_synthesize_blocking(text)  # קיימת אצלך
+            for fr in _split_to_frames(audio, 8000, TTS_CHUNK_MS):
+                await self._tx_queue.put({"type":"audio","payload":fr})
+            await self._tx_queue.put({"type":"mark","label":mark_label})
+
+ודא שב-_tx_loop אתה שולח בדיוק את הפורמט שה־WS/Twilio מצפה לו (אצלך זה כבר dict → JSON/bytes). אם clear barge-in קיים — השאר מיידי (בלי תור).
+
+3) חימום (Warmup) לסטרים
+
+ב־app_factory.py (או init ה-service), הוסף:
+
+# עלייה: חימום כל X דקות
+from server.services.gcp_tts_live import streaming_synthesize_hebrew
+_last_warm = 0
+async def _periodic_tts_warmup():
+    global _last_warm
+    if time.time() - _last_warm < int(os.getenv("TTS_WARMUP_INTERVAL_MIN","8"))*60:
+        return
+    _last_warm = time.time()
+    try:
+        agen = streaming_synthesize_hebrew("בדיקה.")
+        # קריאה קצרה לצריבת חיבור/מטמון
+        async for _ in agen:
+            break
+    except Exception as e:
+        app.logger.warning(f"TTS warmup failed: {e}")
+
+קרא לזה אחת לכמה דקות (scheduler/loop קיים אצלך כבר).
+
+4) Latency & Backpressure
+	•	ב־_tx_loop ודא שאתה ישן await asyncio.sleep(TTS_CHUNK_MS/1000) בין פריימים אם השרת לא מאזֵן לבד.
+	•	כשהתור מלא — השלך פריימים ישנים (כמו למעלה) ולא תחסום את כל ה-WS (“send queue full”).
+	•	לוגים: הוסף מדידות
+	•	TTS_STREAM_START_MS (מרגע בקשה עד first frame)
+	•	TTS_FRAMES_SENT (מונה)
+	•	TTS_STREAM_TOTAL_MS
+
+5) Voice/SSML
+	•	אם אתה משתמש בפסיקים/נקודות לשיפור דיקציה, השאר.
+	•	SSML: תוכל לעבור ל־SynthesisInput(ssml=...) אם צריך הפסקות <break time="200ms"/>.
+	•	אל תדלג על נקודות — זה משפר פרוזודיה בעברית.
+
+6) פולבאק בטוח
+	•	אם יש חריגה/שגיאת רשת — תן פולבאק ל־non-stream TTS הקיים, כדי שלקוח לא ירגיש “שקט”.
+	•	אם ה־WS נסגר באמצע — עצור את ה-async generator (cancel) וסגור הליך נקי.
+
+7) בדיקות יעד (GO/NO-GO)
+	1.	/warmup מחזיר tts_stream_first_frame_ms ~200–350
+	2.	שיחה אמיתית:
+	•	[TTS_START] → first audio frame ≤ 0.35s
+	•	אין [send queue full] בלוגים
+	•	TTS_FRAMES ≈ משך דיבור/0.02s
+	3.	Barge-in: דיבור לקוח בזמן TTS → clear מיידי, עצירת הזרמה (cancel task)
+
+8) Agent/Prompt — לא חייבים לשנות
+
+ה-AgentKit עצמו לא צריך שינוי, רק נקודת הקריאה ל-TTS שלך (ב-media_ws_ai). שמור את חיתוך הטקסט (first reply קצר) כדי לא “לשפוך” פסקאות ארוכות לסטרים.
+
+9) תקלות ידועות וטיפול
+	•	503 / Connection reset: לרוב בגלל יצירת לקוח בכל פעם. הפתרון כאן יוצר לקוח אחד (singleton).
+	•	קפיצות בסאונד: הגדל TTS_CHUNK_MS ל־30–40ms או הוסף jitter buffer קטן בצד ה-_tx_loop.
+	•	he-IL “נשמע שטוח”: נסה voice אחר (he-IL-Wavenet-A/-C) או speaking_rate 1.02–1.08.
+
+10) צ’ק-ליסט קצר למפתח
+	•	עדכון ספריות (texttospeech v2 + grpcio)
+	•	הוספת לקוח v2 ב-gcp_tts_live.py
+	•	הוספת streaming_synthesize_hebrew() (async gen)
+	•	שימוש ב־tts_stream_and_send() במקום build-then-send
+	•	pacing ב־_tx_loop + backpressure
+	•	warmup תקופתי + בדיקת /warmup
+	•	פולבאק non-stream אם יש כשל
+	•	לוגי Latency חדשים
+
+ביצוע מדויק של הדברים האלה יוריד לך את זמן תחילת השמע משמעותית, בלי לשבור כלום במערכת הקיימת ועם תמיכה מלאה בעברית.
