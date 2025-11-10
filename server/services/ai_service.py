@@ -463,6 +463,38 @@ class AIService:
             logger.warning("⚠️ Agents disabled - using regular response")
             return self.generate_response(message, business_id, context, channel, is_first_turn)
         
+        # ⚡ FAST-PATH: Try to parse direct time request (skip AI for simple cases)
+        import re
+        from datetime import datetime, timedelta
+        
+        try:
+            # Look for hour in message (e.g., "2", "14:00", "שתיים")
+            hour_match = re.search(r"(\d{1,2})(?::(\d{2}))?", message)
+            has_tomorrow = "מחר" in message
+            has_appointment_intent = any(word in message for word in ["תור", "פגישה", "בדוק", "קבע", "זמין"])
+            
+            if hour_match and (has_tomorrow or has_appointment_intent) and len(message.split()) <= 6:
+                # Simple request like "בדוק לי מחר ב-2" or "תור מחר 14:00"
+                hour = int(hour_match.group(1))
+                minute = int(hour_match.group(2) or 0)
+                
+                # Afternoon default for numbers 1-8
+                if hour <= 8:
+                    hour += 12
+                    
+                # Calculate target time
+                tz = pytz.timezone("Asia/Jerusalem")
+                target = datetime.now(tz)
+                if has_tomorrow:
+                    target += timedelta(days=1)
+                target = target.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                
+                print(f"⚡ FAST-PATH: Detected direct time request → {target.strftime('%Y-%m-%d %H:%M')}")
+                # Fall through to agent with this knowledge - agent will use tools
+        except Exception as e:
+            # Fast-path failed, continue to full agent
+            print(f"⚠️ Fast-path parsing failed: {e}")
+        
         # ⚡ Capture start time BEFORE try block for error logging
         start_time = time.time()
         
@@ -555,28 +587,23 @@ class AIService:
                 asyncio.set_event_loop(loop)
             
             # 🔥 BUILD CONVERSATION HISTORY for Agent SDK
-            # Agent SDK needs conversation history in specific format
+            # ⚡ OPTIMIZATION: Keep ONLY last 3 messages to reduce latency!
             history_start = time.time()
             conversation_messages = []
             if context and "previous_messages" in context:
-                prev_msgs = context["previous_messages"]
-                print(f"📚 Found {len(prev_msgs)} previous messages in context")
+                prev_msgs = context["previous_messages"][-3:]  # 🔥 CRITICAL: Only 3 messages (was -10)
+                print(f"📚 Found {len(context['previous_messages'])} messages, using last {len(prev_msgs)} for latency")
                 
                 # Convert to Agent SDK format
                 # prev_msgs is list of strings like "לקוח: XXX" or "עוזר: YYY"
                 for msg in prev_msgs:
+                    content = None
                     if msg.startswith("לקוח:"):
-                        # User message
-                        conversation_messages.append({
-                            "role": "user",
-                            "content": msg.replace("לקוח:", "").strip()
-                        })
+                        content = msg.replace("לקוח:", "").strip()[-250:]  # 🔥 Truncate long messages
+                        conversation_messages.append({"role": "user", "content": content})
                     elif msg.startswith("עוזר:"):
-                        # Assistant message
-                        conversation_messages.append({
-                            "role": "assistant",
-                            "content": msg.replace("עוזר:", "").strip()
-                        })
+                        content = msg.replace("עוזר:", "").strip()[-250:]  # 🔥 Truncate long messages
+                        conversation_messages.append({"role": "assistant", "content": content})
                 
                 history_time = (time.time() - history_start) * 1000
                 print(f"✅ Converted to {len(conversation_messages)} messages for Agent ({history_time:.0f}ms)")
