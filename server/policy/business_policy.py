@@ -27,6 +27,7 @@ class BusinessPolicy:
     opening_hours: Dict[str, List[List[str]]]  # {"sun":[["10:00","20:00"]], ...}
     booking_window_days: int  # How far ahead can customers book
     min_notice_min: int  # Minimum notice required (in minutes)
+    require_phone_before_booking: bool  # 🔥 Require phone number before booking
 
 # Default policy (fallback if DB is empty)
 DEFAULT_POLICY = BusinessPolicy(
@@ -43,7 +44,8 @@ DEFAULT_POLICY = BusinessPolicy(
         "sat": []  # Closed on Saturday
     },
     booking_window_days=30,
-    min_notice_min=0
+    min_notice_min=0,
+    require_phone_before_booking=True  # 🔥 Phone required by default
 )
 
 def parse_policy_from_prompt(prompt: str) -> Dict[str, Any]:
@@ -205,6 +207,8 @@ def get_business_policy(
                 merged["booking_window_days"] = settings.booking_window_days
             if settings.min_notice_min is not None:
                 merged["min_notice_min"] = settings.min_notice_min
+            if hasattr(settings, 'require_phone_before_booking') and settings.require_phone_before_booking is not None:
+                merged["require_phone_before_booking"] = settings.require_phone_before_booking
             
             logger.info(f"📊 Loaded policy from DB for business {business_id}")
     except Exception as e:

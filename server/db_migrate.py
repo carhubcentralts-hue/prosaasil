@@ -466,6 +466,13 @@ def apply_migrations():
             migrations_applied.append(f"add_business_settings_{col_name}")
             log.info(f"✅ Applied migration: add_business_settings_{col_name} - Policy Engine field")
     
+    # Migration 20: Add require_phone_before_booking to business_settings
+    if check_table_exists('business_settings') and not check_column_exists('business_settings', 'require_phone_before_booking'):
+        from sqlalchemy import text
+        db.session.execute(text("ALTER TABLE business_settings ADD COLUMN require_phone_before_booking BOOLEAN DEFAULT TRUE"))
+        migrations_applied.append("add_business_settings_require_phone_before_booking")
+        log.info("✅ Applied migration 20: require_phone_before_booking - Phone required guard")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")

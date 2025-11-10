@@ -125,6 +125,7 @@ class BusinessSettings(db.Model):
     opening_hours_json = db.Column(db.JSON, nullable=True)  # {"sun":[["10:00","20:00"]], "mon":[...], ...}
     booking_window_days = db.Column(db.Integer, default=30)  # How many days ahead can customers book
     min_notice_min = db.Column(db.Integer, default=0)  # Minimum notice time in minutes before appointment
+    require_phone_before_booking = db.Column(db.Boolean, default=True)  # 🔥 Require phone number before booking
     
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -1,0 +1,328 @@
+מעולה. הנה הנחיה הנדסית מלאה, מותאמת לפרויקט שלך (Archive.zip האחרון), לסגירת חמשת הסעיפים—בלי סעיף 6 (ספקי חשבוניות/חתימות). זה מסודר לפי קבצים, עם בלוקים להדבקה, בדיקות קבלה, ו-GO/NO-GO.
+
+⸻
+
+1) להפוך את האייג’נט ל־Tool-First (מחייב כלים)
+
+קובץ: server/agent_tools/agent_factory.py
+
+1.1 הגדרות מודל
+
+מצא את AGENT_MODEL_SETTINGS (או ההגדרות שמועברות ליצירת ה־agent) ושנה:
+
+AGENT_MODEL_SETTINGS = {
+    "model": "gpt-4o-mini",
+    "temperature": 0.2,
+    "max_output_tokens": 200,
+    "tool_choice": "required",  # היה "auto"
+    "parallel_tool_calls": True,
+    "strict": True,
+}
+
+1.2 הנחיות קצרות (instructions)
+
+ודא שההוראות לאייג’נט באנגלית קצרה, תשובות בעברית:
+
+OPS_INSTRUCTIONS = """
+You are an operations agent. Always respond in Hebrew.
+
+Booking policy:
+1) Ask the user for the desired hour first; do not list hours.
+2) Call calendar.find_slots for that hour; if unavailable, offer up to two nearby slots from the business policy (DB/prompt).
+3) Collect name + phone together; confirm both.
+4) Only then call calendar.create_appointment.
+
+Business rules (hours/slot-size/min-notice/window) come from the business policy (DB/prompt). Do not assume defaults.
+If a tool returns ok=false, ask one brief clarification in Hebrew and retry.
+When phone is needed on a call, instruct: "תקליד/י את המספר וסיימ/י ב-#".
+"""
+
+קפדנות: תשובות בעברית; ההוראות באנגלית; אין אימוג’ים.
+
+1.3 סינגלטון לאייג’נט (בטיחות)
+
+בראש הקובץ:
+
+import threading
+_OPS_AGENT = None
+_OPS_LOCK = threading.RLock()
+
+def get_ops_agent():
+    global _OPS_AGENT
+    with _OPS_LOCK:
+        if _OPS_AGENT is None:
+            _OPS_AGENT = create_agent(OPS_INSTRUCTIONS, tools=ALL_TOOLS, **AGENT_MODEL_SETTINGS)
+        return _OPS_AGENT
+
+השתמש ב־get_ops_agent() בכל מקום במקום ליצור Agent בכל פניה.
+
+Acceptance: בלוגים אין יצירת Agent בכל Turn; הכלי נקראים בפועל (ToolCalls מופיעים ב־AgentTrace).
+
+⸻
+
+2) מדיניות עסק דינמית (Policy Engine) ושילוב ביומן
+
+מטרה: בלי hardcode. כללים נשלפים מ־DB + ניתנים ל־override מה־prompt של העסק.
+
+2.1 הרחבת DB (BusinessSettings)
+
+קובץ: server/models_sql.py (או היכן שהמודלים)
+
+הוסף שדות:
+
+from sqlalchemy.dialects.postgresql import JSONB
+
+class BusinessSettings(db.Model):
+    __tablename__ = "business_settings"
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), primary_key=True)
+    tz = db.Column(db.String, default="Asia/Jerusalem")
+    slot_size_min = db.Column(db.Integer, default=60)
+    allow_24_7 = db.Column(db.Boolean, default=False)
+    opening_hours_json = db.Column(JSONB, nullable=True)  # {"sun":[["10:00","20:00"]], ...}
+    booking_window_days = db.Column(db.Integer, default=30)
+    min_notice_min = db.Column(db.Integer, default=0)
+    require_phone_before_booking = db.Column(db.Boolean, default=True)
+    ai_prompt = db.Column(db.Text)  # אם קיים אצלך – שמור
+
+הוסף מיגרציה (ב־server/db_migrate.py) שמוסיפה את העמודות עם ערכי ברירת מחדל בטוחים. הפעל RUN_MIGRATIONS_ON_START=1 בעלייה.
+
+2.2 Policy Engine
+
+קובץ חדש: server/policy/business_policy.py
+
+import re
+from dataclasses import dataclass
+from typing import Dict, List, Optional
+from server.models_sql import BusinessSettings, db
+
+@dataclass
+class BusinessPolicy:
+    tz: str
+    slot_size_min: int
+    allow_24_7: bool
+    opening_hours: Dict[str, List[List[str]]]  # {"sun":[["10:00","20:00"]], ...}
+    booking_window_days: int
+    min_notice_min: int
+    require_phone_before_booking: bool
+
+DEFAULT_OPENING = {"sun":[["09:00","22:00"]],"mon":[["09:00","22:00"]],"tue":[["09:00","22:00"]],
+                   "wed":[["09:00","22:00"]],"thu":[["09:00","22:00"]]}
+
+DEFAULTS = BusinessPolicy(
+    tz="Asia/Jerusalem",
+    slot_size_min=60,
+    allow_24_7=False,
+    opening_hours=DEFAULT_OPENING,
+    booking_window_days=30,
+    min_notice_min=0,
+    require_phone_before_booking=True,
+)
+
+def parse_from_prompt(prompt: str) -> dict:
+    out = {}
+    if not prompt: return out
+    if "24/7" in prompt: out["allow_24_7"] = True
+    if "רבע שעה" in prompt: out["slot_size_min"] = 15
+    elif "חצי שעה" in prompt: out["slot_size_min"] = 30
+    elif "שעה עגולה" in prompt: out["slot_size_min"] = 60
+    # דוגמה פשוטה: "ראשון-חמישי 10-20"
+    m = re.search(r"ראשון.*?חמישי.*?(\d{1,2})[:.]?0{2}\D+(\d{1,2})[:.]?0{2}", prompt)
+    if m:
+        start, end = m.group(1), m.group(2)
+        oh = {k:[[f"{start}:00", f"{end}:00"]] for k in ["sun","mon","tue","wed","thu"]}
+        out["opening_hours"] = oh
+    return out
+
+def get_business_policy(business_id: int, business_prompt: Optional[str]) -> BusinessPolicy:
+    bs = BusinessSettings.query.filter_by(business_id=business_id).first()
+    merged = DEFAULTS.__dict__.copy()
+    if bs:
+        merged.update({
+            "tz": bs.tz or merged["tz"],
+            "slot_size_min": bs.slot_size_min or merged["slot_size_min"],
+            "allow_24_7": bool(bs.allow_24_7),
+            "opening_hours": bs.opening_hours_json or merged["opening_hours"],
+            "booking_window_days": bs.booking_window_days or merged["booking_window_days"],
+            "min_notice_min": bs.min_notice_min or merged["min_notice_min"],
+            "require_phone_before_booking": bool(bs.require_phone_before_booking),
+        })
+    parsed = parse_from_prompt(business_prompt or getattr(bs, "ai_prompt", "") if bs else business_prompt or "")
+    merged.update(parsed)
+    return BusinessPolicy(**merged)
+
+2.3 שילוב ביומן (Calendar Tools)
+
+קובץ: server/agent_tools/tools_calendar.py
+
+ב־find_slots וב־_calendar_create_appointment_impl:
+
+from server.policy.business_policy import get_business_policy
+from datetime import datetime, timedelta
+import pytz
+
+def _gen_slots_for_day(day_dt: datetime, policy, duration_min: int):
+    slots = []
+    tz = pytz.timezone(policy.tz)
+    local_day = day_dt.astimezone(tz).date()
+    def to_dt(hhmm):  # "10:00" -> datetime
+        h, m = map(int, hhmm.split(":")); 
+        return tz.localize(datetime(local_day.year, local_day.month, local_day.day, h, m))
+    step = policy.slot_size_min
+    if policy.allow_24_7:
+        starts = [tz.localize(datetime(local_day.year, local_day.month, local_day.day, 0, 0))]
+        windows = [(starts[0], starts[0] + timedelta(days=1))]
+    else:
+        wd = ["mon","tue","wed","thu","fri","sat","sun"][local_day.weekday()]
+        windows = []
+        for rng in (policy.opening_hours.get(wd, []) or []):
+            s = to_dt(rng[0]); e = to_dt(rng[1])
+            windows.append((s, e))
+    for s,e in windows:
+        cur = s
+        while cur + timedelta(minutes=duration_min) <= e:
+            # min notice:
+            if cur >= datetime.now(tz) + timedelta(minutes=policy.min_notice_min):
+                slots.append({"start_iso": cur.isoformat(), "end_iso": (cur+timedelta(minutes=duration_min)).isoformat()})
+            cur += timedelta(minutes=step)
+    return slots
+
+בתחילת find_slots:
+
+policy = get_business_policy(business_id, context.get("business_prompt"))
+# צור סלוטים ליום/תאריכים מבוקשים בדיוק לפי policy
+# החזר {"ok": True, "slots": slots}
+
+ב־_calendar_create_appointment_impl הוסף Guard “on-grid”:
+
+# נניח start_dt הוא datetime tz-aware לפי policy.tz
+if (start_dt.minute % policy.slot_size_min) != 0:
+    suggestions = _nearest_on_grid_suggestions(start_dt, policy)
+    return {"ok": False, "error": "off_grid", "suggestions": suggestions}
+
+Acceptance:
+	•	עסק עם “24/7 כל רבע שעה” → find_slots מחזיר 96 סלוטים ביום; create מאשר 03:15.
+	•	עסק עם “10–20 שעה עגולה” → דוחה 10:15 עם suggestions.
+
+⸻
+
+3) “חובה טלפון לפני קביעה” + DTMF
+
+3.1 Guard ביומן
+
+ב־_calendar_create_appointment_impl (באותו קובץ):
+
+policy = get_business_policy(business_id, context.get("business_prompt"))
+
+# איסוף טלפון מהקלט/קונטקסט
+phone = input_data.get("customer_phone") or context.get("customer_phone") or context.get("whatsapp_from") or None
+
+if policy.require_phone_before_booking and not phone:
+    return {"ok": False, "error": "need_phone", "message": "נדרש מספר טלפון לפני קביעת תור"}
+
+אל תזרוק Exception; תמיד להחזיר ok:false.
+
+3.2 התנהגות האייג’נט (ללא קוד, רק הוראה שכבר ב־instructions)
+
+כשהוא מקבל error: need_phone — הוא אומר משפט קצר:
+“להשלמת ההזמנה, תקליד/י עכשיו את מספר הטלפון במקלדת הטלפון ואז סיים/י ב-#.”
+
+3.3 DTMF בצד הטלפון (כבר קיים אצלך)
+
+ב־server/media_ws_ai.py דאג שהמצב WAITING_FOR_DTMF פעיל:
+	•	ספרות 0–9 נאספות ל־buffer
+	•	# → commit → session.caller_number = normalized_phone
+	•	* → איפוס buffer
+	•	חזרה ל־LISTEN ושיגור ההודעה האחרונה ל־Agent עם context.customer_phone מעודכן.
+
+Acceptance: קביעה בלי טלפון תחזיר need_phone → הבוט יבקש הקלדה → אחרי # הקביעה עוברת.
+
+⸻
+
+4) TTS pacing דרך התור (Backpressure מלא)
+
+מטרה: לא לשלוח frames ישירות; תמיד דרך tx_q בקצבים של ~20ms. Immediate רק ל־clear/mark.
+
+קובץ: server/media_ws_ai.py
+
+4.1 לולאת השידור (האמור כבר קיים)
+
+ודא שקיימת _tx_loop() שקוראת מפריטים בתור (tx_q) ושולחת כל פריים בקצב 20ms (או בדיוק כפי שהפרויקט שלך עושה).
+
+4.2 שליחת אודיו תמיד דרך התור
+
+בפונקציה שממירה PCM16→mulaw ושולחת (למשל _send_pcm16_as_mulaw_frames_with_mark), אל תקרא _ws_send() בתוך הלולאה. במקום זאת:
+
+def _enqueue_mulaw_frames(frames, with_mark=False):
+    for f in frames:
+        self.tx_q.put({"type":"audio", "payload": f})
+    if with_mark:
+        self.tx_q.put({"type":"mark", "name":"assistant_tts_end"})
+
+קריאות מיידיות מותרים רק לשני סוגים:
+	•	barge-in clear (עצירה/ניקוי מיידית של תור/צד לקוח)
+	•	mark אם אצלך חייב להיות מיידי (אם ה־client צריך אותו בזמן מסוים).
+בכל מקרה, אודיו “רגיל” חייב לעבור דרך ה־queue.
+
+Acceptance: אין send queue full בלוגים; TTS_SEND יורד ל~1.0–1.5s, אין “צוואר בקבוק”.
+
+⸻
+
+5) אישור WhatsApp אחרי קביעת תור (אוטומטי)
+
+מומלץ: Flow Orchestrator קטן. אם רוצים “מהיר”, אפשר מתוך כלי היומן. אראה שתי אפשרויות:
+
+5.1 פתרון מהיר (בתוך כלי היומן)
+
+בסוף _calendar_create_appointment_impl אחרי יצירת Appointment + commit:
+
+try:
+    to = phone or context.get("whatsapp_from")
+    if to:
+        msg = f"נקבע לך תור ל-{start_dt.strftime('%d/%m/%Y %H:%M')}. נשמח לראותך!"
+        _ = whatsapp_send_impl({"to": to, "message": msg}, context)
+    else:
+        # אין שליחת ווצאפ כי אין למי – לא יכשל, רק מסביר
+        pass
+except Exception as e:
+    logger.warning(f"whatsapp confirmation failed: {e}")
+
+השתמש בפונקציה הפנימית של ה־tool (או קרא דרך ה־tool עצמו אם נוח לך). אל תזרוק Exception אם אין למי לשלוח.
+
+Acceptance: בכל קביעה מוצלחת עם מספר זמין — נשלחת הודעת אישור; ב־AgentTrace תופיע שליחת WhatsApp.
+
+5.2 פתרון אלגנטי (מנוע Flows)
+
+(מומלץ לטווח ארוך; אפשר לשלב בהמשך)
+	•	הוסף server/flows/engine.py עם: def on_event(event_type, payload): ...
+	•	בקביעת תור מוצלחת: flows_engine.on_event("appointment.created", {...})
+	•	כלל ברירת מחדל: appointment.created → whatsapp.send אישור.
+יתרון: פחות coupling; קל להוסיף “חשבונית+לינק תשלום”, “סיכום אחרי שיחה” וכו’.
+
+⸻
+
+בדיקות קבלה (GO/NO-GO)
+	1.	Tool-First
+	•	בקשת “מחר ב-12” → בלוגים מופיעים ToolCalls: calendar.find_slots → calendar.create_appointment.
+	•	אין תשובה “טקסטואלית” במקום כלי.
+	2.	Policy
+	•	עסק “24/7 כל רבע שעה”: find_slots מחזיר 03:15; create מאשר.
+	•	עסק “10–20 שעה עגולה”: 10:15 → {ok:false, error:"off_grid", suggestions:[10:00, 11:00]}.
+	3.	Phone Required + DTMF
+	•	בקביעה בלי טלפון: {ok:false, error:"need_phone"}; הבוט מבקש הקלדה; לאחר # נוצר התור.
+	4.	TTS pacing
+	•	אין send queue full; TTS_SEND ≈ 1.0–1.5s; דיבור רציף גם תחת עומס.
+	5.	WA Confirmation
+	•	אחרי {ok:true, appointment_id} ונמען זמין → הודעת וואטסאפ נשלחת; ב־AgentTrace יש רשומת שליחה.
+	6.	Latency
+	•	[STT_FINAL_MS] ≤ ~900ms, [AI_LATENCY_MS] ≤ ~1.8s, [TTS_READY_MS] ≤ ~400ms, [TOTAL_MS] ≤ 2.5s ברוב ה־turns.
+
+⸻
+
+הערות הפעלה/סביבה
+	•	ודא RUN_MIGRATIONS_ON_START=1 לראשונה.
+	•	בפרוד: DEBUG=0, AGENTS_ENABLED=1, BAILEYS_BASE_URL, DATABASE_URL, GOOGLE_APPLICATION_CREDENTIALS מוגדרים.
+	•	אין create_app() במסלולים חמים; אין eventlet.monkey_patch() חוץ מה־entrypoint.
+
+⸻
+
+אם תרצה, אכין לך Patch-diff ממוקד לפי הנתיבים שלך (העתק-הדבק) לכל אחד מהסעיפים—כדי שתדביק, תפרוס, ותבדוק מיד.

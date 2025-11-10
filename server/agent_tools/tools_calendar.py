@@ -283,9 +283,22 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         if len(input.customer_name.strip()) < 2:
             raise ValueError("שם הלקוח חייב להכיל לפחות 2 תווים")
         
+        # 🔥 POLICY CHECK: Require phone before booking (Sect 3 from instructions)
+        from server.policy.business_policy import get_business_policy
+        policy = get_business_policy(input.business_id, context.get("business_prompt") if context else None)
+        
         # 🔥 USE SMART PHONE SELECTION
         phone = _choose_phone(input.customer_phone, context, session)
         logger.info(f"📞 Final phone for appointment: {phone}")
+        
+        # 🔥 CRITICAL: Guard - phone required before booking (if policy requires it)
+        if policy.require_phone_before_booking and not phone:
+            logger.warning(f"❌ Phone required by policy but not provided for business {input.business_id}")
+            return {
+                "ok": False,
+                "error": "need_phone",
+                "message": "נדרש מספר טלפון לפני קביעת תור. תקליד/י עכשיו את מספר הטלפון במקלדת הטלפון ואז סיים/י ב-#"
+            }
         
         # ⚡ Validate phone number IF provided
         if phone and phone.strip():
@@ -306,11 +319,8 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         if not input.treatment_type or input.treatment_type.strip() == "":
             raise ValueError("חובה לציין סוג טיפול/שירות")
         
-        # 🔥 LOAD POLICY (for on-grid validation and business hours)
-        from server.policy.business_policy import get_business_policy, validate_slot_time, get_nearby_slots
-        
-        prompt_text = (context or {}).get("business_prompt") if context else None
-        policy = get_business_policy(input.business_id, prompt_text=prompt_text)
+        # 🔥 POLICY already loaded above - import additional validation helpers
+        from server.policy.business_policy import validate_slot_time, get_nearby_slots
         
         # Parse times
         logger.info(f"📅 Parsing times from Agent: start={input.start_iso}, end={input.end_iso}")
@@ -465,7 +475,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                     # Format WhatsApp confirmation message
                     wa_message = (
                         f"🎉 *אישור פגישה*\n\n"
-                        f"שלום {customer_name}!\n\n"
+                        f"שלום {input.customer_name}!\n\n"
                         f"פגישתך נקבעה בהצלחה:\n"
                         f"📅 יום {day_name_hebrew} {start.strftime('%d/%m/%Y')}\n"
                         f"🕐 שעה {start.strftime('%H:%M')}\n"
