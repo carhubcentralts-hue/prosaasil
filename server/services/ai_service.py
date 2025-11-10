@@ -778,7 +778,7 @@ class AIService:
             
             # 🔥 FIX: First attempt with full token budget
             try:
-                print(f"🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=80, timeout=2.0s)")
+                print(f"🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=80, timeout=4.0s)")
                 llm_start = time.time()
                 
                 response = self.client.chat.completions.create(
@@ -789,7 +789,7 @@ class AIService:
                     ],
                     temperature=0.3,  # ⚡ Balanced for speed vs quality
                     max_tokens=80,  # ⚡ SPEED: Reduced from 150 to 80 for faster FAQ
-                    timeout=2.0  # ⚡ SPEED: Reduced from 3.5s to 2.0s
+                    timeout=4.0  # ⚡ Consistent with Agent timeout (was 2.0s)
                 )
                 
                 llm_time = (time.time() - llm_start) * 1000

@@ -234,42 +234,6 @@ class HebrewTTSLive:
             log.error(f"TTS_PCM16_ERROR: {e}")
             return None
     
-    
-    def _split_into_chunks(self, text: str, max_chunk_size: int = 200) -> list[str]:
-        """
-        Split text into chunks for streaming TTS
-        Tries to split on sentence boundaries, falls back to word boundaries
-        """
-        if len(text) <= max_chunk_size:
-            return [text]
-        
-        chunks = []
-        
-        # Try splitting on sentence boundaries first
-        sentences = []
-        current = ""
-        for char in text:
-            current += char
-            if char in '.!?' and len(current.strip()) > 0:
-                sentences.append(current.strip())
-                current = ""
-        if current.strip():
-            sentences.append(current.strip())
-        
-        # Group sentences into chunks
-        current_chunk = ""
-        for sentence in sentences:
-            if len(current_chunk) + len(sentence) <= max_chunk_size:
-                current_chunk += " " + sentence if current_chunk else sentence
-            else:
-                if current_chunk:
-                    chunks.append(current_chunk)
-                current_chunk = sentence
-        
-        if current_chunk:
-            chunks.append(current_chunk)
-        
-        return chunks if chunks else [text]
 
 # Global instance - lazy initialization
 _hebrew_tts = None
