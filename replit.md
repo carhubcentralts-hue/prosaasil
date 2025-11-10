@@ -50,6 +50,22 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
   - ✅ Booking flows: Still use AgentKit for reliability
   - ✅ Overall target: ≤2.3s for most conversations
 
+### **STT Accuracy Improvements (Recommended - Phase 2K)**
+**Current Configuration** (Working):
+- Model: `default` (FORCED - phone_call not supported for Hebrew he-IL)
+- Enhanced: `True`
+- Batch: 40ms, Debounce: 90ms, Timeout: 320ms
+- Language: he-IL with punctuation enabled
+
+**Recommendations for Better Hebrew Accuracy**:
+1. **Optimize Debounce**: Lower `STT_PARTIAL_DEBOUNCE_MS` from 90ms → 60ms for faster partial results
+2. **VAD Tuning**: Increase `VAD_HANGOVER_MS` to 120ms for better sentence boundary detection
+3. **Minimum Utterance**: Reduce `MIN_UTT_SEC` to 0.25s to catch short Hebrew words
+4. **Alternative Hints**: Consider adding Hebrew-specific phrases to recognition config
+5. **Batch Processing**: Keep `STT_BATCH_MS=40ms` for real-time responsiveness
+
+**Note**: Google STT "phone_call" model is NOT supported for Hebrew (he-IL) - always use "default" model.
+
 ---
 
 # User Preferences
