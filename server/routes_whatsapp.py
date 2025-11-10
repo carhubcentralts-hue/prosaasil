@@ -1,6 +1,7 @@
 import os, requests
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 from server.extensions import csrf
+from server.auth_api import require_api_auth
 
 whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/api/whatsapp')
 BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
@@ -119,10 +120,13 @@ from server.db import db
 from sqlalchemy import func
 
 @whatsapp_bp.route('/contacts', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['admin', 'superadmin', 'business', 'agent'])
 def api_wa_contacts():
-    business_id = request.args.get("business_id", type=int)
-    if not business_id:
-        return jsonify({"error":"missing business_id"}), 400
+    # 🔒 SECURITY: business_id from authenticated session via get_business_id()
+    from server.routes_crm import get_business_id
+    
+    business_id = get_business_id()
     
     # Get unique WhatsApp conversations (simulating WhatsAppConversation with WhatsAppMessage)
     convs = db.session.query(
@@ -148,17 +152,17 @@ def api_wa_contacts():
     return jsonify({"contacts": out}), 200
 
 @whatsapp_bp.route('/messages', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['admin', 'superadmin', 'business', 'agent'])
 def api_wa_messages():
     contact_id = request.args.get("contact_id")  # This is the phone number
     if not contact_id:
         return jsonify({"error":"missing contact_id"}), 400
     
-    # ✅ BUILD 91: Multi-tenant - require business_id from user context
-    business_id = request.args.get('business_id', type=int)
-    if not business_id:
-        # Fallback to first active business (should be from auth context in production)
-        from server.services.business_resolver import resolve_business_with_fallback
-        business_id, _ = resolve_business_with_fallback('whatsapp', 'business_1')
+    # 🔒 SECURITY: business_id from authenticated session via get_business_id()
+    from server.routes_crm import get_business_id
+    
+    business_id = get_business_id()
     
     msgs = WhatsAppMessage.query.filter_by(
         business_id=business_id,
@@ -175,19 +179,18 @@ def api_wa_messages():
     } for m in msgs]}), 200
 
 @whatsapp_bp.route('/conversation/<phone_number>', methods=['GET'])
-@csrf.exempt  # GET requests don't need CSRF
+@csrf.exempt
+@require_api_auth(['admin', 'superadmin', 'business', 'agent'])
 def get_conversation(phone_number):
     """
     Get WhatsApp conversation for a specific phone number
     Returns messages in format expected by WhatsAppChat component
     """
     try:
-        # ✅ BUILD 91: Multi-tenant - require business_id from user context
-        business_id = request.args.get('business_id', type=int)
-        if not business_id:
-            # Fallback (should be from auth context in production)
-            from server.services.business_resolver import resolve_business_with_fallback
-            business_id, _ = resolve_business_with_fallback('whatsapp', 'business_1')
+        # 🔒 SECURITY: business_id from authenticated session via get_business_id()
+        from server.routes_crm import get_business_id
+        
+        business_id = get_business_id()
         
         # Clean phone number (remove + and @s.whatsapp.net)
         clean_phone = phone_number.replace('+', '').replace('@s.whatsapp.net', '')
@@ -234,10 +237,13 @@ def get_conversation(phone_number):
         }), 200  # Return empty conversation instead of error
 
 @whatsapp_bp.route('/stats', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['admin', 'superadmin', 'business', 'agent'])
 def api_wa_stats():
-    business_id = request.args.get("business_id", type=int)
-    if not business_id:
-        return jsonify({"error":"missing business_id"}), 400
+    # 🔒 SECURITY: business_id from authenticated session via get_business_id()
+    from server.routes_crm import get_business_id
+    
+    business_id = get_business_id()
     
     # Count unique conversations
     total_convs = db.session.query(WhatsAppMessage.to_number).filter_by(
@@ -498,6 +504,7 @@ def baileys_webhook():
         return jsonify({"error": str(e)}), 500
 
 @whatsapp_bp.route('/send', methods=['POST'])
+@require_api_auth(['admin', 'superadmin', 'business', 'agent'])
 @api_handler
 def send_manual_message():
     """שליחת הודעה ידנית מנציג - Agent Takeover"""
@@ -506,12 +513,10 @@ def send_manual_message():
     to_number = data.get('to')
     message = data.get('message')
     
-    # ✅ BUILD 91: Multi-tenant - require business_id from user context
-    business_id = data.get('business_id')
-    if not business_id:
-        # Fallback (should be from auth context in production)
-        from server.services.business_resolver import resolve_business_with_fallback
-        business_id, _ = resolve_business_with_fallback('whatsapp', 'business_1')
+    # 🔒 SECURITY: business_id from authenticated session via get_business_id()
+    from server.routes_crm import get_business_id
+    
+    business_id = get_business_id()
     
     if not to_number or not message:
         return {"ok": False, "error": "missing_required_fields"}, 400
