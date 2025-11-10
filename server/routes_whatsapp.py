@@ -16,7 +16,9 @@ os.makedirs(AUTH_DIR, exist_ok=True)  # וודא שהתיקייה קיימת
 def tenant_id_from_ctx():
     """Get tenant_id from request context (business selection or auth)"""
     # ✅ BUILD 91: Multi-tenant - get from request or auth context
-    from flask import request
+    from flask import request, abort
+    import logging
+    log = logging.getLogger(__name__)
     
     # Try to get business_id from query params
     business_id = request.args.get('business_id', type=int)
@@ -26,9 +28,12 @@ def tenant_id_from_ctx():
         from flask import session
         business_id = session.get('business_id')
     
-    # Fallback to business_1 for legacy/single-tenant mode
+    # 🔒 SECURITY: NO FALLBACK - require explicit business context
+    # Previously: defaulted to business_id=1, causing cross-tenant data exposure
+    # Now: return 401 to enforce proper authentication
     if not business_id:
-        business_id = 1
+        log.error("❌ REJECTED: Missing business_id in request context")
+        abort(401, description="Business context required - please login or provide business_id parameter")
     
     # Return in business_X format (as expected by Baileys)
     return f'business_{business_id}'

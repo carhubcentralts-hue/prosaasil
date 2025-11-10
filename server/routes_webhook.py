@@ -110,7 +110,14 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
         logger.info(f"⏱️ get_or_create_app took: {time.time() - app_start:.3f}s")
         
         with app.app_context():
-            business_id, _ = resolve_business_with_fallback('whatsapp', tenant_id)
+            business_id, status = resolve_business_with_fallback('whatsapp', tenant_id)
+            
+            # 🔒 SECURITY: Reject unknown tenants instead of processing with wrong business
+            if not business_id:
+                logger.error(f"❌ REJECTED WhatsApp message: Unknown tenant '{tenant_id}' - no business match")
+                logger.error(f"   → Add phone {tenant_id} to Business.phone_e164 or create BusinessContactChannel")
+                return  # Silently reject - message already ACKed to WhatsApp
+            
             wa_service = get_whatsapp_service()
             ci = CustomerIntelligence(business_id)
             

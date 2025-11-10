@@ -127,21 +127,12 @@ def resolve_business_with_fallback(channel_type: str, identifier: str) -> Tuple[
             
             return business.id, 'phone_match'
     
-    # Fallback: active business (only if really needed)
-    business = Business.query.filter_by(is_active=True).first()
-    if business:
-        log.warning(f"⚠️ Using fallback active business_id={business.id} for {channel_type}:{identifier}")
-        return business.id, 'fallback_active'
-    
-    # Last resort
-    business = Business.query.first()
-    if business:
-        log.error(f"❌ No active business - using any business_id={business.id}")
-        return business.id, 'fallback_any'
-    
-    # No business exists - critical error
-    log.error(f"❌ No business exists in database!")
-    return None, 'none'
+    # 🔒 SECURITY: NO FALLBACK - reject unknown phones to prevent cross-tenant exposure
+    # Previously: would fall back to first active business, causing wrong prompts/data
+    # Now: return None for unknown identifiers, forcing proper channel registration
+    log.error(f"❌ REJECTED: Unknown {channel_type} identifier {identifier} - no business match found!")
+    log.error(f"   → Add this phone to Business.phone_e164 or create BusinessContactChannel entry")
+    return None, 'rejected_unknown'
 
 
 def add_business_channel(business_id: int, channel_type: str, identifier: str, is_primary: bool = False, config_json: Optional[str] = None) -> BusinessContactChannel:

@@ -189,22 +189,36 @@ def get_ai_service():
     return _global_ai_service
 
 def _warmup_ai_cache(service: 'AIService'):
-    """⚡ Preload cache for common business IDs to prevent first-turn latency"""
+    """⚡ Preload cache for ALL active businesses to prevent first-turn latency"""
     try:
         import time
+        from server.models import Business
+        from server.app_factory import get_process_app
+        
         start = time.time()
         
-        # Warmup business 1 and 11 (most common)
-        for business_id in [1, 11]:
-            for channel in ['calls', 'whatsapp']:
-                try:
-                    service.get_business_prompt(business_id, channel)
-                    logger.info(f"✅ WARMUP: Preloaded business {business_id} {channel}")
-                except Exception as e:
-                    logger.warning(f"⚠️ WARMUP failed for business {business_id} {channel}: {e}")
-        
-        warmup_time = time.time() - start
-        logger.info(f"✅ AI_CACHE_WARMUP: Completed in {warmup_time:.3f}s")
+        # 🔥 MULTI-TENANT: Warmup ALL active businesses (up to 10)
+        app = get_process_app()
+        with app.app_context():
+            businesses = Business.query.filter_by(is_active=True).limit(10).all()
+            
+            if not businesses:
+                logger.warning("⚠️ WARMUP: No active businesses found")
+                return
+            
+            logger.info(f"🔥 AI_CACHE_WARMUP: Found {len(businesses)} active businesses")
+            
+            for business in businesses:
+                business_id = business.id
+                for channel in ['calls', 'whatsapp']:
+                    try:
+                        service.get_business_prompt(business_id, channel)
+                        logger.info(f"✅ WARMUP: Preloaded business {business_id} ({business.name}) {channel}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ WARMUP failed for business {business_id} {channel}: {e}")
+            
+            warmup_time = time.time() - start
+            logger.info(f"✅ AI_CACHE_WARMUP: Completed {len(businesses)} businesses in {warmup_time:.3f}s")
     except Exception as e:
         logger.error(f"❌ AI cache warmup failed: {e}")
 
