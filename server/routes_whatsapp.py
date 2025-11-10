@@ -27,7 +27,10 @@ def tenant_id_from_ctx():
     # Try to get from session/auth (if logged in)
     if not business_id:
         from flask import session
-        business_id = session.get('business_id')
+        # 🔥 FIX: Get business_id from correct session location
+        # Check for impersonation first, then get from user object
+        user = session.get('al_user', {})
+        business_id = session.get('impersonated_tenant_id') or user.get('business_id')
     
     # 🔒 SECURITY: NO FALLBACK - require explicit business context
     # Previously: defaulted to business_id=1, causing cross-tenant data exposure
