@@ -171,12 +171,11 @@ def warmup_services_async():
                         try:
                             # Get prompt from database
                             settings = BusinessSettings.query.filter_by(tenant_id=1).first()
+                            custom_instructions = ""  # Default empty string
                             if settings and settings.ai_prompt:
                                 import json
                                 prompts = json.loads(settings.ai_prompt)
-                                custom_instructions = prompts.get(channel, prompts.get('calls', ''))
-                            else:
-                                custom_instructions = None
+                                custom_instructions = prompts.get(channel, prompts.get('calls', '')) or ""
                             
                             # Create agent (will cache it)
                             import time
