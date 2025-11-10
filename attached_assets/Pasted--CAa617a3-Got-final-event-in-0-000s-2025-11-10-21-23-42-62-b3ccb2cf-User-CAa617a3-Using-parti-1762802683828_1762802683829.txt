@@ -1,0 +1,116 @@
+✅ [CAa617a3] Got final event in 0.000s
+2025-11-10 21:23:42.62
+b3ccb2cf
+User
+✅ [CAa617a3] Using partial: 'היי מה מחיר ל חדר קריוקי אצלכם...' (30 chars)
+2025-11-10 21:23:42.62
+b3ccb2cf
+User
+🏁 [CAa617a3] Utterance 684feb7f COMPLETE: returning 'היי מה מחיר ל חדר קריוקי אצלכם'
+2025-11-10 21:23:42.62
+b3ccb2cf
+User
+[LATENCY] final_wait=0.00s, utterance_total=0.00s
+2025-11-10 21:23:42.62
+b3ccb2cf
+User
+⏱️ [STT_STREAM] _utterance_end took 0.000s, result: 'היי מה מחיר ל חדר קריוקי אצלכם'
+2025-11-10 21:23:42.62
+b3ccb2cf
+User
+🎤 USER: היי מה מחיר ל חדר קריוקי אצלכם
+2025-11-10 21:23:42.62
+b3ccb2cf
+User
+2025-11-10 21:23:42.62
+b3ccb2cf
+User
+📊 ASR_LATENCY: 0.000s (target: <0.7s)
+2025-11-10 21:23:42.66
+b3ccb2cf
+User
+📞 DEBUG: Caller phone = 'None' (type: NoneType)
+2025-11-10 21:23:42.66
+b3ccb2cf
+User
+self.phone_number exists: True
+2025-11-10 21:23:42.66
+b3ccb2cf
+User
+self.phone_number value: 'None'
+2025-11-10 21:23:42.66
+b3ccb2cf
+User
+🎯 INTENT_DETECTED: info (message: היי מה מחיר ל חדר קריוקי אצלכם...)
+2025-11-10 21:23:42.66
+b3ccb2cf
+User
+🚀 FAST_PATH: Handling info without AgentKit
+2025-11-10 21:23:42.98
+b3ccb2cf
+User
+📚 FAQ: Extracting facts from prompt (3566 chars)
+2025-11-10 21:23:42.98
+b3ccb2cf
+User
+- חדר "ברצלונה" – עד 10 משתתפים – 200 ₪ לשעה באמצע שבוע, 250 ₪ בסופי שבוע.
+2025-11-10 21:23:42.98
+b3ccb2cf
+User
+🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=180, timeout=2.2s)
+2025-11-10 21:23:59.67
+b3ccb2cf
+User
+❌ FAQ FAILED! Total time: 16691ms
+2025-11-10 21:23:59.67
+b3ccb2cf
+User
+Error: APITimeoutError: Request timed out.
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+Traceback (most recent call last):
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+yield
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/httpx/_transports/default.py", line 250, in handle_request
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+resp = self._pool.handle_request(req)
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/httpcore/_sync/connection_pool.py", line 256, in handle_request
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+raise exc from None
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/httpcore/_sync/connection_pool.py", line 236, in handle_request
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+response = connection.handle_request(
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-10 21:23:59.69
+b3ccb2cf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/httpcore/_sync/connection.py", line 103, in handle_request

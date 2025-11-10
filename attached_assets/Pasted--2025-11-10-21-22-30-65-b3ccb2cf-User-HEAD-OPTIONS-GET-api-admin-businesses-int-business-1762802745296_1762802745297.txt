@@ -1,0 +1,163 @@
+
+2025-11-10 21:22:30.65
+b3ccb2cf
+User
+{'HEAD', 'OPTIONS', 'GET'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.get_business_prompt
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+✅ Runner.run() completed in 6029ms
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+📝 Agent final response: 'מחירי החדרים הם:
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+- חדר "דובאי" (עד 15 משתתפים) – 280 ₪ לשעה באמצע שבוע, 320 ₪ בסופי שבוע.
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+- חדר "בר...'
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+🔍 Result type: RunResult
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+🔍 Has new_items: True
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+🔍 new_items value: [MessageOutputItem(agent=Agent(name='booking_agent_שי דירות', handoff_description=None, tools=[FunctionTool(name='calendar_find_slots_wrapped', description='Find available appointment slots for a specific date', params_json_schema={'properties': {'date_iso': {'description': 'Date in ISO format (YYYY-MM-DD) like "2025-11-10"', 'title': 'Date Iso', 'type': 'string'}, 'duration_min': {'default': 60, 'description': 'Duration in minutes (default 60)', 'title': 'Duration Min', 'type': 'integer'}}, 'required': ['date_iso', 'duration_min'], 'title': 'calendar_find_slots_wrapped_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f221456c860>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='calendar_create_appointment_wrapped', description='Create a new appointment in the calendar\n\nCRITICAL: Agent should NEVER ask for phone by voice!\nPhone is automatically captured from call/WhatsApp context.', params_json_schema={'properties': {'treatment_type': {'description': 'Type of treatment (required)', 'title': 'Treatment Type', 'type': 'string'}, 'start_iso': {'description': 'Start time in ISO format (required)', 'title': 'Start Iso', 'type': 'string'}, 'end_iso': {'description': 'End time in ISO format (required)', 'title': 'End Iso', 'type': 'string'}, 'customer_phone': {'default': '', 'description': 'Leave EMPTY - system captures automatically', 'title': 'Customer Phone', 'type': 'string'}, 'customer_name': {'default': '', 'description': 'Customer name (optional)', 'title': 'Customer Name', 'type': 'string'}, 'notes': {'description': 'Additional notes (optional)', 'title': 'Notes', 'type': 'string'}}, 'required': ['treatment_type', 'start_iso', 'end_iso', 'customer_phone', 'customer_name', 'notes'], 'title': 'calendar_create_appointment_wrapped_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f22152f2ac0>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='leads_upsert_wrapped', description='Create or update customer lead', params_json_schema={'properties': {'name': {'description': 'Customer name (required)', 'title': 'Name', 'type': 'string'}, 'phone_e164': {'default': '', 'description': 'Customer phone (optional - uses context if not provided)', 'title': 'Phone E164', 'type': 'string'}, 'notes': {'description': 'Additional notes (optional)', 'title': 'Notes', 'type': 'string'}}, 'required': ['name', 'phone_e164', 'notes'], 'title': 'leads_upsert_wrapped_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f22158de020>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='leads_search', description='Search for leads\n\nFilters:\n- Phone number (E.164 format)\n- Email address\n- Status', params_json_schema={'$defs': {'SearchLeadInput': {'description': 'Input for searching leads', 'properties': {'business_id': {'description': 'Business ID', 'minimum': 1, 'title': 'Business Id', 'type': 'integer'}, 'phone': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Phone number to search', 'title': 'Phone'}, 'email': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Email to search', 'title': 'Email'}, 'status': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Filter by status', 'title': 'Status'}}, 'required': ['business_id', 'phone', 'email', 'status'], 'title': 'SearchLeadInput', 'type': 'object', 'additionalProperties': False}}, 'properties': {'input': {'$ref': '#/$defs/SearchLeadInput'}}, 'required': ['input'], 'title': 'leads_search_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f2215b736a0>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None), FunctionTool(name='whatsapp_send', description='Send WhatsApp message\n\nRecipient (to):\n- If provided: use it\n- If not provided: auto-use customer_phone from context (conversation partner)\n\nProvider logic:\n- Auto: tries Baileys first, falls back to Twilio\n- Baileys: for real-time conversations (24h window)\n- Twilio: for templates and out-of-window messages', params_json_schema={'$defs': {'SendWhatsAppInput': {'description': 'Input for sending WhatsApp message', 'properties': {'to': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Recipient phone in E.164 format (+972...). Leave empty to auto-use customer from context.', 'title': 'To'}, 'message': {'description': 'Message text to send', 'maxLength': 4000, 'minLength': 1, 'title': 'Message', 'type': 'string'}, 'provider': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'description': 'Provider to use (baileys/twilio/auto)', 'title': 'Provider'}}, 'required': ['to', 'message', 'provider'], 'title': 'SendWhatsAppInput', 'type': 'object', 'additionalProperties': False}}, 'properties': {'input': {'$ref': '#/$defs/SendWhatsAppInput'}}, 'required': ['input'], 'title': 'whatsapp_send_args', 'type': 'object', 'additionalProperties': False}, on_invoke_tool=<function function_tool.<locals>._create_function_tool.<locals>._on_invoke_tool at 0x7f2215bbcfe0>, strict_json_schema=True, is_enabled=True, tool_input_guardrails=None, tool_output_guardrails=None)], mcp_servers=[], mcp_config={}, instructions='TODAY: 2025-11-10 21:22 Israel\n\nSTAY ON-TOPIC - BUSINESS ONLY:\n- אתה הנציג העסקי של Vibe Rooms תל אביב, לא בוט כללי.\n- ענה רק על שאלות הקשורות לעסק: שירותים, שעות, מחירים, תורים, מבצעים או זמינות.\n- אם לקוח שואל על נושאים לא רלוונטיים (מתכונים, בדיחות, טריוויה, בישול וכו’) תגיב בנימוס:\n "אני כאן רק לעזור בנושאים שקשורים לעסק. יש משהו שתרצה לדעת עלינו?"\n\n🔥 NEVER CLAIM ACTIONS WITHOUT TOOLS:\n1. אסור להגיד "שלחתי הודעה" או "תקבל אישור" אלא אם קראת לכלי והוא החזיר status=\'sent\'.\n2. אסור להגיד "פנוי" או "תפוס" אלא אם קראת ל-calendar_find_slots.\n3. דוגמאות:\n ❌ לא: "שלחתי אישור בווטסאפ" (בלי whatsapp_send)\n ❌ לא: "השעה פנויה" (בלי calendar_find_slots)\n ✅ כן: קרא whatsapp_send → status=\'sent\' → "שלחתי אישור"\n ✅ כן: קרא calendar_find_slots → יש slots → "כן, פנוי"\n\n---\n\nVibe Rooms תל אביב הוא מתחם קריוקי יוקרתי בצפון תל אביב, ברחוב התערוכה 7, ליד נמל תל אביב.\nבמקום ארבעה חדרים פרטיים בעיצובים שונים לפי ערים בעולם: דובאי, ברצלונה, טוקיו וניו יורק.\nכל חדר מאובזר במערכת סאונד מקצועית, תאורת אווירה, מסך ענק ושירות בר מלא.\nהמקום כשר למהדרין, מציע אוכל ושתייה קלה ואלכוהולית, כולל קוקטיילים, יינות, בירות וויסקי.\nפתוחים ראשון עד חמישי 10:00–02:00, שישי 10:00–18:00.\nתורים נקבעים רק בשעות עגולות (10:00, 11:00, 12:00 וכו׳).\nחובה להזין שם וטלפון לפני קביעת תור.\nאישור נשלח אוטומטית בוואטסאפ לאחר ההזמנה.\n\n💰 מחירים:\n- חדר "דובאי" – עד 15 משתתפים – 280 ₪ לשעה באמצע שבוע, 320 ₪ בסופי שבוע.\n- חדר "ברצלונה" – עד 10 משתתפים – 200 ₪ לשעה באמצע שבוע, 250 ₪ בסופי שבוע.\n- חדר "טוקיו" – עד 12 משתתפים – 230 ₪ לשעה באמצע שבוע, 270 ₪ בסופי שבוע.\n- חדר "ניו יורק" – עד 20 משתתפים – 300 ₪ לשעה באמצע שבוע, 350 ₪ בסופי שבוע.\n- חבילת יום הולדת (90 דקות קריוקי, בלונים, שתייה קלה ופירות) – 450 ₪.\n- חבילת זוגית VIP (יין, קינוחים ושעה בחדר "דובאי") – 400 ₪.\n- כל המחירים כוללים מע"מ, תשלום מראש נדרש לשמירת ההזמנה.\n\n---\n\n💬 כללי שיחה והתנהגות:\n1. דבר בעברית טבעית, קצרה וברורה.\n2. תשובות קצרות בלבד – עד משפט או שניים.\n3. אל תכתוב פסקאות ארוכות או רשימות ארוכות מדי.\n4. אל תשתמש באימוג׳ים, סימנים מיותרים או סלנג.\n5. ענה ישירות, בלי נאומים.\n\n🔥 כללי קביעת תור:\n1. כשלקוח מבקש לקבוע תור, שאל: "לאיזה יום ושעה נוח לך?"\n2. חכה לתשובה לפני כל פעולה.\n3. בדוק זמינות רק לשעה שהלקוח ביקש.\n4. אל תכתוב רשימת שעות פנויות!\n5. אם תפוס, הצע רק 1–2 חלופות קרובות.\n6. אם פנוי, אמור: "כן, השעה פנויה. אפשר לקבוע על השם שלך?"\n7. אל תקבע תור בלי שם וטלפון.\n8. לעולם אל תאשר זמינות בלי לבדוק בפועל.\n\n📞 כללי איסוף פרטים:\n1. חובה שם וטלפון לפני קביעת תור.\n2. אם חסר אחד מהם, שאל בנפרד:\n - "איך לרשום את השם להזמנה?"\n - "ומה מספר הטלפון שלך?"\n3. ודא שהטלפון בפורמט תקין (מתחיל ב-0 או +972).\n4. אם חסר – אל תקבע פגישה עד שיש את שניהם.\n\n🔥 כללי זמינות - חובה!\n1. כשלקוח שואל אם יש פנוי בזמן מסוים:\n - קרא תמיד ל-calendar_find_slots לפני שעונה.\n - אסור לענות "פנוי" או "תפוס" בלי לבדוק.\n2. אסור לנחש! אם לקוח אומר "יש לך פנוי מחר ב-10?":\n ❌ לא: "מצטער, תפוס" בלי לבדוק.\n ✅ כן: קרא ל-calendar_find_slots ליום המבוקש, בדוק ואז ענה.\n3. אם פנוי – אמור "כן, השעה פנויה."\n אם תפוס – אמור "השעה תפוסה, אבל יש פנוי ב..." (שעה אחת חלופית בלבד).\n\n🔥 אחרי קביעת תור - חובה!\n1. קרא ל-leads_upsert כדי לשמור את פרטי הלקוח.\n2. קרא ל-whatsapp_send כדי לשלוח הודעת אישור אמיתית עם פרטי ההזמנה.\n3. רק אחרי ששני הכלים הצליחו (status=\'sent\'), אמור: "שלחתי את האישור עכשיו 😊"\n❌ אסור להגיד "תקבל אישור" בלי whatsapp_send.\n❌ אסור לדלג על leads_upsert.\n✅ נכון: קורא לשני הכלים, מקבל תגובה, ורק אז מאשר ללקוח.\n\n🎯 סיכום:\n- דבר קצר וברור.\n- תענה רק על שאלות על העסק.\n- לעולם אל תענה “פנוי” בלי לבדוק עם calendar_find_slots.\n- לעולם אל תקבע בלי שם וטלפון.\n- אחרי קביעה: leads_upsert → whatsapp_send → אשר ללקוח.\n- שמור על שפה נעימה, אדיבה ועניינית.', prompt=None, handoffs=[], model='gpt-4o-mini', model_settings=ModelSettings(temperature=0.15, top_p=None, frequency_penalty=None, presence_penalty=None, tool_choice='auto', parallel_tool_calls=True, truncation=None, max_tokens=120, reasoning=None, verbosity=None, metadata=None, store=None, include_usage=None, response_include=None, top_logprobs=None, extra_query=None, extra_body=None, extra_headers=None, extra_args=None), input_guardrails=[], output_guardrails=[], output_type=None, hooks=None, tool_use_behavior='run_llm_again', reset_tool_choice=True), raw_item=ResponseOutputMessage(id='msg_0624f0a74590ba110069123bd1af2481a19d8364c0fcd50b2e', content=[ResponseOutputText(annotations=[], text='מחירי החדרים הם:\n\n- חדר "דובאי" (עד 15 משתתפים) – 280 ₪ לשעה באמצע שבוע, 320 ₪ בסופי שבוע.\n- חדר "ברצלונה" (עד 10 משתתפים) – 200 ₪ לשעה באמצע שבוע, 250 ₪ בסופי שבוע.\n- חדר "טוקיו" (עד 12 משתתפים) – 230 ₪ לשעה באמצע שבוע, 270 ₪ בסופי שבוע.\n- חדר "ניו יורק" (עד 20 משתתפים)', type='output_text', logprobs=[])], role='assistant', status='incomplete', type='message'), type='message_output_item')]
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+🔍 new_items length: 1
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+📊 Agent returned 1 items
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+- Item #0: MessageOutputItem
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+⚠️ Agent DID NOT call any tools! (message: 'היי מה מחיר ל חדר קריוקי אצלכם...')
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+🔍 VALIDATION CHECK:
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+claimed_action=False
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+booking_tool_called=False
+2025-11-10 21:24:05.72
+b3ccb2cf
+User
+booking_successful=False
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+🤖 AGENT_RESPONSE: Generated 271 chars in 23.134s (business 1)
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+📊 AI_LATENCY: 23.134s (target: <1.5s)
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+🤖 BOT: מחירי החדרים הם:
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+- חדר "דובאי" (עד 15 משתתפים) – 280 ₪ לשעה באמצע שבוע, 320 ₪ בסופי שבוע.
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+- חדר "ברצלונה" (עד 10 משתתפים) – 200 ₪ לשעה באמצע שבוע, 250 ₪ בסופי שבוע.
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+- חדר "טוקיו" (עד 12 משתתפים) – 230 ₪ לשעה באמצע שבוע, 270 ₪ בסופי שבוע.
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+- חדר "ניו יורק" (עד 20 משתתפים)
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+📊 AI_PROCESSING: 23.162s
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+⚠️ Missing phone_number or business_id for customer intelligence
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+🔒 LONG_RESPONSE (58 words) - BARGE-IN DISABLED
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+🔊 TTS_START: 'מחירי החדרים הם:
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+- חדר "טוקיו" (עד 12 משתתפים) – 230 ₪ לשעה באמצע שבוע, 270 ₪ בסופי שבוע.
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+- חדר "ניו יורק" (עד 20 משתתפים)'
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+- חדר "דובאי" (עד 15 משתתפים) – 280 ₪ לשעה באמצע שבוע, 320 ₪ בסופי שבוע.
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+2025-11-10 21:24:05.79
+b3ccb2cf
+User
+- חדר "דובאי" (עד 15 משתתפים) – ...' (148 chars)
+2025-11-10 21:24:06.33
+b3ccb2cf
+User
+✅ TTS_SUCCESS: 281718 bytes Natural Wavenet (17.6s)
+2025-11-10 21:24:06.33
+b3ccb2cf
+User
+📊 TTS_GENERATION: 0.539s (target: <0.5s)
+2025-11-10 21:24:06.33
+b3ccb2cf
+User
+🔊 TTS_FRAMES: 880 frames (17600ms)
+2025-11-10 21:24:06.38
+b3ccb2cf
+User
+✅ Saved conversation turn to DB: call_log_id=529
+2025-11-10 21:24:08.34
+b3ccb2cf
+User
+⚠️ Send queue full, dropping frame
