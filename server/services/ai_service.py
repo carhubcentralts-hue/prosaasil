@@ -751,7 +751,7 @@ class AIService:
             
             # 🔥 FIX: First attempt with full token budget
             try:
-                print(f"🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=180, timeout=2.2s)")
+                print(f"🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=180, timeout=5.0s)")
                 llm_start = time.time()
                 
                 response = self.client.chat.completions.create(
@@ -762,7 +762,7 @@ class AIService:
                     ],
                     temperature=0.3,
                     max_tokens=180,  # 🔥 FIX: Increased from 80 to 180 for complete answers
-                    timeout=2.2  # 🔥 FIX: Increased from 1.5s to 2.2s
+                    timeout=5.0  # 🔥 PRODUCTION FIX: Increased from 2.2s to 5.0s for reliability
                 )
                 
                 llm_time = (time.time() - llm_start) * 1000
@@ -809,7 +809,7 @@ class AIService:
                     ],
                     temperature=0.3,
                     max_tokens=120,
-                    timeout=1.8
+                    timeout=4.0  # 🔥 PRODUCTION FIX: Increased from 1.8s to 4.0s
                 )
                 # 🔥 ARCHITECT FIX: Apply guard-rail detection to retry path too!
                 answer = response.choices[0].message.content

@@ -128,27 +128,37 @@ def warmup_services_async():
     def _warmup():
         import time  # Import at start of function
         time.sleep(0.5)  # ⚡ Minimal delay - just let Flask finish binding
+        print("🔥🔥🔥 WARMUP STARTING - Preloading all services...")
         log.info("🔥 Starting service warmup...")
         
         # Warmup OpenAI
+        print("  🔥 Warming OpenAI client...")
         client = get_openai_client()
         if client:
+            print("    ✅ OpenAI client ready")
             log.info("WARMUP_OPENAI_OK")
         else:
+            print("    ❌ OpenAI client failed")
             log.warning("WARMUP_OPENAI_ERR")
             
         # Warmup TTS
+        print("  🔥 Warming Google TTS client...")
         client = get_tts_client()
         if client:
+            print("    ✅ TTS client ready")
             log.info("WARMUP_TTS_OK")
         else:
+            print("    ❌ TTS client failed")
             log.warning("WARMUP_TTS_ERR")
             
         # Warmup STT
+        print("  🔥 Warming Google STT client...")
         client = get_stt_client()
         if client:
+            print("    ✅ STT client ready")
             log.info("WARMUP_STT_OK")
         else:
+            print("    ❌ STT client failed")
             log.warning("WARMUP_STT_ERR")
         
         # 🔥 CRITICAL: Warmup Agent Kit to avoid first-call latency
@@ -164,10 +174,11 @@ def warmup_services_async():
                 businesses = Business.query.filter_by(is_active=True).limit(10).all()
                 
                 if not businesses:
+                    print("    ⚠️ No active businesses to warm up")
                     log.warning("WARMUP_AGENT_ERR: No active businesses found")
                 else:
                     log.info(f"🔥 WARMUP: Found {len(businesses)} active businesses to warm up")
-                    print(f"🔥 WARMUP: Heating {len(businesses)} active businesses...")
+                    print(f"  🔥 Warming {len(businesses)} active businesses (Agent Cache)...")
                     
                     total_start = time.time()
                     success_count = 0
@@ -209,13 +220,16 @@ def warmup_services_async():
                                 traceback.print_exc()
                     
                     total_time = (time.time() - total_start) * 1000
-                    print(f"🔥 WARMUP COMPLETE: {success_count}/{len(businesses)*2} agents warmed in {total_time:.0f}ms")
+                    print(f"\n🔥🔥🔥 WARMUP COMPLETE: {success_count}/{len(businesses)*2} agents ready in {total_time:.0f}ms")
+                    print(f"🚀 System preheated - First AI response will be FAST!\n")
                     log.info(f"🔥 WARMUP COMPLETE: {success_count} agents warmed in {total_time:.0f}ms")
         except Exception as e:
+            print(f"    ❌ Agent warmup failed: {e}")
             log.warning(f"WARMUP_AGENT_FAILED: {e}")
             import traceback
             traceback.print_exc()
             
+        print("✅ Service warmup thread completed")
         log.info("🔥 Service warmup completed")
     
     # Start warmup in background thread
