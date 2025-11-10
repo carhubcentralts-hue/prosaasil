@@ -1178,10 +1178,14 @@ class AIService:
             else:
                 print(f"⚠️ Result has NO new_items or new_items is empty!")
             
-            # 🚨 BUILD 138: VALIDATION - Detect "hallucinated bookings"
+            # 🚨 BUILD 138+: VALIDATION - Detect "hallucinated bookings" AND "hallucinated availability"
             # If agent claims action without executing tool, BLOCK response
             claim_words = ["קבעתי", "שלחתי", "יצרתי", "הפגישה נקבעה", "הפגישה קבועה", "סגרתי", "נקבע", "התור נקבע", "התור קבוע"]
             claimed_action = any(word in reply_text for word in claim_words)
+            
+            # 🔥 NEW: Detect "hallucinated availability" (saying "busy/available" without checking)
+            availability_words = ["תפוס", "תפוסה", "פנוי", "פנויה", "יש פנוי", "אין פנוי", "השעה תפוסה"]
+            claimed_availability = any(word in reply_text for word in availability_words)
             
             # Check if calendar_create_appointment was called (with or without _wrapped suffix)
             booking_tool_called = any(
@@ -1189,13 +1193,22 @@ class AIService:
                 for tc in tool_calls_data
             )
             
+            # Check if calendar_find_slots was called
+            check_availability_called = any(
+                tc.get("tool") in ["calendar_find_slots", "calendar_find_slots_wrapped"]
+                for tc in tool_calls_data
+            )
+            
             # 🔥 WORKAROUND: Also check if we detected a successful booking in the output
             # (in case tool name extraction failed but booking actually succeeded)
             print(f"  🔍 VALIDATION CHECK:")
             print(f"     claimed_action={claimed_action}")
+            print(f"     claimed_availability={claimed_availability}")
             print(f"     booking_tool_called={booking_tool_called}")
+            print(f"     check_availability_called={check_availability_called}")
             print(f"     booking_successful={booking_successful}")
             
+            # 🚨 BLOCK 1: Hallucinated booking
             if claimed_action and not booking_tool_called and not booking_successful:
                 print(f"🚨 BLOCKED HALLUCINATED BOOKING!")
                 print(f"   Agent claimed: '{reply_text[:80]}...'")
@@ -1204,6 +1217,17 @@ class AIService:
                 
                 # Override response with corrective message
                 reply_text = "אני עדיין צריך לבדוק זמינות. איזה יום ושעה היית רוצה?"
+                print(f"   ✅ Replaced with: '{reply_text}'")
+            
+            # 🚨 BLOCK 2: Hallucinated availability (NEW!)
+            elif claimed_availability and not check_availability_called:
+                print(f"🚨 BLOCKED HALLUCINATED AVAILABILITY!")
+                print(f"   Agent claimed: '{reply_text[:80]}...'")
+                print(f"   But NO calendar_find_slots was called!")
+                logger.error(f"🚨 Blocked hallucinated availability: agent claimed busy/free without checking")
+                
+                # Override response with corrective message
+                reply_text = "באיזה יום ושעה נוח לך?"
                 print(f"   ✅ Replaced with: '{reply_text}'")
             
             # ✨ Save trace to database
