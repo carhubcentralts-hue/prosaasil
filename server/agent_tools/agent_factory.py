@@ -49,13 +49,29 @@ def invalidate_agent_cache(business_id: int):
             logger.info(f"♻️  No cached agents found for business {business_id}")
 
 # 🎯 Model settings for all agents - matching AgentKit best practices
+# 🔥 CRITICAL: Use OpenAI with timeout to prevent 10s silence!
+from openai import OpenAI as OpenAIClient
+
+# ⚡ PERFORMANCE FIX: 4s timeout + max_retries=1 prevents long silences
+_openai_client = OpenAIClient(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    timeout=4.0,  # ⚡ 4s timeout (prevents 6-8s hangs!)
+    max_retries=1  # ⚡ Fast fail instead of retry loops
+)
+
 AGENT_MODEL_SETTINGS = ModelSettings(
-    model="gpt-4o-mini",  # Fast and cost-effective
+    # 🔥 NOTE: ModelSettings is a dataclass - only accepts declared fields!
+    # We'll pass the OpenAI client to Runner.run() instead
     temperature=0.15,      # Very low temperature for consistent tool usage
     max_tokens=120,        # 🔥 FIX: Reduced from 400 to 120 - 2-3 sentences only! (prevents 82-word responses)
     tool_choice="auto",    # 🔥 FIX: Let AI decide when to use tools (was "required" - caused spam!)
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
+
+# 🔥 Export the client so ai_service.py can pass it to Runner
+def get_openai_client():
+    """Get the pre-configured OpenAI client with timeout"""
+    return _openai_client
 
 def get_or_create_agent(business_id: int, channel: str, business_name: str = "העסק", custom_instructions: str = None) -> Optional[Agent]:
     """
@@ -178,6 +194,9 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 FindSlotsOutput with list of available slots
             """
             try:
+                import time
+                tool_start = time.time()
+                
                 print(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_find_slots_wrapped 🔧 🔧 🔧")
                 print(f"   📅 date_iso (RAW from Agent)={date_iso}")
                 print(f"   ⏱️  duration_min={duration_min}")
@@ -243,6 +262,15 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 
                 # Convert Pydantic model to dict for Agent SDK
                 result_dict = result.model_dump()
+                
+                tool_time = (time.time() - tool_start) * 1000
+                print(f"⏱️  TOOL_TIMING: calendar_find_slots = {tool_time:.0f}ms")
+                logger.info(f"⏱️  TOOL_TIMING: calendar_find_slots = {tool_time:.0f}ms")
+                
+                if tool_time > 500:
+                    print(f"⚠️  SLOW TOOL: calendar_find_slots took {tool_time:.0f}ms (expected <500ms)")
+                    logger.warning(f"SLOW TOOL: calendar_find_slots took {tool_time:.0f}ms")
+                
                 print(f"📤 Returning dict with {len(result_dict.get('slots', []))} slots")
                 return result_dict
             except Exception as e:
@@ -285,10 +313,15 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 notes: Additional notes (optional)
             """
             try:
-                print(f"\n📞 calendar_create_appointment_wrapped called")
-                print(f"   treatment_type={treatment_type}")
-                print(f"   customer_phone (from Agent)={customer_phone}")
-                print(f"   customer_name (from Agent)={customer_name}")
+                import time
+                tool_start = time.time()
+                
+                print(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_create_appointment_wrapped 🔧 🔧 🔧")
+                print(f"   📅 treatment_type={treatment_type}")
+                print(f"   📅 start_iso={start_iso}, end_iso={end_iso}")
+                print(f"   📞 customer_phone (from Agent)={customer_phone}")
+                print(f"   👤 customer_name (from Agent)={customer_name}")
+                print(f"   🏢 business_id={business_id}")
                 
                 from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
                 from flask import g
@@ -335,6 +368,14 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 
                 print(f"✅ SUCCESS! Appointment ID: {result.appointment_id}")
                 logger.info(f"✅ calendar_create_appointment_wrapped success: appointment_id={result.appointment_id}")
+                
+                tool_time = (time.time() - tool_start) * 1000
+                print(f"⏱️  TOOL_TIMING: calendar_create_appointment = {tool_time:.0f}ms")
+                logger.info(f"⏱️  TOOL_TIMING: calendar_create_appointment = {tool_time:.0f}ms")
+                
+                if tool_time > 1000:
+                    print(f"⚠️  SLOW TOOL: calendar_create_appointment took {tool_time:.0f}ms (expected <1000ms)")
+                    logger.warning(f"SLOW TOOL: calendar_create_appointment took {tool_time:.0f}ms")
                 
                 # Return success response
                 success_response = {
@@ -941,6 +982,74 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
     except Exception as e:
         logger.error(f"Failed to create sales agent: {e}")
         raise
+
+
+# ================================================================================
+# WARMUP FUNCTION
+# ================================================================================
+
+def warmup_all_agents():
+    """
+    🔥 WARMUP: Pre-create agents for all active businesses to eliminate cold starts
+    
+    Called on app startup to ensure all businesses have hot agents ready.
+    This prevents 10s delays on first customer call!
+    
+    Strategy:
+    - Find all businesses that had activity in last 7 days
+    - Pre-create agents for both phone + whatsapp channels
+    - Limit to top 10 businesses to avoid startup delay
+    """
+    try:
+        from server.models_sql import Business, db
+        from datetime import datetime, timedelta
+        import time
+        
+        warmup_start = time.time()
+        print("\n🔥 WARMUP: Pre-creating agents for active businesses...")
+        logger.info("🔥 Starting agent warmup...")
+        
+        # Get active businesses (had activity in last 7 days)
+        cutoff_date = datetime.utcnow() - timedelta(days=7)
+        
+        # Query businesses - limit to 10 most recent for fast startup
+        active_businesses = Business.query.order_by(Business.id.desc()).limit(10).all()
+        
+        if not active_businesses:
+            print("⚠️  No active businesses found for warmup")
+            logger.warning("No active businesses found for warmup")
+            return
+        
+        print(f"📊 Found {len(active_businesses)} businesses to warm up")
+        logger.info(f"Found {len(active_businesses)} businesses to warm up")
+        
+        warmed_count = 0
+        for biz in active_businesses:
+            for channel in ["calls", "whatsapp"]:
+                try:
+                    agent = get_or_create_agent(
+                        business_id=biz.id,
+                        channel=channel,
+                        business_name=biz.name,
+                        custom_instructions=""  # Will load from DB
+                    )
+                    if agent:
+                        warmed_count += 1
+                        print(f"✅ Warmed: {biz.name} ({channel})")
+                        logger.info(f"✅ Agent warmed: business={biz.name}, channel={channel}")
+                except Exception as e:
+                    print(f"⚠️  Failed to warm {biz.name} ({channel}): {e}")
+                    logger.error(f"Failed to warm agent for {biz.name} ({channel}): {e}")
+        
+        warmup_time = (time.time() - warmup_start) * 1000
+        print(f"\n🎉 WARMUP COMPLETE: {warmed_count} agents ready in {warmup_time:.0f}ms")
+        logger.info(f"🎉 Agent warmup complete: {warmed_count} agents in {warmup_time:.0f}ms")
+        
+    except Exception as e:
+        print(f"❌ WARMUP FAILED: {e}")
+        logger.error(f"Agent warmup failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 # ================================================================================

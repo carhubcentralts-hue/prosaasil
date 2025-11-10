@@ -797,6 +797,33 @@ def create_app():
         print(f"Traceback: {tb.format_exc()}")
         print("="*80)
     
+    # 🔥 WARMUP: Pre-create agents to eliminate cold starts!
+    # This runs AFTER app creation but BEFORE first request
+    try:
+        print("\n🔥 Starting agent warmup...")
+        from server.agent_tools.agent_factory import warmup_all_agents
+        
+        # 🔥 CRITICAL FIX: Run warmup WITH app context!
+        # SQLAlchemy queries need app context to access db
+        def warmup_with_context():
+            with app.app_context():
+                try:
+                    warmup_all_agents()
+                except Exception as e:
+                    print(f"❌ Warmup failed inside context: {e}")
+                    import traceback
+                    traceback.print_exc()
+        
+        # Run warmup in background thread to not block app startup
+        import threading
+        warmup_thread = threading.Thread(target=warmup_with_context, daemon=True)
+        warmup_thread.start()
+        print("✅ Agent warmup started in background thread (with app context)")
+    except Exception as e:
+        print(f"⚠️  Agent warmup setup failed (non-critical): {e}")
+        import traceback
+        traceback.print_exc()
+    
     # 🔥 CRITICAL: Set singleton so future calls to get_process_app() reuse this instance
     global _app_singleton
     with _app_lock:

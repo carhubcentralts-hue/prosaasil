@@ -141,10 +141,14 @@ def _create_dispatcher_callbacks(call_sid: str):
     def on_partial(text: str):
         utt = _get_utterance_state(call_sid)
         if utt:
-            # ⚡ BUILD 112: Save last partial as backup and log it
+            # 🔥 CRITICAL FIX: Save LONGEST partial only! Google STT sometimes sends shorter corrections
             with _registry_lock:
-                utt["last_partial"] = text
-            if DEBUG: print(f"🟡 [PARTIAL] '{text}' saved for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
+                current_best = utt.get("last_partial", "")
+                if len(text) > len(current_best):
+                    utt["last_partial"] = text
+                    if DEBUG: print(f"🟡 [PARTIAL] BEST updated: '{text}' ({len(text)} chars) for {call_sid[:8]}...")
+                else:
+                    if DEBUG: print(f"🟡 [PARTIAL] IGNORED (shorter): '{text}' ({len(text)} chars) vs '{current_best}' ({len(current_best)} chars)")
             
             # ⚡ BUILD 114: Early Finalization - if partial is strong enough, trigger final AND continue
             # This saves 400-600ms by triggering final event early
