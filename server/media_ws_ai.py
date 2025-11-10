@@ -1487,35 +1487,116 @@ class MediaStreamHandler:
             
             # ⏱️ TTS timing instrumentation
             tts_start = time.time()
-            tts_audio = self._hebrew_tts(text)
-            tts_generation_time = time.time() - tts_start
-            print(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s (target: <0.5s)")
+            first_chunk_time = None
+            total_tts_bytes = 0
             
-            if tts_audio and len(tts_audio) > 1000:
-                print(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
-                send_start = time.time()
-                self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
-                send_time = time.time() - send_start
-                print(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission)")
+            # 🚀 Try STREAMING TTS first (fast!)
+            try:
+                from server.services.gcp_tts_live import get_hebrew_tts, maybe_warmup
                 
-                # ⚡ BUILD 114: Detailed latency breakdown (EOU→first audio sent)
-                if eou_saved:
-                    turn_latency = send_start - eou_saved
-                    total_latency = time.time() - eou_saved
-                    stt_time = getattr(self, 'last_stt_time', 0.0)
-                    ai_time = getattr(self, 'last_ai_time', 0.0)
+                # ⚡ Pre-warm TTS
+                maybe_warmup()
+                
+                tts_service = get_hebrew_tts()
+                streaming_chunks = tts_service.synthesize_hebrew_pcm16_8k_streaming(text)
+                
+                # CLEAR before first chunk
+                if self.stream_sid:
+                    self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+                
+                # Stream chunks immediately as they arrive!
+                chunk_count = 0
+                for audio_chunk in streaming_chunks:
+                    if audio_chunk and len(audio_chunk) > 0:
+                        chunk_count += 1
+                        total_tts_bytes += len(audio_chunk)
+                        
+                        # Mark first chunk timing
+                        if chunk_count == 1:
+                            first_chunk_time = time.time() - tts_start
+                            print(f"⚡ FIRST_AUDIO_CHUNK: {first_chunk_time:.3f}s (STREAMING!)")
+                            
+                            # Calculate turn latency (EOU→first audio)
+                            if eou_saved:
+                                turn_latency = time.time() - eou_saved
+                                stt_time = getattr(self, 'last_stt_time', 0.0)
+                                ai_time = getattr(self, 'last_ai_time', 0.0)
+                                print(f"📊 🎯 TURN_LATENCY: {turn_latency:.3f}s (EOU→first audio, target: <1.5s)")
+                        
+                        # Send chunk immediately!
+                        self._send_pcm16_chunk_streaming(audio_chunk)
+                
+                tts_generation_time = time.time() - tts_start
+                
+                # Send mark at end (only if we got chunks)
+                if self.stream_sid and chunk_count > 0:
+                    # ✅ Use same mark name as blocking mode for consistency
+                    self.mark_pending = True
+                    self.mark_sent_ts = time.time()
+                    mark_payload = {"event": "mark", "streamSid": self.stream_sid, "mark": {"name": "assistant_tts_end"}}
+                    self._ws_send(json.dumps(mark_payload))
+                    print("🎯 TTS_MARK_SENT: assistant_tts_end (streaming)")
                     
-                    print(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
-                    print(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
-                    print(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
+                    if first_chunk_time is not None:
+                        print(f"✅ STREAMING_TTS_COMPLETE: {chunk_count} chunks, {total_tts_bytes} bytes in {tts_generation_time:.3f}s (first: {first_chunk_time:.3f}s)")
+                    else:
+                        print(f"✅ STREAMING_TTS_COMPLETE: {chunk_count} chunks, {total_tts_bytes} bytes in {tts_generation_time:.3f}s")
                     
-                    # נקה למדידה הבאה
-                    if hasattr(self, 'eou_timestamp'):
-                        delattr(self, 'eou_timestamp')
-            else:
-                print("🔊 TTS FAILED - sending beep")
-                self._send_beep(800)
-                self._finalize_speaking()
+                    # Final latency breakdown
+                    if eou_saved:
+                        total_latency = time.time() - eou_saved
+                        stt_time = getattr(self, 'last_stt_time', 0.0)
+                        ai_time = getattr(self, 'last_ai_time', 0.0)
+                        
+                        print(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio complete, target: <2.0s)")
+                        print(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
+                        
+                        # Clear for next measurement
+                        if hasattr(self, 'eou_timestamp'):
+                            delattr(self, 'eou_timestamp')
+                    
+                    # ✅ CRITICAL: Finalize speaking state to return to LISTEN!
+                    self._finalize_speaking()
+                    print("✅ STREAMING_TTS_COMPLETE -> LISTEN STATE")
+                    
+                elif chunk_count == 0:
+                    # No chunks received - fall back
+                    print("⚠️ Streaming TTS returned 0 chunks, falling back to blocking mode")
+                    raise Exception("No audio chunks received from streaming TTS")
+                        
+            except Exception as streaming_error:
+                # 🔄 FALLBACK to blocking TTS if streaming fails
+                print(f"⚠️ Streaming TTS failed ({streaming_error}), falling back to blocking mode...")
+                
+                tts_audio = self._hebrew_tts(text)
+                tts_generation_time = time.time() - tts_start
+                print(f"📊 TTS_GENERATION (blocking): {tts_generation_time:.3f}s")
+                
+                if tts_audio and len(tts_audio) > 1000:
+                    print(f"🔊 TTS SUCCESS (blocking): {len(tts_audio)} bytes")
+                    send_start = time.time()
+                    self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
+                    send_time = time.time() - send_start
+                    print(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission)")
+                    
+                    # ⚡ BUILD 114: Detailed latency breakdown (EOU→first audio sent)
+                    if eou_saved:
+                        turn_latency = send_start - eou_saved
+                        total_latency = time.time() - eou_saved
+                        stt_time = getattr(self, 'last_stt_time', 0.0)
+                        ai_time = getattr(self, 'last_ai_time', 0.0)
+                        
+                        print(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
+                        print(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
+                        print(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
+                        
+                        # Clear for next measurement
+                        if hasattr(self, 'eou_timestamp'):
+                            delattr(self, 'eou_timestamp')
+                else:
+                    print("🔊 TTS FAILED - sending beep")
+                    self._send_beep(800)
+                    self._finalize_speaking()
         except Exception as e:
             print(f"❌ TTS_ERROR: {e}")
             import traceback
@@ -1626,6 +1707,37 @@ class MediaStreamHandler:
         # הבעיה: המערכת נשארה ב-STATE_SPEAK אחרי ברכה ולא חזרה להאזנה
         self._finalize_speaking()
         print("✅ GREETING_COMPLETE -> LISTEN STATE")
+    
+    def _send_pcm16_chunk_streaming(self, pcm16_chunk: bytes):
+        """
+        🚀 Send PCM16 audio chunk immediately for STREAMING TTS
+        Called in tight loop - must be FAST!
+        """
+        if not self.stream_sid or not pcm16_chunk:
+            return
+        
+        # Convert PCM16 to μ-law
+        mulaw = audioop.lin2ulaw(pcm16_chunk, 2)
+        FR = 160  # 20ms @ 8kHz
+        
+        # Send frames immediately (no buffering!)
+        for i in range(0, len(mulaw), FR):
+            # Check barge-in (only if not protected)
+            if not self.speaking:
+                return
+            
+            # Send frame
+            frame = mulaw[i:i+FR].ljust(FR, b'\x00')
+            payload = base64.b64encode(frame).decode()
+            self._ws_send(json.dumps({
+                "event": "media",
+                "streamSid": self.stream_sid,
+                "media": {"payload": payload}
+            }))
+            
+            # Cooperative yield every 5 frames (100ms)
+            if (i // FR) % 5 == 0:
+                time.sleep(0)
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
         """שליחת אודיו עם יכולת עצירה באמצע (BARGE-IN) - גרסה ישנה"""
