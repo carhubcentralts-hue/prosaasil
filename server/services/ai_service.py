@@ -753,9 +753,8 @@ class AIService:
             print(f"📊 FAQ: Extracted {len(faq_facts)} chars of facts")
             print(f"📝 FAQ: Facts preview: {faq_facts[:200]}...")
             
-            # 🔥 CRITICAL FIX: Direct factual system prompt - NO guard-rails!
-            faq_system = f"""ענה על שאלת הלקוח על {business_name} בעברית, 2-3 משפטים.
-השתמש במידע המדויק מהנתונים."""
+            # 🔥 CRITICAL FIX: ULTRA-MINIMAL prompt - just answer the question!
+            faq_system = f"""השב על השאלה בעברית בקצרה (2-3 משפטים) על בסיס המידע שניתן."""
             
             # 🔥 FIX: First attempt with full token budget
             try:
@@ -766,9 +765,9 @@ class AIService:
                     model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": faq_system},
-                        {"role": "user", "content": f"נתוני עסק:\n{faq_facts}\n\nשאלת לקוח: {question}"}
+                        {"role": "user", "content": f"מידע:\n{faq_facts}\n\nשאלה: {question}"}
                     ],
-                    temperature=0.3,
+                    temperature=0.2,  # ⚡ Lower temperature for more factual responses
                     max_tokens=150,  # ⚡ SPEED: Reduced from 180 to 150 for faster FAQ responses
                     timeout=3.5  # ⚡ SPEED: Reduced from 5.0s to 3.5s for faster FAQ
                 )
@@ -813,9 +812,9 @@ class AIService:
                     model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": faq_system},
-                        {"role": "user", "content": f"נתונים: {faq_facts[:1500]}\n\nשאלה: {question}"}
+                        {"role": "user", "content": f"מידע: {faq_facts[:1500]}\n\nשאלה: {question}"}
                     ],
-                    temperature=0.3,
+                    temperature=0.2,  # Lower for factual
                     max_tokens=120,
                     timeout=4.0  # 🔥 PRODUCTION FIX: Increased from 1.8s to 4.0s
                 )
