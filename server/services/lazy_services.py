@@ -154,33 +154,50 @@ def warmup_services_async():
         try:
             from server.app_factory import get_process_app
             from server.agent_tools.agent_factory import get_or_create_agent
-            from server.policy.business_policy import get_business_prompt
+            from server.models import Business, BusinessSettings
             
             # 🔥 ARCHITECT FIX: Need app context for database operations!
             app = get_process_app()
             with app.app_context():
-                # Warmup business 1 for both channels
-                for channel in ['calls', 'whatsapp']:
-                    try:
-                        # Get prompt (will cache it)
-                        prompt_result = get_business_prompt(1, channel)
-                        custom_instructions = prompt_result.get('system_prompt') if prompt_result else None
-                        
-                        # Create agent (will cache it)
-                        agent = get_or_create_agent(
-                            business_id=1,
-                            channel=channel,
-                            business_name="Vibe Rooms",
-                            custom_instructions=custom_instructions
-                        )
-                        if agent:
-                            log.info(f"WARMUP_AGENT_OK: business=1, channel={channel}")
-                        else:
-                            log.warning(f"WARMUP_AGENT_ERR: business=1, channel={channel} - agent is None")
-                    except Exception as e:
-                        log.warning(f"WARMUP_AGENT_ERR: business=1, channel={channel} - {e}")
-                        import traceback
-                        traceback.print_exc()
+                # Load business data from DB
+                business = Business.query.get(1)
+                if not business:
+                    log.warning("WARMUP_AGENT_ERR: Business ID 1 not found")
+                else:
+                    business_name = business.name
+                    
+                    # Warmup business 1 for both channels
+                    for channel in ['calls', 'whatsapp']:
+                        try:
+                            # Get prompt from database
+                            settings = BusinessSettings.query.filter_by(tenant_id=1).first()
+                            if settings and settings.ai_prompt:
+                                import json
+                                prompts = json.loads(settings.ai_prompt)
+                                custom_instructions = prompts.get(channel, prompts.get('calls', ''))
+                            else:
+                                custom_instructions = None
+                            
+                            # Create agent (will cache it)
+                            import time
+                            warmup_start = time.time()
+                            agent = get_or_create_agent(
+                                business_id=1,
+                                channel=channel,
+                                business_name=business_name,
+                                custom_instructions=custom_instructions
+                            )
+                            warmup_time = (time.time() - warmup_start) * 1000
+                            
+                            if agent:
+                                log.info(f"WARMUP_AGENT_OK: business=1, channel={channel} ({warmup_time:.0f}ms)")
+                                print(f"🔥 WARMUP_AGENT_OK: business=1, channel={channel} ({warmup_time:.0f}ms)")
+                            else:
+                                log.warning(f"WARMUP_AGENT_ERR: business=1, channel={channel} - agent is None")
+                        except Exception as e:
+                            log.warning(f"WARMUP_AGENT_ERR: business=1, channel={channel} - {e}")
+                            import traceback
+                            traceback.print_exc()
         except Exception as e:
             log.warning(f"WARMUP_AGENT_FAILED: {e}")
             import traceback
