@@ -62,13 +62,28 @@ def whatsapp_send(input: SendWhatsAppInput) -> SendWhatsAppOutput:
                 if recipient_phone:
                     logger.info(f"✅ whatsapp_send: Auto-detected recipient from context: {recipient_phone}")
         
-        if not recipient_phone:
-            logger.error("❌ whatsapp_send: No recipient phone provided and none in context")
+        if not recipient_phone or recipient_phone == 'None':
+            logger.error(f"❌ whatsapp_send: No valid recipient phone (got: {recipient_phone})")
             return SendWhatsAppOutput(
                 status='error',
                 provider='unknown',
                 error='No recipient phone number provided'
             )
+        
+        # 🔥 CRITICAL FIX: Normalize phone to E.164 format!
+        from server.agent_tools.phone_utils import normalize_il_phone
+        normalized_phone = normalize_il_phone(recipient_phone)
+        
+        if not normalized_phone:
+            logger.error(f"❌ whatsapp_send: Invalid phone format: {recipient_phone}")
+            return SendWhatsAppOutput(
+                status='error',
+                provider='unknown',
+                error=f'Invalid phone number format: {recipient_phone}'
+            )
+        
+        logger.info(f"✅ Phone normalized: {recipient_phone} → {normalized_phone}")
+        recipient_phone = normalized_phone
         
         # Get WhatsApp service with smart routing
         wa_service = get_whatsapp_service(provider=input.provider)

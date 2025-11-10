@@ -2331,12 +2331,34 @@ class MediaStreamHandler:
         """
         print(f"📞 Processing DTMF phone: {phone_number}")
         
-        # Format as Israeli phone number if needed
-        if not phone_number.startswith("+") and not phone_number.startswith("0"):
-            phone_number = "0" + phone_number
+        # 🔥 CRITICAL FIX: Normalize phone to E.164 format!
+        from server.agent_tools.phone_utils import normalize_il_phone
+        
+        # Normalize to E.164 (+972...)
+        normalized_phone = normalize_il_phone(phone_number)
+        
+        if not normalized_phone:
+            # If normalization failed, try adding 0 prefix
+            if not phone_number.startswith("0"):
+                phone_number = "0" + phone_number
+                normalized_phone = normalize_il_phone(phone_number)
+        
+        if normalized_phone:
+            print(f"✅ Phone normalized: {phone_number} → {normalized_phone}")
+            
+            # 🔥 CRITICAL: Store normalized phone in context for WhatsApp send!
+            from flask import g
+            if hasattr(g, 'agent_context'):
+                g.agent_context['customer_phone'] = normalized_phone
+                print(f"✅ Stored customer_phone in context: {normalized_phone}")
+            
+            phone_to_show = normalized_phone
+        else:
+            print(f"⚠️ Phone normalization failed for: {phone_number}")
+            phone_to_show = phone_number
         
         # Create Hebrew text as if customer said it
-        hebrew_text = phone_number  # Just the digits
+        hebrew_text = phone_to_show  # Just the digits (normalized)
         
         # Get AI response (Agent will process the phone)
         ai_response = self._ai_response(hebrew_text)
@@ -2347,11 +2369,11 @@ class MediaStreamHandler:
             
             # Save to conversation history
             self.conversation_history.append({
-                "user": f"[DTMF] {phone_number}",
+                "user": f"[DTMF] {phone_to_show}",
                 "bot": ai_response
             })
         
-        print(f"✅ DTMF phone processed: {phone_number}")
+        print(f"✅ DTMF phone processed: {phone_to_show}")
     
     def _ai_response(self, hebrew_text: str) -> str:
         """Generate NATURAL Hebrew AI response using AgentKit - REAL ACTIONS!"""

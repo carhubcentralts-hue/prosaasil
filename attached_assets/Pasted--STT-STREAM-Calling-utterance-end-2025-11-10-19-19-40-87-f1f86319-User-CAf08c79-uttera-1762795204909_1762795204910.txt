@@ -1,0 +1,109 @@
+⏱️ [STT_STREAM] Calling _utterance_end...
+2025-11-10 19:19:40.87
+f1f86319
+User
+🎤 [CAf08c79] _utterance_end: Collecting results for utterance c32f9062 (timeout=0.85s)
+2025-11-10 19:19:40.87
+f1f86319
+User
+✅ [CAf08c79] Got final event in 0.000s
+2025-11-10 19:19:40.87
+f1f86319
+User
+✅ [CAf08c79] Using partial: 'מה מחיר ל חדר...' (13 chars)
+2025-11-10 19:19:40.87
+f1f86319
+User
+2025-11-10 19:19:40.87
+f1f86319
+User
+🏁 [CAf08c79] Utterance c32f9062 COMPLETE: returning 'מה מחיר ל חדר'
+2025-11-10 19:19:40.87
+f1f86319
+User
+[LATENCY] final_wait=0.00s, utterance_total=0.00s
+2025-11-10 19:19:40.87
+f1f86319
+User
+⏱️ [STT_STREAM] _utterance_end took 0.000s, result: 'מה מחיר ל חדר'
+2025-11-10 19:19:40.87
+f1f86319
+User
+🎤 USER: מה מחיר ל חדר
+2025-11-10 19:19:40.87
+f1f86319
+User
+📊 ASR_LATENCY: 0.001s (target: <0.7s)
+2025-11-10 19:19:40.88
+f1f86319
+User
+📞 DEBUG: Caller phone = 'None' (type: NoneType)
+2025-11-10 19:19:40.88
+f1f86319
+User
+self.phone_number exists: True
+2025-11-10 19:19:40.88
+f1f86319
+User
+self.phone_number value: 'None'
+2025-11-10 19:19:40.88
+f1f86319
+User
+🎯 AGENTS_ENABLED = True
+2025-11-10 19:19:40.88
+f1f86319
+User
+🎯 INTENT_DETECTED: info (message: מה מחיר ל חדר...)
+2025-11-10 19:19:40.88
+f1f86319
+User
+🚀 FAST_PATH: Handling info without AgentKit
+2025-11-10 19:19:42.98
+f1f86319
+User
+⚡ FAST_PATH_LATENCY: 2096ms (intent=info)
+2025-11-10 19:19:43.01
+f1f86319
+User
+🤖 AGENT_RESPONSE: Generated 64 chars in 2.138s (business 1)
+2025-11-10 19:19:43.01
+f1f86319
+User
+📊 AI_LATENCY: 2.138s (target: <1.5s)
+2025-11-10 19:19:43.01
+f1f86319
+User
+🤖 BOT: אני כאן רק לעזור בנושאים שקשורים לעסק. יש משהו שתרצה לדעת עלינו?
+2025-11-10 19:19:43.01
+f1f86319
+User
+📊 AI_PROCESSING: 2.138s
+2025-11-10 19:19:43.01
+f1f86319
+User
+⚠️ Missing phone_number or business_id for customer intelligence
+2025-11-10 19:19:43.01
+f1f86319
+User
+🔓 SHORT_RESPONSE (12 words) - BARGE-IN ENABLED
+2025-11-10 19:19:43.01
+f1f86319
+User
+🔊 TTS_START: 'אני כאן רק לעזור בנושאים שקשורים לעסק. יש משהו שתרצה לדעת עלינו?'
+
+2025-11-10 19:19:43.01
+f1f86319
+User
+🔊 TTS_START: Generating Natural Hebrew TTS for 'אני כאן רק לעזור בנושאים שקשורים לעסק. יש משהו שתר...' (64 chars)
+2025-11-10 19:19:43.01
+f1f86319
+User
+✅ Punctuation polished: 'אני כאן רק לעזור בנושאים שקשורים לעסק. י...'
+2025-11-10 19:19:43.01
+f1f86319
+User
+✅ TTS_SUCCESS: 90328 bytes Natural Wavenet (5.6s)
+2025-11-10 19:19:43.01
+f1f86319
+User
+📊 TTS_GENERATION: 0.000s (target: <0.5s)

@@ -642,23 +642,89 @@ class AIService:
             # Return None to signal fallback to AgentKit
             return None
     
+    def _extract_faq_facts(self, full_prompt: str) -> str:
+        """
+        🔥 ARCHITECT-REVIEWED FIX (Phase 2O): Extract ONLY factual sections from prompt
+        Strips guard-rails (🔥 STAY ON-TOPIC) and keeps pricing/hours/location data
+        
+        Strategy: Split on emoji section headers and extract relevant facts
+        """
+        try:
+            import re
+            
+            # Extract sections by emoji markers
+            factual_sections = []
+            
+            # Pricing section (💰)
+            pricing_match = re.search(r'💰\s*מחירים:.*?(?=\n\n|$)', full_prompt, re.DOTALL)
+            if pricing_match:
+                factual_sections.append(pricing_match.group(0))
+            
+            # Hours/schedule (⏰, 🕒, or text like "פתוחים")
+            hours_match = re.search(r'(פתוחים.*?(?=\n\n|$))', full_prompt, re.DOTALL | re.IGNORECASE)
+            if hours_match:
+                factual_sections.append(hours_match.group(0))
+            
+            # Location (ממוקם, מיקום, כתובת, רחוב)
+            location_match = re.search(r'(ממוקם|מיקום|כתובת|רחוב התערוכה).*?(?=\n\n|$)', full_prompt, re.DOTALL)
+            if location_match:
+                factual_sections.append(location_match.group(0))
+            
+            # Description sections (Vibe Rooms, מתחם, העסק)
+            # Extract business description (usually at start or after dashes)
+            desc_match = re.search(r'(Vibe Rooms|מתחם קריוקי|העסק).*?(?=\n🔥|💬|$)', full_prompt, re.DOTALL)
+            if desc_match:
+                desc = desc_match.group(0)
+                # Only take first 500 chars of description
+                factual_sections.append(desc[:500])
+            
+            if factual_sections:
+                logger.info(f"✅ FAQ: Extracted {len(factual_sections)} factual sections")
+                return "\n\n".join(factual_sections)
+            else:
+                # Fallback: return prompt without guard-rails
+                # Remove lines starting with 🔥, ❌, ✅ and behavior rules
+                clean_lines = []
+                for line in full_prompt.split("\n"):
+                    stripped = line.strip()
+                    if (not stripped.startswith("🔥") and
+                        not stripped.startswith("❌") and
+                        not stripped.startswith("✅") and
+                        "STAY ON-TOPIC" not in line and
+                        "NEVER CLAIM" not in line and
+                        "כללי קביעת תור" not in line):
+                        clean_lines.append(line)
+                
+                clean_prompt = "\n".join(clean_lines)
+                logger.info(f"⚠️ FAQ: No emoji sections found, using cleaned prompt ({len(clean_prompt)} chars)")
+                return clean_prompt[:2000]  # Limit size
+                
+        except Exception as e:
+            logger.error(f"FAQ fact extraction failed: {e}")
+            # Fallback: return shortened prompt
+            return full_prompt[:1500]
+    
     def _get_faq_response(self, question: str, system_prompt: str, business_name: str) -> Optional[str]:
         """
         🚀 Fast FAQ using optimized LLM call
-        Target: ~1.0-1.5s with FULL prompt context
+        Target: ~1.0-1.5s with FACTUAL prompt context (no guard-rails)
         
-        🔥 ARCHITECT-REVIEWED FIX:
-        - Use FULL prompt (up to 3000 chars) not just 800
+        🔥 ARCHITECT-REVIEWED FIX (Phase 2O):
+        - Extract ONLY factual sections (pricing/hours/location) - NO guard-rails!
+        - Use FULL factual context (up to 3000 chars)
         - Increase max_tokens: 80 → 180 for complete Hebrew answers
         - Increase timeout: 1.5s → 2.2s for reliability
         - Add retry logic for robustness
         """
         try:
-            # 🔥 FIX: Use FULL prompt context (up to 3000 chars)
-            faq_context = system_prompt[:3000] if system_prompt else "מתחם קריוקי"
+            # 🔥 CRITICAL FIX: Extract ONLY factual data, strip guard-rails!
+            faq_facts = self._extract_faq_facts(system_prompt) if system_prompt else "מידע עסקי"
             
-            # Clear system prompt with business identity
-            faq_system = f"אתה {business_name}. ענה בקצרה (2-3 משפטים) על שאלות מידע בעברית. השתמש במידע המדויק מהפרומפט."
+            # Clear system prompt that EXPLICITLY allows business questions
+            faq_system = f"""אתה {business_name}. ענה על שאלות מידע על העסק בעברית בקצרה (2-3 משפטים).
+
+🔥 CRITICAL: שאלות על מחירים, שעות פתיחה, מיקום הן שאלות עסקיות לגיטימיות - ענה עליהן!
+השתמש במידע המדויק מהנתונים שקיבלת."""
             
             # 🔥 FIX: First attempt with full token budget
             try:
@@ -666,7 +732,7 @@ class AIService:
                     model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": faq_system},
-                        {"role": "user", "content": f"מידע: {faq_context}\n\nשאלה: {question}"}
+                        {"role": "user", "content": f"נתוני עסק:\n{faq_facts}\n\nשאלת לקוח: {question}"}
                     ],
                     temperature=0.3,
                     max_tokens=180,  # 🔥 FIX: Increased from 80 to 180 for complete answers
@@ -677,13 +743,25 @@ class AIService:
                 answer = response.choices[0].message.content
                 if answer:
                     answer = answer.strip()
+                else:
+                    answer = ""
                 
-                # Validate answer is not generic/empty
-                if answer and len(answer) > 10 and "אשמח לעזור" not in answer:
+                # 🔥 ARCHITECT-REVIEWED: Detect guard-rail responses and reject them
+                guard_rail_phrases = [
+                    "אני כאן רק לעזור",
+                    "שאלות שקשורות לעסק",
+                    "לא יכול לעזור",
+                    "לא קשור לעסק"
+                ]
+                is_guard_rail = any(phrase in answer for phrase in guard_rail_phrases) if answer else False
+                
+                # Validate answer is not generic/empty/guard-rail
+                if answer and len(answer) > 10 and "אשמח לעזור" not in answer and not is_guard_rail:
+                    logger.info(f"✅ FAQ success: {answer[:50]}...")
                     return answer
                 else:
-                    logger.warning(f"FAQ gave generic answer: {answer}")
-                    raise ValueError("Generic answer - retry needed")
+                    logger.warning(f"FAQ gave generic/guard-rail answer: {answer}")
+                    raise ValueError("Generic/guard-rail answer - retry needed")
                     
             except Exception as retry_err:
                 # 🔥 FIX: Quick retry with shorter response
@@ -692,15 +770,34 @@ class AIService:
                     model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": faq_system},
-                        {"role": "user", "content": f"{faq_context[:1500]}\n\n{question}"}
+                        {"role": "user", "content": f"נתונים: {faq_facts[:1500]}\n\nשאלה: {question}"}
                     ],
                     temperature=0.3,
                     max_tokens=120,
                     timeout=1.8
                 )
-                # 🔥 FIX: Safely handle None content
+                # 🔥 ARCHITECT FIX: Apply guard-rail detection to retry path too!
                 answer = response.choices[0].message.content
-                return answer.strip() if answer else None
+                if answer:
+                    answer = answer.strip()
+                else:
+                    answer = ""
+                
+                # Detect guard-rail responses
+                guard_rail_phrases = [
+                    "אני כאן רק לעזור",
+                    "שאלות שקשורות לעסק",
+                    "לא יכול לעזור",
+                    "לא קשור לעסק"
+                ]
+                is_guard_rail = any(phrase in answer for phrase in guard_rail_phrases) if answer else False
+                
+                # If still guard-rail → return None to fallback to AgentKit
+                if is_guard_rail or not answer or len(answer) < 10:
+                    logger.warning(f"FAQ retry also gave guard-rail/generic answer - falling back to AgentKit")
+                    return None
+                
+                return answer
             
         except Exception as e:
             logger.error(f"❌ FAQ LLM failed after retry: {e}")
