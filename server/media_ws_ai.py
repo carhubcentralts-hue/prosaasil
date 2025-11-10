@@ -878,10 +878,12 @@ class MediaStreamHandler:
                         # 🔥 PHASE 2N: Barge-in DISABLED - reset counter to prevent any state buildup
                         self.voice_in_row = 0
                     
-                    # אם המערכת מדברת ואין הפרעה - נקה קלט
+                    # 🔒 CRITICAL FIX: אם המערכת מדברת - לא להאזין בכלל!
+                    # אל תעבד אודיו, אל תאסוף, אל תבדוק VAD - SKIP COMPLETELY!
                     if self.speaking:
                         self.buf.clear()
-                        continue
+                        self.voice_in_row = 0  # Reset barge-in counter
+                        continue  # ← SKIP EVERYTHING - don't listen at all!
                     
                     # ✅ איסוף אודיו עם זיהוי דממה תקין
                     if not self.processing and self.state == STATE_LISTEN:
@@ -1389,13 +1391,10 @@ class MediaStreamHandler:
         if not text:
             return
         
-        # ⚡ BUILD 117: Stricter barge-in to prevent interruptions
+        # 🔒 CRITICAL FIX: ALWAYS disable barge-in - never interrupt!
         word_count = len(text.split())
-        self.long_response = word_count > 12  # ✅ LOWERED: 12 words = ~2 sentences, disable barge-in
-        if self.long_response:
-            print(f"🔒 LONG_RESPONSE ({word_count} words) - BARGE-IN DISABLED")
-        else:
-            print(f"🔓 SHORT_RESPONSE ({word_count} words) - BARGE-IN ENABLED")
+        self.long_response = True  # ✅ ALWAYS True = NEVER allow barge-in!
+        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN COMPLETELY DISABLED")
             
         self.speaking = True
         self.speaking_start_ts = time.time()
@@ -1436,13 +1435,10 @@ class MediaStreamHandler:
             except Exception as e:
                 print(f"⚠️ Interrupt error (non-critical): {e}")
         
-        # ⚡ BUILD 117: Stricter barge-in to prevent interruptions
+        # 🔒 CRITICAL FIX: ALWAYS disable barge-in - never interrupt!
         word_count = len(text.split())
-        self.long_response = word_count > 12  # ✅ LOWERED: 12 words = ~2 sentences, disable barge-in
-        if self.long_response:
-            print(f"🔒 LONG_RESPONSE ({word_count} words) - BARGE-IN DISABLED")
-        else:
-            print(f"🔓 SHORT_RESPONSE ({word_count} words) - BARGE-IN ENABLED")
+        self.long_response = True  # ✅ ALWAYS True = NEVER allow barge-in!
+        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN COMPLETELY DISABLED")
             
         self.speaking = True
         self.speaking_start_ts = time.time()
@@ -1638,12 +1634,9 @@ class MediaStreamHandler:
         # ⚡ Removed flooding log
         
         for i in range(0, len(mulaw), FR):
-            # 🚨 בדיקה קריטית: האם עדיין צריך לדבר?
-            if not self.speaking:
-                print(f"🚨 BARGE-IN detected! Stopped at frame {frames_sent}/{total_frames}")
-                # שלח CLEAR נוסף למקרה הצורך
-                self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
-                break
+            # 🔒 REMOVED: Barge-in check removed - ALWAYS finish speaking!
+            # OLD CODE: if not self.speaking: break
+            # NEW: Never check, always send all frames!
                 
             chunk = mulaw[i:i+FR]
             if len(chunk) < FR:
@@ -2651,13 +2644,10 @@ class MediaStreamHandler:
         if not text:
             return
         
-        # ⚡ BUILD 117: Stricter barge-in to prevent interruptions
+        # 🔒 CRITICAL FIX: ALWAYS disable barge-in - never interrupt!
         word_count = len(text.split())
-        self.long_response = word_count > 12  # ✅ LOWERED: 12 words = ~2 sentences, disable barge-in
-        if self.long_response:
-            print(f"🔒 LONG_RESPONSE ({word_count} words) - BARGE-IN DISABLED")
-        else:
-            print(f"🔓 SHORT_RESPONSE ({word_count} words) - BARGE-IN ENABLED")
+        self.long_response = True  # ✅ ALWAYS True = NEVER allow barge-in!
+        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN COMPLETELY DISABLED")
             
         self.speaking = True
         self.state = STATE_SPEAK
