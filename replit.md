@@ -4,6 +4,52 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
 
 # Recent Changes
 
+## PHASE 2N - NO INTERRUPTIONS + STT ACCURACY (COMPLETED - November 10, 2025)
+
+**Agent Speaks Uninterrupted + Better Hebrew Understanding** - User request!
+
+### **Changes Made**
+
+#### 1. **Barge-In Disabled by Default** 🔇
+- **Problem**: Background noise interrupted Agent mid-sentence
+- **User Request**: "שלא יעצור בחיים לדבר עד שהוא מסיים לדבר" (Never stop speaking until done)
+- **Solution**: Barge-in is now **DISABLED** by default
+- **Environment Variable**: `ENABLE_BARGE_IN=false` (default)
+- **Behavior**: Agent completes sentences without interruption from background noise
+- **If Enabled**: Very conservative settings (4.5s grace, 3000+ RMS, 4.0s continuous voice required)
+- **Files**: `server/media_ws_ai.py` (lines 57-59, 77, 815-838)
+
+#### 2. **STT Parameters Optimized** 🎯
+- **Problem**: Transcription cutting off Hebrew words, grammar issues
+- **User Request**: "לשפר את התמלול והדקדוק... שיבין יותר טוב את הלקוח"
+- **Changes**:
+  - `STT_TIMEOUT_MS`: 320ms → **600ms** (capture full Hebrew utterances)
+  - `STT_PARTIAL_DEBOUNCE_MS`: 90ms → **120ms** (better Hebrew word completion)
+  - `STT_BATCH_MS`: 40ms (unchanged - keeps latency low)
+- **Trade-off**: +150-250ms latency BUT significantly better accuracy and completeness
+- **Files**: `server/services/gcp_stt_stream.py` (lines 25-27), `server/media_ws_ai.py` (lines 82-83)
+
+#### 3. **Benefits** ✅
+- ✅ Agent never stops mid-sentence from background noise
+- ✅ Better Hebrew transcription accuracy
+- ✅ Complete word/sentence capture (not cut off)
+- ✅ Improved grammar understanding
+- ✅ User controls interruption (not random noise)
+
+#### 4. **Optional: Re-enable Barge-In**
+If you want to re-enable barge-in with conservative settings:
+```bash
+# Set environment variable
+ENABLE_BARGE_IN=true
+
+# Settings (if enabled):
+# - grace_period: 4.5s (Agent finishes most sentences)
+# - threshold: 3000+ RMS (only VERY loud speech)
+# - duration: 4.0s continuous voice required
+```
+
+---
+
 ## PHASE 2M - DTMF PRIMARY METHOD (COMPLETED - November 10, 2025)
 
 **Phone Number Collection via DTMF Keypad** - Improved UX for phone calls!

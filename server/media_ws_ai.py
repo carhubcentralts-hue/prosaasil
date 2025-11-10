@@ -51,6 +51,10 @@ USE_STREAMING_STT = True
 if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
     USE_STREAMING_STT = False
 
+# 🔥 PHASE 2N: BARGE-IN CONTROL - Disabled by default (user request)
+# User: "שלא יעצור בחיים לדבר עד שהוא מסיים לדבר"
+ENABLE_BARGE_IN = os.getenv("ENABLE_BARGE_IN", "false").lower() == "true"
+
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
 _flask_app_singleton = None
@@ -63,17 +67,18 @@ def _get_flask_app():
 
 # ⚡ BUILD 116: אופטימיזציות לזמן תגובה <2s
 print("="*80)
-print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION + PHASE 1")
+print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION + PHASE 2N")
 print("="*80)
 print(f"[BOOT] DEBUG = {DEBUG}")
 print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
+print(f"[BOOT] ENABLE_BARGE_IN = {ENABLE_BARGE_IN} (🔥 Phase 2N: Default DISABLED)")
 print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
 print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
 print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
 print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '40')}")
-print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '90')}")
+print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '120')} (🔥 Phase 2N: Was 90ms)")
+print(f"[BOOT] STT_TIMEOUT_MS = {os.getenv('STT_TIMEOUT_MS', '600')} (🔥 Phase 2N: Was 320ms)")
 print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '120')}")
-print(f"[BOOT] UTTERANCE_TIMEOUT = 320ms (aggressive for sub-2s response)")
 print("="*80)
 
 if USE_STREAMING_STT:
@@ -227,7 +232,8 @@ SR = 8000
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
 VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
-BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
+# 🔥 DEPRECATED (Phase 2N): Old BARGE_IN var - now using ENABLE_BARGE_IN (default=false)
+# BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
 VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "120"))  # 🔥 Phase 2D: 120ms - ultra-aggressive for ≤2s response
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
@@ -796,73 +802,81 @@ class MediaStreamHandler:
                     
                     # ✅ לוגים נקיים - רק אירועים חשובים (לא כל frame)  
                     
-                    # ספירת פריימים רצופים של קול חזק בלבד
-                    if is_strong_voice:
-                        self.voice_in_row += 1
-                    else:
-                        self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
-
-                    # ⚡ BUILD 109: SMART BARGE-IN - Disable for long responses, enable for short ones
-                    # ⚡ BUILD 121: DISABLE barge-in when waiting for DTMF input!
-                    if self.speaking and BARGE_IN and not self.waiting_for_dtmf:
-                        # 🧠 SMART: If response is long (>20 words), DISABLE barge-in completely!
-                        if self.long_response:
-                            # 🔒 Long response - let it finish! No interruptions allowed
-                            continue
-                        
-                        # 🔓 Short response - allow barge-in with grace period
-                        grace_period = 3.5  # 🔥 FIX: 3.5s - תן לה לסיים רוב המשפטים!
-                        time_since_tts_start = current_time - self.speaking_start_ts
-                        
-                        if time_since_tts_start < grace_period:
-                            # Inside grace period - NO barge-in allowed
-                            continue
-                        
-                        # 🔥 FIX: HIGH threshold - ONLY LOUD interrupts (2200+ RMS), not background noise
-                        barge_in_threshold = max(2200, self.noise_floor * 22.0 + 800) if self.is_calibrated else 2500
-                        is_barge_in_voice = rms > barge_in_threshold
-                        
-                        if is_barge_in_voice:
+                    # 🔥 PHASE 2N: BARGE-IN COMPLETELY DISABLED BY DEFAULT
+                    # User: "שלא יעצור בחיים לדבר עד שהוא מסיים לדבר"
+                    # Only run barge-in logic if EXPLICITLY enabled via env var
+                    if ENABLE_BARGE_IN:
+                        # ספירת פריימים רצופים של קול חזק בלבד
+                        if is_strong_voice:
                             self.voice_in_row += 1
-                            # 🔥 FIX: Require 2400ms (2.4s) continuous LOUD voice - balanced!
-                            if self.voice_in_row >= 120:  # 2400ms = 2.4 שניות קול חזק רציף!
-                                print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
-                                
-                                # ✅ מדידת Interrupt Halt Time
-                                interrupt_start = time.time()
-                                
-                                # ✅ FIXED: רק בצע interrupt, הוא יטפל בכל המצבים
-                                self._interrupt_speaking()
-                                
-                                # ✅ מדידת זמן עצירה
-                                halt_time = (time.time() - interrupt_start) * 1000
-                                print(f"📊 INTERRUPT_HALT: {halt_time:.1f}ms (target: ≤200ms)")
-                                
-                                # ✅ מעבר מיידי ל-LISTENING
-                                self.state = STATE_LISTEN
-                                self.processing = False
-                                
-                                # ✅ ניקוי באפר ופתיחה חדשה לתמלול
-                                self.buf.clear()
-                                self.last_voice_ts = current_time  # התחל מדידת שקט מחדש
-                                self.voice_in_row = 0
-                                
-                                print("🎤 BARGE-IN -> LISTENING (user can speak now)")
-                                
-                                # שלח clear לטוויליו כדי לנקות אודיו תקוע (אם החיבור תקין)
-                                if not self.ws_connection_failed:
-                                    try:
-                                        self._tx_enqueue({"type": "clear"})
-                                    except:
-                                        pass
-                                else:
-                                    print("💔 SKIPPING barge-in clear - WebSocket connection failed")
-                                continue
                         else:
-                            # אם אין קול חזק מספיק - קזז את הספירה
-                            self.voice_in_row = max(0, self.voice_in_row - 1)
+                            self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
+
+                        # ⚡ BUILD 109: SMART BARGE-IN - Disable for long responses, enable for short ones
+                        # ⚡ BUILD 121: DISABLE barge-in when waiting for DTMF input!
+                        if self.speaking and not self.waiting_for_dtmf:
+                            # 🧠 SMART: If response is long (>20 words), DISABLE barge-in completely!
+                            if self.long_response:
+                                # 🔒 Long response - let it finish! No interruptions allowed
+                                continue
+                            
+                            # 🔓 Short response - allow barge-in with grace period
+                            # 🔥 PHASE 2N: Conservative settings (if enabled via env)
+                            grace_period = 4.5  # Was 3.5s - even more time to finish
+                            time_since_tts_start = current_time - self.speaking_start_ts
+                            
+                            if time_since_tts_start < grace_period:
+                                # Inside grace period - NO barge-in allowed
+                                continue
+                            
+                            # 🔥 PHASE 2N: VERY HIGH threshold - 3000+ RMS (was 2200+)
+                            barge_in_threshold = max(3000, self.noise_floor * 30.0 + 1000) if self.is_calibrated else 3500
+                            is_barge_in_voice = rms > barge_in_threshold
+                            
+                            if is_barge_in_voice:
+                                self.voice_in_row += 1
+                                # 🔥 PHASE 2N: Require 4000ms (4.0s) continuous VERY LOUD voice
+                                if self.voice_in_row >= 200:  # 4000ms = 4.0 שניות קול חזק מאוד רציף!
+                                    print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
+                                    
+                                    # ✅ מדידת Interrupt Halt Time
+                                    interrupt_start = time.time()
+                                    
+                                    # ✅ FIXED: רק בצע interrupt, הוא יטפל בכל המצבים
+                                    self._interrupt_speaking()
+                                    
+                                    # ✅ מדידת זמן עצירה
+                                    halt_time = (time.time() - interrupt_start) * 1000
+                                    print(f"📊 INTERRUPT_HALT: {halt_time:.1f}ms (target: ≤200ms)")
+                                    
+                                    # ✅ מעבר מיידי ל-LISTENING
+                                    self.state = STATE_LISTEN
+                                    self.processing = False
+                                    
+                                    # ✅ ניקוי באפר ופתיחה חדשה לתמלול
+                                    self.buf.clear()
+                                    self.last_voice_ts = current_time  # התחל מדידת שקט מחדש
+                                    self.voice_in_row = 0
+                                    
+                                    print("🎤 BARGE-IN -> LISTENING (user can speak now)")
+                                    
+                                    # שלח clear לטוויליו כדי לנקות אודיו תקוע (אם החיבור תקין)
+                                    if not self.ws_connection_failed:
+                                        try:
+                                            self._tx_enqueue({"type": "clear"})
+                                        except:
+                                            pass
+                                    else:
+                                        print("💔 SKIPPING barge-in clear - WebSocket connection failed")
+                                    continue
+                                else:
+                                    # אם אין קול חזק מספיק - קזז את הספירה
+                                    self.voice_in_row = max(0, self.voice_in_row - 1)
+                            else:
+                                self.voice_in_row = 0  # אפס ספירה אם לא במצב speaking
                     else:
-                        self.voice_in_row = 0  # אפס ספירה אם לא במצב speaking
+                        # 🔥 PHASE 2N: Barge-in DISABLED - reset counter to prevent any state buildup
+                        self.voice_in_row = 0
                     
                     # אם המערכת מדברת ואין הפרעה - נקה קלט
                     if self.speaking:

@@ -18,10 +18,10 @@ from google.cloud import speech
 
 log = logging.getLogger("gcp_stt_stream")
 
-# ⚡ BUILD 116: Ultra-fast parameters for sub-2s response
-BATCH_MS = int(os.getenv("STT_BATCH_MS", "40"))        # 40ms aggressive batching
-DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "90"))  # 90ms partial debounce
-TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "320"))    # 320ms utterance timeout (aggressive)
+# ⚡ BUILD 116 + PHASE 2N: Optimized for Hebrew accuracy + low latency
+BATCH_MS = int(os.getenv("STT_BATCH_MS", "40"))        # 40ms batching (keep for latency)
+DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "120"))  # 🔥 Phase 2N: 120ms (was 90ms) - better Hebrew completion
+TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "600"))    # 🔥 Phase 2N: 600ms (was 320ms) - capture full Hebrew utterances
 LANG = os.getenv("GCP_STT_LANGUAGE", "he-IL")
 PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() == "true"
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
