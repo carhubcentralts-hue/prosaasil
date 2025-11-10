@@ -1,0 +1,663 @@
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/stats
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /healthz
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /readyz
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /version
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /livez
+18:56:01 web.1     |   {'GET', 'OPTIONS', 'HEAD', 'POST'} /warmup
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /db-check
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /app/admin
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /app/biz
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/overview
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/switch_business
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/tenants/new
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/users/new
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/tenants
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/users
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/whatsapp/threads
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/whatsapp/messages
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /ui/whatsapp/send
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/calls/active
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/calls/history
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/biz/contacts
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/biz/contacts/new
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/biz/users/new
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/biz/users
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/ui/login
+18:56:01 web.1     |   {'GET', 'OPTIONS', 'HEAD', 'POST'} /api/ui/logout
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/tenants
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/users
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/biz/users
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/crm/contacts
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id>
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /admin/stop-impersonate
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /biz/invoices
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /biz/contracts
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /logout
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /unauthorized
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /test-websocket-version
+18:56:01 web.1     | 🔍 Route registration complete
+18:56:01 web.1     | 🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+18:56:01 web.1     | ✅ Health routes handled by health_endpoints.py blueprint
+18:56:01 web.1     | ✅ Factory debug route registered: /debug-factory-http
+18:56:01 web.1     | ✅ /healthz route added directly to app_factory
+18:56:01 web.1     | 🆘 Emergency healthz-direct route added
+18:56:01 web.1     | ✅ WhatsApp routes removed - using unified only
+18:56:01 web.1     | ✅ Baileys proxy routes: 0 /wa/* endpoints
+18:56:01 web.1     | ✅ Legacy proxy routes: 0 /api/wa-proxy/* endpoints
+18:56:01 web.1     | FE_DIST = /home/runner/workspace/client/dist mtime = 1762255909.119013
+18:56:01 web.1     | 🔧 Database migrations skipped (set RUN_MIGRATIONS_ON_START=1 to enable)
+18:56:01 web.1     | 🔧 Server will start immediately without blocking on DB operations
+18:56:01 web.1     | 🔥 Service warmup initiated
+18:56:01 web.1     | 🔥 Periodic warmup started (every 7-8 minutes)
+18:56:01 web.1     | 
+18:56:01 web.1     | === URL MAP ===
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id> -> ui.admin_impersonate_business
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/business -> business_management.create_business
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/business/<int:business_id> -> business_management.get_business
+18:56:01 web.1     |   {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id> -> business_management.update_business
+18:56:01 web.1     |   {'OPTIONS', 'DELETE'} /api/admin/business/<int:business_id> -> business_management.delete_business
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/business/<int:business_id>/change-password -> business_management.change_business_password
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses -> admin_bp.api_admin_businesses
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses -> api_adapter.admin_businesses
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/businesses/<int:business_id>/impersonate -> business_management.impersonate_business
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/overview -> admin_bp.get_business_overview
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.get_business_prompt
+18:56:01 web.1     |   {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.update_business_prompt
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/prompt/history -> ai_prompt.get_prompt_history
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/prompts -> admin_bp.admin_businesses_prompts
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/calls -> admin_bp.api_admin_calls
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/channels/ -> admin_channels.get_all_channels
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/channels/ -> admin_channels.create_channel
+18:56:01 web.1     |   {'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id> -> admin_channels.remove_channel
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/channels/business/<int:business_id> -> admin_channels.get_business_channels
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/channels/businesses -> admin_channels.get_businesses
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/impersonate/exit -> business_management.exit_impersonation
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/businesses -> admin_bp.api_kpis_businesses
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/calls -> admin_bp.api_kpis_calls
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/calls -> admin_bp.api_admin_kpis_calls
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/overview -> admin_bp.api_admin_kpis_overview
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/revenue -> admin_bp.api_kpis_revenue
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/whatsapp -> admin_bp.api_kpis_whatsapp
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/whatsapp -> admin_bp.api_admin_kpis_whatsapp
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads -> admin_bp.admin_leads
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads/stats -> admin_bp.admin_leads_stats
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/overview -> admin_bp.api_overview
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/phone-numbers -> admin_bp.admin_phone_numbers
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/run-migrations -> run_migrations_endpoint
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/stats -> api_adapter.admin_stats
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/statuses/initialize/<int:business_id> -> status_management.initialize_default_statuses
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'PUT', 'GET'} /api/admin/support/phones -> admin_bp.admin_support_phones
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/support/profile -> admin_bp.admin_support_profile
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'PUT', 'GET'} /api/admin/support/prompt -> admin_bp.admin_support_prompt
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/tenants -> admin_bp.api_tenants
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/tenants -> ui.api_admin_tenants_create
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/user -> business_management.create_user
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/user/<int:user_id> -> business_management.get_user
+18:56:01 web.1     |   {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id> -> business_management.update_user
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/change-password -> business_management.change_user_password
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/toggle-status -> business_management.toggle_user_status
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/admin/users -> ui.api_admin_users_create
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/agent/booking -> agent_api.agent_booking
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/agent/ops -> agent_ops.agent_ops
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/agent/sales -> agent_api.agent_sales
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/agent/status -> agent_api.agent_status
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/auth/csrf -> auth_api.get_csrf
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/auth/current -> auth_api.get_current_user_legacy
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/auth/forgot -> auth_api.forgot_password
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/auth/login -> auth_api.login
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/auth/logout -> auth_api.logout
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/auth/me -> auth_api.get_current_user
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/auth/reset -> auth_api.reset_password
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/contract/<contract_id>/download -> receipts_contracts.download_contract
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/contract/<contract_id>/view -> receipts_contracts.view_contract
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/invoice/<invoice_id>/download -> receipts_contracts.download_invoice
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/invoice/<invoice_id>/view -> receipts_contracts.view_invoice
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/biz/users -> ui.api_biz_users_create
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/business/<tenant>/prompts -> ai_prompt.save_prompt
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/business/current -> business_management.get_current_business
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/business/current/prompt -> ai_prompt.get_current_business_prompt
+18:56:01 web.1     |   {'OPTIONS', 'PUT'} /api/business/current/prompt -> ai_prompt.update_current_business_prompt
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/business/current/prompt/history -> ai_prompt.get_current_prompt_history
+18:56:01 web.1     |   {'OPTIONS', 'PUT'} /api/business/current/settings -> business_management.update_current_business_settings
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calendar/appointments -> calendar.get_appointments
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/calendar/appointments -> calendar.create_appointment
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calendar/appointments/<int:appointment_id> -> calendar.get_appointment
+18:56:01 web.1     |   {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id> -> calendar.update_appointment
+18:56:01 web.1     |   {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id> -> calendar.delete_appointment
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calendar/stats -> calendar.get_calendar_stats
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls -> calls.list_calls
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/<call_sid>/details -> calls.get_call_details
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/<call_sid>/download -> calls.download_recording
+18:56:01 web.1     |   {'OPTIONS', 'PUT'} /api/calls/<call_sid>/transcript -> calls.update_transcript
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/active -> crm_bp.api_active_calls
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/calls/cleanup -> calls.cleanup_old_recordings
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/history -> crm_bp.api_call_history
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/stats -> calls.get_calls_stats
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/contracts -> receipts_contracts.list_contracts
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/contracts -> receipts_contracts.create_contract
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/contracts/<int:contract_id> -> receipts_contracts.get_contract
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/contracts/<int:contract_id>/sign -> receipts_contracts.sign_contract
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/crm/contacts -> ui.api_crm_contacts_create
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/contracts -> crm_bp.get_contracts
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/crm/contracts -> crm_bp.create_contract
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/crm/contracts/sign -> crm_bp.contract_sign
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/customers -> crm_bp.api_customers
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/deals -> crm_bp.list_deals
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/crm/deals -> crm_bp.create_deal
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/invoices/<invoice_number> -> crm_bp.get_invoice
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments -> crm_bp.get_payments
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/crm/payments/create -> crm_bp.payments_create
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/cancel -> crm_bp.paypal_cancel
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/success -> crm_bp.paypal_success
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/tranzila/return/fail -> crm_bp.tranzila_fail
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/tranzila/return/success -> crm_bp.tranzila_success
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/tasks -> crm_bp.get_crm_tasks
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/crm/tasks -> crm_bp.create_crm_task
+18:56:01 web.1     |   {'OPTIONS', 'PUT'} /api/crm/tasks/<int:task_id> -> crm_bp.update_crm_task
+18:56:01 web.1     |   {'OPTIONS', 'DELETE'} /api/crm/tasks/<int:task_id> -> crm_bp.delete_crm_task
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads -> crm_bp.api_threads
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads/<thread_id>/messages -> crm_bp.api_thread_messages
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads/<thread_id>/summary -> crm_bp.api_thread_summary
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/dashboard/activity -> api_adapter.dashboard_activity
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/dashboard/stats -> api_adapter.dashboard_stats
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/intelligence/customers -> intelligence.get_intelligent_customers
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/intelligence/stats -> intelligence.get_intelligence_stats
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads -> leads_bp.list_leads
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/leads -> leads_bp.create_lead
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id> -> leads_bp.get_lead_detail
+18:56:01 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id> -> leads_bp.update_lead
+18:56:01 web.1     |   {'OPTIONS', 'DELETE'} /api/leads/<int:lead_id> -> leads_bp.delete_lead
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/activities -> leads_bp.get_lead_activities
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp -> leads_bp.send_whatsapp_message
+18:56:01 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/move -> leads_bp.move_lead_in_kanban
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/reminders -> leads_bp.get_lead_reminders
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders -> leads_bp.create_reminder
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.get_reminder
+18:56:01 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.update_reminder
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status -> leads_bp.update_lead_status
+18:56:01 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/bulk -> leads_bp.bulk_update_leads
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/leads/bulk-delete -> leads_bp.bulk_delete_leads
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/receipts -> receipts_contracts.list_receipts
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/receipts -> receipts_contracts.create_receipt
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/reminders -> leads_bp.get_all_reminders
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/reminders -> leads_bp.create_general_reminder
+18:56:01 web.1     |   {'OPTIONS', 'PATCH'} /api/reminders/<int:reminder_id> -> leads_bp.update_general_reminder
+18:56:01 web.1     |   {'OPTIONS', 'DELETE'} /api/reminders/<int:reminder_id> -> leads_bp.delete_general_reminder
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/reminders/due -> leads_bp.get_due_reminders
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/search -> crm_bp.global_search
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/statuses -> status_management.get_business_statuses
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/statuses -> status_management.create_status
+18:56:01 web.1     |   {'OPTIONS', 'PUT'} /api/statuses/<int:status_id> -> status_management.update_status
+18:56:01 web.1     |   {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id> -> status_management.delete_status
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/statuses/reorder -> status_management.reorder_statuses
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/ui/login -> ui.api_login
+18:56:01 web.1     |   {'GET', 'OPTIONS', 'HEAD', 'POST'} /api/ui/logout -> ui.api_logout
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/contacts -> whatsapp.api_wa_contacts
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/conversation/<phone_number> -> whatsapp.get_conversation
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/disconnect -> whatsapp.disconnect
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/messages -> whatsapp.api_wa_messages
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id> -> whatsapp.save_whatsapp_prompt
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/qr -> whatsapp.qr
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/reset -> whatsapp.reset
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/send -> whatsapp.send_manual_message
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/start -> whatsapp.start
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/stats -> whatsapp.api_wa_stats
+18:56:01 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/status -> whatsapp.status
+18:56:01 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming -> whatsapp.baileys_webhook
+18:56:01 web.1     | ================
+18:56:01 web.1     | ✅ Simple SPA routes registered (no blueprint)
+18:56:01 web.1     | ================================================================================
+18:56:01 web.1     | 🔥 STARTING TTS PRE-WARMUP...
+18:56:02 web.1     | ⚠️ get_process_app() called before app created - creating now
+18:56:02 web.1     | 🔧 GCP credentials loaded from file path: /tmp/gcp_credentials.json...
+18:56:02 web.1     | 🔧 FE_DIST=/home/runner/workspace/server/../client/dist
+18:56:02 web.1     | 🔧 APP_SHA=132eda93
+18:56:02 web.1     | 🚩 APP_START {'build': 87, 'sha': '132eda93', 'fe': 'client/dist', 'time': '2025-11-10 18:56:02', 'app': 'AgentLocator-Complete', 'commit': '132eda93', 'startup_ts': 1762800962}
+18:56:02 web.1     | 🔧 DB_DRIVER: postgresql
+18:56:02 web.1     | ✅ Auth blueprints registered
+18:56:02 web.1     | ✅ TTS prewarmed on startup: 569ms
+18:56:02 web.1     | ================================================================================
+18:56:02 web.1     | ✅ Agent API blueprint registered
+18:56:02 web.1     | ✅ Agent Ops API blueprint registered
+18:56:02 web.1     | 🔧 WebSocket: Handled by ASGI layer (Starlette WebSocket)
+18:56:02 web.1     | 📞 /ws/twilio-media → ASGI WebSocket (asgi.py)
+18:56:02 web.1     | ✅ WebSocket test route added: /test-websocket-version
+18:56:02 web.1     | 🔍 ALL REGISTERED ROUTES:
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /<path:filename>
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/business/<tenant>/prompts
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/prompt
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/business/current/prompt
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/business/current/prompt
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/prompt/history
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/business/current/prompt/history
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/statuses
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/statuses
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/statuses/<int:status_id>
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id>
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/statuses/reorder
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/statuses/initialize/<int:business_id>
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/auth/csrf
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/auth/login
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/auth/forgot
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/auth/reset
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/auth/logout
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/auth/me
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/auth/current
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/overview
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/calls
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/whatsapp
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/businesses
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/revenue
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/overview
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/overview
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/calls
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/whatsapp
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/tenants
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/calls
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads/stats
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/phone-numbers
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/prompts
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/support/profile
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'PUT', 'GET'} /api/admin/support/prompt
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'PUT', 'GET'} /api/admin/support/phones
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads/<thread_id>/messages
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads/<thread_id>/summary
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/customers
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/active
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/history
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/contracts
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/contracts
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/payments/create
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/success
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/cancel
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/tranzila/return/success
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/tranzila/return/fail
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/invoices/<invoice_number>
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/contracts/sign
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/deals
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/deals
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/search
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/tasks
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/tasks
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/crm/tasks/<int:task_id>
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/crm/tasks/<int:task_id>
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/business/<int:business_id>
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/business
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id>
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/admin/business/<int:business_id>
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/business/<int:business_id>/change-password
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/user
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/user/<int:user_id>
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id>
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/change-password
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/toggle-status
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/businesses/<int:business_id>/impersonate
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/impersonate/exit
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/business/current
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/business/current/settings
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /webhook/incoming_call_preview
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /webhook/voice
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /webhook/incoming_call
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /webhook/stream_ended
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /webhook/handle_recording
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /webhook/stream_status
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /webhook/call_status
+18:56:02 web.1     |   {'OPTIONS', 'POST', 'HEAD', 'GET'} /webhook/test
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /webhook/test_media_streams_1756667590
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calendar/appointments
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/calendar/appointments
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calendar/appointments/<int:appointment_id>
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id>
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id>
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calendar/stats
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/leads
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>
+18:56:02 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/leads/<int:lead_id>
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/reminders
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/activities
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders
+18:56:02 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/move
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+18:56:02 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/reminders/due
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/leads/bulk-delete
+18:56:02 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/bulk
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/reminders
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/reminders
+18:56:02 web.1     |   {'OPTIONS', 'PATCH'} /api/reminders/<int:reminder_id>
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/reminders/<int:reminder_id>
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/<call_sid>/details
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/<call_sid>/download
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/calls/cleanup
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/stats
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/calls/<call_sid>/transcript
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/receipts
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/receipts
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/contracts
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/contracts
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/contracts/<int:contract_id>
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/contracts/<int:contract_id>/sign
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/invoice/<invoice_id>/view
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/invoice/<invoice_id>/download
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/contract/<contract_id>/view
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/contract/<contract_id>/download
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/status
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/qr
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/start
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/reset
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/disconnect
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/contacts
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/messages
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/conversation/<phone_number>
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/stats
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id>
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/send
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /webhook/whatsapp/incoming
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /webhook/whatsapp/status
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/intelligence/customers
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/intelligence/stats
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/agent/booking
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/agent/sales
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/agent/status
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/agent/ops
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/channels/
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/channels/business/<int:business_id>
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/channels/
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id>
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/channels/businesses
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/dashboard/stats
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/dashboard/activity
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/stats
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /healthz
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /readyz
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /version
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /livez
+18:56:02 web.1     |   {'GET', 'OPTIONS', 'HEAD', 'POST'} /warmup
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /db-check
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /app/admin
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /app/biz
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/overview
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/switch_business
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/tenants/new
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/users/new
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/tenants
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/admin/users
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/whatsapp/threads
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/whatsapp/messages
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /ui/whatsapp/send
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/calls/active
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/calls/history
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/biz/contacts
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/biz/contacts/new
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/biz/users/new
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /ui/biz/users
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/ui/login
+18:56:02 web.1     |   {'GET', 'OPTIONS', 'HEAD', 'POST'} /api/ui/logout
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/tenants
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/users
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/biz/users
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/contacts
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id>
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /admin/stop-impersonate
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /biz/invoices
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /biz/contracts
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /logout
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /unauthorized
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /test-websocket-version
+18:56:02 web.1     | 🔍 Route registration complete
+18:56:02 web.1     | 🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+18:56:02 web.1     | ✅ Health routes handled by health_endpoints.py blueprint
+18:56:02 web.1     | ✅ Factory debug route registered: /debug-factory-http
+18:56:02 web.1     | ✅ /healthz route added directly to app_factory
+18:56:02 web.1     | 🆘 Emergency healthz-direct route added
+18:56:02 web.1     | ✅ WhatsApp routes removed - using unified only
+18:56:02 web.1     | ✅ Baileys proxy routes: 0 /wa/* endpoints
+18:56:02 web.1     | ✅ Legacy proxy routes: 0 /api/wa-proxy/* endpoints
+18:56:02 web.1     | FE_DIST = /home/runner/workspace/client/dist mtime = 1762255909.119013
+18:56:02 web.1     | 🔧 Database migrations skipped (set RUN_MIGRATIONS_ON_START=1 to enable)
+18:56:02 web.1     | 🔧 Server will start immediately without blocking on DB operations
+18:56:02 web.1     | 🔥 Service warmup initiated
+18:56:02 web.1     | 🔥 Periodic warmup started (every 7-8 minutes)
+18:56:02 web.1     | 
+18:56:02 web.1     | === URL MAP ===
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id> -> ui.admin_impersonate_business
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/business -> business_management.create_business
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/business/<int:business_id> -> business_management.get_business
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id> -> business_management.update_business
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/admin/business/<int:business_id> -> business_management.delete_business
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/business/<int:business_id>/change-password -> business_management.change_business_password
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses -> admin_bp.api_admin_businesses
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses -> api_adapter.admin_businesses
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/businesses/<int:business_id>/impersonate -> business_management.impersonate_business
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/overview -> admin_bp.get_business_overview
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.get_business_prompt
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.update_business_prompt
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/<int:business_id>/prompt/history -> ai_prompt.get_prompt_history
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/businesses/prompts -> admin_bp.admin_businesses_prompts
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/calls -> admin_bp.api_admin_calls
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/channels/ -> admin_channels.get_all_channels
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/channels/ -> admin_channels.create_channel
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id> -> admin_channels.remove_channel
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/channels/business/<int:business_id> -> admin_channels.get_business_channels
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/channels/businesses -> admin_channels.get_businesses
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/impersonate/exit -> business_management.exit_impersonation
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/businesses -> admin_bp.api_kpis_businesses
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/calls -> admin_bp.api_kpis_calls
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/calls -> admin_bp.api_admin_kpis_calls
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/overview -> admin_bp.api_admin_kpis_overview
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/revenue -> admin_bp.api_kpis_revenue
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/whatsapp -> admin_bp.api_kpis_whatsapp
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/kpis/whatsapp -> admin_bp.api_admin_kpis_whatsapp
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads -> admin_bp.admin_leads
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/leads/stats -> admin_bp.admin_leads_stats
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/overview -> admin_bp.api_overview
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/phone-numbers -> admin_bp.admin_phone_numbers
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/run-migrations -> run_migrations_endpoint
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/stats -> api_adapter.admin_stats
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/statuses/initialize/<int:business_id> -> status_management.initialize_default_statuses
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'PUT', 'GET'} /api/admin/support/phones -> admin_bp.admin_support_phones
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/support/profile -> admin_bp.admin_support_profile
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'PUT', 'GET'} /api/admin/support/prompt -> admin_bp.admin_support_prompt
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/tenants -> admin_bp.api_tenants
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/tenants -> ui.api_admin_tenants_create
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/user -> business_management.create_user
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/admin/user/<int:user_id> -> business_management.get_user
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id> -> business_management.update_user
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/change-password -> business_management.change_user_password
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/toggle-status -> business_management.toggle_user_status
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/admin/users -> ui.api_admin_users_create
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/agent/booking -> agent_api.agent_booking
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/agent/ops -> agent_ops.agent_ops
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/agent/sales -> agent_api.agent_sales
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/agent/status -> agent_api.agent_status
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/auth/csrf -> auth_api.get_csrf
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/auth/current -> auth_api.get_current_user_legacy
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/auth/forgot -> auth_api.forgot_password
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/auth/login -> auth_api.login
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/auth/logout -> auth_api.logout
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/auth/me -> auth_api.get_current_user
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/auth/reset -> auth_api.reset_password
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/contract/<contract_id>/download -> receipts_contracts.download_contract
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/contract/<contract_id>/view -> receipts_contracts.view_contract
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/invoice/<invoice_id>/download -> receipts_contracts.download_invoice
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/billing/invoice/<invoice_id>/view -> receipts_contracts.view_invoice
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/biz/users -> ui.api_biz_users_create
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/business/<tenant>/prompts -> ai_prompt.save_prompt
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/business/current -> business_management.get_current_business
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/business/current/prompt -> ai_prompt.get_current_business_prompt
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/business/current/prompt -> ai_prompt.update_current_business_prompt
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/business/current/prompt/history -> ai_prompt.get_current_prompt_history
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/business/current/settings -> business_management.update_current_business_settings
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calendar/appointments -> calendar.get_appointments
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/calendar/appointments -> calendar.create_appointment
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calendar/appointments/<int:appointment_id> -> calendar.get_appointment
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id> -> calendar.update_appointment
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id> -> calendar.delete_appointment
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calendar/stats -> calendar.get_calendar_stats
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls -> calls.list_calls
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/<call_sid>/details -> calls.get_call_details
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/<call_sid>/download -> calls.download_recording
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/calls/<call_sid>/transcript -> calls.update_transcript
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/active -> crm_bp.api_active_calls
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/calls/cleanup -> calls.cleanup_old_recordings
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/history -> crm_bp.api_call_history
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/calls/stats -> calls.get_calls_stats
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/contracts -> receipts_contracts.list_contracts
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/contracts -> receipts_contracts.create_contract
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/contracts/<int:contract_id> -> receipts_contracts.get_contract
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/contracts/<int:contract_id>/sign -> receipts_contracts.sign_contract
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/contacts -> ui.api_crm_contacts_create
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/contracts -> crm_bp.get_contracts
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/contracts -> crm_bp.create_contract
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/contracts/sign -> crm_bp.contract_sign
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/customers -> crm_bp.api_customers
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/deals -> crm_bp.list_deals
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/deals -> crm_bp.create_deal
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/invoices/<invoice_number> -> crm_bp.get_invoice
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments -> crm_bp.get_payments
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/payments/create -> crm_bp.payments_create
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/cancel -> crm_bp.paypal_cancel
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/paypal/return/success -> crm_bp.paypal_success
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/tranzila/return/fail -> crm_bp.tranzila_fail
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/payments/tranzila/return/success -> crm_bp.tranzila_success
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/tasks -> crm_bp.get_crm_tasks
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/crm/tasks -> crm_bp.create_crm_task
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/crm/tasks/<int:task_id> -> crm_bp.update_crm_task
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/crm/tasks/<int:task_id> -> crm_bp.delete_crm_task
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads -> crm_bp.api_threads
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads/<thread_id>/messages -> crm_bp.api_thread_messages
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/crm/threads/<thread_id>/summary -> crm_bp.api_thread_summary
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/dashboard/activity -> api_adapter.dashboard_activity
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/dashboard/stats -> api_adapter.dashboard_stats
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/intelligence/customers -> intelligence.get_intelligent_customers
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/intelligence/stats -> intelligence.get_intelligence_stats
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads -> leads_bp.list_leads
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/leads -> leads_bp.create_lead
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id> -> leads_bp.get_lead_detail
+18:56:02 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id> -> leads_bp.update_lead
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/leads/<int:lead_id> -> leads_bp.delete_lead
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/activities -> leads_bp.get_lead_activities
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp -> leads_bp.send_whatsapp_message
+18:56:02 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/move -> leads_bp.move_lead_in_kanban
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/reminders -> leads_bp.get_lead_reminders
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders -> leads_bp.create_reminder
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.get_reminder
+18:56:02 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.update_reminder
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status -> leads_bp.update_lead_status
+18:56:02 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/bulk -> leads_bp.bulk_update_leads
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/leads/bulk-delete -> leads_bp.bulk_delete_leads
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/receipts -> receipts_contracts.list_receipts
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/receipts -> receipts_contracts.create_receipt
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/reminders -> leads_bp.get_all_reminders
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/reminders -> leads_bp.create_general_reminder
+18:56:02 web.1     |   {'OPTIONS', 'PATCH'} /api/reminders/<int:reminder_id> -> leads_bp.update_general_reminder
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/reminders/<int:reminder_id> -> leads_bp.delete_general_reminder
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/reminders/due -> leads_bp.get_due_reminders
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/search -> crm_bp.global_search
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/statuses -> status_management.get_business_statuses
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/statuses -> status_management.create_status
+18:56:02 web.1     |   {'OPTIONS', 'PUT'} /api/statuses/<int:status_id> -> status_management.update_status
+18:56:02 web.1     |   {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id> -> status_management.delete_status
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/statuses/reorder -> status_management.reorder_statuses
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/ui/login -> ui.api_login
+18:56:02 web.1     |   {'GET', 'OPTIONS', 'HEAD', 'POST'} /api/ui/logout -> ui.api_logout
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/contacts -> whatsapp.api_wa_contacts
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/conversation/<phone_number> -> whatsapp.get_conversation
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/disconnect -> whatsapp.disconnect
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/messages -> whatsapp.api_wa_messages
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id> -> whatsapp.save_whatsapp_prompt
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/qr -> whatsapp.qr
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/reset -> whatsapp.reset
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/send -> whatsapp.send_manual_message
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/start -> whatsapp.start
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/stats -> whatsapp.api_wa_stats
+18:56:02 web.1     |   {'OPTIONS', 'HEAD', 'GET'} /api/whatsapp/status -> whatsapp.status
+18:56:02 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming -> whatsapp.baileys_webhook
+18:56:02 web.1     | ================
+18:56:02 web.1     | ✅ Simple SPA routes registered (no blueprint)
+18:56:02 web.1     | ================================================================================
+18:56:02 web.1     | 🔥 STARTING TTS PRE-WARMUP...
+18:56:02 web.1     | ❌ TTS prewarm FAILED (returned False): 0ms
+18:56:02 web.1     | ================================================================================
+18:56:02 web.1     | ✅ App singleton set - future calls will reuse this instance
+18:56:02 web.1     | ================================================================================
+18:56:02 web.1     | ✅ ASGI BUILD 87 READY - ALL SYSTEMS GO
+18:56:02 web.1     | ================================================================================
+18:56:02 web.1     | INFO:     Started server process [61567]
+18:56:02 web.1     | INFO:     Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+18:56:02 web.1     | 🔥 WARMUP: Heating 1 active businesses...
+18:56:03 web.1     | 
+18:56:03 web.1     | ✅ Using DB prompt for שי דירות: 3566 chars
+18:56:03 web.1     |    First 150 chars: STAY ON-TOPIC - BUSINESS ONLY:
+18:56:03 web.1     | - אתה הנציג העסקי של Vibe Rooms תל אביב, לא בוט כללי.
+18:56:03 web.1     | - ענה רק על שאלות הקשורות לעסק: שירותים, שעות, מחירים, תורים, מבצ
+18:56:03 web.1     | 
+18:56:03 web.1     | ================================================================================
+18:56:03 web.1     | 📜 AGENT INSTRUCTIONS (first 500 chars):
+18:56:03 web.1     | ================================================================================
+18:56:03 web.1     | TODAY: 2025-11-10 20:56 Israel
+18:56:03 web.1     | 
+18:56:03 web.1     | STAY ON-TOPIC - BUSINESS ONLY:
+18:56:03 web.1     | - אתה הנציג העסקי של Vibe Rooms תל אביב, לא בוט כללי.
+18:56:03 web.1     | - ענה רק על שאלות הקשורות לעסק: שירותים, שעות, מחירים, תורים, מבצעים או זמינות.
+18:56:03 web.1     | - אם לקוח שואל על נושאים לא רלוונטיים (מתכונים, בדיחות, טריוויה, בישול וכו’) תגיב בנימוס:
+18:56:03 web.1     |   "אני כאן רק לעזור בנושאים שקשורים לעסק. יש משהו שתרצה לדעת עלינו?"
+18:56:03 web.1     | 
+18:56:03 web.1     | 🔥 NEVER CLAIM ACTIONS WITHOUT TOOLS:
+18:56:03 web.1     | 1. אסור להגיד "שלחתי הודעה" או "תקבל אישור" אלא אם קראת לכלי והוא החזיר status='sent'.
+18:56:03 web.1     | 2. אסור להגיד "פנוי
+18:56:03 web.1     | ...
+18:56:03 web.1     | ================================================================================
+18:56:03 web.1     | 📅 Today calculated as: 2025-11-10 (Monday)
+18:56:03 web.1     | 📅 Tomorrow calculated as: 2025-11-11
+18:56:03 web.1     | ================================================================================
+18:56:03 web.1     | 
+18:56:03 web.1     | ⏱️  AGENT_CREATION_TIME: 8ms
+18:56:03 web.1     |   ✅ שי דירות (calls): 11ms
+18:56:03 web.1     | 
+18:56:03 web.1     | ✅ Using DB prompt for שי דירות: 3011 chars
+18:56:03 web.1     |    First 150 chars: 🔥 STAY ON-TOPIC - BUSINESS ONLY:
+18:56:03 web.1     | - אתה עוזר עסקי של Vibe Rooms, לא בוט שיחה כללי!
+18:56:03 web.1     | - ענה רק על שאלות על: שירותים, שעות, מחירים, תורים, העסק הזה.
+18:56:03 web.1     | - אם ל
+18:56:03 web.1     | 
+18:56:03 web.1     | ================================================================================
+18:56:03 web.1     | 📜 AGENT INSTRUCTIONS (first 500 chars):
+18:56:03 web.1     | ================================================================================
+18:56:03 web.1     | TODAY: 2025-11-10 20:56 Israel
+18:56:03 web.1     | 
+18:56:03 web.1     | 🔥 STAY ON-TOPIC - BUSINESS ONLY:
+18:56:03 web.1     | - אתה עוזר עסקי של Vibe Rooms, לא בוט שיחה כללי!
+18:56:03 web.1     | - ענה רק על שאלות על: שירותים, שעות, מחירים, תורים, העסק הזה.
+18:56:03 web.1     | - אם לקוח שואל על מתכונים, בישול, בדיחות, טריוויה → הפנה בנימוס:
+18:56:03 web.1     |   "אני כאן רק לעזור בנושאים שקשורים לעסק. יש משהו שתרצה לדעת עלינו?"
+18:56:03 web.1     | 
+18:56:03 web.1     | 🔥 NEVER CLAIM ACTIONS WITHOUT TOOLS:
+18:56:03 web.1     | 1. אסור להגיד "שלחתי הודעה" או "תקבל אישור" אלא אם קראת לכלי והוא החזיר status='sent'!
+18:56:03 web.1     | 2. אסור להגיד "פנוי" או "תפוס" אלא אם קראת ל-calendar_find_slots!
+18:56:03 web.1     | ...
+18:56:03 web.1     | ================================================================================
+18:56:03 web.1     | 📅 Today calculated as: 2025-11-10 (Monday)
+18:56:03 web.1     | 📅 Tomorrow calculated as: 2025-11-11
+18:56:03 web.1     | ================================================================================
+18:56:03 web.1     | 
+18:56:03 web.1     | ⏱️  AGENT_CREATION_TIME: 8ms
+18:56:03 web.1     |   ✅ שי דירות (whatsapp): 10ms
+18:56:03 web.1     | 🔥 WARMUP COMPLETE: 2/2 agents warmed in 111ms
+18:56:03 web.1     | 🔥 WARMUP: Heating 1 active businesses...
+18:56:03 web.1     |   ✅ שי דירות (calls): 0ms
+18:56:03 web.1     |   ✅ שי דירות (whatsapp): 0ms
+18:56:03 web.1     | 🔥 WARMUP COMPLETE: 2/2 agents warmed in 68ms
+18:56:08 web.1     | INFO:     172.31.98.162:47392 - "GET / HTTP/1.1" 200 OK
