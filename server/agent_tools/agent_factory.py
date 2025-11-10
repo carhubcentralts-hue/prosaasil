@@ -38,7 +38,7 @@ AGENT_MODEL_SETTINGS = ModelSettings(
     model="gpt-4o-mini",  # Fast and cost-effective
     temperature=0.15,      # Very low temperature for consistent tool usage
     max_tokens=400,        # 🔥 CRITICAL: 400 tokens needed for tool calls + response (was 200 - too small!)
-    tool_choice="required",  # 🔥 TOOL-FIRST: Agent MUST call tools, no text-only responses
+    tool_choice="auto",    # 🔥 FIX: Let AI decide when to use tools (was "required" - caused spam!)
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
 

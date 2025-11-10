@@ -29,6 +29,13 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
 - **Files**: `server/media_ws_ai.py` (lines 346, 2547-2549, 2574-2575)
 - **Benefits**: ✅ Supports long TTS (up to 16s) without drops or crashes
 
+### **Bug 4) AI Reads Leads/Times Lists - Not Answering Questions**
+- **Problem**: AI reads lead lists during calls, lists all times, doesn't answer simple questions
+- **Root Cause**: `tool_choice="required"` forced tools EVERY turn, even for "where are you?"
+- **Solution**: Changed to `tool_choice="auto"`, rewrote prompt (5000→1500 chars) with brevity rules
+- **Files**: `server/agent_tools/agent_factory.py` (line 44), `business_settings.ai_prompt`
+- **Benefits**: ✅ Natural conversation, uses tools only when needed, answers questions directly
+
 ---
 
 # User Preferences
