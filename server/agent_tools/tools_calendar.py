@@ -223,15 +223,6 @@ def _calendar_find_slots_impl(input: FindSlotsInput, context: Optional[Dict[str,
                             start_display=slot_start.strftime("%H:%M")
                         ))
         
-        # 🔥 LIMIT OUTPUT - Return max 4 slots to prevent AI from reading them all!
-        # If customer asks "what's available?", they'll get 4 options (not overwhelming)
-        # If customer requests specific time, AI checks if it's in list
-        original_count = len(slots)
-        if original_count > 4:
-            # Return first 4 slots (earliest available times)
-            slots = slots[:4]
-            logger.info(f"⚠️ Truncated to 4 slots (from {original_count}) to prevent long TTS")
-        
         tool_latency = (time.time() - tool_start) * 1000  # ms
         logger.info(f"📅 RESULT: {len(slots)} available slots (slot_size={policy.slot_size_min}min, latency={tool_latency:.0f}ms)")
         return FindSlotsOutput(slots=slots, business_hours="24/7" if policy.allow_24_7 else "dynamic")
@@ -244,21 +235,7 @@ def _calendar_find_slots_impl(input: FindSlotsInput, context: Optional[Dict[str,
 # Wrapped version for Agent SDK
 @function_tool
 def calendar_find_slots(input: FindSlotsInput) -> FindSlotsOutput:
-    """
-    Find available appointment slots for a specific date.
-    
-    ⚠️ CRITICAL USAGE INSTRUCTIONS FOR AI AGENT:
-    - This tool returns ALL available slots for the requested date
-    - DO NOT read out all slots to the customer - this is annoying and takes too long!
-    - ONLY check if the customer's REQUESTED time slot is available
-    - If customer requested 14:00, check if "14:00" is in the slots list
-    - If YES: Proceed to confirm booking
-    - If NO: Suggest ONLY 1-2 nearby alternatives (e.g., "09:00 או 11:00")
-    - NEVER say "יש לנו זמינות בשעות 09:00, 10:00, 11:00..." - maximum 2 suggestions!
-    
-    Example good response: "14:00 תפוס, יש לי 15:00 או 16:00. מה נוח לך?"
-    Example bad response: "יש זמינות ב-09:00, 10:00, 11:00, 12:00..." ❌
-    """
+    """Find available appointment slots - Agent SDK wrapper"""
     return _calendar_find_slots_impl(input)
 
 
