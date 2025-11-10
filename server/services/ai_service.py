@@ -726,10 +726,11 @@ class AIService:
                 sections['description'] = desc_match.group(0)[:500]
             
             # Topic keyword mapping
+            # 🔥 FIX: Only match INFORMATION questions, not quality/experience questions
             topic_keywords = {
                 'pricing': r'(מחיר|כמה עולה|כמה זה|עלות|תשלום|עולה)',
-                'menu': r'(אוכל|תפריט|מנות|משקאות|שתיה|מזון|בר|קפה|אלכוהול)',
-                'hours': r'(מתי|שעות|פתוח|סגור|זמן|עבודה)',
+                'menu': r'(יש.*אוכל|יש.*תפריט|מה.*תפריט|מה.*לאכול|מה.*לשתות|תפריט|מנות|משקאות|שתיה|בר|קפה)',
+                'hours': r'(מתי.*פתוח|שעות.*פתיחה|שעות.*עבודה|מה.*שעות)',
                 'location': r'(איפה|מיקום|כתובת|היכן|רחוב|אזור)',
             }
             
