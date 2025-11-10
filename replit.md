@@ -4,7 +4,7 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
 
 # Recent Changes
 
-## PHASE 2L - AGENTKIT GATE SYSTEM (IN PROGRESS - November 10, 2025)
+## PHASE 2L - AGENTKIT GATE SYSTEM (COMPLETED - November 10, 2025)
 
 **SMART ROUTING ARCHITECTURE - AgentKit Only When Needed**
 
@@ -45,12 +45,27 @@ AgentLocator is a Hebrew CRM system for real estate businesses that automates th
    - `_handle_direct_booking()` - Regex parsing + calendar tools
 
 ### **Files Modified**:
-- `server/services/ai_service.py` (34-93, 494-617, 656-678): Intent router, helpers, gate logic
+- `server/services/ai_service.py` (35-103, 494-617, 656-680): Intent router, helpers, gate logic
+
+### **Critical Fix - Intent Classification**:
+- **Problem**: "מה שעות הפתיחה היום?" incorrectly routed to booking
+- **Solution**: Check info keywords FIRST, booking requires strong keyword OR day+time together
+- **Architect Approval**: ✅ Passed final review with all test scenarios routing correctly
+
+### **Test Cases Verified**:
+- ✅ "מה שעות הפתיחה היום?" → info (FAQ path)
+- ✅ "כמה עולה?" → info (FAQ path)
+- ✅ "מחר ב-2" → book (fast-path → AgentKit)
+- ✅ "לקבוע תור" → book (AgentKit)
+- ✅ "זמין מחר?" → book (AgentKit)
+- ✅ "היום עובדים?" → info (FAQ path)
 
 ### **Expected Impact**:
 - Info questions: 4s → **0.8s** (80% faster!)
 - Simple bookings: 4s → **1.5s** (60% faster!)
 - Complex bookings: ~3s (unchanged, still need full AgentKit)
+
+### **Production Ready**: ✅ System deployed and functional
 
 ---
 
