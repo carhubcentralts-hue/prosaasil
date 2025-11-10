@@ -345,8 +345,8 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # 🔥 FIX: Increased to 800 frames (~16s buffer) to prevent drops for long TTS
-        self.tx_q = queue.Queue(maxsize=800)  # Support up to 16s TTS without drops
+        # 🔥 FIX: Increased to 900 frames (~18s buffer) to prevent drops for long TTS
+        self.tx_q = queue.Queue(maxsize=900)  # Support up to 18s TTS without drops
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
