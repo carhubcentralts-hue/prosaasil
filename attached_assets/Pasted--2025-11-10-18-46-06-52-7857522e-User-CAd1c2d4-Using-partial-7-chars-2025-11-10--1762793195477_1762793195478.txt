@@ -1,0 +1,122 @@
+
+2025-11-10 18:46:06.52
+7857522e
+User
+✅ [CAd1c2d4] Using partial: 'שרה חמש...' (7 chars)
+2025-11-10 18:46:06.52
+7857522e
+User
+🏁 [CAd1c2d4] Utterance efc84cf4 COMPLETE: returning 'שרה חמש'
+2025-11-10 18:46:06.52
+7857522e
+User
+[LATENCY] final_wait=0.85s, utterance_total=0.85s
+2025-11-10 18:46:06.52
+7857522e
+User
+⏱️ [STT_STREAM] _utterance_end took 0.850s, result: 'שרה חמש'
+2025-11-10 18:46:06.52
+7857522e
+User
+🎤 USER: שרה חמש
+2025-11-10 18:46:06.52
+7857522e
+User
+📊 ASR_LATENCY: 0.850s (target: <0.7s)
+
+2025-11-10 18:46:06.53
+7857522e
+User
+📞 DEBUG: Caller phone = 'None' (type: NoneType)
+2025-11-10 18:46:06.53
+7857522e
+User
+self.phone_number exists: True
+2025-11-10 18:46:06.53
+7857522e
+User
+self.phone_number value: 'None'
+2025-11-10 18:46:06.53
+7857522e
+User
+🎯 AGENTS_ENABLED = True
+2025-11-10 18:46:06.53
+7857522e
+User
+🎯 INTENT_DETECTED: other (message: שרה חמש...)
+2025-11-10 18:46:06.83
+7857522e
+User
+⏱️ DB query time: 304ms
+2025-11-10 18:46:06.83
+7857522e
+User
+♻️ REUSING cached agent: business=שי דירות, business_id=1, channel=calls
+2025-11-10 18:46:06.83
+7857522e
+User
+⏱️ Cache lookup time: 0ms
+2025-11-10 18:46:06.83
+7857522e
+User
+✅ Agent created successfully: booking_agent_שי דירות
+2025-11-10 18:46:06.83
+7857522e
+User
+✅ Stored agent_context in Flask g: phone=None, name=None
+2025-11-10 18:46:06.83
+7857522e
+User
+🤖 Running agent for business 1, channel=calls
+2025-11-10 18:46:06.83
+7857522e
+User
+📝 User message: 'שרה חמש...'
+2025-11-10 18:46:06.83
+7857522e
+User
+📋 Context: business_id=1, phone=None, name=None
+2025-11-10 18:46:06.83
+7857522e
+User
+📚 Found 5 previous messages in context
+2025-11-10 18:46:06.83
+7857522e
+User
+✅ Converted to 5 messages for Agent (0ms)
+2025-11-10 18:46:06.83
+7857522e
+User
+🔄 Created Runner with 5 history messages, executing agent.run()...
+2025-11-10 18:46:08.71
+7857522e
+User
+🔧 🔧 🔧 TOOL CALLED: calendar_find_slots_wrapped 🔧 🔧 🔧
+2025-11-10 18:46:08.71
+7857522e
+User
+📅 date_iso (RAW from Agent)=2025-11-11
+2025-11-10 18:46:08.71
+7857522e
+User
+⏱️ duration_min=60
+2025-11-10 18:46:08.71
+7857522e
+User
+🏢 business_id=1
+2025-11-10 18:46:08.71
+7857522e
+User
+✅ date_iso (CORRECTED)=2025-11-11
+2025-11-10 18:46:08.81
+7857522e
+User
+✅ calendar_find_slots_wrapped RESULT: 12 slots found
+2025-11-10 18:46:08.81
+7857522e
+User
+Available times: 09:00, 10:00, 11:00, 12:00, 13:00...
+2025-11-10 18:46:08.81
+7857522e
+User
+📤 Returning dict with 12 slots
