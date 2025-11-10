@@ -52,7 +52,7 @@ def invalidate_agent_cache(business_id: int):
 AGENT_MODEL_SETTINGS = ModelSettings(
     model="gpt-4o-mini",  # Fast and cost-effective
     temperature=0.15,      # Very low temperature for consistent tool usage
-    max_tokens=400,        # 🔥 CRITICAL: 400 tokens needed for tool calls + response (was 200 - too small!)
+    max_tokens=120,        # 🔥 FIX: Reduced from 400 to 120 - 2-3 sentences only! (prevents 82-word responses)
     tool_choice="auto",    # 🔥 FIX: Let AI decide when to use tools (was "required" - caused spam!)
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
@@ -104,12 +104,22 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
         logger.info(f"🆕 Creating NEW agent for business={business_id}, channel={channel}")
         
         try:
+            import time
+            agent_start = time.time()
+            
             new_agent = create_booking_agent(
                 business_name=business_name,
                 custom_instructions=custom_instructions,
                 business_id=business_id,
                 channel=channel
             )
+            
+            agent_creation_time = (time.time() - agent_start) * 1000
+            print(f"⏱️  AGENT_CREATION_TIME: {agent_creation_time:.0f}ms")
+            logger.info(f"⏱️  Agent creation took {agent_creation_time:.0f}ms")
+            
+            if agent_creation_time > 2000:
+                logger.warning(f"⚠️  SLOW AGENT CREATION: {agent_creation_time:.0f}ms > 2000ms!")
             
             if new_agent:
                 # Cache the new agent
