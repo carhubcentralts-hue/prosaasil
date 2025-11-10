@@ -126,6 +126,7 @@ def get_stt_client():
 def warmup_services_async():
     """⚡ Non-blocking warmup - starts immediately after app init"""
     def _warmup():
+        import time  # Import at start of function
         time.sleep(0.5)  # ⚡ Minimal delay - just let Flask finish binding
         log.info("🔥 Starting service warmup...")
         
@@ -178,7 +179,6 @@ def warmup_services_async():
                                 custom_instructions = prompts.get(channel, prompts.get('calls', '')) or ""
                             
                             # Create agent (will cache it)
-                            import time
                             warmup_start = time.time()
                             agent = get_or_create_agent(
                                 business_id=1,
