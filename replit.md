@@ -2,6 +2,16 @@
 
 AgentLocator is a Hebrew CRM system for real estate, designed to automate the sales pipeline with an AI-powered assistant. It processes calls in real-time, intelligently collects lead information, and schedules meetings using advanced audio processing for natural conversations. The system aims to enhance efficiency and sales conversion for real estate professionals through customizable AI assistants and business branding. The business vision is to provide a robust, multi-tenant platform that empowers real estate agencies with cutting-edge AI communication tools.
 
+# Recent Changes
+
+**Build 122 (November 11, 2025):**
+- **FAQ Database Schema**: Added FAQ model with question/answer/order_index fields and migration #21
+- **FAQ Fast-Path Cache**: Implemented FAQ cache service with OpenAI embeddings (text-embedding-3-small), cosine similarity matching (0.78 threshold), 10-minute TTL, and automatic cache invalidation on CRUD operations
+- **FAQ Management UI**: Added dedicated "שאלות נפוצות (FAQ)" tab in settings with add/edit/delete interface, react-query integration, modal form validation (200/2000 char limits), and real-time data rendering
+- **AI Service FAQ Integration**: FAQ fast-path activates for intent=="info" queries, uses mini LLM (gpt-4o-mini, max_tokens=80, temp=0.3) for <2s responses, falls back to AgentKit if no match
+- **Working Days UI**: Added Sunday-Saturday checkbox selection for configuring business active days in appointment settings
+- **TTS Truncation Fix**: Increased smart truncation limit from 150→350 characters to preserve complete sentences
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
