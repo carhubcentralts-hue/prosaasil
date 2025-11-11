@@ -13,8 +13,10 @@ export default defineConfig({
     }
   },
   build: {
+    target: 'es2019',         // ✅ Safari compatibility - transpile for older browsers
     outDir: './dist',         // Build ל-client/dist (נכון!)
     assetsDir: 'assets',
+    sourcemap: true,          // ✅ Enable sourcemaps for debugging
   },
   resolve: {
     alias: {

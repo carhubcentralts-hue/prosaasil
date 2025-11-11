@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import type * as React from 'react';
+import { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { cn } from '../../utils/cn';
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Users, Bell, Calendar, CheckCircle, Circle, Clock, X, Edit2, AlertCircle } from 'lucide-react';
 
 // Temporary UI components

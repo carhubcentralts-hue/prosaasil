@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import type * as React from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { authApi } from '../../features/auth/api';
 import { Button } from '../../shared/components/Button';

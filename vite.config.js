@@ -7,8 +7,10 @@ export default defineConfig({
   root: './client', 
   base: '/',  // ✅ לפי ההנחיות - same origin
   build: {
+    target: 'es2019', // ✅ Safari compatibility
     outDir: '../dist',
     assetsDir: 'assets',
+    sourcemap: true,
   },
   server: {
     host: '0.0.0.0',

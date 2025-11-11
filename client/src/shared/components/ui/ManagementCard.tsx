@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { LucideIcon, ChevronRight, Building2, UserCog, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../utils/cn';

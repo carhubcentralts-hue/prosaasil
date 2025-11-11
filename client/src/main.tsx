@@ -30,6 +30,7 @@ window.onunhandledrejection = (event) => {
 
 // 🚀 SAFE MOUNT with error handling
 try {
+  console.log('🔄 [BUILD] New build deployed - React imports fixed for Safari'); // 🔍 TEMP: Force new bundle hash
   const rootElement = document.getElementById('root');
   if (!rootElement) {
     showError('#root element not found in index.html');
