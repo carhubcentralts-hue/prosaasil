@@ -1,4 +1,4 @@
-import type * as React from "react";
+import React from 'react'; // ✅ Classic JSX runtime
 import { cn } from '../../utils/cn';
 
 interface CardProps {

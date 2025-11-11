@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 // import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react({ jsxRuntime: 'classic' })], // ✅ CRITICAL: Classic runtime for Safari
   root: './client', 
   base: '/',  // ✅ לפי ההנחיות - same origin
   build: {
@@ -36,7 +36,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': '/src'
+      '@': '/src',
+      'react': 'react',           // ✅ Pin React - prevent aliasing
+      'react-dom': 'react-dom'    // ✅ Pin React-DOM
     }
   }
 })

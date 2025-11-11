@@ -1,4 +1,4 @@
-import type * as React from "react";
+import React from 'react'; // ✅ Classic JSX runtime
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '../utils/cn';
 

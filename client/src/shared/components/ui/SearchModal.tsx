@@ -1,3 +1,4 @@
+import React from 'react'; // ✅ Classic JSX runtime
 import { useState, useEffect, useRef } from 'react';
 import { 
   Search, 

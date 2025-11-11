@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react({ jsxRuntime: 'classic' })], // ✅ CRITICAL: Classic runtime for Safari
   base: '/',                  // ← חשוב! assets תמיד יהיו /assets/ (לא יחסיים)
   server: {
     host: '0.0.0.0',
@@ -20,7 +20,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': '/src'
+      '@': '/src',
+      'react': 'react',           // ✅ Pin React - prevent aliasing
+      'react-dom': 'react-dom'    // ✅ Pin React-DOM
     }
   }
 })

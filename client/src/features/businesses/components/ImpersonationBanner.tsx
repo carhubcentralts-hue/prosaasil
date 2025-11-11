@@ -1,3 +1,4 @@
+import React from 'react'; // ✅ Classic JSX runtime
 import { AlertTriangle, X, LogOut, Shield } from 'lucide-react';
 import { useBusinessActions } from '../useBusinessActions';
 import { useImpersonation } from '../hooks/useImpersonation';

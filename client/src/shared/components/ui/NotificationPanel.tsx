@@ -1,5 +1,5 @@
+import React from 'react'; // ✅ Classic JSX runtime
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import type * as React from 'react';
 import { 
   Bell, 
   X, 

@@ -12,7 +12,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx",
+    "jsx": "react", /* ✅ CRITICAL: Classic JSX for Safari compatibility */
     
     /* Linting */
     "strict": true,

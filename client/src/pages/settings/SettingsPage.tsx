@@ -1,4 +1,3 @@
-import type * as React from 'react';
 import { useState, useEffect } from 'react';
 import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot, Plus, Edit, Trash2 } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';

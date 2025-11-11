@@ -1,3 +1,4 @@
+import React from 'react'; // ✅ Classic JSX runtime
 import { useEffect, useState } from 'react';
 import { LucideIcon, ChevronRight, Building2, UserCog, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';

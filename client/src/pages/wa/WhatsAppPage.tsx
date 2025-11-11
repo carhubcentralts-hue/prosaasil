@@ -1,4 +1,3 @@
-import type * as React from 'react';
 import { useState, useEffect } from 'react';
 import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Smartphone, Server } from 'lucide-react';
 import QRCodeReact from 'react-qr-code';

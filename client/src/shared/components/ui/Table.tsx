@@ -1,3 +1,4 @@
+import React from 'react'; // ✅ Classic JSX runtime
 import { ReactNode } from 'react';
 import { cn } from '../../utils/cn';
 

@@ -1,4 +1,4 @@
-import type * as React from 'react';
+import React from 'react'; // ✅ Classic JSX runtime
 import { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { cn } from '../../utils/cn';

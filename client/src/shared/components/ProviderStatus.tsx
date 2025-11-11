@@ -1,3 +1,4 @@
+import React from 'react'; // ✅ Classic JSX runtime
 import { Badge } from './Badge';
 import { Card, CardContent } from './Card';
 import { Skeleton } from './Skeleton';

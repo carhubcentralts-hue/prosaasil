@@ -1,5 +1,5 @@
+import React from 'react'; // ✅ Classic JSX runtime
 import { forwardRef } from "react";
-import type * as React from "react";
 
 interface CheckboxProps {
   checked?: boolean;

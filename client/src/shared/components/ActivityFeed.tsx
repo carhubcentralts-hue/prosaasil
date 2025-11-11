@@ -1,3 +1,4 @@
+import React from 'react'; // ✅ Classic JSX runtime
 import { Card, CardContent, CardHeader } from './Card';
 import { ActivityItemSkeleton } from './Skeleton';
 import { formatDate } from '../utils/format';

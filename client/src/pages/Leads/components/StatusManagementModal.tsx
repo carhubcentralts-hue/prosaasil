@@ -1,4 +1,3 @@
-import type * as React from "react";
 import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, X } from 'lucide-react';
 import { Button } from '../../../shared/components/ui/Button';

@@ -1,3 +1,4 @@
+import React from 'react'; // ✅ Classic JSX runtime
 import { X, AlertTriangle, User, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 

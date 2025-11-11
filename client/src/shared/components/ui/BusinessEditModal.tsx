@@ -1,5 +1,5 @@
+import React from 'react'; // ✅ Classic JSX runtime
 import { useState, useEffect } from 'react';
-import type * as React from 'react';
 import { X, Save, Building2, Phone, Lock, MessageSquare } from 'lucide-react';
 
 interface Business {

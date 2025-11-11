@@ -1,4 +1,3 @@
-import type * as React from "react";
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth/hooks';
 import { UserRole } from '../../features/auth/types';

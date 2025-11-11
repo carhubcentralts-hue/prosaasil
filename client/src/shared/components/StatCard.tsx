@@ -1,4 +1,4 @@
-import type * as React from "react";
+import React from 'react'; // ✅ Classic JSX runtime
 import { Card, CardContent } from './Card';
 import { cn } from '../utils/cn';
 import { formatNumber } from '../utils/format';

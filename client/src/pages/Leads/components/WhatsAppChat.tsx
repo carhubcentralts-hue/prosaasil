@@ -1,4 +1,3 @@
-import type * as React from "react";
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Phone, MoreVertical, Paperclip, Smile } from 'lucide-react';
 import QRCode from 'qrcode';
