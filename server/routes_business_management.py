@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, session, g
 from werkzeug.security import generate_password_hash
-from server.models_sql import Business, User, BusinessSettings, db
+from server.models_sql import Business, User, BusinessSettings, FAQ, db
 from datetime import datetime
 from server.routes_admin import require_api_auth
 from server.extensions import csrf
@@ -695,4 +695,124 @@ def update_current_business_settings():
         logger.error(f"Error updating business settings: {e}")
         db.session.rollback()
         return jsonify({"error": "Internal server error"}), 500
+
+
+# ===== FAQ MANAGEMENT ROUTES =====
+
+@biz_mgmt_bp.route('/api/business/faqs', methods=['GET'])
+@require_api_auth(['business', 'admin', 'manager'])
+def get_business_faqs():
+    """Get all FAQs for current business"""
+    try:
+        business_id = getattr(g, 'business_id', None)
+        if not business_id:
+            return jsonify({'error': 'No business context found'}), 400
+        
+        faqs = FAQ.query.filter_by(business_id=business_id, is_active=True).order_by(FAQ.order_index, FAQ.id).all()
+        
+        return jsonify([{
+            'id': faq.id,
+            'question': faq.question,
+            'answer': faq.answer,
+            'order_index': faq.order_index,
+            'created_at': faq.created_at.isoformat() if faq.created_at else None
+        } for faq in faqs])
+    except Exception as e:
+        logger.error(f'Error getting FAQs: {e}')
+        return jsonify({'error': 'Internal server error'}), 500
+
+@biz_mgmt_bp.route('/api/business/faqs', methods=['POST'])
+@require_api_auth(['business', 'admin', 'manager'])
+def create_faq():
+    """Create new FAQ"""
+    try:
+        business_id = getattr(g, 'business_id', None)
+        if not business_id:
+            return jsonify({'error': 'No business context found'}), 400
+        
+        data = request.get_json()
+        if not data or not data.get('question') or not data.get('answer'):
+            return jsonify({'error': 'Question and answer are required'}), 400
+        
+        # Get max order_index
+        max_order = db.session.query(db.func.max(FAQ.order_index)).filter_by(business_id=business_id).scalar() or 0
+        
+        faq = FAQ(
+            business_id=business_id,
+            question=data['question'],
+            answer=data['answer'],
+            order_index=max_order + 1
+        )
+        db.session.add(faq)
+        db.session.commit()
+        
+        return jsonify({
+            'id': faq.id,
+            'question': faq.question,
+            'answer': faq.answer,
+            'order_index': faq.order_index,
+            'created_at': faq.created_at.isoformat() if faq.created_at else None
+        }), 201
+    except Exception as e:
+        logger.error(f'Error creating FAQ: {e}')
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
+
+@biz_mgmt_bp.route('/api/business/faqs/<int:faq_id>', methods=['PUT'])
+@require_api_auth(['business', 'admin', 'manager'])
+def update_faq(faq_id):
+    """Update FAQ"""
+    try:
+        business_id = getattr(g, 'business_id', None)
+        if not business_id:
+            return jsonify({'error': 'No business context found'}), 400
+        
+        faq = FAQ.query.filter_by(id=faq_id, business_id=business_id).first()
+        if not faq:
+            return jsonify({'error': 'FAQ not found'}), 404
+        
+        data = request.get_json()
+        if 'question' in data:
+            faq.question = data['question']
+        if 'answer' in data:
+            faq.answer = data['answer']
+        if 'order_index' in data:
+            faq.order_index = data['order_index']
+        
+        faq.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        return jsonify({
+            'id': faq.id,
+            'question': faq.question,
+            'answer': faq.answer,
+            'order_index': faq.order_index,
+            'updated_at': faq.updated_at.isoformat() if faq.updated_at else None
+        })
+    except Exception as e:
+        logger.error(f'Error updating FAQ: {e}')
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
+
+@biz_mgmt_bp.route('/api/business/faqs/<int:faq_id>', methods=['DELETE'])
+@require_api_auth(['business', 'admin', 'manager'])
+def delete_faq(faq_id):
+    """Delete FAQ (soft delete by marking inactive)"""
+    try:
+        business_id = getattr(g, 'business_id', None)
+        if not business_id:
+            return jsonify({'error': 'No business context found'}), 400
+        
+        faq = FAQ.query.filter_by(id=faq_id, business_id=business_id).first()
+        if not faq:
+            return jsonify({'error': 'FAQ not found'}), 404
+        
+        faq.is_active = False
+        db.session.commit()
+        
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        logger.error(f'Error deleting FAQ: {e}')
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
 

@@ -473,6 +473,25 @@ def apply_migrations():
         migrations_applied.append("add_business_settings_require_phone_before_booking")
         log.info("✅ Applied migration 20: require_phone_before_booking - Phone required guard")
     
+    # Migration 21: Create FAQs table for business-specific fast-path responses
+    if not check_table_exists('faqs'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE faqs (
+                id SERIAL PRIMARY KEY,
+                business_id INTEGER NOT NULL REFERENCES business(id) ON DELETE CASCADE,
+                question VARCHAR(500) NOT NULL,
+                answer TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                order_index INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("CREATE INDEX idx_business_active ON faqs(business_id, is_active)"))
+        migrations_applied.append("create_faqs_table")
+        log.info("✅ Applied migration 21: create_faqs_table - Business-specific FAQs for fast-path")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")

@@ -130,6 +130,27 @@ class BusinessSettings(db.Model):
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class FAQ(db.Model):
+    """Business-specific FAQs for fast-path responses"""
+    __tablename__ = "faqs"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    question = db.Column(db.String(500), nullable=False)
+    answer = db.Column(db.Text, nullable=False)
+    
+    is_active = db.Column(db.Boolean, default=True)
+    order_index = db.Column(db.Integer, default=0)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    business = db.relationship("Business", backref="faqs")
+    
+    __table_args__ = (
+        db.Index('idx_business_active', 'business_id', 'is_active'),
+    )
+
 class PromptRevisions(db.Model):
     __tablename__ = "prompt_revisions"
     id = db.Column(db.Integer, primary_key=True)
