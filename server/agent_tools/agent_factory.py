@@ -506,26 +506,14 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         ]
     
 
-    # 🔥 BUILD 134: NO HARDCODED PROMPTS - Load ONLY from database!
+    # 🔥 BUILD 135: MERGE DB prompts WITH base instructions (not replace!)
+    # CRITICAL: DB prompts now EXTEND the base AgentKit instructions
     
+    today_str = datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')
+    tomorrow_str = (datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')
     
-    # 🔥 BUILD 134: LOAD ONLY FROM DATABASE - NO hardcoded prompts!
-    if custom_instructions and custom_instructions.strip():
-        # ✅ Add ONLY minimal date context (no hardcoded instructions!)
-        today_context = f"TODAY: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')} Israel\n\n"
-        instructions = today_context + custom_instructions
-        print(f"\n✅ Using DB prompt for {business_name}: {len(custom_instructions)} chars")
-        print(f"   First 150 chars: {custom_instructions[:150]}")
-        logger.info(f"✅ Using DATABASE prompt for {business_name} ({len(custom_instructions)} chars)")
-    else:
-        # CRITICAL: Instructions in ENGLISH for Agent SDK (better understanding)
-        # Agent MUST always respond in HEBREW to customers
-        
-        # 🚨 WARNING: NO DATABASE PROMPT! Using minimal fallback.
-        today_str = datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')
-        tomorrow_str = (datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')
-        
-        instructions = f"""You are a professional booking assistant for {business_name}.
+    # ✅ ALWAYS include base instructions (tool handling, workflow, prohibitions)
+    base_instructions = f"""You are a professional booking assistant for {business_name}.
 
 CRITICAL: Always respond to customers in HEBREW, but understand these English instructions.
 
@@ -792,6 +780,21 @@ When collecting phone on voice call:
 
 Remember: EVERY action requires a tool call. Claiming an action without executing it is FORBIDDEN.
 """
+    
+    # 🔥 BUILD 135: MERGE base instructions + custom DB prompt (if exists)
+    if custom_instructions and custom_instructions.strip():
+        # APPEND custom instructions to base (not replace!)
+        instructions = base_instructions + "\n\n" + "="*70 + "\n" + "🔥 BUSINESS-SPECIFIC CUSTOMIZATIONS FROM DATABASE:\n" + "="*70 + "\n\n" + custom_instructions
+        print(f"\n✅ MERGED prompt for {business_name}:")
+        print(f"   Base instructions: {len(base_instructions)} chars")
+        print(f"   + DB customizations: {len(custom_instructions)} chars")
+        print(f"   = Total: {len(instructions)} chars")
+        logger.info(f"✅ MERGED BASE + DB prompt for {business_name} (total: {len(instructions)} chars)")
+    else:
+        # No custom prompt - use base instructions only
+        instructions = base_instructions
+        print(f"\n⚠️  Using BASE instructions only for {business_name} (no DB customizations)")
+        logger.warning(f"No DATABASE prompt for {business_name} - using base instructions only")
 
     try:
         # DEBUG: Print the actual instructions the agent receives

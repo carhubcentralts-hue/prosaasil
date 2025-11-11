@@ -13,7 +13,7 @@ Preferred communication style: Simple, everyday language.
 2. ✅ **Lead Creation Automatic**: Enhanced fallback with duplicate checking. Every call creates/finds lead with detailed logging. GUARANTEED lead capture!
 3. ✅ **Availability Validation Fixed**: Changed from detecting all "תפוס/פנוי" words to only absolute claims ("אין זמנים פנויים"). Agent can now say "15:00 תפוס, אבל 17:00 פנוי" after tool call.
 4. ✅ **DTMF Instructions VERIFIED IN DB**: Prompt in database already contains "מה המספר שלך? אנא הקלידו והקישו סולמית בסיום" - cache cleared, ready for use!
-5. ⚠️ **Tool Result Reading**: Detailed instructions exist in agent_factory.py FALLBACK ONLY. Custom DB prompts must include tool reading instructions manually!
+5. ✅ **BUILD 135 - CRITICAL FIX: Prompt Merge Instead of Replace!** DB prompts now APPEND to base AgentKit instructions (not replace). Agent ALWAYS receives tool handling, DTMF, slot reading, and workflow rules. Custom DB prompts extend base behavior without losing critical instructions!
 6. ✅ **STT Ultra-Fast**: Reduced TIMEOUT_MS to 300ms (from 400ms) for faster transcription. DEBOUNCE 80ms, BATCH 30ms.
 
 **Previous Agent Fixes:**
