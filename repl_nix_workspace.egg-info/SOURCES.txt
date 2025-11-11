@@ -4,9 +4,11 @@ asgi.py
 pyproject.toml
 start_production.sh
 client/dist/index.html
-client/dist/assets/AdminSupportPage-BQsci87Q.js
-client/dist/assets/index-BmpXanwu.css
-client/dist/assets/index-OliyeZUa.js
+client/dist/assets/AdminSupportPage-B_CL7ici.js
+client/dist/assets/AdminSupportPage-B_CL7ici.js.map
+client/dist/assets/index-Cy2DWOr6.js
+client/dist/assets/index-Cy2DWOr6.js.map
+client/dist/assets/index-gUE5a0Lh.css
 repl_nix_workspace.egg-info/PKG-INFO
 repl_nix_workspace.egg-info/SOURCES.txt
 repl_nix_workspace.egg-info/dependency_links.txt
