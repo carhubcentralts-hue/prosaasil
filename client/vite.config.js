@@ -19,10 +19,14 @@ export default defineConfig({
     sourcemap: true,          // ✅ Enable sourcemaps for debugging
   },
   resolve: {
+    dedupe: ['react', 'react-dom'], // ✅ CRITICAL: Force single React instance
     alias: {
       '@': '/src',
       'react': 'react',           // ✅ Pin React - prevent aliasing
       'react-dom': 'react-dom'    // ✅ Pin React-DOM
     }
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom'] // ✅ Pre-bundle React for consistency
   }
 })
