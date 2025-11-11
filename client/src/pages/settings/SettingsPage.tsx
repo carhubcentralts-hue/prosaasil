@@ -422,10 +422,12 @@ export function SettingsPage() {
                   >
                     <option value="15">כל 15 דקות (רבע שעה)</option>
                     <option value="30">כל 30 דקות (חצי שעה)</option>
-                    <option value="45">כל 45 דקות</option>
+                    <option value="45">כל 45 דקות (שלושת רבעי שעה)</option>
                     <option value="60">כל שעה</option>
-                    <option value="90">כל שעה וחצי</option>
-                    <option value="120">כל שעתיים</option>
+                    <option value="75">כל שעה ורבע (75 דקות)</option>
+                    <option value="90">כל שעה וחצי (90 דקות)</option>
+                    <option value="105">כל שעה ושלושת רבעי (105 דקות)</option>
+                    <option value="120">כל שעתיים (120 דקות)</option>
                   </select>
                   <p className="mt-1 text-sm text-gray-500">
                     קובע כל כמה זמן ניתן לקבוע תור חדש

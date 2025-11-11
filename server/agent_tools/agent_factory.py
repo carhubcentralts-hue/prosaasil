@@ -525,11 +525,15 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             elif policy.slot_size_min == 30:
                 interval_desc = "כל חצי שעה (30 דקות)"
             elif policy.slot_size_min == 45:
-                interval_desc = "כל 45 דקות"
+                interval_desc = "כל 45 דקות (שלושת רבעי שעה)"
             elif policy.slot_size_min == 60:
                 interval_desc = "כל שעה (60 דקות)"
+            elif policy.slot_size_min == 75:
+                interval_desc = "כל שעה ורבע (75 דקות)"
             elif policy.slot_size_min == 90:
                 interval_desc = "כל שעה וחצי (90 דקות)"
+            elif policy.slot_size_min == 105:
+                interval_desc = "כל שעה ושלושת רבעי (105 דקות)"
             elif policy.slot_size_min == 120:
                 interval_desc = "כל שעתיים (120 דקות)"
             else:
