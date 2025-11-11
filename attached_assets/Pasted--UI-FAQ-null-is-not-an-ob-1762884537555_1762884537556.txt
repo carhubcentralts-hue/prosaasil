@@ -1,0 +1,154 @@
+מעולה – יש לנו תמונת מצב טובה. ה-UI של ה-FAQ גרם לבילד חדש, אבל השגיאה שאתה רואה (“null is not an object (evaluating ‘Y.useEffect’)”) נוצרת לפני ש־main.tsx רץ, כלומר הבאנדל עצמו נטען לא נכון/נבנה לא נכון. זה לא קשור לפונקציות ה-FAQ בשרת – זה שכבת ה-Front.
+
+להלן תיקון בטוח צעד-אחר-צעד שיחזיר את ה-Client ליציבות, בלי לנחש ובלי לשבור שוב:
+
+1) לבטל “כפילות קונפיג” ולכפות Vite/React אחד
+	•	מחק/שנה שם את הקובץ בשורש: ./vite.config.js (שיישאר רק client/vite.config.js אחד).
+	•	ודא שב-client/package.json ה־build הוא זה שרץ:
+
+// client/package.json
+{
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "overrides": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}
+
+2) קונפיג Vite יחיד וברור (Classic JSX + מטרה ידידותית לספארי)
+
+client/vite.config.js
+
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react({ jsxRuntime: 'classic', fastRefresh: false })],
+  base: '/',
+  build: {
+    target: 'es2018',           // בטוח יותר לספארי
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: true,
+    minify: 'esbuild'
+  },
+  resolve: {
+    alias: { react: 'react', 'react-dom': 'react-dom' }
+  },
+  define: { 'process.env.NODE_ENV': JSON.stringify('production') }
+})
+
+client/tsconfig.json
+
+{
+  "compilerOptions": {
+    "jsx": "react",            // Classic
+    "module": "esnext",
+    "target": "es2018",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true
+  }
+}
+
+בכל קובץ JSX/TSX ודא:
+
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
+
+3) סקריפט בילד יחיד, דטרמיניסטי, עם בדיקת שלמות
+
+build_production.sh
+
+set -euo pipefail
+
+echo "[BUILD] client → dist"
+pushd client
+  rm -rf dist node_modules
+  npm ci
+  npm run build
+popd
+
+# שריד ישן בשורש? ננקה ונסנכרן
+rm -rf dist
+mkdir -p dist
+cp -r client/dist/* dist/
+
+# חותמת וולידציה
+date +%s > dist/build_id.txt
+ASSET=$(grep -o 'assets/index-[^"]\+\.js' dist/index.html | head -n1)
+test -n "$ASSET" && test -f "dist/$ASSET" || { echo "❌ asset mismatch"; exit 1; }
+echo "[BUILD] OK → $ASSET"
+
+ב-.replit / תצורת Deploy וודא שזה הסקריפט שנקרא בפריסה.
+
+4) הגשה נכונה ב-Flask (תמיד מ-client/dist, בלי ארטיפקטים ישנים)
+
+ב־app_factory.py:
+
+STATIC_DIR = os.path.join(BASE_DIR, "client", "dist")
+app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/")
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_client(path):
+    full = os.path.join(app.static_folder, path)
+    if path and os.path.exists(full):
+        return app.send_static_file(path)
+    return app.send_static_file("index.html")
+
+@app.after_request
+def cache_headers(resp):
+    if resp.mimetype == "text/html":
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    elif resp.mimetype in ("application/javascript","text/css","image/png","image/svg+xml"):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+5) שני בדיקות זהב (לפני פריסה)
+
+ב־Terminal של Replit, אחרי build_production.sh:
+
+# 5.1: האם הבאנדל נבנה ב-Classic (בלי _jsx)?
+grep -E "React\\.createElement|_jsx" dist/assets/index-*.js | head -20
+
+# מצופה: הרבה React.createElement, ולא _jsx
+
+# 5.2: האם שתי גרסאות React?
+cd client && npm ls react react-dom
+# מצופה: בדיוק 18.3.1 לכל אחד, פעם אחת.
+
+6) מגני קריסה ב-Client (כדי שלא תראה שוב מסך ריק)
+
+ב־client/src/main.tsx (השאר את לוג ה-BOOT):
+
+console.log('[BOOT] React:', React?.version, 'useEffect?', !!React?.useEffect)
+
+עטוף את ה-App ב-ErrorBoundary פשוט; ואם יש לכם טאב FAQ – תנו מסכי Loading/Error ברורים (כמו שכבר תיארתי קודם), בלי useEffect על ref לפני בדיקת ref?.current.
+
+7) איפוס Cache בצד דפדפן
+	•	אין Service Worker, נכון? אם יש – בטל רישום.
+	•	Hard Refresh.
+	•	וודא GET /build_id.txt מציג חותמת עדכנית.
+
+⸻
+
+למה זה יפתור עכשיו
+	•	ביטלנו מצב של שני קובצי Vite שמתנגשים → תמיד נבנה מהקונפיג שב־client/.
+	•	כופפנו Classic JSX בכל השכבות (Vite + TS) → אין “Y.useEffect” כי React לא יהיה null.
+	•	יעד טרנספילציה es2018 → Safari ישן לא ייפול על סינטקס מודרני.
+	•	בדיקת שלמות אחר הבילד מונעת פריסה אם index.html מצביע לנכס לא קיים.
+	•	הגשת סטטי עקבית מ־client/dist עם כותרות Cache נכונות → לא תראה bundle ישן.
+	•	ErrorBoundary + מסכי טעינה/שגיאה בטאבים החדשים של FAQ מונעים “מסך ריק” גם אם תיפול קומפוננטה אחת.
+
+בצע בדיוק לפי הסדר הזה. אם אחרי זה עדיין נופל—תעתיק לי את תוצאת הפקודה:
+
+grep -E "React\\.createElement|_jsx" dist/assets/index-*.js | head -20
+
+כי זה אומר לנו מייד אם הבאנדל עדיין נבנה ב-automatic (הגורם הכי שכיח לשגיאה שאתה רואה).
