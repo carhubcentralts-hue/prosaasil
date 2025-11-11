@@ -1,0 +1,114 @@
+לך על אופציה C – “בודקים ואז מתקנים”. זה הכי בטוח, ותוך דקות תדע אם הבעיה היא באמת JSX-automatic או משהו אחר.
+
+מה עושים עכשיו (צעד־אחר־צעד, ללא ניחושים)
+	1.	בדיקת הבאנדל שקיים כרגע
+ב־Shell של Replit (בספריית הפרויקט, אחרי build):
+
+grep -E "React\.createElement|_jsx" dist/assets/index-*.js | head -20
+
+פענוח:
+	•	אם תראה _jsx / _jsxs → נבנה ב-automatic (זו הבעיה).
+	•	אם תראה בעיקר React.createElement → ה-JSX כבר Classic, נחפש גורם אחר.
+
+	2.	מי הקובץ שקובע את ה-build?
+בדוק איזה סקריפט רץ:
+
+cat client/package.json | grep -n "\"build\"" -n
+ls -la ./vite.config.js ./client/vite.config.js
+
+אם יש גם ./vite.config.js בשורש — הוא עלול לדרוס. שים לב מה כתוב ב-scripts של ה-Deploy/.replit (מי קורא build).
+
+⸻
+
+אם הבדיקה מראה AUTOMATIC (_jsx)  → מתקנים כך
+
+A. השאר קובץ Vite אחד בלבד
+	•	שנה שם/מחק את ./vite.config.js בשורש.
+	•	השאר רק client/vite.config.js.
+
+B. נעל Classic JSX + יעד טרנספילציה בטוח
+client/vite.config.js:
+
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react({ jsxRuntime: 'classic', fastRefresh: false })],
+  build: { target: 'es2018', outDir: 'dist', sourcemap: true, minify: 'esbuild' }
+})
+
+client/tsconfig.json:
+
+{ "compilerOptions": { "jsx": "react", "target": "es2018", "module": "esnext",
+  "moduleResolution": "bundler", "strict": true, "skipLibCheck": true } }
+
+C. נעל גרסאות React יציבות (מונע “Y.useEffect=null”)
+client/package.json:
+
+"dependencies": { "react": "18.3.1", "react-dom": "18.3.1" },
+"overrides":    { "react": "18.3.1", "react-dom": "18.3.1" },
+"scripts": { "build": "vite build", "dev": "vite" }
+
+ודא שבכל קובץ TSX יש:
+
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
+
+D. בנייה נקייה ודטרמיניסטית
+בספריית client:
+
+rm -rf node_modules dist
+npm ci
+npm run build
+
+בחזרה לשורש:
+
+rm -rf dist
+mkdir -p dist
+cp -r client/dist/* dist/
+
+E. בדיקת “זהב” לפני פריסה
+
+grep -E "React\.createElement|_jsx" dist/assets/index-*.js | head -20
+# מצופה: React.createElement (ולא _jsx)
+
+ובנוסף:
+
+( cd client && npm ls react react-dom )
+# מצופה: בדיוק 18.3.1 פעם אחת לכל חבילה
+
+F. הגשה נכונה ב-Flask (ללא קאש ישן ל-HTML)
+ב־app_factory.py ודא:
+	•	static_folder = client/dist
+	•	HTML (index.html) עם Cache-Control: no-store
+	•	נכסי JS/CSS עם Cache-Control: public, max-age=31536000, immutable
+
+G. איפוס דפדפן
+Hard refresh וללא Service Worker. בדוק ש-/build_id.txt (אם יש) מתעדכן.
+
+⸻
+
+אם הבדיקה מראה שכבר Classic (אין _jsx) – גורמים חלופיים
+	1.	שתי גרסאות React בבאנדל
+בדוק:
+
+( cd client && npm ls react react-dom )
+
+אם יש יותר מגרסה אחת — הוסף overrides (כמו למעלה), npm ci, build.
+	2.	Bundle ישן מוגש
+ודא ש־Deploy אוסף מ־client/dist ולא מ־/dist ישן. הפוך את ה-build/prod לסקריפט יחיד שמעתיק מ-client/dist → dist ורק משם מגישים.
+	3.	קראש מוקדם בקומפוננטה
+הוסף ב־client/src/main.tsx:
+
+console.log('[BOOT] React:', React?.version, 'has useEffect?', !!React?.useEffect)
+
+אם ה-log לא מופיע – זה קורס לפני mount (בעיה בבאנדל/גרסה). אם כן מופיע – עטוף את ה-App ב-ErrorBoundary והוסף fallback כדי שלא תראה מסך ריק אם טאב ה-FAQ מפיל.
+
+⸻
+
+קריטריוני הצלחה (לפני שאתה ממשיך לפיצ׳רים)
+	•	grep מציג React.createElement בלבד.
+	•	npm ls מציג React / React-DOM 18.3.1 פעם אחת.
+	•	הדפדפן מציג [BOOT] React: 18.3.1 has useEffect? true.
+	•	אין יותר “null is not an object (evaluating ‘Y.useEffect’)”.
+
+עמוד בזה בדיוק – וזה יפתור את הבעיה בלי להסתבך שוב. אם משהו נתקע, שלח לי את פלט ה-grep וה-npm ls ואני אגיד מיד מה החוליה החלשה.
