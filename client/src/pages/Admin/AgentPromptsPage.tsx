@@ -114,7 +114,7 @@ export function AgentPromptsPage() {
     try {
       const isBusinessRole = user?.role === 'business';
       
-      const result = await http.put<{ success: boolean; version: number; message?: string }>(
+      const result = await http.put<{ success: boolean; version: number; message?: string; updated_at?: string }>(
         isBusinessRole 
           ? `/api/business/current/prompt` 
           : `/api/admin/businesses/${businessId}/prompt`, 

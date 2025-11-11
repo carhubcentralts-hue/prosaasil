@@ -62,8 +62,8 @@ def apply_migrations():
                 error_code VARCHAR(50)
             )
         """))
-        db.session.execute(text("CREATE INDEX idx_call_turn_sid ON call_turn(call_sid)"))
-        db.session.execute(text("CREATE INDEX idx_call_turn_business_time ON call_turn(business_id, started_at)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_call_turn_sid ON call_turn(call_sid)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_call_turn_business_time ON call_turn(business_id, started_at)"))
         migrations_applied.append("create_call_turn_table")
         log.info("Applied migration: create_call_turn_table")
     
@@ -174,15 +174,15 @@ def apply_migrations():
         
         # Create indexes for leads table
         indexes = [
-            "CREATE INDEX idx_leads_tenant ON leads(tenant_id)",
-            "CREATE INDEX idx_leads_status ON leads(status)",
-            "CREATE INDEX idx_leads_source ON leads(source)",
-            "CREATE INDEX idx_leads_phone ON leads(phone_e164)",
-            "CREATE INDEX idx_leads_email ON leads(email)",
-            "CREATE INDEX idx_leads_external_id ON leads(external_id)",
-            "CREATE INDEX idx_leads_owner ON leads(owner_user_id)",
-            "CREATE INDEX idx_leads_created ON leads(created_at)",
-            "CREATE INDEX idx_leads_contact ON leads(last_contact_at)"
+            "CREATE INDEX IF NOT EXISTS idx_leads_tenant ON leads(tenant_id)",
+            "CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status)",
+            "CREATE INDEX IF NOT EXISTS idx_leads_source ON leads(source)",
+            "CREATE INDEX IF NOT EXISTS idx_leads_phone ON leads(phone_e164)",
+            "CREATE INDEX IF NOT EXISTS idx_leads_email ON leads(email)",
+            "CREATE INDEX IF NOT EXISTS idx_leads_external_id ON leads(external_id)",
+            "CREATE INDEX IF NOT EXISTS idx_leads_owner ON leads(owner_user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_leads_contact ON leads(last_contact_at)"
         ]
         
         for index_sql in indexes:
@@ -208,8 +208,8 @@ def apply_migrations():
             )
         """))
         
-        db.session.execute(text("CREATE INDEX idx_lead_reminders_lead ON lead_reminders(lead_id)"))
-        db.session.execute(text("CREATE INDEX idx_lead_reminders_due ON lead_reminders(due_at)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_lead_reminders_lead ON lead_reminders(lead_id)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_lead_reminders_due ON lead_reminders(due_at)"))
         migrations_applied.append("create_lead_reminders_table")
         log.info("Applied migration: create_lead_reminders_table")
     
@@ -227,9 +227,9 @@ def apply_migrations():
             )
         """))
         
-        db.session.execute(text("CREATE INDEX idx_lead_activities_lead ON lead_activities(lead_id)"))
-        db.session.execute(text("CREATE INDEX idx_lead_activities_type ON lead_activities(type)"))
-        db.session.execute(text("CREATE INDEX idx_lead_activities_time ON lead_activities(at)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_lead_activities_lead ON lead_activities(lead_id)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_lead_activities_type ON lead_activities(type)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_lead_activities_time ON lead_activities(at)"))
         migrations_applied.append("create_lead_activities_table")
         log.info("Applied migration: create_lead_activities_table")
     
@@ -250,8 +250,8 @@ def apply_migrations():
             )
         """))
         
-        db.session.execute(text("CREATE INDEX idx_merge_candidates_lead ON lead_merge_candidates(lead_id)"))
-        db.session.execute(text("CREATE INDEX idx_merge_candidates_dup ON lead_merge_candidates(duplicate_lead_id)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_merge_candidates_lead ON lead_merge_candidates(lead_id)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_merge_candidates_dup ON lead_merge_candidates(duplicate_lead_id)"))
         migrations_applied.append("create_lead_merge_candidates_table")
         log.info("Applied migration: create_lead_merge_candidates_table")
     
@@ -259,7 +259,7 @@ def apply_migrations():
     if check_table_exists('leads') and not check_column_exists('leads', 'order_index'):
         from sqlalchemy import text
         db.session.execute(text("ALTER TABLE leads ADD COLUMN order_index INTEGER DEFAULT 0"))
-        db.session.execute(text("CREATE INDEX idx_leads_order_index ON leads(order_index)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_leads_order_index ON leads(order_index)"))
         # Set default order for existing leads based on their ID
         db.session.execute(text("UPDATE leads SET order_index = id WHERE order_index = 0"))
         migrations_applied.append("add_leads_order_index")
@@ -337,7 +337,7 @@ def apply_migrations():
         """))
         
         # Create index for (tenant_id, version)
-        db.session.execute(text("CREATE INDEX idx_tenant_version ON prompt_revisions(tenant_id, version)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_tenant_version ON prompt_revisions(tenant_id, version)"))
         migrations_applied.append("create_prompt_revisions_table")
         log.info("Applied migration: create_prompt_revisions_table")
     
@@ -358,13 +358,13 @@ def apply_migrations():
         """))
         
         # Create indexes
-        db.session.execute(text("CREATE INDEX idx_bcc_business ON business_contact_channels(business_id)"))
-        db.session.execute(text("CREATE INDEX idx_bcc_channel ON business_contact_channels(channel_type)"))
-        db.session.execute(text("CREATE INDEX idx_bcc_identifier ON business_contact_channels(identifier)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_bcc_business ON business_contact_channels(business_id)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_bcc_channel ON business_contact_channels(channel_type)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_bcc_identifier ON business_contact_channels(identifier)"))
         
         # Unique constraint: one identifier per channel type
         db.session.execute(text("""
-            CREATE UNIQUE INDEX uq_channel_identifier 
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_channel_identifier 
             ON business_contact_channels(channel_type, identifier)
         """))
         

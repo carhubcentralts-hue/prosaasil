@@ -10,7 +10,7 @@ export const queryClient = new QueryClient({
   },
 });
 
-export async function apiRequest(url: string, options: RequestInit = {}) {
+export async function apiRequest(url: string, options: RequestInit & { body?: any } = {}) {
   const response = await fetch(url, {
     ...options,
     headers: {

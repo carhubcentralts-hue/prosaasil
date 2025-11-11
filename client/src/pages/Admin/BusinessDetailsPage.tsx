@@ -486,7 +486,7 @@ export function BusinessDetailsPage() {
                     
                     <div className="mt-6 pt-4 border-t border-slate-200">
                       <div className="text-sm text-slate-500 space-y-1">
-                        <p>נוצר: {formatDate(business.createdAt)}</p>
+                        <p>נוצר: {formatDate(business.created_at)}</p>
                         <p>עודכן לאחרונה: {formatDate(business.updatedAt)}</p>
                       </div>
                     </div>
