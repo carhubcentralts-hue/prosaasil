@@ -27,7 +27,11 @@ npm install --prefer-offline --no-audit --no-fund --legacy-peer-deps --loglevel 
 echo "🔨 Building frontend with Vite..."
 npm run build
 cd ..
-echo "✅ Frontend built - $(date)"
+
+echo "📦 Copying client/dist → /dist (Flask static root)..."
+rm -rf dist
+cp -R client/dist dist
+echo "✅ Frontend built and copied to /dist - $(date)"
 echo ""
 
 # Phase 3: Baileys (FAST)
