@@ -806,6 +806,14 @@ class MediaStreamHandler:
                     
                     # ✅ לוגים נקיים - רק אירועים חשובים (לא כל frame)  
                     
+                    # 🔒 CRITICAL FIX: אם המערכת מדברת - לא להאזין בכלל!
+                    # אל תעבד אודיו, אל תאסוף, אל תבדוק VAD - SKIP COMPLETELY!
+                    # 🚨 MUST BE BEFORE BARGE-IN CHECK - UNCONDITIONAL!
+                    if self.speaking:
+                        self.buf.clear()
+                        self.voice_in_row = 0  # Reset barge-in counter
+                        continue  # ← SKIP EVERYTHING - don't listen at all!
+                    
                     # 🔥 PHASE 2N: BARGE-IN COMPLETELY DISABLED BY DEFAULT
                     # User: "שלא יעצור בחיים לדבר עד שהוא מסיים לדבר"
                     # Only run barge-in logic if EXPLICITLY enabled via env var
@@ -881,13 +889,6 @@ class MediaStreamHandler:
                     else:
                         # 🔥 PHASE 2N: Barge-in DISABLED - reset counter to prevent any state buildup
                         self.voice_in_row = 0
-                    
-                    # 🔒 CRITICAL FIX: אם המערכת מדברת - לא להאזין בכלל!
-                    # אל תעבד אודיו, אל תאסוף, אל תבדוק VAD - SKIP COMPLETELY!
-                    if self.speaking:
-                        self.buf.clear()
-                        self.voice_in_row = 0  # Reset barge-in counter
-                        continue  # ← SKIP EVERYTHING - don't listen at all!
                     
                     # ✅ איסוף אודיו עם זיהוי דממה תקין
                     if not self.processing and self.state == STATE_LISTEN:

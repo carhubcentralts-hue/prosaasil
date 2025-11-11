@@ -8,15 +8,20 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes (November 11, 2025)
 
-**Critical Agent Fixes:**
+**Critical Production Fixes (Post-Deployment):**
+1. ✅ **Barge-in Protection Fixed**: Moved `if self.speaking:` check BEFORE barge-in block - now unconditional! STT completely disabled during TTS.
+2. ✅ **Availability Validation Fixed**: Changed from detecting all "תפוס/פנוי" words to only absolute claims ("אין זמנים פנויים"). Agent can now say "15:00 תפוס, אבל 17:00 פנוי" after tool call.
+3. ✅ **DTMF Instructions Simplified**: Ultra-clear 6-word instruction: "ומספר? הקש סולמית בסוף" - no variations allowed.
+4. ✅ **Tool Result Reading Enhanced**: Step-by-step instructions with critical example showing slots=[15:00, 17:00] means BOTH are available.
+
+**Previous Agent Fixes:**
 1. ✅ Fixed Runner.run() initialization (TypeError resolved)
 2. ✅ Added RULE #1: Agent never verbalizes internal processes
-3. ✅ Added availability verification guard (blocks "תפוס/פנוי" without tool calls)
-4. ✅ Enhanced DTMF phone collection instructions
-5. ✅ Added WhatsApp confirmation tracking
-6. ✅ Fixed intent detection with booking-first pre-check
-7. ✅ Added tool name extraction fallback (output structure detection)
-8. ✅ Fixed verbose slot listing - agent now asks preference instead of reading all times
+3. ✅ Enhanced DTMF phone collection instructions
+4. ✅ Added WhatsApp confirmation tracking
+5. ✅ Fixed intent detection with booking-first pre-check
+6. ✅ Added tool name extraction fallback (output structure detection)
+7. ✅ Fixed verbose slot listing - agent now asks preference instead of reading all times
 
 **Intent Router Fix:**
 - Added booking pre-check: detects booking verbs ("לקבוע", "לתאם") + time/day terms before info patterns

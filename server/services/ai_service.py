@@ -1189,8 +1189,10 @@ class AIService:
             claimed_action = any(word in reply_text for word in claim_words)
             
             # 🔥 NEW: Detect "hallucinated availability" (saying "busy/available" without checking)
-            availability_words = ["תפוס", "תפוסה", "פנוי", "פנויה", "יש פנוי", "אין פנוי", "השעה תפוסה"]
-            claimed_availability = any(word in reply_text for word in availability_words)
+            # 🚨 FIX: Only flag if saying "NO availability" or "YES available" (absolute claims)
+            # Saying "15:00 תפוס אבל 17:00 פנוי" is VALID after tool call!
+            hallucinated_availability_words = ["אין זמנים פנויים", "אין זמינות", "הכל תפוס", "לא פנוי", "לא זמין"]
+            claimed_availability = any(word in reply_text for word in hallucinated_availability_words)
             
             # Check if calendar_create_appointment was called (with or without _wrapped suffix)
             booking_tool_called = any(
