@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { useRef, useState, useEffect } from 'react';
 
 interface SignatureCanvasProps {

@@ -488,7 +488,7 @@ def apply_migrations():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """))
-        db.session.execute(text("CREATE INDEX idx_business_active ON faqs(business_id, is_active)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_business_active ON faqs(business_id, is_active)"))
         migrations_applied.append("create_faqs_table")
         log.info("✅ Applied migration 21: create_faqs_table - Business-specific FAQs for fast-path")
     

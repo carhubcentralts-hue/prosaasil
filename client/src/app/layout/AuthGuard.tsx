@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { useEffect } from 'react';
 import { useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth/hooks';

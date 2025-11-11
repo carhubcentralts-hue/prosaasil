@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { cn } from '../utils/cn';
 
 interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {}

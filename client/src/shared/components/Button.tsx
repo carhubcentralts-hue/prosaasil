@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { cn } from '../utils/cn';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
