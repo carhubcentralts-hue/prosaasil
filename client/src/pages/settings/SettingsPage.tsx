@@ -98,11 +98,67 @@ interface AISettings {
   language: string;
 }
 
+interface FAQ {
+  id: number;
+  question: string;
+  answer: string;
+  order_index: number;
+  created_at?: string;
+}
+
 export function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'faqs' | 'integrations' | 'ai' | 'security'>('business');
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
+  const [faqModalOpen, setFaqModalOpen] = useState(false);
+  const [editingFaq, setEditingFaq] = useState<FAQ | null>(null);
+  
+  // FAQ Query
+  const { data: faqs = [], isLoading: faqsLoading, error: faqsError } = useQuery<FAQ[]>({
+    queryKey: ['/api/business/faqs'],
+    enabled: activeTab === 'faqs'
+  });
+  
+  // FAQ Mutations
+  const createFaqMutation = useMutation({
+    mutationFn: (data: { question: string; answer: string }) =>
+      apiRequest('/api/business/faqs', { method: 'POST', body: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] });
+      setFaqModalOpen(false);
+      alert('שאלה נוצרה בהצלחה!');
+    },
+    onError: (error) => {
+      alert(`שגיאה ביצירת שאלה: ${error}`);
+    }
+  });
+  
+  const updateFaqMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: { question: string; answer: string } }) =>
+      apiRequest(`/api/business/faqs/${id}`, { method: 'PUT', body: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] });
+      setFaqModalOpen(false);
+      setEditingFaq(null);
+      alert('שאלה עודכנה בהצלחה!');
+    },
+    onError: (error) => {
+      alert(`שגיאה בעדכון שאלה: ${error}`);
+    }
+  });
+  
+  const deleteFaqMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiRequest(`/api/business/faqs/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] });
+      alert('שאלה נמחקה בהצלחה!');
+    },
+    onError: (error) => {
+      alert(`שגיאה במחיקת שאלה: ${error}`);
+    }
+  });
   
   // Settings state
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>({
@@ -593,10 +649,11 @@ export function SettingsPage() {
                 </div>
                 <Button 
                   onClick={() => {
-                    /* TODO: Add FAQ logic */
-                    alert('הוסף FAQ חדש');
+                    setEditingFaq(null);
+                    setFaqModalOpen(true);
                   }}
                   variant="outline"
+                  data-testid="button-add-faq"
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   הוסף שאלה
@@ -615,42 +672,73 @@ export function SettingsPage() {
                 </div>
 
                 <div className="border-t pt-4">
-                  <h4 className="font-medium text-gray-900 mb-3">דוגמאות FAQ</h4>
-                  <div className="space-y-3">
-                    <div className="border rounded-lg p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <p className="font-medium text-gray-900">מה המחיר?</p>
-                          <p className="text-sm text-gray-600 mt-1">המחיר מתחיל מ-500,000 ש"ח לדירת 3 חדרים.</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button className="text-blue-600 hover:text-blue-700 p-1">
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button className="text-red-600 hover:text-red-700 p-1">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="border rounded-lg p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <p className="font-medium text-gray-900">מה הכתובת?</p>
-                          <p className="text-sm text-gray-600 mt-1">הפרוייקט ממוקם ברחוב הרצל 123, תל אביב.</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button className="text-blue-600 hover:text-blue-700 p-1">
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button className="text-red-600 hover:text-red-700 p-1">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium text-gray-900">השאלות הנפוצות שלך</h4>
+                    {faqs.length > 0 && (
+                      <span className="text-sm text-gray-500">{faqs.length} שאלות</span>
+                    )}
                   </div>
+
+                  {faqsLoading && (
+                    <div className="text-center py-8 text-gray-500">טוען...</div>
+                  )}
+
+                  {faqsError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
+                      שגיאה בטעינת שאלות נפוצות
+                    </div>
+                  )}
+
+                  {!faqsLoading && !faqsError && faqs.length === 0 && (
+                    <div className="text-center py-8">
+                      <MessageCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-gray-500">עדיין לא הוספת שאלות נפוצות</p>
+                      <p className="text-sm text-gray-400 mt-1">לחץ על "הוסף שאלה" כדי להתחיל</p>
+                    </div>
+                  )}
+
+                  {!faqsLoading && !faqsError && faqs.length > 0 && (
+                    <div className="space-y-3">
+                      {faqs.map((faq) => (
+                        <div key={faq.id} className="border rounded-lg p-4" data-testid={`faq-item-${faq.id}`}>
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <p className="font-medium text-gray-900" data-testid={`faq-question-${faq.id}`}>
+                                {faq.question}
+                              </p>
+                              <p className="text-sm text-gray-600 mt-1" data-testid={`faq-answer-${faq.id}`}>
+                                {faq.answer}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 mr-2">
+                              <button 
+                                onClick={() => {
+                                  setEditingFaq(faq);
+                                  setFaqModalOpen(true);
+                                }}
+                                className="text-blue-600 hover:text-blue-700 p-1"
+                                data-testid={`button-edit-faq-${faq.id}`}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  if (confirm(`למחוק את השאלה "${faq.question}"?`)) {
+                                    deleteFaqMutation.mutate(faq.id);
+                                  }
+                                }}
+                                className="text-red-600 hover:text-red-700 p-1"
+                                disabled={deleteFaqMutation.isPending}
+                                data-testid={`button-delete-faq-${faq.id}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </Card>
@@ -854,6 +942,99 @@ export function SettingsPage() {
           </div>
         )}
       </div>
+
+      {/* FAQ Modal */}
+      {faqModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              {editingFaq ? 'עריכת שאלה נפוצה' : 'הוספת שאלה נפוצה'}
+            </h3>
+            
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const question = formData.get('question') as string;
+                const answer = formData.get('answer') as string;
+                
+                if (!question?.trim() || !answer?.trim()) {
+                  alert('נא למלא את כל השדות');
+                  return;
+                }
+                
+                if (editingFaq) {
+                  updateFaqMutation.mutate({
+                    id: editingFaq.id,
+                    data: { question: question.trim(), answer: answer.trim() }
+                  });
+                } else {
+                  createFaqMutation.mutate({
+                    question: question.trim(),
+                    answer: answer.trim()
+                  });
+                }
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  שאלה <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="question"
+                  defaultValue={editingFaq?.question || ''}
+                  placeholder="למשל: מה המחיר?"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  maxLength={200}
+                  required
+                  data-testid="input-faq-question"
+                />
+                <p className="text-xs text-gray-500 mt-1">מקסימום 200 תווים</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  תשובה <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  name="answer"
+                  defaultValue={editingFaq?.answer || ''}
+                  placeholder="למשל: המחיר מתחיל מ-500,000 ש״ח"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px]"
+                  maxLength={2000}
+                  required
+                  data-testid="input-faq-answer"
+                />
+                <p className="text-xs text-gray-500 mt-1">מקסימום 2000 תווים</p>
+              </div>
+
+              <div className="flex gap-2 justify-end pt-4 border-t">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setFaqModalOpen(false);
+                    setEditingFaq(null);
+                  }}
+                  disabled={createFaqMutation.isPending || updateFaqMutation.isPending}
+                  data-testid="button-cancel-faq"
+                >
+                  ביטול
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={createFaqMutation.isPending || updateFaqMutation.isPending}
+                  data-testid="button-save-faq"
+                >
+                  {createFaqMutation.isPending || updateFaqMutation.isPending ? 'שומר...' : 'שמור'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
