@@ -13,7 +13,8 @@ Preferred communication style: Simple, everyday language.
 2. ✅ **Lead Creation Automatic**: Enhanced fallback with duplicate checking. Every call creates/finds lead with detailed logging. GUARANTEED lead capture!
 3. ✅ **Availability Validation Fixed**: Changed from detecting all "תפוס/פנוי" words to only absolute claims ("אין זמנים פנויים"). Agent can now say "15:00 תפוס, אבל 17:00 פנוי" after tool call.
 4. ✅ **DTMF Instructions VERIFIED IN DB**: Prompt in database already contains "מה המספר שלך? אנא הקלידו והקישו סולמית בסיום" - cache cleared, ready for use!
-5. ✅ **Tool Result Reading Enhanced**: Step-by-step instructions with critical example showing slots=[15:00, 17:00] means BOTH are available.
+5. ⚠️ **Tool Result Reading**: Detailed instructions exist in agent_factory.py FALLBACK ONLY. Custom DB prompts must include tool reading instructions manually!
+6. ✅ **STT Ultra-Fast**: Reduced TIMEOUT_MS to 300ms (from 400ms) for faster transcription. DEBOUNCE 80ms, BATCH 30ms.
 
 **Previous Agent Fixes:**
 1. ✅ Fixed Runner.run() initialization (TypeError resolved)

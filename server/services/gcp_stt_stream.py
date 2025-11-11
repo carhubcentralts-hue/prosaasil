@@ -21,7 +21,7 @@ log = logging.getLogger("gcp_stt_stream")
 # ⚡ SPEED OPTIMIZED: Ultra-low latency for real-time Hebrew transcription
 BATCH_MS = int(os.getenv("STT_BATCH_MS", "30"))        # ⚡ 30ms (was 40ms) - faster batching
 DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "80"))  # ⚡ 80ms (was 120ms) - faster partial results
-TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "400"))    # ⚡ 400ms (was 600ms) - faster timeout
+TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "300"))    # ⚡ 300ms (was 400ms) - ULTRA-FAST timeout
 LANG = os.getenv("GCP_STT_LANGUAGE", "he-IL")
 PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() == "true"
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"

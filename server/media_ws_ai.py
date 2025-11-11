@@ -76,9 +76,9 @@ print(f"[BOOT] ENABLE_BARGE_IN = {ENABLE_BARGE_IN} (🔥 Phase 2N: Default DISAB
 print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
 print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
 print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
-print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '40')}")
-print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '120')} (🔥 Phase 2N: Was 90ms)")
-print(f"[BOOT] STT_TIMEOUT_MS = {os.getenv('STT_TIMEOUT_MS', '600')} (🔥 Phase 2N: Was 320ms)")
+print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '30')}")
+print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '80')} (🔥 Ultra-fast)")
+print(f"[BOOT] STT_TIMEOUT_MS = {os.getenv('STT_TIMEOUT_MS', '300')} (🔥 Ultra-fast - was 400ms)")
 print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '120')}")
 print("="*80)
 
