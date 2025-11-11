@@ -629,8 +629,17 @@ def create_app():
         print(f"⚠️ FE_DIST error: {e}")
     
     @app.route('/assets/<path:filename>')
-    def assets(filename): 
-        return send_from_directory(FE_DIST/'assets', filename)
+    def assets(filename):
+        """Serve static assets with immutable cache headers"""
+        resp = send_from_directory(FE_DIST/'assets', filename)
+        # Assets have hash in filename → safe to cache forever
+        resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        # Ensure correct MIME types
+        if filename.endswith('.js'):
+            resp.headers['Content-Type'] = 'application/javascript'
+        elif filename.endswith('.css'):
+            resp.headers['Content-Type'] = 'text/css'
+        return resp
 
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
@@ -639,7 +648,10 @@ def create_app():
         if path.startswith(('api','webhook','static','assets','wa')):
             abort(404)
         resp = send_from_directory(FE_DIST, 'index.html')
-        resp.cache_control.no_store = True
+        # index.html must never be cached (always fresh)
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
         return resp
     
     # DEBUG endpoint removed - no longer needed

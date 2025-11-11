@@ -28,10 +28,29 @@ echo "🔨 Building frontend with Vite..."
 npm run build
 cd ..
 
-echo "📦 Copying client/dist → /dist (Flask static root)..."
+echo "📦 Copying client/dist → dist/ (Flask static root)..."
+# Clean old dist completely
 rm -rf dist
-cp -R client/dist dist
-echo "✅ Frontend built and copied to /dist - $(date)"
+mkdir -p dist
+# Copy fresh build
+cp -R client/dist/* dist/
+echo "✅ Frontend copied to dist/"
+
+echo "🔍 Validating build integrity..."
+# Add build timestamp for tracking
+date +%s > dist/build_id.txt
+# Verify asset integrity: ensure index.html points to existing JS file
+ASSET=$(grep -o 'assets/index-[^"]\+\.js' dist/index.html | head -n1)
+if [ -z "$ASSET" ]; then
+    echo "❌ ERROR: No JS asset found in index.html!"
+    exit 1
+fi
+if [ ! -f "dist/$ASSET" ]; then
+    echo "❌ ERROR: Asset mismatch! index.html references $ASSET but file doesn't exist!"
+    exit 1
+fi
+echo "✅ Build integrity verified: $ASSET exists"
+echo "✅ Frontend built and validated - $(date)"
 echo ""
 
 # Phase 3: Baileys (FAST)

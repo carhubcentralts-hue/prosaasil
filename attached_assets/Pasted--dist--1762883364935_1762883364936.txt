@@ -1,0 +1,141 @@
+מבין את החשש. מה שרואים בצילום כן הגיוני: הוא זיהה שהשרת הגיש את /dist הישן מהשורש, בזמן שהבילד החדש נוצר ב-client/dist. זה גורם למצב קלאסי שבו נטען bundle ישן/לא תואם → שגיאות useEffect וכו’. זה לא קשור ל-FAQ עצמו.
+
+להלן הנחייה בטוחה, ממוקדת, בלי “קסמים”, שתמנע נפילות ותבהיר בדיוק מה שונה.
+
+מה לשנות (במדויק)
+
+1) הגשה סטטית מהנתיב הנכון
+
+ב־Flask (app_factory.py):
+
+# הגשה ישירה מה-client/dist
+app = Flask(
+    __name__,
+    static_folder=os.path.join(BASE_DIR, "client", "dist"),
+    static_url_path="/"
+)
+
+# index fallback
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_client(path):
+    filepath = os.path.join(app.static_folder, path)
+    if path and os.path.exists(filepath):
+        return app.send_static_file(path)
+    return app.send_static_file("index.html")
+
+מטרה: אל תגיש /dist היסטורי בשורש; הגש תמיד מ-client/dist.
+
+2) סקריפט בילד אחיד וחד-חד-ערכי
+
+build_production.sh (או מה שמריצים בפריסה):
+
+set -euo pipefail
+
+echo "[BUILD] client → dist"
+pushd client
+npm ci
+npm run build
+popd
+
+# נקה את השורש (אם יש שרידים)
+rm -rf dist
+mkdir -p dist
+
+# העתקת התוצרים: קבצים מ-client/dist לשורש/dist (אופציונלי אם Flask מצביע ל-client/dist)
+cp -r client/dist/* dist/
+
+# חותמת גרסה למעקב
+date +%s > dist/build_id.txt
+
+# בדיקת תקינות: וודא שה-index מפנה לנכס שקיים
+ASSET=$(grep -o 'assets/index-[^"]\+\.js' dist/index.html | head -n1)
+test -n "$ASSET" && test -f "dist/$ASSET" || { echo "❌ asset mismatch"; exit 1; }
+
+echo "[BUILD] OK → $ASSET"
+
+מטרה: תמיד יש הלימה בין index.html ל-assets/index-*.js. אם לא—הבילד יכשל מוקדם.
+
+3) כותרות קאש נכונות (כדי לא “להיתקע” על bundle ישן)
+
+ב־Flask (לדוגמה, בקונפיג/Blueprint):
+
+from flask import make_response, send_from_directory
+
+@app.after_request
+def add_cache_headers(resp):
+    path = resp.headers.get("Content-Disposition", "")
+    # index.html – בלי קאש
+    if resp.direct_passthrough is False and resp.mimetype == "text/html":
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    # assets – קאש ארוך ו-immutable
+    elif resp.mimetype in ("application/javascript","text/css","image/png","image/svg+xml"):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+4) ודא שאין שתי גרסאות React
+
+(זה טריגר נוסף לשגיאת useEffect)
+
+cd client
+npm ls react react-dom
+
+אם יש כפילויות—אחד:
+
+// client/package.json
+"dependencies": {
+  "react": "18.3.1",
+  "react-dom": "18.3.1"
+},
+"overrides": {
+  "react": "18.3.1",
+  "react-dom": "18.3.1"
+}
+
+ואז:
+
+rm -rf node_modules ../node_modules package-lock.json pnpm-lock.yaml
+npm i
+
+5) קונפיג Vite שלא חותך את React בבילד
+
+client/vite.config.js:
+
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react({ jsxRuntime: 'classic' })], // לא automatic
+  base: '/',
+  build: { target: 'es2019', outDir: 'dist', assetsDir: 'assets', sourcemap: true },
+  resolve: { alias: { react: 'react', 'react-dom': 'react-dom' } },
+  define: { 'process.env.NODE_ENV': JSON.stringify('production') }
+})
+
+ובכל קובץ עם JSX/Hooks (כולל App.tsx, main.tsx) לוודא:
+
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
+
+6) ניקוי שרת/דפדפן
+	•	מחק client/dist → רוץ בילד מחדש.
+	•	בטל Service Worker אם היה: navigator.serviceWorker.getRegistrations()?.then(r=>r.forEach(x=>x.unregister())).
+	•	Hard Refresh בדפדפן.
+
+בדיקות sanity אחרי פריסה
+	1.	GET /build_id.txt — רואה מספר עדכני.
+	2.	DevTools Network: index.html 200/no-store, ו־assets/index-*.js 200/cache-immutable.
+	3.	Console לוג ב־main.tsx (להדפיס גרסת React):
+
+console.log('[BOOT] React:', React?.version, 'useEffect?', !!React?.useEffect)
+
+צריך לראות useEffect? true.
+
+חשוב: זה לא ה-FAQ
+
+ה-FAQ fast-path יושב בצד השרת/AI; הוא לא אמור להפיל את הפרונט. הנפילה שראית מקורה בbundle לא מתאים/הגשה של /dist ישן. ההנחיות לעיל מבטלות את זה סופית.
+
+אם אתה רוצה “רשת ביטחון” נוספת:
+	•	בחבילת הבילד, הוסף בדיקת שלמות: התאמה בין hash שב־index.html לקובץ קיים (כבר הכנסתי למעלה).
+	•	הצג fallback ידידותי אם ה-render נכשל (תפיסת חריגה והדפסת הודעה במקום מסך ריק).
+
+בצע את הצעדים האלו—אתה מכוסה לכל הדפדפנים, בלי קשר ל-Safari, ובלי תלות בשינויים של ה-FAQ.
