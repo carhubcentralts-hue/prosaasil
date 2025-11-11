@@ -581,7 +581,7 @@ CORRECT WORKFLOW:
 4. ONLY THEN answer based on what you see
 
 🔥 READING TOOL RESULTS:
-Tool returns: {"slots": [{"start_display": "15:00"}, {"start_display": "17:00"}]}
+Tool returns: {{"slots": [{{"start_display": "15:00"}}, {{"start_display": "17:00"}}]}}
 - Each slot = available time
 - Empty [] = no availability
 - If customer's time IN list → "כן, X פנויה"
