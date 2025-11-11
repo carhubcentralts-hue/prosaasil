@@ -1,0 +1,140 @@
+קיבלתי. הנה הנחיה מושלמת ל-FAQ Fast-Path לשיחות קול בלבד (בלי ווטסאפ), כך שהוא יהיה סופר-מהיר, יציב, לא יגרום לצווארי בקבוק, וה-AgentKit יעלה רק כשבאמת צריך. הכל מותאם לפרויקט שלך (Flask + SQLAlchemy + Twilio Media Streams + AgentKit).
+
+0) קונפיגורציה (ENV)
+
+הוסף/וודא:
+FAQ_FASTPATH_ENABLED=1
+FAQ_MIN_SCORE=0.78            # סף התאמה (כוונן בין 0.75–0.85)
+FAQ_CACHE_TTL_SEC=120         # TTL ל-cache ב-RAM
+FAQ_EMBEDDINGS_ENABLED=1      # אם הפעלת אמבדינגס בבילד 122
+AGENTS_ENABLED=1              # ה-AgentKit פעיל כברירת מחדל
+AGENT_MAX_OUTPUT_TOKENS=160   # תשובות קצרות ומהירות
+AI_FIRST_REPLY_WORDS=24       # תגובה ראשונה זריזה
+
+1) DB + מודל (כבר התחלת בבילד 122 – מיישר קו)
+
+טבלת FAQ מרובת עסקים (אם לא עלה במיגרציה האחרונה, השלם):
+	•	business_faqs(id, business_id, intent_key, patterns_json, answer_text, channels=‘voice’/‘both’, lang=‘he-IL’, priority int, active bool, updated_at)
+
+מודל SQLAlchemy תואם (BusinessFAQ).
+
+הערה: אם כבר יצרת גם vector/embeddings, שמור אותם בעמודה נפרדת/טבלת צל.
+
+2) מנוע FAQ מהיר (faq_engine.py)
+
+עקרונות:
+	•	Normalize עברית: הסרת ניקוד/פיסוק, lowercase, whitespace condense.
+	•	טעינת רשומות ב-RAM עם LRU + TTL (לפי business_id, channel=‘voice’).
+	•	Scoring היברידי: keyword/regex בסיסי + (אופציונלי) cosine של embeddings.
+	•	Priority boost קל (0–0.1) כדי להעדיף תשובות חשובות.
+	•	זמן ריצה טיפוסי: 30–80ms.
+
+פסאודו-ממשק:
+	•	match_faq(business_id: int, user_text: str, channel=“voice”) → dict | None
+מחזיר {answer_text, intent_key, score} או None.
+
+טעינת cache:
+	•	_load_faqs_cached(business_id, ‘voice’) עם TTL FAQ_CACHE_TTL_SEC.
+	•	Invalidate אוטומטי בקריאות CRUD (כבר עשית בבילד 122 – שמור).
+
+Fallback:
+	•	אם embeddings לא זמין/נופל → השתמש רק ב-keyword/regex.
+
+3) שילוב במסלול השיחה (קריטי) — media_ws_ai.py
+
+המקום: ב-handler של “Utterance FINAL” (אחרי ASR FINAL, לפני קריאת AI/Agent).
+
+סדר פעולות:
+	1.	קבל final_text (מנורמל/גולמי – תן ל-engine לנרמל).
+	2.	אם len(final_text) ≤ 200 תווים → ניסיון FAQ:
+	•	faq = match_faq(business_id, final_text, channel=“voice”)
+	•	אם faq וה-score ≥ FAQ_MIN_SCORE:
+	•	שלח מיד TTS: speak_text(faq[“answer_text”])
+	•	לוג טלמטריה: [FAQ] hit biz={id} intent={faq.intent_key} score={faq.score} ms={…}
+	•	חזור להאזנה (LISTEN) — אל תעלה AgentKit!
+	3.	אחרת → המשך למסלול AgentKit הרגיל.
+
+Guardrails:
+	•	Ambiguity: אם יש 2 כוונות קרובות בפער <0.05 (אם אתה מיישם top-2), אל תענה אוטומטית → עבור ל-AgentKit או שאל שאלה קצרה (“למחיר או לשעות?”).
+	•	בטיחות: לעולם אל תענה תשובת FAQ על שאלה שמריחה מפעולה (קביעת תור, שינוי הזמנה, שליחת אישור) — אלה תמיד הולכים ל-Agent.
+
+4) TTS ומהירות השמעה
+	•	warmup TTS כבר קיים (Phase 2) — שמור.
+	•	שים לב ש-speak_text ב-FAQ לא ישתמש במסלול “frame pacing” של תורים ארוכים—תן לו אותו נתיב כמו שיחות רגילות (עם ה-TX queue וה-barge-in clear שתיקנת).
+	•	שאיפה לזמן: 0.4–0.7 שניות מרגע סוף הדיבור של הלקוח עד תחילת השמעה.
+
+5) טלמטריה וניטור (כדי שתראה שזה “טיל”)
+
+הוסף/וודא לוגים ממוסדים:
+	•	[FAQ] match ms=… best=… intent=… score=…
+	•	[VOICE] TURN {id} PATH=FAQ_FASTPATH | PATH=AGENT
+	•	KPIs:
+	•	faq.hit.rate (אחוז פניות שקיבלו מענה מיידי)
+	•	faq.p50.ms / faq.p95.ms (זמן התאמה)
+	•	voice.first_partial_ms / final_ms / tts_ready_ms / total_latency_ms
+	•	דשבורד קטן ל-% שימוש ב-FAQ מול Agent.
+
+6) קשיחות ושחזור
+	•	Circuit-breaker ב-faq_engine: שום שגיאה של regex/JSON לא מפילה את הסשן. במקרה חריג — החזר None (נפילה שקטה למסלול Agent).
+	•	Cache TTL קצר (120s) + invalidation ב-CRUD: באדמין מעדכן תוכן → נכנס לשימוש תוך 0–2 דקות, בלי ריסטארט.
+	•	אין יציאות לרשת במסלול FAQ (חוץ מאופציונלי אמבדינג בזמן ריצה). אם embeddings עושה Latency — תחשב מראש ושמור embedding של שאלות/תשובות בעת CRUD, ובזמן ריצה תחשב embedding רק לטקסט הלקוח (≤30ms). אם האינפרנס כבד — השבת embeddings, השאר keyword/regex בלבד.
+
+7) UI לאדמין (קצר וקיים)
+
+כבר יש לך טאב FAQ בבילד 122. ודא:
+	•	שדות: intent_key, patterns (Array), answer_text, priority, active.
+	•	ולידציה: answer_text קצר (משפט–שניים; מתאים לקריאה קולית).
+	•	עריכה חיה + invalidation של cache לאחר POST/PUT/DELETE.
+
+8) קווים מנחים לכתיבת FAQ “נכון” (כדי שיעבוד בעברית)
+	•	patterns_json:
+[“מחיר”, “כמה עולה”, “עלות”, “תעריף”, “מחיר.*חדר”, “ברצלונה.*מחיר”]
+[“שעות פתיחה”, “מתי פתוחים”, “פתוח היום”, “עד איזו שעה”]
+[“כתובת”, “איפה אתם”, “איך מגיעים”, “מיקום”]
+[“כשרות”, “כשר”, “כשר למהדרין”]
+[“חניה”, “יש חניה”, “חנייה”]
+	•	answer_text: משפט אחד, מקס’ שניים. בלי רשימות ארוכות.
+	•	intent_key הגיוני: price, hours, address, kosher, parking, menu, rooms.
+
+9) בדיקות קבלה (Acceptance)
+
+Voice:
+	•	“מה המחיר?” → FAQ hit → TTS תוך <0.7s → Agent לא עלה.
+	•	“איפה אתם?” → FAQ hit → מיידי.
+	•	“מתי פתוחים?” → FAQ hit.
+	•	“יש פנוי מחר ב-10?” → FAQ miss → AgentKit בודק זמינות באמת.
+	•	“שלח לי אישור” → FAQ miss → AgentKit מזוהה כפעולה.
+	•	“מה המחיר והאם אתם פתוחים היום?” (שאלה כפולה) → אם התמיכה ב-top-2 מופעלת והפער קטן → אל תענה אוטומטי; עבור ל-Agent או שאל הבהרה.
+
+Stress:
+	•	30 שיחות מקבילות עם 70% שאלות FAQ → p95 total < 1.2s ל-FAQ, ו-Agent נשאר פנוי למשימות “כבדות”.
+
+Recovery:
+	•	השבת/הפעל embeddings בזמן ריצה → לא מפיל סשן, רק משנה איכות התאמות.
+
+10) Anti-Bottlenecks (קריטי)
+	•	אל תעשה DB query בכל utterance — טען ל-RAM, TTL 120s.
+	•	אל תקרא ל-OpenAI במסלול FAQ (אלא אם embeddings חד-פעמי לשאלה — ועדיין עם timeout 300ms ופולבק מלא ל-keywords).
+	•	אל תיצור app חדש/Flask context חדש על כל utterance (תקלה שהייתה – לא לחזור אליה).
+	•	TTS warmup “אמיתי” בכל 8 דקות + on-boot.
+	•	TX queue ל-audio frames + barge-in clear מיידי.
+
+11) איך לוודא שה-AgentKit עולה “רק כשצריך”
+
+ב-media_ws_ai בפונקציית ה-turn:
+	•	לפני הקריאה ל-Agent:
+if try_faq(): return handled
+else: run_agent()
+
+זהו. אין “שני פרומפטים”. יש פרומפט אחד ל-Agent; ה-FAQ Fast-Path הוא שכבת קיצור לפניו שאינה קוראת מודל בכלל.
+
+⸻
+
+מה תקבל מיד אחרי ההטמעה
+	•	שאלות Info נפוצות ייענו תוך ~0.5 שניות (Voice).
+	•	עומס נמוך יותר על AgentKit → תשובות מהירות יותר כשכן צריך AI.
+	•	פחות עלויות API.
+	•	אחידות תשובות בין כל נציג/שיחה.
+	•	שליטה מלאה לכל עסק דרך ה-DB — בלי שינוי קוד.
+
+זהו. תיישם בדיוק כך, וה-FAQ בשיחות יעבוד “טיל” בלי לשבור כלום במנגנון הקבוע שלך.
