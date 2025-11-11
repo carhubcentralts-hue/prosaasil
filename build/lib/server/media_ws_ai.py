@@ -51,9 +51,10 @@ USE_STREAMING_STT = True
 if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
     USE_STREAMING_STT = False
 
-# 🔥 PHASE 2N: BARGE-IN CONTROL - Disabled by default (user request)
-# User: "שלא יעצור בחיים לדבר עד שהוא מסיים לדבר"
-ENABLE_BARGE_IN = os.getenv("ENABLE_BARGE_IN", "false").lower() == "true"
+# 🔥 BARGE-IN PERMANENTLY DISABLED - Hard-coded (user demand)
+# User: "ששום דבר לא יוכל לגרום לבוט להפסיק לדבר, אם הוא התחיל לדבר שלא יפסיק!!!!"
+# 🚨 DO NOT USE ENV VAR - ALWAYS False!
+ENABLE_BARGE_IN = False  # ← PERMANENTLY DISABLED!
 
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
@@ -75,9 +76,9 @@ print(f"[BOOT] ENABLE_BARGE_IN = {ENABLE_BARGE_IN} (🔥 Phase 2N: Default DISAB
 print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
 print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
 print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
-print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '40')}")
-print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '120')} (🔥 Phase 2N: Was 90ms)")
-print(f"[BOOT] STT_TIMEOUT_MS = {os.getenv('STT_TIMEOUT_MS', '600')} (🔥 Phase 2N: Was 320ms)")
+print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '30')}")
+print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '80')} (🔥 Ultra-fast)")
+print(f"[BOOT] STT_TIMEOUT_MS = {os.getenv('STT_TIMEOUT_MS', '300')} (🔥 Ultra-fast - was 400ms)")
 print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '120')}")
 print("="*80)
 
@@ -141,10 +142,14 @@ def _create_dispatcher_callbacks(call_sid: str):
     def on_partial(text: str):
         utt = _get_utterance_state(call_sid)
         if utt:
-            # ⚡ BUILD 112: Save last partial as backup and log it
+            # 🔥 CRITICAL FIX: Save LONGEST partial only! Google STT sometimes sends shorter corrections
             with _registry_lock:
-                utt["last_partial"] = text
-            if DEBUG: print(f"🟡 [PARTIAL] '{text}' saved for {call_sid[:8]}... (utterance: {utt.get('id', '???')})")
+                current_best = utt.get("last_partial", "")
+                if len(text) > len(current_best):
+                    utt["last_partial"] = text
+                    if DEBUG: print(f"🟡 [PARTIAL] BEST updated: '{text}' ({len(text)} chars) for {call_sid[:8]}...")
+                else:
+                    if DEBUG: print(f"🟡 [PARTIAL] IGNORED (shorter): '{text}' ({len(text)} chars) vs '{current_best}' ({len(current_best)} chars)")
             
             # ⚡ BUILD 114: Early Finalization - if partial is strong enough, trigger final AND continue
             # This saves 400-600ms by triggering final event early
@@ -802,6 +807,14 @@ class MediaStreamHandler:
                     
                     # ✅ לוגים נקיים - רק אירועים חשובים (לא כל frame)  
                     
+                    # 🔒 CRITICAL FIX: אם המערכת מדברת - לא להאזין בכלל!
+                    # אל תעבד אודיו, אל תאסוף, אל תבדוק VAD - SKIP COMPLETELY!
+                    # 🚨 MUST BE BEFORE BARGE-IN CHECK - UNCONDITIONAL!
+                    if self.speaking:
+                        self.buf.clear()
+                        self.voice_in_row = 0  # Reset barge-in counter
+                        continue  # ← SKIP EVERYTHING - don't listen at all!
+                    
                     # 🔥 PHASE 2N: BARGE-IN COMPLETELY DISABLED BY DEFAULT
                     # User: "שלא יעצור בחיים לדבר עד שהוא מסיים לדבר"
                     # Only run barge-in logic if EXPLICITLY enabled via env var
@@ -878,13 +891,6 @@ class MediaStreamHandler:
                         # 🔥 PHASE 2N: Barge-in DISABLED - reset counter to prevent any state buildup
                         self.voice_in_row = 0
                     
-                    # 🔒 CRITICAL FIX: אם המערכת מדברת - לא להאזין בכלל!
-                    # אל תעבד אודיו, אל תאסוף, אל תבדוק VAD - SKIP COMPLETELY!
-                    if self.speaking:
-                        self.buf.clear()
-                        self.voice_in_row = 0  # Reset barge-in counter
-                        continue  # ← SKIP EVERYTHING - don't listen at all!
-                    
                     # ✅ איסוף אודיו עם זיהוי דממה תקין
                     if not self.processing and self.state == STATE_LISTEN:
                         # חלון רפרקטורי אחרי TTS
@@ -895,10 +901,15 @@ class MediaStreamHandler:
                         if is_strong_voice or len(self.buf) > 0:
                             # ⚡ STREAMING STT: Mark start of new utterance (once) + save partial text
                             if len(self.buf) == 0 and is_strong_voice:
-                                # Callback to save partial text for early EOU detection
+                                # Callback to save BEST (longest) partial text for early EOU detection
                                 def save_partial(text):
-                                    self.last_partial_text = text
-                                    print(f"🔊 PARTIAL: '{text}'")
+                                    # 🔥 FIX: Save LONGEST partial, not last! Google STT sometimes sends shorter corrections
+                                    current_best = getattr(self, "last_partial_text", "")
+                                    if len(text) > len(current_best):
+                                        self.last_partial_text = text
+                                        print(f"🔊 PARTIAL (best): '{text}' ({len(text)} chars)")
+                                    else:
+                                        print(f"🔊 PARTIAL (ignored): '{text}' ({len(text)} chars) - keeping '{current_best}' ({len(current_best)} chars)")
                                 
                                 self.last_partial_text = ""  # Reset
                                 self._utterance_begin(partial_cb=save_partial)
@@ -1294,7 +1305,47 @@ class MediaStreamHandler:
             self.last_user_hash, self.last_user_hash_ts = uh, time.time()
             # Processing new user input")
             
-            # 3. AI Response - БЕЗ micro-ack! תן לה לחשוב בשקט
+            # 3. FAQ Fast-Path - Voice calls only (≤200 chars)
+            # ⚡ Try FAQ matching BEFORE calling AgentKit for instant responses
+            faq_match = None
+            faq_start_time = time.time()
+            if len(text) <= 200:  # Only short queries
+                try:
+                    from server.services.faq_engine import match_faq
+                    business_id = getattr(self, 'business_id', None)
+                    if business_id:
+                        faq_match = match_faq(business_id, text, channel="voice")
+                except Exception as e:
+                    force_print(f"⚠️ [FAQ_ERROR] {e}")
+            
+            # If FAQ matched - respond immediately and skip AgentKit!
+            if faq_match:
+                faq_ms = (time.time() - faq_start_time) * 1000
+                force_print(f"🚀 [FAQ_HIT] biz={getattr(self, 'business_id', '?')} intent={faq_match['intent_key']} score={faq_match['score']:.3f} method={faq_match['method']} ms={faq_ms:.0f}ms")
+                reply = faq_match['answer']
+                
+                # Track as FAQ turn (no Agent SDK call)
+                force_print(f"🤖 [FAQ_RESPONSE] {reply[:100]}... (skipped Agent)")
+                
+                # Speak the FAQ answer and return to listening
+                if reply and reply.strip():
+                    self.conversation_history.append({
+                        'user': text,
+                        'bot': reply
+                    })
+                    self._speak_simple(reply)
+                
+                # Return to LISTEN state
+                self.state = STATE_LISTEN
+                self.processing = False
+                force_print(f"✅ [FAQ_COMPLETE] Returned to LISTEN (total: {(time.time() - faq_start_time)*1000:.0f}ms)")
+                return
+            else:
+                # FAQ miss - proceed to AgentKit
+                faq_ms = (time.time() - faq_start_time) * 1000
+                force_print(f"⏭️ [FAQ_MISS] No match found (search took {faq_ms:.0f}ms) → proceeding to AgentKit")
+            
+            # No FAQ match - proceed with AgentKit (normal flow)
             ai_processing_start = time.time()
             
             # ✅ השתמש בפונקציה המתקדמת עם מתמחה והמאגר הכולל!
@@ -1391,10 +1442,10 @@ class MediaStreamHandler:
         if not text:
             return
         
-        # 🔒 CRITICAL FIX: ALWAYS disable barge-in - never interrupt!
+        # 🔒 HARD-CODED: ALWAYS protected - ZERO barge-in!
         word_count = len(text.split())
-        self.long_response = True  # ✅ ALWAYS True = NEVER allow barge-in!
-        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN COMPLETELY DISABLED")
+        self.long_response = True  # ✅ PERMANENTLY True - NEVER interrupt!
+        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
             
         self.speaking = True
         self.speaking_start_ts = time.time()
@@ -1435,10 +1486,10 @@ class MediaStreamHandler:
             except Exception as e:
                 print(f"⚠️ Interrupt error (non-critical): {e}")
         
-        # 🔒 CRITICAL FIX: ALWAYS disable barge-in - never interrupt!
+        # 🔒 HARD-CODED: ALWAYS protected - ZERO barge-in!
         word_count = len(text.split())
-        self.long_response = True  # ✅ ALWAYS True = NEVER allow barge-in!
-        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN COMPLETELY DISABLED")
+        self.long_response = True  # ✅ PERMANENTLY True - NEVER interrupt!
+        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
             
         self.speaking = True
         self.speaking_start_ts = time.time()
@@ -1452,35 +1503,34 @@ class MediaStreamHandler:
             # ⚡ ULTRA-SPEED: No delay before TTS - immediately start speaking
             # time.sleep removed for minimum latency
                 
-            # ⚡ TTS Shortening - prevent cutoff mid-word
-            if len(text) > 150:
-                # Find last complete sentence within 150 chars
-                shortened = text[:150]
-                # Try to end at sentence boundary (., !, ?)
+            # 🔥 TTS SHORTENING DISABLED - User demand: complete sentences only!
+            # User: "הוא עוצר באמצע משפטים ולא מסיים"
+            # Previous logic cut at 150 chars - REMOVED to allow full responses
+            if len(text) > 350:  # Safety limit only for extreme cases (novels)
+                shortened = text[:350]
+                # Try to end at sentence boundary ONLY for very long responses
                 for delimiter in ['. ', '! ', '? ']:
                     last_sent = shortened.rfind(delimiter)
-                    if last_sent > 80:  # Only if we have enough text
+                    if last_sent > 250:  # Very high threshold
                         text = shortened[:last_sent + 1]
-                        print(f"🔪 TTS_SHORTENED (sentence): {text}")
+                        print(f"🔪 TTS_SAFETY_CUT (sentence): {text}")
                         break
                 else:
-                    # Fall back to word boundary - NEVER cut mid-word!
-                    last_space = shortened.rfind(' ')
-                    if last_space > 0:
-                        text = shortened[:last_space]
-                        if not text.endswith(('.', '!', '?')):
-                            text += '.'
-                        print(f"🔪 TTS_SHORTENED (word): {text}")
-                    else:
-                        # Emergency fallback (shouldn't happen)
-                        text = shortened + '.'
-                        print(f"🔪 TTS_SHORTENED (fallback): {text}")
+                    # Keep original text - don't cut!
+                    print(f"⚠️ TTS_LONG_RESPONSE: {len(text)} chars (no cut)")
             
             # ⏱️ TTS timing instrumentation
             tts_start = time.time()
+            
+            # 🚀 TTS (blocking mode - Hebrew doesn't support streaming API yet)
+            from server.services.gcp_tts_live import maybe_warmup
+            
+            # ⚡ Pre-warm TTS
+            maybe_warmup()
+            
             tts_audio = self._hebrew_tts(text)
             tts_generation_time = time.time() - tts_start
-            print(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s (target: <0.5s)")
+            print(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s")
             
             if tts_audio and len(tts_audio) > 1000:
                 print(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
@@ -1500,7 +1550,7 @@ class MediaStreamHandler:
                     print(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
                     print(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
                     
-                    # נקה למדידה הבאה
+                    # Clear for next measurement
                     if hasattr(self, 'eou_timestamp'):
                         delattr(self, 'eou_timestamp')
             else:
@@ -2644,10 +2694,10 @@ class MediaStreamHandler:
         if not text:
             return
         
-        # 🔒 CRITICAL FIX: ALWAYS disable barge-in - never interrupt!
+        # 🔒 HARD-CODED: ALWAYS protected - ZERO barge-in!
         word_count = len(text.split())
-        self.long_response = True  # ✅ ALWAYS True = NEVER allow barge-in!
-        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN COMPLETELY DISABLED")
+        self.long_response = True  # ✅ PERMANENTLY True - NEVER interrupt!
+        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
             
         self.speaking = True
         self.state = STATE_SPEAK

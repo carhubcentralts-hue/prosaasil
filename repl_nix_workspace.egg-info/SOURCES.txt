@@ -4,9 +4,9 @@ asgi.py
 pyproject.toml
 start_production.sh
 client/dist/index.html
-client/dist/assets/AdminSupportPage-B3lmtgkc.js
-client/dist/assets/index-B9GujhYT.js
-client/dist/assets/index-BqYX3Iln.css
+client/dist/assets/AdminSupportPage-BQsci87Q.js
+client/dist/assets/index-BmpXanwu.css
+client/dist/assets/index-OliyeZUa.js
 repl_nix_workspace.egg-info/PKG-INFO
 repl_nix_workspace.egg-info/SOURCES.txt
 repl_nix_workspace.egg-info/dependency_links.txt
@@ -83,6 +83,8 @@ server/services/appointment_parser.py
 server/services/business_resolver.py
 server/services/customer_intelligence.py
 server/services/dtmf_menu.py
+server/services/faq_cache.py
+server/services/faq_engine.py
 server/services/gcp_stt_stream.py
 server/services/gcp_stt_stream_optimized.py
 server/services/gcp_tts_live.py

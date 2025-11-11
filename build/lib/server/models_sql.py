@@ -130,6 +130,37 @@ class BusinessSettings(db.Model):
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class FAQ(db.Model):
+    """Business-specific FAQs for fast-path responses"""
+    __tablename__ = "faqs"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Core FAQ fields
+    question = db.Column(db.String(500), nullable=False)
+    answer = db.Column(db.Text, nullable=False)
+    
+    # Fast-Path fields (Migration 22)
+    intent_key = db.Column(db.String(50), nullable=True)  # e.g., "price", "hours", "address"
+    patterns_json = db.Column(db.JSON, nullable=True)  # Array of regex patterns for matching
+    channels = db.Column(db.String(20), default="voice")  # "voice", "whatsapp", or "both"
+    priority = db.Column(db.Integer, default=0)  # Higher priority FAQs match first
+    lang = db.Column(db.String(10), default="he-IL")  # Language code
+    
+    # Status & ordering
+    is_active = db.Column(db.Boolean, default=True)
+    order_index = db.Column(db.Integer, default=0)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    business = db.relationship("Business", backref="faqs")
+    
+    __table_args__ = (
+        db.Index('idx_business_active', 'business_id', 'is_active'),
+    )
+
 class PromptRevisions(db.Model):
     __tablename__ = "prompt_revisions"
     id = db.Column(db.Integer, primary_key=True)

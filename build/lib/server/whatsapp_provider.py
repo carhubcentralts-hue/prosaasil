@@ -89,17 +89,18 @@ class BaileysProvider(Provider):
             return {"status": "error", "error": str(e)}
     
     def send_text(self, to: str, text: str) -> Dict[str, Any]:
-        """⚡ Send text message via Baileys HTTP API with retry logic"""
-        max_attempts = 2
+        """⚡ Send text message via Baileys HTTP API - SINGLE ATTEMPT ONLY"""
+        max_attempts = 1  # 🔥 Single attempt to prevent loops
         last_error = None
         
         for attempt in range(max_attempts):
             try:
                 if not self._check_health():
+                    logger.warning("⚠️ Baileys service unavailable - check connection")
                     return {
                         "provider": "baileys",
                         "status": "error",
-                        "error": "Baileys service unavailable"
+                        "error": "WhatsApp service not connected"
                     }
                 
                 # Generate idempotency key
@@ -112,12 +113,12 @@ class BaileysProvider(Provider):
                     "idempotencyKey": idempotency_key
                 }
                 
-                logger.info(f"⚡ Sending WhatsApp to {to[:15]}... (attempt {attempt+1}/{max_attempts})")
+                logger.info(f"⚡ Sending WhatsApp to {to[:15]}...")
                 
                 response = self._session.post(
                     f"{self.outbound_url}/send",
                     json=payload,
-                    timeout=self.timeout  # 15s timeout
+                    timeout=5  # 🔥 5s timeout (reduced from 15s)
                 )
                 
                 if response.status_code == 200:
@@ -130,26 +131,24 @@ class BaileysProvider(Provider):
                         "message_id": result.get("messageId", idempotency_key)
                     }
                 else:
-                    last_error = f"HTTP {response.status_code}"
-                    logger.warning(f"⚠️ Baileys returned {response.status_code}, retrying...")
-                    time.sleep(0.5)  # Short delay before retry
-                    continue
+                    last_error = f"Service unavailable (HTTP {response.status_code})"
+                    logger.warning(f"⚠️ Baileys returned {response.status_code}")
+                    # NO RETRY - fail fast!
+                    break
                     
             except requests.exceptions.Timeout as e:
-                last_error = f"Timeout after {self.timeout}s"
-                logger.warning(f"⚠️ Timeout on attempt {attempt+1}/{max_attempts}: {e}")
-                if attempt < max_attempts - 1:
-                    time.sleep(1)  # Wait before retry
-                    continue
+                last_error = "WhatsApp service timeout"
+                logger.warning(f"⚠️ Timeout: {e}")
+                # NO RETRY - fail fast!
+                break
             except Exception as e:
-                last_error = str(e)
-                logger.error(f"❌ Baileys send error on attempt {attempt+1}/{max_attempts}: {e}")
-                if attempt < max_attempts - 1:
-                    time.sleep(0.5)
-                    continue
+                last_error = "WhatsApp service error"
+                logger.error(f"❌ Baileys send error: {e}")
+                # NO RETRY - fail fast!
+                break
         
-        # All attempts failed
-        logger.error(f"❌ All {max_attempts} attempts failed. Last error: {last_error}")
+        # Failed - return graceful error
+        logger.error(f"❌ WhatsApp send failed: {last_error}")
         return {
             "provider": "baileys",
             "status": "error",

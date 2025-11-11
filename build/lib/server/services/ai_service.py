@@ -73,25 +73,34 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
         r'לדבר.*עם|להעביר'
     ]
     
-    # ℹ️ INFO: General information (CHECK FIFTH - before booking!)
-    # 🔥 FIX: Check info patterns BEFORE book patterns to avoid "מתי פתוחים מחר?" → "book"
+    # ℹ️ INFO: General information (CHECK AFTER booking pre-check!)
+    # 🔥 TIGHTENED: These patterns now only match if NO booking verbs present
     info_patterns = [
-        # 🔥 CRITICAL FIX: "יש..." questions - SPECIFIC amenities only (not "יש לכם תור")
+        # 🔥 CRITICAL: Question words → info (אלה שאלות מידע!)
+        # But: "מתי אפשר לקבוע?" → book (caught by pre-check)
+        r'^(מה|איזה|איזו|כמה|למה|מדוע|איך|היכן|מתי)\s',  # Start with question word
+        
+        # 🔥 CRITICAL FIX: "יש..." questions - ONLY amenities (not rooms/services)
         r'יש\s+(אוכל|שתיי?ה|תפריט|מנות|אלכוהול|בר|משקאות|קפה|מזון)',
         r'יש\s+(חניה|חנייה|גישה|מיזוג|wifi|אינטרנט|מעלית)',
-        r'יש\s+לכם\s+(אוכל|שתיי?ה|תפריט|חניה|wifi)',  # "יש לכם אוכל?" ✅, but not "יש לכם תור?" ❌
-        r'מה\s+יש\s+(לאכול|לשתות|בתפריט)',   # "מה יש לאכול?" → info
-        # Pricing
-        r'כמה.*עולה|מחיר|עלות|תשלום|כמה.*זה',
+        r'יש\s+לכם\s+(אוכל|שתיי?ה|תפריט|חניה|wifi)',
+        r'מה\s+יש\s+(לאכול|לשתות|בתפריט)',
+        
+        # Pricing (standalone - not with booking verbs)
+        r'כמה.*עולה|מחיר(?!.*לקבוע)|עלות|תשלום(?!.*תור)',
+        
         # Location
         r'איפה|מיקום|כתובת|היכן',
+        
         # Hours
         r'שעות.*פתיחה|מתי.*פתוח|שעות.*עבודה|מה.*שעות',
-        # Amenities
+        
+        # Amenities & Services - REMOVED generic "חדר" patterns!
         r'כשר|כשרות',
         r'גודל.*חדר|כמה.*אנשים|כמה.*משתתפים',
         r'מה.*הכתובת|מה.*המיקום',
-        # Menu/food (standalone) - LAST to avoid conflicts
+        
+        # Menu/food (standalone)
         r'\b(תפריט|מנות|משקאות)\b',
     ]
     
@@ -123,9 +132,22 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
         if re.search(pattern, text_lower):
             return "human"
     
-    # 🔥 CHECK INFO BEFORE BOOK!
+    # 🚨 CRITICAL PRE-CHECK: Booking verbs + time/day → BOOK (before info check!)
+    # This fixes: "אפשר לקבוע חדר קריוקי למחר" → book (not info)
+    booking_verbs = r'(לקבוע|לתאם|להזמין|אפשר.*תור|רוצה.*תור|צריך.*תור)'
+    time_day_terms = r'(מחר|היום|מחרתיים|השבוע|החודש|ב-\d+|בשעה|ביום|בשני|בשלישי|ברביעי|בחמישי|בשישי|בשבת|בראשון)'
+    availability_terms = r'(פנוי|זמין|זמן|מקום|תור|פגישה)'
+    
+    # If booking verb + (time/day OR availability) → it's a booking request!
+    if re.search(booking_verbs, text_lower):
+        if re.search(time_day_terms, text_lower) or re.search(availability_terms, text_lower):
+            print(f"🎯 BOOKING_PRE_CHECK: Detected booking verb + time/availability")
+            return "book"
+    
+    # 🔥 CHECK INFO (after booking pre-check!)
     for pattern in info_patterns:
         if re.search(pattern, text_lower):
+            print(f"🎯 INTENT_MATCH: pattern='{pattern}' matched in '{text_lower[:50]}'")
             return "info"
     
     # Only check book patterns AFTER info has been ruled out
@@ -133,8 +155,10 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
         if re.search(pattern, text_lower):
             return "book"
     
-    # Default fallback
-    return "other"
+    # 🔥 FIX: Default to "other" (Agent) for unmatched questions
+    # Quality/experience questions ("האוכל קשה?") need full Agent conversation handling
+    # Only explicit info patterns should trigger FAQ fast-path
+    return "other"  # Agent handles ambiguous/quality questions correctly
 
 def extract_time_hebrew(text: str) -> Optional[Dict[str, Any]]:
     """
@@ -613,6 +637,70 @@ class AIService:
         except Exception as e:
             logger.error(f"Failed to save conversation history: {e}")
     
+    def _generate_faq_response(self, message: str, faq_answer: str, business_id: int, channel: str) -> Optional[str]:
+        """
+        🚀 Generate FAQ fast-path response using lightweight LLM
+        Uses gpt-4o-mini with max_tokens=80, temp=0.3 for <1.5s responses
+        
+        Args:
+            message: Customer question
+            faq_answer: Matched FAQ answer from database
+            business_id: Business ID
+            channel: Communication channel (phone/whatsapp)
+            
+        Returns:
+            Natural Hebrew response or None if generation failed
+        """
+        start = time.time()
+        
+        try:
+            # Get business name
+            business = Business.query.get(business_id)
+            business_name = business.name if business else "העסק"
+            
+            # Mini prompt for FAQ responses - focus on natural rephrasing
+            faq_prompt = f"""אתה עוזר דיגיטלי עבור {business_name}.
+לקוח שאל שאלה, ונמצאה התאמה במאגר השאלות הנפוצות.
+
+משימתך: השב בעברית טבעית וקצרה (1-2 משפטים) על סמך התשובה שנמצאה.
+
+שאלת הלקוח: {message}
+תשובה מהמאגר: {faq_answer}
+
+חוקים:
+1. השב בעברית פשוטה וטבעית
+2. קצר - מקסימום 2 משפטים
+3. אל תוסיף מידע שלא בתשובה המקורית
+4. אל תאמר "לפי המידע" או "נמצא במאגר"
+5. אל תציין שזאת שאלה נפוצה
+
+תשובה:"""
+            
+            # Call OpenAI with FAQ-optimized settings
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "user", "content": faq_prompt}
+                ],
+                max_tokens=80,
+                temperature=0.3,
+                timeout=4.0
+            )
+            
+            reply = response.choices[0].message.content.strip()
+            
+            elapsed = (time.time() - start) * 1000
+            print(f"⚡ FAQ response generated in {elapsed:.0f}ms")
+            logger.info(f"⚡ FAQ fast-path total time: {elapsed:.0f}ms")
+            
+            return reply
+            
+        except Exception as e:
+            elapsed = (time.time() - start) * 1000
+            print(f"❌ FAQ response generation failed after {elapsed:.0f}ms: {e}")
+            logger.error(f"FAQ response generation failed: {e}")
+            return None
+    
     def _handle_lightweight_intent(self, intent: str, message: str, business_id: int, 
                                    channel: str, context: Optional[Dict], customer_phone: Optional[str]) -> Optional[str]:
         """
@@ -642,16 +730,7 @@ class AIService:
                     logger.warning(f"FAQ failed for info query, falling back to AgentKit")
                     return None
             
-            elif intent == "whatsapp":
-                if customer_phone:
-                    response = f"נשלח לך את כל הפרטים בוואטסאפ ל-{customer_phone}. תודה!"
-                else:
-                    response = "בשמחה! מה מספר הטלפון שלך כדי שאוכל לשלוח לך את הפרטים בוואטסאפ?"
-            
-            elif intent == "human":
-                response = "אעביר אותך לנציג. רגע אחד בבקשה."
-            
-            else:  # Should not reach here (gate filters this)
+            else:  # Should not reach here (only "info" uses fast path now)
                 logger.warning(f"Unexpected intent in fast path: {intent}")
                 return None
             
@@ -666,67 +745,89 @@ class AIService:
             # Return None to signal fallback to AgentKit
             return None
     
-    def _extract_faq_facts(self, full_prompt: str) -> str:
+    def _extract_faq_facts(self, question: str, full_prompt: str) -> Optional[str]:
         """
-        🔥 ARCHITECT-REVIEWED FIX (Phase 2O): Extract ONLY factual sections from prompt
-        Strips guard-rails (🔥 STAY ON-TOPIC) and keeps pricing/hours/location data
+        🔥 ARCHITECT-REVIEWED FIX: Keyword-based topic matching
+        Extracts ONLY sections relevant to the question, not all sections blindly.
         
-        Strategy: Split on emoji section headers and extract relevant facts
+        Strategy:
+        1. Parse prompt into labeled sections (pricing, menu, location, hours, description)
+        2. Map question keywords to relevant section labels
+        3. Return only matching sections (max 500 chars)
+        4. Return None if no relevant section → fallback to Agent
         """
         try:
             import re
             
-            # Extract sections by emoji markers
-            factual_sections = []
+            question_lower = question.lower()
+            
+            # Parse all sections once into a dict
+            sections = {}
             
             # Pricing section (💰)
             pricing_match = re.search(r'💰\s*מחירים:.*?(?=\n\n|$)', full_prompt, re.DOTALL)
             if pricing_match:
-                factual_sections.append(pricing_match.group(0))
+                sections['pricing'] = pricing_match.group(0)
             
-            # Hours/schedule (⏰, 🕒, or text like "פתוחים")
-            hours_match = re.search(r'(פתוחים.*?(?=\n\n|$))', full_prompt, re.DOTALL | re.IGNORECASE)
+            # Menu/food section (🍕, 🍴, or keywords)
+            menu_match = re.search(r'(🍕|🍴|תפריט|אוכל|משקאות|מנות).*?(?=\n\n|$)', full_prompt, re.DOTALL | re.IGNORECASE)
+            if menu_match:
+                sections['menu'] = menu_match.group(0)
+            
+            # Hours/schedule (⏰, 🕒, or "פתוחים")
+            hours_match = re.search(r'(⏰|🕒|פתוחים|שעות).*?(?=\n\n|$)', full_prompt, re.DOTALL | re.IGNORECASE)
             if hours_match:
-                factual_sections.append(hours_match.group(0))
+                sections['hours'] = hours_match.group(0)
             
-            # Location (ממוקם, מיקום, כתובת, רחוב)
-            location_match = re.search(r'(ממוקם|מיקום|כתובת|רחוב התערוכה).*?(?=\n\n|$)', full_prompt, re.DOTALL)
+            # Location (📍 or keywords)
+            location_match = re.search(r'(📍|ממוקם|מיקום|כתובת|רחוב).*?(?=\n\n|$)', full_prompt, re.DOTALL)
             if location_match:
-                factual_sections.append(location_match.group(0))
+                sections['location'] = location_match.group(0)
             
-            # Description sections (Vibe Rooms, מתחם, העסק)
-            # Extract business description (usually at start or after dashes)
-            desc_match = re.search(r'(Vibe Rooms|מתחם קריוקי|העסק).*?(?=\n🔥|💬|$)', full_prompt, re.DOTALL)
-            if desc_match:
-                desc = desc_match.group(0)
-                # Only take first 500 chars of description
-                factual_sections.append(desc[:500])
+            # General description
+            desc_match = re.search(r'^(.*?)(?=\n💰|\n🔥|\n💬|$)', full_prompt, re.DOTALL)
+            if desc_match and len(desc_match.group(0).strip()) > 50:
+                sections['description'] = desc_match.group(0)[:500]
             
-            if factual_sections:
-                logger.info(f"✅ FAQ: Extracted {len(factual_sections)} factual sections")
-                return "\n\n".join(factual_sections)
-            else:
-                # Fallback: return prompt without guard-rails
-                # Remove lines starting with 🔥, ❌, ✅ and behavior rules
-                clean_lines = []
-                for line in full_prompt.split("\n"):
-                    stripped = line.strip()
-                    if (not stripped.startswith("🔥") and
-                        not stripped.startswith("❌") and
-                        not stripped.startswith("✅") and
-                        "STAY ON-TOPIC" not in line and
-                        "NEVER CLAIM" not in line and
-                        "כללי קביעת תור" not in line):
-                        clean_lines.append(line)
-                
-                clean_prompt = "\n".join(clean_lines)
-                logger.info(f"⚠️ FAQ: No emoji sections found, using cleaned prompt ({len(clean_prompt)} chars)")
-                return clean_prompt[:2000]  # Limit size
+            # Topic keyword mapping
+            # 🔥 FIX: Only match INFORMATION questions, not quality/experience questions
+            topic_keywords = {
+                'pricing': r'(מחיר|כמה עולה|כמה זה|עלות|תשלום|עולה)',
+                'menu': r'(יש.*אוכל|יש.*תפריט|מה.*תפריט|מה.*לאכול|מה.*לשתות|תפריט|מנות|משקאות|שתיה|בר|קפה)',
+                'hours': r'(מתי.*פתוח|שעות.*פתיחה|שעות.*עבודה|מה.*שעות)',
+                'location': r'(איפה|מיקום|כתובת|היכן|רחוב|אזור)',
+            }
+            
+            # Find matching sections
+            matched_sections = []
+            
+            for topic, pattern in topic_keywords.items():
+                if re.search(pattern, question_lower) and topic in sections:
+                    matched_sections.append(sections[topic])
+                    print(f"✅ FAQ_MATCH: topic='{topic}' matched in question")
+            
+            # If no topic match, return general description if it exists
+            if not matched_sections and 'description' in sections:
+                matched_sections.append(sections['description'])
+                print(f"ℹ️ FAQ_FALLBACK: Using general description (no topic match)")
+            
+            # If still no match, return None → Agent fallback
+            if not matched_sections:
+                print(f"⚠️ FAQ_NO_MATCH: No relevant section found, routing to Agent")
+                return None
+            
+            # Combine matched sections (max 500 chars)
+            result = "\n\n".join(matched_sections)
+            if len(result) > 500:
+                result = result[:500] + "..."
+            
+            print(f"✅ FAQ_EXTRACTED: {len(matched_sections)} section(s), {len(result)} chars")
+            return result
                 
         except Exception as e:
             logger.error(f"FAQ fact extraction failed: {e}")
-            # Fallback: return shortened prompt
-            return full_prompt[:1500]
+            # Fallback to Agent
+            return None
     
     def _get_faq_response(self, question: str, system_prompt: str, business_name: str) -> Optional[str]:
         """
@@ -744,15 +845,15 @@ class AIService:
         faq_start = time.time()
         
         try:
-            # 🔥 CRITICAL FIX: Extract ONLY factual data, strip guard-rails!
+            # 🔥 CRITICAL FIX: Extract ONLY relevant facts based on question!
             print(f"\n📚 FAQ: Extracting facts from prompt ({len(system_prompt)} chars)")
             extract_start = time.time()
-            faq_facts = self._extract_faq_facts(system_prompt) if system_prompt else "מידע עסקי"
+            faq_facts = self._extract_faq_facts(question, system_prompt) if system_prompt else None
             
-            # ⚡ SPEED FIX: Limit facts to 500 chars MAX (was getting 1440!)
-            if len(faq_facts) > 500:
-                faq_facts = faq_facts[:500] + "..."
-                print(f"✂️  FAQ: Truncated facts to 500 chars for speed")
+            # If no relevant facts found, return None → Agent fallback
+            if faq_facts is None:
+                print(f"⚠️ FAQ: No relevant facts found, routing to Agent")
+                return None
             
             extract_time = (time.time() - extract_start) * 1000
             print(f"⏱️  FAQ: Fact extraction took {extract_time:.0f}ms")
@@ -764,7 +865,7 @@ class AIService:
             
             # 🔥 FIX: First attempt with full token budget
             try:
-                print(f"🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=80, timeout=2.0s)")
+                print(f"🤖 FAQ: Calling OpenAI (model=gpt-4o-mini, max_tokens=80, timeout=4.0s)")
                 llm_start = time.time()
                 
                 response = self.client.chat.completions.create(
@@ -775,7 +876,7 @@ class AIService:
                     ],
                     temperature=0.3,  # ⚡ Balanced for speed vs quality
                     max_tokens=80,  # ⚡ SPEED: Reduced from 150 to 80 for faster FAQ
-                    timeout=2.0  # ⚡ SPEED: Reduced from 3.5s to 2.0s
+                    timeout=4.0  # ⚡ Consistent with Agent timeout (was 2.0s)
                 )
                 
                 llm_time = (time.time() - llm_start) * 1000
@@ -894,22 +995,47 @@ class AIService:
             return self.generate_response(message, business_id, context, channel, is_first_turn)
         
         # 🚀 Phase 2K: INTENT ROUTING GATE
+        # ⚠️ FAQ Fast-Path is HARDCODED for real-estate/restaurant patterns!
+        # It will NOT work for other business types (tech, retail, etc.)
+        # Check if business has FAQ enabled before routing
+        
         intent = route_intent_hebrew(message)
         print(f"🎯 INTENT_DETECTED: {intent} (message: {message[:50]}...)")
         logger.info(f"🎯 Intent detected: {intent}")
         
-        # ⚡ FAQ/Lightweight Path - ONLY for clear info/whatsapp/human intents
-        # 🔥 FIX: "other" goes to AgentKit for natural conversation handling
-        if AGENTKIT_BOOKING_ONLY and intent in ["info", "whatsapp", "human"]:
-            print(f"🚀 FAST_PATH: Handling {intent} without AgentKit")
-            fast_response = self._handle_lightweight_intent(intent, message, business_id, channel, context, customer_phone)
-            
-            # 🔥 FIX: If fast path failed (returned None), fall through to AgentKit
-            if fast_response is not None:
-                return fast_response
-            else:
-                print(f"⚠️ Fast path failed for {intent}, falling back to AgentKit")
-                logger.warning(f"Fast path returned None for {intent}, using AgentKit fallback")
+        # ⚡ FAQ Fast-Path - Database-backed FAQ matching with embeddings
+        # Only runs for "info" intent to preserve fast responses (<2s)
+        # Falls back to AgentKit if no FAQ match found
+        
+        if intent == "info":
+            try:
+                from server.services.faq_cache import faq_cache
+                
+                faq_match = faq_cache.find_best_match(business_id, message)
+                
+                if faq_match:
+                    print(f"🎯 FAQ MATCH FOUND: score={faq_match['score']:.3f}")
+                    print(f"   Question: {faq_match['question']}")
+                    print(f"   Answer: {faq_match['answer'][:100]}...")
+                    logger.info(f"🎯 FAQ fast-path activated: score={faq_match['score']:.3f}")
+                    
+                    faq_response = self._generate_faq_response(
+                        message=message,
+                        faq_answer=faq_match['answer'],
+                        business_id=business_id,
+                        channel=channel
+                    )
+                    
+                    if faq_response:
+                        print(f"✅ FAQ fast-path response generated")
+                        return faq_response
+                    else:
+                        print("⚠️ FAQ response generation failed, falling back to AgentKit")
+                else:
+                    print(f"❌ No FAQ match found for: '{message[:50]}...'")
+            except Exception as e:
+                print(f"⚠️ FAQ fast-path error: {e}, falling back to AgentKit")
+                logger.warning(f"FAQ fast-path error: {e}")
         
         # ⚡ Capture start time BEFORE try block for error logging
         start_time = time.time()
@@ -1034,13 +1160,15 @@ class AIService:
                 "content": message
             })
             
-            runner = Runner()
-            print(f"🔄 Created Runner with {len(conversation_messages)-1} history messages, executing agent.run()...")
+            # 🔥 FIX: Runner is a static class - use Runner.run() directly!
+            from agents import Runner
+            
+            print(f"🔄 Starting Runner.run() with {len(conversation_messages)-1} history messages...")
             logger.info(f"⏱️ PERFORMANCE: Starting Runner.run() at {time.time()}")
             
-            # Use input parameter with conversation history
+            # Use Runner.run() directly (it's a static method, not an instance!)
             result = loop.run_until_complete(
-                runner.run(starting_agent=agent, input=conversation_messages, context=agent_context)
+                Runner.run(starting_agent=agent, input=conversation_messages, context=agent_context)
             )
             duration_ms = int((time.time() - start_time) * 1000)
             print(f"✅ Runner.run() completed in {duration_ms}ms")
@@ -1129,6 +1257,9 @@ class AIService:
                                 if output.get('ok') is True and output.get('appointment_id'):
                                     booking_successful = True
                                     print(f"     ✅ DETECTED SUCCESSFUL BOOKING: appointment_id={output.get('appointment_id')}")
+                                    # Store appointment details for WhatsApp validation
+                                    if not hasattr(result, 'appointment_details'):
+                                        result.appointment_details = output
                 
                 if tool_count > 0:
                     print(f"✅ Agent executed {tool_count} tool actions")
@@ -1139,10 +1270,16 @@ class AIService:
             else:
                 print(f"⚠️ Result has NO new_items or new_items is empty!")
             
-            # 🚨 BUILD 138: VALIDATION - Detect "hallucinated bookings"
+            # 🚨 BUILD 138+: VALIDATION - Detect "hallucinated bookings" AND "hallucinated availability"
             # If agent claims action without executing tool, BLOCK response
             claim_words = ["קבעתי", "שלחתי", "יצרתי", "הפגישה נקבעה", "הפגישה קבועה", "סגרתי", "נקבע", "התור נקבע", "התור קבוע"]
             claimed_action = any(word in reply_text for word in claim_words)
+            
+            # 🔥 NEW: Detect "hallucinated availability" (saying "busy/available" without checking)
+            # 🚨 FIX: Only flag if saying "NO availability" or "YES available" (absolute claims)
+            # Saying "15:00 תפוס אבל 17:00 פנוי" is VALID after tool call!
+            hallucinated_availability_words = ["אין זמנים פנויים", "אין זמינות", "הכל תפוס", "לא פנוי", "לא זמין"]
+            claimed_availability = any(word in reply_text for word in hallucinated_availability_words)
             
             # Check if calendar_create_appointment was called (with or without _wrapped suffix)
             booking_tool_called = any(
@@ -1150,13 +1287,50 @@ class AIService:
                 for tc in tool_calls_data
             )
             
+            # 🔥 FALLBACK: If tool name extraction failed, check output structure
+            # If we see {'appointment_id': ...} in ANY tool output → calendar_create_appointment was called
+            if not booking_tool_called and tool_count > 0:
+                for item in result.new_items if hasattr(result, 'new_items') else []:
+                    if type(item).__name__ == 'ToolCallOutputItem':
+                        output = getattr(item, 'output', None)
+                        if isinstance(output, dict) and 'appointment_id' in output:
+                            print(f"  🔥 FALLBACK: Detected calendar_create_appointment from output structure (has 'appointment_id' key)")
+                            booking_tool_called = True
+                            break
+            
+            # Check if calendar_find_slots was called
+            check_availability_called = any(
+                tc.get("tool") in ["calendar_find_slots", "calendar_find_slots_wrapped"]
+                for tc in tool_calls_data
+            )
+            
+            # 🔥 FALLBACK: If tool name extraction failed, check output structure
+            # If we see {'slots': [...]} in ANY tool output → calendar_find_slots was called
+            if not check_availability_called and tool_count > 0:
+                for item in result.new_items if hasattr(result, 'new_items') else []:
+                    if type(item).__name__ == 'ToolCallOutputItem':
+                        output = getattr(item, 'output', None)
+                        if isinstance(output, dict) and 'slots' in output:
+                            print(f"  🔥 FALLBACK: Detected calendar_find_slots from output structure (has 'slots' key)")
+                            check_availability_called = True
+                            break
+            
+            # Check if whatsapp_send was called (for phone channel only)
+            whatsapp_sent = any(
+                tc.get("tool") == "whatsapp_send"
+                for tc in tool_calls_data
+            )
+            
             # 🔥 WORKAROUND: Also check if we detected a successful booking in the output
             # (in case tool name extraction failed but booking actually succeeded)
             print(f"  🔍 VALIDATION CHECK:")
             print(f"     claimed_action={claimed_action}")
+            print(f"     claimed_availability={claimed_availability}")
             print(f"     booking_tool_called={booking_tool_called}")
+            print(f"     check_availability_called={check_availability_called}")
             print(f"     booking_successful={booking_successful}")
             
+            # 🚨 BLOCK 1: Hallucinated booking
             if claimed_action and not booking_tool_called and not booking_successful:
                 print(f"🚨 BLOCKED HALLUCINATED BOOKING!")
                 print(f"   Agent claimed: '{reply_text[:80]}...'")
@@ -1166,6 +1340,24 @@ class AIService:
                 # Override response with corrective message
                 reply_text = "אני עדיין צריך לבדוק זמינות. איזה יום ושעה היית רוצה?"
                 print(f"   ✅ Replaced with: '{reply_text}'")
+            
+            # 🚨 BLOCK 2: Hallucinated availability (NEW!)
+            elif claimed_availability and not check_availability_called:
+                print(f"🚨 BLOCKED HALLUCINATED AVAILABILITY!")
+                print(f"   Agent claimed: '{reply_text[:80]}...'")
+                print(f"   But NO calendar_find_slots was called!")
+                logger.error(f"🚨 Blocked hallucinated availability: agent claimed busy/free without checking")
+                
+                # Override response with corrective message
+                reply_text = "באיזה יום ושעה נוח לך?"
+                print(f"   ✅ Replaced with: '{reply_text}'")
+            
+            # 🚨 BLOCK 3: Missing WhatsApp confirmation (NEW!)
+            elif booking_successful and channel == "phone" and not whatsapp_sent:
+                print(f"⚠️  WARNING: Booking successful but NO WhatsApp sent!")
+                print(f"   Agent should have called whatsapp_send but didn't")
+                logger.warning(f"⚠️  Missing WhatsApp confirmation after successful booking")
+                # Don't block - just log warning (WhatsApp is nice-to-have, not critical)
             
             # ✨ Save trace to database
             try:

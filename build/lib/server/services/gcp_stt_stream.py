@@ -21,7 +21,7 @@ log = logging.getLogger("gcp_stt_stream")
 # ⚡ SPEED OPTIMIZED: Ultra-low latency for real-time Hebrew transcription
 BATCH_MS = int(os.getenv("STT_BATCH_MS", "30"))        # ⚡ 30ms (was 40ms) - faster batching
 DEBOUNCE_MS = int(os.getenv("STT_PARTIAL_DEBOUNCE_MS", "80"))  # ⚡ 80ms (was 120ms) - faster partial results
-TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "400"))    # ⚡ 400ms (was 600ms) - faster timeout
+TIMEOUT_MS = int(os.getenv("STT_TIMEOUT_MS", "300"))    # ⚡ 300ms (was 400ms) - ULTRA-FAST timeout
 LANG = os.getenv("GCP_STT_LANGUAGE", "he-IL")
 PUNCTUATION_INTERIM = os.getenv("GCP_STT_PUNCTUATION_INTERIM", "false").lower() == "true"
 PUNCTUATION_FINAL = os.getenv("GCP_STT_PUNCTUATION_FINAL", "true").lower() == "true"
@@ -127,6 +127,9 @@ class StreamingSTTSession:
                     "סליחה", "בבקשה", "כן", "לא", "בסדר", "מעולה", "נהדר", "מצוין", "מעניין", "אוקיי",
                     "שלום לך", "מה שלומך", "איך אתה", "כל טוב", "יופי", "מצוין", "סבבה", "אחלה",
                     
+                    # 🔥 FIX: Short words that STT struggles with (user reported)
+                    "כשר", "כשרות", "מיקום", "כתובת", "איפה", "מתי", "מה", "איך", "למה", "כמה",
+                    
                     # Business & property types
                     "שי דירות ומשרדים", "לאה", "דירה", "משרד", "שכר", "שכירות", "מכירה", "קניה",
                     "חדרים", "חדר", "שירותים", "מטבח", "מרפסת", "מחסן", "ממד", "חניה",
@@ -172,6 +175,10 @@ class StreamingSTTSession:
                     
                     # Services
                     "חדר קריוקי", "טיפול", "עיסוי", "ייעוץ", "שירות", "סידור",
+                    
+                    # 🔥 FIX: Food & Kashrut (user reported STT issues)
+                    "האוכל", "אוכל", "תפריט", "כשרות", "כשר", "בשרי", "חלבי", "פרווה", 
+                    "משקאות", "שתייה", "מנות", "ארוחה", "אוכלים",
                     
                     # Time expressions
                     "עכשיו", "מיד", "היום", "מחר", "מחרתיים", "השבוע", "שבוע הבא",
@@ -530,11 +537,21 @@ class GcpStreamingSTT:
                         time_since_last = (current_time - self._last_partial_time) * 1000
                         
                         # Debounce: only send if enough time passed OR text changed significantly
-                        if time_since_last >= DEBOUNCE_MS or transcript != self._last_partial_text:
+                        # 🔥 FIX: Save LONGEST partial, not last! Google STT sometimes sends shorter corrections
+                        should_emit = time_since_last >= DEBOUNCE_MS or transcript != self._last_partial_text
+                        
+                        if should_emit:
                             log.debug(f"🟡 PARTIAL: {transcript}")
                             self._last_partial_time = current_time
-                            self._last_partial_text = transcript
                             
+                            # Only update if new partial is longer (better)
+                            if len(transcript) > len(self._last_partial_text):
+                                self._last_partial_text = transcript
+                                log.debug(f"✅ BEST_PARTIAL updated: '{transcript}' ({len(transcript)} chars)")
+                            else:
+                                log.debug(f"⚠️ PARTIAL ignored (shorter): '{transcript}' ({len(transcript)} chars) vs '{self._last_partial_text}' ({len(self._last_partial_text)} chars)")
+                            
+                            # Always call callback with current transcript (even if not saved)
                             if self._partial_callback:
                                 self._partial_callback(transcript)
                                 

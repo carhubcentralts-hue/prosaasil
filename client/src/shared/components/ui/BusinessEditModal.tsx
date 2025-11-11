@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
+import type * as React from 'react';
 import { X, Save, Building2, Phone, Lock, MessageSquare } from 'lucide-react';
 
 interface Business {
@@ -30,7 +31,7 @@ export function BusinessEditModal({ isOpen, onClose, business, onSave }: Busines
     permissions: business?.permissions || ['calls', 'whatsapp', 'crm']
   });
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (business) {
       setFormData({
         name: business.name,

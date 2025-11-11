@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import type * as React from 'react';
 import { 
   Bell, 
   X, 
@@ -315,7 +316,7 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
   // REMOVED: Memoized callback was causing infinite loop
 
   // SIMPLIFIED: Initialize notifications once and notify parent
-  React.useEffect(() => {
+  useEffect(() => {
     const newNotifications = generateNotifications(user?.role || 'business', user?.business_id);
     setNotifications(newNotifications);
     

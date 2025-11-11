@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, session, g
 from werkzeug.security import generate_password_hash
-from server.models_sql import Business, User, BusinessSettings, db
+from server.models_sql import Business, User, BusinessSettings, FAQ, db
 from datetime import datetime
 from server.routes_admin import require_api_auth
 from server.extensions import csrf
@@ -607,7 +607,13 @@ def get_current_business():
             "email": settings.email if settings and settings.email else f"office@{business.name.lower().replace(' ', '-')}.co.il",
             "address": settings.address if settings else "",
             "working_hours": settings.working_hours if settings and settings.working_hours else business.working_hours,
-            "timezone": settings.timezone if settings else "Asia/Jerusalem"
+            "timezone": settings.timezone if settings else "Asia/Jerusalem",
+            # 🔥 BUILD 138: Appointment settings
+            "slot_size_min": settings.slot_size_min if settings else 60,
+            "allow_24_7": settings.allow_24_7 if settings else False,
+            "booking_window_days": settings.booking_window_days if settings else 30,
+            "min_notice_min": settings.min_notice_min if settings else 0,
+            "opening_hours_json": settings.opening_hours_json if settings else None
         })
         
     except Exception as e:
@@ -660,6 +666,18 @@ def update_current_business_settings():
             business.working_hours = data['working_hours']
         if 'timezone' in data:
             settings.timezone = data['timezone']
+        
+        # 🔥 BUILD 138: Appointment settings
+        if 'slot_size_min' in data:
+            settings.slot_size_min = int(data['slot_size_min'])
+        if 'allow_24_7' in data:
+            settings.allow_24_7 = bool(data['allow_24_7'])
+        if 'booking_window_days' in data:
+            settings.booking_window_days = int(data['booking_window_days'])
+        if 'min_notice_min' in data:
+            settings.min_notice_min = int(data['min_notice_min'])
+        if 'opening_hours_json' in data:
+            settings.opening_hours_json = data['opening_hours_json']
             
         # Track who updated
         user_email = session.get('al_user', {}).get('email', 'Unknown')
@@ -677,4 +695,175 @@ def update_current_business_settings():
         logger.error(f"Error updating business settings: {e}")
         db.session.rollback()
         return jsonify({"error": "Internal server error"}), 500
+
+
+# ===== FAQ MANAGEMENT ROUTES =====
+
+@biz_mgmt_bp.route('/api/business/faqs', methods=['GET'])
+@require_api_auth(['business', 'admin', 'manager'])
+def get_business_faqs():
+    """Get all FAQs for current business"""
+    try:
+        business_id = getattr(g, 'business_id', None)
+        if not business_id:
+            return jsonify({'error': 'No business context found'}), 400
+        
+        faqs = FAQ.query.filter_by(business_id=business_id, is_active=True).order_by(FAQ.order_index, FAQ.id).all()
+        
+        return jsonify([{
+            'id': faq.id,
+            'question': faq.question,
+            'answer': faq.answer,
+            'intent_key': faq.intent_key,
+            'patterns_json': faq.patterns_json,
+            'channels': faq.channels,
+            'priority': faq.priority,
+            'lang': faq.lang,
+            'order_index': faq.order_index,
+            'created_at': faq.created_at.isoformat() if faq.created_at else None
+        } for faq in faqs])
+    except Exception as e:
+        logger.error(f'Error getting FAQs: {e}')
+        return jsonify({'error': 'Internal server error'}), 500
+
+@biz_mgmt_bp.route('/api/business/faqs', methods=['POST'])
+@require_api_auth(['business', 'admin', 'manager'])
+def create_faq():
+    """Create new FAQ"""
+    try:
+        business_id = getattr(g, 'business_id', None)
+        if not business_id:
+            return jsonify({'error': 'No business context found'}), 400
+        
+        data = request.get_json()
+        if not data or not data.get('question') or not data.get('answer'):
+            return jsonify({'error': 'Question and answer are required'}), 400
+        
+        # Get max order_index
+        max_order = db.session.query(db.func.max(FAQ.order_index)).filter_by(business_id=business_id).scalar() or 0
+        
+        faq = FAQ(
+            business_id=business_id,
+            question=data['question'],
+            answer=data['answer'],
+            intent_key=data.get('intent_key'),
+            patterns_json=data.get('patterns_json'),
+            channels=data.get('channels', 'voice'),
+            priority=data.get('priority', 0),
+            lang=data.get('lang', 'he-IL'),
+            order_index=max_order + 1
+        )
+        db.session.add(faq)
+        db.session.commit()
+        
+        # Invalidate FAQ cache after creation
+        try:
+            from server.services.faq_cache import faq_cache
+            faq_cache.invalidate(business_id)
+        except Exception as e:
+            logger.warning(f"FAQ cache invalidation failed: {e}")
+        
+        return jsonify({
+            'id': faq.id,
+            'question': faq.question,
+            'answer': faq.answer,
+            'intent_key': faq.intent_key,
+            'patterns_json': faq.patterns_json,
+            'channels': faq.channels,
+            'priority': faq.priority,
+            'lang': faq.lang,
+            'order_index': faq.order_index,
+            'created_at': faq.created_at.isoformat() if faq.created_at else None
+        }), 201
+    except Exception as e:
+        logger.error(f'Error creating FAQ: {e}')
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
+
+@biz_mgmt_bp.route('/api/business/faqs/<int:faq_id>', methods=['PUT'])
+@require_api_auth(['business', 'admin', 'manager'])
+def update_faq(faq_id):
+    """Update FAQ"""
+    try:
+        business_id = getattr(g, 'business_id', None)
+        if not business_id:
+            return jsonify({'error': 'No business context found'}), 400
+        
+        faq = FAQ.query.filter_by(id=faq_id, business_id=business_id).first()
+        if not faq:
+            return jsonify({'error': 'FAQ not found'}), 404
+        
+        data = request.get_json()
+        if 'question' in data:
+            faq.question = data['question']
+        if 'answer' in data:
+            faq.answer = data['answer']
+        if 'intent_key' in data:
+            faq.intent_key = data['intent_key']
+        if 'patterns_json' in data:
+            faq.patterns_json = data['patterns_json']
+        if 'channels' in data:
+            faq.channels = data['channels']
+        if 'priority' in data:
+            faq.priority = data['priority']
+        if 'lang' in data:
+            faq.lang = data['lang']
+        if 'order_index' in data:
+            faq.order_index = data['order_index']
+        
+        faq.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        # Invalidate FAQ cache after update
+        try:
+            from server.services.faq_cache import faq_cache
+            faq_cache.invalidate(business_id)
+        except Exception as e:
+            logger.warning(f"FAQ cache invalidation failed: {e}")
+        
+        return jsonify({
+            'id': faq.id,
+            'question': faq.question,
+            'answer': faq.answer,
+            'intent_key': faq.intent_key,
+            'patterns_json': faq.patterns_json,
+            'channels': faq.channels,
+            'priority': faq.priority,
+            'lang': faq.lang,
+            'order_index': faq.order_index,
+            'updated_at': faq.updated_at.isoformat() if faq.updated_at else None
+        })
+    except Exception as e:
+        logger.error(f'Error updating FAQ: {e}')
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
+
+@biz_mgmt_bp.route('/api/business/faqs/<int:faq_id>', methods=['DELETE'])
+@require_api_auth(['business', 'admin', 'manager'])
+def delete_faq(faq_id):
+    """Delete FAQ (soft delete by marking inactive)"""
+    try:
+        business_id = getattr(g, 'business_id', None)
+        if not business_id:
+            return jsonify({'error': 'No business context found'}), 400
+        
+        faq = FAQ.query.filter_by(id=faq_id, business_id=business_id).first()
+        if not faq:
+            return jsonify({'error': 'FAQ not found'}), 404
+        
+        faq.is_active = False
+        db.session.commit()
+        
+        # Invalidate FAQ cache after deletion
+        try:
+            from server.services.faq_cache import faq_cache
+            faq_cache.invalidate(business_id)
+        except Exception as e:
+            logger.warning(f"FAQ cache invalidation failed: {e}")
+        
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        logger.error(f'Error deleting FAQ: {e}')
+        db.session.rollback()
+        return jsonify({'error': 'Internal server error'}), 500
 

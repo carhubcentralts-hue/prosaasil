@@ -206,9 +206,11 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                     transcription="",
                     conversation_data={}
                 )
-                print(f"✅ CustomerIntelligence: customer_id={customer.id if customer else None}, lead_id={lead.id if lead else None}")
+                print(f"✅ CustomerIntelligence SUCCESS: customer_id={customer.id if customer else None}, lead_id={lead.id if lead else None}, was_created={was_created}")
+                logger.info(f"✅ LEAD_CREATED: business_id={business_id}, lead_id={lead.id if lead else None}, phone={from_number}")
             except Exception as e:
                 print(f"⚠️ CustomerIntelligence failed (non-critical): {e}")
+                logger.warning(f"CustomerIntelligence failed for call {call_sid}: {e}")
             
             # ✅ שלב 3: עדכן call_log עם customer_id (אם נוצר)
             if call_log and customer:
@@ -218,20 +220,36 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                 print(f"✅ Updated call_log with customer_id={customer.id}")
             
             # ✅ שלב 4: fallback lead אם CustomerIntelligence נכשל
-            if not lead and customer:
+            # 🚨 CRITICAL: ALWAYS create lead if missing (user demand!)
+            if not lead:
                 try:
-                    lead = Lead()
-                    lead.tenant_id = business_id
-                    lead.phone_e164 = from_number
-                    lead.source = "call"
-                    lead.external_id = call_sid
-                    lead.status = "new"
-                    lead.notes = f"שיחה נכנסת - {call_sid}"
-                    db.session.add(lead)
-                    db.session.commit()
-                    print(f"✅ Created fallback lead ID={lead.id}")
+                    # Check if lead already exists for this phone
+                    existing_lead = Lead.query.filter_by(
+                        tenant_id=business_id,
+                        phone_e164=from_number
+                    ).first()
+                    
+                    if existing_lead:
+                        lead = existing_lead
+                        print(f"✅ Found existing lead ID={lead.id}")
+                        logger.info(f"✅ LEAD_FOUND: lead_id={lead.id}, phone={from_number}")
+                    else:
+                        lead = Lead()
+                        lead.tenant_id = business_id
+                        lead.phone_e164 = from_number
+                        lead.source = "call"
+                        lead.external_id = call_sid
+                        lead.status = "new"
+                        lead.notes = f"שיחה נכנסת - {call_sid}"
+                        db.session.add(lead)
+                        db.session.commit()
+                        print(f"✅ CREATED FALLBACK LEAD ID={lead.id} for phone={from_number}")
+                        logger.info(f"✅ LEAD_CREATED_FALLBACK: lead_id={lead.id}, phone={from_number}, business_id={business_id}")
                 except Exception as e:
-                    print(f"⚠️ Fallback lead creation failed: {e}")
+                    print(f"❌ Fallback lead creation FAILED: {e}")
+                    logger.error(f"Fallback lead creation failed for {call_sid}: {e}")
+                    import traceback
+                    traceback.print_exc()
                     db.session.rollback()
         
     except Exception as e:

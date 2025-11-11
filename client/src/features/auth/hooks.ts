@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, memo, createElement } from 'react';
+import type * as React from 'react';
 import { authApi } from './api';
 import { AuthContextType, AuthState } from './types';
 
@@ -163,10 +164,10 @@ export function useAuth() {
 }
 
 // 🚀 Simple and stable AuthProvider
-export const AuthProvider = React.memo(({ children }: { children: React.ReactNode }) => {
+export const AuthProvider = memo(({ children }: { children: React.ReactNode }) => {
   const authState = useAuthState();
   
-  return React.createElement(
+  return createElement(
     AuthContext.Provider,
     { value: authState },
     children

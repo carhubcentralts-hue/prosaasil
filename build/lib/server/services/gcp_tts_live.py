@@ -233,6 +233,7 @@ class HebrewTTSLive:
         except Exception as e:
             log.error(f"TTS_PCM16_ERROR: {e}")
             return None
+    
 
 # Global instance - lazy initialization
 _hebrew_tts = None

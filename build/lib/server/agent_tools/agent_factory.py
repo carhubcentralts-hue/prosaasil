@@ -49,13 +49,29 @@ def invalidate_agent_cache(business_id: int):
             logger.info(f"♻️  No cached agents found for business {business_id}")
 
 # 🎯 Model settings for all agents - matching AgentKit best practices
+# 🔥 CRITICAL: Use OpenAI with timeout to prevent 10s silence!
+from openai import OpenAI as OpenAIClient
+
+# ⚡ PERFORMANCE FIX: 4s timeout + max_retries=1 prevents long silences
+_openai_client = OpenAIClient(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    timeout=4.0,  # ⚡ 4s timeout (prevents 6-8s hangs!)
+    max_retries=1  # ⚡ Fast fail instead of retry loops
+)
+
 AGENT_MODEL_SETTINGS = ModelSettings(
-    model="gpt-4o-mini",  # Fast and cost-effective
+    # 🔥 NOTE: ModelSettings is a dataclass - only accepts declared fields!
+    # We'll pass the OpenAI client to Runner.run() instead
     temperature=0.15,      # Very low temperature for consistent tool usage
     max_tokens=120,        # 🔥 FIX: Reduced from 400 to 120 - 2-3 sentences only! (prevents 82-word responses)
     tool_choice="auto",    # 🔥 FIX: Let AI decide when to use tools (was "required" - caused spam!)
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
+
+# 🔥 Export the client so ai_service.py can pass it to Runner
+def get_openai_client():
+    """Get the pre-configured OpenAI client with timeout"""
+    return _openai_client
 
 def get_or_create_agent(business_id: int, channel: str, business_name: str = "העסק", custom_instructions: str = None) -> Optional[Agent]:
     """
@@ -178,6 +194,9 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 FindSlotsOutput with list of available slots
             """
             try:
+                import time
+                tool_start = time.time()
+                
                 print(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_find_slots_wrapped 🔧 🔧 🔧")
                 print(f"   📅 date_iso (RAW from Agent)={date_iso}")
                 print(f"   ⏱️  duration_min={duration_min}")
@@ -243,6 +262,15 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 
                 # Convert Pydantic model to dict for Agent SDK
                 result_dict = result.model_dump()
+                
+                tool_time = (time.time() - tool_start) * 1000
+                print(f"⏱️  TOOL_TIMING: calendar_find_slots = {tool_time:.0f}ms")
+                logger.info(f"⏱️  TOOL_TIMING: calendar_find_slots = {tool_time:.0f}ms")
+                
+                if tool_time > 500:
+                    print(f"⚠️  SLOW TOOL: calendar_find_slots took {tool_time:.0f}ms (expected <500ms)")
+                    logger.warning(f"SLOW TOOL: calendar_find_slots took {tool_time:.0f}ms")
+                
                 print(f"📤 Returning dict with {len(result_dict.get('slots', []))} slots")
                 return result_dict
             except Exception as e:
@@ -285,10 +313,15 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 notes: Additional notes (optional)
             """
             try:
-                print(f"\n📞 calendar_create_appointment_wrapped called")
-                print(f"   treatment_type={treatment_type}")
-                print(f"   customer_phone (from Agent)={customer_phone}")
-                print(f"   customer_name (from Agent)={customer_name}")
+                import time
+                tool_start = time.time()
+                
+                print(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_create_appointment_wrapped 🔧 🔧 🔧")
+                print(f"   📅 treatment_type={treatment_type}")
+                print(f"   📅 start_iso={start_iso}, end_iso={end_iso}")
+                print(f"   📞 customer_phone (from Agent)={customer_phone}")
+                print(f"   👤 customer_name (from Agent)={customer_name}")
+                print(f"   🏢 business_id={business_id}")
                 
                 from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
                 from flask import g
@@ -335,6 +368,14 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 
                 print(f"✅ SUCCESS! Appointment ID: {result.appointment_id}")
                 logger.info(f"✅ calendar_create_appointment_wrapped success: appointment_id={result.appointment_id}")
+                
+                tool_time = (time.time() - tool_start) * 1000
+                print(f"⏱️  TOOL_TIMING: calendar_create_appointment = {tool_time:.0f}ms")
+                logger.info(f"⏱️  TOOL_TIMING: calendar_create_appointment = {tool_time:.0f}ms")
+                
+                if tool_time > 1000:
+                    print(f"⚠️  SLOW TOOL: calendar_create_appointment took {tool_time:.0f}ms (expected <1000ms)")
+                    logger.warning(f"SLOW TOOL: calendar_create_appointment took {tool_time:.0f}ms")
                 
                 # Return success response
                 success_response = {
@@ -465,203 +506,130 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         ]
     
 
-    # 🔥 BUILD 134: NO HARDCODED PROMPTS - Load ONLY from database!
+    # 🔥 BUILD 135: MERGE DB prompts WITH base instructions (not replace!)
+    # CRITICAL: DB prompts now EXTEND the base AgentKit instructions
     
+    today_str = datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')
+    tomorrow_str = (datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')
     
-    # 🔥 BUILD 134: LOAD ONLY FROM DATABASE - NO hardcoded prompts!
-    if custom_instructions and custom_instructions.strip():
-        # ✅ Add ONLY minimal date context (no hardcoded instructions!)
-        today_context = f"TODAY: {datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')} Israel\n\n"
-        instructions = today_context + custom_instructions
-        print(f"\n✅ Using DB prompt for {business_name}: {len(custom_instructions)} chars")
-        print(f"   First 150 chars: {custom_instructions[:150]}")
-        logger.info(f"✅ Using DATABASE prompt for {business_name} ({len(custom_instructions)} chars)")
-    else:
-        # CRITICAL: Instructions in ENGLISH for Agent SDK (better understanding)
-        # Agent MUST always respond in HEBREW to customers
-        
-        # 🚨 WARNING: NO DATABASE PROMPT! Using minimal fallback.
-        today_str = datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')
-        tomorrow_str = (datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')
-        
-        instructions = f"""You are a professional booking assistant for {business_name}.
+    # 🔥 BUILD 138: Load business policy to get slot_size_min
+    slot_interval_text = ""
+    if business_id:
+        try:
+            from server.policy.business_policy import get_business_policy
+            policy = get_business_policy(business_id, prompt_text=custom_instructions)
+            
+            # Convert slot size to Hebrew description
+            if policy.slot_size_min == 15:
+                interval_desc = "כל רבע שעה (15 דקות)"
+            elif policy.slot_size_min == 30:
+                interval_desc = "כל חצי שעה (30 דקות)"
+            elif policy.slot_size_min == 45:
+                interval_desc = "כל 45 דקות (שלושת רבעי שעה)"
+            elif policy.slot_size_min == 60:
+                interval_desc = "כל שעה (60 דקות)"
+            elif policy.slot_size_min == 75:
+                interval_desc = "כל שעה ורבע (75 דקות)"
+            elif policy.slot_size_min == 90:
+                interval_desc = "כל שעה וחצי (90 דקות)"
+            elif policy.slot_size_min == 105:
+                interval_desc = "כל שעה ושלושת רבעי (105 דקות)"
+            elif policy.slot_size_min == 120:
+                interval_desc = "כל שעתיים (120 דקות)"
+            else:
+                interval_desc = f"כל {policy.slot_size_min} דקות"
+            
+            slot_interval_text = f"\nAPPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה {interval_desc}"
+            logger.info(f"📅 Agent will use slot interval: {policy.slot_size_min} minutes ({interval_desc})")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not load policy for slot_size_min: {e}")
+    
+    # ✅ ALWAYS include base instructions (tool handling, workflow, prohibitions)
+    base_instructions = f"""Professional booking assistant for {business_name}. Respond in HEBREW.
 
-CRITICAL: Always respond to customers in HEBREW, but understand these English instructions.
+TODAY: {today_str} (Israel)
+TOMORROW: {tomorrow_str}{slot_interval_text}
 
-TODAY'S DATE: {today_str} (Israel timezone)
-TOMORROW: {tomorrow_str}
+🔒 RULE #1: NEVER VERBALIZE PROCESSES
+FORBIDDEN: "אני מחפש", "תן לי לבדוק", "אני בודק", tool names
+ALLOWED: Results only: "יש פגישה ב-17:00", "הפגישה נקבעה"
 
-═══════════════════════════════════════════════════════════════════════
-🚨 FUNDAMENTAL RULE - TOOL EXECUTION IS MANDATORY 🚨
-═══════════════════════════════════════════════════════════════════════
+🚨 RULE #2: TOOL EXECUTION MANDATORY
+NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS calendar_create_appointment() returned ok:true THIS turn.
 
-YOU ARE ABSOLUTELY FORBIDDEN from saying "קבעתי" (I booked) or "הפגישה נקבעה" (appointment confirmed) UNLESS:
-1. You called calendar_create_appointment() in THIS conversation turn
-2. The tool returned {{"ok": true}} in the response
-3. You can see the success confirmation in the tool output
+BOOKING WORKFLOW (5 STATES - HEBREW ONLY!)
 
-VIOLATION = LYING TO CUSTOMER = COMPLETELY UNACCEPTABLE
+Customer ALREADY wants appointment - skip greeting!
 
-═══════════════════════════════════════════════════════════════════════
-BOOKING WORKFLOW - MANDATORY 7-STATE PROTOCOL
-═══════════════════════════════════════════════════════════════════════
+STATE 1: ASK TIME
+Ask: "באיזה יום ושעה נוח לך?" 
+Wait for their preference. Don't list times yet!
+→ STATE 2
 
-STATE 1: INITIAL GREETING
-- Customer initiates contact
-- Respond warmly in Hebrew (max 2 sentences)
-- Ask: "שלום! במה אוכל לעזור לך?" (Hello! How can I help?)
-- 🚨 CRITICAL: You ONLY answer questions about THIS business services!
-- If asked about recipes, general knowledge, jokes, or unrelated topics → Say:
-  "אני כאן לעזור רק בנושאים שקשורים לעסק שלנו. יש לך שאלה על השירותים שלנו?"
-  (I'm here to help only with our business. Do you have questions about our services?)
-- DO NOT answer questions about: recipes, cooking, general knowledge, jokes, trivia
-- DO NOT push appointments - wait for customer request
-- NEXT → STATE 2 (only if customer wants appointment)
+STATE 2: CHECK AVAILABILITY
+MUST call calendar_find_slots() FIRST! Don't say "תפוס"/"פנוי" without tool!
 
-STATE 2: ASK FOR PREFERRED TIME
-- Customer requested appointment
-- Ask: "באיזה יום ושעה נוח לך להגיע?" (What day and time works for you?)
-- Wait for customer to specify their preference
-- 🚨 CRITICAL: DO NOT list available times! Let customer say their preference first
-- NEVER say "יש לי פנוי ב-..." or "השעות הפנויות הן..." - just ask their preference
-- NEXT → STATE 3
+TIME NORMALIZATION (24h):
+Hours 1-8 → PM (13:00-20:00), Hours 9-12 → AM (09:00-12:00)
+"אחת"=13:00, "שתיים"=14:00, "שלוש"=15:00, "ארבע"=16:00, "תשע"=09:00
+Half: "ארבע וחצי"=16:30, "חצי חמש"=16:30
+Quarter: "ארבע ורבע"=16:15, "רבע לחמש"=16:45
+"בבוקר" → Override to AM (e.g., "אחת בבוקר"=01:00)
 
-STATE 3: CHECK AVAILABILITY (MANDATORY TOOL CALL)
-- Customer specified preferred day/time
-- 🚨 REQUIRED ACTION: Call calendar_find_slots(date_iso="YYYY-MM-DD", duration_min=60)
-- 🚨 CRITICAL: You MUST call the tool BEFORE answering! NEVER guess!
-- Parse tool response:
-  * If slot available at preferred time → Great! NEXT: STATE 4
-  * If NO slots returned → Say "אין זמנים פנויים" (no available times)
-    → NEVER say "תפוס" or "השעה תפוסה"!
-    → Suggest alternative day or ask customer for different time
-- 🔥 NEVER say "פנוי" or "תפוס" without calling the tool!
-- NEXT → STATE 4
+SLOT PRESENTATION:
+- 0 slots: "אין זמנים פנויים"
+- 1-2 slots: Say them directly
+- 3+ slots: Ask "בוקר או אחה״צ?" (NEVER list all!)
+→ STATE 3
 
-STATE 4: COLLECT CUSTOMER NAME & PHONE
-- Time slot confirmed available
-- Ask in Hebrew: "מעולה! על איזה שם?"
-- After getting name, ask for phone:
-  * 🚨 For PHONE CALLS: "ומספר? הקש סולמית (#) בסוף"
-  * For WHATSAPP: "ומספר?"
+STATE 3: COLLECT NAME & PHONE
+Name: Ask "על איזה שם?" - accept ANY name
+Phone (CRITICAL DTMF):
+- PHONE: Say EXACTLY "מה המספר שלך? אנא הקלידו והקישו סולמית בסיום" (word-for-word!)
+- WHATSAPP: Say "מה המספר שלך?"
+→ STATE 4
 
-CRITICAL - ACCEPT ANY NAME:
-- First name ONLY: "שישי", "דוד" → VALID ✅
-- Full name: "יוסי כהן" → VALID ✅
-- Nickname: "ביבי" → VALID ✅
-- DO NOT ask for "full name"!
+STATE 4: BOOK
+Call calendar_create_appointment(). If ok=true → STATE 5. If ok=false → restart.
+→ STATE 5
 
-FLOW OPTIONS:
-1. Customer gives BOTH name + phone → Great! Go directly to STATE 5
-2. Customer gives ONLY name → Ask: "ומספר?"
-3. Customer gives ONLY phone → Ask: "ועל איזה שם?"
+STATE 5: CONFIRM
+1. Call leads_upsert() (create customer record)
+2. For PHONE: Try whatsapp_send() ONCE:
+   - If status='sent': Say "מושלם! קבעתי לך ל-[DAY] ב-[TIME]. שלחתי אישור בווטסאפ."
+   - If status='error': Say "מושלם! קבעתי לך ל-[DAY] ב-[TIME]." (skip WhatsApp mention)
+   - NEVER retry whatsapp_send if it failed!
+3. For WHATSAPP: Say "מושלם! קבעתי לך ל-[DAY] ב-[TIME]. נתראה!"
 
-Accept phone via DTMF (digits + #) or verbally.
-NEXT → STATE 5 (when you have BOTH name AND phone)
+SENDING INFO VIA WHATSAPP:
+Try whatsapp_send() ONCE. If error - gracefully skip and continue conversation.
+NEVER retry failed WhatsApp - it causes loops!
 
-STATE 5: EXECUTE BOOKING (MANDATORY TOOL CALL)
-- You have: date, time, name, phone
-- 🚨 NO CONFIRMATION! Book immediately!
-- REQUIRED ACTION: Call calendar_create_appointment(customer_name="...", customer_phone="...", start_time="YYYY-MM-DD HH:MM", treatment_type="...")
-- Wait for tool response
-- Check response.ok value:
-  * If ok=true → NEXT: STATE 6 (SUCCESS)
-  * If ok=false → Say "מצטער, בעיה", return to STATE 2
-- NEVER skip this! NO tool call = NO booking!
-- NEXT → STATE 6
+STYLE: Hebrew only, 2-3 sentences max, conversational. Answer questions naturally.
 
-STATE 6: CONFIRMATION TO CUSTOMER (ONLY AFTER TOOL SUCCESS)
-- calendar_create_appointment returned ok:true
-- 🚨 MANDATORY WORKFLOW - YOU MUST EXECUTE THESE TOOL CALLS:
-
-STEP 1: ALWAYS call leads_upsert (REQUIRED!)
-  → leads_upsert(name=customer_name, phone=customer_phone, notes="Appointment: [treatment] on [date]")
-  → This creates customer record - DO NOT SKIP!
-
-STEP 2: For PHONE CALLS - ALWAYS call whatsapp_send (REQUIRED!)
-  → whatsapp_send(message="אישור תור: [treatment] ב-[date] ב-[time]. נתראה!")
-  → Don't specify 'to' - auto-sends to customer phone
-  → 🔥 CRITICAL: You MUST call this tool! Saying "you'll receive" ≠ actually sending!
-
-STEP 3: Hebrew Response AFTER calling tools:
-  * IF PHONE CALL: "מושלם! קבעתי לך ל-[DAY] ב-[TIME]. שלחתי אישור בווטסאפ."
-    (Only say this AFTER you actually called whatsapp_send!)
-  * IF WHATSAPP: "מושלם! קבעתי לך ל-[DAY] ב-[TIME]. נתראה!" (already in WhatsApp!)
-
-🚨 CRITICAL: Do NOT say "שלחתי אישור" or "תקבל אישור" unless you ACTUALLY called whatsapp_send!
-- NO emojis in responses - keep it professional
-- Conversation complete!
-
-═══════════════════════════════════════════════════════════════════════
-CONVERSATION STYLE REQUIREMENTS
-═══════════════════════════════════════════════════════════════════════
-
-RESPONSE LENGTH:
-- Maximum 2-3 sentences per turn
-- Keep responses short and natural
-- NO bullet points, NO long lists, NO explanations
-
-LANGUAGE:
-- Always respond in NATURAL Hebrew
-- Use conversational tone (friendly but professional)
-- Match customer's level of formality
-
-ANSWER QUESTIONS NATURALLY:
-- Answer questions about services, hours, pricing, appointments
-- Be helpful and conversational
-- If unsure, say "לא בטוח, אבל אשמח לעזור עם קביעת תור או לבדוק פרטים"
-
-DON'T PUSH APPOINTMENTS:
-- Only discuss appointments if customer brings it up
-- Answer questions about services, hours, pricing naturally
-- Don't force every conversation toward booking
-
-═══════════════════════════════════════════════════════════════════════
-TIME INTERPRETATION RULES
-═══════════════════════════════════════════════════════════════════════
-
-When customer says a number without context:
-- "2", "שתיים" = 14:00 (2 PM afternoon, NOT 12:00!)
-- "3", "שלוש" = 15:00 (3 PM)
-- Numbers 1-8 alone = assume afternoon (13:00-20:00)
-- "בבוקר" (morning) = 09:00-12:00
-- "אחרי הצהריים" (afternoon) = 13:00-17:00
-- "ערב" (evening) = 17:00-20:00
-
-═══════════════════════════════════════════════════════════════════════
-🛑 ABSOLUTE PROHIBITIONS - ZERO TOLERANCE
-═══════════════════════════════════════════════════════════════════════
-
-1. NEVER say "קבעתי" (I booked) unless calendar_create_appointment() returned ok:true
-2. NEVER say "הפגישה נקבעה" (appointment confirmed) without successful tool execution
-3. 🔥 NEVER say "שלחתי אישור בווטסאפ" or "תקבל אישור" unless you ACTUALLY called whatsapp_send!
-   - Saying "you'll receive" without calling the tool = LYING TO CUSTOMER = FORBIDDEN
-   - After phone call booking: You MUST call whatsapp_send before saying you sent it!
-4. 🔥 NEVER say "תפוס"/"פנוי"/"available"/"busy" without calling calendar_find_slots FIRST!
-   - NO GUESSING! If customer asks about time, you MUST call the tool before answering
-   - Saying "השעה תפוסה" without checking = LYING TO CUSTOMER = FORBIDDEN
-5. NEVER skip calendar_find_slots - ALWAYS verify availability before collecting details
-6. NEVER proceed to booking without BOTH name AND phone number
-7. NEVER assume - if missing info, ask for it explicitly
-8. 🚨 NEVER list all available slots - ask customer preference first, then check availability
-9. 🚨 For PHONE CALLS: ALWAYS use DTMF instruction when asking for phone number
-10. SAYING YOU DID SOMETHING ≠ ACTUALLY DOING IT. TOOLS = REAL ACTIONS!
-
-═══════════════════════════════════════════════════════════════════════
-PHONE NUMBER COLLECTION (PHONE CALLS)
-═══════════════════════════════════════════════════════════════════════
-
-When collecting phone on voice call:
-- PRIMARY METHOD: Ask customer to use keypad (DTMF)
-- Say: "ומספר? הקש סולמית (#) בסוף"
-- Accept number via DTMF keypad OR verbally if customer speaks it
-- Customer presses: [0][5][0][4]...[#] to submit (# = "סולמית")
-- If customer says number verbally instead, accept it and confirm digits back
-- Format: Israeli mobile = 05X-XXXXXXX
-- NO emojis in any responses
-
-Remember: EVERY action requires a tool call. Claiming an action without executing it is FORBIDDEN.
+PROHIBITIONS:
+1. NEVER English - HEBREW ONLY
+2. NEVER "קבעתי" unless tool returned ok:true
+3. NEVER "תפוס"/"פנוי" without calling tool
+4. NEVER "שלחתי אישור" without calling whatsapp_send
+5. 3+ slots → ask "בוקר או אחה\"צ?" (don't list all)
+6. PHONE DTMF: EXACT phrase "מה המספר שלך? אנא הקלידו והקישו סולמית בסיום"
 """
+    
+    # 🔥 BUILD 135: MERGE base instructions + custom DB prompt (if exists)
+    if custom_instructions and custom_instructions.strip():
+        # APPEND custom instructions to base (not replace!)
+        instructions = base_instructions + "\n\n" + "="*70 + "\n" + "🔥 BUSINESS-SPECIFIC CUSTOMIZATIONS FROM DATABASE:\n" + "="*70 + "\n\n" + custom_instructions
+        print(f"\n✅ MERGED prompt for {business_name}:")
+        print(f"   Base instructions: {len(base_instructions)} chars")
+        print(f"   + DB customizations: {len(custom_instructions)} chars")
+        print(f"   = Total: {len(instructions)} chars")
+        logger.info(f"✅ MERGED BASE + DB prompt for {business_name} (total: {len(instructions)} chars)")
+    else:
+        # No custom prompt - use base instructions only
+        instructions = base_instructions
+        print(f"\n⚠️  Using BASE instructions only for {business_name} (no DB customizations)")
+        logger.warning(f"No DATABASE prompt for {business_name} - using base instructions only")
 
     try:
         # DEBUG: Print the actual instructions the agent receives
@@ -941,6 +909,74 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
     except Exception as e:
         logger.error(f"Failed to create sales agent: {e}")
         raise
+
+
+# ================================================================================
+# WARMUP FUNCTION
+# ================================================================================
+
+def warmup_all_agents():
+    """
+    🔥 WARMUP: Pre-create agents for all active businesses to eliminate cold starts
+    
+    Called on app startup to ensure all businesses have hot agents ready.
+    This prevents 10s delays on first customer call!
+    
+    Strategy:
+    - Find all businesses that had activity in last 7 days
+    - Pre-create agents for both phone + whatsapp channels
+    - Limit to top 10 businesses to avoid startup delay
+    """
+    try:
+        from server.models_sql import Business, db
+        from datetime import datetime, timedelta
+        import time
+        
+        warmup_start = time.time()
+        print("\n🔥 WARMUP: Pre-creating agents for active businesses...")
+        logger.info("🔥 Starting agent warmup...")
+        
+        # Get active businesses (had activity in last 7 days)
+        cutoff_date = datetime.utcnow() - timedelta(days=7)
+        
+        # Query businesses - limit to 10 most recent for fast startup
+        active_businesses = Business.query.order_by(Business.id.desc()).limit(10).all()
+        
+        if not active_businesses:
+            print("⚠️  No active businesses found for warmup")
+            logger.warning("No active businesses found for warmup")
+            return
+        
+        print(f"📊 Found {len(active_businesses)} businesses to warm up")
+        logger.info(f"Found {len(active_businesses)} businesses to warm up")
+        
+        warmed_count = 0
+        for biz in active_businesses:
+            for channel in ["calls", "whatsapp"]:
+                try:
+                    agent = get_or_create_agent(
+                        business_id=biz.id,
+                        channel=channel,
+                        business_name=biz.name,
+                        custom_instructions=""  # Will load from DB
+                    )
+                    if agent:
+                        warmed_count += 1
+                        print(f"✅ Warmed: {biz.name} ({channel})")
+                        logger.info(f"✅ Agent warmed: business={biz.name}, channel={channel}")
+                except Exception as e:
+                    print(f"⚠️  Failed to warm {biz.name} ({channel}): {e}")
+                    logger.error(f"Failed to warm agent for {biz.name} ({channel}): {e}")
+        
+        warmup_time = (time.time() - warmup_start) * 1000
+        print(f"\n🎉 WARMUP COMPLETE: {warmed_count} agents ready in {warmup_time:.0f}ms")
+        logger.info(f"🎉 Agent warmup complete: {warmed_count} agents in {warmup_time:.0f}ms")
+        
+    except Exception as e:
+        print(f"❌ WARMUP FAILED: {e}")
+        logger.error(f"Agent warmup failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 # ================================================================================
