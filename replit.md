@@ -16,6 +16,7 @@ Preferred communication style: Simple, everyday language.
 5. ✅ Added WhatsApp confirmation tracking
 6. ✅ Fixed intent detection with booking-first pre-check
 7. ✅ Added tool name extraction fallback (output structure detection)
+8. ✅ Fixed verbose slot listing - agent now asks preference instead of reading all times
 
 **Intent Router Fix:**
 - Added booking pre-check: detects booking verbs ("לקבוע", "לתאם") + time/day terms before info patterns
@@ -35,6 +36,12 @@ Preferred communication style: Simple, everyday language.
 - Removed overly restrictive guard-rails that rejected legitimate business questions
 - Agent now answers questions about: services, bookings, business info, location, hours, prices
 - Only rejects: recipes, cooking, jokes, trivia, general knowledge
+
+**Slot Presentation Fix:**
+- Agent no longer lists all available time slots (was reading 12+ times causing 24s audio)
+- New behavior: If 3+ slots → asks "בוקר או אחה\"צ?" (morning or afternoon?)
+- Only presents specific times when 1-2 options available
+- Prevents audio cutoff and improves UX dramatically
 
 # System Architecture
 
