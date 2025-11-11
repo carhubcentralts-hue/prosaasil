@@ -1,4 +1,5 @@
-import * as React from "react";
+import { forwardRef } from "react";
+import type * as React from "react";
 
 interface CheckboxProps {
   checked?: boolean;
@@ -8,7 +9,7 @@ interface CheckboxProps {
   "data-testid"?: string;
 }
 
-export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
+export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
   ({ checked, onCheckedChange, disabled, className = "", ...props }, ref) => {
     return (
       <input
