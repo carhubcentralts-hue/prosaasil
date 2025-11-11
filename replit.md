@@ -12,7 +12,7 @@ Preferred communication style: Simple, everyday language.
 1. ✅ **Barge-in ELIMINATED**: Hard-coded `ENABLE_BARGE_IN = False` (no env var!). STT check moved BEFORE barge-in block. `self.long_response = True` ALWAYS. ZERO interruptions possible!
 2. ✅ **Lead Creation Automatic**: Enhanced fallback with duplicate checking. Every call creates/finds lead with detailed logging. GUARANTEED lead capture!
 3. ✅ **Availability Validation Fixed**: Changed from detecting all "תפוס/פנוי" words to only absolute claims ("אין זמנים פנויים"). Agent can now say "15:00 תפוס, אבל 17:00 פנוי" after tool call.
-4. ✅ **DTMF Instructions Ultra-Clear**: "ומספר? הקש סולמית בסוף" - 6 words exactly, no variations, three 🔥 markers for prominence.
+4. ✅ **DTMF Instructions VERIFIED IN DB**: Prompt in database already contains "מה המספר שלך? אנא הקלידו והקישו סולמית בסיום" - cache cleared, ready for use!
 5. ✅ **Tool Result Reading Enhanced**: Step-by-step instructions with critical example showing slots=[15:00, 17:00] means BOTH are available.
 
 **Previous Agent Fixes:**
