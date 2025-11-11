@@ -67,7 +67,12 @@ interface AppointmentSettings {
   allow_24_7: boolean;
   booking_window_days: number;
   min_notice_min: number;
-  opening_hours_json?: any;
+  opening_hours_json?: Record<string, string[][]>;
+}
+
+interface DayHours {
+  enabled: boolean;
+  hours: string[][];  // [["09:00", "17:00"], ["19:00", "22:00"]]
 }
 
 interface IntegrationSettings {
@@ -482,6 +487,43 @@ export function SettingsPage() {
                     כמה זמן מראש לקוח צריך להודיע לפני תור (0 = ניתן לקבוע מיידית)
                   </p>
                 </div>
+
+                {!appointmentSettings.allow_24_7 && (
+                  <div className="border-t pt-4 mt-6">
+                    <h4 className="font-medium text-gray-900 mb-4">שעות פעילות</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת פתיחה</label>
+                        <select 
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          defaultValue="09:00"
+                          data-testid="select-opening-time"
+                        >
+                          {Array.from({length: 24}, (_, i) => {
+                            const hour = i.toString().padStart(2, '0');
+                            return <option key={i} value={`${hour}:00`}>{`${hour}:00`}</option>;
+                          })}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת סגירה</label>
+                        <select 
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          defaultValue="18:00"
+                          data-testid="select-closing-time"
+                        >
+                          {Array.from({length: 24}, (_, i) => {
+                            const hour = i.toString().padStart(2, '0');
+                            return <option key={i} value={`${hour}:00`}>{`${hour}:00`}</option>;
+                          })}
+                        </select>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-sm text-gray-500">
+                      שעות אלה יחולו על כל ימות השבוע. לשעות מפורטות לפי יום, השתמש במצב פתוח 24/7 והגדר בהגדרות מתקדמות.
+                    </p>
+                  </div>
+                )}
 
                 <div className="border-t pt-4 mt-6">
                   <h4 className="font-medium text-gray-900 mb-2">סיכום הגדרות</h4>
