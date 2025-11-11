@@ -1205,6 +1205,17 @@ class AIService:
                 for tc in tool_calls_data
             )
             
+            # 🔥 FALLBACK: If tool name extraction failed, check output structure
+            # If we see {'appointment_id': ...} in ANY tool output → calendar_create_appointment was called
+            if not booking_tool_called and tool_count > 0:
+                for item in result.new_items if hasattr(result, 'new_items') else []:
+                    if type(item).__name__ == 'ToolCallOutputItem':
+                        output = getattr(item, 'output', None)
+                        if isinstance(output, dict) and 'appointment_id' in output:
+                            print(f"  🔥 FALLBACK: Detected calendar_create_appointment from output structure (has 'appointment_id' key)")
+                            booking_tool_called = True
+                            break
+            
             # Check if calendar_find_slots was called
             check_availability_called = any(
                 tc.get("tool") in ["calendar_find_slots", "calendar_find_slots_wrapped"]

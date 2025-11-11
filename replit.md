@@ -14,6 +14,18 @@ Preferred communication style: Simple, everyday language.
 3. ✅ Added availability verification guard (blocks "תפוס/פנוי" without tool calls)
 4. ✅ Enhanced DTMF phone collection instructions
 5. ✅ Added WhatsApp confirmation tracking
+6. ✅ Fixed intent detection with booking-first pre-check
+7. ✅ Added tool name extraction fallback (output structure detection)
+
+**Intent Router Fix:**
+- Added booking pre-check: detects booking verbs ("לקבוע", "לתאם") + time/day terms before info patterns
+- Tightened info patterns to avoid false positives on booking requests
+- Fixed "אפשר לקבוע חדר קריוקי למחר?" → book ✅ (was: info ❌)
+
+**Tool Validation Enhancement:**
+- Added fallback detection for calendar_find_slots based on output structure
+- If tool name extraction fails, checks for {'slots': [...]} in output
+- Prevents false negatives when tool wrapper changes name
 
 **WhatsApp QR Code Fix:**
 - Fixed `tenant_id_from_ctx()` to correctly retrieve business_id from session['al_user']
