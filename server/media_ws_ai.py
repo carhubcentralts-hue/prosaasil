@@ -1305,7 +1305,47 @@ class MediaStreamHandler:
             self.last_user_hash, self.last_user_hash_ts = uh, time.time()
             # Processing new user input")
             
-            # 3. AI Response - БЕЗ micro-ack! תן לה לחשוב בשקט
+            # 3. FAQ Fast-Path - Voice calls only (≤200 chars)
+            # ⚡ Try FAQ matching BEFORE calling AgentKit for instant responses
+            faq_match = None
+            faq_start_time = time.time()
+            if len(text) <= 200:  # Only short queries
+                try:
+                    from server.services.faq_engine import match_faq
+                    business_id = getattr(self, 'business_id', None)
+                    if business_id:
+                        faq_match = match_faq(business_id, text, channel="voice")
+                except Exception as e:
+                    force_print(f"⚠️ [FAQ_ERROR] {e}")
+            
+            # If FAQ matched - respond immediately and skip AgentKit!
+            if faq_match:
+                faq_ms = (time.time() - faq_start_time) * 1000
+                force_print(f"🚀 [FAQ_HIT] biz={getattr(self, 'business_id', '?')} intent={faq_match['intent_key']} score={faq_match['score']:.3f} method={faq_match['method']} ms={faq_ms:.0f}ms")
+                reply = faq_match['answer']
+                
+                # Track as FAQ turn (no Agent SDK call)
+                force_print(f"🤖 [FAQ_RESPONSE] {reply[:100]}... (skipped Agent)")
+                
+                # Speak the FAQ answer and return to listening
+                if reply and reply.strip():
+                    self.conversation_history.append({
+                        'user': text,
+                        'bot': reply
+                    })
+                    self._speak_simple(reply)
+                
+                # Return to LISTEN state
+                self.state = STATE_LISTEN
+                self.processing = False
+                force_print(f"✅ [FAQ_COMPLETE] Returned to LISTEN (total: {(time.time() - faq_start_time)*1000:.0f}ms)")
+                return
+            else:
+                # FAQ miss - proceed to AgentKit
+                faq_ms = (time.time() - faq_start_time) * 1000
+                force_print(f"⏭️ [FAQ_MISS] No match found (search took {faq_ms:.0f}ms) → proceeding to AgentKit")
+            
+            # No FAQ match - proceed with AgentKit (normal flow)
             ai_processing_start = time.time()
             
             # ✅ השתמש בפונקציה המתקדמת עם מתמחה והמאגר הכולל!

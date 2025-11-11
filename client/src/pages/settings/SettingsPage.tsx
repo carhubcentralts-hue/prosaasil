@@ -102,6 +102,11 @@ interface FAQ {
   id: number;
   question: string;
   answer: string;
+  intent_key?: string | null;
+  patterns_json?: string[] | null;
+  channels?: string;
+  priority?: number;
+  lang?: string;
   order_index: number;
   created_at?: string;
 }

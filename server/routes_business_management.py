@@ -714,6 +714,11 @@ def get_business_faqs():
             'id': faq.id,
             'question': faq.question,
             'answer': faq.answer,
+            'intent_key': faq.intent_key,
+            'patterns_json': faq.patterns_json,
+            'channels': faq.channels,
+            'priority': faq.priority,
+            'lang': faq.lang,
             'order_index': faq.order_index,
             'created_at': faq.created_at.isoformat() if faq.created_at else None
         } for faq in faqs])
@@ -741,6 +746,11 @@ def create_faq():
             business_id=business_id,
             question=data['question'],
             answer=data['answer'],
+            intent_key=data.get('intent_key'),
+            patterns_json=data.get('patterns_json'),
+            channels=data.get('channels', 'voice'),
+            priority=data.get('priority', 0),
+            lang=data.get('lang', 'he-IL'),
             order_index=max_order + 1
         )
         db.session.add(faq)
@@ -757,6 +767,11 @@ def create_faq():
             'id': faq.id,
             'question': faq.question,
             'answer': faq.answer,
+            'intent_key': faq.intent_key,
+            'patterns_json': faq.patterns_json,
+            'channels': faq.channels,
+            'priority': faq.priority,
+            'lang': faq.lang,
             'order_index': faq.order_index,
             'created_at': faq.created_at.isoformat() if faq.created_at else None
         }), 201
@@ -783,6 +798,16 @@ def update_faq(faq_id):
             faq.question = data['question']
         if 'answer' in data:
             faq.answer = data['answer']
+        if 'intent_key' in data:
+            faq.intent_key = data['intent_key']
+        if 'patterns_json' in data:
+            faq.patterns_json = data['patterns_json']
+        if 'channels' in data:
+            faq.channels = data['channels']
+        if 'priority' in data:
+            faq.priority = data['priority']
+        if 'lang' in data:
+            faq.lang = data['lang']
         if 'order_index' in data:
             faq.order_index = data['order_index']
         
@@ -800,6 +825,11 @@ def update_faq(faq_id):
             'id': faq.id,
             'question': faq.question,
             'answer': faq.answer,
+            'intent_key': faq.intent_key,
+            'patterns_json': faq.patterns_json,
+            'channels': faq.channels,
+            'priority': faq.priority,
+            'lang': faq.lang,
             'order_index': faq.order_index,
             'updated_at': faq.updated_at.isoformat() if faq.updated_at else None
         })
