@@ -1463,29 +1463,21 @@ class MediaStreamHandler:
             # ⚡ ULTRA-SPEED: No delay before TTS - immediately start speaking
             # time.sleep removed for minimum latency
                 
-            # ⚡ TTS Shortening - prevent cutoff mid-word
-            if len(text) > 150:
-                # Find last complete sentence within 150 chars
-                shortened = text[:150]
-                # Try to end at sentence boundary (., !, ?)
+            # 🔥 TTS SHORTENING DISABLED - User demand: complete sentences only!
+            # User: "הוא עוצר באמצע משפטים ולא מסיים"
+            # Previous logic cut at 150 chars - REMOVED to allow full responses
+            if len(text) > 350:  # Safety limit only for extreme cases (novels)
+                shortened = text[:350]
+                # Try to end at sentence boundary ONLY for very long responses
                 for delimiter in ['. ', '! ', '? ']:
                     last_sent = shortened.rfind(delimiter)
-                    if last_sent > 80:  # Only if we have enough text
+                    if last_sent > 250:  # Very high threshold
                         text = shortened[:last_sent + 1]
-                        print(f"🔪 TTS_SHORTENED (sentence): {text}")
+                        print(f"🔪 TTS_SAFETY_CUT (sentence): {text}")
                         break
                 else:
-                    # Fall back to word boundary - NEVER cut mid-word!
-                    last_space = shortened.rfind(' ')
-                    if last_space > 0:
-                        text = shortened[:last_space]
-                        if not text.endswith(('.', '!', '?')):
-                            text += '.'
-                        print(f"🔪 TTS_SHORTENED (word): {text}")
-                    else:
-                        # Emergency fallback (shouldn't happen)
-                        text = shortened + '.'
-                        print(f"🔪 TTS_SHORTENED (fallback): {text}")
+                    # Keep original text - don't cut!
+                    print(f"⚠️ TTS_LONG_RESPONSE: {len(text)} chars (no cut)")
             
             # ⏱️ TTS timing instrumentation
             tts_start = time.time()

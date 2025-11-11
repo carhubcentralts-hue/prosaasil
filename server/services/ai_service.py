@@ -931,15 +931,21 @@ class AIService:
             return self.generate_response(message, business_id, context, channel, is_first_turn)
         
         # 🚀 Phase 2K: INTENT ROUTING GATE
+        # ⚠️ FAQ Fast-Path is HARDCODED for real-estate/restaurant patterns!
+        # It will NOT work for other business types (tech, retail, etc.)
+        # Check if business has FAQ enabled before routing
+        
         intent = route_intent_hebrew(message)
         print(f"🎯 INTENT_DETECTED: {intent} (message: {message[:50]}...)")
         logger.info(f"🎯 Intent detected: {intent}")
         
-        # ⚡ FAQ/Lightweight Path - ONLY for clear info intents
-        # 🔥 "whatsapp" → AgentKit (needs whatsapp_send tool!)
-        # 🔥 "human" → AgentKit (needs conversation context)
-        # 🔥 "other" → AgentKit (natural conversation handling)
-        if AGENTKIT_BOOKING_ONLY and intent in ["info"]:
+        # ⚡ FAQ/Lightweight Path - DISABLED by default (hardcoded patterns don't fit all businesses)
+        # Agent handles ALL queries for maximum flexibility and accuracy
+        # 🔥 User requirement: "Agent ONLY handles appointments and WhatsApp sending"
+        # 🔥 FAQ patterns are real-estate specific (price/location/hours) - won't work for tech/retail/etc.
+        
+        # ALWAYS use AgentKit - it's fast enough (<5s) and handles all business types
+        if False:  # FAQ disabled - agent handles everything
             print(f"🚀 FAST_PATH: Handling {intent} without AgentKit")
             fast_response = self._handle_lightweight_intent(intent, message, business_id, channel, context, customer_phone)
             
