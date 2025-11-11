@@ -51,9 +51,10 @@ USE_STREAMING_STT = True
 if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
     USE_STREAMING_STT = False
 
-# 🔥 PHASE 2N: BARGE-IN CONTROL - Disabled by default (user request)
-# User: "שלא יעצור בחיים לדבר עד שהוא מסיים לדבר"
-ENABLE_BARGE_IN = os.getenv("ENABLE_BARGE_IN", "false").lower() == "true"
+# 🔥 BARGE-IN PERMANENTLY DISABLED - Hard-coded (user demand)
+# User: "ששום דבר לא יוכל לגרום לבוט להפסיק לדבר, אם הוא התחיל לדבר שלא יפסיק!!!!"
+# 🚨 DO NOT USE ENV VAR - ALWAYS False!
+ENABLE_BARGE_IN = False  # ← PERMANENTLY DISABLED!
 
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
@@ -1401,10 +1402,10 @@ class MediaStreamHandler:
         if not text:
             return
         
-        # 🔒 CRITICAL FIX: ALWAYS disable barge-in - never interrupt!
+        # 🔒 HARD-CODED: ALWAYS protected - ZERO barge-in!
         word_count = len(text.split())
-        self.long_response = True  # ✅ ALWAYS True = NEVER allow barge-in!
-        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN COMPLETELY DISABLED")
+        self.long_response = True  # ✅ PERMANENTLY True - NEVER interrupt!
+        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
             
         self.speaking = True
         self.speaking_start_ts = time.time()
@@ -1445,10 +1446,10 @@ class MediaStreamHandler:
             except Exception as e:
                 print(f"⚠️ Interrupt error (non-critical): {e}")
         
-        # 🔒 CRITICAL FIX: ALWAYS disable barge-in - never interrupt!
+        # 🔒 HARD-CODED: ALWAYS protected - ZERO barge-in!
         word_count = len(text.split())
-        self.long_response = True  # ✅ ALWAYS True = NEVER allow barge-in!
-        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN COMPLETELY DISABLED")
+        self.long_response = True  # ✅ PERMANENTLY True - NEVER interrupt!
+        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
             
         self.speaking = True
         self.speaking_start_ts = time.time()
@@ -2661,10 +2662,10 @@ class MediaStreamHandler:
         if not text:
             return
         
-        # 🔒 CRITICAL FIX: ALWAYS disable barge-in - never interrupt!
+        # 🔒 HARD-CODED: ALWAYS protected - ZERO barge-in!
         word_count = len(text.split())
-        self.long_response = True  # ✅ ALWAYS True = NEVER allow barge-in!
-        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN COMPLETELY DISABLED")
+        self.long_response = True  # ✅ PERMANENTLY True - NEVER interrupt!
+        print(f"🔒 PROTECTED_RESPONSE ({word_count} words) - BARGE-IN IMPOSSIBLE")
             
         self.speaking = True
         self.state = STATE_SPEAK
