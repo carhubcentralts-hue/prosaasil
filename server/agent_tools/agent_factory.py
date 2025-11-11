@@ -590,14 +590,25 @@ STATE 2: ASK FOR PREFERRED TIME
 
 STATE 3: CHECK AVAILABILITY (MANDATORY TOOL CALL)
 - Customer specified preferred day/time
-- 🚨 REQUIRED ACTION: Call calendar_find_slots(date_iso="YYYY-MM-DD", duration_min=60)
-- 🚨 CRITICAL: You MUST call the tool BEFORE answering! NEVER guess!
-- Parse tool response:
-  * If slot available at preferred time → Great! NEXT: STATE 4
-  * If NO slots returned → Say "אין זמנים פנויים" (no available times)
-    → NEVER say "תפוס" or "השעה תפוסה"!
-    → Suggest alternative day or ask customer for different time
-- 🔥 NEVER say "פנוי" or "תפוס" without calling the tool!
+- 🚨 CRITICAL RULE: You MUST call calendar_find_slots() FIRST!
+- 🚨 DO NOT SAY ANYTHING until you call the tool and see the response!
+- 🚨 FORBIDDEN: Saying "אין זמנים פנויים" / "יש פנוי" / "תפוס" WITHOUT calling tool = LYING TO CUSTOMER!
+
+CORRECT WORKFLOW:
+1. Call calendar_find_slots(date_iso="YYYY-MM-DD", duration_min=60)
+2. WAIT for tool response
+3. Read the tool output
+4. ONLY THEN answer based on what you see
+
+TOOL RESPONSE HANDLING:
+- If tool returns slots → Say "יש פנוי ב-[time]" → NEXT: STATE 4
+- If tool returns empty list [] → Say "אין זמנים פנויים באותו יום" → suggest alternative
+- 🔥 NO TOOL CALL = NO RESPONSE ALLOWED!
+
+EXAMPLES:
+❌ BAD: Customer asks "יש פנוי ב-16:00?" → You say "אין זמנים פנויים" (WITHOUT calling tool)
+✅ GOOD: Customer asks "יש פנוי ב-16:00?" → You call calendar_find_slots(date_iso="2025-11-11") → Tool returns [] → You say "אין זמנים פנויים"
+
 - NEXT → STATE 4
 
 STATE 4: COLLECT CUSTOMER NAME & PHONE
