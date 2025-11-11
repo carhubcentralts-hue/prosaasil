@@ -4,6 +4,13 @@ AgentLocator is a Hebrew CRM system for real estate, designed to automate the sa
 
 # Recent Changes
 
+**Build 92 (November 11, 2025):**
+- **Single Vite Config Fix**: Removed duplicate root `vite.config.js` to prevent build conflicts
+- **Clean Build Process**: `rm -rf node_modules` + fresh install ensures deterministic builds
+- **Bundle Verification**: Confirmed bundle uses Classic JSX (createElement, not _jsx)
+- **React 19.2.0 Retained**: Kept modern React version while fixing Safari compatibility
+- **Build Integrity**: Added bundle verification with grep to catch JSX runtime issues early
+
 **Build 123 (November 11, 2025):**
 - **FAQ Hybrid Engine**: Extended FAQ schema (migration #22) with intent_key, patterns_json, channels, priority, lang for advanced matching
 - **Voice-Only FAQ Fast-Path**: Integrated faq_engine.py into media_ws_ai.py for ≤200 char queries BEFORE AgentKit call
