@@ -73,22 +73,21 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
         r'לדבר.*עם|להעביר'
     ]
     
-    # ℹ️ INFO: General information (CHECK FIFTH - before booking!)
-    # 🔥 FIX: Check info patterns BEFORE book patterns to avoid "מתי פתוחים מחר?" → "book"
+    # ℹ️ INFO: General information (CHECK AFTER booking pre-check!)
+    # 🔥 TIGHTENED: These patterns now only match if NO booking verbs present
     info_patterns = [
         # 🔥 CRITICAL: Question words → info (אלה שאלות מידע!)
+        # But: "מתי אפשר לקבוע?" → book (caught by pre-check)
         r'^(מה|איזה|איזו|כמה|למה|מדוע|איך|היכן|מתי)\s',  # Start with question word
-        r'\s(מה|איזה|איזו|כמה)\s',  # Question word in middle
         
-        # 🔥 CRITICAL FIX: "יש..." questions - SPECIFIC amenities only (not "יש לכם תור")
+        # 🔥 CRITICAL FIX: "יש..." questions - ONLY amenities (not rooms/services)
         r'יש\s+(אוכל|שתיי?ה|תפריט|מנות|אלכוהול|בר|משקאות|קפה|מזון)',
         r'יש\s+(חניה|חנייה|גישה|מיזוג|wifi|אינטרנט|מעלית)',
-        r'יש\s+(חדר|חדרים|שירות|שירותים|סוג|סוגים)',  # "יש חדר קריוקי?"
-        r'יש\s+לכם\s+(אוכל|שתיי?ה|תפריט|חניה|wifi|חדר|שירות)',
+        r'יש\s+לכם\s+(אוכל|שתיי?ה|תפריט|חניה|wifi)',
         r'מה\s+יש\s+(לאכול|לשתות|בתפריט)',
         
-        # Pricing
-        r'כמה.*עולה|מחיר|עלות|תשלום|כמה.*זה',
+        # Pricing (standalone - not with booking verbs)
+        r'כמה.*עולה|מחיר(?!.*לקבוע)|עלות|תשלום(?!.*תור)',
         
         # Location
         r'איפה|מיקום|כתובת|היכן',
@@ -96,14 +95,12 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
         # Hours
         r'שעות.*פתיחה|מתי.*פתוח|שעות.*עבודה|מה.*שעות',
         
-        # Amenities & Services - EXPANDED!
+        # Amenities & Services - REMOVED generic "חדר" patterns!
         r'כשר|כשרות',
         r'גודל.*חדר|כמה.*אנשים|כמה.*משתתפים',
         r'מה.*הכתובת|מה.*המיקום',
-        r'חדר\s+(קריוקי|ישיבות|אירועים)',  # "חדר קריוקי"
-        r'(סוגי|סוג)\s+(חדר|שירות)',  # "איזה סוגי חדרים"
         
-        # Menu/food (standalone) - LAST to avoid conflicts
+        # Menu/food (standalone)
         r'\b(תפריט|מנות|משקאות)\b',
     ]
     
@@ -135,7 +132,19 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
         if re.search(pattern, text_lower):
             return "human"
     
-    # 🔥 CHECK INFO BEFORE BOOK!
+    # 🚨 CRITICAL PRE-CHECK: Booking verbs + time/day → BOOK (before info check!)
+    # This fixes: "אפשר לקבוע חדר קריוקי למחר" → book (not info)
+    booking_verbs = r'(לקבוע|לתאם|להזמין|אפשר.*תור|רוצה.*תור|צריך.*תור)'
+    time_day_terms = r'(מחר|היום|מחרתיים|השבוע|החודש|ב-\d+|בשעה|ביום|בשני|בשלישי|ברביעי|בחמישי|בשישי|בשבת|בראשון)'
+    availability_terms = r'(פנוי|זמין|זמן|מקום|תור|פגישה)'
+    
+    # If booking verb + (time/day OR availability) → it's a booking request!
+    if re.search(booking_verbs, text_lower):
+        if re.search(time_day_terms, text_lower) or re.search(availability_terms, text_lower):
+            print(f"🎯 BOOKING_PRE_CHECK: Detected booking verb + time/availability")
+            return "book"
+    
+    # 🔥 CHECK INFO (after booking pre-check!)
     for pattern in info_patterns:
         if re.search(pattern, text_lower):
             print(f"🎯 INTENT_MATCH: pattern='{pattern}' matched in '{text_lower[:50]}'")
