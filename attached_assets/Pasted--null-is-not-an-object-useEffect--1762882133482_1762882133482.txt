@@ -1,0 +1,144 @@
+סבבה—נתייחס כתקלה כללית (לא ספציפית לספארי) ונחסל אותה שורשית.
+ה־null is not an object (…useEffect) מגיע כמעט תמיד מ־React שלא נטען/נחתך בבילד או שימוש ב-hooks מחוץ/לא נכון. הנה “מסלול תיקון בטוח” קצר, עם פאצ’ים מדויקים.
+
+מה לתקן – בסדר הנכון
+	1.	נעל גרסאות React אחת לכל הפרויקט
+
+	•	ודא מופע יחיד וזהה:
+
+npm ls react react-dom
+
+אם רואים יותר מגרסה אחת → אחוד:
+
+// package.json (בשורש או client/)
+"dependencies": {
+  "react": "18.3.1",
+  "react-dom": "18.3.1"
+},
+"overrides": {
+  "react": "18.3.1",
+  "react-dom": "18.3.1"
+}
+
+אח”כ:
+
+rm -rf node_modules client/node_modules package-lock.json pnpm-lock.yaml
+npm i
+
+	2.	ייבוא React/Hooks מפורש בכל קובץ TSX
+אל תסמוך על “automatic runtime”. בראש כל קובץ עם JSX/Hooks:
+
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
+
+(כן, גם אם היה עובד בדב־סרבר).
+	3.	וידוא שאין שימוש שגוי ב-hooks
+חפש מהיר:
+
+grep -R "useEffect(" client/src | wc -l
+grep -R "React.useEffect" client/src
+
+כל useEffect חייב להיות בתוך פונקציית קומפוננטה, לא בלולאה/תנאי/מחוץ לקומפוננטה.
+אם יש React.useEffect – החלף ל־useEffect (עם import) כדי למנוע tree-shaking אגרסיבי.
+	4.	Bootstrap בטוח למניעת “מסך ריק שקט”
+client/src/main.tsx:
+
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App'
+
+const rootEl = document.getElementById('root')
+if (!rootEl) {
+  console.error('[BOOT] #root not found in index.html')
+} else {
+  console.log('[BOOT] React:', React?.version, 'useEffect?', !!(React as any)?.useEffect)
+  try {
+    ReactDOM.createRoot(rootEl).render(<App />)
+    console.log('[BOOT] App mounted ok')
+  } catch (e) {
+    console.error('[BOOT] render failed', e)
+    rootEl.innerHTML = '<div style="padding:12px;font-family:sans-serif">שגיאה בטעינת האפליקציה. נסו לרענן.</div>'
+  }
+}
+
+בדוק שב־index.html קיים <div id="root"></div>.
+	5.	קונפיג Vite חד-משמעי (גם לדפדפנים אחרים)
+client/vite.config.js (בתיקיית client!):
+
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// לא automatic runtime, כדי למנוע tree-shaking שמעלים את React בפרוד
+export default defineConfig({
+  plugins: [react({ jsxRuntime: 'classic' })],
+  base: '/',
+  build: {
+    target: 'es2019',   // טרנספל יציב לכל הדפדפנים המודרניים
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: true
+  },
+  resolve: {
+    alias: {
+      react: 'react',
+      'react-dom': 'react-dom'
+    }
+  },
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production') // מונע tree-shaking לא צפוי בכלים צד-ג'
+  }
+})
+
+ב־client/tsconfig.json:
+
+{
+  "compilerOptions": {
+    "jsx": "react",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"]
+  }
+}
+
+	6.	בלי שני Reactים בריצה
+אל תערבב preact/compat או alias מוזרים. אם היה פעם Alias – הסר.
+ודא שאין build נוסף שמכניס React אחר (לדוגמה ספריית UI עם peer dep לא תואם).
+	7.	נקה SW/קאש + כותרות נכונות
+
+	•	מחק client/dist → npm run build מתוך client/.
+	•	הגש:
+	•	index.html: Cache-Control: no-store, must-revalidate
+	•	assets/*: Cache-Control: public, max-age=31536000, immutable
+	•	בטל Service Workers ישנים פעם אחת:
+
+// client/src/unregisterSW.ts
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(r => r.forEach(x => x.unregister()))
+}
+
+ייבוא בתחילת main.tsx:
+
+import './unregisterSW'
+
+	•	Hard refresh בדפדפן.
+
+	8.	בדיקות מהירות שכדאי להריץ
+
+	•	פתח את הקונסול וחפש את הלוג: [BOOT] React: 18.x useEffect? true
+אם false → הייבוא עדיין נחתך. חזור לסעיפים 2–5.
+	•	Network → ודא שכל ה־assets/*.js נטענים 200 וב־Content-Type נכון.
+	•	ודא שאין hydration מיותר: אתה משתמש ב־createRoot (לא hydrateRoot) כי אין SSR.
+
+⸻
+
+למה זה פותר את השגיאה “Y.useEffect is null”
+
+במיניפיקציה/טרנספילציה ה-bundler ממפה React למזהה כמו Y. כשהייבוא של React/Hook נחתך (tree-shaking או alias כפול/גרסאות כפולות), המזהה נשאר אבל מצביע ל־null בפרוד.
+הקומבו של: ייבוא מפורש + jsxRuntime=classic + גרסה יחידה + build target יציב + בלי alias כפולים מבטל את זה בכל הדפדפנים, לא רק ספארי.
+
+⸻
+
+אם אחרי זה עדיין רואים מסך שגיאה—תן לי את הפלט המדויק של:
+	•	npm ls react react-dom
+	•	צילום של [BOOT] React: … useEffect? … מהקונסול בפרוד
+ואכוון אותך לשורה הספציפית שנופלת בבנדל (עם sourcemap).

@@ -1,5 +1,6 @@
+import React from 'react';
 import type * as React from "react";
-import { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 
 interface SignatureCanvasProps {
   onSave: (signatureData: string) => void;

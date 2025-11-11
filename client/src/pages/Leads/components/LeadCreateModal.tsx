@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import React from 'react';
+import React, { useState } from 'react';
 import { X, Phone, Mail, User, Tag } from 'lucide-react';
 import { Button } from '../../../shared/components/ui/Button';
 import { Input } from '../../../shared/components/ui/Input';

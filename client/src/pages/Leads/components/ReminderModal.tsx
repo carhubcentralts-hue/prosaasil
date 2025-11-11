@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from "../../../shared/components/ui/Button";
 import { Lead, LeadReminder } from '../types';
 import { Clock, Bell, MessageSquare, Mail, X, Save } from 'lucide-react';
