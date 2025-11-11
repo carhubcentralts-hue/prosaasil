@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot } from 'lucide-react';
+import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot, Plus, Edit, Trash2 } from 'lucide-react';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -99,7 +99,7 @@ interface AISettings {
 export function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'integrations' | 'ai' | 'security'>('business');
+  const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'faqs' | 'integrations' | 'ai' | 'security'>('business');
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   
   // Settings state
@@ -324,6 +324,18 @@ export function SettingsPage() {
             הגדרות תורים
           </button>
           <button
+            onClick={() => setActiveTab('faqs')}
+            className={`${
+              activeTab === 'faqs'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+            data-testid="tab-faqs"
+          >
+            <MessageCircle className="w-4 h-4 mr-2" />
+            שאלות נפוצות (FAQ)
+          </button>
+          <button
             onClick={() => setActiveTab('integrations')}
             className={`${
               activeTab === 'integrations'
@@ -522,6 +534,34 @@ export function SettingsPage() {
                     <p className="mt-2 text-sm text-gray-500">
                       שעות אלה יחולו על כל ימות השבוע. לשעות מפורטות לפי יום, השתמש במצב פתוח 24/7 והגדר בהגדרות מתקדמות.
                     </p>
+
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">ימי פעילות</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {[
+                          { name: 'ראשון', value: 'sun' },
+                          { name: 'שני', value: 'mon' },
+                          { name: 'שלישי', value: 'tue' },
+                          { name: 'רביעי', value: 'wed' },
+                          { name: 'חמישי', value: 'thu' },
+                          { name: 'שישי', value: 'fri' },
+                          { name: 'שבת', value: 'sat' }
+                        ].map((day) => (
+                          <label key={day.value} className="flex items-center space-x-2 space-x-reverse cursor-pointer p-2 border rounded hover:bg-gray-50">
+                            <input
+                              type="checkbox"
+                              defaultChecked={true}
+                              className="rounded text-blue-600 focus:ring-blue-500"
+                              data-testid={`checkbox-day-${day.value}`}
+                            />
+                            <span className="text-sm text-gray-700">{day.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-sm text-gray-500">
+                        בחר את הימים שבהם העסק פעיל לקביעת תורים
+                      </p>
+                    </div>
                   </div>
                 )}
 
@@ -532,6 +572,82 @@ export function SettingsPage() {
                     <p>• פתוח <strong>{appointmentSettings.allow_24_7 ? '24/7' : 'בשעות מוגדרות'}</strong></p>
                     <p>• ניתן לקבוע עד <strong>{appointmentSettings.booking_window_days}</strong> ימים קדימה</p>
                     <p>• הודעה מוקדמת: <strong>{appointmentSettings.min_notice_min === 0 ? 'לא נדרשת' : `${appointmentSettings.min_notice_min} דקות`}</strong></p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {activeTab === 'faqs' && (
+          <div className="max-w-4xl space-y-6">
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">שאלות נפוצות (FAQ)</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    הגדר שאלות ותשובות נפוצות שהסוכן יענה עליהן מהר (פחות משנייה וחצי)
+                  </p>
+                </div>
+                <Button 
+                  onClick={() => {
+                    /* TODO: Add FAQ logic */
+                    alert('הוסף FAQ חדש');
+                  }}
+                  variant="outline"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  הוסף שאלה
+                </Button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="font-medium text-blue-900 mb-2">איך זה עובד?</h4>
+                  <ul className="text-sm text-blue-800 space-y-1">
+                    <li>• כאשר לקוח שואל שאלה, המערכת מחפשת התאמה ב-FAQs שלך</li>
+                    <li>• אם נמצאה התאמה - תגיב מיידית (פחות משנייה וחצי)</li>
+                    <li>• אם לא - הסוכן המלא יטפל בשאלה (4-5 שניות)</li>
+                    <li>• שאלות טובות: מחיר, כתובת, שעות פעילות, מתקנים זמינים</li>
+                  </ul>
+                </div>
+
+                <div className="border-t pt-4">
+                  <h4 className="font-medium text-gray-900 mb-3">דוגמאות FAQ</h4>
+                  <div className="space-y-3">
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">מה המחיר?</p>
+                          <p className="text-sm text-gray-600 mt-1">המחיר מתחיל מ-500,000 ש"ח לדירת 3 חדרים.</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button className="text-blue-600 hover:text-blue-700 p-1">
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button className="text-red-600 hover:text-red-700 p-1">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">מה הכתובת?</p>
+                          <p className="text-sm text-gray-600 mt-1">הפרוייקט ממוקם ברחוב הרצל 123, תל אביב.</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button className="text-blue-600 hover:text-blue-700 p-1">
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button className="text-red-600 hover:text-red-700 p-1">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
