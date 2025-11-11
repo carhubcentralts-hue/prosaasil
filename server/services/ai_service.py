@@ -1211,6 +1211,17 @@ class AIService:
                 for tc in tool_calls_data
             )
             
+            # 🔥 FALLBACK: If tool name extraction failed, check output structure
+            # If we see {'slots': [...]} in ANY tool output → calendar_find_slots was called
+            if not check_availability_called and tool_count > 0:
+                for item in result.new_items if hasattr(result, 'new_items') else []:
+                    if type(item).__name__ == 'ToolCallOutputItem':
+                        output = getattr(item, 'output', None)
+                        if isinstance(output, dict) and 'slots' in output:
+                            print(f"  🔥 FALLBACK: Detected calendar_find_slots from output structure (has 'slots' key)")
+                            check_availability_called = True
+                            break
+            
             # Check if whatsapp_send was called (for phone channel only)
             whatsapp_sent = any(
                 tc.get("tool") == "whatsapp_send"
