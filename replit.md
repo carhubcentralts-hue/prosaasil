@@ -8,6 +8,21 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes (November 11, 2025)
 
+**BUILD 137 - AGENT BEHAVIOR FIX: Step-by-Step Algorithm for Tool Results!**
+1. ✅ **Hebrew Time Normalization**: Explicit mapping table with business hours context:
+   - Hours 1-8 → PM (13:00-20:00) unless "בבוקר" specified
+   - Hours 9-12 → AM (09:00-12:00) - opening hours
+   - **PATTERN-BASED** half hours: `<hour> וחצי` → +30min, `חצי <hour>` → -30min (covers ALL hours!)
+   - **PATTERN-BASED** quarter hours: `<hour> ורבע` → +15min, `רבע ל<hour>` → -15min (covers ALL hours!)
+   - Explicit modifiers: `<any hour> + בבוקר` → AM, `+ בערב` → keep PM (no change), `+ בלילה` → late hours (21:00+)
+2. ✅ **Exact Matching Algorithm**: 5-step procedure with concrete examples:
+   - "שעה 1" → 13:00 → Check IN slots ["13:00", "15:00"] → "כן, 1 פנויה!" ✅
+3. ✅ **ABSOLUTE SLOT LIMIT**: "NEVER READ MORE THAN 2 SLOT TIMES!"
+   - 3+ slots → ask "בוקר או אחר הצהריים?"
+   - After answer → filter and present max 2: "יש 9 ו-10. יש עוד, באיזו שעה בדיוק?"
+4. ✅ **Complete Flow**: Initial response + follow-up after preference selection
+5. ✅ **Edge Cases**: AM/PM qualifiers, half/quarter hours, business hours context
+
 **Critical Production Fixes (Post-Deployment):**
 1. ✅ **Barge-in ELIMINATED**: Hard-coded `ENABLE_BARGE_IN = False` (no env var!). STT check moved BEFORE barge-in block. `self.long_response = True` ALWAYS. ZERO interruptions possible!
 2. ✅ **Lead Creation Automatic**: Enhanced fallback with duplicate checking. Every call creates/finds lead with detailed logging. GUARANTEED lead capture!
