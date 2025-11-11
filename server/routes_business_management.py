@@ -746,6 +746,13 @@ def create_faq():
         db.session.add(faq)
         db.session.commit()
         
+        # Invalidate FAQ cache after creation
+        try:
+            from server.services.faq_cache import faq_cache
+            faq_cache.invalidate(business_id)
+        except Exception as e:
+            logger.warning(f"FAQ cache invalidation failed: {e}")
+        
         return jsonify({
             'id': faq.id,
             'question': faq.question,
@@ -782,6 +789,13 @@ def update_faq(faq_id):
         faq.updated_at = datetime.utcnow()
         db.session.commit()
         
+        # Invalidate FAQ cache after update
+        try:
+            from server.services.faq_cache import faq_cache
+            faq_cache.invalidate(business_id)
+        except Exception as e:
+            logger.warning(f"FAQ cache invalidation failed: {e}")
+        
         return jsonify({
             'id': faq.id,
             'question': faq.question,
@@ -809,6 +823,13 @@ def delete_faq(faq_id):
         
         faq.is_active = False
         db.session.commit()
+        
+        # Invalidate FAQ cache after deletion
+        try:
+            from server.services.faq_cache import faq_cache
+            faq_cache.invalidate(business_id)
+        except Exception as e:
+            logger.warning(f"FAQ cache invalidation failed: {e}")
         
         return jsonify({'success': True}), 200
     except Exception as e:

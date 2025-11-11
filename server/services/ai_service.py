@@ -637,6 +637,70 @@ class AIService:
         except Exception as e:
             logger.error(f"Failed to save conversation history: {e}")
     
+    def _generate_faq_response(self, message: str, faq_answer: str, business_id: int, channel: str) -> Optional[str]:
+        """
+        🚀 Generate FAQ fast-path response using lightweight LLM
+        Uses gpt-4o-mini with max_tokens=80, temp=0.3 for <1.5s responses
+        
+        Args:
+            message: Customer question
+            faq_answer: Matched FAQ answer from database
+            business_id: Business ID
+            channel: Communication channel (phone/whatsapp)
+            
+        Returns:
+            Natural Hebrew response or None if generation failed
+        """
+        start = time.time()
+        
+        try:
+            # Get business name
+            business = Business.query.get(business_id)
+            business_name = business.name if business else "העסק"
+            
+            # Mini prompt for FAQ responses - focus on natural rephrasing
+            faq_prompt = f"""אתה עוזר דיגיטלי עבור {business_name}.
+לקוח שאל שאלה, ונמצאה התאמה במאגר השאלות הנפוצות.
+
+משימתך: השב בעברית טבעית וקצרה (1-2 משפטים) על סמך התשובה שנמצאה.
+
+שאלת הלקוח: {message}
+תשובה מהמאגר: {faq_answer}
+
+חוקים:
+1. השב בעברית פשוטה וטבעית
+2. קצר - מקסימום 2 משפטים
+3. אל תוסיף מידע שלא בתשובה המקורית
+4. אל תאמר "לפי המידע" או "נמצא במאגר"
+5. אל תציין שזאת שאלה נפוצה
+
+תשובה:"""
+            
+            # Call OpenAI with FAQ-optimized settings
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "user", "content": faq_prompt}
+                ],
+                max_tokens=80,
+                temperature=0.3,
+                timeout=4.0
+            )
+            
+            reply = response.choices[0].message.content.strip()
+            
+            elapsed = (time.time() - start) * 1000
+            print(f"⚡ FAQ response generated in {elapsed:.0f}ms")
+            logger.info(f"⚡ FAQ fast-path total time: {elapsed:.0f}ms")
+            
+            return reply
+            
+        except Exception as e:
+            elapsed = (time.time() - start) * 1000
+            print(f"❌ FAQ response generation failed after {elapsed:.0f}ms: {e}")
+            logger.error(f"FAQ response generation failed: {e}")
+            return None
+    
     def _handle_lightweight_intent(self, intent: str, message: str, business_id: int, 
                                    channel: str, context: Optional[Dict], customer_phone: Optional[str]) -> Optional[str]:
         """
@@ -939,22 +1003,39 @@ class AIService:
         print(f"🎯 INTENT_DETECTED: {intent} (message: {message[:50]}...)")
         logger.info(f"🎯 Intent detected: {intent}")
         
-        # ⚡ FAQ/Lightweight Path - DISABLED by default (hardcoded patterns don't fit all businesses)
-        # Agent handles ALL queries for maximum flexibility and accuracy
-        # 🔥 User requirement: "Agent ONLY handles appointments and WhatsApp sending"
-        # 🔥 FAQ patterns are real-estate specific (price/location/hours) - won't work for tech/retail/etc.
+        # ⚡ FAQ Fast-Path - Database-backed FAQ matching with embeddings
+        # Only runs for "info" intent to preserve fast responses (<2s)
+        # Falls back to AgentKit if no FAQ match found
         
-        # ALWAYS use AgentKit - it's fast enough (<5s) and handles all business types
-        if False:  # FAQ disabled - agent handles everything
-            print(f"🚀 FAST_PATH: Handling {intent} without AgentKit")
-            fast_response = self._handle_lightweight_intent(intent, message, business_id, channel, context, customer_phone)
-            
-            # 🔥 FIX: If fast path failed (returned None), fall through to AgentKit
-            if fast_response is not None:
-                return fast_response
-            else:
-                print(f"⚠️ Fast path failed for {intent}, falling back to AgentKit")
-                logger.warning(f"Fast path returned None for {intent}, using AgentKit fallback")
+        if intent == "info":
+            try:
+                from server.services.faq_cache import faq_cache
+                
+                faq_match = faq_cache.find_best_match(business_id, message)
+                
+                if faq_match:
+                    print(f"🎯 FAQ MATCH FOUND: score={faq_match['score']:.3f}")
+                    print(f"   Question: {faq_match['question']}")
+                    print(f"   Answer: {faq_match['answer'][:100]}...")
+                    logger.info(f"🎯 FAQ fast-path activated: score={faq_match['score']:.3f}")
+                    
+                    faq_response = self._generate_faq_response(
+                        message=message,
+                        faq_answer=faq_match['answer'],
+                        business_id=business_id,
+                        channel=channel
+                    )
+                    
+                    if faq_response:
+                        print(f"✅ FAQ fast-path response generated")
+                        return faq_response
+                    else:
+                        print("⚠️ FAQ response generation failed, falling back to AgentKit")
+                else:
+                    print(f"❌ No FAQ match found for: '{message[:50]}...'")
+            except Exception as e:
+                print(f"⚠️ FAQ fast-path error: {e}, falling back to AgentKit")
+                logger.warning(f"FAQ fast-path error: {e}")
         
         # ⚡ Capture start time BEFORE try block for error logging
         start_time = time.time()
