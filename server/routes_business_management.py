@@ -607,7 +607,13 @@ def get_current_business():
             "email": settings.email if settings and settings.email else f"office@{business.name.lower().replace(' ', '-')}.co.il",
             "address": settings.address if settings else "",
             "working_hours": settings.working_hours if settings and settings.working_hours else business.working_hours,
-            "timezone": settings.timezone if settings else "Asia/Jerusalem"
+            "timezone": settings.timezone if settings else "Asia/Jerusalem",
+            # 🔥 BUILD 138: Appointment settings
+            "slot_size_min": settings.slot_size_min if settings else 60,
+            "allow_24_7": settings.allow_24_7 if settings else False,
+            "booking_window_days": settings.booking_window_days if settings else 30,
+            "min_notice_min": settings.min_notice_min if settings else 0,
+            "opening_hours_json": settings.opening_hours_json if settings else None
         })
         
     except Exception as e:
@@ -660,6 +666,18 @@ def update_current_business_settings():
             business.working_hours = data['working_hours']
         if 'timezone' in data:
             settings.timezone = data['timezone']
+        
+        # 🔥 BUILD 138: Appointment settings
+        if 'slot_size_min' in data:
+            settings.slot_size_min = int(data['slot_size_min'])
+        if 'allow_24_7' in data:
+            settings.allow_24_7 = bool(data['allow_24_7'])
+        if 'booking_window_days' in data:
+            settings.booking_window_days = int(data['booking_window_days'])
+        if 'min_notice_min' in data:
+            settings.min_notice_min = int(data['min_notice_min'])
+        if 'opening_hours_json' in data:
+            settings.opening_hours_json = data['opening_hours_json']
             
         # Track who updated
         user_email = session.get('al_user', {}).get('email', 'Unknown')
