@@ -127,7 +127,7 @@ export function SettingsPage() {
   
   // FAQ Mutations
   const createFaqMutation = useMutation({
-    mutationFn: (data: { question: string; answer: string }) =>
+    mutationFn: (data: Partial<FAQ>) =>
       apiRequest('/api/business/faqs', { method: 'POST', body: data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] });
@@ -140,7 +140,7 @@ export function SettingsPage() {
   });
   
   const updateFaqMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: { question: string; answer: string } }) =>
+    mutationFn: ({ id, data }: { id: number; data: Partial<FAQ> }) =>
       apiRequest(`/api/business/faqs/${id}`, { method: 'PUT', body: data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] });
@@ -962,22 +962,31 @@ export function SettingsPage() {
                 const formData = new FormData(e.currentTarget);
                 const question = formData.get('question') as string;
                 const answer = formData.get('answer') as string;
+                const intent_key = formData.get('intent_key') as string;
+                const patterns = formData.get('patterns') as string;
+                const channels = formData.get('channels') as string;
+                const priority = formData.get('priority') as string;
+                const lang = formData.get('lang') as string;
                 
                 if (!question?.trim() || !answer?.trim()) {
                   alert('נא למלא את כל השדות');
                   return;
                 }
                 
+                const data = {
+                  question: question.trim(),
+                  answer: answer.trim(),
+                  intent_key: intent_key?.trim() || null,
+                  patterns_json: patterns?.trim() ? patterns.split('\n').map(p => p.trim()).filter(Boolean) : null,
+                  channels: channels || 'voice',
+                  priority: priority ? parseInt(priority) : 0,
+                  lang: lang || 'he-IL'
+                };
+                
                 if (editingFaq) {
-                  updateFaqMutation.mutate({
-                    id: editingFaq.id,
-                    data: { question: question.trim(), answer: answer.trim() }
-                  });
+                  updateFaqMutation.mutate({ id: editingFaq.id, data });
                 } else {
-                  createFaqMutation.mutate({
-                    question: question.trim(),
-                    answer: answer.trim()
-                  });
+                  createFaqMutation.mutate(data);
                 }
               }}
               className="space-y-4"
@@ -1013,6 +1022,80 @@ export function SettingsPage() {
                   data-testid="input-faq-answer"
                 />
                 <p className="text-xs text-gray-500 mt-1">מקסימום 2000 תווים</p>
+              </div>
+
+              {/* Advanced Fields */}
+              <div className="border-t pt-4 space-y-3">
+                <h4 className="text-sm font-semibold text-gray-700">הגדרות מתקדמות (אופציונלי)</h4>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">מזהה כוונה</label>
+                    <input
+                      type="text"
+                      name="intent_key"
+                      defaultValue={editingFaq?.intent_key || ''}
+                      placeholder="price, hours, location"
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
+                      data-testid="input-faq-intent"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">עדיפות</label>
+                    <input
+                      type="number"
+                      name="priority"
+                      defaultValue={editingFaq?.priority ?? 0}
+                      min="0"
+                      max="10"
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
+                      data-testid="input-faq-priority"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">ערוצים</label>
+                    <select
+                      name="channels"
+                      defaultValue={editingFaq?.channels || 'voice'}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
+                      data-testid="select-faq-channels"
+                    >
+                      <option value="voice">טלפון בלבד</option>
+                      <option value="whatsapp">WhatsApp בלבד</option>
+                      <option value="both">שניהם</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">שפה</label>
+                    <select
+                      name="lang"
+                      defaultValue={editingFaq?.lang || 'he-IL'}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
+                      data-testid="select-faq-lang"
+                    >
+                      <option value="he-IL">עברית</option>
+                      <option value="en-US">אנגלית</option>
+                      <option value="ar">ערבית</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">תבניות מילות מפתח (שורה לכל תבנית)</label>
+                  <textarea
+                    name="patterns"
+                    defaultValue={editingFaq?.patterns_json?.join('\n') || ''}
+                    placeholder="מחיר&#10;כמה עולה&#10;\\bמחיר\\b"
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md min-h-[60px] font-mono"
+                    data-testid="input-faq-patterns"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">תומך ב-regex (למשל: \bמילה\b)</p>
+                </div>
               </div>
 
               <div className="flex gap-2 justify-end pt-4 border-t">

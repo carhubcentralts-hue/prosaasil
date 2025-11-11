@@ -4,11 +4,19 @@ AgentLocator is a Hebrew CRM system for real estate, designed to automate the sa
 
 # Recent Changes
 
+**Build 123 (November 11, 2025):**
+- **FAQ Hybrid Engine**: Extended FAQ schema (migration #22) with intent_key, patterns_json, channels, priority, lang for advanced matching
+- **Voice-Only FAQ Fast-Path**: Integrated faq_engine.py into media_ws_ai.py for ≤200 char queries BEFORE AgentKit call
+- **Hybrid Matching**: OpenAI embeddings (text-embedding-3-small, 0.78 threshold) + keyword regex fallback with Hebrew normalization (niqqud/punctuation removal)
+- **Production Telemetry**: FAQ_HIT/MISS/ERROR/COMPLETE logs use force_print() for production visibility with intent_key, method, score, timing
+- **Advanced FAQ UI**: Settings modal includes intent_key, patterns (textarea line-separated), channels (voice/whatsapp/both), priority (0-10), lang (he-IL/en-US/ar)
+- **Full Metadata Propagation**: FAQ cache stores/returns complete metadata (intent_key, patterns_json, channels, priority, lang) to FAQ engine and voice pipeline
+- **API Routes Update**: All FAQ CRUD endpoints handle new fields with proper JSON serialization and cache invalidation
+
 **Build 122 (November 11, 2025):**
 - **FAQ Database Schema**: Added FAQ model with question/answer/order_index fields and migration #21
-- **FAQ Fast-Path Cache**: Implemented FAQ cache service with OpenAI embeddings (text-embedding-3-small), cosine similarity matching (0.78 threshold), 10-minute TTL, and automatic cache invalidation on CRUD operations
+- **FAQ Fast-Path Cache**: Implemented FAQ cache service with OpenAI embeddings (text-embedding-3-small), cosine similarity matching (0.78 threshold), 120s TTL, and automatic cache invalidation on CRUD operations
 - **FAQ Management UI**: Added dedicated "שאלות נפוצות (FAQ)" tab in settings with add/edit/delete interface, react-query integration, modal form validation (200/2000 char limits), and real-time data rendering
-- **AI Service FAQ Integration**: FAQ fast-path activates for intent=="info" queries, uses mini LLM (gpt-4o-mini, max_tokens=80, temp=0.3) for <2s responses, falls back to AgentKit if no match
 - **Working Days UI**: Added Sunday-Saturday checkbox selection for configuring business active days in appointment settings
 - **TTS Truncation Fix**: Increased smart truncation limit from 150→350 characters to preserve complete sentences
 
@@ -33,7 +41,7 @@ The AI leverages an Agent SDK for tasks like appointment scheduling and lead cre
 - Complete Role-Based Access Control (RBAC): Admin sees all data, business users see only their tenant's data.
 - WhatsApp API is secured with session-based authentication.
 
-Performance is optimized with explicit OpenAI timeouts (4s + max_retries=1), increased Speech-to-Text (STT) streaming timeouts (30/80/400ms), and warnings for long prompts. AI responses prioritize short, natural conversations with `max_tokens=120` for `gpt-4o-mini` and a `temperature` of 0.15. **FAQ Fast-Path** uses ultra-minimal prompts, 500-char facts, `max_tokens=80`, and `temperature=0.3` for **faster responses** (~1-1.5s) and handles **ONLY** "info" queries. **WhatsApp send requests** route to AgentKit to execute the `whatsapp_send` tool. Prompts are loaded exclusively from `BusinessSettings.ai_prompt` without hardcoded text (except minimal date context). Robustness is ensured via thread tracking, enhanced cleanup, and a Flask app singleton. STT reliability benefits from relaxed validation (confidence 0.25/0.4), Hebrew numbers context (boost=20.0), 3-attempt retry for **+30-40% accuracy on numbers**, and **longest partial persistence**. Voice consistency is maintained with a male Hebrew voice (`he-IL-Wavenet-D`) and masculine phrasing. Cold start is optimized with automatic service warmup. **Agent behavioral constraints** enforce RULE #1 (never verbalize internal processes).
+Performance is optimized with explicit OpenAI timeouts (4s + max_retries=1), increased Speech-to-Text (STT) streaming timeouts (30/80/400ms), and warnings for long prompts. AI responses prioritize short, natural conversations with `max_tokens=120` for `gpt-4o-mini` and a `temperature` of 0.15. **FAQ Hybrid Fast-Path** uses OpenAI embeddings (cosine similarity ≥0.78) with keyword regex fallback, Hebrew normalization, and channel filtering for **sub-2s responses** (~1-1.5s) on voice calls (≤200 chars). Runs BEFORE AgentKit to bypass full Agent SDK for simple queries. **WhatsApp send requests** route to AgentKit to execute the `whatsapp_send` tool. Prompts are loaded exclusively from `BusinessSettings.ai_prompt` without hardcoded text (except minimal date context). Robustness is ensured via thread tracking, enhanced cleanup, and a Flask app singleton. STT reliability benefits from relaxed validation (confidence 0.25/0.4), Hebrew numbers context (boost=20.0), 3-attempt retry for **+30-40% accuracy on numbers**, and **longest partial persistence**. Voice consistency is maintained with a male Hebrew voice (`he-IL-Wavenet-D`) and masculine phrasing. Cold start is optimized with automatic service warmup. **Agent behavioral constraints** enforce RULE #1 (never verbalize internal processes).
 
 ## Technical Implementations
 
@@ -67,7 +75,7 @@ Performance is optimized with explicit OpenAI timeouts (4s + max_retries=1), inc
 - **Billing and Contracts**: Integrated payment processing and contract generation.
 - **Automatic Recording Cleanup**: 2-day retention policy for recordings.
 - **Enhanced Reminders System**: Comprehensive reminder management.
-- **FAQ Fast-Path**: Less than 1.5-second responses for information queries using optimized LLM with fact extraction.
+- **FAQ Hybrid Fast-Path**: Sub-2s voice responses using OpenAI embeddings + keyword patterns with Hebrew normalization, intent-based routing, and channel filtering (voice-only). Bypasses Agent SDK for ≤200 char queries.
 - **Multi-Tenant Isolation**: Complete business data separation with zero cross-tenant exposure risk and full RBAC.
 - **Appointment Settings UI**: Allows businesses to configure slot size, 24/7 mode, booking window, and minimum notice time.
 

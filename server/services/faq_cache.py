@@ -25,7 +25,7 @@ class FAQCacheEntry:
     """Single business FAQ cache entry"""
     def __init__(self, business_id: int, faqs: List[Dict], embeddings: np.ndarray):
         self.business_id = business_id
-        self.faqs = faqs  # List of {id, question, answer}
+        self.faqs = faqs  # List of {id, question, answer, intent_key, patterns_json, channels, priority, lang}
         self.embeddings = embeddings  # 2D numpy array [n_faqs, embedding_dim]
         self.timestamp = time.time()
     
@@ -72,7 +72,16 @@ class FAQCache:
             return [], np.array([])
         
         faq_data = [
-            {"id": faq.id, "question": faq.question, "answer": faq.answer}
+            {
+                "id": faq.id,
+                "question": faq.question,
+                "answer": faq.answer,
+                "intent_key": faq.intent_key,
+                "patterns_json": faq.patterns_json,
+                "channels": faq.channels,
+                "priority": faq.priority,
+                "lang": faq.lang
+            }
             for faq in faqs
         ]
         
@@ -162,6 +171,11 @@ class FAQCache:
         return {
             "question": matched_faq["question"],
             "answer": matched_faq["answer"],
+            "intent_key": matched_faq.get("intent_key"),
+            "patterns_json": matched_faq.get("patterns_json"),
+            "channels": matched_faq.get("channels", "voice"),
+            "priority": matched_faq.get("priority", 0),
+            "lang": matched_faq.get("lang", "he-IL"),
             "score": float(best_score)
         }
 

@@ -107,7 +107,7 @@ def match_faq(business_id: int, user_text: str, channel: str = "voice") -> Optio
                 elapsed_ms = (time.time() - start_time) * 1000
                 logger.info(f"[FAQ] EMBEDDINGS match biz={business_id} score={result['score']:.3f} ms={elapsed_ms:.0f}ms")
                 result["method"] = "embeddings"
-                result["intent_key"] = result.get("intent_key", "unknown")
+                # intent_key, channels, priority, lang already populated by find_best_match()
                 return result
         except Exception as e:
             logger.warning(f"[FAQ] Embeddings failed, falling back to keywords: {e}")
