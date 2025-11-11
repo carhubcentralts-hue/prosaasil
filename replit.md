@@ -8,6 +8,17 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes (November 11, 2025)
 
+**BUILD 138 - APPOINTMENT SETTINGS UI: Business-Specific Slot Configuration!**
+1. ✅ **New "הגדרות תורים" Tab**: Added to SettingsPage with full UI for:
+   - Slot size selection (15/30/45/60/90/120 minutes)
+   - 24/7 mode toggle
+   - Booking window (days ahead)
+   - Minimum notice time (minutes)
+   - Summary panel showing current settings
+2. ✅ **Auto-Load from DB**: Fetches slot_size_min, allow_24_7, booking_window_days, min_notice_min from business settings
+3. ✅ **Save API Integration**: Saves settings via PUT /api/business/current/settings
+4. ⏳ **Next**: Update Agent to use business-specific slot_size_min (no more hardcoded quarter/half hours!)
+
 **BUILD 137 - AGENT BEHAVIOR FIX: Step-by-Step Algorithm for Tool Results!**
 1. ✅ **Hebrew Time Normalization**: Explicit mapping table with business hours context:
    - Hours 1-8 → PM (13:00-20:00) unless "בבוקר" specified

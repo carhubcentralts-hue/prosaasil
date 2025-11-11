@@ -62,6 +62,14 @@ interface BusinessSettings {
   timezone: string;
 }
 
+interface AppointmentSettings {
+  slot_size_min: number;
+  allow_24_7: boolean;
+  booking_window_days: number;
+  min_notice_min: number;
+  opening_hours_json?: any;
+}
+
 interface IntegrationSettings {
   twilio_enabled: boolean;
   twilio_account_sid?: string;
@@ -86,7 +94,7 @@ interface AISettings {
 export function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'business' | 'integrations' | 'ai' | 'security'>('business');
+  const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'integrations' | 'ai' | 'security'>('business');
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   
   // Settings state
@@ -120,6 +128,13 @@ export function SettingsPage() {
     language: 'he-IL'
   });
 
+  const [appointmentSettings, setAppointmentSettings] = useState<AppointmentSettings>({
+    slot_size_min: 60,
+    allow_24_7: false,
+    booking_window_days: 30,
+    min_notice_min: 0
+  });
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -142,6 +157,15 @@ export function SettingsPage() {
           address: data.address || '',
           working_hours: data.working_hours || '09:00-18:00',
           timezone: data.timezone || 'Asia/Jerusalem'
+        });
+        
+        // Load appointment settings
+        setAppointmentSettings({
+          slot_size_min: data.slot_size_min || 60,
+          allow_24_7: data.allow_24_7 || false,
+          booking_window_days: data.booking_window_days || 30,
+          min_notice_min: data.min_notice_min || 0,
+          opening_hours_json: data.opening_hours_json
         });
       } else {
         console.error('Failed to load business settings');
@@ -181,9 +205,38 @@ export function SettingsPage() {
     }
   };
 
+  const saveAppointmentSettings = async () => {
+    try {
+      setSaving(true);
+      
+      const response = await fetch('/api/business/current/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(appointmentSettings)
+      });
+      
+      if (response.ok) {
+        alert('הגדרות תורים נשמרו בהצלחה');
+      } else {
+        const error = await response.json();
+        alert('שגיאה בשמירת הגדרות: ' + (error.message || 'שגיאה לא ידועה'));
+      }
+    } catch (error) {
+      console.error('Error saving appointment settings:', error);
+      alert('שגיאה בשמירת הגדרות');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSave = async () => {
     if (activeTab === 'business') {
       await saveBusinessSettings();
+    } else if (activeTab === 'appointments') {
+      await saveAppointmentSettings();
     } else {
       // Handle other tabs later
       setSaving(true);
@@ -252,6 +305,18 @@ export function SettingsPage() {
           >
             <Globe className="w-4 h-4 mr-2" />
             הגדרות עסק
+          </button>
+          <button
+            onClick={() => setActiveTab('appointments')}
+            className={`${
+              activeTab === 'appointments'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+            data-testid="tab-appointments"
+          >
+            <Settings className="w-4 h-4 mr-2" />
+            הגדרות תורים
           </button>
           <button
             onClick={() => setActiveTab('integrations')}
@@ -336,6 +401,94 @@ export function SettingsPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="09:00-18:00"
                   />
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {activeTab === 'appointments' && (
+          <div className="max-w-2xl space-y-6">
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">הגדרות קביעת תורים</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">מרווח זמן בין תורים</label>
+                  <select
+                    value={appointmentSettings.slot_size_min}
+                    onChange={(e) => setAppointmentSettings({...appointmentSettings, slot_size_min: parseInt(e.target.value)})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    data-testid="select-slot-size"
+                  >
+                    <option value="15">כל 15 דקות (רבע שעה)</option>
+                    <option value="30">כל 30 דקות (חצי שעה)</option>
+                    <option value="45">כל 45 דקות</option>
+                    <option value="60">כל שעה</option>
+                    <option value="90">כל שעה וחצי</option>
+                    <option value="120">כל שעתיים</option>
+                  </select>
+                  <p className="mt-1 text-sm text-gray-500">
+                    קובע כל כמה זמן ניתן לקבוע תור חדש
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-gray-900">פתוח 24/7</h4>
+                    <p className="text-sm text-gray-600">אפשר קביעת תורים בכל שעה ביום</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={appointmentSettings.allow_24_7}
+                      onChange={(e) => setAppointmentSettings({...appointmentSettings, allow_24_7: e.target.checked})}
+                      className="sr-only peer"
+                      data-testid="checkbox-247"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">חלון הזמנה (ימים קדימה)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="365"
+                    value={appointmentSettings.booking_window_days}
+                    onChange={(e) => setAppointmentSettings({...appointmentSettings, booking_window_days: parseInt(e.target.value)})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    data-testid="input-booking-window"
+                  />
+                  <p className="mt-1 text-sm text-gray-500">
+                    כמה ימים קדימה לקוחות יכולים לקבוע תורים
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">הודעה מוקדמת מינימלית (דקות)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1440"
+                    value={appointmentSettings.min_notice_min}
+                    onChange={(e) => setAppointmentSettings({...appointmentSettings, min_notice_min: parseInt(e.target.value)})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    data-testid="input-min-notice"
+                  />
+                  <p className="mt-1 text-sm text-gray-500">
+                    כמה זמן מראש לקוח צריך להודיע לפני תור (0 = ניתן לקבוע מיידית)
+                  </p>
+                </div>
+
+                <div className="border-t pt-4 mt-6">
+                  <h4 className="font-medium text-gray-900 mb-2">סיכום הגדרות</h4>
+                  <div className="space-y-2 text-sm text-gray-600">
+                    <p>• תורים כל <strong>{appointmentSettings.slot_size_min}</strong> דקות</p>
+                    <p>• פתוח <strong>{appointmentSettings.allow_24_7 ? '24/7' : 'בשעות מוגדרות'}</strong></p>
+                    <p>• ניתן לקבוע עד <strong>{appointmentSettings.booking_window_days}</strong> ימים קדימה</p>
+                    <p>• הודעה מוקדמת: <strong>{appointmentSettings.min_notice_min === 0 ? 'לא נדרשת' : `${appointmentSettings.min_notice_min} דקות`}</strong></p>
+                  </div>
                 </div>
               </div>
             </Card>
