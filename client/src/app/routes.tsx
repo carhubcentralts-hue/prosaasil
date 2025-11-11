@@ -1,4 +1,4 @@
-import React from 'react';
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthGuard } from './layout/AuthGuard';
 import { RoleGuard } from './layout/RoleGuard';
@@ -19,7 +19,7 @@ import { AgentPromptsPage } from '../pages/Admin/AgentPromptsPage';
 import { AdminPromptsOverviewPage } from '../pages/Admin/AdminPromptsOverviewPage';
 import { BusinessPromptsSelector } from '../pages/Admin/BusinessPromptsSelector';
 // Lazy loading AdminSupportPage to isolate JSX compilation errors
-const AdminSupportPage = React.lazy(() => import('../pages/Admin/AdminSupportPage').then(module => ({
+const AdminSupportPage = lazy(() => import('../pages/Admin/AdminSupportPage').then(module => ({
   default: module.AdminSupportPage
 })));
 import { CalendarPage } from '../pages/Calendar/CalendarPage';
@@ -104,9 +104,9 @@ export function AppRoutes() {
           path="admin/support"
           element={
             <RoleGuard roles={['admin', 'manager']}>
-              <React.Suspense fallback={<div className="flex items-center justify-center py-12"><div>טוען דף תמיכה...</div></div>}>
+              <Suspense fallback={<div className="flex items-center justify-center py-12"><div>טוען דף תמיכה...</div></div>}>
                 <AdminSupportPage />
-              </React.Suspense>
+              </Suspense>
             </RoleGuard>
           }
         />

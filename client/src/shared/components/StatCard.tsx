@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card, CardContent } from './Card';
 import { cn } from '../utils/cn';
 import { formatNumber } from '../utils/format';

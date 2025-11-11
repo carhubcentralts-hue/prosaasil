@@ -1,4 +1,3 @@
-import React from 'react';
 import { Badge } from './Badge';
 import { Card, CardContent } from './Card';
 import { Skeleton } from './Skeleton';

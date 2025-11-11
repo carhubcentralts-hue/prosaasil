@@ -1,4 +1,3 @@
-import React from 'react';
 import { cn } from '../utils/cn';
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
