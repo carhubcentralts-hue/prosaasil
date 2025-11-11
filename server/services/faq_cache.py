@@ -14,10 +14,12 @@ from typing import Dict, List, Optional, Tuple
 from openai import OpenAI
 from server.models_sql import FAQ, db
 
-FAQ_CACHE_TTL_SECONDS = 600  # 10 minutes
+# ENV-based configuration
+FAQ_CACHE_TTL_SECONDS = int(os.getenv("FAQ_CACHE_TTL_SEC", "120"))
 EMBEDDING_MODEL = "text-embedding-3-small"
-SIMILARITY_THRESHOLD = 0.78
+SIMILARITY_THRESHOLD = float(os.getenv("FAQ_MIN_SCORE", "0.78"))
 AMBIGUITY_MARGIN = 0.05
+FAQ_EMBEDDINGS_ENABLED = os.getenv("FAQ_EMBEDDINGS_ENABLED", "1") == "1"
 
 class FAQCacheEntry:
     """Single business FAQ cache entry"""

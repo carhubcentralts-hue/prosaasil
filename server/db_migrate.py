@@ -492,6 +492,27 @@ def apply_migrations():
         migrations_applied.append("create_faqs_table")
         log.info("✅ Applied migration 21: create_faqs_table - Business-specific FAQs for fast-path")
     
+    # Migration 22: Add FAQ Fast-Path fields (intent_key, patterns, channels, priority, lang)
+    faq_fastpath_fields = [
+        ('intent_key', 'VARCHAR(50)', None),  # Nullable, no default
+        ('patterns_json', 'JSON', None),  # Nullable, no default
+        ('channels', 'VARCHAR(20)', "'voice'"),
+        ('priority', 'INTEGER', '0'),
+        ('lang', 'VARCHAR(10)', "'he-IL'")
+    ]
+    
+    for col_name, col_type, default_val in faq_fastpath_fields:
+        if check_table_exists('faqs') and not check_column_exists('faqs', col_name):
+            from sqlalchemy import text
+            if default_val is None:
+                # Nullable column without default
+                db.session.execute(text(f"ALTER TABLE faqs ADD COLUMN {col_name} {col_type}"))
+            else:
+                # Column with explicit default value
+                db.session.execute(text(f"ALTER TABLE faqs ADD COLUMN {col_name} {col_type} DEFAULT {default_val}"))
+            migrations_applied.append(f"add_faqs_{col_name}")
+            log.info(f"✅ Applied migration 22: add_faqs_{col_name} - FAQ Fast-Path field")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
