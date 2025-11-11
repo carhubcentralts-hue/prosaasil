@@ -666,16 +666,7 @@ class AIService:
                     logger.warning(f"FAQ failed for info query, falling back to AgentKit")
                     return None
             
-            elif intent == "whatsapp":
-                if customer_phone:
-                    response = f"נשלח לך את כל הפרטים בוואטסאפ ל-{customer_phone}. תודה!"
-                else:
-                    response = "בשמחה! מה מספר הטלפון שלך כדי שאוכל לשלוח לך את הפרטים בוואטסאפ?"
-            
-            elif intent == "human":
-                response = "אעביר אותך לנציג. רגע אחד בבקשה."
-            
-            else:  # Should not reach here (gate filters this)
+            else:  # Should not reach here (only "info" uses fast path now)
                 logger.warning(f"Unexpected intent in fast path: {intent}")
                 return None
             
@@ -944,9 +935,11 @@ class AIService:
         print(f"🎯 INTENT_DETECTED: {intent} (message: {message[:50]}...)")
         logger.info(f"🎯 Intent detected: {intent}")
         
-        # ⚡ FAQ/Lightweight Path - ONLY for clear info/whatsapp/human intents
-        # 🔥 FIX: "other" goes to AgentKit for natural conversation handling
-        if AGENTKIT_BOOKING_ONLY and intent in ["info", "whatsapp", "human"]:
+        # ⚡ FAQ/Lightweight Path - ONLY for clear info intents
+        # 🔥 "whatsapp" → AgentKit (needs whatsapp_send tool!)
+        # 🔥 "human" → AgentKit (needs conversation context)
+        # 🔥 "other" → AgentKit (natural conversation handling)
+        if AGENTKIT_BOOKING_ONLY and intent in ["info"]:
             print(f"🚀 FAST_PATH: Handling {intent} without AgentKit")
             fast_response = self._handle_lightweight_intent(intent, message, business_id, channel, context, customer_phone)
             
