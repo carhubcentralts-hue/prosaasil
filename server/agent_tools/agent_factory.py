@@ -512,13 +512,41 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
     today_str = datetime.now(tz=pytz.timezone('Asia/Jerusalem')).strftime('%Y-%m-%d %H:%M')
     tomorrow_str = (datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')
     
+    # 🔥 BUILD 138: Load business policy to get slot_size_min
+    slot_interval_text = ""
+    if business_id:
+        try:
+            from server.policy.business_policy import get_business_policy
+            policy = get_business_policy(business_id, prompt_text=custom_instructions)
+            
+            # Convert slot size to Hebrew description
+            if policy.slot_size_min == 15:
+                interval_desc = "כל רבע שעה (15 דקות)"
+            elif policy.slot_size_min == 30:
+                interval_desc = "כל חצי שעה (30 דקות)"
+            elif policy.slot_size_min == 45:
+                interval_desc = "כל 45 דקות"
+            elif policy.slot_size_min == 60:
+                interval_desc = "כל שעה (60 דקות)"
+            elif policy.slot_size_min == 90:
+                interval_desc = "כל שעה וחצי (90 דקות)"
+            elif policy.slot_size_min == 120:
+                interval_desc = "כל שעתיים (120 דקות)"
+            else:
+                interval_desc = f"כל {policy.slot_size_min} דקות"
+            
+            slot_interval_text = f"\nAPPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה {interval_desc}"
+            logger.info(f"📅 Agent will use slot interval: {policy.slot_size_min} minutes ({interval_desc})")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not load policy for slot_size_min: {e}")
+    
     # ✅ ALWAYS include base instructions (tool handling, workflow, prohibitions)
     base_instructions = f"""You are a professional booking assistant for {business_name}.
 
 CRITICAL: Always respond to customers in HEBREW, but understand these English instructions.
 
 TODAY'S DATE: {today_str} (Israel timezone)
-TOMORROW: {tomorrow_str}
+TOMORROW: {tomorrow_str}{slot_interval_text}
 
 ═══════════════════════════════════════════════════════════════════════
 🔒 RULE #1: NEVER VERBALIZE INTERNAL PROCESSES 🔒

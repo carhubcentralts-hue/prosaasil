@@ -17,7 +17,10 @@ Preferred communication style: Simple, everyday language.
    - Summary panel showing current settings
 2. ✅ **Auto-Load from DB**: Fetches slot_size_min, allow_24_7, booking_window_days, min_notice_min from business settings
 3. ✅ **Save API Integration**: Saves settings via PUT /api/business/current/settings
-4. ⏳ **Next**: Update Agent to use business-specific slot_size_min (no more hardcoded quarter/half hours!)
+4. ✅ **Agent Slot-Awareness**: Agent now loads BusinessPolicy and adds slot interval to instructions:
+   - "תורים בעסק הזה ניתנים לקביעה כל 15 דקות" (for 15min slots)
+   - "תורים בעסק הזה ניתנים לקביעה כל שעה" (for 60min slots)
+   - Agent knows EXACT interval per business - no more generic "חצי שעה" assumptions!
 
 **BUILD 137 - AGENT BEHAVIOR FIX: Step-by-Step Algorithm for Tool Results!**
 1. ✅ **Hebrew Time Normalization**: Explicit mapping table with business hours context:
