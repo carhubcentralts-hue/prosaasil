@@ -43,6 +43,23 @@ Preferred communication style: Simple, everyday language.
 - Only presents specific times when 1-2 options available
 - Prevents audio cutoff and improves UX dramatically
 
+**Time Interpretation Fix:**
+- Fixed critical bug: "ארבע" now correctly maps to 16:00 (4 PM), not 04:00
+- Added complete Hebrew number mapping: 1-9 → 13:00-21:00 (afternoon default)
+- Only interprets as morning (AM) if customer explicitly says "בבוקר"
+- Example: "ארבע" = 16:00 ✅ (was: 04:00 ❌)
+
+**Tool Result Reading Fix:**
+- Added explicit instructions on how to read calendar_find_slots results
+- Agent now checks if customer's requested time is IN the returned slots
+- If found → confirms availability; if not → suggests nearest alternative
+- Prevents "no availability" response when slots ARE available
+
+**STATE 1 Skip Logic:**
+- Agent now checks conversation history before greeting
+- If customer already requested appointment → skips STATE 1, goes to STATE 2/3
+- Prevents redundant "How can I help?" after FAQ already identified booking intent
+
 # System Architecture
 
 ## System Design Choices
