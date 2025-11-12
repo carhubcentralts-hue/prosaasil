@@ -485,12 +485,10 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                         f"נתראה! 😊"
                     )
                     
-                    # Import WhatsApp service
-                    from server.whatsapp_provider import get_whatsapp_service
-                    wa_service = get_whatsapp_service()
-                    
-                    # Send WhatsApp message with error handling
+                    # 🔥 FIX #1: Move get_whatsapp_service() INSIDE try/except to prevent crashes
                     try:
+                        from server.whatsapp_provider import get_whatsapp_service
+                        wa_service = get_whatsapp_service()
                         result = wa_service.send_message(to=customer_phone_wa, message=wa_message)
                         wa_latency = (time.time() - wa_start) * 1000  # Convert to ms
                         

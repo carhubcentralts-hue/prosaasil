@@ -41,7 +41,7 @@ class BaileysProvider(Provider):
         adapter = requests.adapters.HTTPAdapter(
             pool_connections=10,
             pool_maxsize=20,
-            max_retries=1  # ⚡ FIXED: 1 retry for reliability
+            max_retries=0  # 🔥 FIX #2: NO retries - single attempt only!
         )
         self._session.mount('http://', adapter)
         self._session.mount('https://', adapter)

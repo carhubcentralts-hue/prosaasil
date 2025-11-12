@@ -11,6 +11,7 @@ Usage:
     # Returns: BusinessPolicy(allow_24_7=True, slot_size_min=15, ...)
 """
 import re
+import time as time_module
 from dataclasses import dataclass, asdict
 from datetime import time
 from typing import Dict, List, Optional, Any
@@ -158,6 +159,9 @@ def parse_policy_from_prompt(prompt: str) -> Dict[str, Any]:
     
     return parsed
 
+# 🔥 FIX #5: Policy cache to reduce DB queries (MUST be after BusinessPolicy class!)
+_POLICY_CACHE: Dict[int, tuple["BusinessPolicy", float]] = {}  # Use quoted annotation
+_POLICY_CACHE_TTL = 300  # 5 minutes in seconds
 
 def get_business_policy(
     business_id: int,
@@ -182,6 +186,14 @@ def get_business_policy(
     """
     from server.models_sql import BusinessSettings
     from server.db import db
+    
+    # 🔥 FIX #5: Check cache first (5min TTL) - SKIP if prompt override provided!
+    now = time_module.time()
+    if not prompt_text and business_id in _POLICY_CACHE:
+        cached_policy, cached_time = _POLICY_CACHE[business_id]
+        if now - cached_time < _POLICY_CACHE_TTL:
+            # Cache hit! (only when NO prompt override)
+            return cached_policy
     
     # Start with defaults
     merged = asdict(DEFAULT_POLICY)
@@ -219,14 +231,18 @@ def get_business_policy(
         try:
             prompt_overrides = parse_policy_from_prompt(prompt_text)
             merged.update(prompt_overrides)
-            logger.info(f"📝 Applied prompt overrides: {prompt_overrides}")
+            logger.debug(f"📝 Applied prompt overrides: {prompt_overrides}")  # 🔥 FIX #5: info → debug
         except Exception as e:
             logger.warning(f"⚠️ Failed to parse prompt: {e}")
     
     # Build final policy
     policy = BusinessPolicy(**merged)
     
-    logger.info(
+    # 🔥 FIX #5: Store in cache (only if NO prompt override)
+    if not prompt_text:
+        _POLICY_CACHE[business_id] = (policy, now)
+    
+    logger.debug(  # 🔥 FIX #5: info → debug (reduce noise)
         f"✅ Final policy for business {business_id}: "
         f"24/7={policy.allow_24_7}, slot={policy.slot_size_min}min, "
         f"tz={policy.tz}, window={policy.booking_window_days}days"

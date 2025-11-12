@@ -1278,7 +1278,8 @@ class AIService:
             # 🔥 NEW: Detect "hallucinated availability" (saying "busy/available" without checking)
             # 🚨 FIX: Only flag if saying "NO availability" or "YES available" (absolute claims)
             # Saying "15:00 תפוס אבל 17:00 פנוי" is VALID after tool call!
-            hallucinated_availability_words = ["אין זמנים פנויים", "אין זמינות", "הכל תפוס", "לא פנוי", "לא זמין"]
+            # 🔥 FIX #3: Added "תפוס" and "פנוי" to catch simple hallucinations
+            hallucinated_availability_words = ["אין זמנים פנויים", "אין זמינות", "הכל תפוס", "לא פנוי", "לא זמין", "תפוס", "פנוי", "תפוס ב"]
             claimed_availability = any(word in reply_text for word in hallucinated_availability_words)
             
             # Check if calendar_create_appointment was called (with or without _wrapped suffix)
