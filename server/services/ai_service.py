@@ -89,16 +89,12 @@ def route_intent_hebrew(text: str) -> Literal["book", "reschedule", "cancel", "i
         # Pricing (standalone - not with booking verbs)
         r'כמה.*עולה|מחיר(?!.*לקבוע)|עלות|תשלום(?!.*תור)',
         
-        # Location
-        r'איפה|מיקום|כתובת|היכן',
-        
         # Hours
         r'שעות.*פתיחה|מתי.*פתוח|שעות.*עבודה|מה.*שעות',
         
         # Amenities & Services - REMOVED generic "חדר" patterns!
         r'כשר|כשרות',
         r'גודל.*חדר|כמה.*אנשים|כמה.*משתתפים',
-        r'מה.*הכתובת|מה.*המיקום',
         
         # Menu/food (standalone)
         r'\b(תפריט|מנות|משקאות)\b',

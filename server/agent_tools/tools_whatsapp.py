@@ -85,11 +85,27 @@ def whatsapp_send(input: SendWhatsAppInput) -> SendWhatsAppOutput:
         logger.info(f"✅ Phone normalized: {recipient_phone} → {normalized_phone}")
         recipient_phone = normalized_phone
         
-        # Get WhatsApp service with smart routing
-        wa_service = get_whatsapp_service(provider=input.provider)
+        # Get WhatsApp service with smart routing (with error handling)
+        try:
+            wa_service = get_whatsapp_service(provider=input.provider)
+        except Exception as service_error:
+            logger.error(f"❌ WhatsApp service unavailable: {service_error}")
+            return SendWhatsAppOutput(
+                status='error',
+                provider='unknown',
+                error='שירות WhatsApp לא זמין כרגע'
+            )
         
-        # Send message
-        result = wa_service.send_message(to=recipient_phone, message=input.message)
+        # Send message (with timeout protection)
+        try:
+            result = wa_service.send_message(to=recipient_phone, message=input.message)
+        except Exception as send_error:
+            logger.error(f"❌ WhatsApp send failed: {send_error}")
+            return SendWhatsAppOutput(
+                status='error',
+                provider='unknown',
+                error='לא הצלחתי לשלוח WhatsApp כרגע'
+            )
         
         # Parse result
         status = result.get('status', 'unknown')
@@ -106,13 +122,15 @@ def whatsapp_send(input: SendWhatsAppInput) -> SendWhatsAppOutput:
             status=status,
             provider=provider,
             message_id=message_id,
-            error=error
+            error=error if error else ('לא זמין כרגע' if status != 'sent' else None)
         )
         
     except Exception as e:
-        logger.error(f"Error sending WhatsApp: {e}")
+        logger.error(f"❌ Unexpected error sending WhatsApp: {e}")
+        import traceback
+        traceback.print_exc()
         return SendWhatsAppOutput(
             status='error',
             provider='unknown',
-            error=str(e)
+            error='שירות WhatsApp לא זמין כרגע'
         )
