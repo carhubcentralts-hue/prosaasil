@@ -119,13 +119,29 @@ export function SettingsPage() {
   const [faqModalOpen, setFaqModalOpen] = useState(false);
   const [editingFaq, setEditingFaq] = useState<FAQ | null>(null);
   
-  // FAQ Query
+  // FAQ Query with detailed error logging
   const { data: faqs = [], isLoading: faqsLoading, error: faqsError } = useQuery<FAQ[]>({
     queryKey: ['/api/business/faqs'],
     enabled: activeTab === 'faqs',
     retry: 1,
     refetchOnMount: true
   });
+
+  // Log FAQ query errors and success to console for debugging
+  React.useEffect(() => {
+    if (faqsError) {
+      console.error('❌ FAQ Query Error:', faqsError);
+      console.error('Error details:', {
+        message: faqsError instanceof Error ? faqsError.message : String(faqsError),
+        stack: faqsError instanceof Error ? faqsError.stack : undefined,
+        type: typeof faqsError,
+        raw: faqsError
+      });
+    }
+    if (faqs && faqs.length > 0 && !faqsLoading && !faqsError) {
+      console.log('✅ FAQ Query Success:', faqs.length, 'FAQs loaded');
+    }
+  }, [faqsError, faqs, faqsLoading]);
   
   // FAQ Mutations
   const createFaqMutation = useMutation({
@@ -753,15 +769,46 @@ export function SettingsPage() {
                   )}
 
                   {faqsError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
-                      <p className="font-medium mb-1">שגיאה בטעינת שאלות נפוצות</p>
-                      <p className="text-sm">{String(faqsError)}</p>
-                      <button 
-                        onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] })}
-                        className="mt-2 text-sm underline hover:no-underline"
-                      >
-                        נסה שוב
-                      </button>
+                    <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 text-red-900" data-testid="faq-error-display">
+                      <p className="font-bold mb-2 text-lg">❌ שגיאה בטעינת FAQ</p>
+                      <div className="bg-white border border-red-200 rounded p-3 mb-3 font-mono text-sm" dir="ltr">
+                        <p className="font-semibold text-red-700 mb-1">Error Message:</p>
+                        <p className="text-red-900 whitespace-pre-wrap break-words">
+                          {faqsError instanceof Error ? faqsError.message : String(faqsError)}
+                        </p>
+                        {faqsError instanceof Error && faqsError.stack && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-red-600 hover:text-red-800">Stack Trace</summary>
+                            <pre className="text-xs mt-1 overflow-auto max-h-40 bg-gray-50 p-2 rounded">
+                              {faqsError.stack}
+                            </pre>
+                          </details>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => {
+                            console.log('🔄 Retrying FAQ fetch...');
+                            queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] });
+                          }}
+                          className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 font-medium"
+                        >
+                          🔄 נסה שוב
+                        </button>
+                        <button 
+                          onClick={() => {
+                            const errorText = faqsError instanceof Error ? faqsError.message : String(faqsError);
+                            navigator.clipboard.writeText(errorText);
+                            alert('השגיאה הועתקה ללוח! עכשיו תוכל לשלוח לתמיכה');
+                          }}
+                          className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 font-medium"
+                        >
+                          📋 העתק שגיאה
+                        </button>
+                      </div>
+                      <p className="text-xs text-red-700 mt-3 bg-red-100 p-2 rounded">
+                        💡 טיפ: צלם מסך של השגיאה הזאת ושלח לתמיכה לפתרון מהיר
+                      </p>
                     </div>
                   )}
 
