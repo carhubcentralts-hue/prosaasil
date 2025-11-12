@@ -10,7 +10,7 @@ AgentLocator is a Hebrew CRM system for real estate, designed to automate the sa
 - **🔧 FIX #3: Agent Guardrails Enhancement**: Added "תפוס", "פנוי", "תפוס ב" to hallucination detection in ai_service.py - blocks availability claims without calendar_find_slots tool call
 - **🔧 FIX #4: DTMF Context Validation**: Verified complete DTMF flow (dtmf_buffer → customer_phone_dtmf → context['customer_phone'] → g.agent_context) - already working correctly with "סולמית" preserved
 - **🔧 FIX #5: Performance Optimization**: Added 5-minute policy cache in business_policy.py with smart cache bypass for prompt overrides + reduced logging noise (info→debug)
-- **📝 Agent Prompt Optimization**: Rewrote base instructions (agent_factory.py L551-602) - Hebrew-first, 5 clear steps with emojis, shortened from 70→52 lines, "# = סיום" internally but "סולמית" to customers
+- **📝 Agent Prompt Optimization**: Rewrote base instructions (agent_factory.py L551-617) in English for better LLM comprehension - 5 clear steps with emojis, strong anti-hallucination rules, "# ends input" internally but Agent says "סולמית" to customers
 - **All Fixes Architect-Reviewed**: Comprehensive review confirmed all 5 fixes production-ready with no regressions
 
 **Build 96 (November 12, 2025):**
