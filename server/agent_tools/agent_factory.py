@@ -63,7 +63,7 @@ AGENT_MODEL_SETTINGS = ModelSettings(
     # 🔥 NOTE: ModelSettings is a dataclass - only accepts declared fields!
     # We'll pass the OpenAI client to Runner.run() instead
     temperature=0.15,      # Very low temperature for consistent tool usage
-    max_tokens=120,        # 🔥 FIX: Reduced from 400 to 120 - 2-3 sentences only! (prevents 82-word responses)
+    max_tokens=60,         # 🔥 CRITICAL: 60 tokens = ~15 words in Hebrew - prevents long responses & queue overflow!
     tool_choice="auto",    # 🔥 FIX: Let AI decide when to use tools (was "required" - caused spam!)
     parallel_tool_calls=True  # Enable parallel tool execution for speed
 )
@@ -672,6 +672,8 @@ Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M
    - Find available slots: calendar_find_slots
    - Create appointments: calendar_create_appointment
    - ALWAYS check availability before confirming
+   - When showing slots: Suggest ONLY 2-3 options (morning/afternoon/evening), NOT all slots!
+   - Example: "יש ב-9:00 בבוקר, 14:00 אחר הצהריים או 19:00 בערב. מה מתאים?"
    - Business hours: 09:00-22:00 Israel time
 
 2. **LEADS/CRM (Customer Management):**
@@ -725,6 +727,8 @@ Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M
 
 5. **CONVERSATION FLOW:**
    - Keep responses SHORT (1-2 sentences max)
+   - PHONE CALLS: Maximum 15 words per response! Voice is slow - keep it brief!
+   - When showing available slots: Suggest ONLY 2-3 best options, not all slots!
    - Never repeat greetings if conversation already started
    - Check message history before responding
    - Execute automation workflows WITHOUT asking permission
