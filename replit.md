@@ -4,6 +4,13 @@ AgentLocator is a Hebrew CRM system for real estate professionals, designed to a
 
 # Recent Changes
 
+**Build 104 (November 12, 2025):**
+- **🔥 CRITICAL FIX #1**: Fixed WhatsApp prompt loading - now explicitly checks `if channel in prompt_obj` before fallback, ensuring business-specific WhatsApp prompts load correctly (was falling back to real-estate default)
+- **🔥 CRITICAL FIX #2**: Fixed multi-tenant business resolution - updated `resolve_business_with_fallback` to query actual schema columns (`phone_number`/`whatsapp_number` instead of non-existent `phone_e164`), preventing SQL crashes during auto-detection
+- **✨ ENHANCEMENT #1**: Added location/contact details to WhatsApp appointment confirmations - automatically includes business address and phone from BusinessSettings when sending confirmations after phone bookings
+- **✨ ENHANCEMENT #2**: Extended Agent instructions - Agent now knows to send location/contact info via WhatsApp when requested during phone calls using `whatsapp_send` tool
+- **⚡ Impact**: WhatsApp conversations now use correct business prompts (Vibe Rooms, not default real-estate); multi-tenant routing works without crashes; appointment confirmations include helpful location details
+
 **Build 102 (November 12, 2025):**
 - **🔥 CRITICAL FIX #1**: Added comprehensive error handling to WhatsApp webhook - now catches send failures with detailed logging and traceback
 - **🔥 CRITICAL FIX #2**: Added thread crash protection - exceptions in worker threads no longer cause silent failures
