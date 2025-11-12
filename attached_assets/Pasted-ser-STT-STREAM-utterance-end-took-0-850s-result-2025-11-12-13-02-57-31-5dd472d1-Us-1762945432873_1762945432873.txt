@@ -1,0 +1,111 @@
+ser
+⏱️ [STT_STREAM] _utterance_end took 0.850s, result: 'מה מחיר'
+2025-11-12 13:02:57.31
+5dd472d1
+User
+🎤 USER: מה מחיר
+2025-11-12 13:02:57.31
+5dd472d1
+User
+📊 ASR_LATENCY: 0.850s (target: <0.7s)
+2025-11-12 13:02:57.31
+5dd472d1
+User
+🆕 FAQ cache MISS for business 1, loading...
+2025-11-12 13:02:57.31
+5dd472d1
+User
+🆕 FAQ cache MISS for business 1, loading...
+2025-11-12 13:02:57.31
+5dd472d1
+User
+⏭️ [FAQ_MISS] No match found (search took 0ms) → proceeding to AgentKit
+2025-11-12 13:02:57.32
+5dd472d1
+User
+📞 DEBUG: Caller phone = 'None' (type: NoneType)
+2025-11-12 13:02:57.32
+5dd472d1
+User
+self.phone_number exists: True
+2025-11-12 13:02:57.32
+5dd472d1
+User
+self.phone_number value: 'None'
+2025-11-12 13:02:57.32
+5dd472d1
+User
+🎯 AGENTS_ENABLED = True
+2025-11-12 13:02:57.32
+5dd472d1
+User
+🎯 INTENT_MATCH: pattern='^(מה|איזה|איזו|כמה|למה|מדוע|איך|היכן|מתי)\s' matched in 'מה מחיר'
+2025-11-12 13:02:57.32
+5dd472d1
+User
+🎯 INTENT_DETECTED: info (message: מה מחיר...)
+2025-11-12 13:02:57.32
+5dd472d1
+User
+🆕 FAQ cache MISS for business 1, loading...
+2025-11-12 13:02:58.78
+5dd472d1
+User
+🔢 Generated 1 embeddings in 1284ms
+2025-11-12 13:02:58.78
+5dd472d1
+User
+✅ Loaded 1 FAQs for business 1
+2025-11-12 13:02:59.52
+5dd472d1
+User
+🔢 Generated 1 embeddings in 740ms
+2025-11-12 13:02:59.52
+5dd472d1
+User
+🔍 FAQ matching took 2206ms
+2025-11-12 13:02:59.52
+5dd472d1
+User
+Best match: score=0.825, question='מה המחיר?'
+2025-11-12 13:02:59.52
+5dd472d1
+User
+🎯 FAQ MATCH FOUND: score=0.825
+2025-11-12 13:02:59.52
+5dd472d1
+User
+Question: מה המחיר?
+2025-11-12 13:02:59.52
+5dd472d1
+User
+Answer: 100 שקל לשעה של חדר קריוקי...
+2025-11-12 13:03:01.28
+5dd472d1
+User
+⚡ FAQ response generated in 1755ms
+
+2025-11-12 13:03:01.28
+5dd472d1
+User
+✅ FAQ fast-path response generated
+2025-11-12 13:03:01.30
+5dd472d1
+User
+🤖 AGENT_RESPONSE: Generated 33 chars in 3.996s (business 1)
+2025-11-12 13:03:01.30
+5dd472d1
+User
+📊 AI_LATENCY: 3.996s (target: <1.5s)
+2025-11-12 13:03:01.30
+5dd472d1
+User
+🤖 BOT: מחיר חדר קריוקי הוא 100 שקל לשעה.
+2025-11-12 13:03:01.30
+5dd472d1
+User
+📊 AI_PROCESSING: 3.997s
+2025-11-12 13:03:01.30
+5dd472d1
+User
+⚠️ Missing phone_number or business_id for customer intelligence
