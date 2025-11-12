@@ -474,8 +474,21 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                         "Thursday": "חמישי", "Friday": "שישי", "Sunday": "ראשון", "Saturday": "שבת"
                     }.get(day_name_eng, day_name_eng)
                     
-                    # Format WhatsApp confirmation message (simple - no auto-location)
-                    # The prompt should handle additional details if customer requested them
+                    # 🔥 BUILD 107: Fetch business details for complete confirmation
+                    business_address = "לא צויין"
+                    business_phone = "לא צויין"
+                    try:
+                        from server.models_sql import Business, BusinessSettings
+                        business = Business.query.get(input.business_id)
+                        settings = BusinessSettings.query.get(input.business_id)
+                        if settings:
+                            business_address = settings.address or "לא צויין"
+                            business_phone = settings.phone_number or "לא צויין"
+                        logger.info(f"✅ Fetched business details: address={business_address}, phone={business_phone}")
+                    except Exception as fetch_err:
+                        logger.warning(f"⚠️ Failed to fetch business details: {fetch_err}")
+                    
+                    # Format WhatsApp confirmation message with full details
                     wa_message = (
                         f"🎉 *אישור פגישה*\n\n"
                         f"שלום {input.customer_name}!\n\n"
@@ -483,6 +496,8 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                         f"📅 יום {day_name_hebrew} {start.strftime('%d/%m/%Y')}\n"
                         f"🕐 שעה {start.strftime('%H:%M')}\n"
                         f"💼 {input.treatment_type}\n\n"
+                        f"📍 כתובת: {business_address}\n"
+                        f"📞 טלפון: {business_phone}\n\n"
                         f"נתראה! 😊"
                     )
                     
