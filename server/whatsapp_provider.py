@@ -31,6 +31,7 @@ class BaileysProvider(Provider):
     def __init__(self):
         self.outbound_url = os.getenv("BAILEYS_BASE_URL", "http://127.0.0.1:3300")
         self.webhook_secret = os.getenv("BAILEYS_WEBHOOK_SECRET", "")
+        self.internal_secret = os.getenv("INTERNAL_SECRET", "")  # 🔒 For internal API calls
         self.timeout = 15.0  # ⚡ FIXED: 15s timeout for WhatsApp message sending
         self._last_health_check = 0
         self._health_status = False
@@ -48,6 +49,8 @@ class BaileysProvider(Provider):
         
         if not self.webhook_secret:
             logger.warning("BAILEYS_WEBHOOK_SECRET not set - security risk!")
+        if not self.internal_secret:
+            logger.warning("INTERNAL_SECRET not set - auto-restart will fail!")
 
     def _check_health(self) -> bool:
         """⚡ Check Baileys service health with caching"""
@@ -69,6 +72,51 @@ class BaileysProvider(Provider):
             self._last_health_check = now
             return False
     
+    def _start_baileys(self, tenant_id: str = "business_1") -> bool:
+        """🔥 Start Baileys session if not running"""
+        try:
+            logger.info(f"🚀 Starting Baileys session for {tenant_id}...")
+            headers = {"X-Internal-Secret": self.internal_secret}
+            response = self._session.post(
+                f"{self.outbound_url}/whatsapp/{tenant_id}/start",
+                headers=headers,
+                timeout=3.0
+            )
+            if response.status_code == 200:
+                logger.info(f"✅ Baileys session started for {tenant_id}")
+                return True
+            else:
+                logger.warning(f"⚠️ Failed to start Baileys: {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"❌ Failed to start Baileys: {e}")
+            return False
+    
+    def _wait_for_ready(self, tenant_id: str = "business_1", timeout: float = 10.0) -> bool:
+        """🔥 Wait for Baileys to become ready"""
+        start = time.time()
+        headers = {"X-Internal-Secret": self.internal_secret}
+        while time.time() - start < timeout:
+            try:
+                response = self._session.get(
+                    f"{self.outbound_url}/whatsapp/{tenant_id}/status",
+                    headers=headers,
+                    timeout=1.0
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("connected"):
+                        logger.info("✅ Baileys is now connected!")
+                        self._health_status = True
+                        self._last_health_check = time.time()
+                        return True
+            except:
+                pass
+            time.sleep(0.5)  # Check every 500ms
+        
+        logger.warning(f"⏰ Baileys didn't connect within {timeout}s")
+        return False
+    
     def send_typing(self, jid: str, is_typing: bool = True) -> Dict[str, Any]:
         """⚡ Send typing indicator - instant user feedback"""
         try:
@@ -89,19 +137,35 @@ class BaileysProvider(Provider):
             return {"status": "error", "error": str(e)}
     
     def send_text(self, to: str, text: str) -> Dict[str, Any]:
-        """⚡ Send text message via Baileys HTTP API - SINGLE ATTEMPT ONLY"""
+        """⚡ Send text message via Baileys HTTP API with AUTO-RESTART"""
         max_attempts = 1  # 🔥 Single attempt to prevent loops
         last_error = None
         
         for attempt in range(max_attempts):
             try:
+                # 🔥 AUTO-RESTART: If Baileys is down, try to start it!
                 if not self._check_health():
-                    logger.warning("⚠️ Baileys service unavailable - check connection")
-                    return {
-                        "provider": "baileys",
-                        "status": "error",
-                        "error": "WhatsApp service not connected"
-                    }
+                    logger.warning("⚠️ Baileys service unavailable - attempting auto-restart...")
+                    tenant_id = "business_1"  # Default tenant for now
+                    
+                    # Try to start Baileys
+                    if self._start_baileys(tenant_id):
+                        # Wait for it to become ready (10s max)
+                        if not self._wait_for_ready(tenant_id, timeout=10.0):
+                            logger.error("❌ Baileys auto-restart timed out")
+                            return {
+                                "provider": "baileys",
+                                "status": "error",
+                                "error": "WhatsApp service not connected (auto-restart failed)"
+                            }
+                        logger.info("✅ Baileys auto-restart successful!")
+                    else:
+                        logger.error("❌ Failed to trigger Baileys restart")
+                        return {
+                            "provider": "baileys",
+                            "status": "error",
+                            "error": "WhatsApp service not connected (restart failed)"
+                        }
                 
                 # Generate idempotency key
                 idempotency_key = str(uuid.uuid4())
