@@ -70,8 +70,8 @@ def resolve_business_with_fallback(channel_type: str, identifier: str) -> Tuple[
     Returns:
         (business_id, status) where status is:
         - 'found': Successfully resolved via BusinessContactChannel
-        - 'phone_match': Matched by Business.phone_e164
-        - 'fallback_active': Used first active business
+        - 'phone_match': Matched by Business.phone_number or whatsapp_number
+        - 'rejected_unknown': Unknown identifier rejected for security
     """
     from sqlalchemy import or_
     
@@ -93,10 +93,15 @@ def resolve_business_with_fallback(channel_type: str, identifier: str) -> Tuple[
         return channel_match.business_id, 'found'
     
     # Try phone match (if it's a valid phone number)
+    # 🔥 FIX: Use phone_number column (not phone_e164 which doesn't exist!)
     if normalized.startswith('+'):
-        business = Business.query.filter_by(phone_e164=normalized, is_active=True).first()
+        business = Business.query.filter_by(phone_number=normalized, is_active=True).first()
+        if not business:
+            # Also try whatsapp_number as fallback
+            business = Business.query.filter_by(whatsapp_number=normalized, is_active=True).first()
+        
         if business:
-            log.info(f"✅ AUTO-DETECTED business_id={business.id} by phone_e164={normalized}")
+            log.info(f"✅ AUTO-DETECTED business_id={business.id} by phone_number={normalized}")
             
             # ✅ FIX: Atomic get-or-create with proper transaction handling
             try:
@@ -131,7 +136,7 @@ def resolve_business_with_fallback(channel_type: str, identifier: str) -> Tuple[
     # Previously: would fall back to first active business, causing wrong prompts/data
     # Now: return None for unknown identifiers, forcing proper channel registration
     log.error(f"❌ REJECTED: Unknown {channel_type} identifier {identifier} - no business match found!")
-    log.error(f"   → Add this phone to Business.phone_e164 or create BusinessContactChannel entry")
+    log.error(f"   → Add this phone to Business.phone_number/whatsapp_number or create BusinessContactChannel entry")
     return None, 'rejected_unknown'
 
 
