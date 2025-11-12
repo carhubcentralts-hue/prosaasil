@@ -148,13 +148,10 @@ app.post('/send', async (req, res) => {
     
     console.log(`[send] ⚡ Sending to ${to.substring(0, 15)}...`);
     
-    // ⚡ Send message with timeout protection
-    const result = await Promise.race([
-      s.sock.sendMessage(to, { text: text }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Baileys sendMessage timeout after 10s')), 10000)
-      )
-    ]);
+    // 🔥 FIX: Remove timeout - let Baileys finish sending!
+    // The 10s timeout was causing phantom sends because the Promise.race
+    // would reject early but sock.sendMessage kept running in background
+    const result = await s.sock.sendMessage(to, { text: text });
     
     const duration = Date.now() - startTime;
     console.log(`[send] ✅ Message sent in ${duration}ms, messageId: ${result.key.id}`);
