@@ -621,6 +621,7 @@ def get_current_business():
         return jsonify({"error": "Internal server error"}), 500
 
 @biz_mgmt_bp.route('/api/business/current/settings', methods=['PUT'])
+@csrf.exempt  # ✅ Exempt from CSRF for authenticated API
 @require_api_auth(['business', 'admin', 'manager'])
 def update_current_business_settings():
     """Update current business settings"""
@@ -727,6 +728,7 @@ def get_business_faqs():
         return jsonify({'error': 'Internal server error'}), 500
 
 @biz_mgmt_bp.route('/api/business/faqs', methods=['POST'])
+@csrf.exempt  # ✅ Exempt from CSRF for authenticated API
 @require_api_auth(['business', 'admin', 'manager'])
 def create_faq():
     """Create new FAQ"""
@@ -781,6 +783,7 @@ def create_faq():
         return jsonify({'error': 'Internal server error'}), 500
 
 @biz_mgmt_bp.route('/api/business/faqs/<int:faq_id>', methods=['PUT'])
+@csrf.exempt  # ✅ Exempt from CSRF for authenticated API
 @require_api_auth(['business', 'admin', 'manager'])
 def update_faq(faq_id):
     """Update FAQ"""
@@ -839,6 +842,7 @@ def update_faq(faq_id):
         return jsonify({'error': 'Internal server error'}), 500
 
 @biz_mgmt_bp.route('/api/business/faqs/<int:faq_id>', methods=['DELETE'])
+@csrf.exempt  # ✅ Exempt from CSRF for authenticated API
 @require_api_auth(['business', 'admin', 'manager'])
 def delete_faq(faq_id):
     """Delete FAQ (soft delete by marking inactive)"""
