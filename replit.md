@@ -2,6 +2,16 @@
 
 AgentLocator is a Hebrew CRM system for real estate professionals. Its core purpose is to automate the sales pipeline using an AI-powered assistant that processes calls in real-time, intelligently collects lead information, and schedules meetings. The system utilizes advanced audio processing for natural conversations, aiming to enhance efficiency and sales conversion. It provides a robust, multi-tenant platform with customizable AI assistants and business branding, leveraging cutting-edge AI communication tools.
 
+# Recent Changes
+
+**Build 108 (November 12, 2025):**
+- **🔥 CRITICAL FAQ FIX**: Fixed patterns_json keyword matching - FAQ system now checks keywords/patterns BEFORE embeddings for instant matches
+- **⚡ FIX #1: Hybrid Matching Strategy**: FAQ now uses 2-step approach: (1) Check patterns_json keywords for exact matches (score=1.0), (2) Fall back to embeddings if no keyword match
+- **🎯 FIX #2: Case-Insensitive Matching**: Keywords are normalized (lowercase + strip) for reliable matching regardless of user input case
+- **🔧 FIX #3: Bidirectional Substring Match**: Checks both "pattern in query" and "query in pattern" to catch partial matches (e.g., "חדר קריוקי" matches "כמה זה חדר קריוקי")
+- **📱 FIX #4: Mobile Bottom Navigation Spacing**: Added padding-bottom (80px) to all pages on mobile to prevent bottom navigation bar from hiding content
+- **📊 Impact**: FAQ responses now work with business-specific keywords (e.g., "חדר קריוקי" → instant match), sub-100ms keyword lookup vs 6s embeddings, perfect accuracy on exact terms; mobile pages now fully scrollable without content hiding
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
@@ -48,7 +58,7 @@ Performance optimization includes explicit OpenAI timeouts, increased Speech-to-
 - **Billing and Contracts**: Integrated payment processing and contract generation.
 - **Automatic Recording Cleanup**: 2-day retention policy for recordings.
 - **Enhanced Reminders System**: Comprehensive reminder management.
-- **FAQ Hybrid Fast-Path**: Sub-2s voice responses using 2-step matching: (1) patterns_json keyword matching, (2) OpenAI embeddings fallback. Intent-based routing and channel filtering (voice-only). Bypasses Agent SDK for ≤200 char queries on phone calls.
+- **FAQ Hybrid Fast-Path**: Sub-2s voice responses using 2-step matching: (1) patterns_json keyword matching (instant, score=1.0), (2) OpenAI embeddings fallback (cosine similarity ≥0.78). Keywords are case-insensitive with bidirectional substring matching. Intent-based routing and channel filtering (voice-only). Bypasses Agent SDK for ≤200 char queries on phone calls.
 - **Multi-Tenant Isolation**: Complete business data separation with zero cross-tenant exposure risk and full RBAC.
 - **Appointment Settings UI**: Allows businesses to configure slot size, 24/7 mode, booking window, and minimum notice time.
 

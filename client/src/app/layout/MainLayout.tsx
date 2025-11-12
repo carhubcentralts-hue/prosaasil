@@ -508,7 +508,7 @@ export function MainLayout() {
         </header>
 
         {/* Page content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto pb-20 md:pb-0">
           <Outlet />
         </div>
       </main>
@@ -547,7 +547,7 @@ export function MainLayout() {
 
       {/* BUILD Indicator */}
       <div className="fixed bottom-1 left-1 text-xs text-gray-400 font-mono z-10 pointer-events-none">
-        BUILD: 97
+        BUILD: 108
       </div>
 
       {/* Notification Panel */}
