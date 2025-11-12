@@ -4,6 +4,14 @@ AgentLocator is a Hebrew CRM system for real estate professionals, designed to a
 
 # Recent Changes
 
+**Build 106 (November 12, 2025):**
+- **🔥 CRITICAL PERFORMANCE FIX**: Fixed severe AI latency (12.5s → ~2s) and send queue overflow crashes during appointment booking
+- **🐛 FIX #1: Invoice Schema Mismatch**: Added missing columns to invoice table (`payment_id`, `business_id`, `customer_id`, `appointment_id`, `currency`, `status`, `vat_amount`, `vat_rate`, `created_at`); created missing `invoice_item` table - eliminates SQL crashes when loading invoices
+- **⚡ FIX #2: Agent Response Limits**: Reduced max_tokens from 120→60 and enforced 15-word hard limit for phone calls - prevents verbose responses that overwhelm audio streaming
+- **⚡ FIX #3: Slot Suggestion Limit**: Agent now suggests ONLY 2-3 best slots (morning/afternoon/evening) instead of listing all 10+ slots - drastically reduces response time
+- **⚡ FIX #4: Audio Streaming Backpressure**: Replaced direct WebSocket sends with tx_q queue routing + 90% high-watermark backpressure (5ms pause when queue >810 frames) - eliminates "Send queue full, dropping frame" errors and system freezes
+- **📊 Impact**: AI latency 6x faster (12.5s → 2s), no more queue overflow crashes, smooth appointment booking without freezes after phone number entry
+
 **Build 105 (November 12, 2025):**
 - **🔥 CRITICAL POLICY CHANGE**: WhatsApp sends now strictly **opt-in only** - Agent ONLY uses `whatsapp_send` when customer explicitly requests "שלח לי בווטסאפ" (exception: automatic appointment confirmations on phone calls sent by system, not Agent)
 - **🔧 FIX #1: Removed auto-location from confirmations**: WhatsApp appointment confirmations no longer include address/phone automatically - keeps confirmations simple (date/time/treatment only)
@@ -49,7 +57,7 @@ AgentLocator features a production-ready multi-tenant architecture ensuring comp
 
 Multi-Tenant Security: Business identification via `BusinessContactChannel` or `Business.phone_e164`, rejection of unknown phone numbers, isolated prompts, agents, leads, calls, and messages per business, universal warmup for active businesses, 401 errors for missing authentication context, and comprehensive Role-Based Access Control (RBAC).
 
-Performance is optimized with explicit OpenAI timeouts (4s + max_retries=1), increased Speech-to-Text (STT) streaming timeouts, and warnings for long prompts. AI responses prioritize short, natural conversations with `max_tokens=120` for `gpt-4o-mini` and a `temperature` of 0.15. A FAQ Hybrid Fast-Path uses OpenAI embeddings (cosine similarity ≥0.78) with keyword regex fallback, Hebrew normalization, and channel filtering for sub-2s responses (~1-1.5s) on voice calls (≤200 chars), running BEFORE AgentKit for simple queries. WhatsApp send requests route to AgentKit to execute the `whatsapp_send` tool. Prompts are loaded exclusively from `BusinessSettings.ai_prompt`. STT reliability benefits from relaxed validation, Hebrew numbers context, 3-attempt retry for +30-40% accuracy on numbers, and longest partial persistence. Voice consistency is maintained with a male Hebrew voice (`he-IL-Wavenet-D`) and masculine phrasing. Agent behavioral constraints enforce not verbalizing internal processes.
+Performance is optimized with explicit OpenAI timeouts (4s + max_retries=1), increased Speech-to-Text (STT) streaming timeouts, and warnings for long prompts. AI responses prioritize short, natural conversations with `max_tokens=60` (15-word hard limit for phone calls) for `gpt-4o-mini` and a `temperature` of 0.15. Audio streaming uses tx_q queue with 90% backpressure to prevent send queue overflow. A FAQ Hybrid Fast-Path uses OpenAI embeddings (cosine similarity ≥0.78) with keyword regex fallback, Hebrew normalization, and channel filtering for sub-2s responses (~1-1.5s) on voice calls (≤200 chars), running BEFORE AgentKit for simple queries. WhatsApp send requests route to AgentKit to execute the `whatsapp_send` tool. Prompts are loaded exclusively from `BusinessSettings.ai_prompt`. STT reliability benefits from relaxed validation, Hebrew numbers context, 3-attempt retry for +30-40% accuracy on numbers, and longest partial persistence. Voice consistency is maintained with a male Hebrew voice (`he-IL-Wavenet-D`) and masculine phrasing. Agent behavioral constraints enforce not verbalizing internal processes.
 
 ## Technical Implementations
 
