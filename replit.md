@@ -4,6 +4,13 @@ AgentLocator is a Hebrew CRM system for real estate, designed to automate the sa
 
 # Recent Changes
 
+**Build 95 (November 12, 2025):**
+- **CRITICAL FAQ Fix**: Added default `queryFn` to queryClient.ts to fix "Missing queryFn" error - FAQ data now loads properly
+- **TanStack Query v5 Compliance**: Implemented default fetcher with `credentials: 'include'` for all useQuery calls without explicit queryFn
+- **Working Hours UI**: Added functional select dropdowns for opening/closing times with state management and DB persistence
+- **Error Messaging**: Enhanced FAQ error display with detailed error messages and "Try Again" button
+- **Build Verification**: BUILD 95 confirmed in bundle with full FAQ CRUD functionality
+
 **Build 93 (November 12, 2025):**
 - **Critical SettingsPage Fix**: Fixed "Can't find variable: React" runtime error by changing `import type React` to `import React` (Settings page was crashing in production)
 - **Working Hours Preservation**: Fixed data loss bug - appointment save now preserves existing per-day hours instead of overwriting with defaults
