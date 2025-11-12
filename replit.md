@@ -4,6 +4,13 @@ AgentLocator is a Hebrew CRM system for real estate, designed to automate the sa
 
 # Recent Changes
 
+**Build 93 (November 12, 2025):**
+- **Critical SettingsPage Fix**: Fixed "Can't find variable: React" runtime error by changing `import type React` to `import React` (Settings page was crashing in production)
+- **Working Hours Preservation**: Fixed data loss bug - appointment save now preserves existing per-day hours instead of overwriting with defaults
+- **FAQ CSRF Protection**: Added `@csrf.exempt` to FAQ GET endpoint for proper API access
+- **LSP Cleanup**: Reduced LSP diagnostics from 279→2 by fixing React import (99% reduction)
+- **Bundle Optimization**: Production bundle remains Safari-compatible at 786KB with Classic JSX runtime
+
 **Build 92 (November 11, 2025):**
 - **Single Vite Config Fix**: Removed duplicate root `vite.config.js` to prevent build conflicts
 - **Clean Build Process**: `rm -rf node_modules` + fresh install ensures deterministic builds
