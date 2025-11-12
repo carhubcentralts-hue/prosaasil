@@ -1124,13 +1124,10 @@ class AIService:
             
             import asyncio
             
-            # Create new event loop for this thread (eventlet compatibility)
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                # No event loop in current thread - create one
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+            # 🔥 FIX: ALWAYS create new event loop to avoid CurrentThreadExecutor crash
+            # Don't reuse ASGI/main thread executor - it gets torn down mid-request
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             
             # 🔥 BUILD 99: LIMIT CONVERSATION HISTORY to last 4 exchanges (8 messages)
             # Why: 10 messages = ~4.5K tokens = 27s latency in Runner.run()
@@ -1180,12 +1177,16 @@ class AIService:
             logger.info(f"⏱️ PERFORMANCE: Starting Runner.run() at {time.time()}")
             
             # Use Runner.run() directly (it's a static method, not an instance!)
-            result = loop.run_until_complete(
-                Runner.run(starting_agent=agent, input=conversation_messages, context=agent_context)
-            )
-            duration_ms = int((time.time() - start_time) * 1000)
-            print(f"✅ Runner.run() completed in {duration_ms}ms")
-            logger.info(f"⏱️ PERFORMANCE: Runner.run() completed in {duration_ms}ms")
+            try:
+                result = loop.run_until_complete(
+                    Runner.run(starting_agent=agent, input=conversation_messages, context=agent_context)
+                )
+                duration_ms = int((time.time() - start_time) * 1000)
+                print(f"✅ Runner.run() completed in {duration_ms}ms")
+                logger.info(f"⏱️ PERFORMANCE: Runner.run() completed in {duration_ms}ms")
+            finally:
+                # 🔥 CRITICAL: Close event loop to prevent FD leak!
+                loop.close()
             
             # Extract response using final_output_as
             reply_text = result.final_output_as(str)
