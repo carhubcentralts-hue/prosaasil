@@ -537,12 +537,18 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                     "message": f"לא ניתן לשמור פרטי לקוח: {error_msg}"
                 }
         
+        # 🔥 NEW: Business info wrapper - pre-inject business_id
+        from server.agent_tools.tools_business import business_get_info as _business_get_info_impl
+        from functools import partial
+        business_get_info = partial(_business_get_info_impl, business_id=business_id)
+        
         tools_to_use = [
             calendar_find_slots_wrapped,
             calendar_create_appointment_wrapped,
             leads_upsert_wrapped,
             leads_search,
-            whatsapp_send
+            whatsapp_send,
+            business_get_info
         ]
         logger.info(f"✅ Created business_id-injected tools for business {business_id}")
     else:
@@ -735,12 +741,12 @@ Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M
    - Available templates: treatment_series, rental, purchase
    - Send signature links via WhatsApp
 
-5. **WHATSAPP:**
-   - Send confirmations: whatsapp_send
-   - Share payment links, contract links, appointment details
+5. **WHATSAPP & BUSINESS INFO:**
+   - Get business details: business_get_info (returns address, phone, email, hours)
+   - Send messages: whatsapp_send
    - 🔥 CRITICAL RULE: ONLY use whatsapp_send when customer EXPLICITLY requests "שלח לי בווטסאפ" or "תשלח לי את זה"
-   - 📍 Location questions: Answer verbally from your instructions (location is in your prompt!) - DON'T send WhatsApp unless requested
-   - Example: Customer asks "מה הכתובת?" → You answer "אנחנו ברחוב התערוכה 7. רוצה שאשלח לך בווטסאפ?" → Only if they say yes, use whatsapp_send
+   - 📍 Location questions: Use business_get_info to fetch address, answer verbally, then ask if they want it via WhatsApp
+   - Example: Customer asks "מה הכתובת?" → call business_get_info → "אנחנו ברחוב X. רוצה שאשלח לך בווטסאפ?" → Only if yes: whatsapp_send
 
 6. **SUMMARIES:**
    - Summarize conversations: summarize_thread
@@ -853,6 +859,8 @@ BEFORE any appointment/invoice/contract:
 """
 
     # Prepare tools
+    from server.agent_tools.tools_business import business_get_info
+    
     tools_to_use = [
         calendar_find_slots,
         calendar_create_appointment,
@@ -862,7 +870,8 @@ BEFORE any appointment/invoice/contract:
         payments_link,
         contracts_generate_and_send,
         whatsapp_send,
-        summarize_thread
+        summarize_thread,
+        business_get_info
     ]
     
     # If business_id provided, could wrap tools here (similar to booking_agent)
@@ -926,6 +935,8 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
 **CRITICAL: ALL RESPONSES MUST BE IN HEBREW - NATURAL AND WARM!**
 """
 
+    from server.agent_tools.tools_business import business_get_info
+
     try:
         agent = Agent(
             name=f"sales_agent_{business_name}",  # Required: Agent name
@@ -934,7 +945,8 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
             tools=[
                 leads_upsert,
                 leads_search,
-                whatsapp_send
+                whatsapp_send,
+                business_get_info
             ]
         )
         
