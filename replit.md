@@ -10,7 +10,8 @@ AgentLocator is a Hebrew CRM system for real estate professionals, designed to a
 - **⚡ FIX #2: Agent Response Limits**: Reduced max_tokens from 120→60 and enforced 15-word hard limit for phone calls - prevents verbose responses that overwhelm audio streaming
 - **⚡ FIX #3: Slot Suggestion Limit**: Agent now suggests ONLY 2-3 best slots (morning/afternoon/evening) instead of listing all 10+ slots - drastically reduces response time
 - **⚡ FIX #4: Audio Streaming Backpressure**: Replaced direct WebSocket sends with tx_q queue routing + 90% high-watermark backpressure (5ms pause when queue >810 frames) - eliminates "Send queue full, dropping frame" errors and system freezes
-- **📊 Impact**: AI latency 6x faster (12.5s → 2s), no more queue overflow crashes, smooth appointment booking without freezes after phone number entry
+- **🎯 FIX #5: Appointment Workflow Clarity**: Added detailed 4-turn workflow instructions (Name → Date → Check Calendar → Phone + Book) with validation guards to prevent hallucinated bookings and ensure calendar_find_slots is always called before suggesting times
+- **📊 Impact**: AI latency 6x faster (12.5s → 2s), no more queue overflow crashes, smooth appointment booking without freezes after phone number entry, clear step-by-step process prevents hallucinations
 
 **Build 105 (November 12, 2025):**
 - **🔥 CRITICAL POLICY CHANGE**: WhatsApp sends now strictly **opt-in only** - Agent ONLY uses `whatsapp_send` when customer explicitly requests "שלח לי בווטסאפ" (exception: automatic appointment confirmations on phone calls sent by system, not Agent)
