@@ -327,8 +327,19 @@ class AIService:
                     if settings.ai_prompt.strip().startswith('{'):
                         prompt_obj = json.loads(settings.ai_prompt)
                         # בחירת הפרומפט הנכון לפי channel
-                        system_prompt = prompt_obj.get(channel, prompt_obj.get('calls', settings.ai_prompt))
-                        logger.info(f"✅ Using {channel} prompt for business {business_id} from settings")
+                        # 🔥 FIX: If WhatsApp prompt not found, use 'calls' prompt as fallback!
+                        if channel in prompt_obj:
+                            system_prompt = prompt_obj[channel]
+                            logger.info(f"✅ Using {channel} prompt for business {business_id} from settings")
+                        elif 'calls' in prompt_obj:
+                            # WhatsApp missing - use calls prompt!
+                            system_prompt = prompt_obj['calls']
+                            logger.info(f"⚠️ WhatsApp prompt missing - using 'calls' prompt as fallback for business {business_id}")
+                        else:
+                            # No valid keys - use raw prompt
+                            system_prompt = settings.ai_prompt
+                            logger.warning(f"⚠️ No valid channel keys in JSON - using raw prompt for business {business_id}")
+                        
                         logger.info(f"🔍 DEBUG: Loaded prompt starts with: {system_prompt[:100]}...")
                     else:
                         # פרומפט טקסט פשוט (legacy)
