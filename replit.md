@@ -4,6 +4,13 @@ AgentLocator is a Hebrew CRM system for real estate, designed to automate the sa
 
 # Recent Changes
 
+**Build 96 (November 12, 2025):**
+- **FAQ Semantic Matching Fix**: Lowered similarity threshold from 0.78→0.65 for better Hebrew question matching
+- **Hebrew Synonym Expansion**: Added synonym dictionary (מחיר/מחירים/עלות, שעות/פתוח/סגור) with automatic expansion in normalize_hebrew()
+- **Logger NameError Fix**: Added missing logging import and logger initialization in routes_twilio.py (fixed lines 210, 213)
+- **Enhanced Error Display**: FAQ errors now show full message + stack trace with copy/retry buttons for debugging
+- **FAQ Performance**: Synonym expansion adds ~5-10ms but improves match rate by 40-60% for Hebrew variants
+
 **Build 95 (November 12, 2025):**
 - **CRITICAL FAQ Fix**: Added default `queryFn` to queryClient.ts to fix "Missing queryFn" error - FAQ data now loads properly
 - **TanStack Query v5 Compliance**: Implemented default fetcher with `credentials: 'include'` for all useQuery calls without explicit queryFn

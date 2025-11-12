@@ -2,9 +2,11 @@
 Hebrew AI Call Center - Twilio Routes FIXED לפי ההנחיות המדויקות
 שלב 4: שיחות → לידים + תמלול אוטומטי
 Build 89: ImportError Fix + Immediate call_log Creation
+Build 96: Logger Fix - Added logging import
 """
 import os
 import time
+import logging
 import threading
 from flask import Blueprint, request, current_app, make_response, Response
 from twilio.rest import Client
@@ -20,6 +22,9 @@ from sqlalchemy.orm import sessionmaker
 
 # ✅ BUILD 89: Import למעלה למניעת ImportError בthread
 from server.services.customer_intelligence import CustomerIntelligence
+
+# ✅ BUILD 96: Logger setup
+logger = logging.getLogger(__name__)
 
 twilio_bp = Blueprint("twilio", __name__)
 

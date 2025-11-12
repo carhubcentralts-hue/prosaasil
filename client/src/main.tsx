@@ -35,7 +35,7 @@ try {
     showError('#root element not found in index.html');
   } else {
     // 🔍 PROBE: Verify React is not null (critical for Safari)
-    console.log('[BOOT-95] React version:', React?.version, 'useEffect?', !!React?.useEffect, 'BUILD:', 95);
+    console.log('[BOOT-96] React version:', React?.version, 'useEffect?', !!React?.useEffect, 'BUILD:', 96);
     
     if (!React || !React.useEffect) {
       throw new Error('React object is null or missing useEffect - bundle problem!');

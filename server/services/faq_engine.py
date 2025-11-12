@@ -15,6 +15,35 @@ logger = logging.getLogger(__name__)
 FAQ_FASTPATH_ENABLED = os.getenv("FAQ_FASTPATH_ENABLED", "1") == "1"
 MAX_QUERY_LENGTH = 200  # Skip FAQ matching for very long queries
 
+HEBREW_SYNONYMS = {
+    "מחיר": ["מחיר", "מחירים", "עלות", "עלויות", "כמה עולה", "כמה זה", "מחירון"],
+    "שעות": ["שעות", "שעות פעילות", "מתי פתוח", "מתי סגור", "מתי עובדים"],
+    "כתובת": ["כתובת", "איפה", "היכן", "מיקום", "איפה אתם"],
+    "חניה": ["חניה", "חנייה", "לחנות", "איפה לחנות", "חנייה חינם"],
+}
+
+def expand_with_synonyms(text: str) -> str:
+    """
+    Expand text with Hebrew synonyms for better matching.
+    Example: "מחירים" → "מחיר מחירים עלות עלויות כמה עולה"
+    Target: <10ms
+    """
+    if not text:
+        return ""
+    
+    words = text.split()
+    expanded = set(words)  # Start with original words
+    
+    for word in words:
+        # Check each synonym group
+        for base_word, synonyms in HEBREW_SYNONYMS.items():
+            if word in synonyms:
+                # Add all synonyms from this group
+                expanded.update(synonyms)
+                break
+    
+    return ' '.join(sorted(expanded))
+
 def normalize_hebrew(text: str) -> str:
     """
     Normalize Hebrew text for matching:
@@ -22,7 +51,8 @@ def normalize_hebrew(text: str) -> str:
     - Remove punctuation
     - Lowercase
     - Condense whitespace
-    Target: <5ms
+    - Expand synonyms
+    Target: <15ms
     """
     if not text:
         return ""
@@ -35,6 +65,9 @@ def normalize_hebrew(text: str) -> str:
     
     # Lowercase and condense whitespace
     text = ' '.join(text.lower().split())
+    
+    # ✅ BUILD 96: Expand with synonyms
+    text = expand_with_synonyms(text)
     
     return text
 
