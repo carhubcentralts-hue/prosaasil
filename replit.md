@@ -7,9 +7,9 @@ AgentLocator is a Hebrew CRM system for real estate, designed to automate the sa
 **Build 98 (November 12, 2025):**
 - **🔧 FIX #1: Agent Cache Reduction**: Reduced cache TTL from 30min→1min for faster prompt updates (allows testing without 30min wait)
 - **🔧 FIX #2: WhatsApp Debug Logging**: Added comprehensive logging markers (WA_START, WA_AI_START, WA_AI_DONE) in routes_webhook.py and agent_factory.py
-- **🔧 FIX #3: FAQ Table Persistence**: FAQ table exists but empty - RUN_MIGRATIONS_ON_START=1 already set in Secrets
-- **📊 Root Cause Analysis**: Agent works but uses old DB prompt ("Vibe Rooms") instead of new English base prompt - custom_instructions override needed
-- **⚠️ USER ACTION REQUIRED**: Update prompt in Settings UI to override old "Vibe Rooms" prompt with business-specific instructions
+- **🔧 FIX #3: Prompt Priority Fix**: Changed agent_factory.py to use DB prompt as PRIMARY (not merged) - system rules prepended, DB prompt used as-is
+- **🔧 FIX #4: FAQ Table Created**: FAQ table exists in development DB - RUN_MIGRATIONS_ON_START=1 set in Secrets for production persistence
+- **📝 Agent Prompt Strategy**: DB prompt (e.g., Vibe Rooms) is now the MAIN prompt - system anti-hallucination rules prepended without overriding business voice
 
 **Build 97 (November 12, 2025):**
 - **🔧 FIX #1: WhatsApp Crash Prevention**: Moved `get_whatsapp_service()` into try/except block in tools_calendar.py to prevent crashes when WhatsApp service unavailable

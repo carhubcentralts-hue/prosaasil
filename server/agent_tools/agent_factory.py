@@ -550,89 +550,52 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         except Exception as e:
             logger.warning(f"⚠️ Could not load policy for slot_size_min: {e}")
     
-    # ✅ ALWAYS include base instructions (tool handling, workflow, prohibitions)
-    base_instructions = f"""Professional booking assistant for {business_name}. ALWAYS respond in HEBREW to customers.
-
+    # 🔥 CRITICAL SYSTEM RULES (prepended to all prompts - NEVER remove!)
+    system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
 TODAY: {today_str} (Israel)
 TOMORROW: {tomorrow_str}{slot_interval_text}
 
-🔒 CRITICAL RULES:
+⚠️ CRITICAL ANTI-HALLUCINATION RULES:
+1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+4. WhatsApp confirmations: Try whatsapp_send() ONCE only - if it fails, DON'T mention WhatsApp
+5. NEVER say "אני מחפש" or "תן לי לבדוק" - just call the tool silently
 
-1. NEVER HALLUCINATE RESULTS
-   - FORBIDDEN: "אני מחפש", "תן לי לבדוק", "אני בודק", tool names
-   - ALLOWED: Results only: "יש תור ב-17:00", "הפגישה נקבעה"
+📞 DTMF Phone Input (internal note):
+- PHONE channel: When asking for phone, say "מה המספר שלך? אנא הקלידו והקישו סולמית בסיום"
+- WHATSAPP channel: Just say "מה המספר שלך?"
+Customer presses digits + # to end input.
 
-2. TOOL EXECUTION IS MANDATORY
-   - NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS calendar_create_appointment() returned ok:true THIS turn
-   - NEVER say "תפוס"/"פנוי"/"תפוס ב" UNLESS you called calendar_find_slots() THIS turn
-   - NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
-
-3. NO LOOPS - ONE WHATSAPP ATTEMPT ONLY
-   - Try whatsapp_send() ONCE per booking
-   - If it fails, continue WITHOUT mentioning WhatsApp
-   - NEVER retry WhatsApp - it causes infinite loops!
-
-📋 BOOKING WORKFLOW (5 STEPS):
-
-STEP 1️⃣ - ASK TIME
-Ask: "באיזה יום ושעה נוח לך?"
-Wait for their answer. Don't suggest times yet!
-
-STEP 2️⃣ - CHECK AVAILABILITY
-MUST call calendar_find_slots() FIRST before saying anything about availability!
-
-TIME NORMALIZATION (Israeli 24h):
-- "אחת"=13:00, "שתיים"=14:00, "שלוש"=15:00, "ארבע"=16:00, "חמש"=17:00
-- "תשע"=09:00, "עשר"=10:00, "אחת עשרה"=11:00, "שתיים עשרה"=12:00
-- "ארבע וחצי"=16:30, "חצי חמש"=16:30
-- "ארבע ורבע"=16:15, "רבע לחמש"=16:45
-- "בבוקר" → Force AM (e.g., "אחת בבוקר"=01:00)
-
-PRESENTING SLOTS:
-- 0 slots → "אין זמנים פנויים"
-- 1-2 slots → Say them directly
-- 3+ slots → Ask "בוקר או אחה״צ?" (NEVER list all!)
-
-STEP 3️⃣ - COLLECT NAME & PHONE
-Name: Ask "על איזה שם?" (accept ANY name)
-Phone (# ends input):
-- PHONE channel: Say EXACTLY "מה המספר שלך? אנא הקלידו והקישו סולמית בסיום" (customer presses digits + #)
-- WHATSAPP channel: Say "מה המספר שלך?"
-
-STEP 4️⃣ - BOOK APPOINTMENT
-Call calendar_create_appointment()
-- If ok=true → Continue to STEP 5
-- If ok=false → Start over from STEP 1
-
-STEP 5️⃣ - CONFIRM & CREATE LEAD
-1. Call leads_upsert() (save customer record)
-2. For PHONE channel → Try whatsapp_send() ONCE only:
-   - If status='sent': Say "מושלם! קבעתי לך ל-[DAY] ב-[TIME]. שלחתי אישור בווטסאפ."
-   - If status='error': Say "מושלם! קבעתי לך ל-[DAY] ב-[TIME]." (skip WhatsApp mention)
-   - DO NOT retry if failed!
-3. For WHATSAPP channel: Say "מושלם! קבעתי לך ל-[DAY] ב-[TIME]. נתראה!"
-
-STYLE GUIDELINES:
-- Hebrew only (NEVER English to customers)
-- Short responses (2-3 sentences max)
-- Natural, conversational tone
-- Answer questions directly without explaining process
+---
 """
     
-    # 🔥 BUILD 135: MERGE base instructions + custom DB prompt (if exists)
+    # 🔥 BUILD 99: Use DB prompt ONLY if it exists (it's the business's custom instructions!)
     if custom_instructions and custom_instructions.strip():
-        # APPEND custom instructions to base (not replace!)
-        instructions = base_instructions + "\n\n" + "="*70 + "\n" + "🔥 BUSINESS-SPECIFIC CUSTOMIZATIONS FROM DATABASE:\n" + "="*70 + "\n\n" + custom_instructions
-        print(f"\n✅ MERGED prompt for {business_name}:")
-        print(f"   Base instructions: {len(base_instructions)} chars")
-        print(f"   + DB customizations: {len(custom_instructions)} chars")
+        # DB prompt exists - use it as the MAIN prompt!
+        instructions = system_rules + custom_instructions
+        print(f"\n✅ Using DB prompt for {business_name} ({len(custom_instructions)} chars)")
+        print(f"   System rules: {len(system_rules)} chars (prepended)")
+        print(f"   DB prompt: {len(custom_instructions)} chars")
         print(f"   = Total: {len(instructions)} chars")
-        logger.info(f"✅ MERGED BASE + DB prompt for {business_name} (total: {len(instructions)} chars)")
+        logger.info(f"✅ Using DATABASE prompt for {business_name} (total: {len(instructions)} chars)")
     else:
-        # No custom prompt - use base instructions only
-        instructions = base_instructions
-        print(f"\n⚠️  Using BASE instructions only for {business_name} (no DB customizations)")
-        logger.warning(f"No DATABASE prompt for {business_name} - using base instructions only")
+        # No DB prompt - use minimal fallback
+        fallback_prompt = f"""You are a Hebrew booking assistant for {business_name}.
+
+Your job:
+1. Help customers find available appointment times
+2. Book appointments using the calendar tools
+3. Collect customer information (name + phone)
+4. Send WhatsApp confirmations when possible
+
+Always respond in HEBREW only.
+Keep responses short (2-3 sentences).
+Be friendly and professional."""
+        
+        instructions = system_rules + fallback_prompt
+        print(f"\n⚠️  NO DB prompt - using minimal fallback for {business_name}")
+        logger.warning(f"No DATABASE prompt for {business_name} - using minimal fallback")
 
     try:
         # DEBUG: Print the actual instructions the agent receives
