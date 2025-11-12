@@ -1,4 +1,3 @@
-import React from 'react';
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Smartphone, Server } from 'lucide-react';
 import QRCodeReact from 'react-qr-code';
@@ -77,6 +76,15 @@ interface WhatsAppThread {
   is_closed?: boolean;
 }
 
+interface WhatsAppMessageData {
+  id: number;
+  body: string;
+  direction: 'in' | 'out';
+  timestamp: string;
+  time: string;
+  status: string;
+}
+
 interface QRCodeData {
   success?: boolean; // Optional - not all providers return this
   qr?: string; // Baileys format
@@ -108,6 +116,8 @@ export function WhatsAppPage() {
   const [qrLoading, setQrLoading] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [messages, setMessages] = useState<WhatsAppMessageData[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   
   // Settings and prompt editing state
   const [showSettings, setShowSettings] = useState(false);
@@ -121,6 +131,35 @@ export function WhatsAppPage() {
     loadThreads();
     loadPrompts();
   }, []);
+
+  // Poll messages for selected thread
+  useEffect(() => {
+    if (!selectedThread) {
+      setMessages([]);
+      return;
+    }
+
+    // Load messages immediately
+    const fetchMessages = async () => {
+      try {
+        setLoadingMessages(true);
+        const response = await http.get<{messages: WhatsAppMessageData[]}>(`/api/crm/threads/${selectedThread.phone}/messages`);
+        setMessages(response.messages || []);
+      } catch (error) {
+        console.error('Error loading messages:', error);
+        setMessages([]);
+      } finally {
+        setLoadingMessages(false);
+      }
+    };
+
+    fetchMessages();
+
+    // Poll every 3 seconds for new messages
+    const interval = setInterval(fetchMessages, 3000);
+
+    return () => clearInterval(interval);
+  }, [selectedThread]);
 
   // Poll status/QR only - no start calls in loop
   useEffect(() => {
@@ -357,6 +396,9 @@ export function WhatsAppPage() {
         setMessageText('');
         // Reload threads to get updated last message
         await loadThreads();
+        // Reload messages immediately
+        const messagesResponse = await http.get<{messages: WhatsAppMessageData[]}>(`/api/crm/threads/${selectedThread.phone}/messages`);
+        setMessages(messagesResponse.messages || []);
         alert('הודעה נשלחה בהצלחה');
       } else {
         alert('שגיאה בשליחת הודעה: ' + (response.error || 'שגיאה לא ידועה'));
@@ -652,12 +694,46 @@ export function WhatsAppPage() {
               </div>
 
               {/* Messages Area */}
-              <div className="flex-1 p-4 min-h-0 overflow-y-auto">
-                <div className="text-center py-8 text-slate-500">
-                  <MessageSquare className="h-8 w-8 mx-auto mb-2" />
-                  <p>טען את ההודעות...</p>
-                  <p className="text-xs mt-2">מערכת ההודעות תוצג כאן עם קישור לשיחה</p>
-                </div>
+              <div className="flex-1 p-4 min-h-0 overflow-y-auto" style={{maxHeight: '350px'}}>
+                {loadingMessages && messages.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <RefreshCw className="h-8 w-8 mx-auto mb-2 animate-spin" />
+                    <p>טוען הודעות...</p>
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <MessageSquare className="h-8 w-8 mx-auto mb-2" />
+                    <p>אין הודעות עדיין</p>
+                    <p className="text-xs mt-2">התחל שיחה עם הלקוח</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.direction === 'out' ? 'justify-start' : 'justify-end'}`}
+                      >
+                        <div
+                          className={`max-w-xs px-4 py-2 rounded-lg ${
+                            msg.direction === 'out'
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-slate-200 text-slate-900'
+                          }`}
+                          dir="rtl"
+                        >
+                          <p className="text-sm whitespace-pre-wrap">{msg.body}</p>
+                          <p
+                            className={`text-xs mt-1 ${
+                              msg.direction === 'out' ? 'text-blue-100' : 'text-slate-500'
+                            }`}
+                          >
+                            {msg.time}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Message Input */}
