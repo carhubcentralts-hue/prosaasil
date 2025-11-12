@@ -1205,6 +1205,15 @@ class AIService:
                 logger.error(f"❌ Agent returned empty response for message: {message[:100]}")
                 return self.generate_response(message, business_id, context, channel, is_first_turn)
             
+            # 🔥 CRITICAL: Enforce 15-word limit for phone calls to prevent send queue overflow!
+            if channel == "calls":
+                words = reply_text.split()
+                if len(words) > 15:
+                    original_len = len(words)
+                    reply_text = " ".join(words[:15])
+                    print(f"✂️ TRUNCATED phone response: {original_len} → 15 words")
+                    logger.warning(f"✂️ Truncated phone response from {original_len} to 15 words to prevent queue overflow")
+            
             # DEBUG: Check result structure
             print(f"🔍 Result type: {type(result).__name__}")
             print(f"🔍 Has new_items: {hasattr(result, 'new_items')}")

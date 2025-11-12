@@ -1621,23 +1621,24 @@ class MediaStreamHandler:
             if not self.speaking:
                 print(f"🚨 BARGE-IN! Stopped at frame {frames_sent}/{total_frames}")
                 # IMMEDIATE clear for instant interruption
-                self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
+                self._tx_enqueue({"type": "clear"})
                 self._finalize_speaking()
                 return
                 
-            # Direct send for smooth audio (no queue buffering)
+            # 🔥 FIX: Use tx_q with backpressure to prevent "Send queue full" overflow!
+            # Wait if queue is too full (>810 frames = 90% of maxsize=900)
+            HIGH_WATERMARK = 810
+            while self.tx_q.qsize() > HIGH_WATERMARK and self.speaking:
+                time.sleep(0.005)  # 5ms backpressure wait
+            
+            # Enqueue frame via tx_q (paced by _tx_loop at 20ms/frame)
             frame = mulaw[i:i+FR].ljust(FR, b'\x00')
             payload = base64.b64encode(frame).decode()
-            self._ws_send(json.dumps({
-                "event": "media",
-                "streamSid": self.stream_sid,
-                "media": {"payload": payload}
-            }))
+            self._tx_enqueue({
+                "type": "media",
+                "payload": payload
+            })
             frames_sent += 1
-            
-            # Yield לeventlet
-            if frames_sent % 5 == 0:  # כל 100ms
-                time.sleep(0)  # yield
         
         # הוסף 200ms שקט בסוף
         silence_frames = 10  # 200ms @ 20ms per frame  
@@ -1646,22 +1647,19 @@ class MediaStreamHandler:
             if not self.speaking:
                 break
             payload = base64.b64encode(silence_mulaw).decode()
-            self._ws_send(json.dumps({
-                "event": "media",
-                "streamSid": self.stream_sid,
-                "media": {"payload": payload}
-            }))
-            time.sleep(0)  # yield
+            self._tx_enqueue({
+                "type": "media",
+                "payload": payload
+            })
         
-        # שלח סימון לטוויליו
+        # שלח סימון לטוויליו via tx_q
         self.mark_pending = True
         self.mark_sent_ts = time.time()
-        self._ws_send(json.dumps({
-            "event": "mark",
-            "streamSid": self.stream_sid,
-            "mark": {"name": "assistant_tts_end"}
-        }))
-        print("🎯 TTS_MARK_SENT: assistant_tts_end")
+        self._tx_enqueue({
+            "type": "mark",
+            "name": "assistant_tts_end"
+        })
+        print("🎯 TTS_MARK_SENT: assistant_tts_end (queued)")
         
         # ✅ BUILD 100.4 FIX: סיים דיבור מיד וחזור להאזנה!
         # הבעיה: המערכת נשארה ב-STATE_SPEAK אחרי ברכה ולא חזרה להאזנה
