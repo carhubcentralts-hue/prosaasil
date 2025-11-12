@@ -87,6 +87,10 @@ def _process_whatsapp_with_cleanup(tenant_id: str, messages: list):
     global _active_wa_threads
     try:
         _process_whatsapp_fast(tenant_id, messages)
+    except Exception as e:
+        logger.error(f"❌ WhatsApp thread crashed: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         with _wa_threads_lock:
             _active_wa_threads -= 1
@@ -125,6 +129,7 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
             ci = CustomerIntelligence(business_id)
             
             for msg in messages:
+                jid = None  # Initialize to avoid unbound variable error
                 try:
                     # Parse message
                     from_jid = msg.get('key', {}).get('remoteJid', '')
@@ -172,6 +177,7 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                     logger.info(f"🤖 [WA_AI_START] Calling AgentKit for business={business_id}, message='{message_text[:50]}...'")
                     
                     ai_service = get_ai_service()
+                    ai_response = None  # Initialize to catch any issues
                     
                     try:
                         ai_response = ai_service.generate_response_with_agent(
@@ -189,7 +195,13 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                             is_first_turn=(len(previous_messages) == 0)  # First message = no history
                         )
                         ai_time = time.time() - ai_start
-                        print(f"✅ [WA_AI_DONE] Agent response received in {ai_time:.2f}s")
+                        
+                        # 🔥 CRITICAL CHECK: Verify response is not None/empty
+                        if not ai_response:
+                            print(f"⚠️ [WA_AI_EMPTY] Agent returned empty response!")
+                            ai_response = "סליחה, לא הבנתי. אפשר לנסח מחדש?"
+                        
+                        print(f"✅ [WA_AI_DONE] Agent response received in {ai_time:.2f}s: '{ai_response[:100]}...'")
                         logger.info(f"⏱️ AI Agent response took: {ai_time:.2f}s")
                     except Exception as ai_error:
                         ai_time = time.time() - ai_start
@@ -201,8 +213,18 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         ai_response = "סליחה, אני לא יכול לעזור לך כרגע. בבקשה נסה שוב או התקשר אלינו."
                     
                     # ⚡ STEP 5: Send response
+                    print(f"📤 [WA_SEND_START] About to send response to {jid[:20]}... (len={len(ai_response)})")
                     send_start = time.time()
-                    send_result = wa_service.send_message(jid, ai_response)
+                    
+                    try:
+                        send_result = wa_service.send_message(jid, ai_response)
+                        print(f"✅ [WA_SEND_OK] Sent successfully: {send_result}")
+                    except Exception as send_error:
+                        print(f"❌ [WA_SEND_ERROR] Failed to send: {send_error}")
+                        logger.error(f"❌ WhatsApp send failed: {send_error}")
+                        import traceback
+                        traceback.print_exc()
+                        send_result = {"status": "error", "error": str(send_error)}
                     logger.info(f"⏱️ send_message took: {time.time() - send_start:.2f}s")
                     logger.info(f"⏱️ TOTAL processing: {time.time() - process_start:.2f}s")
                     
@@ -251,7 +273,16 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                     db.session.commit()
                     
                 except Exception as msg_error:
-                    logger.error(f"WhatsApp message processing error: {msg_error}")
+                    logger.error(f"❌ WhatsApp message processing error: {msg_error}")
+                    import traceback
+                    traceback.print_exc()
+                    
+                    # Try to send error message to user
+                    if jid:
+                        try:
+                            wa_service.send_message(jid, "סליחה, נתקלתי בבעיה. אנא נסה שוב.")
+                        except:
+                            pass
                     continue
                     
     except Exception as e:

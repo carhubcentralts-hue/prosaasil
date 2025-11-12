@@ -4,6 +4,12 @@ AgentLocator is a Hebrew CRM system for real estate professionals, designed to a
 
 # Recent Changes
 
+**Build 102 (November 12, 2025):**
+- **🔥 CRITICAL FIX #1**: Added comprehensive error handling to WhatsApp webhook - now catches send failures with detailed logging and traceback
+- **🔥 CRITICAL FIX #2**: Added thread crash protection - exceptions in worker threads no longer cause silent failures
+- **🔥 CRITICAL FIX #3**: Added fallback error messages - if send fails, bot attempts to notify user before giving up
+- **🐛 DEBUG ENHANCEMENT**: Added granular logging around send_message - `[WA_SEND_START]`, `[WA_SEND_OK]`, `[WA_SEND_ERROR]` for debugging send failures
+
 **Build 101 (November 12, 2025):**
 - **🔥 CRITICAL FIX**: Fixed WhatsApp message delivery failures - BaileysProvider now auto-restarts Baileys when offline and retries message send (was requiring manual frontend refresh to trigger reconnection and flush pending messages)
 - **🐛 ROOT CAUSE FIX**: Fixed `_check_health()` to query actual WhatsApp connection status (`/whatsapp/{tenant}/status`) instead of just service health (`/health`) - was reporting healthy even when WhatsApp disconnected, causing silent message drops
