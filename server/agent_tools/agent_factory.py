@@ -307,15 +307,15 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             """
             Create a new appointment in the calendar
             
-            CRITICAL: Agent should NEVER ask for phone by voice!
-            Phone is automatically captured from call/WhatsApp context.
+            CRITICAL: Must have valid customer_phone before calling this!
+            Agent MUST collect phone via DTMF (keypad input) BEFORE booking.
             
             Args:
                 treatment_type: Type of treatment (required)
                 start_iso: Start time in ISO format (required)
                 end_iso: End time in ISO format (required)
-                customer_phone: Leave EMPTY - system captures automatically
-                customer_name: Customer name (optional)
+                customer_phone: Customer phone number (required - collected via DTMF)
+                customer_name: Customer name (required - collected verbally)
                 notes: Additional notes (optional)
             """
             try:
@@ -336,15 +336,59 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 context = getattr(g, 'agent_context', None)
                 session = None  # TODO: pass session if available
                 
-                # 🔥 CRITICAL: NO DEFAULT NAME! Agent MUST provide it!
+                # 🔥 CRITICAL: Validate both NAME and PHONE!
                 if not customer_name or customer_name.strip() in ["", "לקוח", "customer"]:
-                    error_msg = "חובה לציין שם לקוח לפני קביעת תור! שאל: 'על איזה שם לרשום?'"
+                    error_msg = "חובה לציין שם לקוח לפני קביעת תור! שאל: 'מה השם שלך?'"
                     logger.error(f"❌ calendar_create_appointment_wrapped: {error_msg}")
                     return {
                         "ok": False,
                         "error": "missing_name",
                         "message": error_msg
                     }
+                
+                # 🔥 NEW: Validate phone was collected via DTMF
+                if not customer_phone or len(customer_phone.strip()) < 9:
+                    error_msg = "חובה לאסוף מספר טלפון לפני קביעת תור! בקש: 'הקלד את מספר הטלפון במקשים ולחץ #'"
+                    logger.error(f"❌ calendar_create_appointment_wrapped: {error_msg}")
+                    return {
+                        "ok": False,
+                        "error": "missing_phone",
+                        "message": error_msg
+                    }
+                
+                # 🔥 CRITICAL: Validate date/time to ensure calendar was checked
+                from datetime import datetime
+                import pytz
+                try:
+                    tz = pytz.timezone("Asia/Jerusalem")
+                    now = datetime.now(tz)
+                    start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
+                    
+                    # Check 1: Not in the past
+                    if start_dt < now:
+                        error_msg = "לא ניתן לקבוע תור בעבר! בדוק שוב את היומן עם calendar_find_slots"
+                        logger.error(f"❌ calendar_create_appointment: Past date detected - {start_iso}")
+                        return {"ok": False, "error": "past_date", "message": error_msg}
+                    
+                    # Check 2: Within reasonable timeframe (not >6 months ahead)
+                    six_months = now + timedelta(days=180)
+                    if start_dt > six_months:
+                        error_msg = "תאריך רחוק מדי! בדוק שהתאריך נכון"
+                        logger.error(f"❌ calendar_create_appointment: Date too far - {start_iso}")
+                        return {"ok": False, "error": "date_too_far", "message": error_msg}
+                    
+                    # Check 3: Within business hours (09:00-22:00)
+                    hour = start_dt.hour
+                    if hour < 9 or hour >= 22:
+                        error_msg = f"השעה {hour}:00 מחוץ לשעות הפעילות (09:00-22:00)! קרא ל-calendar_find_slots לשעות פנויות"
+                        logger.error(f"❌ calendar_create_appointment: Outside business hours - {hour}:00")
+                        return {"ok": False, "error": "outside_hours", "message": error_msg}
+                    
+                    logger.info(f"✅ Time validation passed: {start_iso}")
+                except Exception as e:
+                    error_msg = f"תאריך/שעה לא תקינים! השתמש ב-calendar_find_slots כדי למצוא זמנים פנויים"
+                    logger.error(f"❌ calendar_create_appointment: Invalid date format - {e}")
+                    return {"ok": False, "error": "invalid_date", "message": error_msg}
                 
                 # Build input - _choose_phone will handle phone fallback
                 input_data = CreateAppointmentInput(
