@@ -1,5 +1,5 @@
-import React from 'react';
-import React, { useState, useEffect } from 'react';
+import type React from 'react';
+import { useState, useEffect } from 'react';
 import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot, Plus, Edit, Trash2 } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
@@ -215,11 +215,6 @@ export function SettingsPage() {
     sat: true
   });
 
-  // ✅ NEW: Working hours state (opening/closing times)
-  const [workingHours, setWorkingHours] = useState({
-    opening: '09:00',
-    closing: '18:00'
-  });
 
   useEffect(() => {
     loadSettings();
@@ -254,7 +249,7 @@ export function SettingsPage() {
           opening_hours_json: data.opening_hours_json
         });
 
-        // ✅ NEW: Load working days from opening_hours_json
+        // ✅ Load working days from opening_hours_json
         if (data.opening_hours_json) {
           const days = data.opening_hours_json;
           setWorkingDays({
@@ -266,13 +261,6 @@ export function SettingsPage() {
             fri: !!days.fri,
             sat: !!days.sat
           });
-
-          // ✅ NEW: Load working hours from first available day
-          const firstDay = Object.keys(days).find(d => days[d]);
-          if (firstDay && days[firstDay] && days[firstDay][0]) {
-            const [opening, closing] = days[firstDay][0];
-            setWorkingHours({ opening, closing });
-          }
         }
       } else {
         console.error('Failed to load business settings');
@@ -316,14 +304,15 @@ export function SettingsPage() {
     try {
       setSaving(true);
 
-      // ✅ FIXED: Preserve existing hours, use current workingHours selection
+      // ✅ ARCHITECT FIX: Preserve ALL existing hours, only add/remove days
       const opening_hours_json: Record<string, string[][]> = {};
-      const currentHours = [[workingHours.opening, workingHours.closing]];
+      const existingHours = appointmentSettings.opening_hours_json || {};
+      const defaultHours = [["09:00", "18:00"]]; // Only for NEW days
 
       Object.keys(workingDays).forEach((day) => {
         if (workingDays[day as keyof typeof workingDays]) {
-          // ✅ Use current selected hours for all active days
-          opening_hours_json[day] = currentHours;
+          // ✅ Keep existing hours if day was already active, use default only for NEW days
+          opening_hours_json[day] = existingHours[day] || defaultHours;
         }
         // ✅ If unchecked, day is removed (not included in opening_hours_json)
       });
@@ -622,11 +611,14 @@ export function SettingsPage() {
                     <h4 className="font-medium text-gray-900 mb-4">שעות פעילות</h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת פתיחה</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת פתיחה (ברירת מחדל)</label>
+                        <p className="text-sm text-gray-500 mb-2">
+                          השעות הללו משמשות רק כברירת מחדל בעת קביעת תורים. לשינוי שעות ספציפיות לכל יום, השתמש בהגדרות מתקדמות.
+                        </p>
                         <select 
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          value={workingHours.opening}
-                          onChange={(e) => setWorkingHours({...workingHours, opening: e.target.value})}
+                          defaultValue="09:00"
+                          disabled
                           data-testid="select-opening-time"
                         >
                           {Array.from({length: 24}, (_, i) => {
@@ -636,11 +628,14 @@ export function SettingsPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת סגירה</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת סגירה (ברירת מחדל)</label>
+                        <p className="text-sm text-gray-500 mb-2">
+                          השעות הללו משמשות רק כברירת מחדל בעת קביעת תורים. לשינוי שעות ספציפיות לכל יום, השתמש בהגדרות מתקדמות.
+                        </p>
                         <select 
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          value={workingHours.closing}
-                          onChange={(e) => setWorkingHours({...workingHours, closing: e.target.value})}
+                          defaultValue="18:00"
+                          disabled
                           data-testid="select-closing-time"
                         >
                           {Array.from({length: 24}, (_, i) => {
