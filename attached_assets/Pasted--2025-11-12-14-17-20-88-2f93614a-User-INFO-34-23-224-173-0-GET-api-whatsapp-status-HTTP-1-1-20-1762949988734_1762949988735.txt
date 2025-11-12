@@ -1,0 +1,113 @@
+
+2025-11-12 14:17:20.88
+2f93614a
+User
+INFO: 34.23.224.173:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-11-12 14:17:21.09
+2f93614a
+User
+INFO: 34.23.224.173:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+
+2025-11-12 14:17:23.88
+2f93614a
+User
+INFO: 34.23.224.173:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-11-12 14:17:24.10
+2f93614a
+User
+INFO: 34.23.224.173:0 - "GET /api/whatsapp/qr HTTP/1.1" 200 OK
+2025-11-12 14:17:25.92
+2f93614a
+User
+INFO: 34.23.224.173:0 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+2025-11-12 14:17:38.96
+8b02fc71
+System
+system: received signal terminated
+2025-11-12 14:18:20.82
+2f93614a
+User
+🎯 AGENTS_ENABLED = True
+2025-11-12 14:18:22.02
+2f93614a
+User
+🎯 INTENT_DETECTED: other (message: הי...)
+2025-11-12 14:18:22.82
+2f93614a
+User
+⏱️ DB query time: 599ms
+2025-11-12 14:18:25.62
+2f93614a
+User
+✅ MERGED prompt for שי דירות:
+2025-11-12 14:18:25.62
+2f93614a
+User
+Base instructions: 2512 chars
+2025-11-12 14:18:25.62
+2f93614a
+User
++ DB customizations: 2845 chars
+2025-11-12 14:18:25.62
+2f93614a
+User
+= Total: 5552 chars
+2025-11-12 14:18:25.62
+2f93614a
+User
+2025-11-12 14:18:25.62
+2f93614a
+User
+================================================================================
+2025-11-12 14:18:25.62
+2f93614a
+User
+📜 AGENT INSTRUCTIONS (first 500 chars):
+2025-11-12 14:18:25.62
+2f93614a
+User
+================================================================================
+2025-11-12 14:18:25.62
+2f93614a
+User
+Professional booking assistant for שי דירות. ALWAYS respond in HEBREW to customers.
+2025-11-12 14:18:25.62
+2f93614a
+User
+2025-11-12 14:18:25.62
+2f93614a
+User
+TODAY: 2025-11-12 14:18 (Israel)
+2025-11-12 14:18:25.62
+2f93614a
+User
+TOMORROW: 2025-11-13
+2025-11-12 14:18:25.62
+2f93614a
+User
+APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+2025-11-12 14:18:25.62
+2f93614a
+User
+2025-11-12 14:18:25.62
+2f93614a
+User
+🔒 CRITICAL RULES:
+2025-11-12 14:18:25.62
+2f93614a
+User
+2025-11-12 14:18:25.62
+2f93614a
+User
+1. NEVER HALLUCINATE RESULTS
+2025-11-12 14:18:25.62
+2f93614a
+User
+- FORBIDDEN: "אני מחפש", "תן לי לבדוק", "אני בודק", tool names
+2025-11-12 14:18:25.62
+2f93614a
+User
+- ALLOWED: Results only: "יש תור ב-17:00", "הפגישה נקבעה"
+2025-11-12 14:18:25.62
+2f93614a
+User
