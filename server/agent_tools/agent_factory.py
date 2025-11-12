@@ -538,9 +538,17 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 }
         
         # 🔥 NEW: Business info wrapper - pre-inject business_id
-        from server.agent_tools.tools_business import business_get_info as _business_get_info_impl
-        from functools import partial
-        business_get_info = partial(_business_get_info_impl, business_id=business_id)
+        from server.agent_tools.tools_business import _business_get_info_impl
+        
+        @function_tool
+        def business_get_info():
+            """
+            Get business contact information and details
+            
+            Returns business address, phone number, email, and working hours.
+            Use this when customer asks for location, address, contact details, or hours.
+            """
+            return _business_get_info_impl(business_id=business_id)
         
         tools_to_use = [
             calendar_find_slots_wrapped,

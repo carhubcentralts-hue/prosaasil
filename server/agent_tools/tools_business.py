@@ -23,8 +23,7 @@ class BusinessInfoOutput(BaseModel):
     message: Optional[str] = None
 
 
-@function_tool
-def business_get_info(business_id: Optional[int] = None) -> BusinessInfoOutput:
+def _business_get_info_impl(business_id: Optional[int] = None) -> BusinessInfoOutput:
     """
     Get business contact information and details
     
@@ -91,3 +90,21 @@ def business_get_info(business_id: Optional[int] = None) -> BusinessInfoOutput:
             error="fetch_error",
             message=f"לא ניתן לטעון פרטי עסק: {error_msg}"
         )
+
+
+# 🔥 Decorated version for agents without business_id injection
+@function_tool
+def business_get_info(business_id: Optional[int] = None) -> BusinessInfoOutput:
+    """
+    Get business contact information and details
+    
+    Returns business address, phone number, email, and working hours.
+    Use this when customer asks for location, address, contact details, or hours.
+    
+    Args:
+        business_id: Business ID (optional - auto-detected from context if not provided)
+        
+    Returns:
+        BusinessInfoOutput with business details
+    """
+    return _business_get_info_impl(business_id)
