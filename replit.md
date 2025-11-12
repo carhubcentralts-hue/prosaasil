@@ -4,6 +4,14 @@ AgentLocator is a Hebrew CRM system for real estate, designed to automate the sa
 
 # Recent Changes
 
+**Build 97 (November 12, 2025):**
+- **🔧 FIX #1: WhatsApp Crash Prevention**: Moved `get_whatsapp_service()` into try/except block in tools_calendar.py to prevent crashes when WhatsApp service unavailable
+- **🔧 FIX #2: WhatsApp Retry Prevention**: Set `max_retries=0` in whatsapp_provider.py to disable automatic retries on confirmation failures (single attempt only)
+- **🔧 FIX #3: Agent Guardrails Enhancement**: Added "תפוס", "פנוי", "תפוס ב" to hallucination detection in ai_service.py - blocks availability claims without calendar_find_slots tool call
+- **🔧 FIX #4: DTMF Context Validation**: Verified complete DTMF flow (dtmf_buffer → customer_phone_dtmf → context['customer_phone'] → g.agent_context) - already working correctly with "סולמית" preserved
+- **🔧 FIX #5: Performance Optimization**: Added 5-minute policy cache in business_policy.py with smart cache bypass for prompt overrides + reduced logging noise (info→debug)
+- **All Fixes Architect-Reviewed**: Comprehensive review confirmed all 5 fixes production-ready with no regressions
+
 **Build 96 (November 12, 2025):**
 - **CRITICAL DB Fix**: Ran migrations to create FAQ table - data will now persist correctly (no more deletions!)
 - **FAQ Semantic Matching Fix**: Lowered similarity threshold from 0.78→0.65 for better Hebrew question matching
