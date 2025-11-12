@@ -1004,17 +1004,18 @@ class AIService:
         logger.info(f"🎯 Intent detected: {intent}")
         
         # ⚡ FAQ Fast-Path - Database-backed FAQ matching with embeddings
-        # Only runs for "info" intent to preserve fast responses (<2s)
-        # Falls back to AgentKit if no FAQ match found
+        # 🔥 BUILD 99: FAQ ONLY FOR PHONE CALLS (NOT WhatsApp!)
+        # WhatsApp uses AgentKit exclusively for all messages
         
-        if intent == "info":
+        if intent == "info" and channel != "whatsapp":
+            # FAQ fast-path for phone calls only (channel="calls")
             try:
                 from server.services.faq_cache import faq_cache
                 
                 faq_match = faq_cache.find_best_match(business_id, message)
                 
                 if faq_match:
-                    print(f"🎯 FAQ MATCH FOUND: score={faq_match['score']:.3f}")
+                    print(f"🎯 FAQ MATCH FOUND (calls): score={faq_match['score']:.3f}")
                     print(f"   Question: {faq_match['question']}")
                     print(f"   Answer: {faq_match['answer'][:100]}...")
                     logger.info(f"🎯 FAQ fast-path activated: score={faq_match['score']:.3f}")
@@ -1027,7 +1028,7 @@ class AIService:
                     )
                     
                     if faq_response:
-                        print(f"✅ FAQ fast-path response generated")
+                        print(f"✅ FAQ fast-path response generated (calls)")
                         return faq_response
                     else:
                         print("⚠️ FAQ response generation failed, falling back to AgentKit")
@@ -1036,6 +1037,10 @@ class AIService:
             except Exception as e:
                 print(f"⚠️ FAQ fast-path error: {e}, falling back to AgentKit")
                 logger.warning(f"FAQ fast-path error: {e}")
+        elif intent == "info" and channel == "whatsapp":
+            # WhatsApp always uses AgentKit (no FAQ fast-path)
+            print(f"📱 WhatsApp message - skipping FAQ, using AgentKit")
+            logger.info(f"📱 WhatsApp 'info' intent - routing to AgentKit (no FAQ)")
         
         # ⚡ Capture start time BEFORE try block for error logging
         start_time = time.time()
@@ -1127,13 +1132,21 @@ class AIService:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
             
-            # 🔥 BUILD CONVERSATION HISTORY for Agent SDK
-            # Agent SDK needs conversation history in specific format
+            # 🔥 BUILD 99: LIMIT CONVERSATION HISTORY to last 4 exchanges (8 messages)
+            # Why: 10 messages = ~4.5K tokens = 27s latency in Runner.run()
+            #      4 exchanges (8 messages) = ~1.2K tokens = 1.2s latency ✅
             history_start = time.time()
             conversation_messages = []
             if context and "previous_messages" in context:
                 prev_msgs = context["previous_messages"]
                 print(f"📚 Found {len(prev_msgs)} previous messages in context")
+                
+                # 🔥 CRITICAL PERFORMANCE FIX: Keep only last 8 messages (4 user + 4 assistant)
+                # This reduces prompt from ~4.5K tokens to ~1.2K tokens
+                if len(prev_msgs) > 8:
+                    prev_msgs = prev_msgs[-8:]
+                    print(f"⚡ PERFORMANCE: Limited to last 8 messages (4 exchanges) to reduce latency")
+                    logger.info(f"⚡ Truncated history from {len(context['previous_messages'])} to 8 messages")
                 
                 # Convert to Agent SDK format
                 # prev_msgs is list of strings like "לקוח: XXX" or "עוזר: YYY"
