@@ -95,6 +95,9 @@ def _process_whatsapp_with_cleanup(tenant_id: str, messages: list):
 def _process_whatsapp_fast(tenant_id: str, messages: list):
     """⚡ FAST background processor - typing first, then response"""
     process_start = time.time()
+    print(f"🚀 [WA_START] Processing {len(messages)} WhatsApp messages for tenant={tenant_id}")
+    logger.info(f"🚀 [WA_START] Processing {len(messages)} messages")
+    
     try:
         from server.services.business_resolver import resolve_business_with_fallback
         from server.whatsapp_provider import get_whatsapp_service
@@ -165,22 +168,37 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                     
                     # ⚡ STEP 4: Agent SDK response with FULL automation (appointments, leads, WhatsApp)
                     ai_start = time.time()
+                    print(f"🤖 [WA_AI_START] Calling generate_response_with_agent for business={business_id}")
+                    logger.info(f"🤖 [WA_AI_START] Calling AgentKit for business={business_id}, message='{message_text[:50]}...'")
+                    
                     ai_service = get_ai_service()
-                    ai_response = ai_service.generate_response_with_agent(
-                        message=message_text,
-                        business_id=business_id,
-                        customer_phone=phone_number,
-                        customer_name=customer.name,
-                        context={
-                            'customer_name': customer.name,
-                            'phone_number': phone_number,
-                            'previous_messages': previous_messages,
-                            'channel': 'whatsapp'
-                        },
-                        channel='whatsapp',
-                        is_first_turn=(len(previous_messages) == 0)  # First message = no history
-                    )
-                    logger.info(f"⏱️ AI Agent response took: {time.time() - ai_start:.2f}s")
+                    
+                    try:
+                        ai_response = ai_service.generate_response_with_agent(
+                            message=message_text,
+                            business_id=business_id,
+                            customer_phone=phone_number,
+                            customer_name=customer.name,
+                            context={
+                                'customer_name': customer.name,
+                                'phone_number': phone_number,
+                                'previous_messages': previous_messages,
+                                'channel': 'whatsapp'
+                            },
+                            channel='whatsapp',
+                            is_first_turn=(len(previous_messages) == 0)  # First message = no history
+                        )
+                        ai_time = time.time() - ai_start
+                        print(f"✅ [WA_AI_DONE] Agent response received in {ai_time:.2f}s")
+                        logger.info(f"⏱️ AI Agent response took: {ai_time:.2f}s")
+                    except Exception as ai_error:
+                        ai_time = time.time() - ai_start
+                        print(f"❌ [WA_AI_ERROR] Agent failed after {ai_time:.2f}s: {ai_error}")
+                        logger.error(f"❌ Agent error after {ai_time:.2f}s: {ai_error}")
+                        import traceback
+                        traceback.print_exc()
+                        # Fallback response
+                        ai_response = "סליחה, אני לא יכול לעזור לך כרגע. בבקשה נסה שוב או התקשר אלינו."
                     
                     # ⚡ STEP 5: Send response
                     send_start = time.time()

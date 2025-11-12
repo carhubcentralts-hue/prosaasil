@@ -123,12 +123,18 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
             import time
             agent_start = time.time()
             
+            print(f"🔨 CALLING create_booking_agent(business_id={business_id}, channel={channel})")
+            logger.info(f"🔨 Creating agent for business={business_id}, channel={channel}")
+            
             new_agent = create_booking_agent(
                 business_name=business_name,
                 custom_instructions=custom_instructions,
                 business_id=business_id,
                 channel=channel
             )
+            
+            print(f"✅ create_booking_agent RETURNED: {new_agent is not None}")
+            logger.info(f"✅ create_booking_agent returned successfully")
             
             agent_creation_time = (time.time() - agent_start) * 1000
             print(f"⏱️  AGENT_CREATION_TIME: {agent_creation_time:.0f}ms")

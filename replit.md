@@ -4,6 +4,12 @@ AgentLocator is a Hebrew CRM system for real estate, designed to automate the sa
 
 # Recent Changes
 
+**Build 98 (November 12, 2025) - IN PROGRESS:**
+- **🐛 BUG INVESTIGATION: WhatsApp Agent Timeout**: User reports Agent not responding to WhatsApp messages - logs show prompt loading but no Agent response
+- **📊 Debug Logging Added**: Enhanced logging in routes_webhook.py (WA_START, WA_AI_START, WA_AI_DONE markers) and agent_factory.py (create_booking_agent entry/exit)
+- **🔍 Root Cause Hypothesis**: Agent creation or Runner.run() may be hanging/timing out on WhatsApp channel
+- **⚠️ STATUS**: Awaiting new logs from user to identify exact failure point
+
 **Build 97 (November 12, 2025):**
 - **🔧 FIX #1: WhatsApp Crash Prevention**: Moved `get_whatsapp_service()` into try/except block in tools_calendar.py to prevent crashes when WhatsApp service unavailable
 - **🔧 FIX #2: WhatsApp Retry Prevention**: Set `max_retries=0` in whatsapp_provider.py to disable automatic retries on confirmation failures (single attempt only)
