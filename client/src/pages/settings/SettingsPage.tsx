@@ -214,6 +214,12 @@ export function SettingsPage() {
     sat: true
   });
 
+  // ✅ NEW: Default hours state for ALL days
+  const [defaultHours, setDefaultHours] = useState({
+    opening: '09:00',
+    closing: '18:00'
+  });
+
 
   useEffect(() => {
     loadSettings();
@@ -260,6 +266,13 @@ export function SettingsPage() {
             fri: !!days.fri,
             sat: !!days.sat
           });
+
+          // ✅ Load default hours from first available day
+          const firstDay = Object.keys(days).find(d => days[d]);
+          if (firstDay && days[firstDay] && days[firstDay][0]) {
+            const [opening, closing] = days[firstDay][0];
+            setDefaultHours({ opening, closing });
+          }
         }
       } else {
         console.error('Failed to load business settings');
@@ -303,15 +316,15 @@ export function SettingsPage() {
     try {
       setSaving(true);
 
-      // ✅ ARCHITECT FIX: Preserve ALL existing hours, only add/remove days
+      // ✅ Build opening_hours_json: preserve existing hours OR use selected default
       const opening_hours_json: Record<string, string[][]> = {};
       const existingHours = appointmentSettings.opening_hours_json || {};
-      const defaultHours = [["09:00", "18:00"]]; // Only for NEW days
+      const selectedDefaultHours = [[defaultHours.opening, defaultHours.closing]]; // User-selected default
 
       Object.keys(workingDays).forEach((day) => {
         if (workingDays[day as keyof typeof workingDays]) {
-          // ✅ Keep existing hours if day was already active, use default only for NEW days
-          opening_hours_json[day] = existingHours[day] || defaultHours;
+          // ✅ Keep existing hours if day was already active, use user-selected default for NEW days
+          opening_hours_json[day] = existingHours[day] || selectedDefaultHours;
         }
         // ✅ If unchecked, day is removed (not included in opening_hours_json)
       });
@@ -608,16 +621,17 @@ export function SettingsPage() {
                 {!appointmentSettings.allow_24_7 && (
                   <div className="border-t pt-4 mt-6">
                     <h4 className="font-medium text-gray-900 mb-4">שעות פעילות</h4>
+                    <p className="text-sm text-gray-500 mb-4">
+                      בחרו את שעות הפעילות המוגדרות ברירת מחדל לכל הימים. ניתן לשנות שעות ספציפיות לכל יום בהגדרות מתקדמות.
+                    </p>
+                    
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת פתיחה (ברירת מחדל)</label>
-                        <p className="text-sm text-gray-500 mb-2">
-                          השעות הללו משמשות רק כברירת מחדל בעת קביעת תורים. לשינוי שעות ספציפיות לכל יום, השתמש בהגדרות מתקדמות.
-                        </p>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת פתיחה</label>
                         <select 
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          defaultValue="09:00"
-                          disabled
+                          value={defaultHours.opening}
+                          onChange={(e) => setDefaultHours({...defaultHours, opening: e.target.value})}
                           data-testid="select-opening-time"
                         >
                           {Array.from({length: 24}, (_, i) => {
@@ -627,14 +641,11 @@ export function SettingsPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת סגירה (ברירת מחדל)</label>
-                        <p className="text-sm text-gray-500 mb-2">
-                          השעות הללו משמשות רק כברירת מחדל בעת קביעת תורים. לשינוי שעות ספציפיות לכל יום, השתמש בהגדרות מתקדמות.
-                        </p>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">שעת סגירה</label>
                         <select 
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          defaultValue="18:00"
-                          disabled
+                          value={defaultHours.closing}
+                          onChange={(e) => setDefaultHours({...defaultHours, closing: e.target.value})}
                           data-testid="select-closing-time"
                         >
                           {Array.from({length: 24}, (_, i) => {
@@ -644,9 +655,6 @@ export function SettingsPage() {
                         </select>
                       </div>
                     </div>
-                    <p className="mt-2 text-sm text-gray-500">
-                      שעות אלה יחולו על כל ימות השבוע. לשעות מפורטות לפי יום, השתמש במצב פתוח 24/7 והגדר בהגדרות מתקדמות.
-                    </p>
 
                     <div className="mt-4">
                       <label className="block text-sm font-medium text-gray-700 mb-2">ימי פעילות</label>
