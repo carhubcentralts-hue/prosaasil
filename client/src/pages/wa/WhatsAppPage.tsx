@@ -399,13 +399,12 @@ export function WhatsAppPage() {
         // Reload messages immediately
         const messagesResponse = await http.get<{messages: WhatsAppMessageData[]}>(`/api/crm/threads/${selectedThread.phone}/messages`);
         setMessages(messagesResponse.messages || []);
-        alert('הודעה נשלחה בהצלחה');
+        console.log('✅ הודעה נשלחה בהצלחה');
       } else {
-        alert('שגיאה בשליחת הודעה: ' + (response.error || 'שגיאה לא ידועה'));
+        console.error('❌ שגיאה בשליחת הודעה:', response.error);
       }
     } catch (error: any) {
-      console.error('Error sending message:', error);
-      alert('שגיאה בשליחת הודעה: ' + (error.message || 'שגיאת רשת'));
+      console.error('❌ שגיאה בשליחת הודעה:', error.message);
     } finally {
       setSendingMessage(false);
     }

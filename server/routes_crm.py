@@ -177,9 +177,13 @@ def api_thread_messages(thread_id):
     try:
         business_id = get_business_id()
         
-        messages = WhatsAppMessage.query.filter_by(
-            business_id=business_id,
-            to_number=thread_id
+        # Get messages where thread_id is either sender or receiver
+        messages = WhatsAppMessage.query.filter(
+            WhatsAppMessage.business_id == business_id,
+            or_(
+                WhatsAppMessage.from_number == thread_id,
+                WhatsAppMessage.to_number == thread_id
+            )
         ).order_by(WhatsAppMessage.created_at.asc()).all()
         
         # Convert to JSON format
