@@ -122,7 +122,9 @@ export function SettingsPage() {
   // FAQ Query
   const { data: faqs = [], isLoading: faqsLoading, error: faqsError } = useQuery<FAQ[]>({
     queryKey: ['/api/business/faqs'],
-    enabled: activeTab === 'faqs'
+    enabled: activeTab === 'faqs',
+    retry: 1,
+    refetchOnMount: true
   });
   
   // FAQ Mutations
@@ -752,7 +754,14 @@ export function SettingsPage() {
 
                   {faqsError && (
                     <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
-                      שגיאה בטעינת שאלות נפוצות
+                      <p className="font-medium mb-1">שגיאה בטעינת שאלות נפוצות</p>
+                      <p className="text-sm">{String(faqsError)}</p>
+                      <button 
+                        onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] })}
+                        className="mt-2 text-sm underline hover:no-underline"
+                      >
+                        נסה שוב
+                      </button>
                     </div>
                   )}
 
