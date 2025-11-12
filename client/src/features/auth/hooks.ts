@@ -133,7 +133,13 @@ export function useAuthState(): AuthState & {
         } catch (error) {
           if (!isMountedRef.current) return;
           console.log('❌ No valid session found');
-          setState(prev => ({ ...prev, isLoading: false }));
+          setState({
+            user: null,
+            tenant: null,
+            isLoading: false,
+            isAuthenticated: false,
+            original_user: null,
+          });
         }
       };
       

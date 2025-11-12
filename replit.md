@@ -2,6 +2,15 @@
 
 AgentLocator is a Hebrew CRM system for real estate professionals, designed to automate the sales pipeline with an AI-powered assistant. It processes calls in real-time, intelligently collects lead information, and schedules meetings using advanced audio processing for natural conversations. The system aims to enhance efficiency and sales conversion through customizable AI assistants and business branding, providing a robust, multi-tenant platform with cutting-edge AI communication tools.
 
+# Recent Changes
+
+**Build 100 (November 12, 2025):**
+- **🚨 CRITICAL SECURITY FIX**: Fixed authentication bypass vulnerability in `useAuthState()` - catch block now explicitly sets `isAuthenticated: false` and clears user data (was using `...prev` which could leak authentication state)
+- **🔧 FIX #1: WhatsApp UI Crash Fix**: Removed blocking `alert()` calls in sendMessage - prevents page freeze when sending messages
+- **🔧 FIX #2: Message Loading Fix**: Fixed `/api/crm/threads/{id}/messages` to query both `from_number` AND `to_number` - now loads complete conversations (was missing outbound messages)
+- **🔧 FIX #3: Real-Time Polling**: Added 3-second polling for WhatsApp messages with bubble UI display - no more manual refresh needed
+- **🔒 Security Impact**: All protected routes (including `/app/whatsapp`) now properly enforce authentication - direct URL access without valid session redirects to login
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

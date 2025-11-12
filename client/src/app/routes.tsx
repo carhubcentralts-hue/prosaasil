@@ -1,4 +1,3 @@
-import React from 'react';
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthGuard } from './layout/AuthGuard';
