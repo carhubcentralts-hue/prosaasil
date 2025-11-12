@@ -31,7 +31,7 @@ AGENTS_ENABLED = os.getenv("AGENTS_ENABLED", "1") == "1"
 # 🔥 SINGLETON CACHE: Store agents by (business_id, channel) key
 _AGENT_CACHE: Dict[Tuple[int, str], Tuple[Agent, datetime]] = {}
 _AGENT_LOCK = threading.Lock()
-_CACHE_TTL_MINUTES = 30  # Agent lives for 30 minutes
+_CACHE_TTL_MINUTES = 1  # 🔥 REDUCED: Agent lives for 1 minute (allows fast prompt updates)
 
 def invalidate_agent_cache(business_id: int):
     """
