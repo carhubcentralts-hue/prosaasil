@@ -204,6 +204,17 @@ export function SettingsPage() {
     min_notice_min: 0
   });
 
+  // ✅ NEW: Working days state (controlled checkboxes)
+  const [workingDays, setWorkingDays] = useState({
+    sun: true,
+    mon: true,
+    tue: true,
+    wed: true,
+    thu: true,
+    fri: true,
+    sat: true
+  });
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -236,6 +247,20 @@ export function SettingsPage() {
           min_notice_min: data.min_notice_min || 0,
           opening_hours_json: data.opening_hours_json
         });
+
+        // ✅ NEW: Load working days from opening_hours_json
+        if (data.opening_hours_json) {
+          const days = data.opening_hours_json;
+          setWorkingDays({
+            sun: !!days.sun,
+            mon: !!days.mon,
+            tue: !!days.tue,
+            wed: !!days.wed,
+            thu: !!days.thu,
+            fri: !!days.fri,
+            sat: !!days.sat
+          });
+        }
       } else {
         console.error('Failed to load business settings');
       }
@@ -277,6 +302,19 @@ export function SettingsPage() {
   const saveAppointmentSettings = async () => {
     try {
       setSaving(true);
+
+      // ✅ FIXED: Preserve existing hours, only add/remove days
+      const opening_hours_json: Record<string, string[][]> = {};
+      const existingHours = appointmentSettings.opening_hours_json || {};
+      const defaultHours = [["09:00", "18:00"]]; // Fallback for new days
+
+      Object.keys(workingDays).forEach((day) => {
+        if (workingDays[day as keyof typeof workingDays]) {
+          // ✅ Use existing hours if available, otherwise use default
+          opening_hours_json[day] = existingHours[day] || defaultHours;
+        }
+        // ✅ If unchecked, day is removed (not included in opening_hours_json)
+      });
       
       const response = await fetch('/api/business/current/settings', {
         method: 'PUT',
@@ -284,7 +322,10 @@ export function SettingsPage() {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify(appointmentSettings)
+        body: JSON.stringify({
+          ...appointmentSettings,
+          opening_hours_json  // ✅ Include working days!
+        })
       });
       
       if (response.ok) {
@@ -614,7 +655,11 @@ export function SettingsPage() {
                           <label key={day.value} className="flex items-center space-x-2 space-x-reverse cursor-pointer p-2 border rounded hover:bg-gray-50">
                             <input
                               type="checkbox"
-                              defaultChecked={true}
+                              checked={workingDays[day.value as keyof typeof workingDays]}
+                              onChange={(e) => setWorkingDays({
+                                ...workingDays,
+                                [day.value]: e.target.checked
+                              })}
                               className="rounded text-blue-600 focus:ring-blue-500"
                               data-testid={`checkbox-day-${day.value}`}
                             />
