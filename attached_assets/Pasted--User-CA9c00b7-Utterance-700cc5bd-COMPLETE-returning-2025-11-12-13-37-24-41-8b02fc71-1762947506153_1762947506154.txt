@@ -1,0 +1,107 @@
+
+User
+🏁 [CA9c00b7] Utterance 700cc5bd COMPLETE: returning 'מה מחיר'
+2025-11-12 13:37:24.41
+8b02fc71
+User
+[LATENCY] final_wait=0.85s, utterance_total=0.85s
+2025-11-12 13:37:24.41
+8b02fc71
+User
+⏱️ [STT_STREAM] _utterance_end took 0.850s, result: 'מה מחיר'
+2025-11-12 13:37:24.41
+8b02fc71
+User
+🎤 USER: מה מחיר
+2025-11-12 13:37:24.41
+8b02fc71
+User
+📊 ASR_LATENCY: 0.850s (target: <0.7s)
+2025-11-12 13:37:24.41
+8b02fc71
+User
+🆕 FAQ cache MISS for business 1, loading...
+2025-11-12 13:37:24.41
+8b02fc71
+User
+🆕 FAQ cache MISS for business 1, loading...
+2025-11-12 13:37:24.41
+8b02fc71
+User
+⏭️ [FAQ_MISS] No match found (search took 7ms) → proceeding to AgentKit
+2025-11-12 13:37:24.45
+8b02fc71
+User
+📞 DEBUG: Caller phone = 'None' (type: NoneType)
+2025-11-12 13:37:24.45
+8b02fc71
+User
+self.phone_number exists: True
+2025-11-12 13:37:24.45
+8b02fc71
+User
+self.phone_number value: 'None'
+2025-11-12 13:37:24.45
+8b02fc71
+User
+🎯 AGENTS_ENABLED = True
+2025-11-12 13:37:24.45
+8b02fc71
+User
+🎯 INTENT_MATCH: pattern='^(מה|איזה|איזו|כמה|למה|מדוע|איך|היכן|מתי)\s' matched in 'מה מחיר'
+2025-11-12 13:37:24.45
+8b02fc71
+User
+🎯 INTENT_DETECTED: info (message: מה מחיר...)
+
+2025-11-12 13:37:24.45
+8b02fc71
+User
+🆕 FAQ cache MISS for business 1, loading...
+2025-11-12 13:37:28.30
+8b02fc71
+User
+🔢 Generated 2 embeddings in 3689ms
+2025-11-12 13:37:28.30
+8b02fc71
+User
+✅ Loaded 2 FAQs for business 1
+2025-11-12 13:37:28.60
+8b02fc71
+User
+🔢 Generated 1 embeddings in 296ms
+2025-11-12 13:37:28.61
+8b02fc71
+User
+🔍 FAQ matching took 4153ms
+2025-11-12 13:37:28.61
+8b02fc71
+User
+Best match: score=0.825, question='מה המחיר?'
+2025-11-12 13:37:28.61
+8b02fc71
+User
+🎯 FAQ MATCH FOUND: score=0.825
+2025-11-12 13:37:28.61
+8b02fc71
+User
+Question: מה המחיר?
+2025-11-12 13:37:28.61
+8b02fc71
+User
+Answer: המחיר לחדר קריוקי הוא 100 שקלים לשעה...
+2025-11-12 13:37:28.61
+8b02fc71
+User
+2025-11-12 13:37:29.97
+8b02fc71
+User
+⚡ FAQ response generated in 1366ms
+2025-11-12 13:37:29.97
+8b02fc71
+User
+✅ FAQ fast-path response generated
+2025-11-12 13:37:29.99
+8b02fc71
+User
+🤖 AGENT_
