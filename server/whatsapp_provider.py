@@ -53,17 +53,29 @@ class BaileysProvider(Provider):
             logger.warning("INTERNAL_SECRET not set - auto-restart will fail!")
 
     def _check_health(self) -> bool:
-        """⚡ Check Baileys service health with caching"""
+        """⚡ Check Baileys WhatsApp connection status with caching"""
         now = time.time()
         if now - self._last_health_check < self._health_cache_duration:
             return self._health_status
             
         try:
+            # 🔥 FIX: Check actual WhatsApp connection, not just service health!
+            headers = {"X-Internal-Secret": self.internal_secret}
+            tenant_id = "business_1"  # Default tenant
+            
             response = self._session.get(
-                f"{self.outbound_url}/health", 
+                f"{self.outbound_url}/whatsapp/{tenant_id}/status",
+                headers=headers,
                 timeout=1.0  # ⚡ Fast health check
             )
-            self._health_status = response.status_code == 200
+            
+            if response.status_code == 200:
+                data = response.json()
+                # Check if actually connected to WhatsApp, not just service running
+                self._health_status = data.get("connected", False)
+            else:
+                self._health_status = False
+                
             self._last_health_check = now
             return self._health_status
         except Exception as e:

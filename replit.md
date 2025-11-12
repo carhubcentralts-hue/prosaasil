@@ -6,6 +6,7 @@ AgentLocator is a Hebrew CRM system for real estate professionals, designed to a
 
 **Build 101 (November 12, 2025):**
 - **🔥 CRITICAL FIX**: Fixed WhatsApp message delivery failures - BaileysProvider now auto-restarts Baileys when offline and retries message send (was requiring manual frontend refresh to trigger reconnection and flush pending messages)
+- **🐛 ROOT CAUSE FIX**: Fixed `_check_health()` to query actual WhatsApp connection status (`/whatsapp/{tenant}/status`) instead of just service health (`/health`) - was reporting healthy even when WhatsApp disconnected, causing silent message drops
 - **⚡ Impact**: Bot now responds to WhatsApp messages immediately even when Baileys crashes - complete autonomous recovery without user intervention
 
 **Build 100 (November 12, 2025):**
