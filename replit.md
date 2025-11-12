@@ -4,12 +4,18 @@ AgentLocator is a Hebrew CRM system for real estate professionals, designed to a
 
 # Recent Changes
 
+**Build 105 (November 12, 2025):**
+- **🔥 CRITICAL POLICY CHANGE**: WhatsApp sends now strictly **opt-in only** - Agent ONLY uses `whatsapp_send` when customer explicitly requests "שלח לי בווטסאפ" (exception: automatic appointment confirmations on phone calls sent by system, not Agent)
+- **🔧 FIX #1: Removed auto-location from confirmations**: WhatsApp appointment confirmations no longer include address/phone automatically - keeps confirmations simple (date/time/treatment only)
+- **🔧 FIX #2: FAQ handler bypass for location**: Removed location patterns (`איפה|מיקום|כתובת`) from FAQ fast-path - Agent now handles these queries with opt-in WhatsApp delivery
+- **🔧 FIX #3: Enhanced error handling**: `whatsapp_send` failures now return graceful Hebrew errors ("לא זמין כרגע") with detailed logging instead of crashing
+- **🔧 FIX #4: Aligned Agent instructions**: Resolved contradicting workflows - Agent instructions now consistently enforce opt-in WhatsApp policy across all scenarios (location, payment links, contracts)
+- **✅ VERIFIED**: Phone normalization (0504294724 → +972504294724) confirmed working via `normalize_il_phone` utility
+- **⚡ Impact**: Privacy-first WhatsApp usage; Agent asks permission before every non-appointment send; location questions answered verbally with optional WhatsApp follow-up
+
 **Build 104 (November 12, 2025):**
 - **🔥 CRITICAL FIX #1**: Fixed WhatsApp prompt loading - now explicitly checks `if channel in prompt_obj` before fallback, ensuring business-specific WhatsApp prompts load correctly (was falling back to real-estate default)
 - **🔥 CRITICAL FIX #2**: Fixed multi-tenant business resolution - updated `resolve_business_with_fallback` to query actual schema columns (`phone_number`/`whatsapp_number` instead of non-existent `phone_e164`), preventing SQL crashes during auto-detection
-- **✨ ENHANCEMENT #1**: Added location/contact details to WhatsApp appointment confirmations - automatically includes business address and phone from BusinessSettings when sending confirmations after phone bookings
-- **✨ ENHANCEMENT #2**: Extended Agent instructions - Agent now knows to send location/contact info via WhatsApp when requested during phone calls using `whatsapp_send` tool
-- **⚡ Impact**: WhatsApp conversations now use correct business prompts (Vibe Rooms, not default real-estate); multi-tenant routing works without crashes; appointment confirmations include helpful location details
 
 **Build 102 (November 12, 2025):**
 - **🔥 CRITICAL FIX #1**: Added comprehensive error handling to WhatsApp webhook - now catches send failures with detailed logging and traceback
