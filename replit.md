@@ -6,10 +6,12 @@ AgentLocator is a Hebrew CRM system for real estate professionals, designed to a
 
 **Build 100 (November 12, 2025):**
 - **🚨 CRITICAL SECURITY FIX**: Fixed authentication bypass vulnerability in `useAuthState()` - catch block now explicitly sets `isAuthenticated: false` and clears user data (was using `...prev` which could leak authentication state)
+- **🔥 CRITICAL BAILEYS FIX**: Fixed auto-reconnect issue - Baileys now automatically cleans up socket + deletes session + reconnects on ANY disconnect (was keeping stale socket, preventing auto-reconnect until frontend refresh)
 - **🔧 FIX #1: WhatsApp UI Crash Fix**: Removed blocking `alert()` calls in sendMessage - prevents page freeze when sending messages
 - **🔧 FIX #2: Message Loading Fix**: Fixed `/api/crm/threads/{id}/messages` to query both `from_number` AND `to_number` - now loads complete conversations (was missing outbound messages)
 - **🔧 FIX #3: Real-Time Polling**: Added 3-second polling for WhatsApp messages with bubble UI display - no more manual refresh needed
 - **🔒 Security Impact**: All protected routes (including `/app/whatsapp`) now properly enforce authentication - direct URL access without valid session redirects to login
+- **⚡ WhatsApp Impact**: Bot now responds immediately to messages even after network hiccups - no frontend refresh needed for reconnection
 
 # User Preferences
 

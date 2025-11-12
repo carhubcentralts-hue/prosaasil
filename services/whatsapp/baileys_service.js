@@ -259,6 +259,16 @@ async function startSession(tenantId) {
         const reason = lastDisconnect?.error?.output?.statusCode;
         console.log(`[${tenantId}] ❌ Disconnected. Reason: ${reason}`);
         
+        // 🔥 CRITICAL FIX: Always clean up socket before reconnect!
+        try {
+          if (s.sock) {
+            s.sock.removeAllListeners();
+            s.sock.end();
+          }
+        } catch (e) {
+          console.log(`[${tenantId}] Socket cleanup warning:`, e.message);
+        }
+        
         // ✅ FIX: אם קיבלנו loggedOut - קבצי האימות פגומים, צריך לנקות אותם
         if (reason === DisconnectReason.loggedOut) {
           console.log(`[${tenantId}] 🗑️ ${reason} loggedOut - clearing auth files`);
@@ -270,6 +280,7 @@ async function startSession(tenantId) {
           } catch (e) {
             console.error(`[${tenantId}] Failed to clear auth files:`, e);
           }
+          sessions.delete(tenantId);
           setTimeout(() => startSession(tenantId), 3000);
           return;
         }
@@ -278,23 +289,15 @@ async function startSession(tenantId) {
         // צריך לנסות מחדש אבל NOT לנקות credentials!
         if (reason === DisconnectReason.restartRequired) {
           console.log(`[${tenantId}] 🔄 515 restartRequired after pairing - will retry with saved credentials`);
-          // נקה את ה-socket הישן אבל שמור את ה-credentials
-          try {
-            if (s.sock) {
-              s.sock.removeAllListeners();
-              s.sock.end();
-            }
-          } catch (e) {
-            console.log(`[${tenantId}] Socket cleanup warning:`, e.message);
-          }
           sessions.delete(tenantId);
           // המתן יותר זמן כדי ש-WhatsApp ייצב
           setTimeout(() => startSession(tenantId), 5000);
           return;
         }
         
-        // אם לא loggedOut – ננסה מחדש בעדינות (לא מיד, כדי לא ליצור מרוץ)
-        console.log(`[${tenantId}] 🔄 Will retry in 2 seconds...`);
+        // 🔥 CRITICAL FIX: אוטומטי reconnect - delete session ו-startSession מחדש!
+        console.log(`[${tenantId}] 🔄 Auto-reconnecting in 2 seconds (reason: ${reason || 'unknown'})...`);
+        sessions.delete(tenantId);
         setTimeout(() => startSession(tenantId), 2000);
       }
     } catch (e) { 
