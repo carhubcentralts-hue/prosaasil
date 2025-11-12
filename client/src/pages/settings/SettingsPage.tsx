@@ -215,6 +215,12 @@ export function SettingsPage() {
     sat: true
   });
 
+  // ✅ NEW: Working hours state (opening/closing times)
+  const [workingHours, setWorkingHours] = useState({
+    opening: '09:00',
+    closing: '18:00'
+  });
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -260,6 +266,13 @@ export function SettingsPage() {
             fri: !!days.fri,
             sat: !!days.sat
           });
+
+          // ✅ NEW: Load working hours from first available day
+          const firstDay = Object.keys(days).find(d => days[d]);
+          if (firstDay && days[firstDay] && days[firstDay][0]) {
+            const [opening, closing] = days[firstDay][0];
+            setWorkingHours({ opening, closing });
+          }
         }
       } else {
         console.error('Failed to load business settings');
@@ -303,15 +316,14 @@ export function SettingsPage() {
     try {
       setSaving(true);
 
-      // ✅ FIXED: Preserve existing hours, only add/remove days
+      // ✅ FIXED: Preserve existing hours, use current workingHours selection
       const opening_hours_json: Record<string, string[][]> = {};
-      const existingHours = appointmentSettings.opening_hours_json || {};
-      const defaultHours = [["09:00", "18:00"]]; // Fallback for new days
+      const currentHours = [[workingHours.opening, workingHours.closing]];
 
       Object.keys(workingDays).forEach((day) => {
         if (workingDays[day as keyof typeof workingDays]) {
-          // ✅ Use existing hours if available, otherwise use default
-          opening_hours_json[day] = existingHours[day] || defaultHours;
+          // ✅ Use current selected hours for all active days
+          opening_hours_json[day] = currentHours;
         }
         // ✅ If unchecked, day is removed (not included in opening_hours_json)
       });
@@ -613,7 +625,8 @@ export function SettingsPage() {
                         <label className="block text-sm font-medium text-gray-700 mb-1">שעת פתיחה</label>
                         <select 
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          defaultValue="09:00"
+                          value={workingHours.opening}
+                          onChange={(e) => setWorkingHours({...workingHours, opening: e.target.value})}
                           data-testid="select-opening-time"
                         >
                           {Array.from({length: 24}, (_, i) => {
@@ -626,7 +639,8 @@ export function SettingsPage() {
                         <label className="block text-sm font-medium text-gray-700 mb-1">שעת סגירה</label>
                         <select 
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          defaultValue="18:00"
+                          value={workingHours.closing}
+                          onChange={(e) => setWorkingHours({...workingHours, closing: e.target.value})}
                           data-testid="select-closing-time"
                         >
                           {Array.from({length: 24}, (_, i) => {

@@ -701,6 +701,7 @@ def update_current_business_settings():
 # ===== FAQ MANAGEMENT ROUTES =====
 
 @biz_mgmt_bp.route('/api/business/faqs', methods=['GET'])
+@csrf.exempt  # ✅ Exempt from CSRF for authenticated API
 @require_api_auth(['business', 'admin', 'manager'])
 def get_business_faqs():
     """Get all FAQs for current business"""
