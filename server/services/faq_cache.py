@@ -128,7 +128,9 @@ class FAQCache:
     
     def find_best_match(self, business_id: int, query: str) -> Optional[Dict]:
         """
-        Find best matching FAQ using semantic similarity.
+        Find best matching FAQ using hybrid approach:
+        1. Check patterns_json (keywords/regex) first - instant match!
+        2. If no pattern match, use semantic similarity (embeddings)
         
         Returns:
             Dict with {question, answer, score} if match found above threshold, None otherwise
@@ -140,6 +142,32 @@ class FAQCache:
             print(f"⚠️ No FAQs available for business {business_id}")
             return None
         
+        # 🔥 STEP 1: Check patterns_json (keywords/regex) - PRIORITY!
+        query_lower = query.lower().strip()
+        for idx, faq in enumerate(entry.faqs):
+            patterns = faq.get("patterns_json")
+            if patterns and isinstance(patterns, list):
+                for pattern in patterns:
+                    pattern_lower = str(pattern).lower().strip()
+                    # Check if pattern is in query or query is in pattern
+                    if pattern_lower in query_lower or query_lower in pattern_lower:
+                        elapsed = (time.time() - start) * 1000
+                        print(f"🎯 KEYWORD MATCH! Pattern '{pattern}' found in query (took {elapsed:.0f}ms)")
+                        print(f"   FAQ: {faq['question']}")
+                        return {
+                            "question": faq["question"],
+                            "answer": faq["answer"],
+                            "intent_key": faq.get("intent_key"),
+                            "patterns_json": faq.get("patterns_json"),
+                            "channels": faq.get("channels", "voice"),
+                            "priority": faq.get("priority", 0),
+                            "lang": faq.get("lang", "he-IL"),
+                            "score": 1.0  # Perfect match!
+                        }
+        
+        print(f"📭 No keyword match found, trying embeddings...")
+        
+        # 🔥 STEP 2: Semantic similarity (embeddings) - FALLBACK
         query_embedding = self._generate_embeddings([query])
         
         if query_embedding.size == 0:
