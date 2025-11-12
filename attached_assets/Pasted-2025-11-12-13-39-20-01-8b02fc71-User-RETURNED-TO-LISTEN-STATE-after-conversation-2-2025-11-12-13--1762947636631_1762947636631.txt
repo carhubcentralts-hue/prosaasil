@@ -1,0 +1,175 @@
+2025-11-12 13:39:20.01
+8b02fc71
+User
+✅ RETURNED TO LISTEN STATE after conversation #2
+2025-11-12 13:39:20.01
+8b02fc71
+User
+✅ Processing complete for conversation #2
+2025-11-12 13:39:21.11
+8b02fc71
+User
+💓 WS_KEEPALIVE #3 (prevents 5min timeout)
+2025-11-12 13:39:21.11
+8b02fc71
+User
+2025-11-12 13:39:26.97
+8b02fc71
+User
+📨 Received: mark
+2025-11-12 13:39:26.97
+8b02fc71
+User
+📨 Received: mark
+2025-11-12 13:39:26.97
+8b02fc71
+User
+🎯 TTS_MARK_ACK: assistant_tts_end -> LISTENING
+2025-11-12 13:39:26.97
+8b02fc71
+User
+🎤 STATE -> LISTENING | buffer_reset
+2025-11-12 13:39:28.19
+8b02fc71
+User
+🎙️ REAL_VOICE: rms=8811, threshold=35.0
+2025-11-12 13:39:28.19
+8b02fc71
+User
+2025-11-12 13:39:28.19
+8b02fc71
+User
+🎤 [CA0626fa] Utterance 0414674b BEGIN
+2025-11-12 13:39:28.56
+8b02fc71
+User
+🟡 [PARTIAL] BEST updated: 'הר' (2 chars) for CA0626fa...
+2025-11-12 13:39:28.56
+8b02fc71
+User
+🔊 PARTIAL (best): 'הר' (2 chars)
+2025-11-12 13:39:28.76
+8b02fc71
+User
+🟡 [PARTIAL] BEST updated: 'ארבעה' (5 chars) for CA0626fa...
+2025-11-12 13:39:28.76
+8b02fc71
+User
+🔊 PARTIAL (best): 'ארבעה' (5 chars)
+2025-11-12 13:39:28.88
+8b02fc71
+User
+🟡 [PARTIAL] BEST updated: 'ארבע אח' (7 chars) for CA0626fa...
+2025-11-12 13:39:28.88
+8b02fc71
+User
+🔊 PARTIAL (best): 'ארבע אח' (7 chars)
+2025-11-12 13:39:29.00
+8b02fc71
+User
+🟡 [PARTIAL] BEST updated: 'ארבע אחרי' (9 chars) for CA0626fa...
+2025-11-12 13:39:29.00
+8b02fc71
+User
+🔊 PARTIAL (best): 'ארבע אחרי' (9 chars)
+2025-11-12 13:39:29.28
+8b02fc71
+User
+🟡 [PARTIAL] BEST updated: 'ארבע אחר הצהריים' (16 chars) for CA0626fa...
+2025-11-12 13:39:29.28
+8b02fc71
+User
+🔊 PARTIAL (best): 'ארבע אחר הצהריים' (16 chars)
+2025-11-12 13:39:29.48
+8b02fc71
+User
+🟡 [PARTIAL] IGNORED (shorter): 'ארבע' (4 chars) vs 'ארבע אחר הצהריים' (16 chars)
+2025-11-12 13:39:29.48
+8b02fc71
+User
+🔊 PARTIAL (ignored): 'ארבע' (4 chars) - keeping 'ארבע אחר הצהריים' (16 chars)
+2025-11-12 13:39:29.77
+8b02fc71
+User
+🎤 END OF UTTERANCE: 1.6s audio, conversation #3
+2025-11-12 13:39:29.77
+8b02fc71
+User
+🧠 STATE -> PROCESSING | len=25600 | silence_ms=519
+2025-11-12 13:39:29.77
+8b02fc71
+User
+🎤 SAFE PROCESSING: conversation #3
+2025-11-12 13:39:29.77
+8b02fc71
+User
+⏱️ [STT_STREAM] Calling _utterance_end...
+2025-11-12 13:39:29.77
+8b02fc71
+User
+🎤 [CA0626fa] _utterance_end: Collecting results for utterance 0414674b (timeout=0.85s)
+2025-11-12 13:39:30.62
+8b02fc71
+User
+⚠️ [CA0626fa] Timeout after 0.850s - using fallback
+2025-11-12 13:39:30.62
+8b02fc71
+User
+✅ [CA0626fa] Using partial: 'ארבע אחר הצהריים...' (16 chars)
+2025-11-12 13:39:30.62
+8b02fc71
+User
+🏁 [CA0626fa] Utterance 0414674b COMPLETE: returning 'ארבע אחר הצהריים'
+2025-11-12 13:39:30.62
+8b02fc71
+User
+[LATENCY] final_wait=0.85s, utterance_total=0.85s
+2025-11-12 13:39:30.62
+8b02fc71
+User
+⏱️ [STT_STREAM] _utterance_end took 0.851s, result: 'ארבע אחר הצהריים'
+2025-11-12 13:39:30.62
+8b02fc71
+User
+🎤 USER: ארבע אחר הצהריים
+2025-11-12 13:39:30.62
+8b02fc71
+User
+📊 ASR_LATENCY: 0.851s (target: <0.7s)
+2025-11-12 13:39:30.62
+8b02fc71
+User
+2025-11-12 13:39:30.62
+8b02fc71
+User
+⏰ FAQ cache EXPIRED for business 1, reloading...
+2025-11-12 13:39:30.62
+8b02fc71
+User
+⏰ FAQ cache EXPIRED for business 1, reloading...
+2025-11-12 13:39:30.62
+8b02fc71
+User
+⏭️ [FAQ_MISS] No match found (search took 0ms) → proceeding to AgentKit
+2025-11-12 13:39:30.63
+8b02fc71
+User
+📞 DEBUG: Caller phone = 'None' (type: NoneType)
+2025-11-12 13:39:30.63
+8b02fc71
+User
+self.phone_number exists: True
+2025-11-12 13:39:30.63
+8b02fc71
+User
+self.phone_number value: 'None'
+2025-11-12 13:39:30.63
+8b02fc71
+User
+🎯 AGENTS_ENABLED = True
+
+Collapse
+
+Wrap
+
+Colors
