@@ -474,6 +474,11 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                         "Thursday": "חמישי", "Friday": "שישי", "Sunday": "ראשון", "Saturday": "שבת"
                     }.get(day_name_eng, day_name_eng)
                     
+                    # 🔥 BUILD 104: Enhanced confirmation with location/contact details
+                    # Load business settings for location info
+                    from server.models_sql import BusinessSettings
+                    settings = BusinessSettings.query.filter_by(tenant_id=input.business_id).first()
+                    
                     # Format WhatsApp confirmation message
                     wa_message = (
                         f"🎉 *אישור פגישה*\n\n"
@@ -481,9 +486,18 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                         f"פגישתך נקבעה בהצלחה:\n"
                         f"📅 יום {day_name_hebrew} {start.strftime('%d/%m/%Y')}\n"
                         f"🕐 שעה {start.strftime('%H:%M')}\n"
-                        f"💼 {input.treatment_type}\n\n"
-                        f"נתראה! 😊"
+                        f"💼 {input.treatment_type}\n"
                     )
+                    
+                    # Add location if available
+                    if settings and settings.address:
+                        wa_message += f"\n📍 *מיקום:* {settings.address}\n"
+                    
+                    # Add contact phone if available
+                    if settings and settings.phone_number:
+                        wa_message += f"📞 *טלפון:* {settings.phone_number}\n"
+                    
+                    wa_message += f"\nנתראה! 😊"
                     
                     # 🔥 FIX #1: Move get_whatsapp_service() INSIDE try/except to prevent crashes
                     try:

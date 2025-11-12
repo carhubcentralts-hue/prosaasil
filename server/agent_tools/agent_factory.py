@@ -692,6 +692,8 @@ Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M
 5. **WHATSAPP:**
    - Send confirmations: whatsapp_send
    - Share payment links, contract links, appointment details
+   - 🔥 PHONE CALLS: If customer asks for location/address/directions during a phone call → use whatsapp_send to send location details via WhatsApp
+   - 🔥 PHONE CALLS: If customer asks for contact info/hours/details during a phone call → use whatsapp_send to send the info via WhatsApp
 
 6. **SUMMARIES:**
    - Summarize conversations: summarize_thread
@@ -763,6 +765,11 @@ At end of phone conversation:
 → summarize_thread(source="call", source_id=call_sid)
 → whatsapp_send(message="תודה על השיחה! סיכום: [summary]")
 → Hebrew Response: "תודה! שלחתי לך סיכום בווטסאפ."
+
+**5. LOCATION/DETAILS REQUEST (PHONE CHANNEL ONLY):**
+When customer asks for location/address/hours during PHONE call:
+→ whatsapp_send(message="📍 מיקום: [address]\n📞 טלפון: [phone]\n🕐 שעות: [hours]")
+→ Hebrew Response: "שלחתי לך את הפרטים בווטסאפ!"
 
 **CRITICAL:** whatsapp_send auto-detects recipient from context - NEVER specify 'to' parameter!
 
