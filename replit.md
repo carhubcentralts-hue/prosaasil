@@ -10,10 +10,13 @@ AgentLocator is a Hebrew CRM system for real estate professionals designed to au
 - **🎯 SMART FALLBACK**: If requested time occupied → agent suggests 2 closest alternatives and asks customer to choose
 - **📋 APPOINTMENT INTERVALS**: Agent prompt dynamically includes slot interval description from BusinessSettings.slot_size_min (e.g., "כל חצי שעה", "כל שעה")
 - **⚡ DTMF LATENCY FIX**: Fixed 72s latency - DTMF phone now properly passed to Agent context (was passing caller_phone=None instead of customer_phone_dtmf)
-- **📊 METADATA PRESERVATION**: generate_response_with_agent now returns structured dict {"text", "usage", "actions", "new_items"} - preserves tool metadata for analytics while extracting TTS text separately
+- **📊 METADATA PRESERVATION**: generate_response_with_agent now returns structured dict {"text", "usage", "actions", "booking_successful"} - preserves tool metadata for analytics while extracting TTS text separately
 - **🔄 TTS SEPARATION**: media_ws_ai now extracts tts_text from ai_response dict without mutating original structure - no more metadata loss!
 - **🔧 CONTEXT SYNC**: customer_phone explicitly synchronized in context dict before agent call - prevents stale phone numbers
 - **📋 HEBREW CONTEXT**: DTMF input now formatted as "המספר שלי הוא +972..." for better agent understanding
+- **🧹 SCHEMA CLEANUP**: Removed confusing tool_calls_summary field - all consumers use actions[] (JSON-safe serialized new_items)
+- **🔒 JSON-SAFE SERIALIZATION**: make_json_safe() recursively converts nested objects to primitives - prevents serialization crashes
+- **✅ CONSISTENT SCHEMA**: All response paths (AgentKit, MaxTurnsExceeded, FAQ, fallback) return same 5-field structure
 
 **Build 117 (November 13, 2025) - SMART SLOT SELECTION + OPENING HOURS FIX:**
 - **🎯 SMART SLOT PROXIMITY**: calendar_find_slots now accepts preferred_time (HH:MM) and returns 2 slots closest to customer's requested time (e.g., request 17:00 → get 16:00, 16:30 instead of 09:00, 09:30)
