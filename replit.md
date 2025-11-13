@@ -4,13 +4,15 @@ AgentLocator is a Hebrew CRM system for real estate professionals designed to au
 
 # Recent Changes
 
-**Build 118 (November 13, 2025) - STAY ON TOPIC + INSTANT BOOKING FIX + DTMF LATENCY FIX:**
+**Build 118 (November 13, 2025) - METADATA PRESERVATION + DTMF LATENCY FIX:**
 - **🔒 STAY ON TOPIC**: Agent now politely redirects off-topic questions (weather, news, general knowledge) with "אני כאן לעזור עם תיאום פגישות. איך אוכל לעזור?"
 - **✅ INSTANT BOOKING FIX**: If customer says "תור ב-17:00" and 17:00 is available → agent books immediately WITHOUT asking "באיזו שעה נוח?" (user complaint resolved!)
 - **🎯 SMART FALLBACK**: If requested time occupied → agent suggests 2 closest alternatives and asks customer to choose
 - **📋 APPOINTMENT INTERVALS**: Agent prompt dynamically includes slot interval description from BusinessSettings.slot_size_min (e.g., "כל חצי שעה", "כל שעה")
 - **⚡ DTMF LATENCY FIX**: Fixed 72s latency - DTMF phone now properly passed to Agent context (was passing caller_phone=None instead of customer_phone_dtmf)
-- **🐛 CRASH FIX**: Fixed AttributeError when agent returns dict (MaxTurnsExceeded) - now normalizes to string before TTS
+- **📊 METADATA PRESERVATION**: generate_response_with_agent now returns structured dict {"text", "usage", "actions", "new_items"} - preserves tool metadata for analytics while extracting TTS text separately
+- **🔄 TTS SEPARATION**: media_ws_ai now extracts tts_text from ai_response dict without mutating original structure - no more metadata loss!
+- **🔧 CONTEXT SYNC**: customer_phone explicitly synchronized in context dict before agent call - prevents stale phone numbers
 - **📋 HEBREW CONTEXT**: DTMF input now formatted as "המספר שלי הוא +972..." for better agent understanding
 
 **Build 117 (November 13, 2025) - SMART SLOT SELECTION + OPENING HOURS FIX:**

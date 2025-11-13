@@ -2465,15 +2465,20 @@ class MediaStreamHandler:
             from server.services.ai_service import AIService
             
             # 🔥 BUILD 118: CRITICAL - Initialize customer_phone FIRST to avoid UnboundLocalError
+            # Prioritize DTMF phone (E.164 normalized) over caller phone
             customer_phone = getattr(self, 'customer_phone_dtmf', None) or getattr(self, 'phone_number', '') or ''
             
             # Build context for the AI
             context = {
                 "phone_number": getattr(self, 'phone_number', ''),
                 "channel": "phone",  # 🔥 FIX: "phone" for WhatsApp confirmation detection
-                "customer_phone": customer_phone,  # 🔥 BUILD 118: Use DTMF phone if available (initialized above)
+                "customer_phone": customer_phone,  # 🔥 BUILD 118: Use computed value (not stale from previous context)
                 "previous_messages": []
             }
+            
+            # 🔥 BUILD 118: Update context with computed customer_phone BEFORE agent call
+            # This prevents stale phone numbers from previous turns
+            context["customer_phone"] = customer_phone
             
             # Add conversation history for context - ✅ FIXED FORMAT
             if hasattr(self, 'conversation_history') and self.conversation_history:
@@ -2523,23 +2528,57 @@ class MediaStreamHandler:
             # ⚡ CRITICAL: Save AI timing for TOTAL_LATENCY calculation
             self.last_ai_time = time.time() - ai_start
             
-            # 🔥 BUILD 118: Ensure ai_response is ALWAYS a string
-            # generate_response_with_agent should return string (see ai_service.py line 1472)
-            # But in error cases (MaxTurnsExceeded) it returned dict - FIXED in ai_service.py line 1214
-            # This is defensive: if somehow dict slips through, extract text field
-            if not isinstance(ai_response, str):
-                print(f"⚠️ NON-STRING RESPONSE from Agent: type={type(ai_response).__name__}, value={ai_response}")
-                if isinstance(ai_response, dict) and 'text' in ai_response:
-                    ai_response = ai_response['text']
-                    print(f"✅ Extracted 'text' field: '{ai_response}'")
-                else:
-                    print(f"❌ Cannot extract text - using fallback")
-                    ai_response = "סליחה, לא הבנתי. אפשר לחזור?"
+            # 🔥 BUILD 118: Normalize ai_response to dict (handle both structured and legacy responses)
+            if isinstance(ai_response, str):
+                # Legacy string response (FAQ, fallback paths)
+                print(f"⚠️ Got legacy string response: {len(ai_response)} chars")
+                ai_response_dict = {
+                    "text": ai_response,
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    "actions": [],  # Empty actions for legacy responses
+                    "booking_successful": False,
+                    "source": "legacy_string"
+                }
+            elif isinstance(ai_response, dict):
+                # Structured response from AgentKit - ensure all required fields present
+                ai_response_dict = {
+                    "text": ai_response.get("text", ""),
+                    "usage": ai_response.get("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}),
+                    "actions": ai_response.get("actions", []),
+                    "booking_successful": ai_response.get("booking_successful", False),
+                    "error": ai_response.get("error"),
+                    "source": ai_response.get("source", "agentkit")
+                }
+            else:
+                # Defensive: shouldn't happen
+                print(f"❌ Unexpected response type: {type(ai_response).__name__}")
+                ai_response_dict = {
+                    "text": "סליחה, לא הבנתי. אפשר לחזור?",
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    "actions": [],
+                    "booking_successful": False,
+                    "source": "error_fallback"
+                }
             
-            print(f"🤖 AGENT_RESPONSE: Generated {len(ai_response)} chars in {self.last_ai_time:.3f}s (business {business_id})")
+            # 🔥 BUILD 118: Save structured response for metadata (analytics, transcripts)
+            self.last_agent_response_metadata = ai_response_dict
+            
+            # 🔥 BUILD 118: Extract TTS text separately (don't mutate ai_response!)
+            # This preserves metadata for downstream consumers (analytics, transcripts, logging)
+            tts_text = ai_response_dict.get('text', '')
+            
+            if not tts_text or not tts_text.strip():
+                print(f"❌ EMPTY TTS TEXT - using fallback")
+                tts_text = "סליחה, לא הבנתי. אפשר לחזור?"
+            
+            print(f"✅ Extracted TTS text: {len(tts_text)} chars")
+            print(f"   Metadata: {len(ai_response_dict.get('actions', []))} actions, booking={ai_response_dict.get('booking_successful', False)}")
+            
+            print(f"🤖 AGENT_RESPONSE: Generated {len(tts_text)} chars in {self.last_ai_time:.3f}s (business {business_id})")
             print(f"📊 AI_LATENCY: {self.last_ai_time:.3f}s (target: <1.5s)")
             
-            return ai_response
+            # Return TTS text (string) for _speak_simple
+            return tts_text
             
         except Exception as e:
             print(f"❌ AI_SERVICE_ERROR: {type(e).__name__}: {e}")

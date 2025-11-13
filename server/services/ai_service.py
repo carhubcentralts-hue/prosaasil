@@ -1206,9 +1206,14 @@ class AIService:
                 if isinstance(e, MaxTurnsExceeded):
                     print(f"⚠️ MaxTurnsExceeded: Agent hit turn limit")
                     logger.warning(f"MaxTurnsExceeded: {e}")
-                    # Return a polite fallback instead of hallucinated booking
-                    # 🔥 BUILD 118: Return STRING, not dict! (fixes _speak_simple crash)
-                    return "סליחה, אני צריך עוד פרטים כדי להשלים את הקביעה. מה השעה המועדפת שלך?"
+                    # 🔥 BUILD 118: Return structured response (consistent schema for analytics)
+                    return {
+                        "text": "סליחה, אני צריך עוד פרטים כדי להשלים את הקביעה. מה השעה המועדפת שלך?",
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        "actions": [],  # Empty actions for MaxTurnsExceeded
+                        "booking_successful": False,
+                        "error": "MaxTurnsExceeded"
+                    }
                 else:
                     # Re-raise other exceptions
                     raise
@@ -1216,7 +1221,7 @@ class AIService:
                 # 🔥 CRITICAL: Close event loop to prevent FD leak!
                 loop.close()
             
-            # Extract response using final_output_as
+            # 🔥 BUILD 118: Extract text AND preserve metadata for analytics
             reply_text = result.final_output_as(str)
             print(f"📝 Agent final response: '{reply_text[:100] if reply_text else '(EMPTY!)'}...'")
             
@@ -1463,7 +1468,70 @@ class AIService:
                 # Don't fail the whole request just because trace failed
                 db.session.rollback()
             
-            return reply_text
+            # 🔥 BUILD 118: Serialize new_items to preserve FULL metadata (not stringified summaries)
+            def make_json_safe(obj):
+                """Recursively convert object to JSON-safe primitives"""
+                if obj is None or isinstance(obj, (bool, int, float, str)):
+                    return obj
+                elif isinstance(obj, dict):
+                    return {k: make_json_safe(v) for k, v in obj.items()}
+                elif isinstance(obj, (list, tuple)):
+                    return [make_json_safe(item) for item in obj]
+                elif hasattr(obj, 'model_dump'):
+                    return make_json_safe(obj.model_dump())
+                elif hasattr(obj, 'dict'):
+                    return make_json_safe(obj.dict())
+                elif hasattr(obj, '__dict__'):
+                    return make_json_safe({k: v for k, v in obj.__dict__.items() if not k.startswith('_')})
+                else:
+                    # Last resort: convert to string
+                    return str(obj)
+            
+            def serialize_run_items(items):
+                """Convert RunItems to JSON-serializable dicts"""
+                serialized = []
+                for item in (items or []):
+                    try:
+                        # Try Pydantic model_dump() first (AgentKit uses Pydantic)
+                        if hasattr(item, 'model_dump'):
+                            raw_dict = item.model_dump()
+                        # Try to_dict() method
+                        elif hasattr(item, 'to_dict'):
+                            raw_dict = item.to_dict()
+                        # Try dict() for Pydantic v1
+                        elif hasattr(item, 'dict'):
+                            raw_dict = item.dict()
+                        # Fallback: dataclasses.asdict
+                        else:
+                            from dataclasses import asdict, is_dataclass
+                            if is_dataclass(item):
+                                raw_dict = asdict(item)
+                            else:
+                                # Last resort: filter __dict__ for JSON-safe fields
+                                raw_dict = {k: v for k, v in item.__dict__.items() if not k.startswith('_')}
+                        
+                        # 🔥 CRITICAL: Make nested objects JSON-safe
+                        safe_dict = make_json_safe(raw_dict)
+                        serialized.append(safe_dict)
+                    except Exception as e:
+                        print(f"⚠️ Failed to serialize item {type(item).__name__}: {e}")
+                        serialized.append({"type": type(item).__name__, "error": str(e)})
+                return serialized
+            
+            # 🔥 BUILD 118: Return structured response (preserves metadata for analytics + transcripts)
+            # Convert RunOutput to dict with FULL new_items structure (not stringified summaries)
+            response_payload = {
+                "text": reply_text,  # Use (possibly truncated) text
+                "usage": {
+                    "prompt_tokens": getattr(result, 'prompt_tokens', 0),
+                    "completion_tokens": getattr(result, 'completion_tokens', 0),
+                    "total_tokens": getattr(result, 'total_tokens', 0)
+                },
+                "actions": serialize_run_items(result.new_items) if hasattr(result, 'new_items') else [],
+                "booking_successful": booking_successful
+            }
+            print(f"✅ Returning structured response: {len(reply_text)} chars text, {len(response_payload['actions'])} serialized actions")
+            return response_payload
             
         except Exception as e:
             logger.error(f"Agent error (falling back to regular response): {e}")
