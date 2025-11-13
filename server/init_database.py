@@ -130,58 +130,18 @@ def initialize_production_database():
             print(f"✅ Lead statuses exist: {existing_statuses} statuses found")
             logger.info(f"✅ Lead statuses exist: {existing_statuses} statuses found")
         
-        # 5. Ensure default FAQs exist for this business
-        # 🔒 BUILD 120: CRITICAL - Only create defaults if NO FAQs exist (user data protection!)
-        total_faqs = FAQ.query.filter_by(business_id=business.id).count()
-        
-        if total_faqs > 0:
-            # User has already created FAQs - DON'T TOUCH THEM!
-            print(f"✅ FAQs exist: {total_faqs} FAQs found - skipping initialization (preserving user data)")
-            logger.info(f"✅ FAQs exist: {total_faqs} FAQs - user data preserved")
-        else:
-            # No FAQs exist - create defaults only
-            print("❓ No FAQs found, creating 2 default examples...")
-            logger.info("❓ No FAQs found, creating defaults...")
-            
-            default_faqs_config = [
-                {
-                    'question': 'מה שעות הפעילות?',
-                    'answer': 'אנחנו פועלים כל יום בין השעות 09:00-22:00',
-                    'intent_key': 'hours',
-                    'patterns_json': ['שעות', 'פתוח', 'סגור', 'מתי אתם עובדים'],
-                    'channels': 'voice',
-                    'priority': 10
-                },
-                {
-                    'question': 'מה הכתובת שלכם?',
-                    'answer': 'אנחנו נמצאים ברחוב דיזנגוף 50, תל אביב',
-                    'intent_key': 'address',
-                    'patterns_json': ['כתובת', 'איפה אתם', 'מיקום', 'היכן'],
-                    'channels': 'voice',
-                    'priority': 10
-                }
-            ]
-            
-            for faq_data in default_faqs_config:
-                faq = FAQ(
-                    business_id=business.id,
-                    question=faq_data['question'],
-                    answer=faq_data['answer'],
-                    intent_key=faq_data['intent_key'],
-                    patterns_json=faq_data['patterns_json'],
-                    channels=faq_data['channels'],
-                    priority=faq_data['priority'],
-                    lang='he-IL',
-                    is_active=True,
-                    order_index=0,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.session.add(faq)
-            
-            db.session.commit()
-            print(f"✅ Created 2 default example FAQs (you can edit or delete these)")
-            logger.info(f"✅ Created 2 default FAQs")
+        # 5. 🔒 BUILD 120 FIX: NEVER auto-create FAQs! User creates them via UI
+        # Previous approach was broken - FAQs were deleted on every deployment
+        # because init_database ran BEFORE migrations created the table
+        try:
+            total_faqs = FAQ.query.count()  # Check ALL FAQs (not just this business)
+            print(f"✅ FAQs table exists: {total_faqs} FAQs found across all businesses")
+            logger.info(f"✅ FAQs: {total_faqs} total (user creates FAQs via UI)")
+        except Exception as e:
+            # FAQs table doesn't exist yet (migrations haven't run)
+            print(f"⚠️ FAQs table not ready: {e}")
+            print("   (This is normal on first deployment - table will be created by migrations)")
+            logger.warning(f"FAQs table not ready: {e}")
         
         # 6. Ensure BusinessSettings exists for this business
         # CRITICAL FIX BUILD 111: Settings (slot_size, 24/7, etc.) must persist across deployments!
