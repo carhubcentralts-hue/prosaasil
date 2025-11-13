@@ -663,11 +663,17 @@ def create_app():
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
     
-    # CRITICAL FIX: Run migrations FIRST, then initialization
+    # 🔧 BUILD 120: CRITICAL FIX - Run migrations in BOTH dev and production!
+    # This prevents Replit from deleting tables during deployment
     # Order matters: tables must exist before we can initialize data
-    if os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1':
+    
+    # Always run migrations (both dev and production)
+    run_migrations = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1' or True  # Always true now!
+    
+    if run_migrations:
         try:
             with app.app_context():
+                print("🔧 BUILD 120: Running migrations to ensure schema parity (dev + production)")
                 print("🔒 DATA PROTECTION: Starting migrations - NO user data will be deleted")
                 from server.db_migrate import apply_migrations
                 apply_migrations()
