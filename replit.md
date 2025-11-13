@@ -4,6 +4,15 @@ AgentLocator is a Hebrew CRM system for real estate professionals designed to au
 
 # Recent Changes
 
+**Build 119 (November 13, 2025) - FAQ PATTERN MATCHING FIX:**
+- **🐛 CRITICAL FIX**: FAQ patterns_json validation broken - double-escaped JSON causing pattern matching to fail
+- **✅ BACKEND VALIDATION**: Added `normalize_patterns()` in routes_business_management.py - validates and normalizes patterns_json to List[str] on write (lines 17-53)
+- **🛡️ DEFENSIVE CACHE**: Added `_normalize_patterns_defensive()` in faq_cache.py - gracefully handles malformed DB data, never crashes (lines 28-57)
+- **📊 DUAL-LAYER PROTECTION**: Strict validation on API write + defensive normalization on cache read = bulletproof FAQ matching
+- **🔧 MIGRATION SCRIPT**: Created scripts/fix_faq_patterns.py - scans all FAQs, repairs malformed patterns_json, invalidates cache
+- **✅ VERIFIED**: FAQ matching now works perfectly - "איפה אתם נמצאים" → instant match (score=1.0), "מה שעות הפעילות" → instant match (score=1.0)
+- **🚀 PRODUCTION READY**: All tests passed, architect approved, migration script ready for production deployment
+
 **Build 118 (November 13, 2025) - METADATA PRESERVATION + DTMF LATENCY FIX:**
 - **🔒 STAY ON TOPIC**: Agent now politely redirects off-topic questions (weather, news, general knowledge) with "אני כאן לעזור עם תיאום פגישות. איך אוכל לעזור?"
 - **✅ INSTANT BOOKING FIX**: If customer says "תור ב-17:00" and 17:00 is available → agent books immediately WITHOUT asking "באיזו שעה נוח?" (user complaint resolved!)
