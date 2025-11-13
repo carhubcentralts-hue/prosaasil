@@ -10,6 +10,7 @@ AgentLocator is a Hebrew CRM system for real estate professionals. Its core purp
 - **📋 TURN MANAGEMENT INSTRUCTIONS**: Added explicit turn awareness to system rules - agent now knows it has 15 turns and prioritizes gathering info first (name, phone, date, time) before booking.
 - **🎯 ONE ACTION AT A TIME**: New rule #7 - agent cannot claim "קבעתי + שלחתי אישור" in same turn, must complete actions sequentially.
 - **🔍 STT ALREADY OPTIMIZED**: Verified STT has 150+ Hebrew phrases with boost=20.0 - comprehensive coverage for booking, numbers, locations, and business terms.
+- **📱 WHATSAPP FIX**: Removed contradictory instruction "WhatsApp sent by SYSTEM" - agent now ALWAYS calls whatsapp_send() after successful booking on phone calls. Added explicit rule #4: "After SUCCESSFUL booking (ok:true), ALWAYS call whatsapp_send() to send confirmation".
 
 **Build 111 (November 13, 2025):**
 - **🔄 BOOKING WORKFLOW ORDER CHANGED**: Updated appointment booking sequence to Name → Phone → Date → Time (previously: Name → Date → Time → Phone)

@@ -617,7 +617,7 @@ TOMORROW: {tomorrow_str}{slot_interval_text}
 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
-4. WhatsApp confirmations: Try whatsapp_send() ONCE only - if it fails, DON'T mention WhatsApp
+4. 🔥 BUILD 112: After SUCCESSFUL booking (ok:true), ALWAYS call whatsapp_send() to send confirmation
 5. NEVER say "אני מחפש" or "תן לי לבדוק" - just call the tool silently
 6. 🔥 NEW: If you don't have enough info yet, ASK before calling tools - don't guess!
 7. 🔥 NEW: Complete ONE action at a time - don't claim "קבעתי + שלחתי" in same turn
@@ -627,6 +627,12 @@ TOMORROW: {tomorrow_str}{slot_interval_text}
 - Prioritize gathering info first (name, phone, date, time)
 - Then check availability → book → send confirmation
 - If running out of turns, ask for ONE thing at a time
+
+📱 WHATSAPP CONFIRMATIONS (BUILD 112):
+- PHONE calls: After successful booking, ALWAYS call whatsapp_send() with appointment details
+- WhatsApp chats: No need to send again (already in chat)
+- If whatsapp_send() fails, that's OK - don't mention it, just confirm verbally
+- Message format: "שלום [שם], קבעתי לך תור ליום [תאריך] בשעה [שעה]. נתראה בקרוב!"
 
 📞 DTMF Phone Input (internal note):
 - PHONE channel: When asking for phone, say "מה המספר שלך? אנא הקלידו והקישו סולמית בסיום"
