@@ -1,11 +1,12 @@
 """
-Database migrations - additive only, no DROP operations
+Database migrations - additive only, with strict data protection
 
 🔒 DATA PROTECTION GUARANTEE:
-- Migrations NEVER delete user data (FAQs, leads, calls, messages, etc.)
-- Only additive operations allowed (CREATE TABLE, ADD COLUMN, CREATE INDEX)
-- Deduplication DELETE operations only for fixing corrupted data (duplicates)
-- NO TRUNCATE, NO DROP TABLE, NO DELETE FROM on user tables
+- FAQs and leads are NEVER deleted - migrations will FAIL if data loss is detected
+- Migrations are mostly additive (CREATE TABLE, ADD COLUMN, CREATE INDEX)
+- Limited exception: Deduplication DELETE for corrupted data (duplicate messages/calls only)
+- NO TRUNCATE, NO DROP TABLE on any tables
+- Automatic verification with rollback on unexpected data loss
 """
 from server.db import db
 from datetime import datetime
@@ -551,38 +552,53 @@ def apply_migrations():
         log.info("No migrations needed - database is up to date")
     
     # 🔒 DATA PROTECTION CHECK: Verify data counts AFTER migrations - CRITICAL!
+    # If FAQs or leads are deleted, ROLLBACK and FAIL the migration
     try:
         from sqlalchemy import text
+        data_loss_detected = False
+        
         if check_table_exists('faqs'):
-            faq_count_after = db.session.execute(text("SELECT COUNT(*) FROM faqs")).scalar()
+            faq_count_after = db.session.execute(text("SELECT COUNT(*) FROM faqs")).scalar() or 0
             faq_delta = faq_count_after - faq_count_before
             if faq_delta < 0:
                 log.error(f"❌ DATA LOSS DETECTED: {abs(faq_delta)} FAQs were DELETED during migrations!")
                 print(f"❌ CRITICAL: {abs(faq_delta)} FAQs DELETED! Before: {faq_count_before}, After: {faq_count_after}")
+                data_loss_detected = True
             else:
                 log.info(f"✅ DATA PROTECTION (AFTER): {faq_count_after} FAQs preserved (delta: +{faq_delta})")
                 print(f"✅ DATA PROTECTION: {faq_count_after} FAQs preserved (no deletions)")
         
         if check_table_exists('leads'):
-            lead_count_after = db.session.execute(text("SELECT COUNT(*) FROM leads")).scalar()
+            lead_count_after = db.session.execute(text("SELECT COUNT(*) FROM leads")).scalar() or 0
             lead_delta = lead_count_after - lead_count_before
             if lead_delta < 0:
                 log.error(f"❌ DATA LOSS DETECTED: {abs(lead_delta)} leads were DELETED during migrations!")
                 print(f"❌ CRITICAL: {abs(lead_delta)} leads DELETED! Before: {lead_count_before}, After: {lead_count_after}")
+                data_loss_detected = True
             else:
                 log.info(f"✅ DATA PROTECTION (AFTER): {lead_count_after} leads preserved (delta: +{lead_delta})")
                 print(f"✅ DATA PROTECTION: {lead_count_after} leads preserved (no deletions)")
         
+        # 🛑 ENFORCE DATA PROTECTION: Rollback and fail if FAQs or leads were deleted
+        if data_loss_detected:
+            db.session.rollback()
+            error_msg = "❌ MIGRATION FAILED: Data loss detected. Rolling back changes."
+            log.error(error_msg)
+            print(error_msg)
+            raise Exception("Data protection violation: FAQs or leads were deleted during migration")
+        
+        # Messages can decrease (deduplication is expected and documented)
         if check_table_exists('messages'):
-            msg_count_after = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar()
+            msg_count_after = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar() or 0
             msg_delta = msg_count_after - msg_count_before
-            # Messages can decrease due to deduplication in migration 6 (this is expected and safe)
             if msg_delta < 0:
-                log.warning(f"⚠️ Messages decreased by {abs(msg_delta)} (likely deduplication cleanup)")
+                log.warning(f"⚠️ Messages decreased by {abs(msg_delta)} (deduplication cleanup - expected)")
                 print(f"⚠️ {abs(msg_delta)} duplicate messages removed (data cleanup)")
             else:
                 log.info(f"✅ DATA PROTECTION (AFTER): {msg_count_after} messages (delta: +{msg_delta})")
     except Exception as e:
+        if "Data protection violation" in str(e):
+            raise  # Re-raise data protection violations
         log.warning(f"Could not verify data counts after migrations: {e}")
     
     return migrations_applied

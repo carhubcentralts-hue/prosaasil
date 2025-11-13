@@ -5,15 +5,16 @@ AgentLocator is a Hebrew CRM system for real estate professionals. Its core purp
 # Recent Changes
 
 **Build 109 (November 13, 2025):**
-- **🔒 DATA PROTECTION GUARANTEE**: Added explicit data protection to migrations - NO user FAQs/leads ever deleted on deployment
-- **✅ Migration Safety**: Migrations are additive (CREATE TABLE, ADD COLUMN, CREATE INDEX) with limited exceptions
-- **📊 Data Verification**: Automatic before/after count comparison with delta calculation and data loss detection
+- **🔒 DATA PROTECTION GUARANTEE**: Added strict data protection with automatic rollback - FAQs/leads NEVER deleted on deployment
+- **✅ Migration Safety**: Migrations are mostly additive (CREATE TABLE, ADD COLUMN, CREATE INDEX) with limited exceptions for deduplication only
+- **📊 Data Verification**: Automatic before/after count comparison with delta calculation - migrations FAIL and ROLLBACK if data loss detected
 - **🛡️ Multi-Layer Protection**: 
-  - No TRUNCATE operations on user tables
-  - No DROP TABLE on user tables  
-  - DELETE operations only for deduplication of corrupted data (duplicate messages/calls with same provider ID)
-  - Explicit verification: Reports "X FAQs preserved" or "ERROR: Y FAQs DELETED!" if data loss detected
-- **Impact**: System now actively monitors and reports any unexpected data loss during deployment migrations
+  - No TRUNCATE operations on any tables
+  - No DROP TABLE on any tables
+  - DELETE operations ONLY for deduplication of corrupted data (duplicate messages/calls with identical provider_msg_id)
+  - Automatic rollback if FAQs or leads count decreases
+  - Explicit logging: "X FAQs preserved" or "MIGRATION FAILED: Data loss detected" with rollback
+- **Impact**: Zero-tolerance data protection - any migration that attempts to delete FAQs or leads will automatically fail and roll back, preserving all user data
 
 **Build 108 (November 12, 2025):**
 - **🔥 CRITICAL FAQ FIX**: Fixed patterns_json keyword matching - FAQ system now checks keywords/patterns BEFORE embeddings for instant matches
