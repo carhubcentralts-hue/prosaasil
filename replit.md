@@ -1,64 +1,6 @@
 # Overview
 
-AgentLocator is a Hebrew CRM system for real estate professionals designed to automate the sales pipeline. It features an AI-powered assistant that processes calls in real-time, intelligently collects lead information, and schedules meetings. The system utilizes advanced audio processing for natural conversations, aiming to enhance efficiency and sales conversion. It provides a robust, multi-tenant platform with customizable AI assistants and business branding, leveraging cutting-edge AI communication tools.
-
-# Recent Changes
-
-**Build 119 (November 13, 2025) - FAQ PATTERN MATCHING FIX:**
-- **🐛 CRITICAL FIX**: FAQ patterns_json validation broken - double-escaped JSON causing pattern matching to fail
-- **✅ BACKEND VALIDATION**: Added `normalize_patterns()` in routes_business_management.py - validates and normalizes patterns_json to List[str] on write (lines 17-53)
-- **🛡️ DEFENSIVE CACHE**: Added `_normalize_patterns_defensive()` in faq_cache.py - gracefully handles malformed DB data, never crashes (lines 28-57)
-- **📊 DUAL-LAYER PROTECTION**: Strict validation on API write + defensive normalization on cache read = bulletproof FAQ matching
-- **🔧 MIGRATION SCRIPT**: Created scripts/fix_faq_patterns.py - scans all FAQs, repairs malformed patterns_json, invalidates cache
-- **✅ VERIFIED**: FAQ matching now works perfectly - "איפה אתם נמצאים" → instant match (score=1.0), "מה שעות הפעילות" → instant match (score=1.0)
-- **🚀 PRODUCTION READY**: All tests passed, architect approved, migration script ready for production deployment
-
-**Build 118 (November 13, 2025) - METADATA PRESERVATION + DTMF LATENCY FIX:**
-- **🔒 STAY ON TOPIC**: Agent now politely redirects off-topic questions (weather, news, general knowledge) with "אני כאן לעזור עם תיאום פגישות. איך אוכל לעזור?"
-- **✅ INSTANT BOOKING FIX**: If customer says "תור ב-17:00" and 17:00 is available → agent books immediately WITHOUT asking "באיזו שעה נוח?" (user complaint resolved!)
-- **🎯 SMART FALLBACK**: If requested time occupied → agent suggests 2 closest alternatives and asks customer to choose
-- **📋 APPOINTMENT INTERVALS**: Agent prompt dynamically includes slot interval description from BusinessSettings.slot_size_min (e.g., "כל חצי שעה", "כל שעה")
-- **⚡ DTMF LATENCY FIX**: Fixed 72s latency - DTMF phone now properly passed to Agent context (was passing caller_phone=None instead of customer_phone_dtmf)
-- **📊 METADATA PRESERVATION**: generate_response_with_agent now returns structured dict {"text", "usage", "actions", "booking_successful"} - preserves tool metadata for analytics while extracting TTS text separately
-- **🔄 TTS SEPARATION**: media_ws_ai now extracts tts_text from ai_response dict without mutating original structure - no more metadata loss!
-- **🔧 CONTEXT SYNC**: customer_phone explicitly synchronized in context dict before agent call - prevents stale phone numbers
-- **📋 HEBREW CONTEXT**: DTMF input now formatted as "המספר שלי הוא +972..." for better agent understanding
-- **🧹 SCHEMA CLEANUP**: Removed confusing tool_calls_summary field - all consumers use actions[] (JSON-safe serialized new_items)
-- **🔒 JSON-SAFE SERIALIZATION**: make_json_safe() recursively converts nested objects to primitives - prevents serialization crashes
-- **✅ CONSISTENT SCHEMA**: All response paths (AgentKit, MaxTurnsExceeded, FAQ, fallback) return same 5-field structure
-
-**Build 117 (November 13, 2025) - SMART SLOT SELECTION + OPENING HOURS FIX:**
-- **🎯 SMART SLOT PROXIMITY**: calendar_find_slots now accepts preferred_time (HH:MM) and returns 2 slots closest to customer's requested time (e.g., request 17:00 → get 16:00, 16:30 instead of 09:00, 09:30)
-- **🔍 INTELLIGENT MATCHING**: Slots sorted by absolute minute distance from preferred_time, with tie-breaking favoring earlier times
-- **📋 AGENT INTEGRATION**: Tool wrapper updated to send preferred_time - agent automatically extracts customer's desired time and passes it to calendar
-- **🎯 SINGLE SOURCE OF TRUTH**: Removed confusing "שעות פעילות" field from "הגדרות עסק" - all hours managed ONLY in "הגדרות תורים"
-- **✅ SAVE FIX**: Settings UI now correctly saves opening_hours_json to database when user clicks "שמור"
-- **🔄 DEFENSIVE FALLBACK**: Policy keeps temporary fallback to working_hours for legacy businesses (prevents zero-slot schedules)
-- **📋 DATA FLOW**: Frontend → opening_hours_json → Backend → Business Policy → Agent (single path, no conflicts)
-
-**Build 116 (November 13, 2025) - PERFECT WHATSAPP + LATENCY FIX:**
-- **⚡ LATENCY FIX**: Increased max_turns from 15→25 to eliminate MaxTurnsExceeded (44s latency solved!)
-- **📱 CHANNEL-AWARE PROMPTS**: DTMF (סולמית #) instructions ONLY for phone calls - WhatsApp gets clean prompts
-- **🎯 SMART APPOINTMENT OFFERING**: Agent no longer pushes appointments - waits for customer to request explicitly
-- **📅 DYNAMIC OPENING HOURS**: System reads `working_hours` from Business table as fallback when `opening_hours_json` is empty
-- **🔄 SMART FALLBACK**: If `opening_hours_json` is NULL, auto-builds from `working_hours="08:00-18:00"` → applies to sun-fri
-- **📋 BOOKING WORKFLOW**: Clear step-by-step workflow - date/time → name → phone (separately, channel-aware)
-- **✅ FORMAT VALIDATION**: Parser validates HH:MM format and logs warnings for invalid/complex formats
-
-**Build 115 (November 13, 2025) - COMPLETE ORCHESTRATION:**
-- **🎯 AUTOMATIC LEAD MANAGEMENT**: calendar_create_appointment now automatically creates/updates leads - no separate tool calls needed!
-- **📱 ORCHESTRATED WHATSAPP**: WhatsApp confirmation sent automatically after booking with graceful fallback - agent gets whatsapp_status: sent/failed/pending/skipped
-- **💬 SMART RESPONSES**: Agent says "הפרטים יישלחו בהמשך" if WhatsApp fails (NEVER says "לא הצלחתי" or "שירות לא זמין")
-- **📊 STATUS TRACKING**: CreateAppointmentOutput now includes whatsapp_status + lead_id - agent knows exactly what happened
-- **📱 WHATSAPP OPTIMIZED**: max_tokens=120 for WhatsApp (vs 60 for phone) - allows slightly longer text responses without queue overflow
-- **✅ TRANSACTION SAFETY**: Appointment succeeds even if lead creation or WhatsApp fails - graceful degradation at every step
-- **🔄 CHANNEL-AWARE**: WhatsApp confirmation sent for both phone calls (after booking) and WhatsApp chats (when requested)
-
-**Build 114 (November 13, 2025):**
-- **🔥 CRITICAL PERF FIX: 2-Slot Hard Limit** - calendar_find_slots now returns ONLY 2 slots maximum at the data level (not relying on LLM) - prevents agent from reading long slot lists
-- **🎤 STT FIX: Hebrew Names Accepted** - Lowered confidence threshold from 0.4 → 0.2 for short phrases - accepts Hebrew names like "שי דהן" (confidence 0.32) instead of rejecting as noise
-- **🛡️ CRASH FIX: dict.strip() Normalization** - AgentKit responses normalized before trimming - prevents AttributeError crashes when agent returns dict instead of string
-- **⚡ LATENCY IMPROVEMENT**: Combined fixes reduce latency from 38s → expected <10s by preventing loops caused by STT rejections and long slot readings
+AgentLocator is a Hebrew CRM system for real estate professionals that automates the sales pipeline. It features an AI-powered assistant that processes calls in real-time, intelligently collects lead information, and schedules meetings. The system utilizes advanced audio processing for natural conversations, aiming to enhance efficiency and sales conversion. It provides a robust, multi-tenant platform with customizable AI assistants and business branding, leveraging cutting-edge AI communication tools.
 
 # User Preferences
 
@@ -68,7 +10,7 @@ Preferred communication style: Simple, everyday language.
 
 ## System Design Choices
 
-AgentLocator employs a production-ready multi-tenant architecture ensuring complete business isolation. It integrates Twilio Media Streams for real-time communication, featuring Hebrew-optimized Voice Activity Detection (VAD) and smart TTS truncation. The AI leverages an Agent SDK for tasks like appointment scheduling and lead creation, maintaining conversation memory. An Agent Cache System retains agent instances for 30 minutes per business and channel to boost response times and preserve conversation state. The system mandates name and phone confirmation during scheduling, utilizing dual input (verbal name, DTMF phone number) for streamlined 4-turn booking flows. Channel-aware responses adapt messaging based on the communication channel. A DTMF Menu System provides interactive voice navigation for phone calls with structured error handling. Agent Validation Guards prevent AI hallucinations by blocking responses that claim bookings or availability without executing corresponding calendar tools.
+AgentLocator uses a multi-tenant architecture with complete business isolation. It integrates Twilio Media Streams for real-time communication, featuring Hebrew-optimized Voice Activity Detection (VAD) and smart TTS truncation. The AI leverages an Agent SDK for tasks like appointment scheduling and lead creation, maintaining conversation memory. An Agent Cache System retains agent instances for 30 minutes per business and channel to boost response times and preserve conversation state. The system mandates name and phone confirmation during scheduling, utilizing dual input (verbal name, DTMF phone number) for streamlined 4-turn booking flows. Channel-aware responses adapt messaging based on the communication channel. A DTMF Menu System provides interactive voice navigation for phone calls with structured error handling. Agent Validation Guards prevent AI hallucinations by blocking responses that claim bookings or availability without executing corresponding calendar tools.
 
 Multi-tenant security is paramount, with business identification via `BusinessContactChannel` or `Business.phone_e164`, rejection of unknown phone numbers, and isolated prompts, agents, leads, calls, and messages per business. It includes universal warmup for active businesses, handles 401 errors for missing authentication, and implements comprehensive Role-Based Access Control (RBAC).
 
