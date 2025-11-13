@@ -1184,19 +1184,39 @@ class AIService:
             logger.info(f"⏱️ PERFORMANCE: Starting Runner.run() at {time.time()}")
             
             # Use Runner.run() directly (it's a static method, not an instance!)
-            # 🔥 FIX: max_turns=5 to fail faster (was 10, caused 22s latency)
+            # 🔥 BUILD 112: max_turns=15 to allow full booking flow (was 5, caused MaxTurnsExceeded mid-booking)
+            # Booking requires 4-6 turns: Name → Phone → Date → Time → Check Calendar → Book
+            # OpenAI recommends 10-20 for complex tasks
             try:
                 result = loop.run_until_complete(
                     Runner.run(
                         starting_agent=agent, 
                         input=conversation_messages, 
                         context=agent_context,
-                        max_turns=5  # 🔥 Fail fast - prevent 20s delays
+                        max_turns=15  # 🔥 Allow full booking flow (4-6 turns needed)
                     )
                 )
                 duration_ms = int((time.time() - start_time) * 1000)
                 print(f"✅ Runner.run() completed in {duration_ms}ms")
                 logger.info(f"⏱️ PERFORMANCE: Runner.run() completed in {duration_ms}ms")
+            except Exception as e:
+                # 🔥 BUILD 112: Handle MaxTurnsExceeded gracefully
+                from agents.exceptions import MaxTurnsExceeded
+                if isinstance(e, MaxTurnsExceeded):
+                    print(f"⚠️ MaxTurnsExceeded: Agent hit turn limit")
+                    logger.warning(f"MaxTurnsExceeded: {e}")
+                    # Return a polite fallback instead of hallucinated booking
+                    return {
+                        "text": "סליחה, אני צריך עוד פרטים כדי להשלים את הקביעה. מה השעה המועדפת שלך?",
+                        "usage": {
+                            "total_tokens": 0,
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0
+                        }
+                    }
+                else:
+                    # Re-raise other exceptions
+                    raise
             finally:
                 # 🔥 CRITICAL: Close event loop to prevent FD leak!
                 loop.close()
