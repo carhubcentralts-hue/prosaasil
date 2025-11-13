@@ -4,6 +4,13 @@ AgentLocator is a Hebrew CRM system for real estate professionals. Its core purp
 
 # Recent Changes
 
+**Build 112 (November 13, 2025):**
+- **🔥 CRITICAL FIX: MaxTurnsExceeded → Hallucinated Bookings**: Increased `max_turns` from 5 to 15 to allow full booking flow (Name → Phone → Date → Time → Check → Book). Previously, agent would hit turn limit mid-booking and return generic "קבעתי תור" without actually calling tools.
+- **⚡ GRACEFUL FALLBACK**: Added exception handling for `MaxTurnsExceeded` - instead of hallucinating, agent now returns "סליחה, אני צריך עוד פרטים כדי להשלים את הקביעה" and asks for clarification.
+- **📋 TURN MANAGEMENT INSTRUCTIONS**: Added explicit turn awareness to system rules - agent now knows it has 15 turns and prioritizes gathering info first (name, phone, date, time) before booking.
+- **🎯 ONE ACTION AT A TIME**: New rule #7 - agent cannot claim "קבעתי + שלחתי אישור" in same turn, must complete actions sequentially.
+- **🔍 STT ALREADY OPTIMIZED**: Verified STT has 150+ Hebrew phrases with boost=20.0 - comprehensive coverage for booking, numbers, locations, and business terms.
+
 **Build 111 (November 13, 2025):**
 - **🔄 BOOKING WORKFLOW ORDER CHANGED**: Updated appointment booking sequence to Name → Phone → Date → Time (previously: Name → Date → Time → Phone)
 - **⚡ IMPROVED BOOKING FLOW**: Agent now collects phone number earlier, checks calendar for requested time, and immediately suggests alternatives if slot is occupied
