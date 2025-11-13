@@ -1371,7 +1371,12 @@ class AIService:
             # Regex patterns for detecting false claims
             import re
             booking_claims = re.compile(r'(קבעתי|קבענו|שריינתי|תיאמתי|נקבעה פגישה|נקבע לך)', re.IGNORECASE)
-            whatsapp_claims = re.compile(r'(שלחתי|שולח|נשלח).*(אישור|הודעה|וואטסאפ|whatsapp)', re.IGNORECASE)
+            # WhatsApp claims - match BOTH directions (verb-noun AND noun-verb)
+            whatsapp_claims = re.compile(
+                r'((שלחתי|שולח|נשלח).*(אישור|הודעה|וואטסאפ|whatsapp))|'
+                r'((אישור|הודעה|וואטסאפ|whatsapp).*(שלחתי|נשלח))',
+                re.IGNORECASE
+            )
             
             # Check if agent is lying about booking
             claims_booking = bool(booking_claims.search(reply_text))
@@ -1399,8 +1404,8 @@ class AIService:
                 print(f"   But NO whatsapp_send was called!")
                 logger.error(f"🚨 HARD BLOCK: Blocked WhatsApp send lie without tool call")
                 
-                # 🔥 OVERRIDE: Agent cannot claim sending WhatsApp without tool!
-                reply_text = "מעולה! הפרטים נשמרו. נתראה בקרוב!"
+                # 🔥 OVERRIDE: Be HONEST - did NOT send WhatsApp!
+                reply_text = "מעולה! הפרטים נרשמו. ניצור קשר בהמשך עם פרטי הפגישה."
                 print(f"   ✅ HARD OVERRIDE: '{reply_text}'")
             
             # 🚨 BLOCK 3: Hallucinated availability

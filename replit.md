@@ -5,16 +5,16 @@ AgentLocator is a Hebrew CRM system for real estate professionals. Its core purp
 # Recent Changes
 
 **Build 110 (November 13, 2025):**
-- **🛡️ CRITICAL FIX: Agent Hallucination Prevention**
-  - **FIX #1**: Prompt explicitly forbids WhatsApp promises on phone calls - agent CANNOT say "שלחתי אישור"
-  - **FIX #2**: Reduced max_turns from 10 to 5 - prevents 20s delays (now fails fast at ~10s)
-  - **FIX #3**: Strengthened validation guards - stricter blocking of hallucinated bookings
-  - **FIX #4**: Agent now REQUIRED to call calendar_create_appointment before claiming "קבעתי"
-  - **Impact**: Agent can no longer lie about sending confirmations or creating appointments
+- **🛡️ CRITICAL FIX: HARD BLOCK - Agent Cannot Lie Anymore**
+  - **HARD BLOCK #1**: Regex detection for booking claims (קבעתי, קבענו, שריינתי) - BLOCKED if no calendar_create_appointment called
+  - **HARD BLOCK #2**: Regex detection for WhatsApp claims (שלחתי אישור) - BLOCKED if no whatsapp_send called
+  - **HARD BLOCK #3**: Availability claims (פנוי, תפוס) - BLOCKED if no calendar_find_slots called
+  - **Enforcement**: Reply text is OVERRIDDEN with safe fallback if mismatch detected
+  - **Impact**: Agent physically CANNOT respond with lies - hard code block prevents it
 - **📊 Performance Improvements**:
   - Max turns: 10 → 5 (50% reduction)
   - Expected latency: 22s → <10s for appointment booking
-  - Validation: Post-processing guards now stricter with better error messages
+  - Validation: Hard regex-based blocking with immediate override
 
 **Build 109 (November 13, 2025):**
 - **🔒 DATA PROTECTION GUARANTEE**: Added strict data protection with automatic rollback - FAQs/leads NEVER deleted on deployment
