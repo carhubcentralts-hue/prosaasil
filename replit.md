@@ -4,6 +4,12 @@ AgentLocator is a Hebrew CRM system for real estate professionals. Its core purp
 
 # Recent Changes
 
+**Build 114 (November 13, 2025):**
+- **📱 GRACEFUL WHATSAPP FALLBACK**: If whatsapp_send fails (not connected/error) → agent says "פרטים ישלחו בהמשך" instead of exposing technical errors
+- **🔒 NO TECHNICAL ERRORS**: Agent NEVER says "שירות לא זמין" or "נכשל" - keeps customer experience smooth and professional
+- **✅ CLEAR SUCCESS**: When WhatsApp succeeds → agent explicitly says "שלחתי אישור בWhatsApp"
+- **⚡ SINGLE ATTEMPT**: whatsapp_send tries only once (max_attempts=1) - no loops or retries that slow down conversation
+
 **Build 113 (November 13, 2025):**
 - **🕐 DYNAMIC OPERATING HOURS**: Removed all hardcoded "09:00-22:00" hours - agent now reads actual operating hours from BusinessSettings via business_get_info() and calendar_find_slots
 - **📊 SMART SLOT PRESENTATION**: Added explicit "SLOT PRESENTATION RULE" - agent suggests ONLY 2 times maximum (e.g., "יש פנוי ב-9:00 או 14:00") instead of listing all available slots
