@@ -1207,14 +1207,8 @@ class AIService:
                     print(f"⚠️ MaxTurnsExceeded: Agent hit turn limit")
                     logger.warning(f"MaxTurnsExceeded: {e}")
                     # Return a polite fallback instead of hallucinated booking
-                    return {
-                        "text": "סליחה, אני צריך עוד פרטים כדי להשלים את הקביעה. מה השעה המועדפת שלך?",
-                        "usage": {
-                            "total_tokens": 0,
-                            "prompt_tokens": 0,
-                            "completion_tokens": 0
-                        }
-                    }
+                    # 🔥 BUILD 118: Return STRING, not dict! (fixes _speak_simple crash)
+                    return "סליחה, אני צריך עוד פרטים כדי להשלים את הקביעה. מה השעה המועדפת שלך?"
                 else:
                     # Re-raise other exceptions
                     raise

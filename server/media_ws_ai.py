@@ -1481,6 +1481,17 @@ class MediaStreamHandler:
         """TTS עם מעקב מצבים וסימונים"""
         if not text:
             return
+        
+        # 🔥 BUILD 118: Defensive check (should be normalized already in _ai_response)
+        # This is a safety net in case dict slips through
+        if isinstance(text, dict):
+            print(f"⚠️ DICT STILL HERE! Should have been normalized in _ai_response: {text}")
+            if 'text' in text:
+                text = text['text']
+                print(f"✅ Extracted text field: '{text}'")
+            else:
+                print(f"❌ No 'text' field in dict - using fallback")
+                text = "סליחה, לא הבנתי. אפשר לחזור?"
             
         if self.speaking:
             print("🚫 Already speaking - stopping current and starting new")
@@ -2402,6 +2413,7 @@ class MediaStreamHandler:
         from server.agent_tools.phone_utils import normalize_il_phone
         
         # Normalize to E.164 (+972...)
+        phone_to_show = ""  # 🔥 BUILD 118: Initialize to avoid NameError
         normalized_phone = normalize_il_phone(phone_number)
         
         if not normalized_phone:
@@ -2424,7 +2436,8 @@ class MediaStreamHandler:
             phone_to_show = phone_number
         
         # Create Hebrew text as if customer said it
-        hebrew_text = phone_to_show  # Just the digits (normalized)
+        # 🔥 BUILD 118: Add context so agent understands this is phone input
+        hebrew_text = f"המספר שלי הוא {phone_to_show}"
         
         # Get AI response (Agent will process the phone)
         ai_response = self._ai_response(hebrew_text)
@@ -2451,14 +2464,14 @@ class MediaStreamHandler:
             # 🤖 BUILD 119: Use Agent for REAL ACTIONS (appointments, leads, WhatsApp)
             from server.services.ai_service import AIService
             
-            # Build context for the AI
-            # 🔥 CRITICAL: Use DTMF phone if available (normalized E.164)
-            customer_phone = getattr(self, 'customer_phone_dtmf', None) or getattr(self, 'phone_number', '')
+            # 🔥 BUILD 118: CRITICAL - Initialize customer_phone FIRST to avoid UnboundLocalError
+            customer_phone = getattr(self, 'customer_phone_dtmf', None) or getattr(self, 'phone_number', '') or ''
             
+            # Build context for the AI
             context = {
                 "phone_number": getattr(self, 'phone_number', ''),
                 "channel": "phone",  # 🔥 FIX: "phone" for WhatsApp confirmation detection
-                "customer_phone": customer_phone,  # 🔥 FIX: Use DTMF phone if available
+                "customer_phone": customer_phone,  # 🔥 BUILD 118: Use DTMF phone if available (initialized above)
                 "previous_messages": []
             }
             
@@ -2491,17 +2504,16 @@ class MediaStreamHandler:
                 # 🤖 Use Agent for REAL booking actions!
                 ai_service = AIService()
                 
-                # 🔍 DEBUG: Check if phone_number is set
-                caller_phone = getattr(self, 'phone_number', '')
-                print(f"\n📞 DEBUG: Caller phone = '{caller_phone}' (type: {type(caller_phone).__name__})")
-                print(f"   self.phone_number exists: {hasattr(self, 'phone_number')}")
-                if hasattr(self, 'phone_number'):
-                    print(f"   self.phone_number value: '{self.phone_number}'")
+                # 🔥 BUILD 118: Use customer_phone (includes DTMF) instead of caller_phone (None)!
+                # customer_phone is set in line 2467 and includes DTMF phone if available
+                print(f"\n📞 DEBUG: customer_phone from context = '{customer_phone}'")
+                print(f"   phone_number (caller) = '{getattr(self, 'phone_number', 'None')}'")
+                print(f"   customer_phone_dtmf = '{getattr(self, 'customer_phone_dtmf', 'None')}'")
                 
                 ai_response = ai_service.generate_response_with_agent(
                     message=hebrew_text,
                     business_id=int(business_id),
-                    customer_phone=caller_phone,
+                    customer_phone=customer_phone,  # 🔥 BUILD 118: FIX - Use customer_phone (includes DTMF), not caller_phone (None)!
                     customer_name=customer_name,
                     context=context,
                     channel='calls',  # ✅ Use 'calls' prompt for phone calls
@@ -2510,6 +2522,20 @@ class MediaStreamHandler:
             
             # ⚡ CRITICAL: Save AI timing for TOTAL_LATENCY calculation
             self.last_ai_time = time.time() - ai_start
+            
+            # 🔥 BUILD 118: Ensure ai_response is ALWAYS a string
+            # generate_response_with_agent should return string (see ai_service.py line 1472)
+            # But in error cases (MaxTurnsExceeded) it returned dict - FIXED in ai_service.py line 1214
+            # This is defensive: if somehow dict slips through, extract text field
+            if not isinstance(ai_response, str):
+                print(f"⚠️ NON-STRING RESPONSE from Agent: type={type(ai_response).__name__}, value={ai_response}")
+                if isinstance(ai_response, dict) and 'text' in ai_response:
+                    ai_response = ai_response['text']
+                    print(f"✅ Extracted 'text' field: '{ai_response}'")
+                else:
+                    print(f"❌ Cannot extract text - using fallback")
+                    ai_response = "סליחה, לא הבנתי. אפשר לחזור?"
+            
             print(f"🤖 AGENT_RESPONSE: Generated {len(ai_response)} chars in {self.last_ai_time:.3f}s (business {business_id})")
             print(f"📊 AI_LATENCY: {self.last_ai_time:.3f}s (target: <1.5s)")
             
