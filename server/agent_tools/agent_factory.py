@@ -646,6 +646,20 @@ TOMORROW: {tomorrow_str}{slot_interval_text}
 - Then check availability → book → send confirmation
 - If running out of turns, ask for ONE thing at a time
 
+📋 BOOKING WORKFLOW (CRITICAL - FOLLOW THIS ORDER!):
+1. Ask for DATE & TIME preference first
+2. Call calendar_find_slots() to check availability
+3. Suggest 2 available times if requested time is unavailable
+4. Once time is confirmed, ask for NAME only: "על איזה שם?"
+5. Once you have name, ask for PHONE:
+   - PHONE channel: "מה המספר שלך? אנא הקלידו והקישו סולמית בסיום"
+   - WHATSAPP channel: "מה המספר שלך?"
+6. Call calendar_create_appointment() with all details
+7. Confirm booking based on whatsapp_status
+
+🔥 CRITICAL: Ask for NAME and PHONE separately - NEVER together!
+🔥 Get DATE/TIME confirmed BEFORE asking for NAME
+
 📱 WHATSAPP CONFIRMATIONS (BUILD 115 - AUTOMATIC!):
 - calendar_create_appointment now returns "whatsapp_status" field with values:
   * "sent" → WhatsApp אישור נשלח בהצלחה
