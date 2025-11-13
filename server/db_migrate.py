@@ -50,7 +50,10 @@ def apply_migrations():
     """
     migrations_applied = []
     
-    # 🔒 DATA PROTECTION CHECK: Log current data counts BEFORE migrations
+    # 🔒 BUILD 111: TRIPLE LAYER DATA PROTECTION
+    # Layer 1: Count FAQs BEFORE migrations
+    # Layer 2: Run migrations inside TRY block
+    # Layer 3: Count FAQs AFTER migrations and ROLLBACK if decreased
     faq_count_before = 0
     lead_count_before = 0
     msg_count_before = 0
@@ -58,15 +61,15 @@ def apply_migrations():
         from sqlalchemy import text
         if check_table_exists('faqs'):
             faq_count_before = db.session.execute(text("SELECT COUNT(*) FROM faqs")).scalar()
-            log.info(f"🔒 DATA PROTECTION (BEFORE): {faq_count_before} FAQs exist")
-            print(f"🔒 DATA PROTECTION (BEFORE): {faq_count_before} FAQs in database")
+            log.info(f"🔒 LAYER 1 (BEFORE): {faq_count_before} FAQs exist")
+            print(f"🔒 LAYER 1 (BEFORE): {faq_count_before} FAQs in database")
         if check_table_exists('leads'):
             lead_count_before = db.session.execute(text("SELECT COUNT(*) FROM leads")).scalar()
-            log.info(f"🔒 DATA PROTECTION (BEFORE): {lead_count_before} leads exist")
-            print(f"🔒 DATA PROTECTION (BEFORE): {lead_count_before} leads in database")
+            log.info(f"🔒 LAYER 1 (BEFORE): {lead_count_before} leads exist")
+            print(f"🔒 LAYER 1 (BEFORE): {lead_count_before} leads in database")
         if check_table_exists('messages'):
             msg_count_before = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar()
-            log.info(f"🔒 DATA PROTECTION (BEFORE): {msg_count_before} messages exist")
+            log.info(f"🔒 LAYER 1 (BEFORE): {msg_count_before} messages exist")
     except Exception as e:
         log.warning(f"Could not check data counts (database may be new): {e}")
     
