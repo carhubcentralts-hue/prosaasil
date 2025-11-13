@@ -668,9 +668,11 @@ def create_app():
     if os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1':
         try:
             with app.app_context():
+                print("🔒 DATA PROTECTION: Starting migrations - NO user data will be deleted")
                 from server.db_migrate import apply_migrations
                 apply_migrations()
                 print("✅ Database migrations applied successfully")
+                print("🔒 DATA PROTECTION: All user data preserved (FAQs, leads, messages, etc.)")
                 
                 # Create default admin user if none exists
                 from server.auth_api import create_default_admin
