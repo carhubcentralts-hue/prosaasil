@@ -172,6 +172,8 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
     Args:
         business_name: Name of the business for personalized responses
         custom_instructions: Custom instructions from database (if None, uses default)
+        business_id: Business ID
+        channel: Channel type ("phone", "whatsapp")
     
     Returns:
         Configured Agent ready to handle booking requests
@@ -644,13 +646,21 @@ TOMORROW: {tomorrow_str}{slot_interval_text}
 - Then check availability → book → send confirmation
 - If running out of turns, ask for ONE thing at a time
 
-📱 WHATSAPP CONFIRMATIONS (BUILD 114):
-- PHONE calls: After successful booking, ALWAYS call whatsapp_send() with appointment details
-- WhatsApp chats: No need to send again (already in chat)
-- 🔥 If whatsapp_send() returns status:'error' → Say: "תיאמתי לך תור ב-[תאריך] בשעה [שעה]. פרטים ישלחו בהמשך"
-- 🔥 NEVER say "לא הצלחתי לשלוח" or "שירות לא זמין" - customer doesn't care about technical issues!
-- ✅ If whatsapp_send() returns status:'sent' → Say: "תיאמתי לך תור ושלחתי אישור בWhatsApp"
-- Message format: "שלום [שם], קבעתי לך תור ליום [תאריך] בשעה [שעה]. נתראה בקרוב!"
+📱 WHATSAPP CONFIRMATIONS (BUILD 115 - AUTOMATIC!):
+- calendar_create_appointment now returns "whatsapp_status" field with values:
+  * "sent" → WhatsApp אישור נשלח בהצלחה
+  * "failed" → WhatsApp נכשל (עדיין הפגישה נקבעה!)
+  * "pending" → אין מספר טלפון עדיין
+  * "skipped" → לא רלוונטי לערוץ הזה
+  
+🎯 HOW TO RESPOND BASED ON whatsapp_status:
+- whatsapp_status="sent" → Say: "קבעתי לך את הפגישה ושלחתי עכשיו אישור בווטסאפ!"
+- whatsapp_status="failed" → Say: "קבעתי לך את הפגישה, הפרטים יישלחו אליך מאוחר יותר בווטסאפ."
+- whatsapp_status="pending" → Say: "קבעתי לך את הפגישה, פרטים ישלחו בהמשך."
+- whatsapp_status="skipped" → Just confirm the appointment normally
+
+🔥 CRITICAL: NEVER say "לא הצלחתי לשלוח" or "שירות לא זמין" - customer doesn't care!
+🔥 NEVER claim "שלחתי אישור" unless whatsapp_status="sent"
 
 📞 DTMF Phone Input (internal note):
 - PHONE channel: When asking for phone, say "מה המספר שלך? אנא הקלידו והקישו סולמית בסיום"
@@ -703,16 +713,27 @@ Be friendly and professional."""
         print(f"📅 Tomorrow calculated as: {(datetime.now(tz=pytz.timezone('Asia/Jerusalem')) + timedelta(days=1)).strftime('%Y-%m-%d')}")
         print("="*80 + "\n")
         
-        # ⚡ CRITICAL: Use global AGENT_MODEL_SETTINGS for consistent tool execution!
-        # max_tokens=400 needed for tool calls + response (200 was too small, caused truncation)
-        # temperature=0.15 ensures consistent tool usage without hallucinations
+        # 🔥 BUILD 115: Dynamic max_tokens per channel
+        # Phone/calls: 60 tokens (15 words) - prevents queue overflow
+        # WhatsApp: 120 tokens (30 words) - allows slightly longer text responses
+        if channel == "whatsapp":
+            model_settings = ModelSettings(
+                temperature=0.15,
+                max_tokens=120,  # 🔥 WhatsApp: 120 tokens for text conversations
+                tool_choice="auto",
+                parallel_tool_calls=True
+            )
+            logger.info(f"📱 WhatsApp channel: using max_tokens=120")
+        else:
+            model_settings = AGENT_MODEL_SETTINGS  # Phone: 60 tokens (global default)
+            logger.info(f"📞 Phone channel: using max_tokens=60")
         
         agent = Agent(
             name=f"booking_agent_{business_name}",  # Required: Agent name
             model="gpt-4o-mini",  # ⚡ Fast model for real-time conversations
             instructions=instructions,
             tools=tools_to_use,  # Use wrapped or original tools based on business_id
-            model_settings=AGENT_MODEL_SETTINGS  # ⚡ Use global settings: max_tokens=400, temperature=0.15
+            model_settings=model_settings  # ⚡ Channel-specific settings
         )
         
         logger.info(f"✅ Created booking agent for '{business_name}' with 5 tools")

@@ -2,6 +2,23 @@
 
 AgentLocator is a Hebrew CRM system for real estate professionals designed to automate the sales pipeline. It features an AI-powered assistant that processes calls in real-time, intelligently collects lead information, and schedules meetings. The system utilizes advanced audio processing for natural conversations, aiming to enhance efficiency and sales conversion. It provides a robust, multi-tenant platform with customizable AI assistants and business branding, leveraging cutting-edge AI communication tools.
 
+# Recent Changes
+
+**Build 115 (November 13, 2025) - COMPLETE ORCHESTRATION:**
+- **🎯 AUTOMATIC LEAD MANAGEMENT**: calendar_create_appointment now automatically creates/updates leads - no separate tool calls needed!
+- **📱 ORCHESTRATED WHATSAPP**: WhatsApp confirmation sent automatically after booking with graceful fallback - agent gets whatsapp_status: sent/failed/pending/skipped
+- **💬 SMART RESPONSES**: Agent says "הפרטים יישלחו בהמשך" if WhatsApp fails (NEVER says "לא הצלחתי" or "שירות לא זמין")
+- **📊 STATUS TRACKING**: CreateAppointmentOutput now includes whatsapp_status + lead_id - agent knows exactly what happened
+- **📱 WHATSAPP OPTIMIZED**: max_tokens=120 for WhatsApp (vs 60 for phone) - allows slightly longer text responses without queue overflow
+- **✅ TRANSACTION SAFETY**: Appointment succeeds even if lead creation or WhatsApp fails - graceful degradation at every step
+- **🔄 CHANNEL-AWARE**: WhatsApp confirmation sent for both phone calls (after booking) and WhatsApp chats (when requested)
+
+**Build 114 (November 13, 2025):**
+- **🔥 CRITICAL PERF FIX: 2-Slot Hard Limit** - calendar_find_slots now returns ONLY 2 slots maximum at the data level (not relying on LLM) - prevents agent from reading long slot lists
+- **🎤 STT FIX: Hebrew Names Accepted** - Lowered confidence threshold from 0.4 → 0.2 for short phrases - accepts Hebrew names like "שי דהן" (confidence 0.32) instead of rejecting as noise
+- **🛡️ CRASH FIX: dict.strip() Normalization** - AgentKit responses normalized before trimming - prevents AttributeError crashes when agent returns dict instead of string
+- **⚡ LATENCY IMPROVEMENT**: Combined fixes reduce latency from 38s → expected <10s by preventing loops caused by STT rejections and long slot readings
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

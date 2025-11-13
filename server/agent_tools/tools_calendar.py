@@ -83,6 +83,8 @@ class CreateAppointmentOutput(BaseModel):
     appointment_id: int
     status: str = "confirmed"
     confirmation_message: str
+    whatsapp_status: str = "skipped"  # 🔥 BUILD 115: sent/failed/pending/skipped
+    lead_id: Optional[int] = None  # 🔥 BUILD 115: ID of created/updated lead
 
 # ================================================================================
 # INTERNAL FUNCTIONS (can be called directly)
@@ -475,88 +477,115 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         
         logger.info(f"✅ Created appointment #{appointment.id} for {input.customer_name} on {start}")
         
-        # 🔥 Phase 2G: Auto-send WhatsApp confirmation after phone bookings
+        # 🔥 BUILD 115: ORCHESTRATION - leads_upsert + whatsapp_send (per user instructions)
+        lead_id = None
+        whatsapp_status = "skipped"
+        
+        # STEP 1: leads_upsert (create/update lead automatically)
         try:
-            # 🔥 FIX: Use context parameter (passed from wrapper) instead of flask.g
-            agent_context = context or {}
-            channel = agent_context.get('channel')
-            
-            logger.info(f"📱 WhatsApp check: channel={channel}, context_keys={list(agent_context.keys())}")
-            
-            # Send WhatsApp confirmation ONLY for phone calls (not for WhatsApp conversations)
-            # Support multiple channel names: 'phone', 'calls', 'voice_call'
-            if channel in ['phone', 'calls', 'voice_call']:
-                # Check if we have customer phone
-                customer_phone_wa = phone or agent_context.get('customer_phone') or agent_context.get('whatsapp_from')
+            if phone:
+                logger.info(f"📋 Creating/updating lead for {input.customer_name} ({phone})")
+                from server.agent_tools.tools_leads import UpsertLeadInput, leads_upsert
                 
-                if customer_phone_wa:
-                    wa_start = time.time()
-                    logger.info(f"📱 Sending WhatsApp confirmation to {customer_phone_wa} (booked via phone)")
-                    
-                    # Compute day name in Hebrew for WhatsApp message
-                    day_name_eng = start.strftime("%A")
-                    day_name_hebrew = {
-                        "Monday": "שני", "Tuesday": "שלישי", "Wednesday": "רביעי",
-                        "Thursday": "חמישי", "Friday": "שישי", "Sunday": "ראשון", "Saturday": "שבת"
-                    }.get(day_name_eng, day_name_eng)
-                    
-                    # 🔥 BUILD 107: Fetch business details for complete confirmation
-                    business_address = "לא צויין"
-                    business_phone = "לא צויין"
-                    try:
-                        from server.models_sql import Business, BusinessSettings
-                        business = Business.query.get(input.business_id)
-                        settings = BusinessSettings.query.get(input.business_id)
-                        if settings:
-                            business_address = settings.address or "לא צויין"
-                            business_phone = settings.phone_number or "לא צויין"
-                        logger.info(f"✅ Fetched business details: address={business_address}, phone={business_phone}")
-                    except Exception as fetch_err:
-                        logger.warning(f"⚠️ Failed to fetch business details: {fetch_err}")
-                    
-                    # Format WhatsApp confirmation message with full details
-                    wa_message = (
-                        f"🎉 *אישור פגישה*\n\n"
-                        f"שלום {input.customer_name}!\n\n"
-                        f"פגישתך נקבעה בהצלחה:\n"
-                        f"📅 יום {day_name_hebrew} {start.strftime('%d/%m/%Y')}\n"
-                        f"🕐 שעה {start.strftime('%H:%M')}\n"
-                        f"💼 {input.treatment_type}\n\n"
-                        f"📍 כתובת: {business_address}\n"
-                        f"📞 טלפון: {business_phone}\n\n"
-                        f"נתראה! 😊"
-                    )
-                    
-                    # 🔥 FIX #1: Move get_whatsapp_service() INSIDE try/except to prevent crashes
-                    try:
-                        from server.whatsapp_provider import get_whatsapp_service
-                        wa_service = get_whatsapp_service()
-                        result = wa_service.send_message(to=customer_phone_wa, message=wa_message)
-                        wa_latency = (time.time() - wa_start) * 1000  # Convert to ms
-                        
-                        if result.get('status') == 'sent':
-                            logger.info(f"✅ WhatsApp confirmation sent successfully to {customer_phone_wa} (latency: {wa_latency:.0f}ms)")
-                        else:
-                            logger.warning(f"⚠️ WhatsApp confirmation failed: {result.get('error')} (latency: {wa_latency:.0f}ms)")
-                    except Exception as wa_error:
-                        wa_latency = (time.time() - wa_start) * 1000
-                        logger.error(f"❌ WhatsApp send exception: {wa_error} (latency: {wa_latency:.0f}ms)")
-                        # Don't re-raise - booking should succeed even if WhatsApp fails
-                else:
-                    logger.info("📱 Skipping WhatsApp confirmation - no phone number available")
+                # Split name into first/last
+                name_parts = input.customer_name.strip().split(maxsplit=1)
+                first_name = name_parts[0] if len(name_parts) > 0 else input.customer_name
+                last_name = name_parts[1] if len(name_parts) > 1 else ""
+                
+                lead_input = UpsertLeadInput(
+                    business_id=input.business_id,
+                    phone=phone,
+                    first_name=first_name,
+                    last_name=last_name,
+                    source=input.source or "ai_agent",
+                    status="מתואם",  # Default status for booked appointments
+                    notes=f"תור נקבע: {input.treatment_type} ב-{start.strftime('%d/%m/%Y %H:%M')}"
+                )
+                
+                lead_result = leads_upsert(lead_input)
+                lead_id = lead_result.lead_id
+                logger.info(f"✅ Lead {lead_result.action}: #{lead_id}")
             else:
-                logger.info(f"📱 Skipping WhatsApp confirmation - channel is '{channel}' (not phone)")
-                
-        except Exception as e:
-            # Don't fail the booking if WhatsApp send fails
-            logger.error(f"❌ WhatsApp confirmation error: {e}")
+                logger.warning("⚠️ No phone - skipping lead creation")
+        except Exception as lead_error:
+            # Don't fail appointment if lead creation fails
+            logger.error(f"❌ Lead upsert failed: {lead_error}")
             import traceback
             traceback.print_exc()
+        
+        # STEP 2: whatsapp_send (send confirmation with graceful fallback)
+        agent_context = context or {}
+        channel = agent_context.get('channel')
+        
+        # Send WhatsApp confirmation for phone calls OR if explicitly requested
+        should_send_wa = channel in ['phone', 'calls', 'voice_call'] or channel == 'whatsapp'
+        
+        if should_send_wa and phone:
+            wa_start = time.time()
+            logger.info(f"📱 Sending WhatsApp confirmation to {phone} (channel={channel})")
+            
+            # Compute day name in Hebrew for WhatsApp message
+            day_name_eng = start.strftime("%A")
+            day_name_hebrew = {
+                "Monday": "שני", "Tuesday": "שלישי", "Wednesday": "רביעי",
+                "Thursday": "חמישי", "Friday": "שישי", "Sunday": "ראשון", "Saturday": "שבת"
+            }.get(day_name_eng, day_name_eng)
+            
+            # Fetch business details
+            business_address = "לא צויין"
+            business_phone = "לא צויין"
+            try:
+                from server.models_sql import Business, BusinessSettings
+                settings = BusinessSettings.query.get(input.business_id)
+                if settings:
+                    business_address = settings.address or "לא צויין"
+                    business_phone = settings.phone_number or "לא צויין"
+            except Exception as fetch_err:
+                logger.warning(f"⚠️ Failed to fetch business details: {fetch_err}")
+            
+            # Format WhatsApp confirmation message
+            wa_message = (
+                f"🎉 *אישור פגישה*\n\n"
+                f"שלום {input.customer_name}!\n\n"
+                f"פגישתך נקבעה בהצלחה:\n"
+                f"📅 יום {day_name_hebrew} {start.strftime('%d/%m/%Y')}\n"
+                f"🕐 שעה {start.strftime('%H:%M')}\n"
+                f"💼 {input.treatment_type}\n\n"
+                f"📍 כתובת: {business_address}\n"
+                f"📞 טלפון: {business_phone}\n\n"
+                f"נתראה! 😊"
+            )
+            
+            # 🔥 BUILD 115: Single attempt with clear status tracking
+            try:
+                from server.whatsapp_provider import get_whatsapp_service
+                wa_service = get_whatsapp_service()
+                result = wa_service.send_message(to=phone, message=wa_message)
+                wa_latency = (time.time() - wa_start) * 1000
+                
+                if result.get('status') == 'sent':
+                    whatsapp_status = "sent"
+                    logger.info(f"✅ WhatsApp sent successfully ({wa_latency:.0f}ms)")
+                else:
+                    whatsapp_status = "failed"
+                    logger.warning(f"⚠️ WhatsApp failed: {result.get('error')} ({wa_latency:.0f}ms)")
+            except Exception as wa_error:
+                whatsapp_status = "failed"
+                wa_latency = (time.time() - wa_start) * 1000
+                logger.error(f"❌ WhatsApp exception: {wa_error} ({wa_latency:.0f}ms)")
+        elif not phone:
+            whatsapp_status = "pending"  # No phone yet - will send later
+            logger.info("📱 WhatsApp pending - no phone number")
+        else:
+            whatsapp_status = "skipped"  # Different channel
+            logger.info(f"📱 WhatsApp skipped - channel={channel}")
         
         return CreateAppointmentOutput(
             appointment_id=appointment.id,
             status='confirmed',
-            confirmation_message=confirmation
+            confirmation_message=confirmation,
+            whatsapp_status=whatsapp_status,
+            lead_id=lead_id
         )
         
     except ValueError as e:
