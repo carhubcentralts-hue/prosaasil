@@ -1184,16 +1184,17 @@ class AIService:
             logger.info(f"⏱️ PERFORMANCE: Starting Runner.run() at {time.time()}")
             
             # Use Runner.run() directly (it's a static method, not an instance!)
-            # 🔥 BUILD 112: max_turns=15 to allow full booking flow (was 5, caused MaxTurnsExceeded mid-booking)
-            # Booking requires 4-6 turns: Name → Phone → Date → Time → Check Calendar → Book
-            # OpenAI recommends 10-20 for complex tasks
+            # 🔥 BUILD 116: max_turns=25 to allow full booking flow with retries (was 15, caused MaxTurnsExceeded)
+            # Booking workflow: Date/Time → Find Slots → Name → Phone → Create Appointment → Confirm
+            # Each tool call = 2 turns (call + response), so minimum ~11 turns needed
+            # Extra headroom for validation retries and conversation flow
             try:
                 result = loop.run_until_complete(
                     Runner.run(
                         starting_agent=agent, 
                         input=conversation_messages, 
                         context=agent_context,
-                        max_turns=15  # 🔥 Allow full booking flow (4-6 turns needed)
+                        max_turns=25  # 🔥 BUILD 116: Allow full booking flow with validation retries
                     )
                 )
                 duration_ms = int((time.time() - start_time) * 1000)

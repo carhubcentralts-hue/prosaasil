@@ -4,11 +4,13 @@ AgentLocator is a Hebrew CRM system for real estate professionals designed to au
 
 # Recent Changes
 
-**Build 116 (November 13, 2025) - DYNAMIC HOURS + WORKFLOW FIX:**
-- **📅 DYNAMIC OPENING HOURS**: System now reads `working_hours` from Business table as fallback when `opening_hours_json` is empty
+**Build 116 (November 13, 2025) - PERFECT WHATSAPP + LATENCY FIX:**
+- **⚡ LATENCY FIX**: Increased max_turns from 15→25 to eliminate MaxTurnsExceeded (44s latency solved!)
+- **📱 CHANNEL-AWARE PROMPTS**: DTMF (סולמית #) instructions ONLY for phone calls - WhatsApp gets clean prompts
+- **🎯 SMART APPOINTMENT OFFERING**: Agent no longer pushes appointments - waits for customer to request explicitly
+- **📅 DYNAMIC OPENING HOURS**: System reads `working_hours` from Business table as fallback when `opening_hours_json` is empty
 - **🔄 SMART FALLBACK**: If `opening_hours_json` is NULL, auto-builds from `working_hours="08:00-18:00"` → applies to sun-fri
-- **📋 BOOKING WORKFLOW GUIDANCE**: Added clear step-by-step workflow to SYSTEM_RULES - ask date/time → name → phone (separately!)
-- **🎯 NO HARDCODING**: All hours come from database - changing working_hours immediately affects available slots
+- **📋 BOOKING WORKFLOW**: Clear step-by-step workflow - date/time → name → phone (separately, channel-aware)
 - **✅ FORMAT VALIDATION**: Parser validates HH:MM format and logs warnings for invalid/complex formats
 
 **Build 115 (November 13, 2025) - COMPLETE ORCHESTRATION:**
