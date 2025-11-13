@@ -4,6 +4,12 @@ AgentLocator is a Hebrew CRM system for real estate professionals designed to au
 
 # Recent Changes
 
+**Build 117 (November 13, 2025) - OPENING HOURS UI FIX:**
+- **🎯 SINGLE SOURCE OF TRUTH**: Removed confusing "שעות פעילות" field from "הגדרות עסק" - all hours managed ONLY in "הגדרות תורים"
+- **✅ SAVE FIX**: Settings UI now correctly saves opening_hours_json to database when user clicks "שמור"
+- **🔄 DEFENSIVE FALLBACK**: Policy keeps temporary fallback to working_hours for legacy businesses (prevents zero-slot schedules)
+- **📋 DATA FLOW**: Frontend → opening_hours_json → Backend → Business Policy → Agent (single path, no conflicts)
+
 **Build 116 (November 13, 2025) - PERFECT WHATSAPP + LATENCY FIX:**
 - **⚡ LATENCY FIX**: Increased max_turns from 15→25 to eliminate MaxTurnsExceeded (44s latency solved!)
 - **📱 CHANNEL-AWARE PROMPTS**: DTMF (סולמית #) instructions ONLY for phone calls - WhatsApp gets clean prompts
