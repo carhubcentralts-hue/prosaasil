@@ -11,6 +11,44 @@ logger = logging.getLogger(__name__)
 
 # REMOVED custom csrf_exempt decorator - using proper @csrf.exempt from SeaSurf only where needed
 
+def normalize_patterns(payload):
+    """
+    Normalize patterns_json to ensure it's always a List[str]
+    
+    Handles:
+    - None/null → []
+    - String (JSON or plain text) → parse and extract list
+    - List → validate and clean
+    - Empty strings/whitespace → []
+    
+    Returns: List[str] or raises ValueError
+    """
+    import json
+    
+    if payload is None or payload == "":
+        return []
+    
+    if isinstance(payload, list):
+        cleaned = [str(p).strip() for p in payload if p and str(p).strip()]
+        return cleaned
+    
+    if isinstance(payload, str):
+        stripped = payload.strip()
+        if not stripped:
+            return []
+        
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, list):
+                cleaned = [str(p).strip() for p in parsed if p and str(p).strip()]
+                return cleaned
+            else:
+                raise ValueError(f"patterns_json must be a list, got {type(parsed).__name__}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"patterns_json is not valid JSON: {e}")
+    
+    raise ValueError(f"patterns_json must be a list or JSON string, got {type(payload).__name__}")
+
 # Business Management Blueprint
 biz_mgmt_bp = Blueprint('business_management', __name__)
 
@@ -745,12 +783,17 @@ def create_faq():
         # Get max order_index
         max_order = db.session.query(db.func.max(FAQ.order_index)).filter_by(business_id=business_id).scalar() or 0
         
+        try:
+            normalized_patterns = normalize_patterns(data.get('patterns_json'))
+        except ValueError as e:
+            return jsonify({'error': f'Invalid patterns_json: {str(e)}'}), 400
+        
         faq = FAQ(
             business_id=business_id,
             question=data['question'],
             answer=data['answer'],
             intent_key=data.get('intent_key'),
-            patterns_json=data.get('patterns_json'),
+            patterns_json=normalized_patterns,
             channels=data.get('channels', 'voice'),
             priority=data.get('priority', 0),
             lang=data.get('lang', 'he-IL'),
@@ -805,7 +848,10 @@ def update_faq(faq_id):
         if 'intent_key' in data:
             faq.intent_key = data['intent_key']
         if 'patterns_json' in data:
-            faq.patterns_json = data['patterns_json']
+            try:
+                faq.patterns_json = normalize_patterns(data['patterns_json'])
+            except ValueError as e:
+                return jsonify({'error': f'Invalid patterns_json: {str(e)}'}), 400
         if 'channels' in data:
             faq.channels = data['channels']
         if 'priority' in data:

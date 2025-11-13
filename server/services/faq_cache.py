@@ -10,6 +10,7 @@ import os
 import time
 import threading
 import numpy as np
+import json
 from typing import Dict, List, Optional, Tuple
 from openai import OpenAI
 from server.models_sql import FAQ, db
@@ -20,6 +21,37 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 SIMILARITY_THRESHOLD = float(os.getenv("FAQ_MIN_SCORE", "0.65"))  # ✅ BUILD 96: Lowered from 0.78 to 0.65 for better Hebrew matching
 AMBIGUITY_MARGIN = 0.05
 FAQ_EMBEDDINGS_ENABLED = os.getenv("FAQ_EMBEDDINGS_ENABLED", "1") == "1"
+
+def _normalize_patterns_defensive(payload):
+    """
+    Defensive normalization for patterns_json read from DB
+    
+    Handles malformed data gracefully:
+    - None/null → []
+    - String (JSON or plain) → attempt parse, fallback to []
+    - List → clean and return
+    - Anything else → []
+    
+    Never raises - returns empty list on any error
+    """
+    if payload is None or payload == "":
+        return []
+    
+    if isinstance(payload, list):
+        try:
+            return [str(p).strip() for p in payload if p and str(p).strip()]
+        except Exception:
+            return []
+    
+    if isinstance(payload, str):
+        try:
+            parsed = json.loads(payload.strip())
+            if isinstance(parsed, list):
+                return [str(p).strip() for p in parsed if p and str(p).strip()]
+        except (json.JSONDecodeError, ValueError):
+            pass
+    
+    return []
 
 class FAQCacheEntry:
     """Single business FAQ cache entry"""
@@ -77,7 +109,7 @@ class FAQCache:
                 "question": faq.question,
                 "answer": faq.answer,
                 "intent_key": faq.intent_key,
-                "patterns_json": faq.patterns_json,
+                "patterns_json": _normalize_patterns_defensive(faq.patterns_json),
                 "channels": faq.channels,
                 "priority": faq.priority,
                 "lang": faq.lang
