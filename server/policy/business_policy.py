@@ -217,10 +217,33 @@ def get_business_policy(
                 merged["opening_hours"] = settings.opening_hours_json
                 logger.info(f"📅 Using opening_hours_json from BusinessSettings")
             else:
-                # 🔥 NO FALLBACK! If opening_hours_json is empty, user MUST set it in UI
-                logger.error(f"❌ opening_hours_json is EMPTY for business {business_id}! User must set hours in 'הגדרות תורים'")
-                # Return empty hours - agent will see no slots available
-                merged["opening_hours"] = {}
+                # 🔥 TEMPORARY FALLBACK: Build from working_hours until migration completes
+                logger.warning(f"⚠️ opening_hours_json is EMPTY for business {business_id} - using working_hours fallback")
+                try:
+                    from server.models_sql import Business
+                    if db_session:
+                        business = db_session.query(Business).filter_by(id=business_id).first()
+                    else:
+                        business = Business.query.get(business_id)
+                    
+                    if business and business.working_hours and '-' in business.working_hours:
+                        parts = business.working_hours.strip().split('-')
+                        if len(parts) == 2:
+                            start_time = parts[0].strip()
+                            end_time = parts[1].strip()
+                            if ':' in start_time and ':' in end_time:
+                                merged["opening_hours"] = {
+                                    "sun": [[start_time, end_time]],
+                                    "mon": [[start_time, end_time]],
+                                    "tue": [[start_time, end_time]],
+                                    "wed": [[start_time, end_time]],
+                                    "thu": [[start_time, end_time]],
+                                    "fri": [[start_time, end_time]],
+                                    "sat": []
+                                }
+                                logger.info(f"📅 Fallback: {start_time}-{end_time} (sun-fri)")
+                except Exception as e:
+                    logger.warning(f"⚠️ Fallback failed: {e}")
                     
             if settings.booking_window_days is not None:
                 merged["booking_window_days"] = settings.booking_window_days
