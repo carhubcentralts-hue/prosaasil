@@ -152,19 +152,28 @@ def match_faq(business_id: int, user_text: str, channel: str = "voice") -> Optio
             logger.debug(f"No FAQs available for business {business_id}")
             return None
         
+        logger.info(f"🔍 [FAQ DEBUG] Loaded {len(cache_entry.faqs)} FAQs for business {business_id}")
+        logger.info(f"🔍 [FAQ DEBUG] Query: '{user_text}'")
+        
         best_match = None
         best_score = 0.0
+        skipped_channel = 0
+        skipped_no_patterns = 0
         
-        for faq in cache_entry.faqs:
+        for idx, faq in enumerate(cache_entry.faqs):
             # Check if FAQ is for voice channel
             faq_channels = faq.get("channels", "voice")
             if faq_channels not in ["voice", "both"]:
+                skipped_channel += 1
+                logger.debug(f"  FAQ #{idx} SKIP: channel={faq_channels} (need voice/both)")
                 continue
             
             # Get patterns for keyword matching
             patterns = faq.get("patterns_json", [])
             if not patterns:
                 # No patterns - skip keyword matching
+                skipped_no_patterns += 1
+                logger.debug(f"  FAQ #{idx} SKIP: no patterns")
                 continue
             
             # Calculate keyword score
@@ -176,9 +185,13 @@ def match_faq(business_id: int, user_text: str, channel: str = "voice") -> Optio
             
             final_score = kw_score + priority_boost
             
+            logger.info(f"  FAQ #{idx}: '{faq['question'][:50]}...' score={final_score:.3f} (kw={kw_score:.3f}) patterns={len(patterns)}")
+            
             if final_score > best_score:
                 best_score = final_score
                 best_match = faq
+        
+        logger.info(f"🔍 [FAQ DEBUG] Skipped: {skipped_channel} (channel) + {skipped_no_patterns} (no patterns) = {skipped_channel + skipped_no_patterns} total")
         
         if best_match and best_score >= SIMILARITY_THRESHOLD:
             elapsed_ms = (time.time() - start_time) * 1000
