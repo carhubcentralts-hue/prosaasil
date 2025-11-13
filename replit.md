@@ -10,6 +10,7 @@ AgentLocator is a Hebrew CRM system for real estate professionals. Its core purp
 - **📊 SMARTER SCHEDULING**: Agent can now handle time conflicts in real-time within the same conversation instead of failing at the end
 - **🎯 PROXIMITY-BASED ALTERNATIVES**: When requested time is occupied, agent suggests ONLY the 2 closest available slots (e.g., if 9:00 is occupied → suggests 8:00 and 10:00, not 14:00 or 19:00)
 - **🔒 CRITICAL FIX: FAQ PERSISTENCE**: Added default FAQs to init_database.py to ensure FAQs are auto-created on deployment (2 sample FAQs: operating hours, address) - prevents FAQ deletion bug on Replit deployments
+- **⚙️ CRITICAL FIX: SETTINGS PERSISTENCE**: Added BusinessSettings creation to init_database.py - settings (slot_size, 24/7, booking window, etc.) now persist across deployments. Previously settings would reset to defaults (60min) after each deploy.
 
 **Build 110 (November 13, 2025):**
 - **🛡️ CRITICAL FIX: HARD BLOCK - Agent Cannot Lie Anymore**

@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from werkzeug.security import generate_password_hash
 from server.db import db
-from server.models_sql import User, Business, LeadStatus, FAQ
+from server.models_sql import User, Business, LeadStatus, FAQ, BusinessSettings
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +194,36 @@ def initialize_production_database():
         total_faqs = FAQ.query.filter_by(business_id=business.id).count()
         print(f"✅ FAQs verified: {total_faqs} total ({len(existing_intent_keys) + len(missing_faqs)} defaults)")
         logger.info(f"✅ FAQs verified: {total_faqs} total")
+        
+        # 6. Ensure BusinessSettings exists for this business
+        # CRITICAL FIX BUILD 111: Settings (slot_size, 24/7, etc.) must persist across deployments!
+        existing_settings = BusinessSettings.query.filter_by(tenant_id=business.id).first()
+        if not existing_settings:
+            print("⚙️ No business_settings found, creating default settings...")
+            logger.info("⚙️ No business_settings found, creating default settings...")
+            
+            # Create default BusinessSettings
+            settings = BusinessSettings(
+                tenant_id=business.id,
+                slot_size_min=60,  # Default: 60 minutes
+                allow_24_7=False,  # Default: business hours only
+                booking_window_days=30,  # Default: 30 days ahead
+                min_notice_min=0,  # Default: no minimum notice
+                ai_prompt=json.dumps({
+                    "calls": "אתה עוזר AI למכירות נדל\"ן. שמור על שיחה קצרה וממוקדת.",
+                    "whatsapp": "אתה עוזר AI למכירות נדל\"ן ב-WhatsApp. היה ידידותי ומקצועי."
+                }),
+                working_hours="09:00-18:00",
+                voice_message=None
+            )
+            db.session.add(settings)
+            db.session.commit()
+            
+            print(f"✅ Created default business_settings (slot_size: 60min, 24/7: False)")
+            logger.info(f"✅ Created default business_settings")
+        else:
+            print(f"✅ Business settings exist (slot_size: {existing_settings.slot_size_min}min, 24/7: {existing_settings.allow_24_7})")
+            logger.info(f"✅ Business settings exist (slot_size: {existing_settings.slot_size_min}min)")
         
         print("✅ Database initialization completed successfully!")
         print(f"📧 Admin login: admin@admin.com / admin123")
