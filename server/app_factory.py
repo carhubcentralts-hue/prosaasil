@@ -686,6 +686,48 @@ def create_app():
                     print("✅ Production database initialized successfully")
                 else:
                     print("⚠️ Database initialization had issues but continuing...")
+                
+                # 🔧 BUILD 119: Fix malformed FAQ patterns_json
+                try:
+                    print("🔍 Checking FAQ patterns_json integrity...")
+                    from server.models_sql import FAQ
+                    import json
+                    
+                    def normalize_patterns_quick(payload):
+                        if payload is None or payload == "":
+                            return []
+                        if isinstance(payload, list):
+                            return [str(p).strip() for p in payload if p and str(p).strip()]
+                        if isinstance(payload, str):
+                            try:
+                                parsed = json.loads(payload.strip())
+                                if isinstance(parsed, list):
+                                    return [str(p).strip() for p in parsed if p and str(p).strip()]
+                            except:
+                                pass
+                        return []
+                    
+                    faqs = FAQ.query.all()
+                    fixed_count = 0
+                    for faq in faqs:
+                        if not isinstance(faq.patterns_json, list):
+                            normalized = normalize_patterns_quick(faq.patterns_json)
+                            faq.patterns_json = normalized
+                            fixed_count += 1
+                    
+                    if fixed_count > 0:
+                        db.session.commit()
+                        print(f"✅ Fixed {fixed_count} malformed FAQ patterns_json entries")
+                        
+                        from server.services.faq_cache import faq_cache
+                        affected = set(faq.business_id for faq in faqs if faq.patterns_json)
+                        for bid in affected:
+                            faq_cache.invalidate(bid)
+                        print(f"✅ Invalidated FAQ cache for {len(affected)} businesses")
+                    else:
+                        print("✅ All FAQ patterns_json are valid")
+                except Exception as e:
+                    print(f"⚠️ FAQ patterns_json fix error (non-critical): {e}")
         except Exception as e:
             print(f"⚠️ Database migration/initialization error: {e}")
             import traceback
