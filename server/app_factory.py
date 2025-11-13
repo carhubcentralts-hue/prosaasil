@@ -663,14 +663,13 @@ def create_app():
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
     
-    # 🔧 BUILD 120: CRITICAL FIX - Run migrations in BOTH dev and production!
-    # This prevents Replit from deleting tables during deployment
+    # 🔧 BUILD 120: Run migrations ONLY in production (via RUN_MIGRATIONS_ON_START=1)
+    # Development uses SQLAlchemy db.create_all() instead
     # Order matters: tables must exist before we can initialize data
     
-    # Always run migrations (both dev and production)
-    run_migrations = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1' or True  # Always true now!
+    is_production = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1'
     
-    if run_migrations:
+    if is_production:
         try:
             with app.app_context():
                 print("🔧 BUILD 120: Running migrations to ensure schema parity (dev + production)")
@@ -679,19 +678,6 @@ def create_app():
                 apply_migrations()
                 print("✅ Database migrations applied successfully")
                 print("🔒 DATA PROTECTION: All user data preserved (FAQs, leads, messages, etc.)")
-                
-                # Create default admin user if none exists
-                from server.auth_api import create_default_admin
-                create_default_admin()
-                
-                # 🚀 AUTO-INITIALIZATION for production deployments (runs AFTER migrations)
-                # This ensures the system is ready to use out-of-the-box
-                from server.init_database import initialize_production_database
-                initialization_success = initialize_production_database()
-                if initialization_success:
-                    print("✅ Production database initialized successfully")
-                else:
-                    print("⚠️ Database initialization had issues but continuing...")
                 
                 # 🔧 BUILD 119: Fix malformed FAQ patterns_json
                 try:
@@ -740,8 +726,39 @@ def create_app():
             traceback.print_exc()
             # Continue startup - don't crash on migration failures
     else:
-        print("🔧 Database migrations skipped (set RUN_MIGRATIONS_ON_START=1 to enable)")
-        print("🔧 Server will start immediately without blocking on DB operations")
+        # 🔧 BUILD 120: Development mode - use SQLAlchemy db.create_all()
+        print("🔧 Development mode: Skipping PostgreSQL migrations")
+        print("🔧 Creating tables via SQLAlchemy db.create_all()...")
+        try:
+            with app.app_context():
+                db.create_all()
+                print("✅ Database tables created successfully (dev mode)")
+        except Exception as e:
+            print(f"⚠️ Database table creation error: {e}")
+            import traceback
+            traceback.print_exc()
+        
+    
+    # 🔧 BUILD 120: SHARED initialization (runs for BOTH production and development)
+    # This must run AFTER schema is ready (either migrations or db.create_all)
+    try:
+        with app.app_context():
+            # Create default admin user if none exists
+            from server.auth_api import create_default_admin
+            create_default_admin()
+            
+            # Initialize database with default data (business, lead statuses, settings)
+            # Note: This no longer creates FAQs - user creates them via UI
+            from server.init_database import initialize_production_database
+            initialization_success = initialize_production_database()
+            if initialization_success:
+                print("✅ Database initialized successfully")
+            else:
+                print("⚠️ Database initialization had issues but continuing...")
+    except Exception as e:
+        print(f"⚠️ Shared initialization error: {e}")
+        import traceback
+        traceback.print_exc()
     
     # Health endpoints removed - using health_endpoints.py blueprint only
     
