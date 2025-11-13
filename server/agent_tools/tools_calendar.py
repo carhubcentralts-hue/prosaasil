@@ -65,7 +65,7 @@ class Slot(BaseModel):
 class FindSlotsOutput(BaseModel):
     """Available time slots for the requested date"""
     slots: List[Slot]
-    business_hours: str = "09:00-22:00"
+    business_hours: str = "dynamic"  # Will be set from policy
 
 class CreateAppointmentInput(BaseModel):
     """Input for creating a new appointment"""
@@ -223,9 +223,35 @@ def _calendar_find_slots_impl(input: FindSlotsInput, context: Optional[Dict[str,
                             start_display=slot_start.strftime("%H:%M")
                         ))
         
+        # Build business_hours string from policy
+        if policy.allow_24_7:
+            hours_display = "24/7"
+        else:
+            # Get earliest and latest hours across all opening windows
+            # Parse to minutes for correct min/max (avoid lexicographic comparison)
+            all_times_minutes = []
+            for day_windows in policy.opening_hours.values():
+                for window in day_windows:
+                    if window and len(window) >= 2:
+                        # Parse "HH:MM" to minutes for comparison
+                        for time_str in [window[0], window[1]]:
+                            try:
+                                hour, minute = map(int, time_str.split(':'))
+                                total_minutes = hour * 60 + minute
+                                all_times_minutes.append((total_minutes, time_str))
+                            except:
+                                pass
+            
+            if all_times_minutes:
+                earliest_minutes = min(all_times_minutes, key=lambda x: x[0])
+                latest_minutes = max(all_times_minutes, key=lambda x: x[0])
+                hours_display = f"{earliest_minutes[1]}-{latest_minutes[1]}"
+            else:
+                hours_display = "לא מוגדר"
+        
         tool_latency = (time.time() - tool_start) * 1000  # ms
-        logger.info(f"📅 RESULT: {len(slots)} available slots (slot_size={policy.slot_size_min}min, latency={tool_latency:.0f}ms)")
-        return FindSlotsOutput(slots=slots, business_hours="24/7" if policy.allow_24_7 else "dynamic")
+        logger.info(f"📅 RESULT: {len(slots)} available slots (slot_size={policy.slot_size_min}min, hours={hours_display}, latency={tool_latency:.0f}ms)")
+        return FindSlotsOutput(slots=slots, business_hours=hours_display)
         
     except Exception as e:
         tool_latency = (time.time() - tool_start) * 1000

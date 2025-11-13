@@ -4,6 +4,12 @@ AgentLocator is a Hebrew CRM system for real estate professionals. Its core purp
 
 # Recent Changes
 
+**Build 113 (November 13, 2025):**
+- **🕐 DYNAMIC OPERATING HOURS**: Removed all hardcoded "09:00-22:00" hours - agent now reads actual operating hours from BusinessSettings via business_get_info() and calendar_find_slots
+- **📊 SMART SLOT PRESENTATION**: Added explicit "SLOT PRESENTATION RULE" - agent suggests ONLY 2 times maximum (e.g., "יש פנוי ב-9:00 או 14:00") instead of listing all available slots
+- **⏰ FLEXIBLE HOURS VALIDATION**: Removed hardcoded hours validation (was 09:00-22:00) - now supports 24/7 businesses and flexible opening hours from policy
+- **🔧 ACCURATE HOURS DISPLAY**: FindSlotsOutput.business_hours now returns actual hours from policy (e.g., "08:00-18:00" or "24/7") instead of hardcoded "09:00-22:00"
+
 **Build 112 (November 13, 2025):**
 - **🔥 CRITICAL FIX: MaxTurnsExceeded → Hallucinated Bookings**: Increased `max_turns` from 5 to 15 to allow full booking flow (Name → Phone → Date → Time → Check → Book). Previously, agent would hit turn limit mid-booking and return generic "קבעתי תור" without actually calling tools.
 - **⚡ GRACEFUL FALLBACK**: Added exception handling for `MaxTurnsExceeded` - instead of hallucinating, agent now returns "סליחה, אני צריך עוד פרטים כדי להשלים את הקביעה" and asks for clarification.

@@ -377,12 +377,13 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                         logger.error(f"❌ calendar_create_appointment: Date too far - {start_iso}")
                         return {"ok": False, "error": "date_too_far", "message": error_msg}
                     
-                    # Check 3: Within business hours (09:00-22:00)
+                    # Check 3: Basic sanity check (no hard business hours - let calendar_find_slots enforce via policy)
+                    # Just reject obviously invalid hours like 25:00 or negative hours
                     hour = start_dt.hour
-                    if hour < 9 or hour >= 22:
-                        error_msg = f"השעה {hour}:00 מחוץ לשעות הפעילות (09:00-22:00)! קרא ל-calendar_find_slots לשעות פנויות"
-                        logger.error(f"❌ calendar_create_appointment: Outside business hours - {hour}:00")
-                        return {"ok": False, "error": "outside_hours", "message": error_msg}
+                    if hour < 0 or hour >= 24:
+                        error_msg = f"השעה {hour}:00 לא תקינה! השתמש ב-calendar_find_slots למציאת שעות פנויות"
+                        logger.error(f"❌ calendar_create_appointment: Invalid hour - {hour}:00")
+                        return {"ok": False, "error": "invalid_hour", "message": error_msg}
                     
                     logger.info(f"✅ Time validation passed: {start_iso}")
                 except Exception as e:
@@ -622,6 +623,13 @@ TOMORROW: {tomorrow_str}{slot_interval_text}
 6. 🔥 NEW: If you don't have enough info yet, ASK before calling tools - don't guess!
 7. 🔥 NEW: Complete ONE action at a time - don't claim "קבעתי + שלחתי" in same turn
 
+🎯 SLOT PRESENTATION RULE (BUILD 113):
+- When calendar_find_slots returns results, suggest ONLY 2 times maximum
+- Pick 2 diverse times (e.g., morning + afternoon, or 2 closest to customer's request)
+- NEVER list all available slots - it's overwhelming on voice calls!
+- Example GOOD: "יש פנוי ב-9:00 או 14:00, מה מתאים?"
+- Example BAD: "יש פנוי ב-9:00, 10:00, 11:00, 12:00, 13:00, 14:00..." ❌
+
 ⏱️ TURN MANAGEMENT:
 - You have max 15 turns to complete the task
 - Prioritize gathering info first (name, phone, date, time)
@@ -744,9 +752,9 @@ Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M
    - Find available slots: calendar_find_slots
    - Create appointments: calendar_create_appointment
    - ALWAYS check availability before confirming
-   - When showing slots: Suggest ONLY 2-3 options (morning/afternoon/evening), NOT all slots!
-   - Example: "יש ב-9:00 בבוקר, 14:00 אחר הצהריים או 19:00 בערב. מה מתאים?"
-   - Business hours: 09:00-22:00 Israel time
+   - 🔥 CRITICAL: When showing slots, suggest ONLY 2 times MAX - NOT all available slots!
+   - Example: "יש פנוי ב-9:00 או 14:00, מה מתאים לך?" (רק 2 שעות!)
+   - For business hours: Use business_get_info() to get actual operating hours
 
 2. **LEADS/CRM (Customer Management):**
    - Create or update leads: leads_upsert
