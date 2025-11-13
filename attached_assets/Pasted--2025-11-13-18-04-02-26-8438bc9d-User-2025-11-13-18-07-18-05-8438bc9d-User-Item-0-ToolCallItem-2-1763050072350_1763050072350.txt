@@ -1,0 +1,146 @@
+
+2025-11-13 18:04:02.26
+8438bc9d
+User
+2025-11-13 18:07:18.05
+8438bc9d
+User
+- Item #0: ToolCallItem
+2025-11-13 18:07:18.05
+8438bc9d
+User
+🔍 DEBUG ToolCallItem #1:
+2025-11-13 18:07:18.05
+8438bc9d
+User
+All attributes: ['agent', 'raw_item', 'to_input_item', 'type']
+2025-11-13 18:07:18.05
+8438bc9d
+User
+🔧 Tool call #1: unknown
+2025-11-13 18:07:18.05
+8438bc9d
+User
+2025-11-13 18:07:18.05
+8438bc9d
+User
+- Item #1: ToolCallOutputItem
+2025-11-13 18:07:18.05
+8438bc9d
+User
+📤 Tool output: {'slots': [{'start_iso': '2025-11-16T08:00:00+02:00', 'end_iso': '2025-11-16T09:00:00+02:00', 'start_display': '08:00'}, {'start_iso': '2025-11-16T09:00:00+02:00', 'end_iso': '2025-11-16T10:00:00+02:0...
+2025-11-13 18:07:18.05
+8438bc9d
+User
+- Item #2: MessageOutputItem
+2025-11-13 18:07:18.05
+8438bc9d
+User
+✅ Agent executed 1 tool actions
+2025-11-13 18:07:18.05
+8438bc9d
+User
+🔥 FALLBACK: Detected calendar_find_slots from output structure (has 'slots' key)
+2025-11-13 18:07:18.05
+8438bc9d
+User
+🔍 VALIDATION CHECK:
+2025-11-13 18:07:18.05
+8438bc9d
+User
+claimed_action=False
+2025-11-13 18:07:18.05
+8438bc9d
+User
+claimed_availability=True
+2025-11-13 18:07:18.05
+8438bc9d
+User
+booking_tool_called=False
+2025-11-13 18:07:18.05
+8438bc9d
+User
+check_availability_called=True
+2025-11-13 18:07:18.05
+8438bc9d
+User
+2025-11-13 18:07:18.05
+8438bc9d
+User
+booking_successful=False
+2025-11-13 18:07:18.05
+8438bc9d
+User
+2025-11-13 18:07:18.05
+8438bc9d
+User
+🔍 HARD VALIDATION:
+2025-11-13 18:07:18.05
+8438bc9d
+User
+claims_booking=False, booking_tool_called=False
+
+2025-11-13 18:07:18.05
+8438bc9d
+User
+claims_whatsapp=False
+2025-11-13 18:07:18.09
+8438bc9d
+User
+🤖 AGENT_RESPONSE: Generated 81 chars in 4.055s (business 1)
+2025-11-13 18:07:18.09
+8438bc9d
+User
+📊 AI_LATENCY: 4.055s (target: <1.5s)
+2025-11-13 18:07:18.09
+8438bc9d
+User
+🤖 BOT: לצערי, אין תורים פנויים ביום ראשון בשעה חמש. יש תורים פנויים בשעה 08:00 או 09:00.
+2025-11-13 18:07:18.09
+8438bc9d
+User
+📊 AI_PROCESSING: 4.056s
+2025-11-13 18:07:18.09
+8438bc9d
+User
+⚠️ Missing phone_number or business_id for customer intelligence
+2025-11-13 18:07:18.09
+8438bc9d
+User
+🔒 PROTECTED_RESPONSE (15 words) - BARGE-IN IMPOSSIBLE
+2025-11-13 18:07:18.09
+8438bc9d
+User
+🔊 TTS_START: 'לצערי, אין תורים פנויים ביום ראשון בשעה חמש. יש תורים פנויים בשעה 08:00 או 09:00.'
+2025-11-13 18:07:18.09
+8438bc9d
+User
+🔊 TTS_START: Generating Natural Hebrew TTS for 'לצערי, אין תורים פנויים ביום ראשון בשעה חמש. יש תו...' (81 chars)
+2025-11-13 18:07:18.09
+8438bc9d
+User
+✅ Punctuation polished: 'לצערי, אין תורים פנויים ביום ראשון בשעה ...'
+2025-11-13 18:07:18.45
+8438bc9d
+User
+✅ TTS_SUCCESS: 132188 bytes Natural Wavenet (8.3s)
+2025-11-13 18:07:18.45
+8438bc9d
+User
+📊 TTS_GENERATION: 0.360s
+2025-11-13 18:07:18.45
+8438bc9d
+User
+🔊 TTS SUCCESS: 132188 bytes
+2025-11-13 18:07:18.46
+8438bc9d
+User
+🎯 TTS_MARK_SENT: assistant_tts_end (queued)
+2025-11-13 18:07:18.46
+8438bc9d
+User
+✅ GREETING_COMPLETE -> LISTEN STATE
+2025-11-13 18:07:18.46
+8438bc9d
+User
+📊 TTS_SEND: 0.003s (audio transmission)
