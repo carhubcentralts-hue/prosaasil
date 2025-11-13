@@ -1367,18 +1367,43 @@ class AIService:
             print(f"     check_availability_called={check_availability_called}")
             print(f"     booking_successful={booking_successful}")
             
-            # 🚨 BLOCK 1: Hallucinated booking - STRICT ENFORCEMENT
-            if claimed_action and not booking_tool_called and not booking_successful:
-                print(f"🚨 BLOCKED HALLUCINATED BOOKING!")
-                print(f"   Agent claimed: '{reply_text[:80]}...'")
-                print(f"   But NO calendar_create_appointment was called AND no successful booking detected!")
-                logger.error(f"🚨 Blocked hallucinated booking: agent claimed action without tool call")
-                
-                # 🔥 STRICT: Override response - agent CANNOT claim booking without calling tool!
-                reply_text = "מצטער, צריך לוודא פרטים נוספים. באיזה יום ושעה נוח לך?"
-                print(f"   ✅ Replaced with: '{reply_text}'")
+            # 🔥 BUILD 110: HARD BLOCK - Agent CANNOT claim success without tool execution!
+            # Regex patterns for detecting false claims
+            import re
+            booking_claims = re.compile(r'(קבעתי|קבענו|שריינתי|תיאמתי|נקבעה פגישה|נקבע לך)', re.IGNORECASE)
+            whatsapp_claims = re.compile(r'(שלחתי|שולח|נשלח).*(אישור|הודעה|וואטסאפ|whatsapp)', re.IGNORECASE)
             
-            # 🚨 BLOCK 2: Hallucinated availability (NEW!)
+            # Check if agent is lying about booking
+            claims_booking = bool(booking_claims.search(reply_text))
+            claims_whatsapp = bool(whatsapp_claims.search(reply_text))
+            
+            print(f"🔍 HARD VALIDATION:")
+            print(f"   claims_booking={claims_booking}, booking_tool_called={booking_tool_called}")
+            print(f"   claims_whatsapp={claims_whatsapp}")
+            
+            # 🚨 BLOCK 1: Hallucinated booking - STRICT ENFORCEMENT
+            if claims_booking and not booking_tool_called and not booking_successful:
+                print(f"🚨 HARD BLOCKED BOOKING LIE!")
+                print(f"   Agent claimed: '{reply_text[:80]}...'")
+                print(f"   But NO calendar_create_appointment was called!")
+                logger.error(f"🚨 HARD BLOCK: Blocked booking lie without tool call")
+                
+                # 🔥 OVERRIDE: Agent cannot claim booking without tool!
+                reply_text = "מה השעה המועדפת שלך? אבדוק זמינות ואקבע."
+                print(f"   ✅ HARD OVERRIDE: '{reply_text}'")
+            
+            # 🚨 BLOCK 2: Hallucinated WhatsApp send
+            elif claims_whatsapp and not whatsapp_sent and channel == "calls":
+                print(f"🚨 HARD BLOCKED WHATSAPP LIE!")
+                print(f"   Agent claimed: '{reply_text[:80]}...'")
+                print(f"   But NO whatsapp_send was called!")
+                logger.error(f"🚨 HARD BLOCK: Blocked WhatsApp send lie without tool call")
+                
+                # 🔥 OVERRIDE: Agent cannot claim sending WhatsApp without tool!
+                reply_text = "מעולה! הפרטים נשמרו. נתראה בקרוב!"
+                print(f"   ✅ HARD OVERRIDE: '{reply_text}'")
+            
+            # 🚨 BLOCK 3: Hallucinated availability
             elif claimed_availability and not check_availability_called:
                 print(f"🚨 BLOCKED HALLUCINATED AVAILABILITY!")
                 print(f"   Agent claimed: '{reply_text[:80]}...'")
@@ -1389,12 +1414,11 @@ class AIService:
                 reply_text = "באיזה יום ושעה נוח לך?"
                 print(f"   ✅ Replaced with: '{reply_text}'")
             
-            # 🚨 BLOCK 3: Missing WhatsApp confirmation (NEW!)
-            elif booking_successful and channel == "phone" and not whatsapp_sent:
-                print(f"⚠️  WARNING: Booking successful but NO WhatsApp sent!")
-                print(f"   Agent should have called whatsapp_send but didn't")
-                logger.warning(f"⚠️  Missing WhatsApp confirmation after successful booking")
-                # Don't block - just log warning (WhatsApp is nice-to-have, not critical)
+            # ⚠️  LOG: Missing WhatsApp confirmation (not blocking)
+            elif booking_successful and channel == "calls" and not whatsapp_sent:
+                print(f"⚠️  INFO: Booking successful but NO WhatsApp sent (agent didn't try)")
+                logger.info(f"⚠️  Booking successful without WhatsApp confirmation")
+                # Don't block - just log (WhatsApp is nice-to-have, not critical)
             
             # ✨ Save trace to database
             try:
