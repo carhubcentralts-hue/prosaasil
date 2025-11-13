@@ -1,0 +1,1181 @@
+2025-11-13T11:04:49Z info: Deployment: 11dec0c1-a423-4d49-91b1-30465b361b6d
+2025-11-13T11:04:49Z info: Build: 03ccdbb2-f105-476e-8140-d259ab910171
+2025-11-13T11:04:49Z info: Connecting to builder
+2025-11-13T11:04:49Z info: Builder connected
+2025-11-13T11:04:51Z info: Installing packages
+2025-11-13T11:04:52Z info: Starting Build
+🏗️ PRODUCTION BUILD START - Thu Nov 13 11:04:53 AM UTC 2025
+
+⏱️  Estimated time: 3-5 minutes
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏗️ Phase 1/3: Python dependencies (2-3 min)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 Installing heavy packages (numpy, scipy, reportlab)...
+
+✅ Python packages installed - Thu Nov 13 11:05:13 AM UTC 2025
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏗️ Phase 2/3: Frontend build (30-60 sec)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 Installing frontend dependencies...
+
+
+up to date in 876ms
+
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.6.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.6.2
+npm notice To update run: npm install -g npm@11.6.2
+npm notice
+
+🔨 Building frontend with Vite...
+
+
+> workspace@1.0.0 build
+> vite build
+
+
+vite v7.2.2 building client environment for production...
+
+transforming...
+
+
+[0.39ms] [@tailwindcss/postcss] index.html?html-proxy&inline-css&index=0.css
+[0.36ms]   ↳ Quick bail check
+
+
+
+[286.17ms] [@tailwindcss/postcss] src/index.css
+[  0.04ms]   ↳ Quick bail check
+[ 26.90ms]   ↳ Setup compiler
+[  1.36ms]     ↳ PostCSS AST -> Tailwind CSS AST
+[ 25.52ms]     ↳ Create compiler
+[  0.10ms]   ↳ Register full rebuild paths
+[  1.81ms]   ↳ Setup scanner
+[150.41ms]   ↳ Scan for candidates
+[  9.60ms]   ↳ Register dependency messages
+[ 61.24ms]   ↳ Build utilities
+[ 28.70ms]   ↳ Optimization
+[  1.02ms]     ↳ AST -> CSS
+[ 13.53ms]     ↳ Lightning CSS
+[ 14.09ms]     ↳ CSS -> PostCSS AST
+[  6.94ms]   ↳ Update PostCSS AST
+
+
+✓ 1862 modules transformed.
+
+rendering chunks...
+
+computing gzip size...
+
+dist/index.html                             1.27 kB │ gzip:   0.70 kB
+
+dist/assets/index-D7WSb5pH.css             69.02 kB │ gzip:  12.11 kB
+
+dist/assets/AdminSupportPage-Bi3vJIhN.js   11.94 kB │ gzip:   2.91 kB │ map:    27.36 kB
+dist/assets/index-DemdF0G6.js             807.70 kB │ gzip: 200.79 kB │ map: 3,015.26 kB
+
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+✓ built in 6.01s
+
+📦 Copying client/dist → dist/ (Flask static root)...
+
+✅ Frontend copied to dist/
+🔍 Validating build integrity...
+
+✅ Build integrity verified: assets/index-DemdF0G6.js exists
+
+✅ Frontend built and validated - Thu Nov 13 11:05:25 AM UTC 2025
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏗️ Phase 3/3: Baileys WhatsApp (30 sec)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 Installing Baileys dependencies...
+
+
+up to date in 474ms
+
+✅ Baileys ready - Thu Nov 13 11:05:26 AM UTC 2025
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ PRODUCTION BUILD COMPLETE - Thu Nov 13 11:05:26 AM UTC 2025
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 Python packages: ✅ Installed
+
+📦 Frontend build:  ✅ client/dist/
+
+📦 Baileys service: ✅ services/whatsapp/node_modules/
+
+🚀 Ready for deployment!
+
+2025-11-13T11:05:26Z info: Pushing pid1 binary layer...
+2025-11-13T11:05:27Z info: Created pid1 binary layer
+2025-11-13T11:05:32Z info: Pushing Repl layer...
+2025-11-13T11:05:32Z info: Pushing hosting layer...
+2025-11-13T11:05:32Z info: Retrieved cached nix layer
+2025-11-13T11:05:32Z info: Created hosting layer
+2025-11-13T11:06:19Z info: Created Repl layer
+2025-11-13T11:06:19Z info: Pushing Repl (cache) layer...
+2025-11-13T11:06:19Z info: Created Repl (cache) layer
+2025-11-13T11:06:21Z info: Pushed image manifest
+2025-11-13T11:06:22Z info: Pushed soci index manifest
+2025-11-13T11:06:27Z info: Creating Autoscale service
+.
+starting up user application
+📊 EXTERNAL: Flask on 0.0.0.0:5000
+.
+🎯 Both services running. System ready!
+✅ Baileys node_modules found
+✅ Build 92: WhatsApp Conversation Memory Fix - 10 Messages Full Context!
+🟡 Starting Baileys on INTERNAL port 127.0.0.1:3300...
+🚀 Starting AgentLocator Production System - Build #103
+✅ All services confirmed running and ready!
+📊 EXTERNAL Access: Port 5000 (exposed)
+📊 INTERNAL Baileys: 127.0.0.1:3300 (not exposed)
+⏳ Quick Baileys check (max 3s)...
+metasidecar: loaded enterprise status from environment is_enterprise=false
+✅ Build 94: WhatsApp Professional UI - AI Summaries & Lazy Loading!
+🔍 Checking frontend build...
+💡 Press Ctrl+C to stop all services
+🔍 Quick status check...
+🔑 PIDs saved - Baileys: 21 | Flask: 34
+✅ INTERNAL_SECRET found in environment
+✅ Startup complete - keeping processes alive...
+📝 Logs: /tmp/baileys_prod.log
+🟡 Starting BUILD 90 with Uvicorn ASGI on EXTERNAL port 0.0.0.0:5000...
+✅ Build 91: Multi-tenant WhatsApp - Business Routing
+✅ Frontend build found
+forwarding local port 5000 to external port 80 (mapped as 1104)
+✅ BUILD 90 Uvicorn/ASGI started (PID: 34)
+✅ Build 93: WhatsApp Automatic Appointment Creation - Calendar Integration!
+📊 INTERNAL: Baileys on 127.0.0.1:3300
+🟡 Checking Baileys dependencies...
+✅ Baileys is ready! (PID: 21)
+================================================================================
+🚩 APP_START {'build': 87, 'sha': 'dev', 'fe': 'client/dist', 'time': '2025-11-13 11:07:22', 'app': 'AgentLocator-Complete', 'commit': 'dev', 'startup_ts': 1763032042}
+🔧 FE_DIST=/home/runner/workspace/server/../client/dist
+================================================================================
+🚀 ASGI BUILD 87 LOADING - DUPLICATE CALL_SID FIX
+✅ GCP credentials file created in ASGI: /tmp/gcp_credentials.json
+🔧 APP_SHA=dev
+🔧 GCP credentials loaded from file path: /tmp/gcp_credentials.json...
+⚡ PHASE 1: Async logging enabled (Eventlet-based)
+🔧 DB_DRIVER: postgresql
+✅ Auth blueprints registered
+  {'OPTIONS', 'POST'} /api/business/<tenant>/prompts
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt
+🔍 ALL REGISTERED ROUTES:
+  {'GET', 'OPTIONS', 'HEAD'} /<path:filename>
+🔧 WebSocket: Handled by ASGI layer (Starlette WebSocket)
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt/history
+  {'GET', 'OPTIONS', 'HEAD'} /api/statuses
+  {'OPTIONS', 'POST'} /api/statuses
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/overview
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current/prompt
+  {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt
+  {'OPTIONS', 'PUT'} /api/business/current/prompt
+  {'OPTIONS', 'PUT'} /api/statuses/<int:status_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current/prompt/history
+✅ Agent API blueprint registered
+📞 /ws/twilio-media → ASGI WebSocket (asgi.py)
+  {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id>
+  {'OPTIONS', 'POST'} /api/statuses/reorder
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/me
+✅ WebSocket test route added: /test-websocket-version
+  {'OPTIONS', 'POST'} /api/auth/login
+  {'OPTIONS', 'POST'} /api/auth/forgot
+
+  {'OPTIONS', 'POST'} /api/auth/reset
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/csrf
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/whatsapp
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/calls
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/overview
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/current
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/calls
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/history
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads/<thread_id>/summary
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/tranzila/return/success
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/contracts
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads
+  {'OPTIONS', 'POST'} /api/auth/init-admin
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/active
+  {'OPTIONS', 'POST'} /api/crm/contracts
+
+
+
+  {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/business/<int:business_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/tranzila/return/fail
+  {'GET', 'OPTIONS', 'HEAD', 'PUT'} /api/admin/support/prompt
+
+
+  {'OPTIONS', 'POST'} /api/admin/businesses/<int:business_id>/impersonate
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/whatsapp
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/paypal/return/success
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/support/profile
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/invoices/<invoice_number>
+  {'OPTIONS', 'POST'} /api/crm/tasks
+
+  {'OPTIONS', 'POST'} /api/crm/payments/create
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/leads
+  {'OPTIONS', 'POST'} /api/auth/logout
+  {'OPTIONS', 'POST'} /api/contracts
+  {'OPTIONS', 'DELETE'} /api/admin/business/<int:business_id>
+  {'OPTIONS', 'PUT'} /api/business/current/settings
+  {'OPTIONS', 'PUT'} /api/business/faqs/<int:faq_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/calls
+  {'OPTIONS', 'DELETE'} /api/crm/tasks/<int:task_id>
+  {'OPTIONS', 'DELETE'} /api/business/faqs/<int:faq_id>
+
+  {'OPTIONS', 'POST'} /api/admin/business
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/prompts
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/tasks
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/customers
+  {'OPTIONS', 'POST'} /api/admin/user
+  {'GET', 'OPTIONS', 'HEAD', 'PUT'} /api/admin/support/phones
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status
+  {'PATCH', 'OPTIONS'} /api/leads/bulk
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/change-password
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/overview
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/phone-numbers
+
+  {'GET', 'OPTIONS', 'HEAD'} /webhook/test_media_streams_1756667590
+  {'GET', 'OPTIONS', 'HEAD'} /api/contracts/<int:contract_id>
+
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/toggle-status
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/stats
+  {'OPTIONS', 'POST'} /api/contracts/<int:contract_id>/sign
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/faqs
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/qr
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/activities
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/appointments/<int:appointment_id>
+
+  {'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id>
+  {'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id>
+
+
+  {'OPTIONS', 'POST'} /api/admin/statuses/initialize/<int:business_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/paypal/return/cancel
+  {'OPTIONS', 'POST'} /webhook/whatsapp/incoming
+  {'OPTIONS', 'POST'} /api/reminders
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls
+  {'OPTIONS', 'POST'} /api/agent/ops
+  {'OPTIONS', 'POST'} /api/leads
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/leads/stats
+  {'GET', 'OPTIONS', 'HEAD'} /api/receipts
+  {'OPTIONS', 'POST'} /api/admin/impersonate/exit
+
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/contract/<contract_id>/download
+  {'OPTIONS', 'DELETE'} /api/reminders/<int:reminder_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/<call_sid>/download
+  {'GET', 'OPTIONS', 'HEAD'} /livez
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/businesses
+  {'OPTIONS', 'POST'} /api/whatsapp/start
+  {'GET', 'OPTIONS', 'HEAD'} /ui/biz/users/new
+  {'GET', 'OPTIONS', 'HEAD'} /api/contracts
+  {'GET', 'OPTIONS', 'HEAD'} /api/agent/status
+  {'GET', 'OPTIONS', 'HEAD'} /api/reminders/due
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/appointments
+  {'GET', 'OPTIONS', 'HEAD'} /app/admin
+  {'GET', 'OPTIONS', 'HEAD'} /logout
+  {'GET', 'OPTIONS', 'HEAD', 'POST'} /api/ui/logout
+  {'GET', 'OPTIONS', 'HEAD'} /api/intelligence/customers
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/tenants
+
+
+  {'OPTIONS', 'POST'} /webhook/stream_status
+  {'GET', 'OPTIONS', 'HEAD'} /healthz
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/conversation/<phone_number>
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/stats
+  {'OPTIONS', 'POST'} /api/crm/deals
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/stats
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/status
+  {'GET', 'OPTIONS', 'HEAD'} /ui/whatsapp/messages
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/contacts
+  {'OPTIONS', 'POST'} /admin/stop-impersonate
+  {'OPTIONS', 'POST'} /api/admin/business/<int:business_id>/change-password
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/<call_sid>/details
+✅ WhatsApp routes removed - using unified only
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/
+
+🔍 Route registration complete
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/stats
+✅ Legacy proxy routes: 0 /api/wa-proxy/* endpoints
+  {'OPTIONS', 'POST'} /webhook/stream_ended
+FE_DIST = /home/runner/workspace/client/dist mtime = 1763031925.0
+✅ Baileys proxy routes: 0 /wa/* endpoints
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/tenants
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/reminders
+🔒 DATA PROTECTION: Starting migrations - NO user data will be deleted
+  {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id>
+  {'OPTIONS', 'POST'} /api/calendar/appointments
+  {'OPTIONS', 'POST'} /api/admin/tenants
+  {'OPTIONS', 'POST'} /api/admin/users
+
+  {'GET', 'OPTIONS', 'HEAD'} /webhook/incoming_call_preview
+  {'GET', 'OPTIONS', 'HEAD'} /ui/biz/users
+  {'GET', 'OPTIONS', 'HEAD'} /ui/biz/contacts
+  {'GET', 'OPTIONS', 'HEAD'} /app/biz
+  {'OPTIONS', 'POST'} /webhook/handle_recording
+  {'OPTIONS', 'POST'} /api/admin/channels/
+  {'OPTIONS', 'POST'} /api/whatsapp/send
+
+✅ Agent Ops API blueprint registered
+✅ /healthz route added directly to app_factory
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/messages
+  {'GET', 'OPTIONS', 'HEAD'} /test-websocket-version
+  {'OPTIONS', 'POST'} /api/crm/contacts
+🆘 Emergency healthz-direct route added
+
+  {'GET', 'OPTIONS', 'HEAD'} /ui/whatsapp/threads
+  {'GET', 'OPTIONS', 'HEAD'} /ui/calls/active
+  {'OPTIONS', 'POST'} /webhook/voice
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/revenue
+  {'OPTIONS', 'PUT'} /api/crm/tasks/<int:task_id>
+
+  {'OPTIONS', 'POST'} /api/agent/sales
+  {'OPTIONS', 'POST'} /api/calls/cleanup
+  {'PATCH', 'OPTIONS'} /api/reminders/<int:reminder_id>
+  {'GET', 'OPTIONS', 'HEAD'} /biz/invoices
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/move
+  {'GET', 'OPTIONS', 'HEAD'} /api/search
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/contract/<contract_id>/view
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/user/<int:user_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+  {'OPTIONS', 'POST'} /api/business/faqs
+✅ Health routes handled by health_endpoints.py blueprint
+  {'OPTIONS', 'POST'} /webhook/call_status
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/deals
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp
+
+  {'OPTIONS', 'PUT'} /api/calls/<call_sid>/transcript
+  {'GET', 'OPTIONS', 'HEAD', 'POST'} /webhook/test
+  {'OPTIONS', 'POST'} /api/whatsapp/disconnect
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>
+  {'OPTIONS', 'POST'} /webhook/incoming_call
+🔒 LAYER 1 (BEFORE): 8 leads in database
+  {'OPTIONS', 'POST'} /api/agent/booking
+  {'OPTIONS', 'POST'} /api/crm/contracts/sign
+  {'OPTIONS', 'POST'} /webhook/whatsapp/status
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/overview
+  {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id>
+
+  {'GET', 'OPTIONS', 'HEAD'} /readyz
+
+  {'OPTIONS', 'POST'} /api/biz/users
+
+  {'OPTIONS', 'DELETE'} /api/leads/<int:lead_id>
+  {'OPTIONS', 'POST'} /ui/whatsapp/send
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/dashboard/stats
+  {'GET', 'OPTIONS', 'HEAD'} /api/reminders
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/businesses
+  {'GET', 'OPTIONS', 'HEAD', 'POST'} /warmup
+
+  {'OPTIONS', 'POST'} /api/ui/login
+
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/users/new
+  {'GET', 'OPTIONS', 'HEAD'} /ui/biz/contacts/new
+  {'OPTIONS', 'POST'} /api/receipts
+
+  {'GET', 'OPTIONS', 'HEAD'} /version
+  {'GET', 'OPTIONS', 'HEAD'} /api/dashboard/activity
+✅ Factory debug route registered: /debug-factory-http
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/invoice/<invoice_id>/view
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/switch_business
+  {'OPTIONS', 'POST'} /api/whatsapp/reset
+  {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/business/<int:business_id>
+  {'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming
+  {'GET', 'OPTIONS', 'HEAD'} /ui/calls/history
+🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/tenants/new
+  {'GET', 'OPTIONS', 'HEAD'} /db-check
+
+  {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id>
+  {'GET', 'OPTIONS', 'HEAD'} /unauthorized
+
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/users
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/intelligence/stats
+  {'GET', 'OPTIONS', 'HEAD'} /biz/contracts
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads/<thread_id>/messages
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders
+  {'OPTIONS', 'POST'} /api/leads/bulk-delete
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/invoice/<invoice_id>/download
+🔒 DATA PROTECTION: All user data preserved (FAQs, leads, messages, etc.)
+✅ Admin password reset: admin@admin.com / admin123
+🔧 Starting database initialization...
+✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+✅ DATA PROTECTION: 8 leads preserved (no deletions)
+✅ Database migrations applied successfully
+👤 Admin exists (ID=2), resetting password to 'admin123'
+🔥 Periodic warmup started (every 7-8 minutes)
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.get_business_prompt
+  {'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id> -> admin_channels.remove_channel
+🔥 Service warmup initiated
+  {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id> -> ui.admin_impersonate_business
+✅ Business exists: שי דירות (ID: 1)
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/whatsapp -> admin_bp.api_kpis_whatsapp
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses -> admin_bp.api_admin_businesses
+
+✅ Database initialization completed successfully!
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/ -> admin_channels.get_all_channels
+  {'OPTIONS', 'POST'} /api/admin/business/<int:business_id>/change-password -> business_management.change_business_password
+✅ Production database initialized successfully
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/leads -> admin_bp.admin_leads
+✅ Admin user exists: admin@admin.com (ID: 2)
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/businesses -> admin_channels.get_businesses
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/leads/stats -> admin_bp.admin_leads_stats
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/business/<int:business_id> -> admin_channels.get_business_channels
+🏢 Business ID: 1
+  {'OPTIONS', 'POST'} /api/admin/channels/ -> admin_channels.create_channel
+=== URL MAP ===
+✅ Lead statuses exist: 7 statuses found
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/stats -> api_adapter.admin_stats
+  {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id> -> business_management.update_user
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/overview -> admin_bp.api_overview
+  {'OPTIONS', 'PUT'} /api/business/current/prompt -> ai_prompt.update_current_business_prompt
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/change-password -> business_management.change_user_password
+  {'OPTIONS', 'POST'} /api/admin/tenants -> ui.api_admin_tenants_create
+  {'GET', 'OPTIONS', 'HEAD', 'PUT'} /api/admin/support/prompt -> admin_bp.admin_support_prompt
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/calls -> admin_bp.api_admin_calls
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/stats -> calendar.get_calendar_stats
+  {'OPTIONS', 'POST'} /api/admin/user -> business_management.create_user
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/calls -> admin_bp.api_admin_kpis_calls
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/calls -> admin_bp.api_kpis_calls
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/me -> auth_api.get_current_user
+  {'OPTIONS', 'POST'} /api/calls/cleanup -> calls.cleanup_old_recordings
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/contract/<contract_id>/view -> receipts_contracts.view_contract
+  {'OPTIONS', 'POST'} /api/calendar/appointments -> calendar.create_appointment
+  {'OPTIONS', 'POST'} /api/auth/forgot -> auth_api.forgot_password
+  {'OPTIONS', 'DELETE'} /api/admin/business/<int:business_id> -> business_management.delete_business
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/prompts -> admin_bp.admin_businesses_prompts
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/csrf -> auth_api.get_csrf
+
+📧 Admin login: admin@admin.com / admin123
+  {'OPTIONS', 'PUT'} /api/calls/<call_sid>/transcript -> calls.update_transcript
+  {'OPTIONS', 'POST'} /api/admin/businesses/<int:business_id>/impersonate -> business_management.impersonate_business
+  {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id> -> calendar.update_appointment
+  {'OPTIONS', 'POST'} /api/admin/impersonate/exit -> business_management.exit_impersonation
+  {'OPTIONS', 'POST'} /api/auth/logout -> auth_api.logout
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/overview -> admin_bp.get_business_overview
+  {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id> -> business_management.update_business
+  {'OPTIONS', 'POST'} /api/business/<tenant>/prompts -> ai_prompt.save_prompt
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/history -> crm_bp.api_call_history
+  {'GET', 'OPTIONS', 'HEAD'} /api/intelligence/stats -> intelligence.get_intelligence_stats
+  {'OPTIONS', 'PUT'} /api/crm/tasks/<int:task_id> -> crm_bp.update_crm_task
+  {'OPTIONS', 'POST'} /api/crm/deals -> crm_bp.create_deal
+  {'OPTIONS', 'POST'} /api/agent/booking -> agent_api.agent_booking
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/user/<int:user_id> -> business_management.get_user
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/customers -> crm_bp.api_customers
+  {'GET', 'OPTIONS', 'HEAD', 'PUT'} /api/admin/support/phones -> admin_bp.admin_support_phones
+  {'OPTIONS', 'POST'} /api/whatsapp/disconnect -> whatsapp.disconnect
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/invoice/<invoice_id>/download -> receipts_contracts.download_invoice
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/support/profile -> admin_bp.admin_support_profile
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt/history -> ai_prompt.get_prompt_history
+  {'OPTIONS', 'POST'} /api/auth/login -> auth_api.login
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/contract/<contract_id>/download -> receipts_contracts.download_contract
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/reminders -> leads_bp.get_lead_reminders
+  {'OPTIONS', 'POST'} /api/business/faqs -> business_management.create_faq
+  {'OPTIONS', 'POST'} /api/admin/run-migrations -> run_migrations_endpoint
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/business/<int:business_id> -> business_management.get_business
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/businesses -> admin_bp.api_kpis_businesses
+  {'GET', 'OPTIONS', 'HEAD'} /api/receipts -> receipts_contracts.list_receipts
+  {'GET', 'OPTIONS', 'HEAD'} /api/contracts -> receipts_contracts.list_contracts
+  {'OPTIONS', 'POST'} /api/contracts/<int:contract_id>/sign -> receipts_contracts.sign_contract
+🔧 FE_DIST=/home/runner/workspace/server/../client/dist✅ Agent warmup started in background thread (with app context)
+  {'OPTIONS', 'POST'} /api/auth/reset -> auth_api.reset_password
+  {'GET', 'OPTIONS', 'HEAD'} /api/agent/status -> agent_api.agent_status
+  {'OPTIONS', 'POST'} /api/admin/business -> business_management.create_business
+🚩 APP_START {'build': 87, 'sha': 'dev', 'fe': 'client/dist', 'time': '2025-11-13 11:07:47', 'app': 'AgentLocator-Complete', 'commit': 'dev', 'startup_ts': 1763032067}
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/tranzila/return/success -> crm_bp.tranzila_success
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/activities -> leads_bp.get_lead_activities
+  {'OPTIONS', 'POST'} /api/crm/tasks -> crm_bp.create_crm_task
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/revenue -> admin_bp.api_kpis_revenue
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/overview -> admin_bp.api_admin_kpis_overview
+⚠️ get_process_app() called before app created - creating now
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp -> leads_bp.send_whatsapp_message
+  {'GET', 'OPTIONS', 'HEAD'} /api/reminders -> leads_bp.get_all_reminders
+  {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.update_business_prompt
+
+  {'OPTIONS', 'POST'} /api/admin/statuses/initialize/<int:business_id> -> status_management.initialize_default_statuses
+✅ WebSocket test route added: /test-websocket-version
+  {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id> -> calendar.delete_appointment
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/appointments -> calendar.get_appointments
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads/<thread_id>/summary -> crm_bp.api_thread_summary
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/invoice/<invoice_id>/view -> receipts_contracts.view_invoice
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/tenants -> admin_bp.api_tenants
+🔧 WebSocket: Handled by ASGI layer (Starlette WebSocket)
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads -> crm_bp.api_threads
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current/prompt/history -> ai_prompt.get_current_prompt_history
+  {'GET', 'OPTIONS', 'HEAD'} /api/dashboard/stats -> api_adapter.dashboard_stats
+  {'OPTIONS', 'DELETE'} /api/leads/<int:lead_id> -> leads_bp.delete_lead
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/whatsapp
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/<call_sid>/download -> calls.download_recording
+  {'OPTIONS', 'POST'} /api/crm/contacts -> ui.api_crm_contacts_create
+  {'OPTIONS', 'POST'} /api/auth/reset
+  {'OPTIONS', 'POST'} /api/whatsapp/reset -> whatsapp.reset
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/tenants
+
+================================================================================
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads/<thread_id>/messages -> crm_bp.api_thread_messages
+  {'OPTIONS', 'POST'} /api/crm/contracts -> crm_bp.create_contract
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/paypal/return/success -> crm_bp.paypal_success
+  {'OPTIONS', 'POST'} /api/contracts -> receipts_contracts.create_contract
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/conversation/<phone_number> -> whatsapp.get_conversation
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/<call_sid>/details -> calls.get_call_details
+  {'OPTIONS', 'POST'} /api/agent/ops -> agent_ops.agent_ops
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/messages -> whatsapp.api_wa_messages
+  {'OPTIONS', 'POST'} /api/ui/login -> ui.api_login
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/overview
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/business/<int:business_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/overview
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/invoices/<invoice_number>
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/toggle-status -> business_management.toggle_user_status
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/active -> crm_bp.api_active_calls
+  {'OPTIONS', 'POST'} /api/auth/logout
+🔥 WARMUP: Pre-creating agents for active businesses...🔧 GCP credentials loaded from file path: /tmp/gcp_credentials.json...
+
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id> -> leads_bp.update_lead
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls -> calls.list_calls
+  {'OPTIONS', 'POST'} /api/admin/business
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current/prompt -> ai_prompt.get_current_business_prompt
+  {'OPTIONS', 'DELETE'} /api/crm/tasks/<int:task_id> -> crm_bp.delete_crm_task
+  {'OPTIONS', 'POST'} /api/auth/init-admin
+  {'OPTIONS', 'POST'} /api/crm/contracts/sign -> crm_bp.contract_sign
+  {'OPTIONS', 'POST'} /api/agent/sales -> agent_api.agent_sales
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/overview
+
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders -> leads_bp.create_reminder
+  {'OPTIONS', 'PUT'} /api/business/faqs/<int:faq_id> -> business_management.update_faq
+  {'OPTIONS', 'POST'} /api/leads/bulk-delete -> leads_bp.bulk_delete_leads
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/stats -> whatsapp.api_wa_stats
+
+  🔥 Warming Google TTS client...
+
+  {'PATCH', 'OPTIONS'} /api/reminders/<int:reminder_id> -> leads_bp.update_general_reminder
+  {'PATCH', 'OPTIONS'} /api/leads/bulk -> leads_bp.bulk_update_leads
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/leads
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/calls
+    ✅ OpenAI client ready
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/paypal/return/cancel
+
+  {'OPTIONS', 'POST'} /api/leads/bulk-delete
+✅ Auth blueprints registered
+  {'GET', 'OPTIONS', 'HEAD'} /api/statuses -> status_management.get_business_statuses
+  {'OPTIONS', 'PUT'} /api/business/current/settings
+  {'OPTIONS', 'POST'} /api/statuses
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/stats -> calls.get_calls_stats
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/phone-numbers -> admin_bp.admin_phone_numbers
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/tranzila/return/fail -> crm_bp.tranzila_fail
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/history
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id> -> leads_bp.get_lead_detail
+🔍 ALL REGISTERED ROUTES:
+🔧 APP_SHA=dev
+  {'OPTIONS', 'POST'} /api/admin/impersonate/exit
+  {'OPTIONS', 'POST'} /api/admin/statuses/initialize/<int:business_id>
+  {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id>
+  {'OPTIONS', 'DELETE'} /api/business/faqs/<int:faq_id> -> business_management.delete_faq
+  {'GET', 'OPTIONS', 'HEAD'} /api/dashboard/activity -> api_adapter.dashboard_activity
+  {'GET', 'OPTIONS', 'HEAD', 'PUT'} /api/admin/support/phones
+  {'OPTIONS', 'PUT'} /api/statuses/<int:status_id> -> status_management.update_status
+✅ Agent Ops API blueprint registered
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments -> crm_bp.get_payments
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/whatsapp
+
+
+📞 /ws/twilio-media → ASGI WebSocket (asgi.py)
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/<call_sid>/details
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/search -> crm_bp.global_search
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/leads/stats
+  {'OPTIONS', 'POST'} /api/whatsapp/send -> whatsapp.send_manual_message
+
+✅ TTS prewarmed on startup: 401ms
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/deals -> crm_bp.list_deals
+  {'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id>
+  {'OPTIONS', 'PUT'} /api/statuses/<int:status_id>
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/contracts/<int:contract_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/contacts -> whatsapp.api_wa_contacts
+  {'OPTIONS', 'POST'} /api/auth/forgot
+  {'OPTIONS', 'POST'} /api/statuses -> status_management.create_status
+  {'OPTIONS', 'POST'} /api/auth/login
+  {'GET', 'OPTIONS', 'HEAD'} /api/intelligence/customers
+  {'GET', 'OPTIONS', 'HEAD'} /<path:filename>
+  {'GET', 'OPTIONS', 'HEAD'} /livez
+  {'GET', 'OPTIONS', 'HEAD'} /webhook/test_media_streams_1756667590
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/calls
+  {'OPTIONS', 'PUT'} /api/calls/<call_sid>/transcript
+  {'OPTIONS', 'POST'} /api/whatsapp/disconnect
+🔥 STARTING TTS PRE-WARMUP...
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/customers
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/active
+  {'OPTIONS', 'POST'} /webhook/handle_recording
+  {'OPTIONS', 'POST'} /api/business/<tenant>/prompts
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/tasks
+🔨 CALLING create_booking_agent(business_id=1, channel=calls)
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/deals
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt
+  {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id>
+  {'OPTIONS', 'DELETE'} /api/reminders/<int:reminder_id> -> leads_bp.delete_general_reminder
+================================================================================
+  {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id> -> status_management.delete_status
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/toggle-status
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/paypal/return/success
+
+
+  🔥 Warming OpenAI client...
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads/<thread_id>/summary
+  {'GET', 'OPTIONS', 'HEAD'} /api/statuses
+  {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id>
+  {'GET', 'OPTIONS', 'HEAD'} /healthz
+⏱️  AGENT_CREATION_TIME: 134ms
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/qr -> whatsapp.qr
+  {'OPTIONS', 'POST'} /api/contracts
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/tenants/new
+🆘 Emergency healthz-direct route added
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/businesses
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/whatsapp -> admin_bp.api_admin_kpis_whatsapp
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/faqs -> business_management.get_business_faqs
+✅ WhatsApp routes removed - using unified only
+================================================================================
+  {'OPTIONS', 'POST'} /api/crm/payments/create -> crm_bp.payments_create
+  {'OPTIONS', 'POST'} /api/admin/business/<int:business_id>/change-password
+🔥 Starting agent warmup...
+  {'OPTIONS', 'POST'} /api/biz/users -> ui.api_biz_users_create
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/invoice/<invoice_id>/view
+  {'GET', 'OPTIONS', 'HEAD'} /api/search
+⚠️  NO DB prompt - using minimal fallback for שי דירות
+  {'OPTIONS', 'POST'} /api/admin/user
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/faqs
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/tranzila/return/success
+  {'PATCH', 'OPTIONS'} /api/leads/bulk
+  {'GET', 'OPTIONS', 'HEAD'} /webhook/incoming_call_preview
+  {'GET', 'OPTIONS', 'HEAD'} /api/reminders/due -> leads_bp.get_due_reminders
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/current
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/me
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/qr
+✅ Legacy proxy routes: 0 /api/wa-proxy/* endpoints
+
+
+  {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt
+3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+  {'OPTIONS', 'DELETE'} /api/admin/business/<int:business_id>
+  {'OPTIONS', 'DELETE'} /api/reminders/<int:reminder_id>
+================================================================================
+  {'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming -> whatsapp.baileys_webhook
+  {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id>
+  {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id>
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/switch_business
+🔒 LAYER 1 (BEFORE): 8 leads in database
+TOMORROW: 2025-11-14
+  {'GET', 'OPTIONS', 'HEAD'} /ui/biz/contacts/new
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp
+  {'GET', 'OPTIONS', 'HEAD'} /test-websocket-version
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/current -> auth_api.get_current_user_legacy
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses -> api_adapter.admin_businesses
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/status -> whatsapp.status
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/appointments/<int:appointment_id> -> calendar.get_appointment
+  {'PATCH', 'OPTIONS'} /api/reminders/<int:reminder_id>
+  {'OPTIONS', 'POST'} /webhook/stream_status
+3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+
+✅ Health routes handled by health_endpoints.py blueprint
+  {'OPTIONS', 'PUT'} /api/business/current/prompt
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/calls
+  {'GET', 'OPTIONS', 'HEAD'} /ui/whatsapp/messages
+⚠️ CRITICAL ANTI-HALLUCINATION RULES:
+  {'OPTIONS', 'POST'} /api/statuses/reorder -> status_management.reorder_statuses
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/reminders
+✅ create_booking_agent RETURNED: True
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments
+  {'GET', 'OPTIONS', 'HEAD'} /api/contracts/<int:contract_id> -> receipts_contracts.get_contract
+🎉 WARMUP COMPLETE: 2 agents ready in 332ms
+  {'OPTIONS', 'DELETE'} /api/crm/tasks/<int:task_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/tasks -> crm_bp.get_crm_tasks
+FE_DIST = /home/runner/workspace/client/dist mtime = 1763031925.0
+TODAY: 2025-11-13 13:07 (Israel)
+  {'GET', 'OPTIONS', 'HEAD'} /api/contracts
+  {'OPTIONS', 'POST'} /webhook/stream_ended
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/businesses
+🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/
+  {'OPTIONS', 'POST'} /api/contracts/<int:contract_id>/sign
+  {'OPTIONS', 'POST'} /api/leads
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls
+  {'OPTIONS', 'POST'} /api/biz/users
+    ✅ TTS client ready
+  {'OPTIONS', 'POST'} /api/crm/deals
+✅ Simple SPA routes registered (no blueprint)
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/csrf
+  {'OPTIONS', 'POST'} /api/statuses/reorder
+1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+4. WhatsApp confirmations: T
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/user/<int:user_id>
+  {'OPTIONS', 'POST'} /api/leads -> leads_bp.create_lead
+  {'GET', 'OPTIONS', 'HEAD', 'POST'} /webhook/test
+  {'OPTIONS', 'PUT'} /api/business/current/settings -> business_management.update_current_business_settings
+📅 Tomorrow calculated as: 2025-11-14
+  {'GET', 'OPTIONS', 'HEAD'} /db-check
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/stats
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/appointments/<int:appointment_id>
+  {'GET', 'OPTIONS', 'HEAD'} /ui/biz/contacts
+  {'OPTIONS', 'POST'} /api/auth/init-admin -> auth_api.init_admin
+⏱️  AGENT_CREATION_TIME: 8ms
+
+  {'OPTIONS', 'POST'} /api/receipts -> receipts_contracts.create_receipt
+  {'GET', 'OPTIONS', 'HEAD'} /ui/biz/users/new
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current/prompt
+  {'GET', 'OPTIONS', 'HEAD'} /app/biz
+
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status -> leads_bp.update_lead_status
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders
+  {'OPTIONS', 'DELETE'} /api/leads/<int:lead_id>
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status
+  {'GET', 'OPTIONS', 'HEAD'} /biz/invoices
+📅 Today calculated as: 2025-11-13 (Thursday)
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/tranzila/return/fail
+🔧 DB_DRIVER: postgresql
+✅ Warmed: שי דירות (whatsapp)
+  {'OPTIONS', 'POST'} /api/agent/booking
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/move
+  🔥 Warming Google STT client...
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/support/profile
+APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/paypal/return/cancel -> crm_bp.paypal_cancel
+  {'OPTIONS', 'POST'} /api/admin/channels/
+  {'OPTIONS', 'POST'} /api/whatsapp/start
+1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/move -> leads_bp.move_lead_in_kanban
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current/prompt/history
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+
+  {'OPTIONS', 'POST'} /api/admin/users -> ui.api_admin_users_create
+  {'GET', 'OPTIONS', 'HEAD', 'PUT'} /api/admin/support/prompt
+  {'OPTIONS', 'POST'} /admin/stop-impersonate
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/activities
+📅 Tomorrow calculated as: 2025-11-14
+🔒 LAYER 1 (BEFORE): 0 FAQs in database
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads -> leads_bp.list_leads
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/appointments
+  {'OPTIONS', 'POST'} /webhook/whatsapp/status
+  {'OPTIONS', 'POST'} /api/business/faqs
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/conversation/<phone_number>
+2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/change-password
+    ✅ STT client ready
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/stats
+🔥🔥🔥 WARMUP STARTING - Preloading all services...
+TODAY: 2025-11-13 13:07 (Israel)
+  {'OPTIONS', 'POST'} /api/reminders
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current
+
+  {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id>
+================
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/prompts
+✅ /healthz route added directly to app_factory
+  {'OPTIONS', 'POST'} /api/calendar/appointments
+  {'GET', 'OPTIONS', 'HEAD'} /version
+...
+  {'OPTIONS', 'PUT'} /api/business/faqs/<int:faq_id>
+  {'OPTIONS', 'POST'} /api/receipts
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.update_reminder
+  {'OPTIONS', 'POST'} /webhook/incoming_call
+✅ Agent API blueprint registered
+  {'GET', 'OPTIONS', 'HEAD'} /ui/biz/users
+  {'GET', 'OPTIONS', 'HEAD'} /app/admin
+
+  {'OPTIONS', 'POST'} /api/crm/contracts
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/stats
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/contracts -> crm_bp.get_contracts
+TOMORROW: 2025-11-14
+  {'OPTIONS', 'POST'} /webhook/whatsapp/incoming
+  {'GET', 'OPTIONS', 'HEAD'} /ui/calls/active
+  {'GET', 'OPTIONS', 'HEAD'} /api/dashboard/activity
+📜 AGENT INSTRUCTIONS (first 500 chars):
+  {'OPTIONS', 'POST'} /ui/whatsapp/send
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/agent/status
+✅ Warmed: שי דירות (calls)
+  {'OPTIONS', 'POST'} /api/calls/cleanup
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.get_reminder
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/invoice/<invoice_id>/download
+  {'GET', 'OPTIONS', 'HEAD'} /api/intelligence/customers -> intelligence.get_intelligent_customers
+  {'GET', 'OPTIONS', 'HEAD'} /biz/contracts
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current -> business_management.get_current_business
+  {'OPTIONS', 'POST'} /api/agent/sales
+  {'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/contract/<contract_id>/download
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads/<thread_id>/messages
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/users/new
+  {'GET', 'OPTIONS', 'HEAD'} /logout
+  {'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id> -> whatsapp.save_whatsapp_prompt
+  {'GET', 'OPTIONS', 'HEAD'} /api/receipts
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/stats
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/status
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/contract/<contract_id>/view
+🔍 Route registration complete
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/phone-numbers
+  {'GET', 'OPTIONS', 'HEAD'} /readyz
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/invoices/<invoice_number> -> crm_bp.get_invoice
+  {'OPTIONS', 'POST'} /api/whatsapp/reset
+  {'OPTIONS', 'POST'} /api/reminders -> leads_bp.create_general_reminder
+2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+⚠️  NO DB prompt - using minimal fallback for שי דירות
+  {'OPTIONS', 'POST'} /api/whatsapp/start -> whatsapp.start
+  {'GET', 'OPTIONS', 'HEAD'} /ui/whatsapp/threads
+  {'OPTIONS', 'POST'} /api/admin/tenants
+
+
+🔒 DATA PROTECTION: Starting migrations - NO user data will be deleted
+================================================================================
+================================================================================
+
+🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+  {'GET', 'OPTIONS', 'HEAD'} /ui/calls/history
+================================================================================
+  {'OPTIONS', 'PUT'} /api/crm/tasks/<int:task_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/contracts
+================================================================================
+  {'GET', 'OPTIONS', 'HEAD', 'POST'} /api/ui/logout
+
+✅ create_booking_agent RETURNED: True
+  {'OPTIONS', 'POST'} /webhook/voice
+  {'OPTIONS', 'POST'} /webhook/call_status
+  {'OPTIONS', 'POST'} /api/crm/contracts/sign
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/overview
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt/history
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/users
+  {'OPTIONS', 'POST'} /api/admin/businesses/<int:business_id>/impersonate
+APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/revenue
+================================================================================
+  {'OPTIONS', 'POST'} /api/admin/users
+  {'GET', 'OPTIONS', 'HEAD'} /api/reminders
+  {'OPTIONS', 'POST'} /api/whatsapp/send
+  {'OPTIONS', 'POST'} /api/agent/ops
+4. WhatsApp confirmations: T
+  {'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>
+🔨 CALLING create_booking_agent(business_id=1, channel=whatsapp)
+  {'GET', 'OPTIONS', 'HEAD', 'POST'} /warmup
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/reminders/<int:reminder_id>
+  {'OPTIONS', 'POST'} /api/crm/contacts
+  {'GET', 'OPTIONS', 'HEAD', 'POST'} /api/ui/logout -> ui.api_logout
+================================================================================
+📜 AGENT INSTRUCTIONS (first 500 chars):
+  {'GET', 'OPTIONS', 'HEAD'} /api/intelligence/stats
+  {'OPTIONS', 'POST'} /api/crm/tasks
+  {'OPTIONS', 'POST'} /api/crm/payments/create
+  {'OPTIONS', 'POST'} /api/ui/login
+  {'GET', 'OPTIONS', 'HEAD'} /api/reminders/due
+  {'OPTIONS', 'DELETE'} /api/business/faqs/<int:faq_id>
+📊 Found 1 businesses to warm up
+  {'GET', 'OPTIONS', 'HEAD'} /ui/admin/tenants
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/<call_sid>/download
+
+  {'GET', 'OPTIONS', 'HEAD'} /unauthorized
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/messages
+✅ Factory debug route registered: /debug-factory-http
+✅ Baileys proxy routes: 0 /wa/* endpoints
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/business/<int:business_id>
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/contacts
+  {'GET', 'OPTIONS', 'HEAD'} /api/dashboard/stats
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses
+⚠️ CRITICAL ANTI-HALLUCINATION RULES:
+🔧 WebSocket routes removed from Flask - handled by wsgi.py composite
+...
+📅 Today calculated as: 2025-11-13 (Thursday)
+🔧 Starting database initialization...
+✅ Admin password reset: admin@admin.com / admin123
+
+  {'OPTIONS', 'PUT'} /api/admin/business/<int:business_id> -> business_management.update_business
+✅ Production database initialized successfully
+  {'OPTIONS', 'POST'} /admin/impersonate/<int:business_id> -> ui.admin_impersonate_business
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/phone-numbers -> admin_bp.admin_phone_numbers
+🏢 Business ID: 1
+  {'OPTIONS', 'DELETE'} /api/admin/channels/<int:channel_id> -> admin_channels.remove_channel
+✅ Admin user exists: admin@admin.com (ID: 2)
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses -> api_adapter.admin_businesses
+✅ DATA PROTECTION: 8 leads preserved (no deletions)
+✅ Business exists: שי דירות (ID: 1)
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/prompts -> admin_bp.admin_businesses_prompts
+  {'OPTIONS', 'POST'} /api/auth/login -> auth_api.login
+✅ Database migrations applied successfully
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/business/<int:business_id> -> admin_channels.get_business_channels
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/current -> auth_api.get_current_user_legacy
+  {'OPTIONS', 'POST'} /api/admin/statuses/initialize/<int:business_id> -> status_management.initialize_default_statuses
+🔒 DATA PROTECTION: All user data preserved (FAQs, leads, messages, etc.)
+
+✅ Lead statuses exist: 7 statuses found
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/tenants -> admin_bp.api_tenants
+  {'OPTIONS', 'POST'} /api/business/faqs -> business_management.create_faq
+  {'OPTIONS', 'POST'} /api/admin/user -> business_management.create_user
+  {'OPTIONS', 'DELETE'} /api/admin/business/<int:business_id> -> business_management.delete_business
+✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/me -> auth_api.get_current_user
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/ -> admin_channels.get_all_channels
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/contract/<contract_id>/download -> receipts_contracts.download_contract
+  {'OPTIONS', 'POST'} /api/agent/sales -> agent_api.agent_sales
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current -> business_management.get_current_business
+📧 Admin login: admin@admin.com / admin123
+  {'OPTIONS', 'POST'} /api/auth/logout -> auth_api.logout
+  {'OPTIONS', 'DELETE'} /api/calendar/appointments/<int:appointment_id> -> calendar.delete_appointment
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current/prompt -> ai_prompt.get_current_business_prompt
+  {'OPTIONS', 'POST'} /api/admin/channels/ -> admin_channels.create_channel
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/whatsapp -> admin_bp.api_kpis_whatsapp
+  {'OPTIONS', 'POST'} /api/auth/forgot -> auth_api.forgot_password
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/calls -> admin_bp.api_admin_kpis_calls
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/business/<int:business_id> -> business_management.get_business
+👤 Admin exists (ID=2), resetting password to 'admin123'
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/stats -> calendar.get_calendar_stats
+
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.get_business_prompt
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/active -> crm_bp.api_active_calls
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/contract/<contract_id>/view -> receipts_contracts.view_contract
+  {'GET', 'OPTIONS', 'HEAD'} /api/auth/csrf -> auth_api.get_csrf
+  {'OPTIONS', 'PUT'} /api/admin/user/<int:user_id> -> business_management.update_user
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/user/<int:user_id> -> business_management.get_user
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/overview -> admin_bp.api_admin_kpis_overview
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/overview -> admin_bp.get_business_overview
+🔥 Periodic warmup started (every 7-8 minutes)
+  {'OPTIONS', 'POST'} /api/admin/businesses/<int:business_id>/impersonate -> business_management.impersonate_business
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/stats -> calls.get_calls_stats
+
+  {'OPTIONS', 'PUT'} /api/business/current/prompt -> ai_prompt.update_current_business_prompt
+  {'OPTIONS', 'POST'} /api/admin/business -> business_management.create_business
+
+  {'OPTIONS', 'POST'} /api/crm/contracts -> crm_bp.create_contract
+  {'OPTIONS', 'PUT'} /api/calendar/appointments/<int:appointment_id> -> calendar.update_appointment
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/revenue -> admin_bp.api_kpis_revenue
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/invoice/<invoice_id>/download -> receipts_contracts.download_invoice
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/history -> crm_bp.api_call_history
+  {'OPTIONS', 'POST'} /api/business/<tenant>/prompts -> ai_prompt.save_prompt
+  {'OPTIONS', 'POST'} /api/contracts -> receipts_contracts.create_contract
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/<call_sid>/download -> calls.download_recording
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/faqs -> business_management.get_business_faqs
+✅ Database initialization completed successfully!
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/customers -> crm_bp.api_customers
+  {'OPTIONS', 'POST'} /api/crm/payments/create -> crm_bp.payments_create
+  {'GET', 'OPTIONS', 'HEAD'} /api/business/current/prompt/history -> ai_prompt.get_current_prompt_history
+  {'OPTIONS', 'POST'} /api/agent/ops -> agent_ops.agent_ops
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/change-password -> business_management.change_user_password
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/appointments/<int:appointment_id> -> calendar.get_appointment
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/invoices/<invoice_number> -> crm_bp.get_invoice
+  {'OPTIONS', 'POST'} /api/agent/booking -> agent_api.agent_booking
+  {'GET', 'OPTIONS', 'HEAD'} /api/calendar/appointments -> calendar.get_appointments
+  {'GET', 'OPTIONS', 'HEAD'} /api/contracts -> receipts_contracts.list_contracts
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id> -> leads_bp.update_lead
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads/<thread_id>/summary -> crm_bp.api_thread_summary
+  {'GET', 'OPTIONS', 'HEAD'} /api/statuses -> status_management.get_business_statuses
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/tasks -> crm_bp.get_crm_tasks
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders -> leads_bp.create_reminder
+  {'OPTIONS', 'POST'} /api/crm/contacts -> ui.api_crm_contacts_create
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/move -> leads_bp.move_lead_in_kanban
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id> -> leads_bp.get_lead_detail
+  {'OPTIONS', 'DELETE'} /api/leads/<int:lead_id> -> leads_bp.delete_lead
+
+=== URL MAP ===
+  {'OPTIONS', 'PUT'} /api/admin/businesses/<int:business_id>/prompt -> ai_prompt.update_business_prompt
+  {'OPTIONS', 'POST'} /api/ui/login -> ui.api_login
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/paypal/return/cancel -> crm_bp.paypal_cancel
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses/<int:business_id>/prompt/history -> ai_prompt.get_prompt_history
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/tranzila/return/fail -> crm_bp.tranzila_fail
+🔥 Service warmup initiated
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls -> calls.list_calls
+  {'GET', 'OPTIONS', 'HEAD'} /api/dashboard/activity -> api_adapter.dashboard_activity
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.get_reminder
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status -> leads_bp.update_lead_status
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/messages -> whatsapp.api_wa_messages
+✅ Warmed: שי דירות (calls)
+  {'OPTIONS', 'POST'} /api/statuses/reorder -> status_management.reorder_statuses
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/channels/businesses -> admin_channels.get_businesses
+  {'GET', 'OPTIONS', 'HEAD'} /api/intelligence/customers -> intelligence.get_intelligent_customers
+  {'OPTIONS', 'POST'} /api/reminders -> leads_bp.create_general_reminder
+
+  {'OPTIONS', 'POST'} /api/contracts/<int:contract_id>/sign -> receipts_contracts.sign_contract
+  {'OPTIONS', 'POST'} /api/admin/business/<int:business_id>/change-password -> business_management.change_business_password
+  {'PATCH', 'OPTIONS'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.update_reminder
+
+
+🔥 Starting agent warmup...
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/receipts -> receipts_contracts.list_receipts
+  ✅ שי דירות (calls): 0ms
+🔥 WARMUP: Pre-creating agents for active businesses...
+================================================================================
+  {'OPTIONS', 'POST'} /api/statuses -> status_management.create_status
+  {'OPTIONS', 'POST'} /api/admin/user/<int:user_id>/toggle-status -> business_management.toggle_user_status
+  {'GET', 'OPTIONS', 'HEAD'} /api/reminders/due -> leads_bp.get_due_reminders
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/businesses -> admin_bp.api_kpis_businesses
+  {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/message/whatsapp -> leads_bp.send_whatsapp_message
+  {'OPTIONS', 'POST'} /api/whatsapp/disconnect -> whatsapp.disconnect
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads/<thread_id>/messages -> crm_bp.api_thread_messages
+  ✅ שי דירות (whatsapp): 0ms
+🚀 System preheated - First AI response will be FAST!
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/businesses -> admin_bp.api_admin_businesses
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/leads -> admin_bp.admin_leads
+✅ Service warmup thread completed
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads -> leads_bp.list_leads
+  {'OPTIONS', 'DELETE'} /api/reminders/<int:reminder_id> -> leads_bp.delete_general_reminder
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/qr -> whatsapp.qr
+================
+  {'OPTIONS', 'POST'} /api/calls/cleanup -> calls.cleanup_old_recordings
+  {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id> -> status_management.delete_status
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/support/profile -> admin_bp.admin_support_profile
+  {'OPTIONS', 'PUT'} /api/business/current/settings -> business_management.update_current_business_settings
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/contracts -> crm_bp.get_contracts
+  🔥 Warming 1 active businesses (Agent Cache)...
+  {'GET', 'OPTIONS', 'HEAD', 'PUT'} /api/admin/support/prompt -> admin_bp.admin_support_prompt
+
+  🔥 Warming 1 active businesses (Agent Cache)...
+  🔥 Warming OpenAI client...
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/whatsapp -> admin_bp.api_admin_kpis_whatsapp
+✅ Service warmup thread completed
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/tranzila/return/success -> crm_bp.tranzila_success
+  {'GET', 'OPTIONS', 'HEAD'} /api/search -> crm_bp.global_search
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/kpis/calls -> admin_bp.api_kpis_calls
+INFO:     Started server process [34]
+  {'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming -> whatsapp.baileys_webhook
+  {'GET', 'OPTIONS', 'HEAD'} /api/reminders -> leads_bp.get_all_reminders
+  {'OPTIONS', 'POST'} /api/admin/tenants -> ui.api_admin_tenants_create
+✅ Simple SPA routes registered (no blueprint)
+    ✅ STT client ready
+  {'GET', 'OPTIONS', 'HEAD'} /api/agent/status -> agent_api.agent_status
+================================================================================
+  {'OPTIONS', 'POST'} /api/crm/deals -> crm_bp.create_deal
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/conversation/<phone_number> -> whatsapp.get_conversation
+  {'OPTIONS', 'POST'} /api/auth/reset -> auth_api.reset_password
+🔥 STARTING TTS PRE-WARMUP...
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments -> crm_bp.get_payments
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/threads -> crm_bp.api_threads
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/leads/stats -> admin_bp.admin_leads_stats
+✅ Warmed: שי דירות (whatsapp)
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/status -> whatsapp.status
+🔥🔥🔥 WARMUP COMPLETE: 2/2 agents ready in 69ms
+  {'OPTIONS', 'PUT'} /api/crm/tasks/<int:task_id> -> crm_bp.update_crm_task
+  ✅ שי דירות (whatsapp): 0ms
+  {'GET', 'OPTIONS', 'HEAD'} /api/calls/<call_sid>/details -> calls.get_call_details
+  🔥 Warming Google TTS client...
+  {'GET', 'OPTIONS', 'HEAD'} /api/contracts/<int:contract_id> -> receipts_contracts.get_contract
+📊 Found 1 businesses to warm up
+================================================================================
+  {'GET', 'OPTIONS', 'HEAD'} /api/billing/invoice/<invoice_id>/view -> receipts_contracts.view_invoice
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/deals -> crm_bp.list_deals
+
+✅ ASGI BUILD 87 READY - ALL SYSTEMS GO
+  {'OPTIONS', 'POST'} /api/admin/impersonate/exit -> business_management.exit_impersonation
+  🔥 Warming Google STT client...
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/stats -> api_adapter.admin_stats
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/calls -> admin_bp.api_admin_calls
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/reminders -> leads_bp.get_lead_reminders
+
+  {'GET', 'OPTIONS', 'HEAD'} /api/intelligence/stats -> intelligence.get_intelligence_stats
+✅ Agent warmup started in background thread (with app context)
+🚀 System preheated - First AI response will be FAST!
+  {'OPTIONS', 'POST'} /api/calendar/appointments -> calendar.create_appointment
+
+  {'PATCH', 'OPTIONS'} /api/leads/bulk -> leads_bp.bulk_update_leads
+  {'GET', 'OPTIONS', 'HEAD'} /api/dashboard/stats -> api_adapter.dashboard_stats
+  {'OPTIONS', 'POST'} /api/crm/tasks -> crm_bp.create_crm_task
+  {'GET', 'OPTIONS', 'HEAD'} /api/admin/overview -> admin_bp.api_overview
+  {'OPTIONS', 'POST'} /api/leads/bulk-delete -> leads_bp.bulk_delete_leads
+  {'OPTIONS', 'POST'} /api/auth/init-admin -> auth_api.init_admin
+
+  {'OPTIONS', 'POST'} /api/whatsapp/reset -> whatsapp.reset
+  {'GET', 'OPTIONS', 'HEAD'} /api/leads/<int:lead_id>/activities -> leads_bp.get_lead_activities
+  {'GET', 'OPTIONS', 'HEAD', 'PUT'} /api/admin/support/phones -> admin_bp.admin_support_phones
+  {'OPTIONS', 'POST'} /api/leads -> leads_bp.create_lead
+
+  {'PATCH', 'OPTIONS'} /api/reminders/<int:reminder_id> -> leads_bp.update_general_reminder
+  {'OPTIONS', 'POST'} /api/biz/users -> ui.api_biz_users_create
+  {'OPTIONS', 'POST'} /api/admin/run-migrations -> run_migrations_endpoint
+  {'GET', 'OPTIONS', 'HEAD', 'POST'} /api/ui/logout -> ui.api_logout
+  {'OPTIONS', 'POST'} /api/crm/contracts/sign -> crm_bp.contract_sign
+INFO:     127.0.0.1:33650 - "GET / HTTP/1.1" 200 OK
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/contacts -> whatsapp.api_wa_contacts
+  {'OPTIONS', 'POST'} /api/whatsapp/send -> whatsapp.send_manual_message
+  {'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id> -> whatsapp.save_whatsapp_prompt
+
+🔥🔥🔥 WARMUP STARTING - Preloading all services...
+  {'OPTIONS', 'POST'} /api/admin/users -> ui.api_admin_users_create
+  {'OPTIONS', 'PUT'} /api/business/faqs/<int:faq_id> -> business_management.update_faq
+
+🎉 WARMUP COMPLETE: 2 agents ready in 179ms
+✅ App singleton set - future calls will reuse this instance
+  {'GET', 'OPTIONS', 'HEAD'} /api/whatsapp/stats -> whatsapp.api_wa_stats
+  {'OPTIONS', 'POST'} /api/whatsapp/start -> whatsapp.start
+  {'OPTIONS', 'PUT'} /api/calls/<call_sid>/transcript -> calls.update_transcript
+
+INFO:     Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+
+    ✅ OpenAI client ready
+  {'OPTIONS', 'DELETE'} /api/business/faqs/<int:faq_id> -> business_management.delete_faq
+❌ TTS prewarm FAILED (returned False): 0ms
+  {'OPTIONS', 'POST'} /api/receipts -> receipts_contracts.create_receipt
+  {'GET', 'OPTIONS', 'HEAD'} /api/crm/payments/paypal/return/success -> crm_bp.paypal_success
+  {'OPTIONS', 'DELETE'} /api/crm/tasks/<int:task_id> -> crm_bp.delete_crm_task
+  {'OPTIONS', 'PUT'} /api/statuses/<int:status_id> -> status_management.update_status
+  ✅ שי דירות (calls): 0ms
+🔥🔥🔥 WARMUP COMPLETE: 2/2 agents ready in 66ms
+================================================================================
+    ✅ TTS client ready
+2025-11-13T11:07:59Z info: Waiting for service to be ready
+2025-11-13T11:08:02Z info: Deployment successful

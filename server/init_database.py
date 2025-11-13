@@ -4,10 +4,11 @@ Database Initialization for Production Deployments
 Ensures the system is ready to use out-of-the-box
 """
 import logging
+import json
 from datetime import datetime
 from werkzeug.security import generate_password_hash
 from server.db import db
-from server.models_sql import User, Business, LeadStatus
+from server.models_sql import User, Business, LeadStatus, FAQ
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,71 @@ def initialize_production_database():
         else:
             print(f"✅ Lead statuses exist: {existing_statuses} statuses found")
             logger.info(f"✅ Lead statuses exist: {existing_statuses} statuses found")
+        
+        # 5. Ensure default FAQs exist for this business
+        # Check each default FAQ individually by intent_key (prevent duplicates, restore if deleted)
+        default_faqs_config = [
+            {
+                'question': 'מה שעות הפעילות?',
+                'answer': 'אנחנו פועלים כל יום בין השעות 09:00-22:00',
+                'intent_key': 'hours',
+                'patterns_json': ['שעות', 'פתוח', 'סגור', 'מתי אתם עובדים'],
+                'channels': 'voice',
+                'priority': 10
+            },
+            {
+                'question': 'מה הכתובת שלכם?',
+                'answer': 'אנחנו נמצאים ברחוב דיזנגוף 50, תל אביב',
+                'intent_key': 'address',
+                'patterns_json': ['כתובת', 'איפה אתם', 'מיקום', 'היכן'],
+                'channels': 'voice',
+                'priority': 10
+            }
+        ]
+        
+        # Get existing default intent keys
+        existing_intent_keys = set(
+            faq.intent_key for faq in 
+            FAQ.query.filter_by(business_id=business.id).filter(
+                FAQ.intent_key.in_(['hours', 'address'])
+            ).all()
+        )
+        
+        # Create only missing default FAQs
+        missing_faqs = [
+            faq_config for faq_config in default_faqs_config 
+            if faq_config['intent_key'] not in existing_intent_keys
+        ]
+        
+        if missing_faqs:
+            print(f"❓ Creating {len(missing_faqs)} missing default FAQs...")
+            logger.info(f"❓ Creating {len(missing_faqs)} missing default FAQs...")
+            
+            for faq_data in missing_faqs:
+                faq = FAQ(
+                    business_id=business.id,
+                    question=faq_data['question'],
+                    answer=faq_data['answer'],
+                    intent_key=faq_data['intent_key'],
+                    patterns_json=faq_data['patterns_json'],  # SQLAlchemy handles JSON serialization
+                    channels=faq_data['channels'],
+                    priority=faq_data['priority'],
+                    lang='he-IL',
+                    is_active=True,
+                    order_index=0,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.session.add(faq)
+                print(f"  ✅ Creating default FAQ: {faq_data['intent_key']}")
+            
+            db.session.commit()
+            print(f"✅ Created {len(missing_faqs)} default FAQs")
+            logger.info(f"✅ Created {len(missing_faqs)} default FAQs")
+        
+        total_faqs = FAQ.query.filter_by(business_id=business.id).count()
+        print(f"✅ FAQs verified: {total_faqs} total ({len(existing_intent_keys) + len(missing_faqs)} defaults)")
+        logger.info(f"✅ FAQs verified: {total_faqs} total")
         
         print("✅ Database initialization completed successfully!")
         print(f"📧 Admin login: admin@admin.com / admin123")
