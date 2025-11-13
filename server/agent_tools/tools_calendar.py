@@ -55,6 +55,7 @@ class FindSlotsInput(BaseModel):
     business_id: int = Field(..., description="Business ID to check availability for", ge=1)
     date_iso: str = Field(..., description="Date in ISO format (YYYY-MM-DD) like '2025-11-04'")
     duration_min: int = Field(60, description="Duration in minutes", ge=15, le=240)
+    preferred_time: Optional[str] = Field(None, description="Customer's preferred time in HH:MM format (e.g., '17:00'). System will return 2 slots closest to this time.")
 
 class Slot(BaseModel):
     """Single available time slot"""
@@ -224,6 +225,35 @@ def _calendar_find_slots_impl(input: FindSlotsInput, context: Optional[Dict[str,
                             end_iso=slot_end.isoformat(),
                             start_display=slot_start.strftime("%H:%M")
                         ))
+        
+        # 🎯 BUILD 117: Smart slot selection based on preferred_time
+        if input.preferred_time and slots:
+            try:
+                # Parse preferred_time "HH:MM" to minutes
+                pref_hour, pref_min = map(int, input.preferred_time.split(':'))
+                preferred_minutes = pref_hour * 60 + pref_min
+                
+                # Calculate distance from preferred time for each slot
+                def slot_distance(slot: Slot) -> tuple:
+                    # Parse slot time "HH:MM"
+                    slot_hour, slot_min = map(int, slot.start_display.split(':'))
+                    slot_minutes = slot_hour * 60 + slot_min
+                    
+                    # Distance in minutes (absolute value)
+                    delta = slot_minutes - preferred_minutes
+                    
+                    # Sort by: (abs(delta), delta)
+                    # This picks closest slots, preferring earlier times on tie
+                    return (abs(delta), delta)
+                
+                # Sort slots by distance from preferred time
+                slots.sort(key=slot_distance)
+                logger.info(f"🎯 Sorted {len(slots)} slots by proximity to {input.preferred_time}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to parse preferred_time '{input.preferred_time}': {e}")
+        
+        # 🔥 BUILD 114: Hard limit to 2 slots (performance!)
+        slots = slots[:2]
         
         # Build business_hours string from policy
         if policy.allow_24_7:
