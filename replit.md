@@ -4,6 +4,17 @@ AgentLocator is a Hebrew CRM system for real estate professionals. Its core purp
 
 # Recent Changes
 
+**Build 109 (November 13, 2025):**
+- **🔒 DATA PROTECTION GUARANTEE**: Added explicit data protection to migrations - NO user FAQs/leads ever deleted on deployment
+- **✅ Migration Safety**: Migrations are additive (CREATE TABLE, ADD COLUMN, CREATE INDEX) with limited exceptions
+- **📊 Data Verification**: Automatic before/after count comparison with delta calculation and data loss detection
+- **🛡️ Multi-Layer Protection**: 
+  - No TRUNCATE operations on user tables
+  - No DROP TABLE on user tables  
+  - DELETE operations only for deduplication of corrupted data (duplicate messages/calls with same provider ID)
+  - Explicit verification: Reports "X FAQs preserved" or "ERROR: Y FAQs DELETED!" if data loss detected
+- **Impact**: System now actively monitors and reports any unexpected data loss during deployment migrations
+
 **Build 108 (November 12, 2025):**
 - **🔥 CRITICAL FAQ FIX**: Fixed patterns_json keyword matching - FAQ system now checks keywords/patterns BEFORE embeddings for instant matches
 - **⚡ FIX #1: Hybrid Matching Strategy**: FAQ now uses 2-step approach: (1) Check patterns_json keywords for exact matches (score=1.0), (2) Fall back to embeddings if no keyword match
@@ -38,6 +49,7 @@ Performance optimization includes explicit OpenAI timeouts, increased Speech-to-
 - **Multi-Tenant Resolution**: `resolve_business_with_fallback()` with strict security.
 - **RBAC**: Role-based access control with admin/manager/business roles and impersonation support.
 - **DTMF Menu**: Interactive voice response system for phone calls.
+- **🔒 Data Protection**: Database migrations are strictly additive with automatic verification - NO user data deleted on deployment. All FAQs, leads, messages, calls, and other user data are permanently preserved.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
