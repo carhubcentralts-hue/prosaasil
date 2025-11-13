@@ -1,0 +1,118 @@
+m Agent)=2025-11-17
+2025-11-13 11:29:38.04
+cb557b6a
+User
+⏱️ duration_min=60
+2025-11-13 11:29:38.04
+cb557b6a
+User
+🏢 business_id=1
+
+2025-11-13 11:29:38.04
+cb557b6a
+User
+✅ date_iso (CORRECTED)=2025-11-17
+2025-11-13 11:29:38.12
+cb557b6a
+User
+✅ calendar_find_slots_wrapped RESULT: 14 slots found
+2025-11-13 11:29:38.12
+cb557b6a
+User
+Available times: 09:00, 09:45, 10:30, 11:15, 12:00...
+2025-11-13 11:29:38.12
+cb557b6a
+User
+⏱️ TOOL_TIMING: calendar_find_slots = 83ms
+2025-11-13 11:29:38.12
+cb557b6a
+User
+📤 Returning dict with 14 slots
+2025-11-13 11:29:57.45
+cb557b6a
+User
+Traceback (most recent call last):
+2025-11-13 11:29:57.45
+cb557b6a
+User
+File "/home/runner/workspace/server/services/ai_service.py", line 1188, in generate_response_with_agent
+2025-11-13 11:29:57.45
+cb557b6a
+User
+result = loop.run_until_complete(
+2025-11-13 11:29:57.45
+cb557b6a
+User
+^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-13 11:29:57.45
+cb557b6a
+User
+File "/nix/store/7d088dip86hlzri9sk0h78b63yfmx0a0-python3-3.11.13/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+2025-11-13 11:29:57.45
+cb557b6a
+User
+return future.result()
+2025-11-13 11:29:57.45
+cb557b6a
+User
+^^^^^^^^^^^^^^^
+2025-11-13 11:29:57.45
+cb557b6a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/agents/run.py", line 343, in run
+2025-11-13 11:29:57.45
+cb557b6a
+User
+return await runner.run(
+2025-11-13 11:29:57.45
+cb557b6a
+User
+^^^^^^^^^^^^^^^^^
+2025-11-13 11:29:57.45
+cb557b6a
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/agents/run.py", line 595, in run
+2025-11-13 11:29:57.45
+cb557b6a
+User
+raise MaxTurnsExceeded(f"Max turns ({max_turns}) exceeded")
+2025-11-13 11:29:57.45
+cb557b6a
+User
+agents.exceptions.MaxTurnsExceeded: Max turns (10) exceeded
+2025-11-13 11:29:58.93
+cb557b6a
+User
+🤖 AGENT_RESPONSE: Generated 90 chars in 22.866s (business 1)
+2025-11-13 11:29:58.93
+cb557b6a
+User
+📊 AI_LATENCY: 22.866s (target: <1.5s)
+2025-11-13 11:29:58.93
+cb557b6a
+User
+🔒 PROTECTED_RESPONSE (16 words) - BARGE-IN IMPOSSIBLE
+2025-11-13 11:29:58.93
+cb557b6a
+User
+🔊 TTS_START: 'מעולה, אז קבענו לך תור ליום ראשון, ה-17 בנובמבר בשעה 16:00.
+2025-11-13 11:29:58.93
+cb557b6a
+User
+שלחתי לך אישור, נתראה בקרוב!'
+2025-11-13 11:29:58.93
+cb557b6a
+User
+🔊 TTS_START: Generating Natural Hebrew TTS for 'מעולה, אז קבענו לך תור ליום ראשון, ה-17 בנובמבר בש...' (90 chars)
+2025-11-13 11:29:58.93
+cb557b6a
+User
+✅ Punctuation polished: 'מעולה, אז, קבענו לך תור ליום ראשון, ה-17...'
+2025-11-13 11:29:59.51
+cb557b6a
+User
+✅ TTS_SUCCESS: 161108 bytes Natural Wavenet (10.1s)
+2025-11-13 11:29:59.51
+cb557b6a
+User
+📊 TTS_GENERATION: 0.574s
