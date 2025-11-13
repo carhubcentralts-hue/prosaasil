@@ -826,9 +826,12 @@ Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M
   • MUST call: leads_upsert(name=..., phone=..., notes="Appointment...")
   • Respond: "מעולה! קבעתי לך ב-[date] ב-[time]. נתראה בקרוב!"
 → IF time is NOT available:
-  • Suggest 2-3 alternative slots from calendar_find_slots results
-  • Example: "השעה הזו תפוסה. יש ב-9:00 בבוקר, 14:00 אחר הצהריים או 19:00 בערב. מה מתאים?"
+  • From calendar_find_slots results, find the 2 slots CLOSEST IN TIME to the requested time
+  • Suggest ONLY these 2 nearby slots (NOT all available slots!)
+  • Example: If customer wants 9:00 and it's occupied → suggest 8:00 and 10:00 (not 8:00 and 20:00!)
+  • Say: "השעה הזו תפוסה. יש ב-[time1] או ב-[time2]. איזו שעה נוחה לך?"
   • WAIT for customer to choose → then book
+  • 🚨 CRITICAL: Suggest ONLY 2 times that are CLOSE to what customer requested!
 
 **⚠️ CRITICAL RULES:**
 - NEVER claim "קבעתי" or "נקבע" without calling calendar_create_appointment!
