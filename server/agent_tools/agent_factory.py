@@ -802,40 +802,43 @@ Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M
 
 🎯 **CRITICAL: This is a 4-turn conversation - DO NOT skip steps!**
 
-**Turn 1: Get NAME** (NOT phone yet!)
+**Turn 1: Get NAME**
 → Ask: "מה השם שלך?" or "איך קוראים לך?"
 → WAIT for customer to say their name
 → Save name in memory
 
-**Turn 2: Get DATE preference**
+**Turn 2: Get PHONE via DTMF**
+→ Request DTMF phone input: "בבקשה הקלד את מספר הטלפון שלך במקשים ואז לחץ על סולמית (#)"
+→ WAIT for phone_number from DTMF
+→ Save phone in memory
+
+**Turn 3: Get DATE preference**
 → Ask: "באיזה תאריך נוח לך? מחר? מחרתיים?"
 → WAIT for customer to say date (e.g., "מחר", "יום רביעי", "13 בנובמבר")
 → Convert Hebrew to ISO date (use context: today={today.strftime('%Y-%m-%d')})
 
-**Turn 3: CHECK CALENDAR + SUGGEST 2-3 SLOTS**
-→ MUST call: calendar_find_slots(date_iso="YYYY-MM-DD", duration_min=60)
-→ Get available slots from tool response
-→ Suggest ONLY 2-3 best times (morning/afternoon/evening):
-   Example: "יש ב-9:00 בבוקר, 14:00 אחר הצהריים או 19:00 בערב. מה מתאים?"
-→ NEVER say "פנוי" or "תפוס" without calling the tool!
-→ WAIT for customer to choose time
-
-**Turn 4: GET PHONE + BOOK**
-→ Request DTMF phone input: "בבקשה הקלד את מספר הטלפון שלך במקשים ואז לחץ על סולמית (#)"
-→ WAIT for phone_number from DTMF
-→ MUST call: calendar_create_appointment(date_iso=..., time_str=..., customer_name=..., customer_phone=...)
-→ MUST call: leads_upsert(name=..., phone=..., notes="Appointment...")
-→ Respond: "מעולה! קבעתי לך [treatment] ב-[date] ב-[time]. נתראה בקרוב!"
-→ NEVER say "שלחתי אישור" or "שלחתי פרטים" - you cannot send WhatsApp messages!
+**Turn 4: Get TIME + CHECK + BOOK**
+→ Ask: "באיזו שעה נוח לך?"
+→ WAIT for customer to say time (e.g., "9 בבוקר", "14:00", "בערב")
+→ MUST call: calendar_find_slots(date_iso="YYYY-MM-DD", duration_min=60) to check if that time is available
+→ IF time is AVAILABLE:
+  • MUST call: calendar_create_appointment(date_iso=..., time_str=..., customer_name=..., customer_phone=...)
+  • MUST call: leads_upsert(name=..., phone=..., notes="Appointment...")
+  • Respond: "מעולה! קבעתי לך ב-[date] ב-[time]. נתראה בקרוב!"
+→ IF time is NOT available:
+  • Suggest 2-3 alternative slots from calendar_find_slots results
+  • Example: "השעה הזו תפוסה. יש ב-9:00 בבוקר, 14:00 אחר הצהריים או 19:00 בערב. מה מתאים?"
+  • WAIT for customer to choose → then book
 
 **⚠️ CRITICAL RULES:**
 - NEVER claim "קבעתי" or "נקבע" without calling calendar_create_appointment!
 - NEVER say "שלחתי" or "אשלח" - you CANNOT send WhatsApp messages!
 - NEVER say slot is available/occupied without calling calendar_find_slots!
-- ALWAYS ask for name BEFORE phone number!
-- ALWAYS check calendar BEFORE suggesting times!
+- ALWAYS ask in order: Name → Phone → Date → Time
+- ALWAYS check calendar BEFORE confirming appointment!
 - Keep each turn under 15 words!
 - If you say "קבעתי" you MUST have called calendar_create_appointment tool!
+
 
 **2. LOCATION/DETAILS REQUEST:**
 When customer asks "מה הכתובת" or "איפה אתם":

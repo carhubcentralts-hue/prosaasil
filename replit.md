@@ -4,6 +4,12 @@ AgentLocator is a Hebrew CRM system for real estate professionals. Its core purp
 
 # Recent Changes
 
+**Build 111 (November 13, 2025):**
+- **🔄 BOOKING WORKFLOW ORDER CHANGED**: Updated appointment booking sequence to Name → Phone → Date → Time (previously: Name → Date → Time → Phone)
+- **⚡ IMPROVED BOOKING FLOW**: Agent now collects phone number earlier, checks calendar for requested time, and immediately suggests alternatives if slot is occupied
+- **📊 SMARTER SCHEDULING**: Agent can now handle time conflicts in real-time within the same conversation instead of failing at the end
+- **✅ FAQ TEST DATA**: Added 2 sample FAQs for deployment verification (operating hours, address)
+
 **Build 110 (November 13, 2025):**
 - **🛡️ CRITICAL FIX: HARD BLOCK - Agent Cannot Lie Anymore**
   - **HARD BLOCK #1**: Regex detection for booking claims (קבעתי, קבענו, שריינתי) - BLOCKED if no calendar_create_appointment called
@@ -44,7 +50,7 @@ Preferred communication style: Simple, everyday language.
 
 ## System Design Choices
 
-AgentLocator employs a production-ready multi-tenant architecture ensuring complete business isolation. It integrates Twilio Media Streams for real-time communication, featuring Hebrew-optimized Voice Activity Detection (VAD) and smart TTS truncation. The AI leverages an Agent SDK for tasks like appointment scheduling and lead creation, maintaining conversation memory. An Agent Cache System retains agent instances for 30 minutes per business and channel to boost response times and preserve conversation state. The system mandates name and phone confirmation during scheduling, utilizing dual input (verbal name, DTMF phone number) for streamlined 4-turn booking flows. Channel-aware responses adapt messaging based on the communication channel. A DTMF Menu System provides interactive voice navigation for phone calls with structured error handling. Agent Validation Guards prevent AI hallucinations by blocking responses that claim bookings or availability without executing corresponding calendar tools.
+AgentLocator employs a production-ready multi-tenant architecture ensuring complete business isolation. It integrates Twilio Media Streams for real-time communication, featuring Hebrew-optimized Voice Activity Detection (VAD) and smart TTS truncation. The AI leverages an Agent SDK for tasks like appointment scheduling and lead creation, maintaining conversation memory. An Agent Cache System retains agent instances for 30 minutes per business and channel to boost response times and preserve conversation state. The system mandates name and phone confirmation during scheduling, utilizing dual input (verbal name, DTMF phone number) for streamlined 4-turn booking flows: (1) Get name, (2) Get phone via DTMF, (3) Get date, (4) Get time + check availability + book or suggest alternatives. Channel-aware responses adapt messaging based on the communication channel. A DTMF Menu System provides interactive voice navigation for phone calls with structured error handling. Agent Validation Guards prevent AI hallucinations by blocking responses that claim bookings or availability without executing corresponding calendar tools.
 
 Multi-tenant security is paramount, with business identification via `BusinessContactChannel` or `Business.phone_e164`, rejection of unknown phone numbers, and isolated prompts, agents, leads, calls, and messages per business. It includes universal warmup for active businesses, handles 401 errors for missing authentication, and implements comprehensive Role-Based Access Control (RBAC).
 
