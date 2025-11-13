@@ -1363,6 +1363,11 @@ class MediaStreamHandler:
                 self.recent_replies = []
             
             # ✅ FIXED: מניעת כפילויות חכמה - רק כפילויות מרובות ממש
+            # 🔥 BUILD 114: Normalize reply (handle dict responses from AgentKit)
+            if isinstance(reply, dict):
+                # Extract text from dict structure
+                reply = reply.get('output', '') or reply.get('message', '') or str(reply)
+                print(f"⚠️ AgentKit returned dict - extracted: '{reply[:50]}...'")
             reply_trimmed = reply.strip() if reply else ""
             exact_duplicates = [r for r in self.recent_replies if r == reply_trimmed]
             if len(exact_duplicates) >= 3:  # ✅ FIXED: רק אחרי 3 כפילויות מדויקות
@@ -1993,8 +1998,8 @@ class MediaStreamHandler:
                 # ⚡ ACCURACY FIX: Accept short phrases with lower confidence
                 # "חמישים אפשר" might have 0.5-0.6 confidence but is valid!
                 word_count = len(hebrew_text.split())
-                if word_count <= 2 and confidence < 0.4:  # ⚡ LOWERED: 0.4 instead of 0.7
-                    print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.4 - likely noise")
+                if word_count <= 2 and confidence < 0.2:  # 🔥 BUILD 114: LOWERED 0.4 → 0.2 for Hebrew names
+                    print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.2 - likely noise")
                     return ""
                 
                 # 🔥 BUILD 134: Log alternative transcripts for debugging

@@ -9,6 +9,10 @@ AgentLocator is a Hebrew CRM system for real estate professionals. Its core purp
 - **🔒 NO TECHNICAL ERRORS**: Agent NEVER says "שירות לא זמין" or "נכשל" - keeps customer experience smooth and professional
 - **✅ CLEAR SUCCESS**: When WhatsApp succeeds → agent explicitly says "שלחתי אישור בWhatsApp"
 - **⚡ SINGLE ATTEMPT**: whatsapp_send tries only once (max_attempts=1) - no loops or retries that slow down conversation
+- **🔥 CRITICAL PERF FIX: 2-Slot Hard Limit** - calendar_find_slots now returns ONLY 2 slots maximum at the data level (not relying on LLM) - prevents agent from reading long slot lists
+- **🎤 STT FIX: Hebrew Names Accepted** - Lowered confidence threshold from 0.4 → 0.2 for short phrases - accepts Hebrew names like "שי דהן" (confidence 0.32) instead of rejecting as noise
+- **🛡️ CRASH FIX: dict.strip() Normalization** - AgentKit responses normalized before trimming - prevents AttributeError crashes when agent returns dict instead of string
+- **⚡ LATENCY IMPROVEMENT**: Combined fixes reduce latency from 38s → expected <10s by preventing loops caused by STT rejections and long slot readings
 
 **Build 113 (November 13, 2025):**
 - **🕐 DYNAMIC OPERATING HOURS**: Removed all hardcoded "09:00-22:00" hours - agent now reads actual operating hours from BusinessSettings via business_get_info() and calendar_find_slots

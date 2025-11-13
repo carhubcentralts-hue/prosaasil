@@ -269,6 +269,14 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 # Convert Pydantic model to dict for Agent SDK
                 result_dict = result.model_dump()
                 
+                # 🔥 BUILD 114: HARD LIMIT - Return ONLY 2 slots maximum!
+                # Don't rely on LLM to follow instructions - enforce in code!
+                original_count = len(result_dict.get('slots', []))
+                if original_count > 2:
+                    result_dict['slots'] = result_dict['slots'][:2]
+                    print(f"🔥 SLOT_LIMIT: Reduced {original_count} slots → 2 (enforced in code)")
+                    logger.info(f"🔥 SLOT_LIMIT: Reduced {original_count} slots → 2 slots")
+                
                 tool_time = (time.time() - tool_start) * 1000
                 print(f"⏱️  TOOL_TIMING: calendar_find_slots = {tool_time:.0f}ms")
                 logger.info(f"⏱️  TOOL_TIMING: calendar_find_slots = {tool_time:.0f}ms")
