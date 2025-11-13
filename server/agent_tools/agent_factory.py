@@ -190,16 +190,17 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
     if business_id:
         # Wrapper for calendar_find_slots
         @function_tool
-        def calendar_find_slots_wrapped(date_iso: str, duration_min: int = 60):
+        def calendar_find_slots_wrapped(date_iso: str, duration_min: int = 60, preferred_time: str = None):
             """
             Find available appointment slots for a specific date
             
             Args:
                 date_iso: Date in ISO format (YYYY-MM-DD) like "2025-11-10"
                 duration_min: Duration in minutes (default 60)
+                preferred_time: Customer's preferred time in HH:MM format (e.g., "17:00"). IMPORTANT: Always send this when customer requests specific time! System returns 2 slots closest to this time.
                 
             Returns:
-                FindSlotsOutput with list of available slots
+                FindSlotsOutput with list of available slots (max 2, closest to preferred_time if provided)
             """
             try:
                 import time
@@ -253,7 +254,8 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 input_data = FindSlotsInput(
                     business_id=business_id,
                     date_iso=corrected_date,  # Use corrected date!
-                    duration_min=duration_min
+                    duration_min=duration_min,
+                    preferred_time=preferred_time  # 🎯 BUILD 117: Send customer's requested time!
                 )
                 # Call internal implementation function directly
                 result = _calendar_find_slots_impl(input_data)

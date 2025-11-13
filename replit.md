@@ -4,7 +4,10 @@ AgentLocator is a Hebrew CRM system for real estate professionals designed to au
 
 # Recent Changes
 
-**Build 117 (November 13, 2025) - OPENING HOURS UI FIX:**
+**Build 117 (November 13, 2025) - SMART SLOT SELECTION + OPENING HOURS FIX:**
+- **🎯 SMART SLOT PROXIMITY**: calendar_find_slots now accepts preferred_time (HH:MM) and returns 2 slots closest to customer's requested time (e.g., request 17:00 → get 16:00, 16:30 instead of 09:00, 09:30)
+- **🔍 INTELLIGENT MATCHING**: Slots sorted by absolute minute distance from preferred_time, with tie-breaking favoring earlier times
+- **📋 AGENT INTEGRATION**: Tool wrapper updated to send preferred_time - agent automatically extracts customer's desired time and passes it to calendar
 - **🎯 SINGLE SOURCE OF TRUTH**: Removed confusing "שעות פעילות" field from "הגדרות עסק" - all hours managed ONLY in "הגדרות תורים"
 - **✅ SAVE FIX**: Settings UI now correctly saves opening_hours_json to database when user clicks "שמור"
 - **🔄 DEFENSIVE FALLBACK**: Policy keeps temporary fallback to working_hours for legacy businesses (prevents zero-slot schedules)
