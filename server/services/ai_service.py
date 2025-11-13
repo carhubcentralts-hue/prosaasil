@@ -1184,9 +1184,15 @@ class AIService:
             logger.info(f"⏱️ PERFORMANCE: Starting Runner.run() at {time.time()}")
             
             # Use Runner.run() directly (it's a static method, not an instance!)
+            # 🔥 FIX: max_turns=5 to fail faster (was 10, caused 22s latency)
             try:
                 result = loop.run_until_complete(
-                    Runner.run(starting_agent=agent, input=conversation_messages, context=agent_context)
+                    Runner.run(
+                        starting_agent=agent, 
+                        input=conversation_messages, 
+                        context=agent_context,
+                        max_turns=5  # 🔥 Fail fast - prevent 20s delays
+                    )
                 )
                 duration_ms = int((time.time() - start_time) * 1000)
                 print(f"✅ Runner.run() completed in {duration_ms}ms")
@@ -1361,15 +1367,15 @@ class AIService:
             print(f"     check_availability_called={check_availability_called}")
             print(f"     booking_successful={booking_successful}")
             
-            # 🚨 BLOCK 1: Hallucinated booking
+            # 🚨 BLOCK 1: Hallucinated booking - STRICT ENFORCEMENT
             if claimed_action and not booking_tool_called and not booking_successful:
                 print(f"🚨 BLOCKED HALLUCINATED BOOKING!")
                 print(f"   Agent claimed: '{reply_text[:80]}...'")
                 print(f"   But NO calendar_create_appointment was called AND no successful booking detected!")
                 logger.error(f"🚨 Blocked hallucinated booking: agent claimed action without tool call")
                 
-                # Override response with corrective message
-                reply_text = "אני עדיין צריך לבדוק זמינות. איזה יום ושעה היית רוצה?"
+                # 🔥 STRICT: Override response - agent CANNOT claim booking without calling tool!
+                reply_text = "מצטער, צריך לוודא פרטים נוספים. באיזה יום ושעה נוח לך?"
                 print(f"   ✅ Replaced with: '{reply_text}'")
             
             # 🚨 BLOCK 2: Hallucinated availability (NEW!)
