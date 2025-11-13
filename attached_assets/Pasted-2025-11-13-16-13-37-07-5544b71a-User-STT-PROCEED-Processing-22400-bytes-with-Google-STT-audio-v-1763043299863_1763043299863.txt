@@ -1,0 +1,96 @@
+2025-11-13 16:13:37.07
+5544b71a
+User
+🎵 STT_PROCEED: Processing 22400 bytes with Google STT (audio validated)
+2025-11-13 16:13:37.07
+5544b71a
+User
+📊 AUDIO_QUALITY_CHECK: max_amplitude=32124, rms=5931, duration=1.4s
+2025-11-13 16:13:37.07
+5544b71a
+User
+✅ AUDIO_VALIDATED: amp=32124, rms=5931, var=35178980, zcr=0.196
+2025-11-13 16:13:37.48
+5544b71a
+User
+📊 GOOGLE_STT_ENHANCED: Processed 22400 bytes
+2025-11-13 16:13:37.48
+5544b71a
+User
+📊 GOOGLE_STT_RESULT: 'שי דהן' (confidence: 0.32)
+2025-11-13 16:13:37.48
+5544b71a
+User
+🚫 SHORT_LOW_CONFIDENCE: 2 words, confidence 0.32 < 0.4 - likely noise
+2025-11-13 16:13:37.48
+5544b71a
+User
+⏱️ [STT_FALLBACK] Single-request took 0.413s, result: '(empty)'
+2025-11-13 16:13:37.48
+5544b71a
+User
+🎤 USER:
+2025-11-13 16:13:37.48
+5544b71a
+User
+📊 ASR_LATENCY: 1.264s (target: <0.7s)
+2025-11-13 16:13:37.48
+5544b71a
+User
+🚫 NO_SPEECH_DETECTED: Staying silent (attempt 1)
+2025-11-13 16:13:37.48
+5544b71a
+User
+✅ Processing complete for conversation #10
+2025-11-13 16:13:38.31
+5544b71a
+User
+🎙️ REAL_VOICE: rms=341, threshold=35.0
+2025-11-13 16:13:38.31
+5544b71a
+User
+🎤 [CA0c523a] Utterance f961a8c6 BEGIN
+2025-11-13 16:13:38.88
+5544b71a
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #11
+2025-11-13 16:13:38.88
+5544b71a
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=551
+2025-11-13 16:13:38.88
+5544b71a
+User
+🎤 SAFE PROCESSING: conversation #11
+2025-11-13 16:13:38.88
+5544b71a
+User
+⏱️ [STT_STREAM] Calling _utterance_end...
+2025-11-13 16:13:38.88
+5544b71a
+User
+🎤 [CA0c523a] _utterance_end: Collecting results for utterance f961a8c6 (timeout=0.85s)
+2025-11-13 16:13:39.73
+5544b71a
+User
+⚠️ [CA0c523a] Timeout after 0.850s - using fallback
+2025-11-13 16:13:39.73
+5544b71a
+User
+⚠️ [CA0c523a] No text available - returning empty
+2025-11-13 16:13:39.73
+5544b71a
+User
+🏁 [CA0c523a] Utterance f961a8c6 COMPLETE: returning '(empty)'
+2025-11-13 16:13:39.73
+5544b71a
+User
+[LATENCY] final_wait=0.85s, utterance_total=0.85s
+2025-11-13 16:13:39.73
+5544b71a
+User
+⏱️ [STT_STREAM] _utterance_end took 0.850s, result: '(empty)'
+2025-11-13 16:13:39.73
+5544b71a
+User
+⚠️ [STT] Streaming returned empty → fallback to single
