@@ -215,6 +215,52 @@ def get_business_policy(
                 merged["allow_24_7"] = settings.allow_24_7
             if settings.opening_hours_json:
                 merged["opening_hours"] = settings.opening_hours_json
+                logger.info(f"📅 Using opening_hours_json from BusinessSettings")
+            else:
+                # 🔥 FALLBACK: If opening_hours_json is empty, try to build from Business.working_hours
+                try:
+                    from server.models_sql import Business
+                    if db_session:
+                        business = db_session.query(Business).filter_by(id=business_id).first()
+                    else:
+                        business = Business.query.get(business_id)
+                    
+                    if business and business.working_hours:
+                        # Parse working_hours - supports formats:
+                        # Simple: "08:00-18:00"
+                        # Complex: "sun-thu:08:00-18:00; fri:08:00-14:00"
+                        working_hours_str = business.working_hours.strip()
+                        
+                        # Check if it contains day prefixes (complex format)
+                        if ':' in working_hours_str and any(day in working_hours_str.lower() for day in ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']):
+                            # Complex format: "sun-thu:08:00-18:00; fri:08:00-14:00"
+                            # TODO: Implement complex parser when needed
+                            logger.warning(f"⚠️ Complex working_hours format not yet supported: {working_hours_str}")
+                        elif '-' in working_hours_str:
+                            # Simple format: "08:00-18:00"
+                            parts = working_hours_str.split('-')
+                            if len(parts) == 2:
+                                start_time = parts[0].strip()
+                                end_time = parts[1].strip()
+                                
+                                # Validate HH:MM format
+                                if ':' in start_time and ':' in end_time:
+                                    # Build opening_hours for all weekdays (sun-fri)
+                                    merged["opening_hours"] = {
+                                        "sun": [[start_time, end_time]],
+                                        "mon": [[start_time, end_time]],
+                                        "tue": [[start_time, end_time]],
+                                        "wed": [[start_time, end_time]],
+                                        "thu": [[start_time, end_time]],
+                                        "fri": [[start_time, end_time]],
+                                        "sat": []  # Closed on Saturday by default
+                                    }
+                                    logger.info(f"📅 Built opening_hours from working_hours: {working_hours_str} → {start_time}-{end_time} (sun-fri)")
+                                else:
+                                    logger.warning(f"⚠️ Invalid time format in working_hours: {working_hours_str}")
+                except Exception as parse_err:
+                    logger.warning(f"⚠️ Failed to parse working_hours: {parse_err}")
+                    
             if settings.booking_window_days is not None:
                 merged["booking_window_days"] = settings.booking_window_days
             if settings.min_notice_min is not None:
