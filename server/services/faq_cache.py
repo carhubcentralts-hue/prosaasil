@@ -18,8 +18,8 @@ from server.models_sql import FAQ, db
 # ENV-based configuration
 FAQ_CACHE_TTL_SECONDS = int(os.getenv("FAQ_CACHE_TTL_SEC", "120"))
 EMBEDDING_MODEL = "text-embedding-3-small"
-SIMILARITY_THRESHOLD = float(os.getenv("FAQ_MIN_SCORE", "0.65"))  # ✅ BUILD 96: Lowered from 0.78 to 0.65 for better Hebrew matching
-AMBIGUITY_MARGIN = 0.05
+SIMILARITY_THRESHOLD = float(os.getenv("FAQ_MIN_SCORE", "0.50"))  # ✅ BUILD 120: Lowered from 0.65 to 0.50 for better Hebrew matching
+AMBIGUITY_MARGIN = 0.15  # ✅ BUILD 120: Increased from 0.05 to 0.15 - was rejecting valid matches!
 FAQ_EMBEDDINGS_ENABLED = os.getenv("FAQ_EMBEDDINGS_ENABLED", "1") == "1"
 
 def _normalize_patterns_defensive(payload):

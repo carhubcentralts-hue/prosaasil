@@ -131,51 +131,44 @@ def initialize_production_database():
             logger.info(f"✅ Lead statuses exist: {existing_statuses} statuses found")
         
         # 5. Ensure default FAQs exist for this business
-        # Check each default FAQ individually by intent_key (prevent duplicates, restore if deleted)
-        default_faqs_config = [
-            {
-                'question': 'מה שעות הפעילות?',
-                'answer': 'אנחנו פועלים כל יום בין השעות 09:00-22:00',
-                'intent_key': 'hours',
-                'patterns_json': ['שעות', 'פתוח', 'סגור', 'מתי אתם עובדים'],
-                'channels': 'voice',
-                'priority': 10
-            },
-            {
-                'question': 'מה הכתובת שלכם?',
-                'answer': 'אנחנו נמצאים ברחוב דיזנגוף 50, תל אביב',
-                'intent_key': 'address',
-                'patterns_json': ['כתובת', 'איפה אתם', 'מיקום', 'היכן'],
-                'channels': 'voice',
-                'priority': 10
-            }
-        ]
+        # 🔒 BUILD 120: CRITICAL - Only create defaults if NO FAQs exist (user data protection!)
+        total_faqs = FAQ.query.filter_by(business_id=business.id).count()
         
-        # Get existing default intent keys
-        existing_intent_keys = set(
-            faq.intent_key for faq in 
-            FAQ.query.filter_by(business_id=business.id).filter(
-                FAQ.intent_key.in_(['hours', 'address'])
-            ).all()
-        )
-        
-        # Create only missing default FAQs
-        missing_faqs = [
-            faq_config for faq_config in default_faqs_config 
-            if faq_config['intent_key'] not in existing_intent_keys
-        ]
-        
-        if missing_faqs:
-            print(f"❓ Creating {len(missing_faqs)} missing default FAQs...")
-            logger.info(f"❓ Creating {len(missing_faqs)} missing default FAQs...")
+        if total_faqs > 0:
+            # User has already created FAQs - DON'T TOUCH THEM!
+            print(f"✅ FAQs exist: {total_faqs} FAQs found - skipping initialization (preserving user data)")
+            logger.info(f"✅ FAQs exist: {total_faqs} FAQs - user data preserved")
+        else:
+            # No FAQs exist - create defaults only
+            print("❓ No FAQs found, creating 2 default examples...")
+            logger.info("❓ No FAQs found, creating defaults...")
             
-            for faq_data in missing_faqs:
+            default_faqs_config = [
+                {
+                    'question': 'מה שעות הפעילות?',
+                    'answer': 'אנחנו פועלים כל יום בין השעות 09:00-22:00',
+                    'intent_key': 'hours',
+                    'patterns_json': ['שעות', 'פתוח', 'סגור', 'מתי אתם עובדים'],
+                    'channels': 'voice',
+                    'priority': 10
+                },
+                {
+                    'question': 'מה הכתובת שלכם?',
+                    'answer': 'אנחנו נמצאים ברחוב דיזנגוף 50, תל אביב',
+                    'intent_key': 'address',
+                    'patterns_json': ['כתובת', 'איפה אתם', 'מיקום', 'היכן'],
+                    'channels': 'voice',
+                    'priority': 10
+                }
+            ]
+            
+            for faq_data in default_faqs_config:
                 faq = FAQ(
                     business_id=business.id,
                     question=faq_data['question'],
                     answer=faq_data['answer'],
                     intent_key=faq_data['intent_key'],
-                    patterns_json=faq_data['patterns_json'],  # SQLAlchemy handles JSON serialization
+                    patterns_json=faq_data['patterns_json'],
                     channels=faq_data['channels'],
                     priority=faq_data['priority'],
                     lang='he-IL',
@@ -185,15 +178,10 @@ def initialize_production_database():
                     updated_at=datetime.utcnow()
                 )
                 db.session.add(faq)
-                print(f"  ✅ Creating default FAQ: {faq_data['intent_key']}")
             
             db.session.commit()
-            print(f"✅ Created {len(missing_faqs)} default FAQs")
-            logger.info(f"✅ Created {len(missing_faqs)} default FAQs")
-        
-        total_faqs = FAQ.query.filter_by(business_id=business.id).count()
-        print(f"✅ FAQs verified: {total_faqs} total ({len(existing_intent_keys) + len(missing_faqs)} defaults)")
-        logger.info(f"✅ FAQs verified: {total_faqs} total")
+            print(f"✅ Created 2 default example FAQs (you can edit or delete these)")
+            logger.info(f"✅ Created 2 default FAQs")
         
         # 6. Ensure BusinessSettings exists for this business
         # CRITICAL FIX BUILD 111: Settings (slot_size, 24/7, etc.) must persist across deployments!
