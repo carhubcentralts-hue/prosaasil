@@ -96,7 +96,7 @@ class FAQCache:
         return embeddings
     
     def _load_business_faqs(self, business_id: int) -> Tuple[List[Dict], np.ndarray]:
-        """Load FAQs from DB and generate embeddings"""
+        """Load FAQs from DB and generate embeddings (graceful degradation)"""
         faqs = FAQ.query.filter_by(business_id=business_id, is_active=True).order_by(FAQ.order_index.asc().nullsfirst()).all()
         
         if not faqs:
@@ -117,10 +117,19 @@ class FAQCache:
             for faq in faqs
         ]
         
-        questions = [faq.question for faq in faqs]
-        embeddings = self._generate_embeddings(questions)
+        # 🔥 CRITICAL FIX: Embeddings are optional - graceful degradation!
+        embeddings = np.array([])
+        if FAQ_EMBEDDINGS_ENABLED:
+            try:
+                questions = [faq.question for faq in faqs]
+                embeddings = self._generate_embeddings(questions)
+                print(f"✅ Loaded {len(faq_data)} FAQs with embeddings for business {business_id}")
+            except Exception as e:
+                print(f"⚠️ Embeddings failed for business {business_id}: {e}")
+                print(f"✅ Loaded {len(faq_data)} FAQs (patterns-only mode) for business {business_id}")
+        else:
+            print(f"✅ Loaded {len(faq_data)} FAQs (patterns-only mode) for business {business_id}")
         
-        print(f"✅ Loaded {len(faq_data)} FAQs for business {business_id}")
         return faq_data, embeddings
     
     def get_or_load(self, business_id: int) -> Optional[FAQCacheEntry]:
