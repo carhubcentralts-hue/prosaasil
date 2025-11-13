@@ -185,16 +185,21 @@ class FAQCache:
         
         # 🔥 STEP 1: Check patterns_json (keywords/regex) - PRIORITY!
         query_lower = query.lower().strip()
+        query_words = set(query_lower.split())  # Split into words for smart matching
+        
+        print(f"🔍 [FAQ DEBUG] Query words: {query_words}")
+        
         for idx, faq in enumerate(entry.faqs):
             patterns = faq.get("patterns_json")
             if patterns and isinstance(patterns, list):
+                print(f"  FAQ #{idx} '{faq['question'][:40]}...' has {len(patterns)} patterns")
                 for pattern in patterns:
                     pattern_lower = str(pattern).lower().strip()
-                    # Check if pattern is in query or query is in pattern
+                    
+                    # Method 1: Exact substring match (fast)
                     if pattern_lower in query_lower or query_lower in pattern_lower:
                         elapsed = (time.time() - start) * 1000
-                        print(f"🎯 KEYWORD MATCH! Pattern '{pattern}' found in query (took {elapsed:.0f}ms)")
-                        print(f"   FAQ: {faq['question']}")
+                        print(f"🎯 SUBSTRING MATCH! Pattern '{pattern}' (took {elapsed:.0f}ms)")
                         return {
                             "question": faq["question"],
                             "answer": faq["answer"],
@@ -203,8 +208,31 @@ class FAQCache:
                             "channels": faq.get("channels", "voice"),
                             "priority": faq.get("priority", 0),
                             "lang": faq.get("lang", "he-IL"),
-                            "score": 1.0  # Perfect match!
+                            "score": 1.0
                         }
+                    
+                    # Method 2: Smart keyword matching (if pattern has multiple words)
+                    pattern_words = set(pattern_lower.split())
+                    if len(pattern_words) >= 2:  # Only for multi-word patterns
+                        # Remove common Hebrew stop words
+                        stop_words = {"של", "את", "עם", "על", "אל", "מה", "איך", "למה", "איפה", "מתי"}
+                        pattern_keywords = pattern_words - stop_words
+                        
+                        # Check how many keywords appear in query
+                        matching_keywords = pattern_keywords & query_words
+                        if len(matching_keywords) >= 2:  # At least 2 keywords must match
+                            elapsed = (time.time() - start) * 1000
+                            print(f"🎯 KEYWORD MATCH! Pattern '{pattern}' matched {len(matching_keywords)}/{len(pattern_keywords)} keywords: {matching_keywords} (took {elapsed:.0f}ms)")
+                            return {
+                                "question": faq["question"],
+                                "answer": faq["answer"],
+                                "intent_key": faq.get("intent_key"),
+                                "patterns_json": faq.get("patterns_json"),
+                                "channels": faq.get("channels", "voice"),
+                                "priority": faq.get("priority", 0),
+                                "lang": faq.get("lang", "he-IL"),
+                                "score": 0.95  # Slightly lower than exact match
+                            }
         
         print(f"📭 No keyword match found, trying embeddings...")
         
