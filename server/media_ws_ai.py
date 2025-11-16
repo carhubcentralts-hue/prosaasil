@@ -2118,6 +2118,16 @@ class MediaStreamHandler:
     # 🎯 עיבוד מבע פשוט וביטוח (ללא כפילויות)
     def _process_utterance_safe(self, pcm16_8k: bytes, conversation_id: int):
         """עיבוד מבע עם הגנה כפולה מפני לולאות"""
+        # 🚀 REALTIME API: Skip Google STT/TTS completely in Realtime mode
+        if USE_REALTIME_API:
+            print(f"⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only")
+            # Reset buffer and state to prevent accumulation
+            if hasattr(self, 'buf'):
+                self.buf.clear()
+            self.processing = False
+            self.state = STATE_LISTEN
+            return
+        
         # וודא שלא מעבדים את אותו ID פעמיים
         if conversation_id <= self.last_processing_id:
             print(f"🚫 DUPLICATE processing ID {conversation_id} (last: {self.last_processing_id}) - SKIP")
