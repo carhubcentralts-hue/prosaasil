@@ -697,6 +697,12 @@ class MediaStreamHandler:
         """
         print(f"📤 [REALTIME] Audio output bridge started")
         
+        # 🎯 TASK 2: Track realtime audio transmission
+        if not hasattr(self, 'realtime_tx_frames'):
+            self.realtime_tx_frames = 0
+        if not hasattr(self, 'realtime_tx_bytes'):
+            self.realtime_tx_bytes = 0
+        
         while not self.realtime_stop_flag:
             try:
                 audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
@@ -705,14 +711,25 @@ class MediaStreamHandler:
                     print(f"📤 [REALTIME] Stop signal received")
                     break
                 
-                # Twilio expects: {"event": "media", "media": {"payload": "base64..."}}
+                # 🎯 TASK 2: Log enqueue to tx_q
+                import base64
+                chunk_bytes = base64.b64decode(audio_b64)
+                self.realtime_tx_frames += 1
+                self.realtime_tx_bytes += len(chunk_bytes)
+                
+                # ✅ FIXED: tx_loop expects {"type": "media", "payload": "..."}
                 try:
                     self.tx_q.put_nowait({
-                        "event": "media",
-                        "media": {
-                            "payload": audio_b64
-                        }
+                        "type": "media",
+                        "payload": audio_b64
                     })
+                    
+                    # 🎯 TASK 2: Log every Nth frame to avoid spam
+                    if self.realtime_tx_frames % 50 == 0:
+                        print(
+                            f"[REALTIME] enqueue audio to tx_q: bytes={len(chunk_bytes)}, "
+                            f"total_frames={self.realtime_tx_frames}, call_sid={self.call_sid[:8] if self.call_sid else 'unknown'}"
+                        )
                 except queue.Full:
                     pass
                 except Exception as e:
@@ -724,7 +741,7 @@ class MediaStreamHandler:
                 print(f"❌ [REALTIME] Audio output bridge error: {e}")
                 break
         
-        print(f"📤 [REALTIME] Audio output bridge ended")
+        print(f"📤 [REALTIME] Audio output bridge ended (sent {self.realtime_tx_frames} frames, {self.realtime_tx_bytes} bytes)")
 
     def run(self):
         # Media stream handler initialized")
@@ -2987,6 +3004,19 @@ class MediaStreamHandler:
                 }))
                 tx_count += 1
                 frames_sent_last_sec += 1
+                
+                # 🎯 TASK 2: Track Realtime audio sent to Twilio
+                if hasattr(self, 'realtime_tx_frames') and self.realtime_tx_frames > 0:
+                    if not hasattr(self, 'sent_realtime_frames'):
+                        self.sent_realtime_frames = 0
+                    self.sent_realtime_frames += 1
+                    
+                    # Log every 50th frame
+                    if self.sent_realtime_frames % 50 == 0:
+                        print(
+                            f"[REALTIME] sent media frame to Twilio: total_sent={self.sent_realtime_frames}, "
+                            f"call_sid={self.call_sid[:8] if self.call_sid else 'unknown'}"
+                        )
                 
                 # ⚡ Precise timing with next_deadline
                 next_deadline += FRAME_INTERVAL
