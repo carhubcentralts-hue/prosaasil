@@ -29,3 +29,4 @@ Requires-Dist: sqlalchemy>=2.0.43
 Requires-Dist: starlette>=0.48.0
 Requires-Dist: twilio>=9.8.3
 Requires-Dist: uvicorn[standard]>=0.37.0
+Requires-Dist: websockets>=13.0

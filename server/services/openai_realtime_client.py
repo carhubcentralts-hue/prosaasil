@@ -6,12 +6,15 @@ import os
 import json
 import asyncio
 import logging
-from typing import AsyncIterator, Optional, Dict, Any
+from typing import AsyncIterator, Optional, Dict, Any, TYPE_CHECKING
 
-try:
+if TYPE_CHECKING:
     import websockets
-except ImportError:
-    websockets = None
+else:
+    try:
+        import websockets
+    except ImportError:
+        websockets = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,7 @@ class OpenAIRealtimeClient:
         try:
             self.ws = await websockets.connect(
                 self.url,
-                extra_headers={
+                additional_headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "OpenAI-Beta": "realtime=v1"
                 },

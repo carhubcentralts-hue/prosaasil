@@ -4,11 +4,11 @@ asgi.py
 pyproject.toml
 start_production.sh
 client/dist/index.html
-client/dist/assets/AdminSupportPage-B_CL7ici.js
-client/dist/assets/AdminSupportPage-B_CL7ici.js.map
-client/dist/assets/index-Cy2DWOr6.js
-client/dist/assets/index-Cy2DWOr6.js.map
-client/dist/assets/index-gUE5a0Lh.css
+client/dist/assets/AdminSupportPage-DYIAR36K.js
+client/dist/assets/AdminSupportPage-DYIAR36K.js.map
+client/dist/assets/index-D4rLychd.js
+client/dist/assets/index-D4rLychd.js.map
+client/dist/assets/index-z5So_E9B.css
 repl_nix_workspace.egg-info/PKG-INFO
 repl_nix_workspace.egg-info/SOURCES.txt
 repl_nix_workspace.egg-info/dependency_links.txt
@@ -69,6 +69,7 @@ server/whatsapp_templates.py
 server/agent_tools/__init__.py
 server/agent_tools/agent_factory.py
 server/agent_tools/phone_utils.py
+server/agent_tools/tools_business.py
 server/agent_tools/tools_calendar.py
 server/agent_tools/tools_contracts.py
 server/agent_tools/tools_invoices.py
@@ -79,6 +80,7 @@ server/policy/__init__.py
 server/policy/business_policy.py
 server/providers/payments.py
 server/routes/__init__.py
+server/scripts/fix_faq_patterns.py
 server/services/agent_cache.py
 server/services/ai_service.py
 server/services/appointment_parser.py
@@ -94,7 +96,9 @@ server/services/hebrew_ssml_builder.py
 server/services/invoice_service.py
 server/services/lazy_services.py
 server/services/mulaw_fast.py
+server/services/openai_realtime_client.py
 server/services/punctuation_polish.py
+server/services/realtime_prompt_builder.py
 server/services/stt_service.py
 server/services/summary_service.py
 server/services/time_parser.py
