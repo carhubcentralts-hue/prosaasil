@@ -699,7 +699,7 @@ class MediaStreamHandler:
         """
         print(f"📤 [REALTIME] Audio output bridge started")
         
-        # 🎯 TASK 2: Track realtime audio transmission
+        # Track realtime audio transmission
         if not hasattr(self, 'realtime_tx_frames'):
             self.realtime_tx_frames = 0
         if not hasattr(self, 'realtime_tx_bytes'):
@@ -713,29 +713,35 @@ class MediaStreamHandler:
                     print(f"📤 [REALTIME] Stop signal received")
                     break
                 
-                # 🎯 TASK 2: Log enqueue to tx_q
+                # Decode to verify format and log
                 import base64
                 chunk_bytes = base64.b64decode(audio_b64)
                 self.realtime_tx_frames += 1
                 self.realtime_tx_bytes += len(chunk_bytes)
                 
-                # ✅ FIXED: tx_loop expects {"type": "media", "payload": "..."}
+                # 🔥 CRITICAL FIX: Twilio requires EXACT format:
+                # {"event": "media", "streamSid": "...", "media": {"payload": "..."}}
                 try:
-                    self.tx_q.put_nowait({
-                        "type": "media",
-                        "payload": audio_b64
-                    })
+                    frame = {
+                        "event": "media",
+                        "streamSid": self.stream_sid,
+                        "media": {
+                            "payload": audio_b64
+                        }
+                    }
+                    self.tx_q.put_nowait(frame)
                     
-                    # 🎯 TASK 2: Log every Nth frame to avoid spam
-                    if self.realtime_tx_frames % 50 == 0:
+                    # 🎯 Logging: verify μ-law format (log first frame + every 100th)
+                    if self.realtime_tx_frames == 1 or self.realtime_tx_frames % 100 == 0:
+                        first10_b64 = base64.b64encode(chunk_bytes[:10]).decode("ascii")
                         print(
-                            f"[REALTIME] enqueue audio to tx_q: bytes={len(chunk_bytes)}, "
-                            f"total_frames={self.realtime_tx_frames}, call_sid={self.call_sid[:8] if self.call_sid else 'unknown'}"
+                            f"[REALTIME] sending frame to Twilio: len={len(chunk_bytes)}, "
+                            f"first10={first10_b64}, total_frames={self.realtime_tx_frames}"
                         )
                 except queue.Full:
                     pass
                 except Exception as e:
-                    print(f"❌ [REALTIME] Error encoding audio: {e}")
+                    print(f"❌ [REALTIME] Error enqueueing audio: {e}")
                     
             except queue.Empty:
                 continue
@@ -2992,33 +2998,26 @@ class MediaStreamHandler:
                 print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
                 continue
             
-            # Handle "media" event with rate limiting
-            if item.get("type") == "media":
-                # 🔥 FIX: Removed back-pressure - causes frame drops!
-                # Queue is now 800 frames (16s) to handle long TTS
+            # Handle "media" event (both old format and new Realtime format)
+            if item.get("type") == "media" or item.get("event") == "media":
+                # 🔥 Support both formats:
+                # Old: {"type": "media", "payload": "..."}
+                # New Realtime: {"event": "media", "streamSid": "...", "media": {"payload": "..."}}
                 queue_size = self.tx_q.qsize()
                 
-                # Send frame
-                success = self._ws_send(json.dumps({
-                    "event": "media", 
-                    "streamSid": self.stream_sid,
-                    "media": {"payload": item["payload"]}
-                }))
+                # If already has correct format (from Realtime), send as-is
+                if item.get("event") == "media" and "media" in item:
+                    success = self._ws_send(json.dumps(item))
+                else:
+                    # Old format - convert
+                    success = self._ws_send(json.dumps({
+                        "event": "media", 
+                        "streamSid": self.stream_sid,
+                        "media": {"payload": item["payload"]}
+                    }))
+                
                 tx_count += 1
                 frames_sent_last_sec += 1
-                
-                # 🎯 TASK 2: Track Realtime audio sent to Twilio
-                if hasattr(self, 'realtime_tx_frames') and self.realtime_tx_frames > 0:
-                    if not hasattr(self, 'sent_realtime_frames'):
-                        self.sent_realtime_frames = 0
-                    self.sent_realtime_frames += 1
-                    
-                    # Log every 50th frame
-                    if self.sent_realtime_frames % 50 == 0:
-                        print(
-                            f"[REALTIME] sent media frame to Twilio: total_sent={self.sent_realtime_frames}, "
-                            f"call_sid={self.call_sid[:8] if self.call_sid else 'unknown'}"
-                        )
                 
                 # ⚡ Precise timing with next_deadline
                 next_deadline += FRAME_INTERVAL
