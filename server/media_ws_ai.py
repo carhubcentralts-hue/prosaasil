@@ -323,8 +323,9 @@ class MediaStreamHandler:
         
         # ✅ תיקון קריטי: מעקב נפרד אחר קול ושקט
         self.last_voice_ts = 0.0         # זמן הקול האחרון - לחישוב דממה אמיתי
-        self.noise_floor = 35.0          # רמת רעש בסיסית
-        self.vad_threshold = 35.0        # סף VAD דינמי
+        # 🎯 TASK 4: Raised VAD threshold to prevent false noise detection
+        self.noise_floor = 800.0          # רמת רעש בסיסית (was 35.0 - too low!)
+        self.vad_threshold = 800.0        # סף VAD דינמי (was 35.0 - too low!)
         self.is_calibrated = False       # האם כוילרנו את רמת הרעש
         self.calibration_frames = 0      # מונה פריימים לכיול
         self.mark_pending = False        # האם ממתינים לסימון TTS
@@ -996,10 +997,10 @@ class MediaStreamHandler:
                         self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
                         self.calibration_frames += 1
                         if self.calibration_frames >= 60:
-                            # ✅ HEBREW-OPTIMIZED: Balanced threshold for Hebrew speech
-                            self.vad_threshold = max(150, self.noise_floor * 5.0 + 100)  # מותאם לעברית - מאזין עד הסוף
+                            # 🎯 TASK 4: Raised threshold significantly to prevent noise
+                            self.vad_threshold = max(800, self.noise_floor * 5.0 + 200)  # Much higher threshold
                             self.is_calibrated = True
-                            print(f"🎛️ VAD CALIBRATED for HEBREW (threshold: {self.vad_threshold:.1f})")
+                            print(f"🎛️ VAD CALIBRATED (threshold: {self.vad_threshold:.1f})")
                             
                             # היסטרזיס למניעת ריצוד
                             if not hasattr(self, 'vad_hysteresis_count'):
@@ -1041,17 +1042,17 @@ class MediaStreamHandler:
                             is_strong_voice = enhanced_voice
                             self.vad_hysteresis_count = 0
                     else:
-                        # לפני קליברציה - VAD חזק יותר לעברית
-                        is_strong_voice = rms > 300  # Even higher for Hebrew speech
+                        # 🎯 TASK 4: Before calibration - much higher threshold
+                        is_strong_voice = rms > 800  # Raised from 300 to 800
                     
                     # ✅ FIXED: Update last_voice_ts only with VERY strong voice
                     current_time = time.time()
                     # ✅ EXTRA CHECK: Only if RMS is significantly above threshold
-                    if is_strong_voice and rms > (getattr(self, 'vad_threshold', 200) * 1.2):
+                    if is_strong_voice and rms > (getattr(self, 'vad_threshold', 800) * 1.2):
                         self.last_voice_ts = current_time
-                        # Debug only strong voice detection (max once per 3 seconds)
-                        if not hasattr(self, 'last_debug_ts') or (current_time - self.last_debug_ts) > 3.0:
-                            print(f"🎙️ REAL_VOICE: rms={rms}, threshold={getattr(self, 'vad_threshold', 'uncalibrated')}")
+                        # 🎯 TASK 4: Reduced logging spam - max once per 5 seconds
+                        if not hasattr(self, 'last_debug_ts') or (current_time - self.last_debug_ts) > 5.0:
+                            print(f"🎙️ REAL_VOICE: rms={rms:.1f} > threshold={getattr(self, 'vad_threshold', 'uncalibrated'):.1f}")
                             self.last_debug_ts = current_time
                     
                     # חישוב דממה אמיתי - מאז הקול האחרון! 
