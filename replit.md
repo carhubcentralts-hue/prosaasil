@@ -60,6 +60,27 @@ Implemented comprehensive fix following detailed guide. Resolved tx=0 issue (no 
 - `server/services/openai_realtime_client.py` - Audio chunk logging
 - `server/media_ws_ai.py` - Audio bridge format fix, transmission tracking, VAD threshold increase
 
+### Final Twilio Format Fix
+Fixed incorrect Twilio message format that caused noise instead of clear audio.
+
+**Root Cause:**
+- Used `{"type": "media", "payload": ...}` but Twilio requires `{"event": "media", "streamSid": ..., "media": {"payload": ...}}`
+- VAD threshold was too high (800) after previous fix
+
+**Fixes Applied:**
+1. **Correct Twilio Format** - Fixed to exact Twilio Media Streams specification with `streamSid`
+2. **Enhanced Logging** - Added first10 bytes logging to verify μ-law format
+3. **No PCM Conversion** - Verified audio stays as g711_ulaw throughout (line 978 sends `b64` directly)
+4. **Moderate VAD Threshold** - Reverted from 800 to 150-250 for balanced Hebrew speech detection
+
+**Expected Results:**
+- Clear Hebrew voice (no noise/static)
+- User speech detected and transcribed
+- Logs show: `[REALTIME] sending frame to Twilio: len=X, first10=...`
+
+**Files Modified:**
+- `server/media_ws_ai.py` - Twilio format fix, VAD threshold revert, enhanced logging
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
