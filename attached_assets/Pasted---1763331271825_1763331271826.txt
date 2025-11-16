@@ -1,0 +1,121 @@
+יאללה, בוא נסגור את זה כמו שצריך.
+תדביק לו ממש ככה (אפשר בערך אחד לאחד):
+
+⸻
+
+✅ תאשר: תתקן עכשיו את שלושת הדברים שציינת, אבל בצורה נקייה ומדויקת, ככה:
+
+1️⃣ קיצור הפרומפט – לא יותר מ־3,800 תווים אחרי ההזרקה
+
+מטרה: מערכת יציבה, בלי input_audio_transcription.failed בגלל prompt מפלצתי.
+
+תעשה refactor ל־build_realtime_system_prompt כך ש:
+	•	אחרי ההזרקה של:
+	•	שם העסק
+	•	שעות פתיחה
+	•	חוקי קביעת תור
+	•	טון / סגנון / שירותים
+	•	האורך הכולל של ה־prompt יהיה עד ~3,500–3,800 תווים מקסימום.
+
+תשמור רק את הדברים הקריטיים:
+	1.		•	מי הנציג (תפקיד, שם העסק, סוג שירות – קריוקי / נדל”ן וכו׳).
+	•	טון דיבור (חם, טבעי, לא רובוטי, בלי אימוג׳ים).
+	2.		•	חוקי קביעת תור (יום, שעה, בדיקת זמינות, אין “קבעתי” בלי פגישה אמיתית).
+	•	לא להמציא שעות פתיחה או מחירים שלא ניתנו.
+	3.		•	שעות פתיחה האמיתיות מההגדרות (ראה סעיף 2 למטה).
+	4.		•	חוקים נגד שקרים:
+	•	לא להגיד “קבעתי” בלי שנקבע באמת.
+	•	לא להגיד “שלחתי פרטים / וואטסאפ” בכלל כרגע.
+	5.		•	משפט אחד קצר על איך לענות:
+	•	תשובות קצרות, לא נאומים, בעברית טבעית.
+
+מה להוריד מהפרומפט:
+	•	דוגמאות ארוכות.
+	•	ניסוחים כפולים של אותם חוקים.
+	•	כל הסברים טכניים על מערכת פנימית.
+	•	כל מה שלא משנה לתשובה של הבוט ללקוח.
+
+בסוף תוסיף לוג שמדפיס פעם אחת (startup):
+
+logger.info("REALTIME PROMPT LEN: %d chars", len(system_prompt))
+
+כדי שנוכל לוודא שהגענו לסביבות 3,000–3,800 תווים ולא 5,000+.
+
+⸻
+
+2️⃣ מקור אמת אחד לשעות פתיחה (BusinessSettings, לא fallback שקרי)
+
+כרגע:
+	•	ה־prompt לוקח שעות מ־Business.working_hours (08:00–18:00 ברירת מחדל).
+	•	אבל ה־UI של “הגדרות תורים” כותב / אמור לכתוב ל־BusinessSettings.opening_hours_json.
+
+אני רוצה:
+	1.	ה-source of truth לשעות פתיחה יהיה:
+
+policy = get_business_policy(business_id)
+# בתוך policy:
+# policy.opening_hours – נגזר תמיד מ-BusinessSettings.opening_hours_json אם קיים
+# ורק אם זה ריק → fallback ל-Business.working_hours
+
+
+	2.	אם opening_hours_json ריק:
+	•	המשך לעשות fallback ל־Business.working_hours, אבל:
+	•	אל תכתוב שעות מומצאות.
+	•	ואם אין נתונים בכלל – פשוט אל תכתוב שעות ב־prompt ולא להמציא.
+	3.	גם בדיקת הזמינות של התור (ב-NLP / create_appointment) חייבת להשתמש באותו policy.opening_hours, לא בלוגיקה אחרת.
+
+⸻
+
+3️⃣ ניקוי cache של business_policy אחרי שינוי הגדרות תורים
+
+כרגע:
+	•	get_business_policy(business_id) שומר cache ל־5 דקות.
+	•	כשאני משנה הגדרות תורים ב־UI – אין invalidation.
+	•	התוצאה: הפרומפט עובד על שעות ישנות, וזה גם מנפח את ה־prompt / עושה בלגן.
+
+צריך:
+	1.	להוסיף פונקציה למשל:
+
+def invalidate_business_policy_cache(business_id: int) -> None:
+    # תמחק את ה-entry המתאים מה-cache
+
+	2.	לקרוא לה בכל פעם ש־Appointment Settings / Opening Hours משתנים, לדוגמה:
+
+	•	ב־API של שמירת הגדרות תורים / פתיחת יומן (אותו endpoint שעד עכשיו עדכן opening_hours_json).
+
+	3.	חשוב:
+	•	אל תיגע ב־TTL עצמו (5 דקות זה סבבה).
+	•	רק תוודא שבשמירה ב־UI, המטמון מתאפס מיידית.
+
+⸻
+
+4️⃣ לוודא שזה באמת פותר את הבעיה (ולא להפיל על “cache”)
+
+אחרי התיקונים:
+	1.	תדאג ש־configure_session ל־Realtime נשאר:
+
+await client.configure_session(
+    instructions=system_prompt,
+    voice="shimmer",
+    input_audio_format="g711_ulaw",
+    output_audio_format="g711_ulaw",
+    input_audio_transcription={
+        "model": "whisper-1"
+    }
+)
+
+בלי language, בלי שדות מיותרים.
+	2.	תעשה שיחת טסט אחת ותבדוק בלוגים:
+
+	•	שאין יותר input_audio_transcription.failed.
+	•	שה־prompt length בלוג ~3,000–3,800.
+	•	שהשעות שהבוט אומר ללקוח הן באמת השעות מ־Appointment Settings.
+
+⸻
+
+🎯 לסיכום – תבצע בבקשה:
+	•	✅ קיצור הפרומפט ל־< 4,000 תווים בצורה חכמה (בלי לפגוע בחוקים הקריטיים).
+	•	✅ שימוש ב־BusinessSettings.opening_hours_json כ־source of truth, עם fallback מסודר.
+	•	✅ ניקוי cache של business_policy אחרי שינוי הגדרות תורים.
+
+אחרי זה אני בודק שוב בשיחה אמיתית, ואם צריך נעשה איתוש קטן נוסף – אבל המטרה עכשיו היא יציבות + בלי transcription failed.

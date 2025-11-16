@@ -163,6 +163,21 @@ def parse_policy_from_prompt(prompt: str) -> Dict[str, Any]:
 _POLICY_CACHE: Dict[int, tuple["BusinessPolicy", float]] = {}  # Use quoted annotation
 _POLICY_CACHE_TTL = 300  # 5 minutes in seconds
 
+
+def invalidate_business_policy_cache(business_id: int) -> None:
+    """
+    Clear cached policy for a specific business
+    Call this when appointment settings are updated via UI
+    
+    Args:
+        business_id: Business ID to invalidate cache for
+    """
+    if business_id in _POLICY_CACHE:
+        del _POLICY_CACHE[business_id]
+        logger.info(f"🔄 Cache invalidated for business {business_id}")
+    else:
+        logger.debug(f"🔄 No cache to invalidate for business {business_id}")
+
 def get_business_policy(
     business_id: int,
     prompt_text: Optional[str] = None,
@@ -195,7 +210,7 @@ def get_business_policy(
             # Cache hit! (only when NO prompt override)
             return cached_policy
     
-    # Start with defaults
+    # Start with defaults (but we'll clear hours if no real data found)
     merged = asdict(DEFAULT_POLICY)
     
     # Try to load from DB
@@ -205,6 +220,12 @@ def get_business_policy(
         else:
             settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
         
+        if not settings:
+            # ⚠️ NO SETTINGS ROW - Clear DEFAULT_POLICY hours (don't invent!)
+            merged["opening_hours"] = {}
+            merged["allow_24_7"] = False
+            logger.warning(f"⚠️ No BusinessSettings row for business {business_id} - hours cleared (no invented hours!)")
+        
         if settings:
             # Override with DB values (if not None)
             if settings.timezone:
@@ -213,12 +234,14 @@ def get_business_policy(
                 merged["slot_size_min"] = settings.slot_size_min
             if settings.allow_24_7 is not None:
                 merged["allow_24_7"] = settings.allow_24_7
+            # 🔥 SOURCE OF TRUTH: opening_hours_json from BusinessSettings (priority #1)
             if settings.opening_hours_json:
                 merged["opening_hours"] = settings.opening_hours_json
-                logger.info(f"📅 Using opening_hours_json from BusinessSettings")
+                logger.info(f"✅ Using opening_hours_json from BusinessSettings (source of truth)")
             else:
-                # 🔥 TEMPORARY FALLBACK: Build from working_hours until migration completes
-                logger.warning(f"⚠️ opening_hours_json is EMPTY for business {business_id} - using working_hours fallback")
+                # 🔥 FALLBACK: Use Business.working_hours only if opening_hours_json is NULL
+                logger.warning(f"⚠️ opening_hours_json is NULL for business {business_id} - fallback to working_hours")
+                hours_found = False
                 try:
                     from server.models_sql import Business
                     if db_session:
@@ -241,9 +264,19 @@ def get_business_policy(
                                     "fri": [[start_time, end_time]],
                                     "sat": []
                                 }
-                                logger.info(f"📅 Fallback: {start_time}-{end_time} (sun-fri)")
+                                logger.info(f"📅 Fallback hours: {start_time}-{end_time} (sun-fri from Business.working_hours)")
+                                hours_found = True
+                            else:
+                                logger.warning(f"⚠️ Invalid time format in working_hours: {business.working_hours}")
+                        else:
+                            logger.warning(f"⚠️ Invalid working_hours format: {business.working_hours}")
                 except Exception as e:
                     logger.warning(f"⚠️ Fallback failed: {e}")
+                
+                # ⚠️ NO REAL DATA - Clear DEFAULT_POLICY hours (don't invent!)
+                if not hours_found:
+                    merged["opening_hours"] = {}
+                    logger.warning(f"⚠️ No hours data found - opening_hours set to empty (no invented hours!)")
                     
             if settings.booking_window_days is not None:
                 merged["booking_window_days"] = settings.booking_window_days

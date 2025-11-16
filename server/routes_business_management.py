@@ -707,16 +707,23 @@ def update_current_business_settings():
             settings.timezone = data['timezone']
         
         # 🔥 BUILD 138: Appointment settings
+        appointment_settings_changed = False
+        
         if 'slot_size_min' in data:
             settings.slot_size_min = int(data['slot_size_min'])
+            appointment_settings_changed = True
         if 'allow_24_7' in data:
             settings.allow_24_7 = bool(data['allow_24_7'])
+            appointment_settings_changed = True
         if 'booking_window_days' in data:
             settings.booking_window_days = int(data['booking_window_days'])
+            appointment_settings_changed = True
         if 'min_notice_min' in data:
             settings.min_notice_min = int(data['min_notice_min'])
+            appointment_settings_changed = True
         if 'opening_hours_json' in data:
             settings.opening_hours_json = data['opening_hours_json']
+            appointment_settings_changed = True
             
         # Track who updated
         user_email = session.get('al_user', {}).get('email', 'Unknown')
@@ -724,6 +731,12 @@ def update_current_business_settings():
         settings.updated_at = datetime.now()
         
         db.session.commit()
+        
+        # 🔄 Invalidate policy cache when appointment settings change
+        if appointment_settings_changed:
+            from server.policy.business_policy import invalidate_business_policy_cache
+            invalidate_business_policy_cache(business_id)
+            logger.info(f"🔄 Policy cache cleared for business {business_id} after settings update")
         
         return jsonify({
             "success": True,
