@@ -386,6 +386,12 @@ class MediaStreamHandler:
         self.exec = ThreadPoolExecutor(max_workers=1)  # Per-call executor
         self.events_q = None  # Will be created if async mode is used
         
+        # 🚀 REALTIME API: Thread-safe queues and state for OpenAI Realtime mode
+        self.realtime_audio_in_queue = queue.Queue(maxsize=1000)  # Twilio → Realtime
+        self.realtime_audio_out_queue = queue.Queue(maxsize=1000)  # Realtime → Twilio
+        self.realtime_stop_flag = False  # Signal to stop Realtime threads
+        self.realtime_thread = None  # Thread running asyncio loop
+        
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
 
     def _init_streaming_stt(self):
@@ -527,6 +533,178 @@ class MediaStreamHandler:
         print(f"[LATENCY] final_wait={wait_duration:.2f}s, utterance_total={time.time() - wait_start:.2f}s")
         
         return text
+
+    def _run_realtime_mode_thread(self):
+        """
+        🚀 OpenAI Realtime API Mode - Runs in dedicated thread with asyncio loop
+        
+        This replaces the Google STT/TTS pipeline with OpenAI Realtime API:
+        - Twilio μ-law audio → Realtime API (input_audio_buffer.append)
+        - Realtime API audio deltas → Twilio (response.audio.delta)
+        - Server-side tool orchestration (calendar, leads) - NO AgentKit
+        
+        Thread architecture:
+        - Main thread (Eventlet): Twilio WebSocket handling
+        - This thread: asyncio event loop for Realtime API WebSocket
+        - Communication via thread-safe queues
+        """
+        call_id = self.call_sid[:8] if self.call_sid else "unknown"
+        print(f"🚀 [REALTIME] Thread started for call {call_id}")
+        
+        try:
+            asyncio.run(self._run_realtime_mode_async())
+        except Exception as e:
+            print(f"❌ [REALTIME] Thread error: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            print(f"🔚 [REALTIME] Thread ended for call {call_id}")
+    
+    async def _run_realtime_mode_async(self):
+        """
+        🚀 OpenAI Realtime API - Async main loop
+        
+        Handles bidirectional audio streaming:
+        1. Receive audio from Twilio (via queue) → send to Realtime API
+        2. Receive audio from Realtime API → send to Twilio (via queue)
+        3. Handle text events, tool calls, and conversation state
+        """
+        from server.services.openai_realtime_client import OpenAIRealtimeClient
+        from server.services.realtime_prompt_builder import build_realtime_system_prompt
+        
+        print(f"🚀 [REALTIME] Async loop starting for business_id={self.business_id}")
+        
+        client = None
+        try:
+            client = OpenAIRealtimeClient()
+            await client.connect()
+            print(f"✅ [REALTIME] Connected to OpenAI")
+            
+            app = _get_flask_app()
+            with app.app_context():
+                business_id_safe = self.business_id or 1
+                system_prompt = build_realtime_system_prompt(business_id_safe)
+            
+            print(f"✅ [REALTIME] Built system prompt ({len(system_prompt)} chars)")
+            
+            await client.configure_session(
+                instructions=system_prompt,
+                voice="alloy",
+                input_audio_format="g711_ulaw",
+                output_audio_format="g711_ulaw",
+                vad_threshold=0.6,
+                silence_duration_ms=500,
+                temperature=0.15,
+                max_tokens=60
+            )
+            print(f"✅ [REALTIME] Session configured")
+            
+            audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+            audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
+            
+            await asyncio.gather(audio_in_task, audio_out_task)
+            
+        except Exception as e:
+            print(f"❌ [REALTIME] Async error: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            if client:
+                await client.disconnect()
+                print(f"🔌 [REALTIME] Disconnected")
+    
+    async def _realtime_audio_sender(self, client):
+        """Send audio from Twilio to Realtime API"""
+        print(f"📤 [REALTIME] Audio sender started")
+        
+        while not self.realtime_stop_flag:
+            try:
+                if not hasattr(self, 'realtime_audio_in_queue'):
+                    await asyncio.sleep(0.01)
+                    continue
+                
+                try:
+                    audio_chunk = self.realtime_audio_in_queue.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(0.01)
+                    continue
+                
+                if audio_chunk is None:
+                    print(f"📤 [REALTIME] Stop signal received")
+                    break
+                
+                await client.send_audio_chunk(audio_chunk)
+                
+            except Exception as e:
+                print(f"❌ [REALTIME] Audio sender error: {e}")
+                break
+        
+        print(f"📤 [REALTIME] Audio sender ended")
+    
+    async def _realtime_audio_receiver(self, client):
+        """Receive audio and events from Realtime API"""
+        print(f"📥 [REALTIME] Audio receiver started")
+        
+        try:
+            async for event in client.recv_events():
+                event_type = event.get("type", "")
+                
+                if event_type == "response.audio.delta":
+                    audio_b64 = event.get("delta", "")
+                    if audio_b64:
+                        try:
+                            self.realtime_audio_out_queue.put_nowait(audio_b64)
+                        except queue.Full:
+                            pass
+                
+                elif event_type == "response.audio_transcript.done":
+                    transcript = event.get("transcript", "")
+                    if transcript:
+                        print(f"🤖 [REALTIME] AI said: {transcript}")
+                
+                elif event_type == "conversation.item.input_audio_transcription.completed":
+                    transcript = event.get("transcript", "")
+                    if transcript:
+                        print(f"👤 [REALTIME] User said: {transcript}")
+                
+                elif event_type.startswith("error"):
+                    error_msg = event.get("error", {}).get("message", "Unknown error")
+                    print(f"❌ [REALTIME] Error event: {error_msg}")
+                
+        except Exception as e:
+            print(f"❌ [REALTIME] Audio receiver error: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        print(f"📥 [REALTIME] Audio receiver ended")
+    
+    def _realtime_audio_out_loop(self):
+        """
+        🚀 REALTIME API: Bridge thread that moves audio from realtime_audio_out_queue to tx_q
+        This allows Realtime audio to use the existing Twilio transmission pipeline.
+        """
+        print(f"📤 [REALTIME] Audio output bridge started")
+        
+        while not self.realtime_stop_flag:
+            try:
+                audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
+                
+                if audio_b64 is None:
+                    print(f"📤 [REALTIME] Stop signal received")
+                    break
+                
+                try:
+                    self.tx_q.put_nowait({"type": "media", "payload": audio_b64})
+                except queue.Full:
+                    pass
+                    
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"❌ [REALTIME] Audio output bridge error: {e}")
+                break
+        
+        print(f"📤 [REALTIME] Audio output bridge ended")
 
     def run(self):
         # Media stream handler initialized")
@@ -708,6 +886,24 @@ class MediaStreamHandler:
                             self.t2_greeting_end = time.time()  # ⚡ [T2] Greeting end
                             print(f"🎯 [T2={self.t2_greeting_end:.3f}] GREETING_COMPLETE! (Duration={(self.t2_greeting_end - self.t1_greeting_start)*1000:.0f}ms)")
                             self.greeting_sent = True
+                            
+                            # 🚀 REALTIME API: Start Realtime mode if enabled
+                            if USE_REALTIME_API and not self.realtime_thread:
+                                print(f"🚀 [REALTIME] Starting Realtime API mode for call {self.call_sid[:8] if self.call_sid else 'unknown'}")
+                                
+                                self.realtime_thread = threading.Thread(
+                                    target=self._run_realtime_mode_thread,
+                                    daemon=True
+                                )
+                                self.realtime_thread.start()
+                                self.background_threads.append(self.realtime_thread)
+                                
+                                realtime_out_thread = threading.Thread(
+                                    target=self._realtime_audio_out_loop,
+                                    daemon=True
+                                )
+                                realtime_out_thread.start()
+                                self.background_threads.append(realtime_out_thread)
                         except Exception as e:
                             print(f"❌ CRITICAL ERROR sending greeting: {e}")
                             import traceback
@@ -723,6 +919,13 @@ class MediaStreamHandler:
                     self.last_rx_ts = time.time()
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
+                    
+                    # 🚀 REALTIME API: Route audio to Realtime if enabled
+                    if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
+                        try:
+                            self.realtime_audio_in_queue.put_nowait(b64)
+                        except queue.Full:
+                            pass
                     
                     # ⚡ STREAMING STT: Feed audio to session (continuous streaming)
                     if self.call_sid and pcm16:
@@ -1159,6 +1362,19 @@ class MediaStreamHandler:
         finally:
             # ⚡ STREAMING STT: Close session at end of call
             self._close_streaming_stt()
+            
+            # 🚀 REALTIME API: Signal threads to stop
+            self.realtime_stop_flag = True
+            if self.realtime_audio_in_queue:
+                try:
+                    self.realtime_audio_in_queue.put_nowait(None)
+                except:
+                    pass
+            if self.realtime_audio_out_queue:
+                try:
+                    self.realtime_audio_out_queue.put_nowait(None)
+                except:
+                    pass
             
             # Clean up TX thread
             if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
