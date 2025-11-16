@@ -314,7 +314,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
     - Phone will be in call log/WhatsApp context
     
     Validations (STRICTLY ENFORCED):
-    - Business hours: 09:00-22:00 Asia/Jerusalem - appointments outside will be REJECTED
+    - Business hours: Checked dynamically from business settings - appointments outside will be REJECTED
     - No conflicts with existing appointments - overlapping times will be REJECTED  
     - Start time must be in the future
     - Duration: 15-240 minutes

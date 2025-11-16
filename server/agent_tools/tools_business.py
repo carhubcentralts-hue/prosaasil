@@ -67,13 +67,34 @@ def _business_get_info_impl(business_id: Optional[int] = None) -> BusinessInfoOu
             )
         
         # Build response with all available info
+        # Get dynamic hours from policy
+        from server.policy.business_policy import get_business_policy
+        try:
+            policy = get_business_policy(actual_business_id)
+            # Format hours description from policy
+            if policy.allow_24_7:
+                hours_desc = "פתוח 24/7"
+            elif policy.opening_hours:
+                # Take first available day as example
+                for day in ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]:
+                    if policy.opening_hours.get(day):
+                        first_window = policy.opening_hours[day][0]
+                        hours_desc = f"{first_window[0]}-{first_window[1]}"
+                        break
+                else:
+                    hours_desc = "לא הוגדרו שעות פעילות"
+            else:
+                hours_desc = "לא הוגדרו שעות פעילות"
+        except:
+            hours_desc = settings.working_hours if settings and settings.working_hours else "לא הוגדרו"
+        
         result = BusinessInfoOutput(
             ok=True,
             name=business.name or "העסק",
             address=settings.address if settings and settings.address else "לא צויין",
             phone=settings.phone_number if settings and settings.phone_number else "לא צויין",
             email=settings.email if settings and settings.email else "לא צויין",
-            hours=settings.working_hours if settings and settings.working_hours else "09:00-22:00"
+            hours=hours_desc
         )
         
         logger.info(f"✅ business_get_info: {result.model_dump()}")
