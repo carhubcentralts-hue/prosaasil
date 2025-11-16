@@ -1,0 +1,183 @@
+2025-11-16 19:49:00.89
+9fdd1560
+User
+🚀 [REALTIME] Thread started for call CAf094e5
+2025-11-16 19:49:04.75
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=317.0 > threshold=200.0
+2025-11-16 19:49:05.08
+9fdd1560
+User
+👤 [REALTIME] User said: Thank you.
+2025-11-16 19:49:07.77
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=2422.0 > threshold=200.0
+2025-11-16 19:49:08.69
+9fdd1560
+User
+👤 [REALTIME] User said: Charlie, do you mind if I have a minute? No, you can stay a few minutes.
+2025-11-16 19:49:09.05
+9fdd1560
+User
+[REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=fe fe fe fe ff
+2025-11-16 19:49:09.06
+9fdd1560
+User
+[TX_LOOP] Frame 0: type=None, event=media, has_media=True
+2025-11-16 19:49:09.06
+9fdd1560
+User
+[TX_LOOP] Sent Realtime format: success=True
+2025-11-16 19:49:09.06
+9fdd1560
+User
+[REALTIME] TX frame #1: len=800, first5_hex=fe fe fe fe ff, streamSid=MZ620c15edc4510...
+2025-11-16 19:49:09.10
+9fdd1560
+User
+[REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=b7 ad ab b1 b6
+2025-11-16 19:49:09.10
+9fdd1560
+User
+[TX_LOOP] Sent Realtime format: success=True
+2025-11-16 19:49:09.10
+9fdd1560
+User
+[REALTIME] TX frame #2: len=1200, first5_hex=b7 ad ab b1 b6, streamSid=MZ620c15edc4510...
+2025-11-16 19:49:09.10
+9fdd1560
+User
+[TX_LOOP] Frame 1: type=None, event=media, has_media=True
+2025-11-16 19:49:09.14
+9fdd1560
+User
+[REALTIME] TX frame #3: len=2000, first5_hex=cd c7 eb 54 3c, streamSid=MZ620c15edc4510...
+2025-11-16 19:49:09.14
+9fdd1560
+User
+[TX_LOOP] Sent Realtime format: success=True
+2025-11-16 19:49:09.14
+9fdd1560
+User
+[REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=cd c7 eb 54 3c
+2025-11-16 19:49:09.14
+9fdd1560
+User
+[TX_LOOP] Frame 2: type=None, event=media, has_media=True
+2025-11-16 19:49:09.17
+9fdd1560
+User
+👤 [REALTIME] User said: Hello
+2025-11-16 19:49:09.22
+9fdd1560
+User
+🤖 [REALTIME] AI said: כן, אני שומע אותך.
+2025-11-16 19:49:10.51
+9fdd1560
+User
+[REALTIME] TX frame #4: len=800, first5_hex=46 3d 48 4a 59, streamSid=MZ620c15edc4510...
+2025-11-16 19:49:10.54
+9fdd1560
+User
+[REALTIME] TX frame #5: len=1200, first5_hex=c8 b6 ae ac aa, streamSid=MZ620c15edc4510...
+2025-11-16 19:49:10.95
+9fdd1560
+User
+🤖 [REALTIME] AI said: יש לנו כמה חדרים בעיצובים שונים,
+2025-11-16 19:49:11.19
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=290.0 > threshold=200.0
+2025-11-16 19:49:12.12
+9fdd1560
+User
+👤 [REALTIME] User said: You're welcome.
+2025-11-16 19:49:14.41
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=322.0 > threshold=200.0
+2025-11-16 19:49:18.63
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=296.0 > threshold=200.0
+
+2025-11-16 19:49:19.03
+9fdd1560
+User
+🤖 [REALTIME] AI said: אנחנו פתוחים מראשון עד חמישי
+2025-11-16 19:49:20.75
+9fdd1560
+User
+🤖 [REALTIME] AI said: וביום שישי אנחנו פתוחים עד שש
+2025-11-16 19:49:21.02
+9fdd1560
+User
+👤 [REALTIME] User said: which is the end.
+2025-11-16 19:49:21.29
+9fdd1560
+User
+👤 [REALTIME] User said: ❤️ par SousTitreur.com
+2025-11-16 19:49:25.09
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=818.0 > threshold=200.0
+2025-11-16 19:49:28.15
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=264.0 > threshold=200.0
+2025-11-16 19:49:31.17
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=1025.0 > threshold=200.0
+2025-11-16 19:49:34.04
+9fdd1560
+User
+🤖 [REALTIME] AI said: בטח! חדר דובאי מתאים עד
+2025-11-16 19:49:35.84
+9fdd1560
+User
+👤 [REALTIME] User said: se a pessoa estiver preocupada com a pessoal,
+2025-11-16 19:49:36.61
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=337.0 > threshold=200.0
+2025-11-16 19:49:39.61
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=1055.0 > threshold=200.0
+2025-11-16 19:49:41.09
+9fdd1560
+User
+👤 [REALTIME] User said: All right.
+2025-11-16 19:49:42.31
+9fdd1560
+User
+🤖 [REALTIME] AI said: לחדר דובאי יש מקום עד 15
+2025-11-16 19:49:42.61
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=1045.0 > threshold=200.0
+2025-11-16 19:49:43.06
+9fdd1560
+User
+👤 [REALTIME] User said: That ended in a bloody bubble.
+2025-11-16 19:49:45.05
+9fdd1560
+User
+👤 [REALTIME] User said: Love you. Love you.
+2025-11-16 19:49:45.20
+9fdd1560
+User
+🤖 [REALTIME] AI said: אז חדר ניו יורק יכול להתאים לכם,
+2025-11-16 19:49:45.61
+9fdd1560
+User
+🎙️ REAL_VOICE: rms=395.0 > threshold=200.0
+
+Collapse
+
+Wrap
+
+Colors

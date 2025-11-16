@@ -596,11 +596,11 @@ class MediaStreamHandler:
                 input_audio_format="g711_ulaw",   # Twilio → OpenAI: μ-law 8kHz
                 output_audio_format="g711_ulaw",  # OpenAI → Twilio: μ-law 8kHz
                 vad_threshold=0.6,
-                silence_duration_ms=500,
-                temperature=0.15,
-                max_tokens=60
+                silence_duration_ms=800,  # ✅ Increased: prevent mid-sentence cutoff
+                temperature=0.8,  # ✅ Natural conversations (enforced min 0.6 in implementation)
+                max_tokens=300  # ✅ Increased: allow full Hebrew sentences
             )
-            print(f"✅ [REALTIME] Session configured: voice=alloy, temp=0.15, format=g711_ulaw (8kHz)")
+            print(f"✅ [REALTIME] Session configured: voice=alloy, temp=0.8, format=g711_ulaw (8kHz)")
             
             # 🚀 REALTIME API: Send greeting if available
             if hasattr(self, 'realtime_greeting_text') and self.realtime_greeting_text:

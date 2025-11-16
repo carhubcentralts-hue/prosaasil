@@ -243,7 +243,8 @@ class OpenAIRealtimeClient:
             "input_audio_format": input_audio_format,
             "output_audio_format": output_audio_format,
             "input_audio_transcription": {
-                "model": "whisper-1"
+                "model": "whisper-1",
+                "language": "he"  # ✅ Force Hebrew transcription
             },
             "turn_detection": {
                 "type": "server_vad",
