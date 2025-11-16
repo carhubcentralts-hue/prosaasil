@@ -180,13 +180,24 @@ class OpenAIRealtimeClient:
         Args:
             text: Text to be converted to speech and spoken
         """
+        # Add assistant message to conversation
         await self.send_event({
-            "type": "response.create",
-            "response": {
-                "modalities": ["audio", "text"],
-                "instructions": f"Say exactly this text: {text}"
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{
+                    "type": "input_text",
+                    "text": text
+                }]
             }
         })
+        
+        # Trigger response generation
+        await self.send_event({
+            "type": "response.create"
+        })
+        
         logger.info(f"✅ Text response sent: '{text[:50]}...'")
     
     async def configure_session(
@@ -213,25 +224,30 @@ class OpenAIRealtimeClient:
             temperature: AI temperature (0-2)
             max_tokens: Maximum tokens in response
         """
+        session_config = {
+            "instructions": instructions,
+            "modalities": ["audio", "text"],
+            "voice": voice,
+            "input_audio_format": input_audio_format,
+            "output_audio_format": output_audio_format,
+            "input_audio_transcription": {
+                "model": "whisper-1"
+            },
+            "turn_detection": {
+                "type": "server_vad",
+                "threshold": vad_threshold,
+                "silence_duration_ms": silence_duration_ms,
+                "prefix_padding_ms": 300
+            },
+            "temperature": temperature,
+            "max_output_tokens": max_tokens
+        }
+        
+        # For g711_ulaw, sample rate is always 8000 Hz (telephony standard)
+        # No need to explicitly set it - it's implicit in the format
+        
         await self.send_event({
             "type": "session.update",
-            "session": {
-                "instructions": instructions,
-                "modalities": ["audio", "text"],
-                "voice": voice,
-                "input_audio_format": input_audio_format,
-                "output_audio_format": output_audio_format,
-                "input_audio_transcription": {
-                    "model": "whisper-1"
-                },
-                "turn_detection": {
-                    "type": "server_vad",
-                    "threshold": vad_threshold,
-                    "silence_duration_ms": silence_duration_ms,
-                    "prefix_padding_ms": 300
-                },
-                "temperature": temperature,
-                "max_output_tokens": max_tokens
-            }
+            "session": session_config
         })
-        logger.info(f"✅ Session configured: voice={voice}, vad_threshold={vad_threshold}")
+        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}")

@@ -2,6 +2,21 @@
 
 AgentLocator is a Hebrew CRM system for real estate professionals that automates the sales pipeline. It features an AI-powered assistant that processes calls in real-time, intelligently collects lead information, and schedules meetings. The system utilizes advanced audio processing for natural conversations, aiming to enhance efficiency and sales conversion. It provides a robust, multi-tenant platform with customizable AI assistants and business branding, leveraging cutting-edge AI communication tools.
 
+## Recent Changes (2025-01-16)
+
+### Realtime API Audio Fix
+Fixed critical audio output issue where Realtime API connected successfully but calls produced only background noise. Root cause was incorrect Twilio WebSocket message format in audio output bridge.
+
+**Fixes:**
+1. Corrected Twilio message format from `{"type": "media", "payload": "..."}` to `{"event": "media", "media": {"payload": "..."}}` in `server/media_ws_ai.py`
+2. Added audio chunk logging for debugging: "Sending X bytes to Twilio"
+3. Improved greeting delivery using `conversation.item.create` + `response.create` sequence
+4. Enhanced session configuration logging to show audio format
+
+**Files Modified:**
+- `server/media_ws_ai.py` - Audio output bridge and Twilio message format
+- `server/services/openai_realtime_client.py` - Greeting delivery and session logging
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
