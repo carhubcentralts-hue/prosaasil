@@ -99,65 +99,8 @@ websocket_app_with_protocol = WebSocketAppWithProtocol(ws_handler)
 # Create Flask app once with proper application context
 flask_app = create_app()
 
-def _start_baileys_service():
-    """✅ START BAILEYS: Auto-start Baileys WhatsApp service in background"""
-    import subprocess
-    try:
-        # Check if Baileys is already running
-        import requests
-        try:
-            response = requests.get("http://127.0.0.1:3300/health", timeout=1)
-            if response.status_code == 200:
-                print("✅ Baileys already running on port 3300")
-                return
-        except:
-            pass
-        
-        # ✅ BUILD 90: Pass environment variables to Baileys (especially INTERNAL_SECRET!)
-        baileys_env = os.environ.copy()
-        
-        # Auto-generate INTERNAL_SECRET if not set (for development)
-        if not baileys_env.get('INTERNAL_SECRET'):
-            import secrets
-            baileys_env['INTERNAL_SECRET'] = secrets.token_urlsafe(32)
-            print(f"⚠️ Auto-generated INTERNAL_SECRET for Baileys (dev mode)")
-        
-        # Start Baileys in background with proper environment
-        baileys_process = subprocess.Popen(
-            ["node", "services/baileys/server.js"],
-            stdout=open('/tmp/baileys.log', 'w'),  # ✅ Log to file
-            stderr=subprocess.STDOUT,               # ✅ Combine stderr to stdout
-            start_new_session=True,
-            env=baileys_env,  # ✅ Pass environment with INTERNAL_SECRET
-            cwd=os.getcwd()   # ✅ Ensure correct working directory
-        )
-        print(f"✅ Baileys WhatsApp service started (PID: {baileys_process.pid})")
-        print(f"📋 Baileys logs: /tmp/baileys.log")
-        
-        # Give it a moment to start
-        import time
-        time.sleep(1)
-        
-    except Exception as e:
-        print(f"⚠️ Failed to start Baileys: {e}")
-        import traceback
-        traceback.print_exc()
-        # Continue anyway - WhatsApp won't work but calls will
-
-def _init_app_context():
-    """Initialize Flask app context for eventlet compatibility"""
-    try:
-        with flask_app.app_context():
-            # Pre-warm any application context dependent operations
-            pass
-        print("✅ Flask app context initialized successfully")
-    except Exception as e:
-        print(f"⚠️ App context init warning: {e}")
-        # Continue anyway, context will be created on first request
-
-# ✅ START BAILEYS AUTOMATICALLY
-_start_baileys_service()
-_init_app_context()
+# ⚡ STARTUP OPTIMIZATION: Baileys is started by start_production.sh
+# No heavy initialization here to avoid deployment timeout!
 
 def _is_websocket_request(environ):
     """Check if this is a WebSocket upgrade request"""
