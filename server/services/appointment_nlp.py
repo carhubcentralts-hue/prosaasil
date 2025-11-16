@@ -31,11 +31,23 @@ async def extract_appointment_request(conversation_history: list, business_id: i
         }
     """
     try:
-        # Build conversation text
-        conversation_text = "\n".join([
-            f"{'לקוח' if msg['speaker'] == 'user' else 'נציג'}: {msg['text']}"
-            for msg in conversation_history[-10:]  # Last 10 messages
-        ])
+        # Build conversation text - support both old and new formats
+        formatted_messages = []
+        for msg in conversation_history[-10:]:  # Last 10 messages
+            # Handle new format: {"speaker": "user/ai", "text": "..."}
+            if 'speaker' in msg and 'text' in msg:
+                speaker_label = "לקוח" if msg['speaker'] == 'user' else "נציג"
+                formatted_messages.append(f"{speaker_label}: {msg['text']}")
+            # Handle old format: {"user": "...", "bot": "..."}
+            elif 'user' in msg and 'bot' in msg:
+                formatted_messages.append(f"לקוח: {msg['user']}\nנציג: {msg['bot']}")
+            # Handle partial old format (just user or just bot)
+            elif 'user' in msg:
+                formatted_messages.append(f"לקוח: {msg['user']}")
+            elif 'bot' in msg:
+                formatted_messages.append(f"נציג: {msg['bot']}")
+        
+        conversation_text = "\n".join(formatted_messages)
         
         # Call GPT-4o-mini for extraction
         response = await client.chat.completions.create(

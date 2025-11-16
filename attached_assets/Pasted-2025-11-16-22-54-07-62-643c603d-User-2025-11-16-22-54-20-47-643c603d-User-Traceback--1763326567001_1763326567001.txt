@@ -1,0 +1,138 @@
+2025-11-16 22:54:07.62
+643c603d
+User
+~~~^^^^^^^^^^^
+2025-11-16 22:54:20.47
+643c603d
+User
+Traceback (most recent call last):
+2025-11-16 22:54:20.47
+643c603d
+User
+KeyError: 'speaker'
+2025-11-16 22:54:20.47
+643c603d
+User
+conversation_text = "\n".join([
+2025-11-16 22:54:20.47
+643c603d
+User
+File "/home/runner/workspace/server/services/appointment_nlp.py", line 35, in extract_appointment_request
+2025-11-16 22:54:20.47
+643c603d
+User
+^
+2025-11-16 22:54:20.47
+643c603d
+User
+File "/home/runner/workspace/server/services/appointment_nlp.py", line 36, in
+2025-11-16 22:54:20.47
+643c603d
+User
+~~~^^^^^^^^^^^
+2025-11-16 22:54:20.47
+643c603d
+User
+f"{'לקוח' if msg['speaker'] == 'user' else 'נציג'}: {msg['text']}"
+2025-11-16 22:54:23.27
+643c603d
+User
+conversation_text = "\n".join([
+2025-11-16 22:54:23.27
+643c603d
+User
+File "/home/runner/workspace/server/services/appointment_nlp.py", line 36, in
+2025-11-16 22:54:23.27
+643c603d
+User
+~~~^^^^^^^^^^^
+2025-11-16 22:54:23.27
+643c603d
+User
+File "/home/runner/workspace/server/services/appointment_nlp.py", line 35, in extract_appointment_request
+2025-11-16 22:54:23.27
+643c603d
+User
+KeyError: 'speaker'
+2025-11-16 22:54:23.27
+643c603d
+User
+^
+2025-11-16 22:54:23.27
+643c603d
+User
+Traceback (most recent call last):
+2025-11-16 22:54:23.27
+643c603d
+User
+f"{'לקוח' if msg['speaker'] == 'user' else 'נציג'}: {msg['text']}"
+2025-11-16 22:54:40.87
+643c603d
+User
+INFO: connection closed
+2025-11-16 22:54:42.32
+643c603d
+User
+conversation_text = "\n".join([
+2025-11-16 22:54:42.32
+643c603d
+User
+f"{'לקוח' if msg['speaker'] == 'user' else 'נציג'}: {msg['text']}"
+2025-11-16 22:54:42.32
+643c603d
+User
+File "/home/runner/workspace/server/services/appointment_nlp.py", line 35, in extract_appointment_request
+2025-11-16 22:54:42.32
+643c603d
+User
+~~~^^^^^^^^^^^
+2025-11-16 22:54:42.32
+643c603d
+User
+KeyError: 'speaker'
+2025-11-16 22:54:42.32
+643c603d
+User
+^
+2025-11-16 22:54:42.32
+643c603d
+User
+Traceback (most recent call last):
+2025-11-16 22:54:42.32
+643c603d
+User
+File "/home/runner/workspace/server/services/appointment_nlp.py", line 36, in
+2025-11-16 22:54:44.34
+643c603d
+User
+~~~^^^^^^^^^^^
+2025-11-16 22:54:44.34
+643c603d
+User
+File "/home/runner/workspace/server/services/appointment_nlp.py", line 36, in
+2025-11-16 22:54:44.34
+643c603d
+User
+KeyError: 'speaker'
+2025-11-16 22:54:44.34
+643c603d
+User
+File "/home/runner/workspace/server/services/appointment_nlp.py", line 35, in extract_appointment_request
+2025-11-16 22:54:44.34
+643c603d
+User
+^
+
+2025-11-16 22:54:44.34
+643c603d
+User
+conversation_text = "\n".join([
+2025-11-16 22:54:44.34
+643c603d
+User
+Traceback (most recent call last):
+2025-11-16 22:54:44.34
+643c603d
+User
+f"{'לקוח' if msg['speaker'] == 'user' else 'נציג'}: {msg['text']}"
+
