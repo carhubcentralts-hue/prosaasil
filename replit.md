@@ -112,14 +112,13 @@ SET opening_hours_json = '{
 ## ✅ Fix #4: Google STT/TTS Blocked in Realtime Mode
 **Problem**: Google STT/TTS and Realtime API running simultaneously
 
-**Solution** (`server/media_ws_ai.py` line 2125-2132):
-```python
-if self._realtime_mode:
-    logger.info("⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only")
-    return
-```
+**Solution** (`server/media_ws_ai.py`):
+- `_speak_simple` (line 2427-2429): Skip Google TTS
+- `_stt_fallback_async` (line 2765-2767): Skip Google STT async
+- `_stt_fallback_nonblocking` (line 2778-2780): Skip Google STT non-blocking
+- `_process_utterance_safe` (line 2122-2129): Skip main processing loop
 
-**Status**: ✅ Only Realtime API runs, Google completely blocked
+**Impact**: ✅ Google STT/TTS **completely** blocked - no executor tasks scheduled in Realtime mode
 
 ---
 

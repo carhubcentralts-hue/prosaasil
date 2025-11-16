@@ -1,0 +1,106 @@
+
+2025-11-16 23:13:39.68
+e05be7d4
+User
+ℹ️ Call CA421e336cb9b63e3aa5b28e7b18c88ba5 ended without recording (status: completed)
+2025-11-16 23:13:39.68
+e05be7d4
+User
+ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)
+2025-11-16 23:13:39.68
+e05be7d4
+User
+📊 Next Action: מעקב תוך 24 שעות
+2025-11-16 23:13:39.70
+e05be7d4
+User
+✅ stream_status: Updated call_log for CA421e336cb9b63e3aa5b28e7b18c88ba5
+2025-11-16 23:13:39.70
+e05be7d4
+User
+INFO: 35.196.143.163:0 - "POST /webhook/stream_status HTTP/1.1" 200 OK
+2025-11-16 23:13:39.71
+e05be7d4
+User
+INFO: 35.196.143.163:0 - "POST /webhook/call_status HTTP/1.1" 500 Internal Server Error
+2025-11-16 23:13:39.71
+e05be7d4
+User
+🧹 Waiting for 4 background threads...
+
+2025-11-16 23:13:39.73
+e05be7d4
+User
+await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+2025-11-16 23:13:39.73
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/starlette/routing.py", line 736, in app
+2025-11-16 23:13:39.73
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/starlette/routing.py", line 716, in __call__
+2025-11-16 23:13:39.73
+e05be7d4
+User
+Traceback (most recent call last):
+2025-11-16 23:13:39.73
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/asgiref/current_thread_executor.py", line 119, in submit
+2025-11-16 23:13:39.73
+e05be7d4
+User
+ERROR: Exception in ASGI application
+2025-11-16 23:13:39.73
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+2025-11-16 23:13:39.73
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
+2025-11-16 23:13:39.73
+e05be7d4
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-16 23:13:39.73
+e05be7d4
+User
+await app(scope, receive, sender)
+2025-11-16 23:13:39.73
+e05be7d4
+User
+exec_coro = loop.run_in_executor(
+2025-11-16 23:13:39.73
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/asgiref/wsgi.py", line 51, in __call__
+2025-11-16 23:13:39.73
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/starlette/middleware/errors.py", line 186, in __call__
+2025-11-16 23:13:39.73
+e05be7d4
+User
+raise exc
+2025-11-16 23:13:39.73
+e05be7d4
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-16 23:13:39.73
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+2025-11-16 23:13:39.73
+e05be7d4
+User
+await self.app(scope, receive, _send)
+2025-11-16 23:13:39.73
+e05be7d4
+User
+await self.middleware_stack(scope, receive, send)
+2025-11-16 23:13:39.73
+e05be7d4
+User
+return await self.app(scope, receive, send)

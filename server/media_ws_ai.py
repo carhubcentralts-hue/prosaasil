@@ -2421,6 +2421,10 @@ class MediaStreamHandler:
         if not text:
             return
         
+        # 🚀 REALTIME API: Skip Google TTS completely in Realtime mode
+        if USE_REALTIME_API:
+            return
+        
         # 🔥 BUILD 118: Defensive check (should be normalized already in _ai_response)
         # This is a safety net in case dict slips through
         if isinstance(text, dict):
@@ -2755,6 +2759,10 @@ class MediaStreamHandler:
         ⚡ BUILD 115: Async wrapper for fallback STT
         Runs _hebrew_stt in thread pool without blocking the event loop
         """
+        # 🚀 REALTIME API: Skip Google STT completely in Realtime mode
+        if USE_REALTIME_API:
+            return ""
+        
         try:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(self.exec, self._hebrew_stt, audio_data)
@@ -2768,6 +2776,10 @@ class MediaStreamHandler:
         Submits work to thread pool and returns immediately.
         Result is delivered via callback to avoid blocking.
         """
+        # 🚀 REALTIME API: Skip Google STT completely in Realtime mode
+        if USE_REALTIME_API:
+            return
+        
         # Submit to thread pool
         fut = self.exec.submit(self._hebrew_stt, audio_data)
         
