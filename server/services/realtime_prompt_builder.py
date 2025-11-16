@@ -39,33 +39,42 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         business_name = business.name or "העסק"
         
         # Load business policy (slot size, opening hours, etc.)
-        custom_prompt = settings.ai_prompt if settings else None
-        policy = get_business_policy(business_id, prompt_text=custom_prompt, db_session=db_session)
+        policy = get_business_policy(business_id, prompt_text=None, db_session=db_session)
         
         logger.info(f"📋 Building Realtime prompt for {business_name} (business_id={business_id})")
         
-        # Build opening hours description in Hebrew
-        hours_description = _build_hours_description(policy)
+        # 🔥 NEW: Load custom prompt from DB (just like WhatsApp)
+        core_instructions = ""
+        if settings and settings.ai_prompt and settings.ai_prompt.strip():
+            import json
+            try:
+                # Try to parse as JSON (new format with calls/whatsapp)
+                if settings.ai_prompt.strip().startswith('{'):
+                    prompt_obj = json.loads(settings.ai_prompt)
+                    # Get 'calls' prompt, fallback to whatsapp if missing
+                    if 'calls' in prompt_obj:
+                        core_instructions = prompt_obj['calls']
+                        logger.info(f"✅ Using 'calls' prompt from DB for business {business_id}")
+                    elif 'whatsapp' in prompt_obj:
+                        core_instructions = prompt_obj['whatsapp']
+                        logger.info(f"⚠️ 'calls' prompt missing - using 'whatsapp' as fallback for business {business_id}")
+                    else:
+                        # No valid keys - use raw prompt
+                        core_instructions = settings.ai_prompt
+                        logger.warning(f"⚠️ No valid channel keys - using raw prompt for business {business_id}")
+                else:
+                    # Legacy text prompt
+                    core_instructions = settings.ai_prompt
+                    logger.info(f"✅ Using legacy text prompt for business {business_id}")
+            except json.JSONDecodeError:
+                # Not valid JSON - use as text
+                core_instructions = settings.ai_prompt
+                logger.info(f"✅ Using non-JSON prompt for business {business_id}")
         
-        # Build slot size description in Hebrew
-        slot_description = _build_slot_description(policy.slot_size_min)
-        
-        # Build min notice description
-        min_notice_description = ""
-        if policy.min_notice_min > 0:
-            min_notice_hours = policy.min_notice_min // 60
-            if min_notice_hours > 0:
-                min_notice_description = f"- דורשים הזמנה מראש של לפחות {min_notice_hours} שעות.\n"
-            else:
-                min_notice_description = f"- דורשים הזמנה מראש של לפחות {policy.min_notice_min} דקות.\n"
-        
-        # Build core instructions - COMPRESSED to <4000 chars for Realtime API
-        core_instructions = f"""אתה נציג טלפוני מקצועי של "{business_name}". עונה בעברית, טבעי, קצר וברור.
+        # If no custom prompt, use default
+        if not core_instructions:
+            core_instructions = f"""אתה נציג טלפוני מקצועי של "{business_name}". עונה בעברית, טבעי, קצר וברור.
 
-שעות פעילות ותורים:
-{hours_description}
-- {slot_description}
-{min_notice_description}
 איך לקבוע תור:
 - שאל: "לאיזה יום ושעה נוח לך?" ורק אז תבדוק זמינות.
 - תן רק שעות מתוך שעות הפעילות. אסור להמציא שעות!
@@ -87,10 +96,27 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
 
 היום: {datetime.now(pytz.timezone('Asia/Jerusalem')).strftime('%A, %d/%m/%Y')} | השעה: {datetime.now(pytz.timezone('Asia/Jerusalem')).strftime('%H:%M')}
 """
+            logger.info(f"⚠️ No custom prompt - using default for business {business_id}")
         
-        # Add custom business prompt if exists
-        if custom_prompt and custom_prompt.strip():
-            core_instructions += f"\n\nמידע נוסף על העסק:\n{custom_prompt.strip()}\n"
+        # Replace placeholders
+        core_instructions = core_instructions.replace("{{business_name}}", business_name)
+        core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
+        
+        # 🔥 ADD DYNAMIC POLICY INFO (hours, slots, min_notice)
+        hours_description = _build_hours_description(policy)
+        slot_description = _build_slot_description(policy.slot_size_min)
+        
+        min_notice_description = ""
+        if policy.min_notice_min > 0:
+            min_notice_hours = policy.min_notice_min // 60
+            if min_notice_hours > 0:
+                min_notice_description = f"\n- דורשים הזמנה מראש של לפחות {min_notice_hours} שעות."
+            else:
+                min_notice_description = f"\n- דורשים הזמנה מראש של לפחות {policy.min_notice_min} דקות."
+        
+        # Append dynamic policy info
+        policy_info = f"\n\n📅 הגדרות תורים:\n{hours_description}\n- {slot_description}{min_notice_description}\n"
+        core_instructions += policy_info
         
         # Log final prompt length for monitoring
         logger.info(f"✅ REALTIME PROMPT [business_id={business_id}] LEN={len(core_instructions)} chars")
