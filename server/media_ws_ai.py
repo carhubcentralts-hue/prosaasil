@@ -2123,8 +2123,8 @@ class MediaStreamHandler:
                         # Don't raise - fall through to Google TTS
                         pass
                 except Exception as e:
-                    print(f"❌ [REALTIME] Failed to queue greeting: {e} - will fallback")
-                    # Don't raise - fall through to Google TTS
+                    print(f"❌ [REALTIME] Failed to queue greeting: {e}")
+                    # Don't raise - will try again on next attempt
                     pass
                 else:
                     # Successfully queued - exit early
@@ -2133,8 +2133,12 @@ class MediaStreamHandler:
                 print(f"❌ [REALTIME] Greeting queueing error: {e}")
                 import traceback
                 traceback.print_exc()
+            
+            # ✅ Realtime mode: Greeting will be sent by async loop, no Google TTS fallback
+            print(f"📭 [REALTIME] Greeting queued or will be retried by async loop")
+            return
         
-        # Google TTS fallback (when USE_REALTIME_API=False or Realtime not ready)
+        # Google TTS (only when USE_REALTIME_API=False)
         print(f"🔊 GREETING_TTS_START (Google): '{text[:50]}...'")
         
         try:
