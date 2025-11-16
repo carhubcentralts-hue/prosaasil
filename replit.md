@@ -17,6 +17,23 @@ Fixed critical audio output issue where Realtime API connected successfully but 
 - `server/media_ws_ai.py` - Audio output bridge and Twilio message format
 - `server/services/openai_realtime_client.py` - Greeting delivery and session logging
 
+### Realtime API Parameter Fixes
+Fixed critical API errors that caused silent calls and Spanish responses instead of Hebrew.
+
+**Errors Fixed:**
+1. `Unknown parameter: 'session.max_output_tokens'` → Changed to `max_response_output_tokens`
+2. `Invalid value: 'input_text'. Value must be 'text'` → Fixed content type in conversation items
+
+**Impact:**
+- Silent audio resolved
+- Spanish responses resolved (now Hebrew)
+- Greeting delivery fixed
+- Session configuration validated
+
+**Files Modified:**
+- `server/services/openai_realtime_client.py` - Parameter names and content types
+- `server/media_ws_ai.py` - Added prompt preview logging
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

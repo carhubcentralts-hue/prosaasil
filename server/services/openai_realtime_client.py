@@ -187,7 +187,7 @@ class OpenAIRealtimeClient:
                 "type": "message",
                 "role": "assistant",
                 "content": [{
-                    "type": "input_text",
+                    "type": "text",
                     "text": text
                 }]
             }
@@ -240,7 +240,7 @@ class OpenAIRealtimeClient:
                 "prefix_padding_ms": 300
             },
             "temperature": temperature,
-            "max_output_tokens": max_tokens
+            "max_response_output_tokens": max_tokens
         }
         
         # For g711_ulaw, sample rate is always 8000 Hz (telephony standard)

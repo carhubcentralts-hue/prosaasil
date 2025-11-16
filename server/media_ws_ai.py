@@ -586,6 +586,7 @@ class MediaStreamHandler:
                 system_prompt = build_realtime_system_prompt(business_id_safe)
             
             print(f"✅ [REALTIME] Built system prompt ({len(system_prompt)} chars)")
+            print(f"📝 [REALTIME] Prompt preview: {system_prompt[:200]}...")
             
             await client.configure_session(
                 instructions=system_prompt,
@@ -597,7 +598,7 @@ class MediaStreamHandler:
                 temperature=0.15,
                 max_tokens=60
             )
-            print(f"✅ [REALTIME] Session configured")
+            print(f"✅ [REALTIME] Session configured with voice=alloy, temp=0.15, max_tokens=60")
             
             # 🚀 REALTIME API: Send greeting if available
             if hasattr(self, 'realtime_greeting_text') and self.realtime_greeting_text:
