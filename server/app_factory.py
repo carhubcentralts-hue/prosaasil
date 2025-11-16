@@ -663,102 +663,89 @@ def create_app():
     # Initialize SQLAlchemy with Flask app
     db.init_app(app)
     
-    # 🔧 BUILD 120: Run migrations ONLY in production (via RUN_MIGRATIONS_ON_START=1)
-    # Development uses SQLAlchemy db.create_all() instead
-    # Order matters: tables must exist before we can initialize data
-    
-    is_production = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1'
-    
-    if is_production:
-        try:
-            with app.app_context():
-                print("🔧 BUILD 120: Running migrations to ensure schema parity (dev + production)")
-                print("🔒 DATA PROTECTION: Starting migrations - NO user data will be deleted")
-                from server.db_migrate import apply_migrations
-                apply_migrations()
-                print("✅ Database migrations applied successfully")
-                print("🔒 DATA PROTECTION: All user data preserved (FAQs, leads, messages, etc.)")
-                
-                # 🔧 BUILD 119: Fix malformed FAQ patterns_json
-                try:
-                    print("🔍 Checking FAQ patterns_json integrity...")
-                    from server.models_sql import FAQ
-                    import json
-                    
-                    def normalize_patterns_quick(payload):
-                        if payload is None or payload == "":
-                            return []
-                        if isinstance(payload, list):
-                            return [str(p).strip() for p in payload if p and str(p).strip()]
-                        if isinstance(payload, str):
-                            try:
-                                parsed = json.loads(payload.strip())
-                                if isinstance(parsed, list):
-                                    return [str(p).strip() for p in parsed if p and str(p).strip()]
-                            except:
-                                pass
-                        return []
-                    
-                    faqs = FAQ.query.all()
-                    fixed_count = 0
-                    for faq in faqs:
-                        if not isinstance(faq.patterns_json, list):
-                            normalized = normalize_patterns_quick(faq.patterns_json)
-                            faq.patterns_json = normalized
-                            fixed_count += 1
-                    
-                    if fixed_count > 0:
-                        db.session.commit()
-                        print(f"✅ Fixed {fixed_count} malformed FAQ patterns_json entries")
-                        
-                        from server.services.faq_cache import faq_cache
-                        affected = set(faq.business_id for faq in faqs if faq.patterns_json)
-                        for bid in affected:
-                            faq_cache.invalidate(bid)
-                        print(f"✅ Invalidated FAQ cache for {len(affected)} businesses")
-                    else:
-                        print("✅ All FAQ patterns_json are valid")
-                except Exception as e:
-                    print(f"⚠️ FAQ patterns_json fix error (non-critical): {e}")
-        except Exception as e:
-            print(f"⚠️ Database migration/initialization error: {e}")
-            import traceback
-            traceback.print_exc()
-            # Continue startup - don't crash on migration failures
-    else:
-        # 🔧 BUILD 120: Development mode - use SQLAlchemy db.create_all()
-        print("🔧 Development mode: Skipping PostgreSQL migrations")
-        print("🔧 Creating tables via SQLAlchemy db.create_all()...")
-        try:
-            with app.app_context():
-                db.create_all()
-                print("✅ Database tables created successfully (dev mode)")
-        except Exception as e:
-            print(f"⚠️ Database table creation error: {e}")
-            import traceback
-            traceback.print_exc()
+    # ⚡ DEPLOYMENT FIX: Run heavy initialization in background
+    # This prevents deployment timeout while still ensuring DB is ready
+    def _background_initialization():
+        """Run migrations and initialization after server is listening"""
+        import time
+        time.sleep(0.5)  # Let server bind to port first
         
+        is_production = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1'
+        
+        if is_production:
+            try:
+                with app.app_context():
+                    print("🔧 [BACKGROUND] Running migrations...")
+                    from server.db_migrate import apply_migrations
+                    apply_migrations()
+                    print("✅ [BACKGROUND] Migrations applied")
+                    
+                    # Fix FAQ patterns
+                    try:
+                        from server.models_sql import FAQ
+                        import json
+                        
+                        def normalize_patterns_quick(payload):
+                            if payload is None or payload == "":
+                                return []
+                            if isinstance(payload, list):
+                                return [str(p).strip() for p in payload if p and str(p).strip()]
+                            if isinstance(payload, str):
+                                try:
+                                    parsed = json.loads(payload.strip())
+                                    if isinstance(parsed, list):
+                                        return [str(p).strip() for p in parsed if p and str(p).strip()]
+                                except:
+                                    pass
+                            return []
+                        
+                        faqs = FAQ.query.all()
+                        fixed_count = 0
+                        for faq in faqs:
+                            if not isinstance(faq.patterns_json, list):
+                                normalized = normalize_patterns_quick(faq.patterns_json)
+                                faq.patterns_json = normalized
+                                fixed_count += 1
+                        
+                        if fixed_count > 0:
+                            db.session.commit()
+                            print(f"✅ [BACKGROUND] Fixed {fixed_count} FAQ patterns")
+                            
+                            from server.services.faq_cache import faq_cache
+                            affected = set(faq.business_id for faq in faqs if faq.patterns_json)
+                            for bid in affected:
+                                faq_cache.invalidate(bid)
+                    except Exception as e:
+                        print(f"⚠️ [BACKGROUND] FAQ fix error: {e}")
+            except Exception as e:
+                print(f"⚠️ [BACKGROUND] Migration error: {e}")
+        else:
+            # Development mode - quick table creation
+            try:
+                with app.app_context():
+                    db.create_all()
+                    print("✅ [BACKGROUND] Dev tables created")
+            except Exception as e:
+                print(f"⚠️ [BACKGROUND] Dev table error: {e}")
+        
+        # Shared initialization
+        try:
+            with app.app_context():
+                from server.auth_api import create_default_admin
+                create_default_admin()
+                
+                from server.init_database import initialize_production_database
+                initialization_success = initialize_production_database()
+                if initialization_success:
+                    print("✅ [BACKGROUND] DB initialized successfully")
+        except Exception as e:
+            print(f"⚠️ [BACKGROUND] Init error: {e}")
     
-    # 🔧 BUILD 120: SHARED initialization (runs for BOTH production and development)
-    # This must run AFTER schema is ready (either migrations or db.create_all)
-    try:
-        with app.app_context():
-            # Create default admin user if none exists
-            from server.auth_api import create_default_admin
-            create_default_admin()
-            
-            # Initialize database with default data (business, lead statuses, settings)
-            # Note: This no longer creates FAQs - user creates them via UI
-            from server.init_database import initialize_production_database
-            initialization_success = initialize_production_database()
-            if initialization_success:
-                print("✅ Database initialized successfully")
-            else:
-                print("⚠️ Database initialization had issues but continuing...")
-    except Exception as e:
-        print(f"⚠️ Shared initialization error: {e}")
-        import traceback
-        traceback.print_exc()
+    # Start background initialization thread
+    import threading
+    init_thread = threading.Thread(target=_background_initialization, daemon=True)
+    init_thread.start()
+    print("⚡ Server starting immediately - DB initialization running in background")
     
     # Health endpoints removed - using health_endpoints.py blueprint only
     
