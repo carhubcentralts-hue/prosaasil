@@ -588,17 +588,18 @@ class MediaStreamHandler:
             print(f"✅ [REALTIME] Built system prompt ({len(system_prompt)} chars)")
             print(f"📝 [REALTIME] Prompt preview: {system_prompt[:200]}...")
             
+            # 🎯 TASK 3: Configure session with G.711 μ-law (verified)
             await client.configure_session(
                 instructions=system_prompt,
                 voice="alloy",
-                input_audio_format="g711_ulaw",
-                output_audio_format="g711_ulaw",
+                input_audio_format="g711_ulaw",   # Twilio → OpenAI: μ-law 8kHz
+                output_audio_format="g711_ulaw",  # OpenAI → Twilio: μ-law 8kHz
                 vad_threshold=0.6,
                 silence_duration_ms=500,
                 temperature=0.15,
                 max_tokens=60
             )
-            print(f"✅ [REALTIME] Session configured with voice=alloy, temp=0.15, max_tokens=60")
+            print(f"✅ [REALTIME] Session configured: voice=alloy, temp=0.15, format=g711_ulaw (8kHz)")
             
             # 🚀 REALTIME API: Send greeting if available
             if hasattr(self, 'realtime_greeting_text') and self.realtime_greeting_text:
