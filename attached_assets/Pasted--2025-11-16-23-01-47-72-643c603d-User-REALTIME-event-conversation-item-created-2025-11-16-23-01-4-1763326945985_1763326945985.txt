@@ -1,0 +1,122 @@
+
+2025-11-16 23:01:47.72
+643c603d
+User
+[REALTIME] event: conversation.item.created
+2025-11-16 23:01:47.74
+643c603d
+User
+[REALTIME] event: response.content_part.added
+2025-11-16 23:01:47.74
+643c603d
+User
+[REALTIME] event: conversation.item.input_audio_transcription.completed
+2025-11-16 23:01:47.74
+643c603d
+User
+👤 [REALTIME] User said: קודם!
+2025-11-16 23:01:47.75
+643c603d
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-16 23:01:48.20
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+2025-11-16 23:01:48.20
+e05be7d4
+User
+LIMIT %(param_1)s]
+
+2025-11-16 23:01:48.20
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+2025-11-16 23:01:48.20
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+2025-11-16 23:01:48.20
+e05be7d4
+User
+^^^^^^^^^^^^^
+2025-11-16 23:01:48.20
+e05be7d4
+User
+^
+2025-11-16 23:01:48.20
+e05be7d4
+User
+return self.limit(1)._iter().first() # type: ignore
+2025-11-16 23:01:48.20
+e05be7d4
+User
+psycopg2.errors.UndefinedColumn: column business_settings.slot_size_min does not exist
+2025-11-16 23:01:48.20
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+2025-11-16 23:01:48.20
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+2025-11-16 23:01:48.20
+e05be7d4
+User
+cursor.execute(statement, parameters)
+2025-11-16 23:01:48.20
+e05be7d4
+User
+result: Result[Any] = compile_state_cls.orm_execute_statement(
+2025-11-16 23:01:48.20
+e05be7d4
+User
+return connection._execute_clauseelement(
+2025-11-16 23:01:48.20
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+2025-11-16 23:01:48.20
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+2025-11-16 23:01:48.20
+e05be7d4
+User
+LINE 1: ..._settings.timezone AS business_settings_timezone, business_s...
+2025-11-16 23:01:48.20
+e05be7d4
+User
+return meth(
+2025-11-16 23:01:48.20
+e05be7d4
+User
+self.dialect.do_execute(
+2025-11-16 23:01:48.20
+e05be7d4
+User
+return self._execute_internal(
+2025-11-16 23:01:48.20
+e05be7d4
+User
+self.dialect.do_execute(
+2025-11-16 23:01:48.20
+e05be7d4
+User
+return self._exec_single_context(
+2025-11-16 23:01:48.20
+e05be7d4
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+2025-11-16 23:01:48.20
+e05be7d4
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-16 23:01:48.20
+e05be7d4
+User
+sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column business_settings.slot_size_min does not exist
+2025-11-16 23:01:48.20
+e05be7d4
+User
+^^^^^
