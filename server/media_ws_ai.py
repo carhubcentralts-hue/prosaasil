@@ -246,6 +246,76 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
         return None
 
 
+def parse_appointment_from_hebrew_conversation(conversation_history: list, business_id: int) -> Optional[dict]:
+    """
+    Simple Hebrew parser to extract appointment details from conversation
+    Returns dict with {day, time, customer_name} or None
+    """
+    import re
+    from datetime import datetime, timedelta
+    import pytz
+    
+    # Hebrew day names mapping
+    day_names = {
+        "ראשון": 0, "שני": 1, "שלישי": 2, "רביעי": 3, 
+        "חמישי": 4, "שישי": 5, "שבת": 6
+    }
+    
+    # Look at last 5 messages
+    recent = conversation_history[-5:] if len(conversation_history) >= 5 else conversation_history
+    full_text = " ".join([msg["text"] for msg in recent])
+    
+    # Extract day of week
+    day_of_week = None
+    for day_name, day_num in day_names.items():
+        if f"יום {day_name}" in full_text or f"ב{day_name}" in full_text or f"ל{day_name}" in full_text:
+            day_of_week = day_num
+            print(f"📅 [PARSER] Found day: {day_name} ({day_num})")
+            break
+    
+    # Extract time
+    time_match = None
+    # Pattern 1: "בשש", "בשמונה"
+    hebrew_hours = {
+        "בשש": "18:00", "בשמונה": "20:00", "בתשע": "21:00",
+        "בעשר": "10:00", "באחת עשרה": "11:00", "בשתיים עשרה": "12:00",
+        "בשבע": "19:00", "בארבע": "16:00", "בחמש": "17:00"
+    }
+    for hebrew, time_str in hebrew_hours.items():
+        if hebrew in full_text:
+            time_match = time_str
+            print(f"⏰ [PARSER] Found time (Hebrew): {hebrew} → {time_str}")
+            break
+    
+    # Pattern 2: "18:00", "6 בערב"
+    if not time_match:
+        time_pattern = r'(\d{1,2}):(\d{2})'
+        match = re.search(time_pattern, full_text)
+        if match:
+            time_match = f"{match.group(1).zfill(2)}:{match.group(2)}"
+            print(f"⏰ [PARSER] Found time (HH:MM): {time_match}")
+    
+    # Extract customer name (look for user messages)
+    customer_name = None
+    for msg in recent:
+        if msg["speaker"] == "user":
+            # Simple heuristic: first user message might contain name
+            text = msg["text"].strip()
+            if len(text) < 30 and " " in text:  # Likely a name
+                customer_name = text
+                print(f"👤 [PARSER] Found customer name: {customer_name}")
+                break
+    
+    if day_of_week is not None and time_match:
+        return {
+            "day_of_week": day_of_week,
+            "time": time_match,
+            "customer_name": customer_name or "לקוח"
+        }
+    
+    return None
+
+
 # ⚡ BUILD 116: אופטימיזציות לזמן תגובה <2s
 print("="*80)
 print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION + REALTIME API")
@@ -960,11 +1030,17 @@ class MediaStreamHandler:
                     transcript = event.get("transcript", "")
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
+                        # Track conversation
+                        self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
+                        # Check for appointment confirmation
+                        self._check_appointment_confirmation(transcript)
                 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     transcript = event.get("transcript", "")
                     if transcript:
                         print(f"👤 [REALTIME] User said: {transcript}")
+                        # Track conversation
+                        self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
                 
                 elif event_type.startswith("error"):
                     error_msg = event.get("error", {}).get("message", "Unknown error")
@@ -1006,6 +1082,87 @@ class MediaStreamHandler:
         self.current_user_voice_start_ts = None
         
         print("🎤 [REALTIME] BARGE-IN complete – AI paused, user can speak")
+    
+    def _check_appointment_confirmation(self, ai_transcript: str):
+        """
+        Check if AI confirmed an appointment and create it in the system
+        Simple Hebrew pattern matching + conversation analysis
+        """
+        # Skip if business_id not set yet
+        if not self.business_id:
+            return
+        
+        # Confirmation keywords in Hebrew
+        confirmation_patterns = [
+            "התור נקבע", "נתראה", "מחכה לך", "הכל מסודר",
+            "קבענו", "נרשמת", "תור ל"
+        ]
+        
+        # Check if AI said something that sounds like confirmation
+        ai_confirmed = any(pattern in ai_transcript for pattern in confirmation_patterns)
+        
+        if not ai_confirmed:
+            return  # Not a confirmation
+        
+        print(f"🎯 [PARSER] Detected appointment confirmation: {ai_transcript}")
+        
+        # Parse conversation to extract details
+        details = parse_appointment_from_hebrew_conversation(
+            self.conversation_history, 
+            self.business_id
+        )
+        
+        if not details:
+            print(f"⚠️ [PARSER] Could not extract appointment details from conversation")
+            return
+        
+        # Calculate datetime from day_of_week + time
+        from datetime import datetime, timedelta
+        import pytz
+        
+        tz = pytz.timezone('Asia/Jerusalem')
+        now = datetime.now(tz)
+        
+        # Find next occurrence of day_of_week
+        target_day = details["day_of_week"]
+        days_ahead = (target_day - now.weekday() + 7) % 7
+        if days_ahead == 0:  # Today - schedule for next week
+            days_ahead = 7
+        
+        target_date = now + timedelta(days=days_ahead)
+        
+        # Parse time
+        hour, minute = map(int, details["time"].split(":"))
+        
+        # Create start datetime
+        start_dt = tz.localize(datetime(
+            target_date.year, target_date.month, target_date.day,
+            hour, minute, 0
+        ))
+        end_dt = start_dt + timedelta(hours=1)  # Default 1 hour duration
+        
+        # Get customer phone from context or CRM
+        crm_context = getattr(self, 'crm_context', None)
+        customer_phone = crm_context.customer_phone if crm_context else "Unknown"
+        
+        # Create appointment
+        appt_id = create_appointment_from_realtime(
+            business_id=self.business_id,
+            customer_phone=customer_phone,
+            customer_name=details["customer_name"],
+            treatment_type="פגישה",  # Default treatment type
+            start_iso=start_dt.isoformat(),
+            end_iso=end_dt.isoformat(),
+            notes=f"נקבע בשיחה: {ai_transcript}"
+        )
+        
+        if appt_id:
+            print(f"✅ [PARSER] Created appointment #{appt_id} for {details['customer_name']} on {details['day_of_week']} at {details['time']}")
+            # Update CRM context with appointment ID
+            if crm_context:
+                crm_context.last_appointment_id = appt_id
+        else:
+            print(f"❌ [PARSER] Failed to create appointment")
     
     def _realtime_audio_out_loop(self):
         """
