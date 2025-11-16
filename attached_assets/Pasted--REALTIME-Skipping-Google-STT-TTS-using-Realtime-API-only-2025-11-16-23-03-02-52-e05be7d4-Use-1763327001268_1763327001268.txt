@@ -1,0 +1,133 @@
+
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-16 23:03:02.52
+e05be7d4
+User
+✅ Processing complete for conversation #2
+2025-11-16 23:03:03.13
+e05be7d4
+User
+📭 [NLP] No appointment action detected
+2025-11-16 23:03:03.14
+e05be7d4
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #3
+2025-11-16 23:03:03.14
+e05be7d4
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=580
+2025-11-16 23:03:03.14
+e05be7d4
+User
+✅ Processing complete for conversation #3
+2025-11-16 23:03:03.14
+e05be7d4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-16 23:03:03.16
+e05be7d4
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-16 23:03:03.16
+e05be7d4
+User
+🤖 [REALTIME] AI said: סבבה, לאיזו שעה נוח לך? אנחנו פתוחים מ-10 בבוקר עד 2 בלילה.
+2025-11-16 23:03:03.16
+e05be7d4
+User
+[REALTIME] event: response.audio.done
+2025-11-16 23:03:03.16
+e05be7d4
+User
+[REALTIME] event: response.content_part.done
+
+2025-11-16 23:03:03.16
+e05be7d4
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-16 23:03:03.16
+e05be7d4
+User
+[REALTIME] event: response.output_item.done
+2025-11-16 23:03:03.16
+e05be7d4
+User
+[REALTIME] event: response.done
+2025-11-16 23:03:03.23
+e05be7d4
+User
+[REALTIME] event: rate_limits.updated
+2025-11-16 23:03:03.46
+e05be7d4
+User
+[REALTIME] AI stopped speaking (no audio for 300ms)
+2025-11-16 23:03:05.40
+e05be7d4
+User
+❓ [NLP] User asking for availability - AI should check and respond
+2025-11-16 23:03:05.40
+e05be7d4
+User
+🎯 [NLP] Detected action=ask, date=2023-10-04, time=None, name=None, confidence=0.8
+2025-11-16 23:03:09.38
+e05be7d4
+User
+🎙️ REAL_VOICE: rms=272.0 > threshold=200.0
+2025-11-16 23:03:09.40
+e05be7d4
+User
+[REALTIME] User voice detected (RMS=377)
+2025-11-16 23:03:09.96
+e05be7d4
+User
+✅ Processing complete for conversation #4
+2025-11-16 23:03:10.86
+e05be7d4
+User
+💓 WS_KEEPALIVE #2 (prevents 5min timeout)
+2025-11-16 23:03:10.94
+e05be7d4
+User
+📨 Received: mark
+2025-11-16 23:03:11.28
+e05be7d4
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #5
+2025-11-16 23:03:11.28
+e05be7d4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-16 23:03:11.28
+e05be7d4
+User
+✅ Processing complete for conversation #5
+2025-11-16 23:03:11.28
+e05be7d4
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=560
+2025-11-16 23:03:11.56
+e05be7d4
+User
+[REALTIME] User voice detected (RMS=351)
+2025-11-16 23:03:12.14
+e05be7d4
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #6
+2025-11-16 23:03:12.14
+e05be7d4
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=580
+2025-11-16 23:03:12.14
+e05be7d4
+User
+✅ Processing complete for conversation #6
+2025-11-16 23:03:12.14
+e05be7d4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+
+Collapse
+
+Wrap
+
+Colors
