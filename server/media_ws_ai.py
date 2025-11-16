@@ -3455,10 +3455,16 @@ class MediaStreamHandler:
             
             # Add conversation history for context - ✅ FIXED FORMAT
             if hasattr(self, 'conversation_history') and self.conversation_history:
-                context["previous_messages"] = [
-                    f"לקוח: {item['user']}\nעוזר: {item['bot']}"  # ✅ "עוזר" - כללי!
-                    for item in self.conversation_history[-6:]  # עד 6 תורות אחרונים לזיכרון מלא
-                ]
+                formatted_history = []
+                for item in self.conversation_history[-6:]:  # Last 6 turns
+                    # Handle new format: {"speaker": "user/ai", "text": "..."}
+                    if 'speaker' in item and 'text' in item:
+                        speaker_label = "לקוח" if item['speaker'] == 'user' else "עוזר"
+                        formatted_history.append(f"{speaker_label}: {item['text']}")
+                    # Handle old format: {"user": "...", "bot": "..."}
+                    elif 'user' in item and 'bot' in item:
+                        formatted_history.append(f"לקוח: {item['user']}\nעוזר: {item['bot']}")
+                context["previous_messages"] = formatted_history
             
             # ✅ CRITICAL FIX: Use shared Flask app instance (no recreation!)
             business_id = getattr(self, 'business_id', None)
