@@ -515,6 +515,22 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
 
+class CallSession(db.Model):
+    """✨ Call session state - for appointment deduplication and tracking"""
+    __tablename__ = "call_session"
+    id = db.Column(db.Integer, primary_key=True)
+    call_sid = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)
+    
+    # Appointment deduplication - prevent creating same appointment twice
+    last_requested_slot = db.Column(db.String(100))  # ISO datetime: "2025-11-19T18:00:00+02:00"
+    last_confirmed_slot = db.Column(db.String(100))  # ISO datetime: "2025-11-19T18:00:00+02:00"
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class AgentTrace(db.Model):
     """✨ BUILD 119: Agent action traces - מעקב אחר פעולות Agent"""
     __tablename__ = "agent_trace"

@@ -87,6 +87,87 @@ class CallCrmContext:
     last_appointment_id: Optional[int] = None
 
 
+# 🔧 APPOINTMENT VALIDATION HELPER
+def validate_appointment_slot(business_id: int, requested_dt) -> bool:
+    """
+    Validate that requested appointment slot is within business hours
+    
+    Args:
+        business_id: Business ID
+        requested_dt: datetime object (timezone-aware)
+    
+    Returns:
+        True if slot is valid, False otherwise
+    """
+    try:
+        from server.policy.business_policy import get_business_policy
+        import pytz
+        
+        policy = get_business_policy(business_id)
+        
+        # Allow 24/7 businesses
+        if policy.allow_24_7:
+            print(f"✅ [VALIDATION] 24/7 business - all slots valid")
+            return True
+        
+        # Python datetime.weekday(): Mon=0, Tue=1, ..., Sun=6
+        # Policy format: "sun", "mon", "tue", "wed", "thu", "fri", "sat"
+        weekday_map = {
+            0: "mon",
+            1: "tue",
+            2: "wed",
+            3: "thu",
+            4: "fri",
+            5: "sat",
+            6: "sun"
+        }
+        
+        weekday_key = weekday_map.get(requested_dt.weekday())
+        if not weekday_key:
+            print(f"❌ [VALIDATION] Invalid weekday: {requested_dt.weekday()}")
+            return False
+        
+        # Get opening hours for this day
+        day_hours = policy.opening_hours.get(weekday_key, [])
+        if not day_hours:
+            print(f"❌ [VALIDATION] Business closed on {weekday_key}")
+            return False
+        
+        # Check if time falls within any window
+        # Use datetime comparison for proper time range checking
+        from datetime import datetime, time as dt_time
+        
+        requested_time = requested_dt.time()
+        
+        for window in day_hours:
+            start_str, end_str = window[0], window[1]
+            
+            # Parse times
+            start_time = datetime.strptime(start_str, "%H:%M").time()
+            end_time = datetime.strptime(end_str, "%H:%M").time()
+            
+            # Handle overnight windows (e.g., 21:00-02:00)
+            if start_time <= end_time:
+                # Normal window (same day)
+                if start_time <= requested_time <= end_time:
+                    print(f"✅ [VALIDATION] Slot {requested_time} within {start_str}-{end_str}")
+                    return True
+            else:
+                # Overnight window
+                if requested_time >= start_time or requested_time <= end_time:
+                    print(f"✅ [VALIDATION] Slot {requested_time} within overnight window {start_str}-{end_str}")
+                    return True
+        
+        print(f"❌ [VALIDATION] Slot {requested_time} outside business hours {day_hours}")
+        return False
+        
+    except Exception as e:
+        print(f"❌ [VALIDATION] Error validating slot: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 # 🔧 CRM HELPER FUNCTIONS (Server-side only, no Realtime Tools)
 def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
     """
@@ -245,132 +326,6 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
         import traceback
         traceback.print_exc()
         return None
-
-
-def parse_appointment_from_hebrew_conversation(conversation_history: list, business_id: int) -> Optional[dict]:
-    """
-    Enhanced Hebrew parser to extract appointment details from conversation
-    Returns dict with {day, time, customer_name, date_iso} or None
-    """
-    import re
-    from datetime import datetime, timedelta
-    import pytz
-    
-    # Hebrew day names mapping
-    day_names = {
-        "ראשון": 0, "שני": 1, "שלישי": 2, "רביעי": 3, 
-        "חמישי": 4, "שישי": 5, "שבת": 6
-    }
-    
-    # Look at ALL messages (not just last 5)
-    full_text = " ".join([msg["text"] for msg in conversation_history])
-    
-    tz = pytz.timezone('Asia/Jerusalem')
-    now = datetime.now(tz)
-    
-    # Extract day of week or relative day
-    target_date = None
-    day_of_week = None
-    
-    # Check for relative days first
-    if "מחר" in full_text:
-        target_date = now + timedelta(days=1)
-        day_of_week = target_date.weekday()
-        print(f"📅 [PARSER] Found relative day: מחר → {target_date.date()}")
-    elif "מחרתיים" in full_text or "מחרתים" in full_text:
-        target_date = now + timedelta(days=2)
-        day_of_week = target_date.weekday()
-        print(f"📅 [PARSER] Found relative day: מחרתיים → {target_date.date()}")
-    else:
-        # Try day names
-        for day_name, day_num in day_names.items():
-            if f"יום {day_name}" in full_text or f"ב{day_name}" in full_text or f"ל{day_name}" in full_text:
-                day_of_week = day_num
-                print(f"📅 [PARSER] Found day: {day_name} ({day_num})")
-                break
-    
-    # Extract time (enhanced)
-    time_match = None
-    hour = None
-    minute = 0
-    
-    # Pattern 1: Hebrew hours + modifiers
-    hebrew_hours_base = {
-        "שש": 18, "שמונה": 20, "תשע": 21, "עשר": 10,
-        "אחת עשרה": 11, "שתיים עשרה": 12, "שבע": 19,
-        "ארבע": 16, "חמש": 17, "שלוש": 15, "שתיים": 14
-    }
-    
-    for hebrew, base_hour in hebrew_hours_base.items():
-        # Check for "וחצי" (and a half)
-        if f"{hebrew} וחצי" in full_text or f"ב{hebrew} וחצי" in full_text:
-            hour = base_hour
-            minute = 30
-            print(f"⏰ [PARSER] Found time (Hebrew+half): {hebrew} וחצי → {hour}:30")
-            break
-        elif f"ב{hebrew}" in full_text:
-            hour = base_hour
-            minute = 0
-            print(f"⏰ [PARSER] Found time (Hebrew): ב{hebrew} → {hour}:00")
-            break
-    
-    # Pattern 2: "18:00" or "6:30"
-    if hour is None:
-        time_pattern = r'(\d{1,2}):(\d{2})'
-        match = re.search(time_pattern, full_text)
-        if match:
-            hour = int(match.group(1))
-            minute = int(match.group(2))
-            print(f"⏰ [PARSER] Found time (HH:MM): {hour}:{minute}")
-    
-    # Adjust for AM/PM context
-    if hour and hour < 12:
-        # Check for "בערב" context
-        if "בערב" in full_text and hour < 12:
-            hour += 12
-            print(f"⏰ [PARSER] Adjusted for evening: {hour}:00")
-        elif "בבוקר" in full_text and hour >= 12:
-            hour -= 12
-            print(f"⏰ [PARSER] Adjusted for morning: {hour}:00")
-    
-    if hour is not None:
-        time_match = f"{hour:02d}:{minute:02d}"
-    
-    # Extract customer name (look for short user messages)
-    customer_name = None
-    for msg in conversation_history:
-        if msg["speaker"] == "user":
-            text = msg["text"].strip()
-            # Heuristic: name is short message without numbers/punctuation
-            if 2 < len(text) < 25 and not any(char.isdigit() for char in text):
-                customer_name = text
-                print(f"👤 [PARSER] Found customer name: {customer_name}")
-                break
-    
-    # Validate we have both day and time
-    if (day_of_week is not None or target_date) and time_match:
-        # Calculate target_date if we only have day_of_week
-        if not target_date and day_of_week is not None:
-            days_ahead = (day_of_week - now.weekday() + 7) % 7
-            if days_ahead == 0:  # Today - schedule for next week
-                days_ahead = 7
-            target_date = now + timedelta(days=days_ahead)
-        
-        # Final validation - we must have target_date by now
-        if not target_date:
-            print(f"⚠️ [PARSER] No target_date after calculation")
-            return None
-        
-        return {
-            "day_of_week": day_of_week if day_of_week is not None else target_date.weekday(),
-            "time": time_match,
-            "customer_name": customer_name or "לקוח",
-            "target_date": target_date.date().isoformat()
-        }
-    
-    # Log failure
-    print(f"⚠️ [PARSER] Parse failed - day_of_week={day_of_week}, time={time_match}")
-    return None
 
 
 # ⚡ BUILD 116: אופטימיזציות לזמן תגובה <2s
@@ -711,8 +666,8 @@ class MediaStreamHandler:
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
-        # 🎯 APPOINTMENT PARSER: Track created appointments to prevent duplicates
-        self.created_appointments = set()  # Set of hashes: "2025-11-19T18:00"
+        # 🎯 APPOINTMENT PARSER: DB-based deduplication via CallSession table
+        self.call_sid = None  # Will be set from 'start' event
 
     def _init_streaming_stt(self):
         """
@@ -1206,38 +1161,58 @@ class MediaStreamHandler:
             ))
             end_dt = start_dt + timedelta(hours=1)  # Default 1 hour duration
             
-            # 🛡️ DEDUPLICATION: Check if already created this appointment
-            appt_hash = start_dt.isoformat()
-            if appt_hash in self.created_appointments:
-                print(f"⚠️ [NLP] Duplicate detected - appointment for {appt_hash} already created - SKIPPING")
+            # ✅ STEP 1: Validate slot is within business hours
+            if not validate_appointment_slot(self.business_id, start_dt):
+                print(f"❌ [NLP] Slot {start_dt.isoformat()} outside business hours - SKIPPING")
                 return
             
-            # Get customer phone from context or CRM
-            crm_context = getattr(self, 'crm_context', None)
-            customer_phone = crm_context.customer_phone if crm_context else "Unknown"
+            # 🛡️ STEP 2: DB-BASED DEDUPLICATION - Check CallSession table
+            appt_hash = start_dt.isoformat()
             
-            # Create appointment
-            appt_id = create_appointment_from_realtime(
-                business_id=self.business_id,
-                customer_phone=customer_phone,
-                customer_name=customer_name or "לקוח",
-                treatment_type="פגישה",  # Default treatment type
-                start_iso=start_dt.isoformat(),
-                end_iso=end_dt.isoformat(),
-                notes=f"נקבע בשיחה - confidence={confidence}"
-            )
-            
-            if appt_id:
-                # ✅ Mark as created to prevent duplicates
-                self.created_appointments.add(appt_hash)
-                print(f"✅ [NLP] Created appointment #{appt_id} for {customer_name} at {appt_hash}")
-                # Update CRM context with appointment ID
-                if crm_context:
-                    crm_context.last_appointment_id = appt_id
-                
-                # TODO: Send server_event to AI confirming appointment creation
-            else:
-                print(f"❌ [NLP] Failed to create appointment for {appt_hash}")
+            # Check DB for duplicate
+            try:
+                from server.models_sql import CallSession
+                app = _get_flask_app()
+                with app.app_context():
+                    call_session = CallSession.query.filter_by(call_sid=self.call_sid).first()
+                    
+                    if call_session and call_session.last_confirmed_slot == appt_hash:
+                        print(f"⚠️ [NLP] DB Duplicate detected - appointment for {appt_hash} already created - SKIPPING")
+                        return
+                    
+                    # Get customer phone from context or CRM
+                    crm_context = getattr(self, 'crm_context', None)
+                    customer_phone = crm_context.customer_phone if crm_context else "Unknown"
+                    
+                    # Create appointment
+                    appt_id = create_appointment_from_realtime(
+                        business_id=self.business_id,
+                        customer_phone=customer_phone,
+                        customer_name=customer_name or "לקוח",
+                        treatment_type="פגישה",  # Default treatment type
+                        start_iso=start_dt.isoformat(),
+                        end_iso=end_dt.isoformat(),
+                        notes=f"נקבע בשיחה - confidence={confidence}"
+                    )
+                    
+                    if appt_id:
+                        # ✅ Mark as created in DB to prevent duplicates
+                        if call_session:
+                            call_session.last_confirmed_slot = appt_hash
+                            from server.db import db
+                            db.session.commit()
+                        print(f"✅ [NLP] Created appointment #{appt_id} for {customer_name} at {appt_hash}")
+                        # Update CRM context with appointment ID
+                        if crm_context:
+                            crm_context.last_appointment_id = appt_id
+                        
+                        # TODO: Send server_event to AI confirming appointment creation
+                    else:
+                        print(f"❌ [NLP] Failed to create appointment for {appt_hash}")
+            except Exception as e:
+                print(f"❌ [NLP] DB deduplication error: {e}")
+                import traceback
+                traceback.print_exc()
     
     def _check_appointment_confirmation(self, ai_transcript: str):
         """
@@ -4035,9 +4010,22 @@ class MediaStreamHandler:
                         call_log.call_status = "in_progress"
                         db.session.add(call_log)
                         
+                        # 🔥 יצירת/טעינת CallSession לdeduplication יציב
+                        from server.models_sql import CallSession
+                        call_session = CallSession.query.filter_by(call_sid=self.call_sid).first()
+                        if not call_session:
+                            call_session = CallSession()  # type: ignore[call-arg]
+                            call_session.call_sid = self.call_sid
+                            call_session.business_id = getattr(self, 'business_id', 1)
+                            # lead_id will be set later by ensure_lead
+                            db.session.add(call_session)
+                            print(f"✅ Created CallSession for {self.call_sid}")
+                        else:
+                            print(f"✅ CallSession already exists for {self.call_sid}")
+                        
                         try:
                             db.session.commit()
-                            print(f"✅ Created call_log on start: call_sid={self.call_sid}, phone={self.phone_number}")
+                            print(f"✅ Created call_log + CallSession on start: call_sid={self.call_sid}, phone={self.phone_number}")
                         except Exception as commit_error:
                             # Handle duplicate key error (race condition)
                             db.session.rollback()

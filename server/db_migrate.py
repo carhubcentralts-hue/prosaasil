@@ -548,6 +548,27 @@ def apply_migrations():
             migrations_applied.append(f"add_faqs_{col_name}")
             log.info(f"✅ Applied migration 22: add_faqs_{col_name} - FAQ Fast-Path field")
     
+    # Migration 23: Create CallSession table for appointment deduplication
+    if not check_table_exists('call_session'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE call_session (
+                id SERIAL PRIMARY KEY,
+                call_sid VARCHAR(64) UNIQUE NOT NULL,
+                business_id INTEGER NOT NULL,
+                lead_id INTEGER,
+                last_requested_slot VARCHAR(100),
+                last_confirmed_slot VARCHAR(100),
+                created_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
+                updated_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+            )
+        """))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_call_session_sid ON call_session(call_sid)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_call_session_business ON call_session(business_id)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_call_session_lead ON call_session(lead_id)"))
+        migrations_applied.append("create_call_session_table")
+        log.info("✅ Applied migration 23: create_call_session_table - Appointment deduplication")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
