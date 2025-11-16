@@ -100,6 +100,30 @@ Added comprehensive logging to track audio flow in both directions for debugging
 **Files Modified:**
 - `server/media_ws_ai.py` - Enhanced bidirectional audio logging
 
+### Critical TX Counter Fix (2025-01-16)
+Fixed the root cause of tx=0 issue where frames were processed but counter wasn't incremented.
+
+**Root Cause:**
+- Audio output bridge correctly sent frames to tx_q (44 frames, 530400 bytes logged)
+- TX loop received and sent frames via WebSocket
+- BUT self.tx counter was never incremented → tx=0 in WS_STOP logs
+
+**Fixes Applied:**
+1. **TX Counter Increment** - Added `self.tx += 1` after successful `_ws_send()` in both Realtime and legacy paths
+2. **Temperature Minimum** - Fixed `temperature=0.15` → `max(0.6, temperature)` (Realtime API requires ≥0.6)
+3. **TX Loop Logging** - Added debug logs for first 3 frames to verify format detection and send success
+
+**Expected Results:**
+```
+[TX_LOOP] Frame 0: type=None, event=media, has_media=True
+[TX_LOOP] Sent Realtime format: success=True
+WS_STOP: tx=44 (not 0!)
+```
+
+**Files Modified:**
+- `server/media_ws_ai.py` - TX counter fix and enhanced logging
+- `server/services/openai_realtime_client.py` - Temperature minimum enforcement
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

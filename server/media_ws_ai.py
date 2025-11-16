@@ -3031,9 +3031,17 @@ class MediaStreamHandler:
                 # New Realtime: {"event": "media", "streamSid": "...", "media": {"payload": "..."}}
                 queue_size = self.tx_q.qsize()
                 
+                # 🔍 DEBUG: Log what format we received
+                if tx_count < 3:
+                    print(f"[TX_LOOP] Frame {tx_count}: type={item.get('type')}, event={item.get('event')}, has_media={('media' in item)}")
+                
                 # If already has correct format (from Realtime), send as-is
                 if item.get("event") == "media" and "media" in item:
                     success = self._ws_send(json.dumps(item))
+                    if tx_count < 3:
+                        print(f"[TX_LOOP] Sent Realtime format: success={success}")
+                    if success:
+                        self.tx += 1  # ✅ Increment tx counter!
                 else:
                     # Old format - convert
                     success = self._ws_send(json.dumps({
@@ -3041,6 +3049,10 @@ class MediaStreamHandler:
                         "streamSid": self.stream_sid,
                         "media": {"payload": item["payload"]}
                     }))
+                    if tx_count < 3:
+                        print(f"[TX_LOOP] Sent old format (converted): success={success}")
+                    if success:
+                        self.tx += 1  # ✅ Increment tx counter!
                 
                 tx_count += 1
                 frames_sent_last_sec += 1
