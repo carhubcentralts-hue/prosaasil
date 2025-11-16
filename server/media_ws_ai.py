@@ -7,6 +7,7 @@ import builtins
 from dataclasses import dataclass
 from typing import Optional
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
+from server.services.appointment_nlp import extract_appointment_request
 
 # ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
 DEBUG = os.getenv("DEBUG", "0") == "1"
@@ -1142,94 +1143,117 @@ class MediaStreamHandler:
         
         print("🎤 [REALTIME] BARGE-IN complete – AI paused, user can speak")
     
-    def _check_appointment_confirmation(self, ai_transcript: str):
+    async def _check_appointment_confirmation_async(self):
         """
-        Check if AI confirmed an appointment and create it in the system
-        Enhanced with deduplication, validation, and logging
+        Check for appointment requests using GPT-4o-mini NLP parser
+        Runs continuously in background thread, triggered after each message
         """
         # Skip if business_id not set yet
         if not self.business_id:
             return
         
-        # Confirmation keywords in Hebrew
-        confirmation_patterns = [
-            "התור נקבע", "נתראה", "מחכה לך", "הכל מסודר",
-            "קבענו", "נרשמת", "תור ל"
-        ]
+        # Skip if no conversation history
+        if not self.conversation_history:
+            return
         
-        # Check if AI said something that sounds like confirmation
-        ai_confirmed = any(pattern in ai_transcript for pattern in confirmation_patterns)
+        print(f"🔍 [NLP] Analyzing conversation for appointment intent...")
         
-        if not ai_confirmed:
-            return  # Not a confirmation
-        
-        print(f"🎯 [PARSER] Detected appointment confirmation: {ai_transcript}")
-        
-        # Parse conversation to extract details
-        details = parse_appointment_from_hebrew_conversation(
-            self.conversation_history, 
+        # Call GPT-4o-mini NLP parser
+        result = await extract_appointment_request(
+            self.conversation_history,
             self.business_id
         )
         
-        # ✅ CRITICAL: Validate parsing succeeded before creating appointment
-        if not details:
-            print(f"⚠️ [PARSER] Could not extract appointment details from conversation - SKIPPING")
+        if not result or result.get("action") == "none":
+            print(f"📭 [NLP] No appointment action detected")
             return
         
-        if not details.get("time") or not details.get("target_date"):
-            print(f"⚠️ [PARSER] Incomplete details (time={details.get('time')}, date={details.get('target_date')}) - SKIPPING")
+        action = result.get("action")
+        date_iso = result.get("date")
+        time_str = result.get("time")
+        customer_name = result.get("name")
+        confidence = result.get("confidence", 0.0)
+        
+        print(f"🎯 [NLP] Detected action={action}, date={date_iso}, time={time_str}, name={customer_name}, confidence={confidence}")
+        
+        # Handle "ask" action (user asking for availability)
+        if action == "ask":
+            print(f"❓ [NLP] User asking for availability - AI should check and respond")
+            # TODO: Future enhancement - check real availability and send event to AI
             return
         
-        # Calculate datetime from parsed details
-        from datetime import datetime, timedelta
-        import pytz
-        
-        tz = pytz.timezone('Asia/Jerusalem')
-        
-        # Parse target date (already calculated by parser)
-        target_date_str = details["target_date"]  # ISO format: "2025-11-19"
-        target_date = datetime.fromisoformat(target_date_str)
-        
-        # Parse time
-        hour, minute = map(int, details["time"].split(":"))
-        
-        # Create start datetime
-        start_dt = tz.localize(datetime(
-            target_date.year, target_date.month, target_date.day,
-            hour, minute, 0
-        ))
-        end_dt = start_dt + timedelta(hours=1)  # Default 1 hour duration
-        
-        # 🛡️ DEDUPLICATION: Check if already created this appointment
-        appt_hash = start_dt.isoformat()
-        if appt_hash in self.created_appointments:
-            print(f"⚠️ [PARSER] Duplicate detected - appointment for {appt_hash} already created - SKIPPING")
-            return
-        
-        # Get customer phone from context or CRM
-        crm_context = getattr(self, 'crm_context', None)
-        customer_phone = crm_context.customer_phone if crm_context else "Unknown"
-        
-        # Create appointment
-        appt_id = create_appointment_from_realtime(
-            business_id=self.business_id,
-            customer_phone=customer_phone,
-            customer_name=details["customer_name"],
-            treatment_type="פגישה",  # Default treatment type
-            start_iso=start_dt.isoformat(),
-            end_iso=end_dt.isoformat(),
-            notes=f"נקבע בשיחה: {ai_transcript}"
-        )
-        
-        if appt_id:
-            # ✅ Mark as created to prevent duplicates
-            self.created_appointments.add(appt_hash)
-            print(f"✅ [PARSER] Created appointment #{appt_id} for {details['customer_name']} at {appt_hash}")
-            # Update CRM context with appointment ID
-            if crm_context:
-                crm_context.last_appointment_id = appt_id
-        else:
-            print(f"❌ [PARSER] Failed to create appointment for {appt_hash}")
+        # Handle "confirm" action (user confirmed appointment)
+        if action == "confirm":
+            # ✅ CRITICAL: Validate we have all required fields
+            if not date_iso or not time_str:
+                print(f"⚠️ [NLP] Incomplete confirmation (date={date_iso}, time={time_str}) - SKIPPING")
+                return
+            
+            # Calculate datetime
+            from datetime import datetime, timedelta
+            import pytz
+            
+            tz = pytz.timezone('Asia/Jerusalem')
+            
+            # Parse date and time
+            target_date = datetime.fromisoformat(date_iso)
+            hour, minute = map(int, time_str.split(":"))
+            
+            # Create start datetime
+            start_dt = tz.localize(datetime(
+                target_date.year, target_date.month, target_date.day,
+                hour, minute, 0
+            ))
+            end_dt = start_dt + timedelta(hours=1)  # Default 1 hour duration
+            
+            # 🛡️ DEDUPLICATION: Check if already created this appointment
+            appt_hash = start_dt.isoformat()
+            if appt_hash in self.created_appointments:
+                print(f"⚠️ [NLP] Duplicate detected - appointment for {appt_hash} already created - SKIPPING")
+                return
+            
+            # Get customer phone from context or CRM
+            crm_context = getattr(self, 'crm_context', None)
+            customer_phone = crm_context.customer_phone if crm_context else "Unknown"
+            
+            # Create appointment
+            appt_id = create_appointment_from_realtime(
+                business_id=self.business_id,
+                customer_phone=customer_phone,
+                customer_name=customer_name or "לקוח",
+                treatment_type="פגישה",  # Default treatment type
+                start_iso=start_dt.isoformat(),
+                end_iso=end_dt.isoformat(),
+                notes=f"נקבע בשיחה - confidence={confidence}"
+            )
+            
+            if appt_id:
+                # ✅ Mark as created to prevent duplicates
+                self.created_appointments.add(appt_hash)
+                print(f"✅ [NLP] Created appointment #{appt_id} for {customer_name} at {appt_hash}")
+                # Update CRM context with appointment ID
+                if crm_context:
+                    crm_context.last_appointment_id = appt_id
+                
+                # TODO: Send server_event to AI confirming appointment creation
+            else:
+                print(f"❌ [NLP] Failed to create appointment for {appt_hash}")
+    
+    def _check_appointment_confirmation(self, ai_transcript: str):
+        """
+        Wrapper to call async NLP parser from sync context
+        Launches async parser in separate thread
+        """
+        # Create async loop and run parser
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(self._check_appointment_confirmation_async())
+        except Exception as e:
+            print(f"❌ [NLP] Error in async parser: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            loop.close()
     
     def _realtime_audio_out_loop(self):
         """
