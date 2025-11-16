@@ -64,6 +64,11 @@ ENABLE_BARGE_IN = False  # ← PERMANENTLY DISABLED!
 # WhatsApp continues to use AgentKit (not affected by this flag)
 USE_REALTIME_API = os.getenv("USE_REALTIME_API", "false").lower() in ("true", "1", "yes")
 
+# 💰 COST OPTIMIZATION: Choose Realtime model
+# gpt-4o-realtime-preview: $0.06/min input, $0.24/min output (default)
+# gpt-4o-mini-realtime-preview: $0.01/min input, $0.02/min output (80% cheaper!)
+OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL", "gpt-4o-realtime-preview")
+
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
 _flask_app_singleton = None
@@ -334,6 +339,10 @@ print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION + REALTIME API")
 print("="*80)
 print(f"[BOOT] DEBUG = {DEBUG}")
 print(f"[BOOT] 🚀 USE_REALTIME_API = {USE_REALTIME_API} {'(OpenAI Realtime for calls)' if USE_REALTIME_API else '(Google STT/TTS)'}")
+if USE_REALTIME_API:
+    is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
+    cost_info = "$0.01-0.02/min (80% cheaper)" if is_mini else "$0.06-0.24/min (standard)"
+    print(f"[BOOT] 💰 REALTIME_MODEL = {OPENAI_REALTIME_MODEL} ({cost_info})")
 print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
 print(f"[BOOT] ENABLE_BARGE_IN = {ENABLE_BARGE_IN} (🔥 Phase 2N: Default DISABLED)")
 print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
@@ -858,10 +867,22 @@ class MediaStreamHandler:
         print(f"🚀 [REALTIME] Async loop starting for business_id={self.business_id}")
         
         client = None
+        call_start_time = time.time()  # 💰 Track call duration for cost estimation
+        
+        # 💰 Cost tracking: Track actual audio chunks for accurate billing
+        self.realtime_audio_in_chunks = 0  # User audio chunks received
+        self.realtime_audio_out_chunks = 0  # AI audio chunks sent
+        self._user_speech_start = None  # Track user speech duration
+        self._ai_speech_start = None  # Track AI speech duration
+        
         try:
-            client = OpenAIRealtimeClient()
+            client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
             await client.connect()
-            print(f"✅ [REALTIME] Connected to OpenAI")
+            
+            # 💰 Log model selection for cost tracking
+            is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
+            cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
+            print(f"✅ [REALTIME] Connected to OpenAI using {OPENAI_REALTIME_MODEL} ({cost_info})")
             
             app = _get_flask_app()
             with app.app_context():
@@ -878,11 +899,11 @@ class MediaStreamHandler:
                 input_audio_format="g711_ulaw",   # Twilio → OpenAI: μ-law 8kHz
                 output_audio_format="g711_ulaw",  # OpenAI → Twilio: μ-law 8kHz
                 vad_threshold=0.6,
-                silence_duration_ms=800,  # ✅ Increased: prevent mid-sentence cutoff
+                silence_duration_ms=600,  # 💰 OPTIMIZED: Faster detection = less audio input minutes (was 800)
                 temperature=0.8,  # ✅ Natural conversations (enforced min 0.6 in implementation)
                 max_tokens=600  # ✅ INCREASED: Prevent truncated responses (was 300)
             )
-            print(f"✅ [REALTIME] Session configured: voice=shimmer (Hebrew-optimized), temp=0.8, format=g711_ulaw (8kHz)")
+            print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.8, silence=600ms (optimized), format=g711_ulaw")
             
             # 📋 CRM: Initialize context and ensure lead exists
             customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
@@ -946,6 +967,45 @@ class MediaStreamHandler:
             import traceback
             traceback.print_exc()
         finally:
+            # 💰 COST TRACKING: Calculate and log call cost using actual chunk counts
+            call_duration = time.time() - call_start_time
+            
+            # μ-law 8kHz audio: ~160 bytes per 20ms chunk = 50 chunks/second
+            # Convert chunks to minutes (no early rounding!)
+            audio_in_chunks = getattr(self, 'realtime_audio_in_chunks', 0)
+            audio_out_chunks = getattr(self, 'realtime_audio_out_chunks', 0)
+            
+            # Precise calculation: chunks / 50 chunks/sec / 60 sec/min
+            audio_in_minutes_exact = audio_in_chunks / 50.0 / 60.0 if audio_in_chunks > 0 else 0.0
+            audio_out_minutes_exact = audio_out_chunks / 50.0 / 60.0 if audio_out_chunks > 0 else 0.0
+            
+            # Pricing lookup table (avoid string matching)
+            REALTIME_PRICING = {
+                "gpt-4o-realtime-preview": {"input": 0.06, "output": 0.24},
+                "gpt-4o-mini-realtime-preview": {"input": 0.01, "output": 0.02},
+            }
+            
+            # Get pricing (fallback to standard if unknown model)
+            pricing = REALTIME_PRICING.get(OPENAI_REALTIME_MODEL, REALTIME_PRICING["gpt-4o-realtime-preview"])
+            cost_per_min_in = pricing["input"]
+            cost_per_min_out = pricing["output"]
+            
+            # Calculate cost (keep full precision)
+            cost_in = audio_in_minutes_exact * cost_per_min_in
+            cost_out = audio_out_minutes_exact * cost_per_min_out
+            total_cost = cost_in + cost_out
+            
+            print(f"\n{'='*80}")
+            print(f"💰 [COST] Call Summary:")
+            print(f"  Model: {OPENAI_REALTIME_MODEL}")
+            print(f"  Total duration: {call_duration:.1f}s")
+            print(f"  Audio IN (user): {audio_in_chunks} chunks ({audio_in_minutes_exact:.3f} min) × ${cost_per_min_in}/min = ${cost_in:.4f}")
+            print(f"  Audio OUT (AI): {audio_out_chunks} chunks ({audio_out_minutes_exact:.3f} min) × ${cost_per_min_out}/min = ${cost_out:.4f}")
+            print(f"  TOTAL COST: ${total_cost:.4f}")
+            if total_cost == 0 and call_duration > 5:
+                print(f"  ⚠️ WARNING: Zero cost but call lasted {call_duration:.0f}s - tracking may be incomplete!")
+            print(f"{'='*80}\n")
+            
             if client:
                 await client.disconnect()
                 print(f"🔌 [REALTIME] Disconnected")
@@ -969,6 +1029,12 @@ class MediaStreamHandler:
                 if audio_chunk is None:
                     print(f"📤 [REALTIME] Stop signal received")
                     break
+                
+                # 💰 COST TRACKING: Count user audio chunks being sent to OpenAI
+                # Start timer on first chunk
+                if not hasattr(self, '_user_speech_start') or self._user_speech_start is None:
+                    self._user_speech_start = time.time()
+                self.realtime_audio_in_chunks += 1
                 
                 await client.send_audio_chunk(audio_chunk)
                 
@@ -1059,6 +1125,12 @@ class MediaStreamHandler:
                         self.ai_speaking = True
                         self.last_ai_audio_ts = now
                         
+                        # 💰 COST TRACKING: Count AI audio chunks
+                        # μ-law 8kHz: ~160 bytes per 20ms chunk = 50 chunks/second
+                        if not hasattr(self, '_ai_speech_start') or self._ai_speech_start is None:
+                            self._ai_speech_start = now
+                        self.realtime_audio_out_chunks += 1
+                        
                         # 🔍 DEBUG: Verify μ-law format from OpenAI
                         if not hasattr(self, '_openai_audio_chunks_received'):
                             self._openai_audio_chunks_received = 0
@@ -1084,6 +1156,13 @@ class MediaStreamHandler:
                     transcript = event.get("transcript", "")
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
+                        
+                        # 💰 COST TRACKING: AI finished speaking - stop timer
+                        if hasattr(self, '_ai_speech_start') and self._ai_speech_start is not None:
+                            ai_duration = time.time() - self._ai_speech_start
+                            print(f"💰 [COST] AI utterance: {ai_duration:.2f}s ({self.realtime_audio_out_chunks} chunks)")
+                            self._ai_speech_start = None  # Reset for next utterance
+                        
                         # Track conversation
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
                         # Check for appointment confirmation
@@ -1091,8 +1170,16 @@ class MediaStreamHandler:
                 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     transcript = event.get("transcript", "")
+                    
+                    # 💰 COST TRACKING: User finished speaking - stop timer  
+                    if hasattr(self, '_user_speech_start') and self._user_speech_start is not None:
+                        user_duration = time.time() - self._user_speech_start
+                        print(f"💰 [COST] User utterance: {user_duration:.2f}s ({self.realtime_audio_in_chunks} chunks total)")
+                        self._user_speech_start = None  # Reset for next utterance
+                    
                     if transcript:
                         print(f"👤 [REALTIME] User said: {transcript}")
+                        
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
                         # Check for appointment confirmation after user speaks
