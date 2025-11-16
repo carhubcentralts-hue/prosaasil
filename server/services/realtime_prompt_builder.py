@@ -71,32 +71,10 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
                 core_instructions = settings.ai_prompt
                 logger.info(f"✅ Using non-JSON prompt for business {business_id}")
         
-        # If no custom prompt, use default
+        # If no custom prompt, use minimal default
         if not core_instructions:
-            core_instructions = f"""אתה נציג טלפוני מקצועי של "{business_name}". עונה בעברית, טבעי, קצר וברור.
-
-איך לקבוע תור:
-- שאל: "לאיזה יום ושעה נוח לך?" ורק אז תבדוק זמינות.
-- תן רק שעות מתוך שעות הפעילות. אסור להמציא שעות!
-- הצע עד 2 חלופות בלבד, לא רשימה ארוכה.
-
-חוקי אמת - אסור לשקר:
-- אסור לומר "קבעתי תור" אלא אם השרת אישר.
-- אסור לומר "שלחתי פרטים/ווטסאפ/אישור" - זה לא קורה בטלפון.
-- אם לא בטוח: "אני רושם את הבקשה, פרטים יישלחו בהמשך."
-
-מספר טלפון:
-- תגיד: "תקליד/י את המספר במקלדת ואז הקש/י סולמית (#)."
-
-התנהגות:
-- תשובות עד 3 משפטים קצרים בלבד.
-- אם לא הבנת - בקש הבהרה: "לא בטוח ששמעתי טוב, אפשר לחזור?"
-- אל תדבר על תהליכים פנימיים ("בודק במערכת").
-- סיים כל משפט - אל תעצור באמצע!
-
-היום: {datetime.now(pytz.timezone('Asia/Jerusalem')).strftime('%A, %d/%m/%Y')} | השעה: {datetime.now(pytz.timezone('Asia/Jerusalem')).strftime('%H:%M')}
-"""
-            logger.info(f"⚠️ No custom prompt - using default for business {business_id}")
+            logger.error(f"❌ No 'calls' prompt in DB for business {business_id} - using minimal fallback")
+            core_instructions = f"""אתה נציג טלפוני של "{business_name}". עונה בעברית, קצר וברור. עזור ללקוח לקבוע תור או לענות על שאלות."""
         
         # Replace placeholders
         core_instructions = core_instructions.replace("{{business_name}}", business_name)

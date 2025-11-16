@@ -732,11 +732,19 @@ def update_current_business_settings():
         
         db.session.commit()
         
-        # 🔄 Invalidate policy cache when appointment settings change
+        # 🔄 Invalidate caches when appointment settings change
         if appointment_settings_changed:
             from server.policy.business_policy import invalidate_business_policy_cache
             invalidate_business_policy_cache(business_id)
             logger.info(f"🔄 Policy cache cleared for business {business_id} after settings update")
+            
+            # 🔥 ALSO invalidate agent cache (for AgentKit - WhatsApp)
+            try:
+                from server.agent_tools.agent_factory import invalidate_agent_cache
+                invalidate_agent_cache(business_id)
+                logger.info(f"🔄 Agent cache cleared for business {business_id} after settings update")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to invalidate agent cache: {e}")
         
         return jsonify({
             "success": True,
