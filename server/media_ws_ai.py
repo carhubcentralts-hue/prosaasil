@@ -663,6 +663,11 @@ class MediaStreamHandler:
             async for event in client.recv_events():
                 event_type = event.get("type", "")
                 
+                # 🔍 DEBUG: Log all event types to catch duplicates
+                if not event_type.endswith(".delta") and not event_type.startswith("session"):
+                    print(f"[REALTIME] event: {event_type}")
+                
+                # ✅ ONLY handle audio.delta - ignore other audio events!
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
@@ -681,6 +686,11 @@ class MediaStreamHandler:
                             self.realtime_audio_out_queue.put_nowait(audio_b64)
                         except queue.Full:
                             pass
+                
+                # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
+                elif event_type in ("response.audio.done", "response.output_item.done"):
+                    # Don't process - would cause duplicate playback
+                    pass
                 
                 elif event_type == "response.audio_transcript.done":
                     transcript = event.get("transcript", "")
@@ -707,6 +717,8 @@ class MediaStreamHandler:
         """
         🚀 REALTIME API: Bridge thread that moves audio from realtime_audio_out_queue to tx_q
         This allows Realtime audio to use the existing Twilio transmission pipeline.
+        
+        ✅ FIFO Queue - No replay, no duplicates
         """
         print(f"📤 [REALTIME] Audio output bridge started")
         
@@ -729,6 +741,10 @@ class MediaStreamHandler:
                 chunk_bytes = base64.b64decode(audio_b64)
                 self.realtime_tx_frames += 1
                 self.realtime_tx_bytes += len(chunk_bytes)
+                
+                # 🎯 Track frame sequence to detect duplicates
+                if self.realtime_tx_frames <= 10:
+                    print(f"[REALTIME] Processing frame #{self.realtime_tx_frames} (bytes={len(chunk_bytes)})")
                 
                 # 🔥 CRITICAL FIX: Twilio requires EXACT format:
                 # {"event": "media", "streamSid": "...", "media": {"payload": "..."}}

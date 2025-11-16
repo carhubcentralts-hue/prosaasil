@@ -66,3 +66,60 @@ Performance optimizations include explicit OpenAI timeouts, increased Speech-to-
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
 - **websockets>=13.0**: Python library for WebSocket connections.
+
+# Recent Changes
+
+## Realtime API Migration Progress (2025-11-16)
+
+### 1. TX Counter Fix ✅
+**Problem:** WS_STOP logs showed tx=0 despite frames being sent successfully.  
+**Root Cause:** Audio output bridge sent 44 frames to tx_q, but `self.tx` counter was never incremented.  
+**Fix:** Added `self.tx += 1` after successful `_ws_send()` in both Realtime and legacy paths.  
+**Files:** `server/media_ws_ai.py`
+
+### 2. Temperature Parameter Fix ✅
+**Problem:** OpenAI Realtime API rejected temperature=0.15 (minimum is 0.6).  
+**Fix:** Enforced minimum temperature: `max(0.6, temperature)` in session configuration.  
+**Files:** `server/services/openai_realtime_client.py`
+
+### 3. Hebrew STT Fix ✅
+**Problem:** Whisper auto-detection transcribed English/Portuguese instead of Hebrew.  
+**Fix:** Added explicit `"language": "he"` to input_audio_transcription config.  
+**Result:** STT now correctly transcribes Hebrew speech.  
+**Files:** `server/services/openai_realtime_client.py`
+
+### 4. Audio Cutoff Fix ✅
+**Problem:** AI responses cut off mid-sentence (e.g., "בטח! חדר דובאי מתאים עד" - missing end).  
+**Root Causes:**
+- `max_tokens=60` too low for full Hebrew sentences
+- `silence_duration_ms=500` too short, triggering premature cutoff
+
+**Fixes:**
+- Increased `max_tokens`: 60 → 300 (allow full sentences)
+- Increased `silence_duration_ms`: 500 → 800 (prevent mid-sentence cutoff)
+- Increased `temperature`: 0.15 → 0.8 (more natural conversations)
+
+**Files:** `server/media_ws_ai.py`
+
+### 5. Audio Duplication Fix ✅
+**Problem:** Audio would start → pause → repeat mid-sentence (stuttering effect).  
+**Root Cause:** Processing multiple Realtime event types containing audio:
+- `response.audio.delta` - streaming chunks (correct)
+- `response.audio.done` - complete buffer (caused duplication)
+- `response.output_item.done` - might contain audio (caused duplication)
+
+**Fix:** 
+- Only process `response.audio.delta` events
+- Explicitly ignore `response.audio.done` and `response.output_item.done`
+- Added event type logging to detect unexpected sources
+- Added frame sequence tracking (1,2,3... vs 1,2,1,2)
+
+**Files:** `server/media_ws_ai.py`
+
+## Current Status
+- ✅ Audio output working (μ-law format verified)
+- ✅ Hebrew transcription accurate
+- ✅ Full sentences without cutoff
+- ✅ No audio duplication/stuttering
+- ✅ TX counter tracking correctly
+- 🔄 Testing audio smoothness and natural flow
