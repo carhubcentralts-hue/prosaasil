@@ -1487,9 +1487,20 @@ class MediaStreamHandler:
                         self.tx_running = True
                         self.tx_thread.start()
                     
-                    # 🚀 REALTIME API: Start Realtime mode BEFORE greeting if enabled
+                    # ⚡ FIX: Queue greeting BEFORE starting Realtime thread to avoid race condition
+                    if not self.greeting_sent and USE_REALTIME_API:
+                        self.t1_greeting_start = time.time()
+                        print(f"🎯 [T1={self.t1_greeting_start:.3f}] QUEUING GREETING BEFORE REALTIME START!")
+                        try:
+                            # Queue greeting now, before Realtime thread starts
+                            self.realtime_greeting_queue.put_nowait(greet)
+                            print(f"✅ [REALTIME] Greeting pre-queued: '{greet[:50]}...'")
+                        except Exception as e:
+                            print(f"❌ [REALTIME] Failed to pre-queue greeting: {e}")
+                    
+                    # 🚀 REALTIME API: Start Realtime mode AFTER greeting is queued
                     if USE_REALTIME_API and not self.realtime_thread:
-                        print(f"🚀 [REALTIME] Starting Realtime API mode BEFORE greeting for call {self.call_sid[:8] if self.call_sid else 'unknown'}")
+                        print(f"🚀 [REALTIME] Starting Realtime API mode for call {self.call_sid[:8] if self.call_sid else 'unknown'}")
                         
                         self.realtime_thread = threading.Thread(
                             target=self._run_realtime_mode_thread,
@@ -1505,11 +1516,11 @@ class MediaStreamHandler:
                         realtime_out_thread.start()
                         self.background_threads.append(realtime_out_thread)
                         
-                        print(f"✅ [REALTIME] Threads started, waiting for connection...")
-                        # ⚡ FIX: Wait longer for Realtime API to be ready before sending greeting
-                        time.sleep(1.5)  # Increased from 0.5s to ensure connection is established
+                        print(f"✅ [REALTIME] Threads started with greeting in queue")
+                        self.greeting_sent = True
                     
-                    if not self.greeting_sent:
+                    # 🎵 GOOGLE TTS: Send greeting via Google TTS if NOT using Realtime
+                    elif not self.greeting_sent and not USE_REALTIME_API:
                         self.t1_greeting_start = time.time()  # ⚡ [T1] Greeting start
                         print(f"🎯 [T1={self.t1_greeting_start:.3f}] SENDING IMMEDIATE GREETING! (Δ={(self.t1_greeting_start - self.t0_connected)*1000:.0f}ms from T0)")
                         try:
