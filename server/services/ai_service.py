@@ -359,6 +359,33 @@ class AIService:
             system_prompt = system_prompt.replace("{{BUSINESS_NAME}}", business_name)
             logger.info(f"✅ Replaced {{{{business_name}}}} with '{business_name}'")
             
+            # 🔥 ADD DYNAMIC POLICY TO PROMPT (hours, slots, etc.) 
+            try:
+                from server.policy.business_policy import get_business_policy
+                policy = get_business_policy(business_id, prompt_text=None)  # Don't pass ai_prompt to avoid circular parsing
+                
+                # Build hours description
+                from server.services.realtime_prompt_builder import _build_hours_description, _build_slot_description
+                hours_desc = _build_hours_description(policy)
+                slot_desc = _build_slot_description(policy.slot_size_min)
+                
+                # Build min notice description
+                min_notice_desc = ""
+                if policy.min_notice_min > 0:
+                    min_notice_hours = policy.min_notice_min // 60
+                    if min_notice_hours > 0:
+                        min_notice_desc = f"\n- דורשים הזמנה מראש של לפחות {min_notice_hours} שעות."
+                    else:
+                        min_notice_desc = f"\n- דורשים הזמנה מראש של לפחות {policy.min_notice_min} דקות."
+                
+                # Append policy info to system prompt
+                policy_info = f"\n\n📅 הגדרות תורים:\n{hours_desc}\n- {slot_desc}{min_notice_desc}"
+                system_prompt += policy_info
+                
+                logger.info(f"✅ Added dynamic policy to {channel} prompt: {len(policy_info)} chars")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to add dynamic policy to prompt: {e}")
+            
             # ⚡ BUILD 118: Warn if prompt is too long (causes OpenAI timeouts)
             if len(system_prompt) > 3000:
                 logger.warning(f"⚠️ PROMPT_TOO_LONG: {len(system_prompt)} chars (recommended: <3000) - may cause OpenAI timeouts!")
