@@ -165,16 +165,46 @@ Performance optimizations include explicit OpenAI timeouts, increased Speech-to-
 
 **Files:** `server/media_ws_ai.py`
 
+### 11. Server-Side CRM Integration (No Realtime Tools) ✅
+**Decision:** Use simple server-side text parsing instead of complex Realtime Tools system.  
+**Approach:** AI speaks → server captures text → parses for intent → calls existing calendar/leads functions directly.
+
+**Implementation:**
+- Created 3 server-side CRM helper functions:
+  - `ensure_lead(business_id, customer_phone)`: Find/create lead at call start
+  - `update_lead_on_call(lead_id, summary, status, notes)`: Update lead at call end
+  - `create_appointment_from_realtime(...)`: Manual appointment creation (server calls calendar functions)
+  
+- **CallCrmContext**: Track business_id, customer_phone, lead_id, last_appointment_id per call
+  
+- **Integration Points**:
+  - `ensure_lead` called in `_run_realtime_mode_async` after session configuration (line 800)
+  - `update_lead_on_call` called in `_finalize_call_on_stop` after summary generation (line 3733)
+  - CRM context initialized with lead_id for entire call duration
+
+**Files:** `server/media_ws_ai.py`
+
+### 12. Greeting Google TTS Fallback Removal ✅
+**Problem:** Greeting had fallback to Google TTS if Realtime queue failed.  
+**Fix:** 
+- Removed Google TTS fallback in Realtime mode (line 2140-2142)
+- Greeting now exclusively via Realtime API when `USE_REALTIME_API=True`
+- Early return prevents fallback to legacy Google TTS path
+
+**Files:** `server/media_ws_ai.py`
+
 ## Current Status
 - ✅ Audio output working (μ-law format verified)
 - ✅ Hebrew transcription accurate
 - ✅ Full sentences without cutoff
 - ✅ No audio duplication/stuttering
 - ✅ TX counter tracking correctly
-- ✅ Greeting plays at call start via Realtime API
+- ✅ Greeting plays at call start via Realtime API (no Google TTS fallback)
 - ✅ Hebrew-optimized voice (shimmer)
 - ✅ DTMF stays in Realtime mode (no AgentKit fallback)
 - ✅ DTMF detection working in Realtime mode
 - ✅ Resilient error handling (3 retries, no silent failures)
 - ✅ All queues initialized in __init__ (no AttributeError)
+- ✅ Server-side CRM integration (ensure_lead, update_lead_on_call)
+- ✅ AgentKit isolated to WhatsApp only (phone uses Realtime exclusively)
 - 🔄 Ready for production phone call testing
