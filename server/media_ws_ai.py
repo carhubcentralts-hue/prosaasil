@@ -898,20 +898,24 @@ class MediaStreamHandler:
             # ⏰ Wait for bridges to be ready before sending greeting
             await asyncio.sleep(0.2)  # 200ms for bridge initialization
             
-            # 🚀 REALTIME API: Send greeting if available from queue
-            if hasattr(self, 'realtime_greeting_queue'):
+            # 🚀 REALTIME API: Send greeting if available
+            if hasattr(self, 'greeting_text') and self.greeting_text and not self.greeting_sent:
+                print(f"🚀 [REALTIME] Sending greeting: '{self.greeting_text[:50]}...'")
                 try:
-                    greeting_text = self.realtime_greeting_queue.get_nowait()
-                    print(f"🚀 [REALTIME] Sending greeting: '{greeting_text[:50]}...'")
-                    try:
-                        await client.send_text_response(greeting_text)
-                        print(f"✅ [REALTIME] Greeting sent successfully")
-                    except Exception as e:
-                        print(f"❌ [REALTIME] Greeting send failed: {e}")
-                except queue.Empty:
-                    print(f"📭 [REALTIME] No greeting in queue")
+                    await client.send_text_response(self.greeting_text)
+                    self.greeting_sent = True
+                    print(f"✅ [REALTIME] Greeting sent successfully!")
+                    # Track in conversation history
+                    if hasattr(self, 'conversation_history'):
+                        self.conversation_history.append({
+                            "speaker": "ai",
+                            "text": self.greeting_text,
+                            "ts": time.time()
+                        })
                 except Exception as e:
-                    print(f"❌ [REALTIME] Greeting queue error: {e}")
+                    print(f"❌ [REALTIME] Greeting send failed: {e}")
+            else:
+                print(f"📭 [REALTIME] No greeting to send (greeting_sent={getattr(self, 'greeting_sent', None)})")
             
             await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
             
@@ -1495,16 +1499,14 @@ class MediaStreamHandler:
                         self.tx_running = True
                         self.tx_thread.start()
                     
-                    # ⚡ FIX: Queue greeting BEFORE starting Realtime thread to avoid race condition
+                    # ⚡ FIX: Store greeting for Realtime thread (avoid race condition with queue)
                     if not self.greeting_sent and USE_REALTIME_API:
                         self.t1_greeting_start = time.time()
-                        print(f"🎯 [T1={self.t1_greeting_start:.3f}] QUEUING GREETING BEFORE REALTIME START!")
-                        try:
-                            # Queue greeting now, before Realtime thread starts
-                            self.realtime_greeting_queue.put_nowait(greet)
-                            print(f"✅ [REALTIME] Greeting pre-queued: '{greet[:50]}...'")
-                        except Exception as e:
-                            print(f"❌ [REALTIME] Failed to pre-queue greeting: {e}")
+                        print(f"🎯 [T1={self.t1_greeting_start:.3f}] STORING GREETING FOR REALTIME START!")
+                        # Store greeting as instance variable instead of queue (more reliable)
+                        self.greeting_text = greet
+                        self.greeting_sent = False  # Will be set to True after sending
+                        print(f"✅ [REALTIME] Greeting stored: '{greet[:50]}...'")
                     
                     # 🚀 REALTIME API: Start Realtime mode AFTER greeting is queued
                     if USE_REALTIME_API and not self.realtime_thread:
@@ -3984,10 +3986,17 @@ class MediaStreamHandler:
                         # בנה סיכום מלא
                         full_conversation = ""
                         if hasattr(self, 'conversation_history') and self.conversation_history:
-                            full_conversation = "\n".join([
-                                f"לקוח: {turn['user']}\nעוזר: {turn['bot']}"  # ✅ כללי - לא hardcoded!
-                                for turn in self.conversation_history
-                            ])
+                            # ✅ Support both formats: old {'user': X, 'bot': Y} and new {'speaker': X, 'text': Y}
+                            conv_lines = []
+                            for turn in self.conversation_history:
+                                if 'speaker' in turn and 'text' in turn:
+                                    # New Realtime API format
+                                    speaker_label = "לקוח" if turn['speaker'] == 'user' else "עוזר"
+                                    conv_lines.append(f"{speaker_label}: {turn['text']}")
+                                elif 'user' in turn and 'bot' in turn:
+                                    # Old Google STT/TTS format
+                                    conv_lines.append(f"לקוח: {turn['user']}\nעוזר: {turn['bot']}")
+                            full_conversation = "\n".join(conv_lines)
                         
                         # צור סיכום AI
                         business_id = getattr(self, 'business_id', 1)
