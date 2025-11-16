@@ -1,2 +1,2 @@
 baileys: node services/whatsapp/baileys_service.js
-web: uvicorn asgi:app --host 0.0.0.0 --port 5000 --ws websockets --lifespan off --timeout-keep-alive 75
+web: uvicorn asgi:app --host 0.0.0.0 --port 5000 --ws websockets --timeout-keep-alive 75

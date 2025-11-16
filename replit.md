@@ -29,6 +29,7 @@ Performance optimization includes explicit OpenAI timeouts, increased Speech-to-
 - **RBAC**: Role-based access control with admin/manager/business roles and impersonation support.
 - **DTMF Menu**: Interactive voice response system for phone calls.
 - **Data Protection**: Database migrations are strictly additive with automatic verification; no user data deleted on deployment.
+- **OpenAI Realtime API**: Feature-flagged migration (`USE_REALTIME_API=true`) from Google STT/TTS to OpenAI Realtime API for phone calls. Uses dedicated asyncio thread with thread-safe queues, bidirectional audio streaming, and `websockets>=13.0`.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
@@ -56,9 +57,12 @@ Performance optimization includes explicit OpenAI timeouts, increased Speech-to-
 # External Dependencies
 
 - **Twilio**: Telephony services for voice calls and WhatsApp Business API.
-- **OpenAI**: GPT-4o-mini for Hebrew real estate conversations and FAQ responses.
-- **Google Cloud Platform**:
+- **OpenAI**: 
+  - GPT-4o-mini for Hebrew real estate conversations and FAQ responses.
+  - **Realtime API** (`gpt-4o-realtime-preview`): Low-latency speech-to-speech for phone calls when `USE_REALTIME_API=true`. Handles Hebrew conversation with ~1.5-2.0s total latency (ASR ~0.3-0.6s, AI ~0.7-1.3s, TTS ~0.2-0.4s).
+- **Google Cloud Platform** (legacy/fallback when `USE_REALTIME_API=false`):
   - **STT**: Streaming API v1 for Hebrew speech recognition.
   - **TTS**: Standard API with WaveNet-D voice, telephony profile, SSML support.
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
+- **websockets>=13.0**: Python library for WebSocket connections (OpenAI Realtime API).

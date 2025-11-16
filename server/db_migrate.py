@@ -60,15 +60,15 @@ def apply_migrations():
     try:
         from sqlalchemy import text
         if check_table_exists('faqs'):
-            faq_count_before = db.session.execute(text("SELECT COUNT(*) FROM faqs")).scalar()
+            faq_count_before = db.session.execute(text("SELECT COUNT(*) FROM faqs")).scalar() or 0
             log.info(f"🔒 LAYER 1 (BEFORE): {faq_count_before} FAQs exist")
             print(f"🔒 LAYER 1 (BEFORE): {faq_count_before} FAQs in database")
         if check_table_exists('leads'):
-            lead_count_before = db.session.execute(text("SELECT COUNT(*) FROM leads")).scalar()
+            lead_count_before = db.session.execute(text("SELECT COUNT(*) FROM leads")).scalar() or 0
             log.info(f"🔒 LAYER 1 (BEFORE): {lead_count_before} leads exist")
             print(f"🔒 LAYER 1 (BEFORE): {lead_count_before} leads in database")
         if check_table_exists('messages'):
-            msg_count_before = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar()
+            msg_count_before = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar() or 0
             log.info(f"🔒 LAYER 1 (BEFORE): {msg_count_before} messages exist")
     except Exception as e:
         log.warning(f"Could not check data counts (database may be new): {e}")
