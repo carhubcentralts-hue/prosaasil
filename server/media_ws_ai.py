@@ -1565,8 +1565,8 @@ class MediaStreamHandler:
                         realtime_out_thread.start()
                         self.background_threads.append(realtime_out_thread)
                         
-                        print(f"✅ [REALTIME] Threads started with greeting in queue")
-                        self.greeting_sent = True
+                        print(f"✅ [REALTIME] Threads started - greeting will be sent by async loop")
+                        # ❌ DON'T set greeting_sent=True here - let the async loop do it after actually sending!
                     
                     # 🎵 GOOGLE TTS: Send greeting via Google TTS if NOT using Realtime
                     elif not self.greeting_sent and not USE_REALTIME_API:
