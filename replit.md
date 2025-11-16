@@ -25,7 +25,8 @@ AgentLocator implements a multi-tenant architecture with complete business isola
 - **RBAC**: Role-based access control with admin/manager/business roles and impersonation support.
 - **DTMF Menu**: Interactive voice response system for phone calls.
 - **Data Protection**: Strictly additive database migrations with automatic verification.
-- **OpenAI Realtime API**: Feature-flagged migration for phone calls, using dedicated asyncio threads, thread-safe queues, and bidirectional audio streaming.
+- **OpenAI Realtime API**: Feature-flagged migration for phone calls using `gpt-4o-realtime-preview`, with dedicated asyncio threads, thread-safe queues, and bidirectional audio streaming.
+- **Cost Optimization**: Session-per-call architecture (no reuse), transcription disabled (speech-to-speech only), duplicate session prevention, and failed transcription handling without retries.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
@@ -41,7 +42,7 @@ AgentLocator implements a multi-tenant architecture with complete business isola
 - **Intelligent Lead Collection**: Automated capture, creation, and deduplication of lead information.
 - **Calendar & Meeting Scheduling**: AI checks real-time availability and suggests appointment slots with explicit time confirmation.
 - **Customizable AI Assistant**: Customizable names and introductions via prompts and greetings.
-- **Greeting Management UI**: Dedicated fields for initial greetings with dynamic placeholders.
+- **Greeting Management UI**: Dedicated fields for initial greetings with dynamic placeholders. If no greeting is defined, AI speaks first dynamically based on system prompt.
 - **Customizable Status Management**: Per-business custom lead statuses.
 - **Billing and Contracts**: Integrated payment processing and contract generation.
 - **Automatic Recording Cleanup**: 2-day retention policy for recordings.
@@ -55,7 +56,7 @@ AgentLocator implements a multi-tenant architecture with complete business isola
 - **Twilio**: Telephony services for voice calls and WhatsApp Business API.
 - **OpenAI**:
   - GPT-4o-mini for Hebrew real estate conversations, FAQ responses, and server-side NLP parsing for appointments.
-  - Realtime API (`gpt-4o-realtime-preview`) for low-latency speech-to-speech for phone calls.
+  - Realtime API (`gpt-4o-realtime-preview`) for low-latency speech-to-speech phone calls with cost optimization (transcription disabled, fresh session per call).
 - **Google Cloud Platform** (legacy/fallback):
   - STT: Streaming API v1 for Hebrew speech recognition.
   - TTS: Standard API with WaveNet-D voice, telephony profile, SSML support.

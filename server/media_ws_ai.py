@@ -635,6 +635,11 @@ class MediaStreamHandler:
         self.conversation_history = []  # רשימה של הודעות {'user': str, 'bot': str}
         self.turn_count = 0  # ⚡ Phase 2C: Track turns for first-turn optimization
         
+        # 🚨 COST SAFETY: Rate limiting for OpenAI Realtime API
+        self.last_session_update_time = 0
+        self.last_transcription_request_time = 0
+        self.transcription_failed_count = 0
+        
         # ✅ CRITICAL: Track background threads for proper cleanup
         self.background_threads = []
         
@@ -822,9 +827,17 @@ class MediaStreamHandler:
         - Main thread (Eventlet): Twilio WebSocket handling
         - This thread: asyncio event loop for Realtime API WebSocket
         - Communication via thread-safe queues
+        
+        🚨 COST SAFETY: Each call creates ONE fresh Realtime session (no reuse)
         """
         call_id = self.call_sid[:8] if self.call_sid else "unknown"
-        print(f"🚀 [REALTIME] Thread started for call {call_id}")
+        
+        # 🚨 CRITICAL: Check for existing Realtime thread (prevent duplicate sessions)
+        if hasattr(self, 'realtime_thread') and self.realtime_thread and self.realtime_thread.is_alive():
+            print(f"⚠️ [SAFETY] Realtime thread already running for call {call_id} - BLOCKING duplicate")
+            return
+        
+        print(f"🚀 [REALTIME] Thread started for call {call_id} (FRESH SESSION)")
         
         try:
             asyncio.run(self._run_realtime_mode_async())
@@ -1029,9 +1042,14 @@ class MediaStreamHandler:
             async for event in client.recv_events():
                 event_type = event.get("type", "")
                 
-                # 🔥 CRITICAL: Log full event for transcription failures
+                # 🚨 COST SAFETY: Log transcription failures but DO NOT retry
                 if event_type == "conversation.item.input_audio_transcription.failed":
-                    print(f"[REALTIME] TRANSCRIPTION FAILED EVENT: {json.dumps(event, ensure_ascii=False)}")
+                    self.transcription_failed_count += 1
+                    error_msg = event.get("error", {}).get("message", "Unknown error")
+                    print(f"[SAFETY] Transcription failed (#{self.transcription_failed_count}): {error_msg}")
+                    print(f"[SAFETY] NO RETRY - continuing conversation without transcription")
+                    # ✅ Continue processing - don't retry, don't crash, just log and move on
+                    continue
                 
                 # 🔍 DEBUG: Log all event types to catch duplicates
                 if not event_type.endswith(".delta") and not event_type.startswith("session"):
@@ -1084,6 +1102,8 @@ class MediaStreamHandler:
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
                         # Check for appointment confirmation after user speaks
                         self._check_appointment_confirmation(transcript)
+                    # ✅ COST SAFETY: Transcription completed successfully
+                    print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
                 
                 elif event_type.startswith("error"):
                     error_msg = event.get("error", {}).get("message", "Unknown error")

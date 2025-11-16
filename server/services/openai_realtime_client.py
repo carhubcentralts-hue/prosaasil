@@ -56,12 +56,15 @@ class OpenAIRealtimeClient:
         """
         Connect to OpenAI Realtime API
         
+        🚨 COST SAFETY: Always creates a fresh session (no reuse)
+        
         Returns:
             WebSocket connection object
         """
+        # 🚨 CRITICAL: NEVER reuse connections - always create fresh session
         if self.ws is not None:
-            logger.warning("Already connected to Realtime API")
-            return self.ws
+            logger.warning("⚠️ Existing connection found - closing it first (prevent session reuse)")
+            await self.disconnect()
         
         logger.info(f"🔌 Connecting to OpenAI Realtime API: {self.model}")
         
@@ -75,7 +78,7 @@ class OpenAIRealtimeClient:
                 ping_interval=20,
                 ping_timeout=10
             )
-            logger.info("✅ Connected to OpenAI Realtime API")
+            logger.info("✅ Connected to OpenAI Realtime API (FRESH SESSION)")
             return self.ws
             
         except Exception as e:
@@ -83,11 +86,17 @@ class OpenAIRealtimeClient:
             raise
     
     async def disconnect(self):
-        """Close WebSocket connection"""
+        """Close WebSocket connection and cleanup session"""
         if self.ws:
-            await self.ws.close()
-            self.ws = None
-            logger.info("🔌 Disconnected from Realtime API")
+            try:
+                # 🧹 COST SAFETY: Explicitly close connection to prevent session reuse
+                await self.ws.close()
+                logger.info("✅ WebSocket connection closed cleanly")
+            except Exception as e:
+                logger.warning(f"⚠️ Error during disconnect: {e}")
+            finally:
+                self.ws = None
+                logger.info("🔌 Disconnected from Realtime API (session destroyed)")
     
     async def send_event(self, event: Dict[str, Any]):
         """
@@ -253,6 +262,10 @@ class OpenAIRealtimeClient:
         """
         Configure Realtime API session
         
+        🚨 COST SAFETY: 
+        - NO transcription (prevents 429 rate limits)
+        - Minimal session config (only required fields)
+        
         Args:
             instructions: System prompt for the AI
             voice: Voice to use (alloy, echo, shimmer, verse, ash, ballad)
@@ -263,18 +276,16 @@ class OpenAIRealtimeClient:
             temperature: AI temperature (0-2)
             max_tokens: Maximum tokens in response
         """
+        # 🚨 COST SAFETY: Minimal session config (only required fields)
         session_config = {
             "instructions": instructions,
             "modalities": ["audio", "text"],
             "voice": voice,
             "input_audio_format": input_audio_format,
             "output_audio_format": output_audio_format,
-            # 🔥 DISABLED: Transcription causes 429 rate limit errors
-            # "input_audio_transcription": {
-            #     "model": "whisper-1"
-            #     # ✅ NO language parameter - Whisper auto-detects Hebrew perfectly
-            #     # ❌ "language": "he" causes transcription failures in Realtime API
-            # },
+            # 🚨 CRITICAL: NO TRANSCRIPTION - prevents 429 rate limit errors
+            # Transcription is NOT required for speech-to-speech conversations
+            # AI can hear and respond without text transcripts
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": vad_threshold,
@@ -288,8 +299,9 @@ class OpenAIRealtimeClient:
         # For g711_ulaw, sample rate is always 8000 Hz (telephony standard)
         # No need to explicitly set it - it's implicit in the format
         
+        logger.info(f"[SAFETY] Configuring session WITHOUT transcription (cost optimization)")
         await self.send_event({
             "type": "session.update",
             "session": session_config
         })
-        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}")
+        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=DISABLED")
