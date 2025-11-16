@@ -1056,6 +1056,8 @@ class MediaStreamHandler:
                         print(f"👤 [REALTIME] User said: {transcript}")
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
+                        # Check for appointment confirmation after user speaks
+                        self._check_appointment_confirmation(transcript)
                 
                 elif event_type.startswith("error"):
                     error_msg = event.get("error", {}).get("message", "Unknown error")

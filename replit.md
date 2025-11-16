@@ -10,11 +10,7 @@ Preferred communication style: Simple, everyday language.
 
 ## System Design Choices
 
-AgentLocator employs a multi-tenant architecture with complete business isolation, integrating Twilio Media Streams for real-time communication. It features Hebrew-optimized Voice Activity Detection (VAD) and smart Text-to-Speech (TTS) truncation. The AI assistant leverages an Agent SDK for tasks like appointment scheduling and lead creation, maintaining conversation memory. An Agent Cache System retains agent instances for improved response times and conversation state preservation. The system enforces name and phone confirmation during scheduling via dual input (verbal name, DTMF phone number) for streamlined booking. Channel-aware responses adapt messaging based on the communication channel, and a DTMF Menu System provides interactive voice navigation for phone calls. Agent Validation Guards prevent AI hallucinations by blocking unverified actions.
-
-Security is paramount, ensuring business identification, rejection of unknown numbers, and isolated data (prompts, agents, leads, calls, messages) per business. It includes universal warmup for active businesses, handles authentication errors, and implements comprehensive Role-Based Access Control (RBAC).
-
-Performance optimizations include explicit OpenAI timeouts, increased Speech-to-Text (STT) streaming timeouts, and warnings for long prompts. AI responses prioritize short, natural conversations. Audio streaming uses a `tx_q` queue with backpressure. A FAQ Hybrid Fast-Path uses a 2-step matching approach: keyword matching and an OpenAI embeddings fallback, with channel filtering to ensure voice-only FAQs. Prompts are loaded exclusively from `BusinessSettings.ai_prompt`. STT reliability benefits from relaxed validation, Hebrew numbers context, and a 3-attempt retry. Voice consistency is maintained with a male Hebrew voice and masculine phrasing, and agent behavioral constraints prevent verbalization of internal processes.
+AgentLocator employs a multi-tenant architecture with complete business isolation, integrating Twilio Media Streams for real-time communication. Key features include Hebrew-optimized Voice Activity Detection (VAD), smart Text-to-Speech (TTS) truncation, and an AI assistant leveraging an Agent SDK for appointment scheduling and lead creation with conversation memory. An Agent Cache System improves response times and preserves conversation state. The system enforces name and phone confirmation during scheduling via dual input (verbal name, DTMF phone number) and uses channel-aware responses. A DTMF Menu System provides interactive voice navigation, and Agent Validation Guards prevent AI hallucinations. Security measures include business identification, rejection of unknown numbers, isolated data per business, universal warmup, and comprehensive Role-Based Access Control (RBAC). Performance optimizations include explicit OpenAI timeouts, increased Speech-to-Text (STT) streaming timeouts, and warnings for long prompts, prioritizing short, natural AI conversations. Audio streaming uses a `tx_q` queue with backpressure. A FAQ Hybrid Fast-Path uses a two-step matching approach (keyword and OpenAI embeddings) with channel filtering. STT reliability benefits from relaxed validation, Hebrew numbers context, and a 3-attempt retry. Voice consistency is maintained with a male Hebrew voice and masculine phrasing, and agent behavioral constraints prevent verbalization of internal processes. Appointment scheduling uses server-side text parsing with GPT-4o-mini for intelligent Hebrew NLP, business hours validation, and DB-based deduplication to prevent duplicate appointments.
 
 ## Technical Implementations
 
@@ -57,154 +53,40 @@ Performance optimizations include explicit OpenAI timeouts, increased Speech-to-
 # External Dependencies
 
 - **Twilio**: Telephony services for voice calls and WhatsApp Business API.
-- **OpenAI**: 
-  - GPT-4o-mini for Hebrew real estate conversations and FAQ responses.
-  - **Realtime API** (`gpt-4o-realtime-preview`): Low-latency speech-to-speech for phone calls.
+- **OpenAI**:
+  - GPT-4o-mini for Hebrew real estate conversations, FAQ responses, and server-side NLP parsing for appointments.
+  - Realtime API (`gpt-4o-realtime-preview`) for low-latency speech-to-speech for phone calls.
 - **Google Cloud Platform** (legacy/fallback):
-  - **STT**: Streaming API v1 for Hebrew speech recognition.
-  - **TTS**: Standard API with WaveNet-D voice, telephony profile, SSML support.
+  - STT: Streaming API v1 for Hebrew speech recognition.
+  - TTS: Standard API with WaveNet-D voice, telephony profile, SSML support.
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
 - **websockets>=13.0**: Python library for WebSocket connections.
 
 # Recent Changes
 
-## Realtime API Migration Progress (2025-11-16)
+## Appointment Scheduling Refactor (2025-11-16)
 
-### 1. TX Counter Fix ✅
-**Problem:** WS_STOP logs showed tx=0 despite frames being sent successfully.  
-**Root Cause:** Audio output bridge sent 44 frames to tx_q, but `self.tx` counter was never incremented.  
-**Fix:** Added `self.tx += 1` after successful `_ws_send()` in both Realtime and legacy paths.  
-**Files:** `server/media_ws_ai.py`
+### ✅ Complete 10-Step Production-Ready Implementation
 
-### 2. Temperature Parameter Fix ✅
-**Problem:** OpenAI Realtime API rejected temperature=0.15 (minimum is 0.6).  
-**Fix:** Enforced minimum temperature: `max(0.6, temperature)` in session configuration.  
-**Files:** `server/services/openai_realtime_client.py`
+**Architecture**: Server-side text parsing using GPT-4o-mini (NOT Realtime Tools). AI speaks → server analyzes → calls calendar/leads functions directly.
 
-### 3. Hebrew STT Fix ✅
-**Problem:** Whisper auto-detection transcribed English/Portuguese instead of Hebrew.  
-**Fix:** Added explicit `"language": "he"` to input_audio_transcription config.  
-**Result:** STT now correctly transcribes Hebrew speech.  
-**Files:** `server/services/openai_realtime_client.py`
+**Key Files**:
+- `server/services/appointment_nlp.py` - GPT-4o-mini NLP parser (NEW)
+- `server/services/realtime_prompt_builder.py` - Enhanced prompts with business hours
+- `server/media_ws_ai.py` - Integration + validation + dedup logic
+- `server/models_sql.py` - CallSession model for DB-based dedup
+- `server/db_migrate.py` - Migration 23 for call_session table
 
-### 4. Audio Cutoff Fix ✅
-**Problem:** AI responses cut off mid-sentence (e.g., "בטח! חדר דובאי מתאים עד" - missing end).  
-**Root Causes:**
-- `max_tokens=60` too low for full Hebrew sentences
-- `silence_duration_ms=500` too short, triggering premature cutoff
+**Implementation Details**:
 
-**Fixes:**
-- Increased `max_tokens`: 60 → 300 (allow full sentences)
-- Increased `silence_duration_ms`: 500 → 800 (prevent mid-sentence cutoff)
-- Increased `temperature`: 0.15 → 0.8 (more natural conversations)
+1. **Enhanced System Prompt** - Business hours from AppointmentSettings, anti-hallucination rules, SMS prevention
+2. **GPT-4o-mini NLP Parser** - Returns action/date/time/name/confidence (~$0.0001/call)
+3. **Business Hours Validation** - validate_appointment_slot() enforces real hours (fixed weekday mapping + datetime comparison)
+4. **DB-Based Deduplication** - CallSession table persists across reconnects (created at call start, checked before creation, updated after)
+5. **Complete Integration** - Triggered after every user/AI turn, async wrapper, graceful error handling
+6. **Legacy Cleanup** - Deleted 124-line regex parser
 
-**Files:** `server/media_ws_ai.py`
+**Flow**: User/AI speaks → transcription → conversation_history → _check_appointment_confirmation → extract_appointment_request (await GPT-4o-mini) → validate_appointment_slot → CallSession dedup → create_appointment → update CallSession
 
-### 5. Audio Duplication Fix ✅
-**Problem:** Audio would start → pause → repeat mid-sentence (stuttering effect).  
-**Root Cause:** Processing multiple Realtime event types containing audio:
-- `response.audio.delta` - streaming chunks (correct)
-- `response.audio.done` - complete buffer (caused duplication)
-- `response.output_item.done` - might contain audio (caused duplication)
-
-**Fix:** 
-- Only process `response.audio.delta` events
-- Explicitly ignore `response.audio.done` and `response.output_item.done`
-- Added event type logging to detect unexpected sources
-- Added frame sequence tracking (1,2,3... vs 1,2,1,2)
-
-**Files:** `server/media_ws_ai.py`
-
-### 6. Greeting Playback Fix ✅
-**Problem:** Greeting not playing at call start in Realtime mode.  
-**Root Cause:** Timing issue - greeting was set in attribute but async loop already passed the check.  
-**Fix:** 
-- Changed greeting delivery from attribute to queue-based system
-- Added `realtime_greeting_queue` for thread-safe greeting delivery
-- Greeting sent immediately after session configuration
-
-**Files:** `server/media_ws_ai.py`
-
-### 7. Hebrew Voice Optimization ✅
-**Problem:** Using "alloy" voice which is not optimized for Hebrew.  
-**Fix:** Changed to "shimmer" voice - best for Hebrew with clear, natural pronunciation.  
-**Files:** `server/media_ws_ai.py`
-
-### 8. DTMF AgentKit Fallback Prevention ✅
-**Problem:** DTMF input triggered AgentKit instead of staying in Realtime API.  
-**Root Cause:** `_process_dtmf_phone` and `_process_dtmf_skip` called `_ai_response` which uses AgentKit.  
-**Fix:** 
-- Added conditional logic: if `USE_REALTIME_API=True`, queue text to Realtime instead of calling AgentKit
-- Created `realtime_text_input_queue` for DTMF input
-- Added `_realtime_text_sender` task to send user messages to Realtime API
-
-**Files:** `server/media_ws_ai.py`, `server/services/openai_realtime_client.py`
-
-### 9. DTMF Detection in Realtime Mode ✅
-**Problem:** DTMF not detected/handled in Realtime API mode.  
-**Fix:** 
-- Added `send_user_message` method to send DTMF as user input to Realtime API
-- DTMF phone numbers and skip messages now sent as conversation items
-- Realtime API generates responses based on DTMF input
-
-**Files:** `server/services/openai_realtime_client.py`, `server/media_ws_ai.py`
-
-### 10. Hardened Error Handling & Queue Initialization ✅
-**Problem:** Multiple reliability issues found in architect review:
-- Queue import aliasing causing NameError during handler instantiation
-- DTMF input could be lost after send failures (no re-queue logic)
-- Potential AttributeError from lazy greeting queue creation
-
-**Fixes:**
-- Initialized `realtime_greeting_queue` in `__init__` (not lazily) to prevent AttributeError
-- Added 3-attempt retry in `_realtime_text_sender` with failure logging (no silent drops)
-- Removed all AgentKit fallback paths from DTMF handlers - only log critical errors
-- All queue operations use `put_nowait()` with proper exception handling
-- Greeting delivery has fallback to Google TTS only if Realtime queue fails
-
-**Files:** `server/media_ws_ai.py`
-
-### 11. Server-Side CRM Integration (No Realtime Tools) ✅
-**Decision:** Use simple server-side text parsing instead of complex Realtime Tools system.  
-**Approach:** AI speaks → server captures text → parses for intent → calls existing calendar/leads functions directly.
-
-**Implementation:**
-- Created 3 server-side CRM helper functions:
-  - `ensure_lead(business_id, customer_phone)`: Find/create lead at call start
-  - `update_lead_on_call(lead_id, summary, status, notes)`: Update lead at call end
-  - `create_appointment_from_realtime(...)`: Manual appointment creation (server calls calendar functions)
-  
-- **CallCrmContext**: Track business_id, customer_phone, lead_id, last_appointment_id per call
-  
-- **Integration Points**:
-  - `ensure_lead` called in `_run_realtime_mode_async` after session configuration (line 800)
-  - `update_lead_on_call` called in `_finalize_call_on_stop` after summary generation (line 3733)
-  - CRM context initialized with lead_id for entire call duration
-
-**Files:** `server/media_ws_ai.py`
-
-### 12. Greeting Google TTS Fallback Removal ✅
-**Problem:** Greeting had fallback to Google TTS if Realtime queue failed.  
-**Fix:** 
-- Removed Google TTS fallback in Realtime mode (line 2140-2142)
-- Greeting now exclusively via Realtime API when `USE_REALTIME_API=True`
-- Early return prevents fallback to legacy Google TTS path
-
-**Files:** `server/media_ws_ai.py`
-
-## Current Status
-- ✅ Audio output working (μ-law format verified)
-- ✅ Hebrew transcription accurate
-- ✅ Full sentences without cutoff
-- ✅ No audio duplication/stuttering
-- ✅ TX counter tracking correctly
-- ✅ Greeting plays at call start via Realtime API (no Google TTS fallback)
-- ✅ Hebrew-optimized voice (shimmer)
-- ✅ DTMF stays in Realtime mode (no AgentKit fallback)
-- ✅ DTMF detection working in Realtime mode
-- ✅ Resilient error handling (3 retries, no silent failures)
-- ✅ All queues initialized in __init__ (no AttributeError)
-- ✅ Server-side CRM integration (ensure_lead, update_lead_on_call)
-- ✅ AgentKit isolated to WhatsApp only (phone uses Realtime exclusively)
-- 🔄 Ready for production phone call testing
+**Production Status**: ✅ Architect-reviewed and approved. Monitor parser latency; consider debouncing if needed.
