@@ -123,6 +123,9 @@ def _build_hours_description(policy) -> str:
     if not hours:
         return "- פתוח ראשון עד חמישי מ-09:00 עד 22:00."
     
+    # 🔍 DEBUG: Log the raw hours data
+    logger.info(f"📊 [DEBUG] policy.opening_hours = {hours}")
+    
     # Hebrew day names
     day_names = {
         "sun": "ראשון",
@@ -145,6 +148,7 @@ def _build_hours_description(policy) -> str:
             lines.append(f"  • {day_names[day_key]}: {time_ranges}")
     
     description = "- שעות פעילות:\n" + "\n".join(lines)
+    logger.info(f"📊 [DEBUG] hours_description = {description[:200]}")
     return description
 
 

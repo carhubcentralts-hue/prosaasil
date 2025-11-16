@@ -65,6 +65,30 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 
 # Recent Critical Fixes (2025-11-16)
 
+## ✅ Fix #6: Enhanced Debugging & Greeting Timing (Latest)
+**Date**: 2025-11-16 23:55
+
+**Changes**:
+1. **Detailed Transcription Logging** (`server/media_ws_ai.py` line 1014-1015):
+   - Added full JSON dump for `input_audio_transcription.failed` events
+   - Now captures complete error details including reason/message from OpenAI
+   - Format: `[REALTIME] TRANSCRIPTION FAILED EVENT: {full_json}`
+
+2. **Business Hours Debug Logging** (`server/services/realtime_prompt_builder.py` line 130, 154):
+   - Added `policy.opening_hours` raw data logging
+   - Added final hours description preview (first 200 chars)
+   - Helps diagnose why hours show incorrectly (e.g., "00:00-02:00" instead of "08:00-18:00")
+
+3. **Greeting Timing Fix** (`server/media_ws_ai.py` line 896-917):
+   - **Problem**: Greeting sent before Twilio→OpenAI audio bridge was ready
+   - **Solution**: Moved greeting send AFTER audio/text tasks start + 200ms delay
+   - **Flow**: Start bridges → Wait 200ms → Send greeting → Gather tasks
+   - Ensures audio packets reach caller
+
+**Status**: 🔍 Awaiting production logs to diagnose remaining issues
+
+---
+
 ## ✅ Fix #5: Realtime API Transcription Failure
 **Problem**: `input_audio_transcription.failed` - AI received audio but couldn't transcribe, causing silent responses
 
@@ -79,7 +103,7 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 }
 ```
 
-**Status**: ✅ Whisper now auto-detects Hebrew and transcribes successfully
+**Status**: ⚠️ Code fixed but still failing in production (investigating with enhanced logs)
 
 ---
 

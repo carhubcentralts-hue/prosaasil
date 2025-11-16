@@ -890,6 +890,14 @@ class MediaStreamHandler:
                 print(f"⚠️ [CRM] No customer phone - skipping lead creation")
                 self.crm_context = None
             
+            # 🚀 Start audio/text bridges
+            audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+            audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
+            text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+            
+            # ⏰ Wait for bridges to be ready before sending greeting
+            await asyncio.sleep(0.2)  # 200ms for bridge initialization
+            
             # 🚀 REALTIME API: Send greeting if available from queue
             if hasattr(self, 'realtime_greeting_queue'):
                 try:
@@ -904,10 +912,6 @@ class MediaStreamHandler:
                     print(f"📭 [REALTIME] No greeting in queue")
                 except Exception as e:
                     print(f"❌ [REALTIME] Greeting queue error: {e}")
-            
-            audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
-            audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
-            text_in_task = asyncio.create_task(self._realtime_text_sender(client))
             
             await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
             
@@ -1006,6 +1010,10 @@ class MediaStreamHandler:
         try:
             async for event in client.recv_events():
                 event_type = event.get("type", "")
+                
+                # 🔥 CRITICAL: Log full event for transcription failures
+                if event_type == "conversation.item.input_audio_transcription.failed":
+                    print(f"[REALTIME] TRANSCRIPTION FAILED EVENT: {json.dumps(event, ensure_ascii=False)}")
                 
                 # 🔍 DEBUG: Log all event types to catch duplicates
                 if not event_type.endswith(".delta") and not event_type.startswith("session"):
