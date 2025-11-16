@@ -1219,18 +1219,26 @@ class MediaStreamHandler:
     def _check_appointment_confirmation(self, ai_transcript: str):
         """
         Wrapper to call async NLP parser from sync context
-        Launches async parser in separate thread
+        Launches async parser in separate thread to avoid event loop conflicts
         """
-        # Create async loop and run parser
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(self._check_appointment_confirmation_async())
-        except Exception as e:
-            print(f"❌ [NLP] Error in async parser: {e}")
-            import traceback
-            traceback.print_exc()
-        finally:
-            loop.close()
+        import threading
+        
+        def run_in_thread():
+            """Run async parser in dedicated thread with its own event loop"""
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self._check_appointment_confirmation_async())
+            except Exception as e:
+                print(f"❌ [NLP] Error in async parser: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                loop.close()
+        
+        # Launch in background thread to avoid blocking and event loop conflicts
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
     
     def _realtime_audio_out_loop(self):
         """
@@ -1498,7 +1506,8 @@ class MediaStreamHandler:
                         self.background_threads.append(realtime_out_thread)
                         
                         print(f"✅ [REALTIME] Threads started, waiting for connection...")
-                        time.sleep(0.5)
+                        # ⚡ FIX: Wait longer for Realtime API to be ready before sending greeting
+                        time.sleep(1.5)  # Increased from 0.5s to ensure connection is established
                     
                     if not self.greeting_sent:
                         self.t1_greeting_start = time.time()  # ⚡ [T1] Greeting start
