@@ -898,24 +898,38 @@ class MediaStreamHandler:
             # ⏰ Wait for bridges to be ready before sending greeting
             await asyncio.sleep(0.2)  # 200ms for bridge initialization
             
-            # 🚀 REALTIME API: Send greeting if available
-            if hasattr(self, 'greeting_text') and self.greeting_text and not self.greeting_sent:
-                print(f"🚀 [REALTIME] Sending greeting: '{self.greeting_text[:50]}...'")
-                try:
-                    await client.send_text_response(self.greeting_text)
-                    self.greeting_sent = True
-                    print(f"✅ [REALTIME] Greeting sent successfully!")
-                    # Track in conversation history
-                    if hasattr(self, 'conversation_history'):
-                        self.conversation_history.append({
-                            "speaker": "ai",
-                            "text": self.greeting_text,
-                            "ts": time.time()
+            # 🚀 REALTIME API: Send greeting OR trigger AI to speak first
+            if hasattr(self, 'greeting_text') and not self.greeting_sent:
+                if self.greeting_text:
+                    # יש פתיח מוגדר - שלח אותו
+                    print(f"🚀 [REALTIME] Sending greeting: '{self.greeting_text[:50]}...'")
+                    try:
+                        await client.send_text_response(self.greeting_text)
+                        self.greeting_sent = True
+                        print(f"✅ [REALTIME] Greeting sent successfully!")
+                        # Track in conversation history
+                        if hasattr(self, 'conversation_history'):
+                            self.conversation_history.append({
+                                "speaker": "ai",
+                                "text": self.greeting_text,
+                                "ts": time.time()
+                            })
+                    except Exception as e:
+                        print(f"❌ [REALTIME] Greeting send failed: {e}")
+                else:
+                    # אין פתיח מוגדר - ה-AI ידבר ראשון בעצמו!
+                    print(f"🎤 [REALTIME] No greeting defined - AI will speak first dynamically!")
+                    try:
+                        # Trigger AI to start speaking based on system prompt
+                        await client.send_event({
+                            "type": "response.create"
                         })
-                except Exception as e:
-                    print(f"❌ [REALTIME] Greeting send failed: {e}")
+                        self.greeting_sent = True
+                        print(f"✅ [REALTIME] AI triggered to speak first!")
+                    except Exception as e:
+                        print(f"❌ [REALTIME] Failed to trigger AI first speech: {e}")
             else:
-                print(f"📭 [REALTIME] No greeting to send (greeting_sent={getattr(self, 'greeting_sent', None)})")
+                print(f"📭 [REALTIME] Greeting already sent (greeting_sent={getattr(self, 'greeting_sent', None)})")
             
             await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
             
@@ -1502,11 +1516,16 @@ class MediaStreamHandler:
                     # ⚡ FIX: Store greeting for Realtime thread (avoid race condition with queue)
                     if not self.greeting_sent and USE_REALTIME_API:
                         self.t1_greeting_start = time.time()
-                        print(f"🎯 [T1={self.t1_greeting_start:.3f}] STORING GREETING FOR REALTIME START!")
-                        # Store greeting as instance variable instead of queue (more reliable)
-                        self.greeting_text = greet
-                        self.greeting_sent = False  # Will be set to True after sending
-                        print(f"✅ [REALTIME] Greeting stored: '{greet[:50]}...'")
+                        if greet:
+                            print(f"🎯 [T1={self.t1_greeting_start:.3f}] STORING GREETING FOR REALTIME START!")
+                            # Store greeting as instance variable instead of queue (more reliable)
+                            self.greeting_text = greet
+                            self.greeting_sent = False  # Will be set to True after sending
+                            print(f"✅ [REALTIME] Greeting stored: '{greet[:50]}...'")
+                        else:
+                            print(f"🎯 [T1={self.t1_greeting_start:.3f}] NO GREETING - AI will speak first dynamically!")
+                            self.greeting_text = None
+                            self.greeting_sent = False
                     
                     # 🚀 REALTIME API: Start Realtime mode AFTER greeting is queued
                     if USE_REALTIME_API and not self.realtime_thread:
@@ -3233,18 +3252,22 @@ class MediaStreamHandler:
                 # עדכן business_id + חזור ברכה
                 if business:
                     self.business_id = business.id
-                    greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
+                    # ✅ אם אין פתיח מוגדר - None (ה-AI ידבר ראשון בעצמו!)
+                    greeting = business.greeting_message or None
                     business_name = business.name or "העסק שלנו"
                     
-                    # החלפת placeholder
-                    greeting = greeting.replace("{{business_name}}", business_name)
-                    greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                    if greeting:
+                        # החלפת placeholder
+                        greeting = greeting.replace("{{business_name}}", business_name)
+                        greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                        print(f"⚡ FAST COMPLETE: business_id={self.business_id}, greeting='{greeting[:30]}...'")
+                    else:
+                        print(f"⚡ FAST COMPLETE: business_id={self.business_id}, NO GREETING (AI will speak first!)")
                     
-                    print(f"⚡ FAST COMPLETE: business_id={self.business_id}, greeting='{greeting[:30]}...'")
                     return (self.business_id, greeting)
                 else:
                     self.business_id = 1
-                    return (1, "שלום! איך אפשר לעזור?")
+                    return (1, None)  # ✅ No hardcoded greeting - AI speaks first!
         
         except Exception as e:
             print(f"❌ Fast identification failed: {e}")
