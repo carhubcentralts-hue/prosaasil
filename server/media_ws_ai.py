@@ -85,6 +85,167 @@ class CallCrmContext:
     lead_id: Optional[int] = None
     last_appointment_id: Optional[int] = None
 
+
+# 🔧 CRM HELPER FUNCTIONS (Server-side only, no Realtime Tools)
+def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
+    """
+    Find or create lead at call start
+    
+    Args:
+        business_id: Business ID
+        customer_phone: Customer phone in E.164 format
+    
+    Returns:
+        Lead ID if found/created, None on error
+    """
+    try:
+        from server.models_sql import db, Lead
+        from datetime import datetime
+        
+        app = _get_flask_app()
+        with app.app_context():
+            # Normalize phone to E.164
+            phone = customer_phone.strip()
+            if not phone.startswith('+'):
+                if phone.startswith('0'):
+                    phone = '+972' + phone[1:]
+                else:
+                    phone = '+972' + phone
+            
+            # Search for existing lead
+            lead = Lead.query.filter_by(
+                tenant_id=business_id,
+                phone_e164=phone
+            ).first()
+            
+            if lead:
+                # Update last contact time
+                lead.last_contact_at = datetime.utcnow()
+                db.session.commit()
+                print(f"✅ [CRM] Found existing lead #{lead.id} for {phone}")
+                return lead.id
+            else:
+                # Create new lead
+                lead = Lead(
+                    tenant_id=business_id,
+                    phone_e164=phone,
+                    first_name="Customer",  # Will be updated during call
+                    source="phone_call",
+                    status="new",
+                    created_at=datetime.utcnow(),
+                    last_contact_at=datetime.utcnow()
+                )
+                db.session.add(lead)
+                db.session.commit()
+                print(f"✅ [CRM] Created new lead #{lead.id} for {phone}")
+                return lead.id
+                
+    except Exception as e:
+        print(f"❌ [CRM] ensure_lead error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def update_lead_on_call(lead_id: int, summary: Optional[str] = None, 
+                        status: Optional[str] = None, notes: Optional[str] = None):
+    """
+    Update lead at call end with summary/status
+    
+    Args:
+        lead_id: Lead ID to update
+        summary: Call summary (optional)
+        status: New status (optional)
+        notes: Additional notes (optional)
+    """
+    try:
+        from server.models_sql import db, Lead
+        from datetime import datetime
+        
+        app = _get_flask_app()
+        with app.app_context():
+            lead = Lead.query.get(lead_id)
+            if not lead:
+                print(f"⚠️ [CRM] Lead #{lead_id} not found")
+                return
+            
+            # Update fields
+            if summary:
+                lead.summary = summary
+            
+            if status:
+                lead.status = status
+            
+            if notes:
+                existing_notes = lead.notes or ""
+                timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+                lead.notes = f"{existing_notes}\n\n[{timestamp}] {notes}".strip()
+            
+            lead.updated_at = datetime.utcnow()
+            db.session.commit()
+            
+            print(f"✅ [CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
+            
+    except Exception as e:
+        print(f"❌ [CRM] update_lead_on_call error: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def create_appointment_from_realtime(business_id: int, customer_phone: str, 
+                                     customer_name: str, treatment_type: str,
+                                     start_iso: str, end_iso: str, 
+                                     notes: Optional[str] = None) -> Optional[int]:
+    """
+    Create appointment directly from server (no Realtime Tools)
+    Called when AI mentions date/time in conversation
+    
+    Args:
+        business_id: Business ID
+        customer_phone: Customer phone
+        customer_name: Customer name
+        treatment_type: Service type
+        start_iso: Start time in ISO format
+        end_iso: End time in ISO format
+        notes: Optional notes
+    
+    Returns:
+        Appointment ID if created, None on error
+    """
+    try:
+        from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
+        
+        app = _get_flask_app()
+        with app.app_context():
+            input_data = CreateAppointmentInput(
+                business_id=business_id,
+                customer_name=customer_name,
+                customer_phone=customer_phone,
+                treatment_type=treatment_type,
+                start_iso=start_iso,
+                end_iso=end_iso,
+                notes=notes,
+                source="realtime_phone"
+            )
+            
+            result = _calendar_create_appointment_impl(input_data, context=None, session=None)
+            
+            if isinstance(result, dict) and result.get("ok"):
+                appt_id = result.get("appointment_id")
+                print(f"✅ [CRM] Created appointment #{appt_id} for {customer_name}")
+                return appt_id
+            else:
+                error_msg = result.get("message") if isinstance(result, dict) else str(result)
+                print(f"⚠️ [CRM] Appointment creation failed: {error_msg}")
+                return None
+                
+    except Exception as e:
+        print(f"❌ [CRM] create_appointment_from_realtime error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 # ⚡ BUILD 116: אופטימיזציות לזמן תגובה <2s
 print("="*80)
 print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION + REALTIME API")
@@ -629,6 +790,20 @@ class MediaStreamHandler:
                 max_tokens=300  # ✅ Increased: allow full Hebrew sentences
             )
             print(f"✅ [REALTIME] Session configured: voice=shimmer (Hebrew-optimized), temp=0.8, format=g711_ulaw (8kHz)")
+            
+            # 📋 CRM: Initialize context and ensure lead exists
+            customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
+            if customer_phone:
+                lead_id = ensure_lead(business_id_safe, customer_phone)
+                self.crm_context = CallCrmContext(
+                    business_id=business_id_safe,
+                    customer_phone=customer_phone,
+                    lead_id=lead_id
+                )
+                print(f"✅ [CRM] Context initialized: business={business_id_safe}, lead_id={lead_id}")
+            else:
+                print(f"⚠️ [CRM] No customer phone - skipping lead creation")
+                self.crm_context = None
             
             # 🚀 REALTIME API: Send greeting if available from queue
             if hasattr(self, 'realtime_greeting_queue'):
@@ -3549,6 +3724,15 @@ class MediaStreamHandler:
                         print(f"📝 Summary: {summary_data.get('summary', 'N/A')}")
                         print(f"🎯 Intent: {summary_data.get('intent', 'N/A')}")
                         print(f"📊 Next Action: {summary_data.get('next_action', 'N/A')}")
+                        
+                        # 📋 CRM: Update lead with call summary (Realtime mode only)
+                        if USE_REALTIME_API and hasattr(self, 'crm_context') and self.crm_context and self.crm_context.lead_id:
+                            update_lead_on_call(
+                                lead_id=self.crm_context.lead_id,
+                                summary=summary_data.get('summary', ''),
+                                notes=f"Call {self.call_sid}: {summary_data.get('intent', 'general_inquiry')}"
+                            )
+                            print(f"✅ [CRM] Lead #{self.crm_context.lead_id} updated with call summary")
                         
                         # 🤖 BUILD 119: Agent handles appointments during conversation!
                         # AUTO-APPOINTMENT disabled - Agent creates appointments in real-time
