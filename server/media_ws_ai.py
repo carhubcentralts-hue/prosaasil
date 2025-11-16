@@ -4,6 +4,8 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
 import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio
 import builtins
+from dataclasses import dataclass
+from typing import Optional
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 
 # ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
@@ -70,6 +72,18 @@ def _get_flask_app():
     """🔥 CRITICAL FIX: Get Flask app WITHOUT creating new instance"""
     from server.app_factory import get_process_app
     return get_process_app()
+
+# 📋 CRM CONTEXT: Track lead and appointment state during call
+@dataclass
+class CallCrmContext:
+    """
+    Context for tracking CRM state during a phone call.
+    Ensures every call creates/updates a lead and can schedule appointments.
+    """
+    business_id: int
+    customer_phone: str
+    lead_id: Optional[int] = None
+    last_appointment_id: Optional[int] = None
 
 # ⚡ BUILD 116: אופטימיזציות לזמן תגובה <2s
 print("="*80)
