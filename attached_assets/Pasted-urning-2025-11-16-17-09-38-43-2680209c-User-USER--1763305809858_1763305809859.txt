@@ -1,0 +1,122 @@
+urning 'איך אתה יכול לעזור לי היום'
+2025-11-16 17:09:38.43
+2680209c
+User
+🎤 USER: איך אתה יכול לעזור לי היום
+2025-11-16 17:09:38.43
+2680209c
+User
+⏭️ [FAQ_MISS] No match found (search took 0ms) → proceeding to AgentKit
+2025-11-16 17:09:38.43
+2680209c
+User
+🆕 FAQ cache MISS for business 1, loading...
+
+2025-11-16 17:09:38.43
+2680209c
+User
+⏱️ [STT_STREAM] _utterance_end took 0.000s, result: 'איך אתה יכול לעזור לי היום'
+2025-11-16 17:09:38.43
+2680209c
+User
+📊 ASR_LATENCY: 0.000s (target: <0.7s)
+2025-11-16 17:09:38.43
+2680209c
+User
+🆕 FAQ cache MISS for business 1, loading...
+2025-11-16 17:09:38.44
+2680209c
+User
+🆕 FAQ cache MISS for business 1, loading...
+2025-11-16 17:09:38.44
+2680209c
+User
+phone_number (caller) = 'None'
+2025-11-16 17:09:38.44
+2680209c
+User
+🎯 AGENTS_ENABLED = True
+2025-11-16 17:09:38.44
+2680209c
+User
+📞 DEBUG: customer_phone from context = ''
+2025-11-16 17:09:38.44
+2680209c
+User
+customer_phone_dtmf = 'None'
+2025-11-16 17:09:38.44
+2680209c
+User
+🎯 INTENT_MATCH: pattern='^(מה|איזה|איזו|כמה|למה|מדוע|איך|היכן|מתי)\s' matched in 'איך אתה יכול לעזור לי היום'
+2025-11-16 17:09:38.44
+2680209c
+User
+🎯 INTENT_DETECTED: info (message: איך אתה יכול לעזור לי היום...)
+2025-11-16 17:09:38.62
+2680209c
+User
+⚠️ No FAQs available for business 1
+2025-11-16 17:09:38.62
+2680209c
+User
+📭 No FAQs found for business 1
+2025-11-16 17:09:38.62
+2680209c
+User
+❌ No FAQ match found for: 'איך אתה יכול לעזור לי היום...'
+2025-11-16 17:09:38.68
+2680209c
+User
+🤖 Running agent for business 1, channel=calls
+2025-11-16 17:09:38.68
+2680209c
+User
+⏱️ DB query time: 65ms
+2025-11-16 17:09:38.68
+2680209c
+User
+♻️ CACHE HIT: Agent already warmed! (0ms)
+2025-11-16 17:09:38.68
+2680209c
+User
+📝 User message: 'איך אתה יכול לעזור לי היום...'
+2025-11-16 17:09:38.68
+2680209c
+User
+✅ Stored agent_context in Flask g: phone=, name=None
+2025-11-16 17:09:38.68
+2680209c
+User
+📋 Context: business_id=1, phone=, name=None
+2025-11-16 17:09:38.68
+2680209c
+User
+✅ Agent created successfully: booking_agent_שי דירות
+2025-11-16 17:09:38.68
+2680209c
+User
+✅ Converted to 1 messages for Agent (0ms)
+2025-11-16 17:09:38.68
+2680209c
+User
+📚 Found 1 previous messages in context
+2025-11-16 17:09:38.68
+2680209c
+User
+🔄 Starting Runner.run() with 1 history messages...
+2025-11-16 17:09:41.41
+2680209c
+User
+✅ Runner.run() completed in 2795ms
+2025-11-16 17:09:41.41
+2680209c
+User
+✂️ TRUNCATED phone response: 23 → 15 words
+2025-11-16 17:09:41.41
+2680209c
+User
+🔍 Has new_items: True
+2025-11-16 17:09:41.41
+2680209c
+User
+🔍 Result type: RunResult
