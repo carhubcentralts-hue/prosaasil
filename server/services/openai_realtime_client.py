@@ -173,6 +173,22 @@ class OpenAIRealtimeClient:
             "type": "response.cancel"
         })
     
+    async def send_text_response(self, text: str):
+        """
+        Send a text response that will be spoken by the AI
+        
+        Args:
+            text: Text to be converted to speech and spoken
+        """
+        await self.send_event({
+            "type": "response.create",
+            "response": {
+                "modalities": ["audio", "text"],
+                "instructions": f"Say exactly this text: {text}"
+            }
+        })
+        logger.info(f"✅ Text response sent: '{text[:50]}...'")
+    
     async def configure_session(
         self,
         instructions: str,

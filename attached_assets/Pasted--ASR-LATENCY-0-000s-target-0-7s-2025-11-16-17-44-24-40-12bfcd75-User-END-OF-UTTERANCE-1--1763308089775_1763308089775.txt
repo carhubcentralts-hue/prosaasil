@@ -1,0 +1,110 @@
+
+📊 ASR_LATENCY: 0.000s (target: <0.7s)
+2025-11-16 17:44:24.40
+12bfcd75
+User
+🎤 END OF UTTERANCE: 1.9s audio, conversation #1
+2025-11-16 17:44:24.40
+12bfcd75
+User
+🧠 STATE -> PROCESSING | len=30400 | silence_ms=500
+2025-11-16 17:44:24.40
+12bfcd75
+User
+✅ [CA5e4e84] Got final event in 0.000s
+2025-11-16 17:44:24.40
+12bfcd75
+User
+⏱️ [STT_STREAM] _utterance_end took 0.000s, result: 'שש איך אתה יכול לעזור'
+2025-11-16 17:44:24.40
+12bfcd75
+User
+🎤 USER: שש איך אתה יכול לעזור
+2025-11-16 17:44:24.40
+12bfcd75
+User
+✅ [CA5e4e84] Using partial: 'שש איך אתה יכול לעזור...' (21 chars)
+2025-11-16 17:44:24.40
+12bfcd75
+User
+🎤 SAFE PROCESSING: conversation #1
+2025-11-16 17:44:24.40
+12bfcd75
+User
+🎤 [CA5e4e84] _utterance_end: Collecting results for utterance ef7b0172 (timeout=0.85s)
+2025-11-16 17:44:24.43
+12bfcd75
+User
+🆕 FAQ cache MISS for business 1, loading...
+2025-11-16 17:44:24.43
+12bfcd75
+User
+⏭️ [FAQ_MISS] No match found (search took 31ms) → proceeding to AgentKit
+2025-11-16 17:44:24.43
+12bfcd75
+User
+🆕 FAQ cache MISS for business 1, loading...
+2025-11-16 17:44:24.47
+12bfcd75
+User
+📞 DEBUG: customer_phone from context = ''
+2025-11-16 17:44:24.47
+12bfcd75
+User
+customer_phone_dtmf = 'None'
+2025-11-16 17:44:24.47
+12bfcd75
+User
+🎯 AGENTS_ENABLED = True
+2025-11-16 17:44:24.47
+12bfcd75
+User
+phone_number (caller) = 'None'
+2025-11-16 17:44:24.48
+12bfcd75
+User
+🎯 INTENT_DETECTED: other (message: שש איך אתה יכול לעזור...)
+2025-11-16 17:44:24.69
+12bfcd75
+User
+📝 User message: 'שש איך אתה יכול לעזור...'
+2025-11-16 17:44:24.69
+12bfcd75
+User
+⏱️ DB query time: 216ms
+2025-11-16 17:44:24.69
+12bfcd75
+User
+✅ Stored agent_context in Flask g: phone=, name=None
+2025-11-16 17:44:24.69
+12bfcd75
+User
+📋 Context: business_id=1, phone=, name=None
+2025-11-16 17:44:24.69
+12bfcd75
+User
+🔄 Starting Runner.run() with 0 history messages...
+
+2025-11-16 17:44:24.69
+12bfcd75
+User
+✅ Agent created successfully: booking_agent_שי דירות
+2025-11-16 17:44:24.69
+12bfcd75
+User
+✅ Converted to 0 messages for Agent (0ms)
+2025-11-16 17:44:24.69
+12bfcd75
+User
+🤖 Running agent for business 1, channel=calls
+2025-11-16 17:44:24.69
+12bfcd75
+User
+♻️ CACHE HIT: Agent already warmed! (0ms)
+2025-11-16 17:44:24.69
+12bfcd75
+User
+📚 Found 0 previous messages in context
+2025-11-16 17:44:29.81
+12bfcd75
+Us

@@ -599,6 +599,17 @@ class MediaStreamHandler:
             )
             print(f"✅ [REALTIME] Session configured")
             
+            # 🚀 REALTIME API: Send greeting if available
+            if hasattr(self, 'realtime_greeting_text') and self.realtime_greeting_text:
+                greeting_text = self.realtime_greeting_text
+                self.realtime_greeting_text = None
+                print(f"🚀 [REALTIME] Sending greeting: '{greeting_text[:50]}...'")
+                try:
+                    await client.send_text_response(greeting_text)
+                    print(f"✅ [REALTIME] Greeting sent successfully")
+                except Exception as e:
+                    print(f"❌ [REALTIME] Greeting send failed: {e}")
+            
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
             audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
             
@@ -862,8 +873,12 @@ class MediaStreamHandler:
                         self.business_id = 1
                         greet = "שלום! איך אפשר לעזור?"
                     
-                    # ⚡ STREAMING STT: Initialize NOW (after business_id is known)
-                    self._init_streaming_stt()
+                    # ⚡ STREAMING STT: Initialize ONLY if NOT using Realtime API
+                    if not USE_REALTIME_API:
+                        self._init_streaming_stt()
+                        print("✅ Google STT initialized (USE_REALTIME_API=False)")
+                    else:
+                        print("⏭️ Skipping Google STT initialization (USE_REALTIME_API=True)")
                     
                     # ✅ יצירת call_log מיד בהתחלת שיחה (אחרי זיהוי עסק!)
                     try:
@@ -878,6 +893,27 @@ class MediaStreamHandler:
                         self.tx_running = True
                         self.tx_thread.start()
                     
+                    # 🚀 REALTIME API: Start Realtime mode BEFORE greeting if enabled
+                    if USE_REALTIME_API and not self.realtime_thread:
+                        print(f"🚀 [REALTIME] Starting Realtime API mode BEFORE greeting for call {self.call_sid[:8] if self.call_sid else 'unknown'}")
+                        
+                        self.realtime_thread = threading.Thread(
+                            target=self._run_realtime_mode_thread,
+                            daemon=True
+                        )
+                        self.realtime_thread.start()
+                        self.background_threads.append(self.realtime_thread)
+                        
+                        realtime_out_thread = threading.Thread(
+                            target=self._realtime_audio_out_loop,
+                            daemon=True
+                        )
+                        realtime_out_thread.start()
+                        self.background_threads.append(realtime_out_thread)
+                        
+                        print(f"✅ [REALTIME] Threads started, waiting for connection...")
+                        time.sleep(0.5)
+                    
                     if not self.greeting_sent:
                         self.t1_greeting_start = time.time()  # ⚡ [T1] Greeting start
                         print(f"🎯 [T1={self.t1_greeting_start:.3f}] SENDING IMMEDIATE GREETING! (Δ={(self.t1_greeting_start - self.t0_connected)*1000:.0f}ms from T0)")
@@ -886,24 +922,6 @@ class MediaStreamHandler:
                             self.t2_greeting_end = time.time()  # ⚡ [T2] Greeting end
                             print(f"🎯 [T2={self.t2_greeting_end:.3f}] GREETING_COMPLETE! (Duration={(self.t2_greeting_end - self.t1_greeting_start)*1000:.0f}ms)")
                             self.greeting_sent = True
-                            
-                            # 🚀 REALTIME API: Start Realtime mode if enabled
-                            if USE_REALTIME_API and not self.realtime_thread:
-                                print(f"🚀 [REALTIME] Starting Realtime API mode for call {self.call_sid[:8] if self.call_sid else 'unknown'}")
-                                
-                                self.realtime_thread = threading.Thread(
-                                    target=self._run_realtime_mode_thread,
-                                    daemon=True
-                                )
-                                self.realtime_thread.start()
-                                self.background_threads.append(self.realtime_thread)
-                                
-                                realtime_out_thread = threading.Thread(
-                                    target=self._realtime_audio_out_loop,
-                                    daemon=True
-                                )
-                                realtime_out_thread.start()
-                                self.background_threads.append(realtime_out_thread)
                         except Exception as e:
                             print(f"❌ CRITICAL ERROR sending greeting: {e}")
                             import traceback
@@ -926,9 +944,8 @@ class MediaStreamHandler:
                             self.realtime_audio_in_queue.put_nowait(b64)
                         except queue.Full:
                             pass
-                    
-                    # ⚡ STREAMING STT: Feed audio to session (continuous streaming)
-                    if self.call_sid and pcm16:
+                    # ⚡ STREAMING STT: Feed audio to Google STT ONLY if NOT using Realtime API
+                    elif not USE_REALTIME_API and self.call_sid and pcm16:
                         session = _get_session(self.call_sid)
                         if session:
                             session.push_audio(pcm16)
@@ -1677,7 +1694,23 @@ class MediaStreamHandler:
         self.speaking = True
         self.speaking_start_ts = time.time()
         self.state = STATE_SPEAK
-        print(f"🔊 GREETING_TTS_START: '{text}'")
+        
+        # 🚀 REALTIME API: Send greeting via Realtime API if enabled
+        if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
+            print(f"🚀 [REALTIME] Sending greeting via Realtime API: '{text[:50]}...'")
+            try:
+                # Send greeting text to Realtime API via response.create
+                self.realtime_greeting_text = text
+                print(f"✅ [REALTIME] Greeting queued for Realtime API")
+                # Realtime thread will handle TTS and playback
+                return
+            except Exception as e:
+                print(f"❌ [REALTIME] Greeting failed, falling back to Google TTS: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Google TTS fallback (when USE_REALTIME_API=False or Realtime not ready)
+        print(f"🔊 GREETING_TTS_START (Google): '{text[:50]}...'")
         
         try:
             # ⚡ בלי sleep - ברכה מיידית!

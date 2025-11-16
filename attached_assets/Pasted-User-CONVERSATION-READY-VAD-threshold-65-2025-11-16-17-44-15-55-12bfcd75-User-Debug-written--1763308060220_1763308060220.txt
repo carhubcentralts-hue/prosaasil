@@ -1,0 +1,101 @@
+User
+🎯 CONVERSATION READY (VAD threshold: 65)
+2025-11-16 17:44:15.55
+12bfcd75
+User
+✅ Debug written to /tmp/HANDLER_WORKS_1763307855.txt
+2025-11-16 17:44:15.55
+12bfcd75
+User
+✅ Debug files written: 5/5
+2025-11-16 17:44:15.55
+12bfcd75
+User
+✅ Debug written to /tmp/handler_called.txt
+2025-11-16 17:44:15.77
+12bfcd75
+User
+🎯 STT Configuration: model=default (FORCED - phone_call not supported for he-IL), enhanced=True, language=he-IL
+2025-11-16 17:44:15.82
+12bfcd75
+User
+🔧 DB_URL_AT_WRITE: driver=postgresql, BIZ=1, SID=CA5e4e84ed85725d1f874dddec936bca02
+2025-11-16 17:44:15.82
+12bfcd75
+User
+🔊 TTS_START: Generating Natural Hebrew TTS for 'היי הגעת לקריוקי של העיר, מדבר דניאל, איך אוכל לעז...' (56 chars)
+2025-11-16 17:44:15.82
+12bfcd75
+User
+🔒 PROTECTED_RESPONSE (11 words) - BARGE-IN IMPOSSIBLE
+2025-11-16 17:44:16.08
+12bfcd75
+User
+✅ TTS_SUCCESS: 84500 bytes Natural Wavenet (5.3s)
+2025-11-16 17:44:19.95
+12bfcd75
+User
+✅ Updated call_log with customer_id=39
+2025-11-16 17:44:19.99
+12bfcd75
+User
+✅ AUDIO_VALIDATED: amp=812, rms=65, var=4294, zcr=0.101
+2025-11-16 17:44:20.15
+12bfcd75
+User
+⏱️ [STT_FALLBACK] Single-request took 1.203s, result: '(empty)'
+2025-11-16 17:44:20.15
+12bfcd75
+User
+📊 GOOGLE_STT_ENHANCED: Processed 9600 bytes
+2025-11-16 17:44:20.15
+12bfcd75
+User
+✅ Processing complete for conversation #0
+
+2025-11-16 17:44:20.15
+12bfcd75
+User
+🎤 USER:
+2025-11-16 17:44:20.15
+12bfcd75
+User
+⚠️ STT_NO_RESULTS - likely silence
+2025-11-16 17:44:20.15
+12bfcd75
+User
+🚫 NO_SPEECH_DETECTED: Staying silent (attempt 1)
+2025-11-16 17:44:20.15
+12bfcd75
+User
+📊 ASR_LATENCY: 2.053s (target: <0.7s)
+2025-11-16 17:44:21.42
+12bfcd75
+User
+🎤 [CA5e4e84] Utterance ef7b0172 BEGIN
+2025-11-16 17:44:21.42
+12bfcd75
+User
+🎙️ REAL_VOICE: rms=3431, threshold=35.0
+2025-11-16 17:44:21.49
+12bfcd75
+User
+🔊 PARTIAL (best): 'ב שש' (4 chars)
+2025-11-16 17:44:21.49
+12bfcd75
+User
+🟡 [PARTIAL] BEST updated: 'ב שש' (4 chars) for CA5e4e84...
+2025-11-16 17:44:21.69
+12bfcd75
+User
+📍 TX_MARK: assistant_tts_end SUCCESS
+2025-11-16 17:44:21.79
+12bfcd75
+User
+🎯 TTS_MARK_ACK: assistant_tts_end -> LISTENING
+2025-11-16 17:44:21.79
+12bfcd75
+User
+🎤 STATE -> LISTENING | buffer_reset
+2025-11-16 17:44:21.79
+12bfcd75
