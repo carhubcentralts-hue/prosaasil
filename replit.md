@@ -158,3 +158,19 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - ✅ NLP parser runs without blocking event loop
 
 **Production Status**: ✅ Ready for testing. Core functionality restored.
+
+### ✅ Final Fixes - Google STT/TTS Disabled in Realtime Mode
+
+**Additional Fix**:
+- **Google STT/TTS Bypass** (`server/media_ws_ai.py` line 2125-2132):
+  - Added early return in `_process_utterance_safe()` when `USE_REALTIME_API=True`
+  - Prevents Google STT/TTS pipeline from running alongside Realtime API
+  - Clears audio buffer and resets state to prevent accumulation
+
+**Complete Fix Summary**:
+1. ✅ Async event loop conflicts resolved (thread-safe execution)
+2. ✅ Greeting race condition fixed (pre-queue before thread start)
+3. ✅ Conversation history format corrected (handles both old and new formats)
+4. ✅ Google STT/TTS completely disabled in Realtime mode
+
+**Production Status**: ✅ All critical issues resolved. System uses Realtime API exclusively for phone calls.
