@@ -388,8 +388,12 @@ class MediaStreamHandler:
         self.events_q = None  # Will be created if async mode is used
         
         # 🚀 REALTIME API: Thread-safe queues and state for OpenAI Realtime mode
-        self.realtime_audio_in_queue = queue.Queue(maxsize=1000)  # Twilio → Realtime
-        self.realtime_audio_out_queue = queue.Queue(maxsize=1000)  # Realtime → Twilio
+        # ✅ Use imported queue module (at top of file) - NOT queue_module alias
+        import queue as _queue_module  # Local import to avoid shadowing
+        self.realtime_audio_in_queue = _queue_module.Queue(maxsize=1000)  # Twilio → Realtime
+        self.realtime_audio_out_queue = _queue_module.Queue(maxsize=1000)  # Realtime → Twilio
+        self.realtime_text_input_queue = _queue_module.Queue(maxsize=10)  # DTMF/text → Realtime
+        self.realtime_greeting_queue = _queue_module.Queue(maxsize=1)  # Greeting → Realtime
         self.realtime_stop_flag = False  # Signal to stop Realtime threads
         self.realtime_thread = None  # Thread running asyncio loop
         
@@ -592,7 +596,7 @@ class MediaStreamHandler:
             # 🎯 TASK 3: Configure session with G.711 μ-law (verified)
             await client.configure_session(
                 instructions=system_prompt,
-                voice="alloy",
+                voice="shimmer",  # ✅ Best for Hebrew: clear, natural, feminine voice
                 input_audio_format="g711_ulaw",   # Twilio → OpenAI: μ-law 8kHz
                 output_audio_format="g711_ulaw",  # OpenAI → Twilio: μ-law 8kHz
                 vad_threshold=0.6,
@@ -600,23 +604,28 @@ class MediaStreamHandler:
                 temperature=0.8,  # ✅ Natural conversations (enforced min 0.6 in implementation)
                 max_tokens=300  # ✅ Increased: allow full Hebrew sentences
             )
-            print(f"✅ [REALTIME] Session configured: voice=alloy, temp=0.8, format=g711_ulaw (8kHz)")
+            print(f"✅ [REALTIME] Session configured: voice=shimmer (Hebrew-optimized), temp=0.8, format=g711_ulaw (8kHz)")
             
-            # 🚀 REALTIME API: Send greeting if available
-            if hasattr(self, 'realtime_greeting_text') and self.realtime_greeting_text:
-                greeting_text = self.realtime_greeting_text
-                self.realtime_greeting_text = None
-                print(f"🚀 [REALTIME] Sending greeting: '{greeting_text[:50]}...'")
+            # 🚀 REALTIME API: Send greeting if available from queue
+            if hasattr(self, 'realtime_greeting_queue'):
                 try:
-                    await client.send_text_response(greeting_text)
-                    print(f"✅ [REALTIME] Greeting sent successfully")
+                    greeting_text = self.realtime_greeting_queue.get_nowait()
+                    print(f"🚀 [REALTIME] Sending greeting: '{greeting_text[:50]}...'")
+                    try:
+                        await client.send_text_response(greeting_text)
+                        print(f"✅ [REALTIME] Greeting sent successfully")
+                    except Exception as e:
+                        print(f"❌ [REALTIME] Greeting send failed: {e}")
+                except queue.Empty:
+                    print(f"📭 [REALTIME] No greeting in queue")
                 except Exception as e:
-                    print(f"❌ [REALTIME] Greeting send failed: {e}")
+                    print(f"❌ [REALTIME] Greeting queue error: {e}")
             
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
             audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
+            text_in_task = asyncio.create_task(self._realtime_text_sender(client))
             
-            await asyncio.gather(audio_in_task, audio_out_task)
+            await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
             
         except Exception as e:
             print(f"❌ [REALTIME] Async error: {e}")
@@ -654,6 +663,57 @@ class MediaStreamHandler:
                 break
         
         print(f"📤 [REALTIME] Audio sender ended")
+    
+    async def _realtime_text_sender(self, client):
+        """
+        Send text input (e.g., DTMF) from queue to Realtime API
+        ✅ Resilient: Retries on failure, never drops DTMF input silently
+        """
+        print(f"📝 [REALTIME] Text sender started")
+        
+        while not self.realtime_stop_flag:
+            try:
+                if not hasattr(self, 'realtime_text_input_queue'):
+                    await asyncio.sleep(0.01)
+                    continue
+                
+                try:
+                    text_message = self.realtime_text_input_queue.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(0.01)
+                    continue
+                
+                if text_message is None:
+                    print(f"📝 [REALTIME] Stop signal received")
+                    break
+                
+                # ✅ Resilient send with retry
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        print(f"📝 [REALTIME] Sending user message (attempt {attempt+1}/{max_retries}): '{text_message[:50]}...'")
+                        await client.send_user_message(text_message)
+                        print(f"✅ [REALTIME] User message sent successfully")
+                        break  # Success - exit retry loop
+                    except Exception as send_error:
+                        if attempt < max_retries - 1:
+                            print(f"⚠️ [REALTIME] Send failed (attempt {attempt+1}), retrying: {send_error}")
+                            await asyncio.sleep(0.1)  # Brief delay before retry
+                        else:
+                            # All retries exhausted - log critical error
+                            print(f"❌ [REALTIME] CRITICAL: Failed to send DTMF input after {max_retries} attempts: {send_error}")
+                            print(f"❌ [REALTIME] Lost message: '{text_message[:100]}'")
+                            import traceback
+                            traceback.print_exc()
+                            # Don't re-raise - continue processing queue
+                
+            except Exception as e:
+                print(f"❌ [REALTIME] Text sender error: {e}")
+                import traceback
+                traceback.print_exc()
+                # Don't stop the loop - keep trying to process messages
+        
+        print(f"📝 [REALTIME] Text sender ended")
     
     async def _realtime_audio_receiver(self, client):
         """Receive audio and events from Realtime API"""
@@ -1772,16 +1832,34 @@ class MediaStreamHandler:
         self.state = STATE_SPEAK
         
         # 🚀 REALTIME API: Send greeting via Realtime API if enabled
-        if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
+        if USE_REALTIME_API:
             print(f"🚀 [REALTIME] Sending greeting via Realtime API: '{text[:50]}...'")
             try:
-                # Send greeting text to Realtime API via response.create
-                self.realtime_greeting_text = text
-                print(f"✅ [REALTIME] Greeting queued for Realtime API")
-                # Realtime thread will handle TTS and playback
-                return
+                # ✅ FIX: Queue greeting text to be sent via Realtime API (non-blocking)
+                # Queue is initialized in __init__ to avoid AttributeError
+                try:
+                    self.realtime_greeting_queue.put_nowait(text)
+                    print(f"✅ [REALTIME] Greeting queued for Realtime API")
+                except queue.Full:
+                    # Queue full - replace old greeting with new one
+                    print(f"⚠️ [REALTIME] Greeting queue full, replacing...")
+                    try:
+                        self.realtime_greeting_queue.get_nowait()
+                        self.realtime_greeting_queue.put_nowait(text)
+                        print(f"✅ [REALTIME] Greeting replaced in queue")
+                    except:
+                        print(f"❌ [REALTIME] Failed to replace greeting - will fallback")
+                        # Don't raise - fall through to Google TTS
+                        pass
+                except Exception as e:
+                    print(f"❌ [REALTIME] Failed to queue greeting: {e} - will fallback")
+                    # Don't raise - fall through to Google TTS
+                    pass
+                else:
+                    # Successfully queued - exit early
+                    return
             except Exception as e:
-                print(f"❌ [REALTIME] Greeting failed, falling back to Google TTS: {e}")
+                print(f"❌ [REALTIME] Greeting queueing error: {e}")
                 import traceback
                 traceback.print_exc()
         
@@ -2718,18 +2796,40 @@ class MediaStreamHandler:
         # Create skip message in Hebrew
         skip_text = "אני מעדיף לא לתת את המספר"
         
-        # Get AI response (Agent will handle the skip)
-        ai_response = self._ai_response(skip_text)
-        
-        # Speak the response
-        if ai_response:
-            self._speak_simple(ai_response)
+        # 🚀 REALTIME API: Send via Realtime if enabled, otherwise use AgentKit
+        if USE_REALTIME_API:
+            print(f"🚀 [REALTIME] Sending DTMF skip via Realtime API")
+            # ✅ Queue the user's DTMF skip message (non-blocking, no fallback to AgentKit)
+            try:
+                self.realtime_text_input_queue.put_nowait(skip_text)
+                print(f"✅ [REALTIME] DTMF skip queued for Realtime API")
+                
+                # Save to conversation history
+                self.conversation_history.append({
+                    "user": "[DTMF skip]",
+                    "bot": "(Realtime API handling)"
+                })
+            except queue.Full:
+                print(f"❌ [REALTIME] CRITICAL: Text input queue full - DTMF skip dropped!")
+                # Don't fall back to AgentKit - log the error
+            except Exception as e:
+                print(f"❌ [REALTIME] Failed to queue DTMF skip: {e}")
+                import traceback
+                traceback.print_exc()
+                # Don't fall back to AgentKit - this could cause dual responses
+        else:
+            # Legacy: Get AI response via AgentKit (Google STT/TTS mode)
+            ai_response = self._ai_response(skip_text)
             
-            # Save to conversation history
-            self.conversation_history.append({
-                "user": "[DTMF skip]",
-                "bot": ai_response
-            })
+            # Speak the response
+            if ai_response:
+                self._speak_simple(ai_response)
+                
+                # Save to conversation history
+                self.conversation_history.append({
+                    "user": "[DTMF skip]",
+                    "bot": ai_response
+                })
         
         print(f"✅ DTMF skip processed")
     
@@ -2770,18 +2870,40 @@ class MediaStreamHandler:
         # 🔥 BUILD 118: Add context so agent understands this is phone input
         hebrew_text = f"המספר שלי הוא {phone_to_show}"
         
-        # Get AI response (Agent will process the phone)
-        ai_response = self._ai_response(hebrew_text)
-        
-        # Speak the response using the correct method
-        if ai_response:
-            self._speak_simple(ai_response)
+        # 🚀 REALTIME API: Send via Realtime if enabled, otherwise use AgentKit
+        if USE_REALTIME_API:
+            print(f"🚀 [REALTIME] Sending DTMF phone via Realtime API: {phone_to_show}")
+            # ✅ Queue the user's DTMF phone message (non-blocking, no fallback to AgentKit)
+            try:
+                self.realtime_text_input_queue.put_nowait(hebrew_text)
+                print(f"✅ [REALTIME] DTMF phone queued for Realtime API")
+                
+                # Save to conversation history
+                self.conversation_history.append({
+                    "user": f"[DTMF] {phone_to_show}",
+                    "bot": "(Realtime API handling)"
+                })
+            except queue.Full:
+                print(f"❌ [REALTIME] CRITICAL: Text input queue full - DTMF phone dropped!")
+                # Don't fall back to AgentKit - log the error
+            except Exception as e:
+                print(f"❌ [REALTIME] Failed to queue DTMF phone: {e}")
+                import traceback
+                traceback.print_exc()
+                # Don't fall back to AgentKit - this could cause dual responses
+        else:
+            # Legacy: Get AI response via AgentKit (Google STT/TTS mode)
+            ai_response = self._ai_response(hebrew_text)
             
-            # Save to conversation history
-            self.conversation_history.append({
-                "user": f"[DTMF] {phone_to_show}",
-                "bot": ai_response
-            })
+            # Speak the response using the correct method
+            if ai_response:
+                self._speak_simple(ai_response)
+                
+                # Save to conversation history
+                self.conversation_history.append({
+                    "user": f"[DTMF] {phone_to_show}",
+                    "bot": ai_response
+                })
         
         print(f"✅ DTMF phone processed: {phone_to_show}")
     

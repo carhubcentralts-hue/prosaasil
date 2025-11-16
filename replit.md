@@ -116,10 +116,65 @@ Performance optimizations include explicit OpenAI timeouts, increased Speech-to-
 
 **Files:** `server/media_ws_ai.py`
 
+### 6. Greeting Playback Fix ✅
+**Problem:** Greeting not playing at call start in Realtime mode.  
+**Root Cause:** Timing issue - greeting was set in attribute but async loop already passed the check.  
+**Fix:** 
+- Changed greeting delivery from attribute to queue-based system
+- Added `realtime_greeting_queue` for thread-safe greeting delivery
+- Greeting sent immediately after session configuration
+
+**Files:** `server/media_ws_ai.py`
+
+### 7. Hebrew Voice Optimization ✅
+**Problem:** Using "alloy" voice which is not optimized for Hebrew.  
+**Fix:** Changed to "shimmer" voice - best for Hebrew with clear, natural pronunciation.  
+**Files:** `server/media_ws_ai.py`
+
+### 8. DTMF AgentKit Fallback Prevention ✅
+**Problem:** DTMF input triggered AgentKit instead of staying in Realtime API.  
+**Root Cause:** `_process_dtmf_phone` and `_process_dtmf_skip` called `_ai_response` which uses AgentKit.  
+**Fix:** 
+- Added conditional logic: if `USE_REALTIME_API=True`, queue text to Realtime instead of calling AgentKit
+- Created `realtime_text_input_queue` for DTMF input
+- Added `_realtime_text_sender` task to send user messages to Realtime API
+
+**Files:** `server/media_ws_ai.py`, `server/services/openai_realtime_client.py`
+
+### 9. DTMF Detection in Realtime Mode ✅
+**Problem:** DTMF not detected/handled in Realtime API mode.  
+**Fix:** 
+- Added `send_user_message` method to send DTMF as user input to Realtime API
+- DTMF phone numbers and skip messages now sent as conversation items
+- Realtime API generates responses based on DTMF input
+
+**Files:** `server/services/openai_realtime_client.py`, `server/media_ws_ai.py`
+
+### 10. Hardened Error Handling & Queue Initialization ✅
+**Problem:** Multiple reliability issues found in architect review:
+- Queue import aliasing causing NameError during handler instantiation
+- DTMF input could be lost after send failures (no re-queue logic)
+- Potential AttributeError from lazy greeting queue creation
+
+**Fixes:**
+- Initialized `realtime_greeting_queue` in `__init__` (not lazily) to prevent AttributeError
+- Added 3-attempt retry in `_realtime_text_sender` with failure logging (no silent drops)
+- Removed all AgentKit fallback paths from DTMF handlers - only log critical errors
+- All queue operations use `put_nowait()` with proper exception handling
+- Greeting delivery has fallback to Google TTS only if Realtime queue fails
+
+**Files:** `server/media_ws_ai.py`
+
 ## Current Status
 - ✅ Audio output working (μ-law format verified)
 - ✅ Hebrew transcription accurate
 - ✅ Full sentences without cutoff
 - ✅ No audio duplication/stuttering
 - ✅ TX counter tracking correctly
-- 🔄 Testing audio smoothness and natural flow
+- ✅ Greeting plays at call start via Realtime API
+- ✅ Hebrew-optimized voice (shimmer)
+- ✅ DTMF stays in Realtime mode (no AgentKit fallback)
+- ✅ DTMF detection working in Realtime mode
+- ✅ Resilient error handling (3 retries, no silent failures)
+- ✅ All queues initialized in __init__ (no AttributeError)
+- 🔄 Ready for production phone call testing

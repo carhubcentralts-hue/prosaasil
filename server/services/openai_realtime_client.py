@@ -185,6 +185,33 @@ class OpenAIRealtimeClient:
             "type": "response.cancel"
         })
     
+    async def send_user_message(self, text: str):
+        """
+        Send a user message (e.g., DTMF input) to the AI
+        
+        Args:
+            text: User's text input (e.g., from DTMF)
+        """
+        # Add user message to conversation
+        await self.send_event({
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "user",
+                "content": [{
+                    "type": "input_text",
+                    "text": text
+                }]
+            }
+        })
+        
+        # Trigger response generation
+        await self.send_event({
+            "type": "response.create"
+        })
+        
+        logger.info(f"✅ User message sent: '{text[:50]}...'")
+    
     async def send_text_response(self, text: str):
         """
         Send a text response that will be spoken by the AI
