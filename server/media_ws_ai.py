@@ -707,11 +707,6 @@ class MediaStreamHandler:
                 
                 # Twilio expects: {"event": "media", "media": {"payload": "base64..."}}
                 try:
-                    import base64
-                    # Audio_b64 is already base64 from Realtime API
-                    num_bytes = len(base64.b64decode(audio_b64)) if audio_b64 else 0
-                    print(f"📤 [REALTIME] Sending {num_bytes} bytes to Twilio")
-                    
                     self.tx_q.put_nowait({
                         "event": "media",
                         "media": {
