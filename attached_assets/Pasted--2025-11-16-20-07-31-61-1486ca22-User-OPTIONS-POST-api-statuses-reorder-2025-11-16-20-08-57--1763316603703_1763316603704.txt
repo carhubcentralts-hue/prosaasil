@@ -1,0 +1,182 @@
+
+2025-11-16 20:07:31.61
+1486ca22
+User
+{'OPTIONS', 'POST'} /api/statuses/reorder
+2025-11-16 20:08:57.99
+1486ca22
+User
+[REALTIME] event: conversation.item.input_audio_transcription.completed
+2025-11-16 20:08:57.99
+1486ca22
+User
+👤 [REALTIME] User said: תודה רבה
+2025-11-16 20:09:00.27
+1486ca22
+User
+🎙️ REAL_VOICE: rms=1468.0 > threshold=200.0
+2025-11-16 20:09:03.35
+1486ca22
+User
+🎙️ REAL_VOICE: rms=435.0 > threshold=200.0
+2025-11-16 20:09:04.15
+1486ca22
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-16 20:09:05.42
+9fdd1560
+System
+system: received signal terminated
+2025-11-16 20:09:07.33
+1486ca22
+User
+[REALTIME] event: input_audio_buffer.speech_stopped
+2025-11-16 20:09:07.33
+1486ca22
+User
+[REALTIME] event: conversation.item.created
+2025-11-16 20:09:07.33
+1486ca22
+User
+[REALTIME] event: input_audio_buffer.committed
+2025-11-16 20:09:07.33
+1486ca22
+User
+[REALTIME] event: response.created
+2025-11-16 20:09:07.63
+1486ca22
+User
+🎙️ REAL_VOICE: rms=442.0 > threshold=200.0
+2025-11-16 20:09:07.89
+1486ca22
+User
+[REALTIME] event: conversation.item.created
+2025-11-16 20:09:07.89
+1486ca22
+User
+[REALTIME] event: response.output_item.added
+2025-11-16 20:09:07.91
+1486ca22
+User
+[REALTIME] event: response.content_part.added
+2025-11-16 20:09:07.99
+1486ca22
+User
+👤 [REALTIME] User said: איך אתה יכול לעזור לי?
+2025-11-16 20:09:07.99
+1486ca22
+User
+[REALTIME] event: conversation.item.input_audio_transcription.completed
+
+2025-11-16 20:09:08.04
+1486ca22
+User
+[REALTIME] TX frame #100: len=1200, first5_hex=cf 7a ed ee e8, streamSid=MZ742f565184172...
+2025-11-16 20:09:08.12
+1486ca22
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-16 20:09:08.13
+1486ca22
+User
+[REALTIME] event: response.content_part.done
+2025-11-16 20:09:08.13
+1486ca22
+User
+🤖 [REALTIME] AI said: אז ככה, אם אתה רוצה
+2025-11-16 20:09:08.13
+1486ca22
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-16 20:09:08.13
+1486ca22
+User
+[REALTIME] event: response.audio.done
+2025-11-16 20:09:08.14
+1486ca22
+User
+[REALTIME] event: response.output_item.done
+2025-11-16 20:09:08.14
+1486ca22
+User
+[REALTIME] event: response.done
+2025-11-16 20:09:09.65
+1486ca22
+User
+[REALTIME] event: response.created
+2025-11-16 20:09:09.65
+1486ca22
+User
+[REALTIME] event: conversation.item.created
+2025-11-16 20:09:09.65
+1486ca22
+User
+[REALTIME] event: input_audio_buffer.committed
+2025-11-16 20:09:09.65
+1486ca22
+User
+[REALTIME] event: input_audio_buffer.speech_stopped
+2025-11-16 20:09:09.77
+1486ca22
+User
+[REALTIME] event: response.done
+2025-11-16 20:09:09.77
+1486ca22
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-16 20:09:10.71
+1486ca22
+User
+🎙️ REAL_VOICE: rms=284.0 > threshold=200.0
+2025-11-16 20:09:10.83
+1486ca22
+User
+👤 [REALTIME] User said: תודה רבה
+2025-11-16 20:09:10.83
+1486ca22
+User
+[REALTIME] event: conversation.item.input_audio_transcription.completed
+2025-11-16 20:09:12.54
+1486ca22
+User
+[REALTIME] event: response.created
+2025-11-16 20:09:12.54
+1486ca22
+User
+[REALTIME] event: input_audio_buffer.speech_stopped
+2025-11-16 20:09:12.54
+1486ca22
+User
+[REALTIME] event: conversation.item.created
+2025-11-16 20:09:12.54
+1486ca22
+User
+[REALTIME] event: input_audio_buffer.committed
+2025-11-16 20:09:12.99
+1486ca22
+User
+[REALTIME] event: response.output_item.added
+2025-11-16 20:09:12.99
+1486ca22
+User
+[REALTIME] event: conversation.item.created
+2025-11-16 20:09:13.01
+1486ca22
+User
+[REALTIME] event: response.content_part.added
+2025-11-16 20:09:13.39
+1486ca22
+User
+[REALTIME] event: conversation.item.input_audio_transcription.completed
+2025-11-16 20:09:13.39
+1486ca22
+User
+👤 [REALTIME] User said: זהו, זהו, זהו, זהו, זהו
+2025-11-16 20:09:14.21
+1486ca22
+User
+🎙️ REAL_VOICE: rms=313.0 > threshold=200.0
+2025-11-16 20:09:14.58
+1486ca22
+User
+[REALTIME] event: response.audio_transcript.done
