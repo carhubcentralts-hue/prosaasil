@@ -832,11 +832,6 @@ class MediaStreamHandler:
         """
         call_id = self.call_sid[:8] if self.call_sid else "unknown"
         
-        # 🚨 CRITICAL: Check for existing Realtime thread (prevent duplicate sessions)
-        if hasattr(self, 'realtime_thread') and self.realtime_thread and self.realtime_thread.is_alive():
-            print(f"⚠️ [SAFETY] Realtime thread already running for call {call_id} - BLOCKING duplicate")
-            return
-        
         print(f"🚀 [REALTIME] Thread started for call {call_id} (FRESH SESSION)")
         
         try:
