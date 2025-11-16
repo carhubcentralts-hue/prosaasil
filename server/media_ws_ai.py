@@ -872,7 +872,7 @@ class MediaStreamHandler:
                 vad_threshold=0.6,
                 silence_duration_ms=800,  # ✅ Increased: prevent mid-sentence cutoff
                 temperature=0.8,  # ✅ Natural conversations (enforced min 0.6 in implementation)
-                max_tokens=300  # ✅ Increased: allow full Hebrew sentences
+                max_tokens=600  # ✅ INCREASED: Prevent truncated responses (was 300)
             )
             print(f"✅ [REALTIME] Session configured: voice=shimmer (Hebrew-optimized), temp=0.8, format=g711_ulaw (8kHz)")
             

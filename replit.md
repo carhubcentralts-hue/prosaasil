@@ -174,3 +174,49 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 4. ✅ Google STT/TTS completely disabled in Realtime mode
 
 **Production Status**: ✅ All critical issues resolved. System uses Realtime API exclusively for phone calls.
+
+## Business Hours & Response Fixes (2025-11-16)
+
+### ✅ Fixed Business Hours Validation
+
+**Problem**: Appointment validation used hardcoded hours (08:00-18:00) instead of database AppointmentSettings.
+
+**Root Cause**: 
+- `opening_hours_json` field in `business_settings` was empty/null
+- Fallback to `working_hours` field wasn't working correctly
+- AI told customers wrong hours ("open until 2 AM" instead of actual 08:00-18:00)
+
+**Fix Applied**:
+1. **Database Update**: Populated `opening_hours_json` with correct hours from `working_hours` (08:00-18:00)
+   ```sql
+   UPDATE business_settings SET opening_hours_json = '{"sun":[["08:00","18:00"]],..."sat":[]}' WHERE tenant_id = 1;
+   ```
+2. **Validation Flow**: `validate_appointment_slot()` → `get_business_policy()` → reads `opening_hours_json` from DB
+3. **System Prompt**: Hours injected into Realtime API prompt via `build_realtime_system_prompt()`
+
+**Impact**:
+- ✅ Hours now come from database (per business)
+- ✅ AI tells customers correct hours
+- ✅ Validation rejects slots outside business hours
+- ✅ No hardcoded hours anywhere in appointment logic
+
+### ✅ Fixed Truncated AI Responses
+
+**Problem**: AI responses cutting off mid-sentence ("...רוצה לשמ" instead of complete sentence).
+
+**Root Cause**: 
+- `max_tokens=300` was too low for Hebrew sentences
+- Realtime API truncated responses when hitting token limit
+
+**Fix Applied**:
+1. **Increased max_tokens**: 300 → 600 (`server/media_ws_ai.py` line 878)
+2. **Updated prompt**: Added explicit instruction to complete sentences before stopping
+   - Changed: "משפט או שניים בלבד" → "עד 3 משפטים קצרים"
+   - Added: "סיים כל משפט לפני שתתחיל חדש - אל תעצור באמצע משפט!"
+
+**Impact**:
+- ✅ Full sentences delivered without truncation
+- ✅ More natural conversation flow
+- ✅ Token limit increased 2x for complex responses
+
+**Production Status**: ✅ Ready for testing. Business hours and response quality issues resolved.
