@@ -547,8 +547,9 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         agent_context = context or {}
         channel = agent_context.get('channel')
         
-        # Send WhatsApp confirmation for phone calls OR if explicitly requested
-        should_send_wa = channel in ['phone', 'calls', 'voice_call'] or channel == 'whatsapp'
+        # 🔥 REALTIME API: Only send WhatsApp for WhatsApp channel, NOT phone calls
+        # Phone calls will get verbal confirmation via Realtime API
+        should_send_wa = channel == 'whatsapp'
         
         if should_send_wa and phone:
             wa_start = time.time()
