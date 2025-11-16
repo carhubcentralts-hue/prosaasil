@@ -81,6 +81,25 @@ Fixed incorrect Twilio message format that caused noise instead of clear audio.
 **Files Modified:**
 - `server/media_ws_ai.py` - Twilio format fix, VAD threshold revert, enhanced logging
 
+### Enhanced Realtime Audio Debugging (2025-01-16)
+Added comprehensive logging to track audio flow in both directions for debugging persistent noise issue.
+
+**Logging Added:**
+1. **Twilio → OpenAI**: First 3 chunks logged with hex dump of μ-law bytes
+2. **OpenAI → Twilio**: First 3 chunks + every 100th frame logged with hex dump
+3. **streamSid validation**: Verify streamSid is present before sending to Twilio
+4. **Frame counting**: Track total frames sent via Realtime path
+
+**Debug Logs to Check:**
+```
+[REALTIME] sending audio TO OpenAI: chunk#1, μ-law bytes=160, first5=ff 7f ff 7f ff
+[REALTIME] got audio chunk from OpenAI: chunk#1, bytes=160, first5=ff 7f ff 7f ff
+[REALTIME] TX frame #1: len=160, first5_hex=ff 7f ff 7f ff, streamSid=MZ...
+```
+
+**Files Modified:**
+- `server/media_ws_ai.py` - Enhanced bidirectional audio logging
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.

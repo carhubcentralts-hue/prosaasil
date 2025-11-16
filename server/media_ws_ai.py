@@ -666,6 +666,17 @@ class MediaStreamHandler:
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
+                        # 🔍 DEBUG: Verify μ-law format from OpenAI
+                        if not hasattr(self, '_openai_audio_chunks_received'):
+                            self._openai_audio_chunks_received = 0
+                        self._openai_audio_chunks_received += 1
+                        
+                        if self._openai_audio_chunks_received <= 3:
+                            import base64
+                            chunk_bytes = base64.b64decode(audio_b64)
+                            first5_bytes = ' '.join([f'{b:02x}' for b in chunk_bytes[:5]])
+                            print(f"[REALTIME] got audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes}")
+                        
                         try:
                             self.realtime_audio_out_queue.put_nowait(audio_b64)
                         except queue.Full:
@@ -722,6 +733,11 @@ class MediaStreamHandler:
                 # 🔥 CRITICAL FIX: Twilio requires EXACT format:
                 # {"event": "media", "streamSid": "...", "media": {"payload": "..."}}
                 try:
+                    # Verify streamSid is valid
+                    if not self.stream_sid:
+                        print(f"❌ [REALTIME] No streamSid available! Skipping frame.")
+                        continue
+                    
                     frame = {
                         "event": "media",
                         "streamSid": self.stream_sid,
@@ -731,12 +747,13 @@ class MediaStreamHandler:
                     }
                     self.tx_q.put_nowait(frame)
                     
-                    # 🎯 Logging: verify μ-law format (log first frame + every 100th)
-                    if self.realtime_tx_frames == 1 or self.realtime_tx_frames % 100 == 0:
-                        first10_b64 = base64.b64encode(chunk_bytes[:10]).decode("ascii")
+                    # 🎯 Enhanced logging: verify μ-law format
+                    if self.realtime_tx_frames <= 5 or self.realtime_tx_frames % 100 == 0:
+                        first5_bytes = ' '.join([f'{b:02x}' for b in chunk_bytes[:5]])
                         print(
-                            f"[REALTIME] sending frame to Twilio: len={len(chunk_bytes)}, "
-                            f"first10={first10_b64}, total_frames={self.realtime_tx_frames}"
+                            f"[REALTIME] TX frame #{self.realtime_tx_frames}: "
+                            f"len={len(chunk_bytes)}, first5_hex={first5_bytes}, "
+                            f"streamSid={self.stream_sid[:15]}..."
                         )
                 except queue.Full:
                     pass
@@ -975,6 +992,15 @@ class MediaStreamHandler:
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
                         try:
+                            # 🔍 DEBUG: Log first few frames from Twilio
+                            if not hasattr(self, '_twilio_audio_chunks_sent'):
+                                self._twilio_audio_chunks_sent = 0
+                            self._twilio_audio_chunks_sent += 1
+                            
+                            if self._twilio_audio_chunks_sent <= 3:
+                                first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
+                                print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}")
+                            
                             self.realtime_audio_in_queue.put_nowait(b64)
                         except queue.Full:
                             pass
