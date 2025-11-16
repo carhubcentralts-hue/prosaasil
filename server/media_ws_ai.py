@@ -248,8 +248,8 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
 
 def parse_appointment_from_hebrew_conversation(conversation_history: list, business_id: int) -> Optional[dict]:
     """
-    Simple Hebrew parser to extract appointment details from conversation
-    Returns dict with {day, time, customer_name} or None
+    Enhanced Hebrew parser to extract appointment details from conversation
+    Returns dict with {day, time, customer_name, date_iso} or None
     """
     import re
     from datetime import datetime, timedelta
@@ -261,58 +261,114 @@ def parse_appointment_from_hebrew_conversation(conversation_history: list, busin
         "חמישי": 4, "שישי": 5, "שבת": 6
     }
     
-    # Look at last 5 messages
-    recent = conversation_history[-5:] if len(conversation_history) >= 5 else conversation_history
-    full_text = " ".join([msg["text"] for msg in recent])
+    # Look at ALL messages (not just last 5)
+    full_text = " ".join([msg["text"] for msg in conversation_history])
     
-    # Extract day of week
+    tz = pytz.timezone('Asia/Jerusalem')
+    now = datetime.now(tz)
+    
+    # Extract day of week or relative day
+    target_date = None
     day_of_week = None
-    for day_name, day_num in day_names.items():
-        if f"יום {day_name}" in full_text or f"ב{day_name}" in full_text or f"ל{day_name}" in full_text:
-            day_of_week = day_num
-            print(f"📅 [PARSER] Found day: {day_name} ({day_num})")
-            break
     
-    # Extract time
+    # Check for relative days first
+    if "מחר" in full_text:
+        target_date = now + timedelta(days=1)
+        day_of_week = target_date.weekday()
+        print(f"📅 [PARSER] Found relative day: מחר → {target_date.date()}")
+    elif "מחרתיים" in full_text or "מחרתים" in full_text:
+        target_date = now + timedelta(days=2)
+        day_of_week = target_date.weekday()
+        print(f"📅 [PARSER] Found relative day: מחרתיים → {target_date.date()}")
+    else:
+        # Try day names
+        for day_name, day_num in day_names.items():
+            if f"יום {day_name}" in full_text or f"ב{day_name}" in full_text or f"ל{day_name}" in full_text:
+                day_of_week = day_num
+                print(f"📅 [PARSER] Found day: {day_name} ({day_num})")
+                break
+    
+    # Extract time (enhanced)
     time_match = None
-    # Pattern 1: "בשש", "בשמונה"
-    hebrew_hours = {
-        "בשש": "18:00", "בשמונה": "20:00", "בתשע": "21:00",
-        "בעשר": "10:00", "באחת עשרה": "11:00", "בשתיים עשרה": "12:00",
-        "בשבע": "19:00", "בארבע": "16:00", "בחמש": "17:00"
+    hour = None
+    minute = 0
+    
+    # Pattern 1: Hebrew hours + modifiers
+    hebrew_hours_base = {
+        "שש": 18, "שמונה": 20, "תשע": 21, "עשר": 10,
+        "אחת עשרה": 11, "שתיים עשרה": 12, "שבע": 19,
+        "ארבע": 16, "חמש": 17, "שלוש": 15, "שתיים": 14
     }
-    for hebrew, time_str in hebrew_hours.items():
-        if hebrew in full_text:
-            time_match = time_str
-            print(f"⏰ [PARSER] Found time (Hebrew): {hebrew} → {time_str}")
+    
+    for hebrew, base_hour in hebrew_hours_base.items():
+        # Check for "וחצי" (and a half)
+        if f"{hebrew} וחצי" in full_text or f"ב{hebrew} וחצי" in full_text:
+            hour = base_hour
+            minute = 30
+            print(f"⏰ [PARSER] Found time (Hebrew+half): {hebrew} וחצי → {hour}:30")
+            break
+        elif f"ב{hebrew}" in full_text:
+            hour = base_hour
+            minute = 0
+            print(f"⏰ [PARSER] Found time (Hebrew): ב{hebrew} → {hour}:00")
             break
     
-    # Pattern 2: "18:00", "6 בערב"
-    if not time_match:
+    # Pattern 2: "18:00" or "6:30"
+    if hour is None:
         time_pattern = r'(\d{1,2}):(\d{2})'
         match = re.search(time_pattern, full_text)
         if match:
-            time_match = f"{match.group(1).zfill(2)}:{match.group(2)}"
-            print(f"⏰ [PARSER] Found time (HH:MM): {time_match}")
+            hour = int(match.group(1))
+            minute = int(match.group(2))
+            print(f"⏰ [PARSER] Found time (HH:MM): {hour}:{minute}")
     
-    # Extract customer name (look for user messages)
+    # Adjust for AM/PM context
+    if hour and hour < 12:
+        # Check for "בערב" context
+        if "בערב" in full_text and hour < 12:
+            hour += 12
+            print(f"⏰ [PARSER] Adjusted for evening: {hour}:00")
+        elif "בבוקר" in full_text and hour >= 12:
+            hour -= 12
+            print(f"⏰ [PARSER] Adjusted for morning: {hour}:00")
+    
+    if hour is not None:
+        time_match = f"{hour:02d}:{minute:02d}"
+    
+    # Extract customer name (look for short user messages)
     customer_name = None
-    for msg in recent:
+    for msg in conversation_history:
         if msg["speaker"] == "user":
-            # Simple heuristic: first user message might contain name
             text = msg["text"].strip()
-            if len(text) < 30 and " " in text:  # Likely a name
+            # Heuristic: name is short message without numbers/punctuation
+            if 2 < len(text) < 25 and not any(char.isdigit() for char in text):
                 customer_name = text
                 print(f"👤 [PARSER] Found customer name: {customer_name}")
                 break
     
-    if day_of_week is not None and time_match:
+    # Validate we have both day and time
+    if (day_of_week is not None or target_date) and time_match:
+        # Calculate target_date if we only have day_of_week
+        if not target_date and day_of_week is not None:
+            days_ahead = (day_of_week - now.weekday() + 7) % 7
+            if days_ahead == 0:  # Today - schedule for next week
+                days_ahead = 7
+            target_date = now + timedelta(days=days_ahead)
+        
+        # Final validation - we must have target_date by now
+        if not target_date:
+            print(f"⚠️ [PARSER] No target_date after calculation")
+            return None
+        
         return {
-            "day_of_week": day_of_week,
+            "day_of_week": day_of_week if day_of_week is not None else target_date.weekday(),
             "time": time_match,
-            "customer_name": customer_name or "לקוח"
+            "customer_name": customer_name or "לקוח",
+            "target_date": target_date.date().isoformat()
         }
     
+    # Log failure
+    print(f"⚠️ [PARSER] Parse failed - day_of_week={day_of_week}, time={time_match}")
     return None
 
 
@@ -653,6 +709,9 @@ class MediaStreamHandler:
         self.current_user_voice_start_ts = None  # When current user voice started
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
+        
+        # 🎯 APPOINTMENT PARSER: Track created appointments to prevent duplicates
+        self.created_appointments = set()  # Set of hashes: "2025-11-19T18:00"
 
     def _init_streaming_stt(self):
         """
@@ -1086,7 +1145,7 @@ class MediaStreamHandler:
     def _check_appointment_confirmation(self, ai_transcript: str):
         """
         Check if AI confirmed an appointment and create it in the system
-        Simple Hebrew pattern matching + conversation analysis
+        Enhanced with deduplication, validation, and logging
         """
         # Skip if business_id not set yet
         if not self.business_id:
@@ -1112,24 +1171,24 @@ class MediaStreamHandler:
             self.business_id
         )
         
+        # ✅ CRITICAL: Validate parsing succeeded before creating appointment
         if not details:
-            print(f"⚠️ [PARSER] Could not extract appointment details from conversation")
+            print(f"⚠️ [PARSER] Could not extract appointment details from conversation - SKIPPING")
             return
         
-        # Calculate datetime from day_of_week + time
+        if not details.get("time") or not details.get("target_date"):
+            print(f"⚠️ [PARSER] Incomplete details (time={details.get('time')}, date={details.get('target_date')}) - SKIPPING")
+            return
+        
+        # Calculate datetime from parsed details
         from datetime import datetime, timedelta
         import pytz
         
         tz = pytz.timezone('Asia/Jerusalem')
-        now = datetime.now(tz)
         
-        # Find next occurrence of day_of_week
-        target_day = details["day_of_week"]
-        days_ahead = (target_day - now.weekday() + 7) % 7
-        if days_ahead == 0:  # Today - schedule for next week
-            days_ahead = 7
-        
-        target_date = now + timedelta(days=days_ahead)
+        # Parse target date (already calculated by parser)
+        target_date_str = details["target_date"]  # ISO format: "2025-11-19"
+        target_date = datetime.fromisoformat(target_date_str)
         
         # Parse time
         hour, minute = map(int, details["time"].split(":"))
@@ -1140,6 +1199,12 @@ class MediaStreamHandler:
             hour, minute, 0
         ))
         end_dt = start_dt + timedelta(hours=1)  # Default 1 hour duration
+        
+        # 🛡️ DEDUPLICATION: Check if already created this appointment
+        appt_hash = start_dt.isoformat()
+        if appt_hash in self.created_appointments:
+            print(f"⚠️ [PARSER] Duplicate detected - appointment for {appt_hash} already created - SKIPPING")
+            return
         
         # Get customer phone from context or CRM
         crm_context = getattr(self, 'crm_context', None)
@@ -1157,12 +1222,14 @@ class MediaStreamHandler:
         )
         
         if appt_id:
-            print(f"✅ [PARSER] Created appointment #{appt_id} for {details['customer_name']} on {details['day_of_week']} at {details['time']}")
+            # ✅ Mark as created to prevent duplicates
+            self.created_appointments.add(appt_hash)
+            print(f"✅ [PARSER] Created appointment #{appt_id} for {details['customer_name']} at {appt_hash}")
             # Update CRM context with appointment ID
             if crm_context:
                 crm_context.last_appointment_id = appt_id
         else:
-            print(f"❌ [PARSER] Failed to create appointment")
+            print(f"❌ [PARSER] Failed to create appointment for {appt_hash}")
     
     def _realtime_audio_out_loop(self):
         """
