@@ -34,6 +34,32 @@ Fixed critical API errors that caused silent calls and Spanish responses instead
 - `server/services/openai_realtime_client.py` - Parameter names and content types
 - `server/media_ws_ai.py` - Added prompt preview logging
 
+### Complete Realtime API Audio Pipeline Fix
+Implemented comprehensive fix following detailed guide. Resolved tx=0 issue (no audio sent to Twilio).
+
+**Root Cause:**
+- Audio bridge used wrong format: `{"event": "media", "media": {...}}` instead of `{"type": "media", "payload": ...}`
+- VAD threshold too low (35.0) caused constant false noise detection
+
+**Fixes Applied:**
+1. **Audio Chunk Logging** - Added logging in `openai_realtime_client.py` when receiving audio from OpenAI
+2. **Audio Bridge Fix** - Corrected format from `event` to `type` in `_realtime_audio_out_loop`
+3. **Transmission Tracking** - Added counters and logging for audio sent to Twilio
+4. **G.711 μ-law Verification** - Confirmed proper audio format configuration (8kHz)
+5. **VAD Threshold Increase** - Raised from 35.0 → 800.0 to prevent false noise detection
+6. **Logging Reduction** - Reduced spam from every frame to every 50th frame
+
+**Expected Results:**
+- `tx > 0` in WS_STOP logs (frames actually sent)
+- Logs show: `[REALTIME] got audio chunk from OpenAI: bytes=X`
+- Logs show: `[REALTIME] sent media frame to Twilio: total_sent=X`
+- Clear Hebrew voice in calls, no "vacuum cleaner" noise
+- AI doesn't complain about background noise constantly
+
+**Files Modified:**
+- `server/services/openai_realtime_client.py` - Audio chunk logging
+- `server/media_ws_ai.py` - Audio bridge format fix, transmission tracking, VAD threshold increase
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
