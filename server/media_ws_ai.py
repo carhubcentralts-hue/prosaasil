@@ -397,6 +397,16 @@ class MediaStreamHandler:
         self.realtime_stop_flag = False  # Signal to stop Realtime threads
         self.realtime_thread = None  # Thread running asyncio loop
         
+        # 🎯 SMART BARGE-IN: Track AI speaking state and user interruption detection
+        self.ai_speaking = False  # Is AI currently speaking?
+        self.last_ai_audio_ts = None  # Last time AI audio was received from Realtime
+        self.min_ai_talk_guard_ms = 400  # Grace period after AI starts speaking (ms)
+        self.barge_in_rms_threshold = 350.0  # RMS threshold for barge-in detection
+        self.barge_in_min_ms = 300  # Minimum continuous speech duration for barge-in (ms)
+        self.barge_in_cooldown_ms = 800  # Cooldown between barge-in events (ms)
+        self.last_barge_in_ts = None  # Last time barge-in was triggered
+        self.current_user_voice_start_ts = None  # When current user voice started
+        
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
 
     def _init_streaming_stt(self):
@@ -731,6 +741,11 @@ class MediaStreamHandler:
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
+                        # 🎯 Track AI speaking state for barge-in detection
+                        now = time.time()
+                        self.ai_speaking = True
+                        self.last_ai_audio_ts = now
+                        
                         # 🔍 DEBUG: Verify μ-law format from OpenAI
                         if not hasattr(self, '_openai_audio_chunks_received'):
                             self._openai_audio_chunks_received = 0
@@ -772,6 +787,36 @@ class MediaStreamHandler:
             traceback.print_exc()
         
         print(f"📥 [REALTIME] Audio receiver ended")
+    
+    def _handle_realtime_barge_in(self):
+        """
+        🎯 SMART BARGE-IN: Pause AI audio playback when user starts speaking
+        Does NOT disconnect Realtime session - just stops playing back AI audio
+        """
+        print("[REALTIME] BARGE-IN triggered – user started speaking, pausing AI audio")
+        
+        # Stop AI speaking flag (checked in audio output bridge)
+        self.ai_speaking = False
+        self.last_ai_audio_ts = None
+        
+        # Clear any queued AI audio that hasn't been sent yet
+        try:
+            while not self.realtime_audio_out_queue.empty():
+                self.realtime_audio_out_queue.get_nowait()
+        except:
+            pass
+        
+        # Send clear to Twilio to stop any audio in flight
+        if not self.ws_connection_failed:
+            try:
+                self._tx_enqueue({"type": "clear"})
+            except:
+                pass
+        
+        # Reset barge-in state
+        self.current_user_voice_start_ts = None
+        
+        print("🎤 [REALTIME] BARGE-IN complete – AI paused, user can speak")
     
     def _realtime_audio_out_loop(self):
         """
@@ -1098,6 +1143,43 @@ class MediaStreamHandler:
                     
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
+                    
+                    # 🎯 SMART BARGE-IN for Realtime API
+                    if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
+                        now = time.time()
+                        
+                        # Update AI speaking state (check if AI stopped speaking)
+                        if self.ai_speaking and self.last_ai_audio_ts and \
+                           (now - self.last_ai_audio_ts) > 0.3:
+                            self.ai_speaking = False
+                            if DEBUG: print(f"[REALTIME] AI stopped speaking (no audio for 300ms)")
+                        
+                        # Check if AI is in grace period (just started speaking)
+                        if self.ai_speaking and self.last_ai_audio_ts and \
+                           (now - self.last_ai_audio_ts) * 1000 < self.min_ai_talk_guard_ms:
+                            # Inside grace period - don't allow barge-in
+                            self.current_user_voice_start_ts = None
+                        # Check if RMS is below barge-in threshold
+                        elif rms < self.barge_in_rms_threshold:
+                            # No strong voice - reset user voice start
+                            self.current_user_voice_start_ts = None
+                        else:
+                            # RMS is high - check if this is start of user speech
+                            if self.current_user_voice_start_ts is None:
+                                self.current_user_voice_start_ts = now
+                                if DEBUG: print(f"[REALTIME] User voice detected (RMS={rms:.0f})")
+                            else:
+                                # Calculate how long user has been speaking
+                                elapsed_ms = (now - self.current_user_voice_start_ts) * 1000
+                                
+                                # Check cooldown - don't trigger barge-in too frequently
+                                if self.last_barge_in_ts and \
+                                   (now - self.last_barge_in_ts) * 1000 < self.barge_in_cooldown_ms:
+                                    pass  # Inside cooldown period
+                                elif elapsed_ms >= self.barge_in_min_ms and self.ai_speaking:
+                                    # Trigger barge-in!
+                                    self._handle_realtime_barge_in()
+                                    self.last_barge_in_ts = now
                     
                     # 📊 VAD דינמי משופר עם קליברציה ארוכה יותר והיסטרזיס
                     if not self.is_calibrated and self.calibration_frames < 40:
