@@ -270,8 +270,9 @@ class OpenAIRealtimeClient:
             "input_audio_format": input_audio_format,
             "output_audio_format": output_audio_format,
             "input_audio_transcription": {
-                "model": "whisper-1",
-                "language": "he"  # ✅ Force Hebrew transcription
+                "model": "whisper-1"
+                # ✅ NO language parameter - Whisper auto-detects Hebrew perfectly
+                # ❌ "language": "he" causes transcription failures in Realtime API
             },
             "turn_detection": {
                 "type": "server_vad",

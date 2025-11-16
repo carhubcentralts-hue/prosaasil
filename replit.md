@@ -65,6 +65,26 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 
 # Recent Critical Fixes (2025-11-16)
 
+## ✅ Fix #5: Realtime API Transcription Failure
+**Problem**: `input_audio_transcription.failed` - AI received audio but couldn't transcribe, causing silent responses
+
+**Root Cause**: Configured `"language": "he"` in `input_audio_transcription`, but OpenAI Realtime API doesn't support Hebrew language code
+
+**Solution** (`server/services/openai_realtime_client.py` line 275-279):
+```python
+"input_audio_transcription": {
+    "model": "whisper-1"
+    # ✅ NO language parameter - Whisper auto-detects Hebrew perfectly
+    # ❌ "language": "he" causes transcription failures
+}
+```
+
+**Status**: ✅ Whisper now auto-detects Hebrew and transcribes successfully
+
+---
+
+# Previous Fixes (2025-11-16)
+
 ## ✅ Fix #1: Conversation History Compatibility
 **Problem**: `KeyError: 'speaker'` in `appointment_nlp.py` when processing old conversation records
 
