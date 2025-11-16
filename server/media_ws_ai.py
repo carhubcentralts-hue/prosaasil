@@ -56,6 +56,11 @@ if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
 # 🚨 DO NOT USE ENV VAR - ALWAYS False!
 ENABLE_BARGE_IN = False  # ← PERMANENTLY DISABLED!
 
+# 🚀 REALTIME API MODE - OpenAI Realtime API for phone calls
+# When enabled, phone calls use OpenAI Realtime API instead of Google STT/TTS
+# WhatsApp continues to use AgentKit (not affected by this flag)
+USE_REALTIME_API = os.getenv("USE_REALTIME_API", "false").lower() in ("true", "1", "yes")
+
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
 _flask_app_singleton = None
@@ -68,9 +73,10 @@ def _get_flask_app():
 
 # ⚡ BUILD 116: אופטימיזציות לזמן תגובה <2s
 print("="*80)
-print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION + PHASE 2N")
+print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION + REALTIME API")
 print("="*80)
 print(f"[BOOT] DEBUG = {DEBUG}")
+print(f"[BOOT] 🚀 USE_REALTIME_API = {USE_REALTIME_API} {'(OpenAI Realtime for calls)' if USE_REALTIME_API else '(Google STT/TTS)'}")
 print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
 print(f"[BOOT] ENABLE_BARGE_IN = {ENABLE_BARGE_IN} (🔥 Phase 2N: Default DISABLED)")
 print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
