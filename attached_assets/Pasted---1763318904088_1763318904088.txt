@@ -1,0 +1,177 @@
+הנה הנחיה מושלמת, קצרה, נקייה וחדה, בדיוק למה שאתה צריך עכשיו —
+כמו שאתה אוהב: בלי חפירות, בלי סיפורים — רק מה שצריך לעשות כדי לוודא שהמערכת מוכנה 100% לפריסה.
+
+⸻
+
+✅ הנחיה: וידוא מערכת מלאה לפני פריסה – OpenAI Realtime בלבד
+
+בצע את כל השלבים הבאים אחד־אחד, וסמן כל סעיף כבוצע.
+המטרה: לוודא שהפרויקט מוכן לפרודקשן, שכל המודולים פעילים, ושאין fallback או צוואר בקבוק.
+
+⸻
+
+1. הסרת Google TTS/STT לחלוטין
+
+מטרה: המערכת תשתמש רק ב־OpenAI Realtime API.
+
+בצע:
+	•	בטל/נטרל כל קריאה ל־Google STT / Whisper / TTS בכל הקבצים:
+	•	media_ws_ai.py
+	•	ai_service.py
+	•	tts_service.py
+	•	stt_service.py
+	•	ודא שאין fallback בשום מקום — רק Realtime עובד.
+
+⸻
+
+2. וידוא פורמט Twilio → OpenAI
+
+חובה לוודא:
+
+{
+  "event": "media",
+  "streamSid": STREAM_ID,
+  "media": { "payload": BASE64_ULAW }
+}
+
+וודא:
+	•	outgoing frames ל-Twilio נשלחים בפורמט EXACT הזה.
+	•	גודל פריים = 160 bytes (8kHz μ-law).
+	•	אין המרות PCM באמצע.
+
+⸻
+
+3. לטעון את הסיסטם פרומפט + פרומפט העסק מה־DB
+
+בצע:
+	1.	Load business prompt
+בקובץ realtime_prompt_builder.py:
+	•	טען את ה־custom prompt מה־DB של העסק (business.custom_prompt)
+	•	שלב אותו לתוך system prompt:
+
+SYSTEM_PROMPT = f"""
+{BASE_SYSTEM_RULES}
+
+### BUSINESS INSTRUCTIONS
+{business.custom_prompt}
+"""
+
+	2.	ודא שב־configure_session ה־prompt הנוכחי נשלח ל־OpenAI Realtime.
+
+⸻
+
+4. וידוא Smart Barge-In עובד
+
+לבדוק שהקוד כולל:
+	•	Grace period (300–400ms)
+	•	Noise filtering
+	•	זיהוי דיבור רציף לפני קיטוע (לא RMS בלבד)
+	•	Cooldown בין קיטועים
+
+וודא:
+	•	אם AI מדבר → משתמש לא עוצר אותו בטעות מלחשושים/רעש.
+	•	אם הלקוח באמת מדבר → AI מפסיק תוך <200ms.
+
+⸻
+
+5. אינטגרציה מלאה עם ה־CRM שלך
+
+ודא שהדברים הבאים קורים בשיחה בזמן אמת:
+
+א. זיהוי / יצירת ליד
+
+ב־CallCrmContext:
+	•	אם הטלפון החדש → יצירת lead
+	•	אם קיים → update lead.last_call
+
+ב. קביעת תור
+
+ודא שהסרברים שלך חשופים ל־Realtime Tools:
+	•	calendar_find_slots
+	•	calendar_create_appointment
+	•	leads_upsert
+
+וודא:
+	•	OpenAI Realtime יודע לקרוא לאותם כלים בדיוק כמו AgentKit
+	•	אחרי יצירת פגישה נערך update ל־Lead
+
+⸻
+
+6. DTMF → Realtime (לא AgentKit)
+
+וידוא:
+	•	כל DTMF נכנס אל realtime_text_in_queue
+	•	אין fallback ל־AgentKit
+	•	ה־Realtime מקבל INPUT מסוג "input_text" עם הערך של ה־DTMF
+
+⸻
+
+7. Greeting מה־Realtime בלבד
+
+הסר לחלוטין:
+	•	Google TTS
+	•	פתיח ישן
+
+ודא שהברכה נשלחת כך:
+
+{"type": "response.create", "response": {
+   "instructions": [{"type": "audio", "audio":{"text": GREETING_TEXT}}]
+}}
+
+
+⸻
+
+8. בדיקות Runtime תשובה קצרה
+
+בצע שיחת טסט וודא:
+
+לוגים שחייבים להופיע:
+	•	[REALTIME] Connected
+	•	[REALTIME] Session configured: voice=shimmer
+	•	[REALTIME] AI said: (עם עברית ברורה)
+	•	[REALTIME] got audio chunk …
+	•	[REALTIME] sending frame to Twilio
+	•	WS_STOP tx > 500
+
+בקול:
+	•	עונה תוך 0.5–1.5 שניות
+	•	מדבר ברור ולא נחתך
+	•	מבין עברית
+	•	קובע פגישה ומתעדכן ב־CRM
+
+—
+
+9. ניטרול AgentKit בשיחות
+
+מאחר שעוברים ל־Realtime:
+
+בצע:
+	•	נטרל ב־media_ws_ai.py כל fallback ל־AgentKit.
+	•	השאר AgentKit פעיל רק ל־WhatsApp.
+
+⸻
+
+10. בדיקה אחרונה – Multi Tenant
+
+בדוק ש:
+	•	כל עסק מקבל את ה־prompt שלו
+	•	כל עסק נטען עם ההגדרות שלו (business_settings)
+	•	כל עסק משתמש ביומן שלו בלבד
+	•	אין זליגת data בין עסקים שונים
+
+⸻
+
+🎯 סיום: מה להחזיר לי אחרי שהושלם
+
+תן לי:
+	•	צילום לוגים מלא של שיחת בדיקה
+	•	צילום מסך מהCRM של ליד שנוצר
+	•	פגישה שנקבעה דרך הRealtime
+	•	צילום של ה־system prompt שנשלח ל־OpenAI
+
+ואז אבדוק שהכול 100% Production Ready.
+
+⸻
+
+וזהו — זו הנחיה מושלמת ונקייה שמוודאת שהמערכת שלך עולה לרמה של AgentTalk
+(ואפילו יותר מהר מהם, כי Realtime של OpenAI יותר חדש).
