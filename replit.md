@@ -26,7 +26,7 @@ AgentLocator implements a multi-tenant architecture with complete business isola
 - **DTMF Menu**: Interactive voice response system for phone calls.
 - **Data Protection**: Strictly additive database migrations with automatic verification.
 - **OpenAI Realtime API**: Feature-flagged migration for phone calls using `gpt-4o-realtime-preview`, with dedicated asyncio threads, thread-safe queues, and bidirectional audio streaming.
-- **Cost Optimization**: Session-per-call architecture (no reuse), transcription disabled (speech-to-speech only), duplicate session prevention, and failed transcription handling without retries.
+- **Cost Optimization**: Session-per-call architecture (no reuse), duplicate session prevention, and failed transcription handling without retries. Internal Whisper transcription is mandatory for AI to hear audio - this cost cannot be avoided.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
@@ -56,7 +56,7 @@ AgentLocator implements a multi-tenant architecture with complete business isola
 - **Twilio**: Telephony services for voice calls and WhatsApp Business API.
 - **OpenAI**:
   - GPT-4o-mini for Hebrew real estate conversations, FAQ responses, and server-side NLP parsing for appointments.
-  - Realtime API (`gpt-4o-realtime-preview`) for low-latency speech-to-speech phone calls with cost optimization (transcription disabled, fresh session per call).
+  - Realtime API (`gpt-4o-realtime-preview`) for low-latency speech-to-speech phone calls. Internal Whisper transcription is required for AI audio comprehension (cost: ~$0.01 per minute). Fresh session per call.
 - **Google Cloud Platform** (legacy/fallback):
   - STT: Streaming API v1 for Hebrew speech recognition.
   - TTS: Standard API with WaveNet-D voice, telephony profile, SSML support.

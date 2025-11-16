@@ -262,9 +262,7 @@ class OpenAIRealtimeClient:
         """
         Configure Realtime API session
         
-        🚨 COST SAFETY: 
-        - NO transcription (prevents 429 rate limits)
-        - Minimal session config (only required fields)
+        ✅ REQUIRED: Internal Whisper transcription enabled (mandatory for AI to hear audio)
         
         Args:
             instructions: System prompt for the AI
@@ -276,16 +274,21 @@ class OpenAIRealtimeClient:
             temperature: AI temperature (0-2)
             max_tokens: Maximum tokens in response
         """
-        # 🚨 COST SAFETY: Minimal session config (only required fields)
+        # ✅ CRITICAL: Internal transcription is REQUIRED for AI to hear audio!
+        # Without input_audio_transcription, the AI receives no STT events and stays silent.
+        # This is NOT the same as "logging transcription" - it's the core audio→text pipeline.
         session_config = {
             "instructions": instructions,
             "modalities": ["audio", "text"],
             "voice": voice,
             "input_audio_format": input_audio_format,
             "output_audio_format": output_audio_format,
-            # 🚨 CRITICAL: NO TRANSCRIPTION - prevents 429 rate limit errors
-            # Transcription is NOT required for speech-to-speech conversations
-            # AI can hear and respond without text transcripts
+            # ✅ MANDATORY: Internal Whisper transcription for audio comprehension
+            # DO NOT remove this - AI will be completely silent without it!
+            "input_audio_transcription": {
+                "model": "whisper-1"
+                # NO "language" parameter - Whisper auto-detects Hebrew
+            },
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": vad_threshold,
@@ -299,9 +302,9 @@ class OpenAIRealtimeClient:
         # For g711_ulaw, sample rate is always 8000 Hz (telephony standard)
         # No need to explicitly set it - it's implicit in the format
         
-        logger.info(f"[SAFETY] Configuring session WITHOUT transcription (cost optimization)")
+        logger.info(f"✅ Configuring session WITH internal transcription (required for functionality)")
         await self.send_event({
             "type": "session.update",
             "session": session_config
         })
-        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=DISABLED")
+        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=ENABLED (whisper-1)")
