@@ -1,0 +1,183 @@
+Search
+
+
+Errors only
+
+Date
+Time
+Deployment
+Source
+Log
+2025-11-16 23:34:58.18
+ad194b03
+User
+{'POST', 'OPTIONS'} /api/statuses/reorder
+2025-11-16 23:37:02.38
+ad194b03
+User
+[REALTIME] sending audio TO OpenAI: chunk#1, μ-law bytes=160, first5=7e 7e 7e 7e 7e
+2025-11-16 23:37:02.38
+ad194b03
+User
+✅ [REALTIME] Threads started with greeting in queue
+2025-11-16 23:37:02.38
+ad194b03
+User
+📤 [REALTIME] Audio output bridge started
+2025-11-16 23:37:02.38
+ad194b03
+User
+[REALTIME] sending audio TO OpenAI: chunk#3, μ-law bytes=160, first5=fe fe fe fe fe
+2025-11-16 23:37:02.41
+ad194b03
+User
+🚀 [REALTIME] Async loop starting for business_id=1
+2025-11-16 23:37:02.46
+ad194b03
+User
+[REALTIME] User voice detected (RMS=485)
+2025-11-16 23:37:02.46
+ad194b03
+User
+🎙️ REAL_VOICE: rms=485.0 > threshold=200.0
+2025-11-16 23:37:02.72
+ad194b03
+User
+✅ [REALTIME] Connected to OpenAI
+2025-11-16 23:37:02.94
+ad194b03
+User
+[REALTIME] User voice detected (RMS=495)
+2025-11-16 23:37:02.98
+ad194b03
+User
+• שני:...
+2025-11-16 23:37:02.98
+ad194b03
+User
+- שעות פעילות:
+2025-11-16 23:37:02.98
+ad194b03
+User
+אתה עונה בעברית, בקול טבעי, במשפטים קצרים וברורים.
+2025-11-16 23:37:02.98
+ad194b03
+User
+📝 [REALTIME] Prompt preview: אתה נציג טלפוני אנושי ומקצועי של העסק "שי דירות".
+2025-11-16 23:37:02.98
+ad194b03
+User
+✅ [REALTIME] Built system prompt (5280 chars)
+2025-11-16 23:37:02.98
+ad194b03
+User
+🎯 חוקים לקביעת תור - ⚠️ אלה השעות האמיתיות של העסק:
+2025-11-16 23:37:02.98
+ad194b03
+User
+• ראשון: 00:00-02:00
+2025-11-16 23:37:02.98
+ad194b03
+User
+✅ [REALTIME] Greeting sent successfully
+2025-11-16 23:37:02.98
+ad194b03
+User
+⚠️ [CRM] No customer phone - skipping lead creation
+2025-11-16 23:37:02.98
+ad194b03
+User
+🚀 [REALTIME] Sending greeting: 'היי הגעת לקריוקי של העיר, מדבר דניאל, איך אוכל לעז...'
+
+2025-11-16 23:37:02.98
+ad194b03
+User
+📤 [REALTIME] Audio sender started
+2025-11-16 23:37:02.98
+ad194b03
+User
+✅ [REALTIME] Session configured: voice=shimmer (Hebrew-optimized), temp=0.8, format=g711_ulaw (8kHz)
+2025-11-16 23:37:02.99
+ad194b03
+User
+📝 [REALTIME] Text sender started
+2025-11-16 23:37:02.99
+ad194b03
+User
+📥 [REALTIME] Audio receiver started
+2025-11-16 23:37:03.06
+ad194b03
+User
+[REALTIME] event: response.created
+2025-11-16 23:37:03.06
+ad194b03
+User
+[REALTIME] event: conversation.item.created
+2025-11-16 23:37:03.19
+ad194b03
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-16 23:37:03.19
+ad194b03
+User
+[REALTIME] event: response.done
+2025-11-16 23:37:03.38
+ad194b03
+User
+[REALTIME] User voice detected (RMS=417)
+2025-11-16 23:37:03.44
+ad194b03
+User
+[REALTIME] User voice detected (RMS=366)
+2025-11-16 23:37:03.58
+ad194b03
+User
+[REALTIME] User voice detected (RMS=678)
+2025-11-16 23:37:03.77
+ad194b03
+User
+[REALTIME] User voice detected (RMS=371)
+2025-11-16 23:37:03.78
+ad194b03
+User
+[REALTIME] User voice detected (RMS=738)
+2025-11-16 23:37:03.94
+ad194b03
+User
+[REALTIME] User voice detected (RMS=407)
+2025-11-16 23:37:04.08
+ad194b03
+User
+✅ stream_status: Updated call_log for CAd6fedd328459623f6d70245b33c2abb7
+2025-11-16 23:37:04.09
+ad194b03
+User
+INFO: 34.75.153.113:0 - "POST /webhook/stream_status HTTP/1.1" 200 OK
+2025-11-16 23:37:04.23
+ad194b03
+User
+✅ CustomerIntelligence SUCCESS: customer_id=39, lead_id=104, was_created=False
+2025-11-16 23:37:04.30
+ad194b03
+User
+[REALTIME] User voice detected (RMS=440)
+2025-11-16 23:37:04.48
+ad194b03
+User
+✅ Updated call_log with customer_id=39
+2025-11-16 23:37:06.03
+ad194b03
+User
+[REALTIME] event: input_audio_buffer.speech_stopped
+2025-11-16 23:37:06.03
+ad194b03
+User
+[REALTIME] event: conversation.item.created
+2025-11-16 23:37:06.16
+ad194b03
+User
+🎙️ REAL_VOICE: rms=306.0 > threshold=200.0
+2025-11-16 23:37:07.04
+ad194b03
+User
+[REALTIME] User voice detected (RMS=544)

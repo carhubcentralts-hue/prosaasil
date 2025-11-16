@@ -1,0 +1,101 @@
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-16 23:37:46.78
+ad194b03
+User
+🎤 END OF UTTERANCE: 0.8s audio, conversation #15
+2025-11-16 23:37:46.78
+ad194b03
+User
+🧠 STATE -> PROCESSING | len=12160 | silence_ms=520
+2025-11-16 23:37:47.42
+ad194b03
+User
+🎙️ REAL_VOICE: rms=313.0 > threshold=200.0
+2025-11-16 23:37:48.00
+ad194b03
+User
+✅ Processing complete for conversation #16
+2025-11-16 23:37:48.00
+ad194b03
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=580
+2025-11-16 23:37:48.00
+ad194b03
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #16
+2025-11-16 23:37:48.00
+ad194b03
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-16 23:37:48.18
+ad194b03
+User
+[REALTIME] User voice detected (RMS=453)
+2025-11-16 23:37:49.08
+ad194b03
+User
+🎤 END OF UTTERANCE: 1.0s audio, conversation #17
+2025-11-16 23:37:49.08
+ad194b03
+User
+🧠 STATE -> PROCESSING | len=16320 | silence_ms=519
+2025-11-16 23:37:49.08
+ad194b03
+User
+✅ Processing complete for conversation #17
+2025-11-16 23:37:49.08
+ad194b03
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-16 23:37:49.78
+ad194b03
+User
+[REALTIME] User voice detected (RMS=417)
+2025-11-16 23:37:50.30
+ad194b03
+User
+[REALTIME] User voice detected (RMS=453)
+2025-11-16 23:37:50.34
+ad194b03
+User
+[REALTIME] User voice detected (RMS=461)
+2025-11-16 23:37:50.88
+ad194b03
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-16 23:37:50.88
+ad194b03
+User
+🎤 END OF UTTERANCE: 1.6s audio, conversation #18
+2025-11-16 23:37:50.88
+ad194b03
+User
+🧠 STATE -> PROCESSING | len=24960 | silence_ms=516
+2025-11-16 23:37:50.88
+ad194b03
+User
+✅ Processing complete for conversation #18
+2025-11-16 23:37:52.20
+ad194b03
+User
+💓 WS_KEEPALIVE #5 (prevents 5min timeout)
+2025-11-16 23:37:52.26
+ad194b03
+User
+📨 Received: mark
+2025-11-16 23:37:57.54
+ad194b03
+User
+🎙️ REAL_VOICE: rms=488.0 > threshold=200.0
+2025-11-16 23:37:57.54
+ad194b03
+User
+[REALTIME] User voice detected (RMS=488)
+2025-11-16 23:37:58.00
+ad194b03
+User
+[REALTIME] User voice detected (RMS=445)
+2025-11-16 23:37:58.56
+ad194b03
+User
+🧠 STATE -> PROCESSING | len=16640 | silence_ms=500
