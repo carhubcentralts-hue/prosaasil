@@ -1,0 +1,115 @@
+1486ca22
+User
+📞 DTMF pressed: 2 (buffer=05042947)
+2025-11-16 20:15:40.15
+1486ca22
+User
+📝 DTMF buffer: 0504294724
+2025-11-16 20:15:40.15
+1486ca22
+User
+📨 Received: dtmf
+2025-11-16 20:15:40.15
+1486ca22
+User
+📞 DTMF pressed: 4 (buffer=050429472)
+2025-11-16 20:15:40.57
+1486ca22
+User
+✅ DTMF phone collected: 0504294724
+2025-11-16 20:15:40.57
+1486ca22
+User
+📞 Processing DTMF phone: 0504294724
+2025-11-16 20:15:40.57
+1486ca22
+User
+✅ Stored customer_phone_dtmf: +972504294724
+2025-11-16 20:15:40.57
+1486ca22
+User
+📨 Received: dtmf
+2025-11-16 20:15:40.57
+1486ca22
+User
+✅ Phone normalized: 0504294724 → +972504294724
+2025-11-16 20:15:40.57
+1486ca22
+User
+📞 DTMF pressed: # (buffer=0504294724)
+2025-11-16 20:15:40.57
+1486ca22
+User
+🎯 DTMF -> AI: 'המספר שלי הוא 0504294724'
+2025-11-16 20:15:40.61
+1486ca22
+User
+📞 DEBUG: customer_phone from context = '+972504294724'
+2025-11-16 20:15:40.61
+1486ca22
+User
+phone_number (caller) = 'None'
+2025-11-16 20:15:40.61
+1486ca22
+User
+customer_phone_dtmf = '+972504294724'
+2025-11-16 20:15:40.61
+1486ca22
+User
+🎯 AGENTS_ENABLED = True
+2025-11-16 20:15:40.61
+1486ca22
+User
+🎯 INTENT_DETECTED: other (message: המספר שלי הוא +972504294724...)
+2025-11-16 20:15:43.31
+1486ca22
+User
+📋 Context: business_id=1, phone=+972504294724, name=None
+2025-11-16 20:15:43.31
+1486ca22
+User
+🤖 Running agent for business 1, channel=calls
+2025-11-16 20:15:43.31
+1486ca22
+User
+📝 User message: 'המספר שלי הוא +972504294724...'
+2025-11-16 20:15:43.31
+1486ca22
+User
+✅ Agent created successfully: booking_agent_שי דירות
+2025-11-16 20:15:43.31
+1486ca22
+User
+✅ Stored agent_context in Flask g: phone=+972504294724, name=None
+2025-11-16 20:15:43.31
+1486ca22
+User
+⏱️ DB query time: 2702ms
+2025-11-16 20:15:43.31
+1486ca22
+User
+♻️ CACHE HIT: Agent already warmed! (0ms)
+2025-11-16 20:15:43.31
+1486ca22
+User
+🔄 Starting Runner.run() with 0 history messages...
+2025-11-16 20:15:43.31
+1486ca22
+User
+✅ Converted to 0 messages for Agent (0ms)
+2025-11-16 20:15:43.31
+1486ca22
+User
+📚 Found 0 previous messages in context
+2025-11-16 20:15:45.37
+1486ca22
+User
+✅ Runner.run() completed in 4763ms
+2025-11-16 20:15:45.37
+1486ca22
+User
+🔍 Result type: RunResult
+2025-11-16 20:15:45.37
+1486ca22
+User
+📝 Agent final response: 'תודה על המספר! על איזה שם תרצה לקבוע את הפגישה?...'
