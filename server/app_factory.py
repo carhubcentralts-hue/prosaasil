@@ -98,7 +98,8 @@ def create_app():
     try:
         git_sha = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], 
                                         cwd=os.path.dirname(__file__), 
-                                        stderr=subprocess.DEVNULL).decode().strip()
+                                        stderr=subprocess.DEVNULL,
+                                        timeout=2).decode().strip()
     except:
         git_sha = "dev"
     print(f"🔧 APP_SHA={git_sha}")
