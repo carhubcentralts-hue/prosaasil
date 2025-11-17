@@ -1,0 +1,185 @@
+
+
+Errors only
+
+Date
+Time
+Deployment
+Source
+Log
+2025-11-17 17:37:28.57
+1c2df988
+User
+^^^^^^^^^^^^^
+2025-11-17 17:41:57.72
+1c2df988
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-17 17:41:57.72
+1c2df988
+User
+[REALTIME] event: response.audio.done
+2025-11-17 17:41:57.72
+1c2df988
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 17:41:59.33
+1c2df988
+User
+✅ [NLP] Cache updated after successful processing
+2025-11-17 17:41:59.33
+1c2df988
+User
+שלישי: 10:00-20:00
+2025-11-17 17:41:59.33
+1c2df988
+User
+שני: 10:00-20:00
+2025-11-17 17:41:59.33
+1c2df988
+User
+🔇 [SERVER_EVENT] Sent SILENTLY to AI: hours_info - שעות הפעילות שלנו:
+2025-11-17 17:41:59.33
+1c2df988
+User
+חמישי: ...
+2025-11-17 17:41:59.33
+1c2df988
+User
+📋 [NLP] User asking for business hours info - responding with policy
+2025-11-17 17:41:59.33
+1c2df988
+User
+רביעי: 10:00-
+2025-11-17 17:41:59.33
+1c2df988
+User
+🎯 [NLP] Detected action=hours_info, date=None, time=None, name=None, confidence=1.0
+2025-11-17 17:41:59.33
+1c2df988
+User
+שני: 10:00-20:00
+2025-11-17 17:41:59.33
+1c2df988
+User
+ראשון: 10:00-20:00
+2025-11-17 17:41:59.33
+1c2df988
+User
+רביעי: 10:00-20:00
+2025-11-17 17:41:59.33
+1c2df988
+User
+✅ [DEBUG] Sending hours to AI: שעות הפעילות שלנו:
+2025-11-17 17:41:59.33
+1c2df988
+User
+📊 [DEBUG] Policy loaded: allow_24_7=False, opening_hours={'sun': [['10:00', '20:00']], 'mon': [['10:00', '20:00']], 'tue': [['10:00', '20:00']], 'wed': [['10:00', '20:00']], 'thu': [['10:00', '20:00']]}
+2025-11-17 17:41:59.33
+1c2df988
+User
+ראשון: 10:00-20:00
+2025-11-17 17:41:59.33
+1c2df988
+User
+🎯 [SERVER_EVENT] Triggered response.create (lock will be cleared by response.created)
+2025-11-17 17:41:59.33
+1c2df988
+User
+שלישי: 10:00-20:00
+2025-11-17 17:41:59.41
+1c2df988
+User
+🎯 [REALTIME] Response started: resp_CcveZqTcdMDqNg0zcGdOg
+2025-11-17 17:41:59.41
+1c2df988
+User
+[REALTIME] event: response.created
+2025-11-17 17:41:59.41
+1c2df988
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 17:41:59.94
+1c2df988
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 17:41:59.94
+1c2df988
+User
+[REALTIME] event: response.output_item.added
+2025-11-17 17:41:59.95
+1c2df988
+User
+[REALTIME] event: response.content_part.added
+2025-11-17 17:42:00.07
+1c2df988
+User
+🔊 [REALTIME] AI started speaking (audio.delta)
+2025-11-17 17:42:00.87
+1c2df988
+User
+💰 [COST] AI utterance: 0.79s (117 chunks)
+2025-11-17 17:42:00.87
+1c2df988
+User
+[REALTIME] event: response.audio.done
+2025-11-17 17:42:00.87
+1c2df988
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-17 17:42:00.87
+1c2df988
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 17:42:00.87
+1c2df988
+User
+🔍 [NLP] Processing new conversation state (hash=2b9b5d3c...)
+2025-11-17 17:42:00.87
+1c2df988
+User
+🤖 [REALTIME] AI said: נשמח להתאים לך זמן שנוח לך. מתי אתה מעדיף?
+2025-11-17 17:42:00.87
+1c2df988
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-17 17:42:00.87
+1c2df988
+User
+[REALTIME] event: rate_limits.updated
+2025-11-17 17:42:00.87
+1c2df988
+User
+[REALTIME] event: response.done
+2025-11-17 17:42:00.87
+1c2df988
+User
+[REALTIME] event: response.output_item.done
+2025-11-17 17:42:00.87
+1c2df988
+User
+[REALTIME] event: response.content_part.done
+2025-11-17 17:42:01.27
+1c2df988
+User
+💓 WS_KEEPALIVE #4 (prevents 5min timeout)
+2025-11-17 17:42:01.36
+1c2df988
+User
+📨 Received: mark
+2025-11-17 17:42:02.75
+1c2df988
+User
+שני: 10:00-20:00
+2025-11-17 17:42:02.75
+1c2df988
+User
+🎯 [NLP] Detected action=hours_info, date=None, time=None, name=None, confidence=1.0
+2025-11-17 17:42:02.75
+1c2df988
+User
+📊 [DEBUG] Policy loaded: allow_24_7=False, opening_hours={'sun': [['10:00', '20:00']], 'mon': [['10:00', '20:00']], 'tue': [['10:00', '20:00']], 'wed': [['10:00', '20:00']], 'thu': [['10:00', '20:00']]}
+2025-11-17 17:42:02.75
+1c2df988
+User
+רביעי: 10:00-
