@@ -28,9 +28,10 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **OpenAI Realtime API**: Integrates **gpt-4o-realtime-preview** for phone calls with dedicated asyncio threads and thread-safe queues.
 - **AI Behavior Optimization**:
   - **Model**: gpt-4o-realtime-preview, max_tokens: 300, temperature: 0.18.
-  - **Critical Rules**: 8 comprehensive behavioral rules cover identity, brevity, silence, honesty, DTMF, and turn-taking.
-  - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis, validates business hours, rejects generic names.
-  - **Appointment Requirements**: System prompt enforces collecting full name, phone number, and date/time before scheduling.
+  - **Critical Rules**: 10 comprehensive behavioral rules cover identity, brevity, silence, honesty, DTMF, turn-taking, hours_info, and appointment flow.
+  - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with 3 actions: `hours_info` (general inquiry), `ask` (check availability), `confirm` (create appointment).
+  - **Appointment Flow (Nov 2025)**: Date/time first → Check availability → Suggest alternatives if busy → Collect name+phone → Create appointment.
+  - **Availability Check**: Real-time slot validation with up to 3 alternative suggestions if requested time is taken.
 - **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)` for reliable Hebrew speech detection.
 - **Smart Barge-In**: 400ms grace period, 150 RMS threshold, 400ms minimum voice duration, 800ms cooldown.
 - **Cost Tracking**: Chunk-based audio duration tracking, precise cost calculations, per-call cost summary.

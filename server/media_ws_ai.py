@@ -1646,21 +1646,14 @@ class MediaStreamHandler:
                         print(f"⚠️ [NLP] DB Duplicate detected - appointment for {appt_hash} already created - SKIPPING")
                         return
                     
-                    # Get customer phone from context or CRM
-                    crm_context = getattr(self, 'crm_context', None)
-                    customer_phone = crm_context.customer_phone if crm_context else "Unknown"
-                    
-                    # 🛡️ VALIDATION: Require real customer name before creating appointment
-                    if not customer_name or customer_name in ["לקוח", "אדון", "גברת", "מר", "גב'"]:
-                        print(f"⚠️ [NLP] Missing customer name - cannot create appointment without real name")
-                        # 🔥 Send event to AI to ask for name
-                        await self._send_server_event_to_ai("חסר שם מלא של הלקוח. שאל: 'מה השם המלא שלך?'")
-                        return
+                    # 🛡️ CRITICAL: customer_phone is guaranteed valid from line 1596 check
+                    # This code only runs if both name AND phone passed validation
+                    print(f"✅ [NLP] Validation passed - creating appointment for '{customer_name}' phone={customer_phone}")
                     
                     # Create appointment
                     result = create_appointment_from_realtime(
                         business_id=self.business_id,
-                        customer_phone=customer_phone,
+                        customer_phone=customer_phone,  # Validated at line 1596
                         customer_name=customer_name,  # ✅ Only real names pass validation
                         treatment_type="פגישה",  # Default treatment type
                         start_iso=start_dt.isoformat(),
