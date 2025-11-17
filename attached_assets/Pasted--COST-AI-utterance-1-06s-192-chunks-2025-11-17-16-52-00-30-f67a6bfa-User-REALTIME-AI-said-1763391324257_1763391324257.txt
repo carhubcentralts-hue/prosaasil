@@ -1,0 +1,98 @@
+ [COST] AI utterance: 1.06s (192 chunks)
+
+2025-11-17 16:52:00.30
+f67a6bfa
+User
+🤖 [REALTIME] AI said: פשוט תגיד לי איזה יום ושעה מתאימים לך.
+2025-11-17 16:52:00.30
+f67a6bfa
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-17 16:52:00.30
+f67a6bfa
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 16:52:00.30
+f67a6bfa
+User
+[REALTIME] event: response.audio.done
+2025-11-17 16:52:00.30
+f67a6bfa
+User
+🔍 [NLP] Processing new conversation state (hash=090ca75c...)
+2025-11-17 16:52:00.30
+f67a6bfa
+User
+[REALTIME] event: response.done
+2025-11-17 16:52:00.30
+f67a6bfa
+User
+[REALTIME] event: response.output_item.done
+2025-11-17 16:52:00.30
+f67a6bfa
+User
+[REALTIME] event: response.content_part.done
+2025-11-17 16:52:00.30
+f67a6bfa
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-17 16:52:00.31
+f67a6bfa
+User
+[REALTIME] event: rate_limits.updated
+2025-11-17 16:52:00.48
+f67a6bfa
+User
+💓 WS_KEEPALIVE #5 (prevents 5min timeout)
+2025-11-17 16:52:00.58
+f67a6bfa
+User
+📨 Received: mark
+2025-11-17 16:52:01.81
+f67a6bfa
+User
+🔇 [SERVER_EVENT] Sent SILENTLY to AI: need_datetime - שאל את הלקוח: באיזה תאריך ושעה היית רוצה לקבוע?
+2025-11-17 16:52:01.81
+f67a6bfa
+User
+❓ [NLP] User asking for availability - AI should check and respond
+2025-11-17 16:52:01.81
+f67a6bfa
+User
+🎯 [NLP] Detected action=ask, date=None, time=None, name=פיליפ, confidence=0.8
+2025-11-17 16:52:01.81
+f67a6bfa
+User
+🎯 [SERVER_EVENT] Triggered response.create (lock will be cleared by response.created)
+2025-11-17 16:52:01.81
+f67a6bfa
+User
+✅ [NLP] Cache updated after successful processing
+2025-11-17 16:52:01.87
+f67a6bfa
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 16:52:01.87
+f67a6bfa
+User
+[REALTIME] event: response.created
+2025-11-17 16:52:01.87
+f67a6bfa
+User
+🎯 [REALTIME] Response started: resp_CcusDcUmbCKGMbGHC46uc
+2025-11-17 16:52:02.52
+f67a6bfa
+User
+[REALTIME] event: response.output_item.added
+2025-11-17 16:52:02.52
+f67a6bfa
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 16:52:02.54
+f67a6bfa
+User
+[REALTIME] event: response.content_part.added
+2025-11-17 16:52:02.64
+f67a6bfa
+User
+🔊 [REALTIME] AI started speaking (audio.delta)

@@ -1248,9 +1248,12 @@ class MediaStreamHandler:
                     # 🔥 FIX: Clear audio queue to prevent background noise (residual frames)
                     frames_cleared = 0
                     try:
-                        while not self.realtime_audio_out_queue.empty():
-                            self.realtime_audio_out_queue.get_nowait()
-                            frames_cleared += 1
+                        while True:
+                            try:
+                                self.realtime_audio_out_queue.get_nowait()
+                                frames_cleared += 1
+                            except queue.Empty:
+                                break
                     except:
                         pass
                     if frames_cleared > 0:
@@ -1693,6 +1696,9 @@ class MediaStreamHandler:
         FRAME_DURATION_MS = 20  # Each frame is 20ms of audio
         chunk_count = 0
         
+        # 🔥 FIX: Rolling buffer for incomplete frames (prevents audio doubling!)
+        audio_buffer = b''  # Buffer to accumulate sub-160-byte frames
+        
         while not self.realtime_stop_flag:
             try:
                 audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
@@ -1717,15 +1723,17 @@ class MediaStreamHandler:
                     print(f"❌ [REALTIME] No streamSid available! Skipping chunk.")
                     continue
                 
-                # 🔥 CRITICAL FIX: Split large chunks into 160-byte Twilio frames
-                # OpenAI sends large chunks (12KB-33KB), Twilio expects 160 bytes (20ms audio)
-                for i in range(0, len(chunk_bytes), TWILIO_FRAME_SIZE):
-                    frame_bytes = chunk_bytes[i:i+TWILIO_FRAME_SIZE]
-                    
-                    # 🔥 FIX: Drop incomplete frames instead of padding (prevents clicks)
-                    if len(frame_bytes) < TWILIO_FRAME_SIZE:
-                        print(f"⚠️ [AUDIO] Dropping incomplete frame: {len(frame_bytes)} bytes")
-                        continue
+                # 🔥 CRITICAL FIX: Use rolling buffer to combine sub-160-byte frames
+                # OpenAI sends variable chunk sizes (80-160 bytes)
+                # We MUST NOT pad with silence (doubles duration!) - buffer and combine instead!
+                
+                # Add chunk to buffer
+                audio_buffer += chunk_bytes
+                
+                # Extract complete 160-byte frames from buffer
+                while len(audio_buffer) >= TWILIO_FRAME_SIZE:
+                    frame_bytes = audio_buffer[:TWILIO_FRAME_SIZE]
+                    audio_buffer = audio_buffer[TWILIO_FRAME_SIZE:]  # Keep remainder
                     
                     # Encode to base64 for Twilio
                     frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
@@ -1746,7 +1754,7 @@ class MediaStreamHandler:
                         # Log first few frames for verification
                         if self.realtime_tx_frames <= 3:
                             first5 = ' '.join([f'{b:02x}' for b in frame_bytes[:5]])
-                            print(f"✅ [AUDIO] Frame #{self.realtime_tx_frames}: 160 bytes, first5={first5}")
+                            print(f"✅ [AUDIO] Frame #{self.realtime_tx_frames}: 160 bytes, first5={first5}, buffer={len(audio_buffer)}")
                         
                     except queue.Full:
                         print(f"⚠️ [AUDIO] tx_q full, dropping frame #{self.realtime_tx_frames}")
@@ -2037,12 +2045,14 @@ class MediaStreamHandler:
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
                         now = time.time()
                         
-                        # Update AI speaking state (check if AI stopped speaking)
-                        # 🔥 FIX: Increased timeout to 1.5s (AI can pause mid-sentence!)
+                        # 🔥 FIX: Safety timeout (5s) - only if response.audio.done is missed!
+                        # Primary clearing is response.audio.done, this is backup for error cases
+                        # (connection hiccup, response.cancel during barge-in, etc.)
                         if self.is_ai_speaking_event.is_set() and self.last_ai_audio_ts and \
-                           (now - self.last_ai_audio_ts) > 1.5:
-                            self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped (timeout)
-                            print(f"[REALTIME] AI stopped speaking (no audio for 1500ms)")
+                           (now - self.last_ai_audio_ts) > 5.0:
+                            self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped (timeout backup)
+                            self.ai_speaking_start_ts = None
+                            print(f"⚠️ [REALTIME] AI stopped speaking (safety timeout 5s - response.audio.done missed?)")
                         
                         # 🎯 CRITICAL FIX: Check if user is speaking AND AI is speaking
                         if rms >= self.barge_in_rms_threshold:
