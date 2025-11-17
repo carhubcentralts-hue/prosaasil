@@ -975,10 +975,10 @@ class MediaStreamHandler:
                 output_audio_format="g711_ulaw",  # OpenAI → Twilio: μ-law 8kHz
                 vad_threshold=0.6,
                 silence_duration_ms=600,  # 💰 OPTIMIZED: Faster detection = less audio input minutes
-                temperature=0.18,  # 🎯 LOW TEMP: Focused, less creative responses (was 0.8)
+                temperature=0.6,  # 🔥 MINIMUM VALUE: OpenAI Realtime requires >= 0.6
                 max_tokens=300  # 🎯 BALANCED: ~280-320 tokens for natural but brief responses (Agent 3 spec)
             )
-            print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.18, silence=600ms, format=g711_ulaw, NO TOOLS (appointment via NLP)")
+            print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.6, silence=600ms, format=g711_ulaw, NO TOOLS (appointment via NLP)")
             
             # 📋 CRM: Initialize context and ensure lead exists
             customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
@@ -1664,9 +1664,9 @@ class MediaStreamHandler:
         """
         🚀 REALTIME API: Bridge thread that moves audio from realtime_audio_out_queue to tx_q
         
-        🔍 DEBUG MODE: Log all chunk sizes to diagnose audio issues
+        🔥 CRITICAL FIX: Split OpenAI chunks (12KB+) into Twilio frames (160 bytes)
         """
-        print(f"📤 [REALTIME] Audio output bridge started (DEBUG MODE)")
+        print(f"📤 [REALTIME] Audio output bridge started")
         
         # Track realtime audio transmission
         if not hasattr(self, 'realtime_tx_frames'):
@@ -1674,6 +1674,7 @@ class MediaStreamHandler:
         if not hasattr(self, 'realtime_tx_bytes'):
             self.realtime_tx_bytes = 0
         
+        TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law = 160 bytes
         chunk_count = 0
         
         while not self.realtime_stop_flag:
@@ -1684,43 +1685,56 @@ class MediaStreamHandler:
                     print(f"📤 [REALTIME] Stop signal received")
                     break
                 
-                # Decode to analyze
+                # Decode OpenAI chunk
                 import base64
                 chunk_bytes = base64.b64decode(audio_b64)
                 chunk_count += 1
                 self.realtime_tx_bytes += len(chunk_bytes)
                 
-                # 🔍 CRITICAL DEBUG: Log EVERY chunk size to understand the pattern
-                first5_bytes = ' '.join([f'{b:02x}' for b in chunk_bytes[:5]])
-                print(
-                    f"🔍 [AUDIO DEBUG] Chunk #{chunk_count}: "
-                    f"len={len(chunk_bytes)} bytes, "
-                    f"first5={first5_bytes}, "
-                    f"tx_q_size={self.tx_q.qsize()}/900"
-                )
+                # 🔍 Log large chunks (OpenAI sends 12KB+ chunks, we need to split them)
+                if len(chunk_bytes) > 1000:
+                    num_frames = len(chunk_bytes) // TWILIO_FRAME_SIZE
+                    print(f"📦 [AUDIO] OpenAI chunk #{chunk_count}: {len(chunk_bytes)} bytes → splitting into {num_frames} frames")
                 
                 # Verify streamSid is valid
                 if not self.stream_sid:
                     print(f"❌ [REALTIME] No streamSid available! Skipping chunk.")
                     continue
                 
-                # 🎯 Send chunk AS-IS (no splitting for now - debug mode)
-                frame = {
-                    "event": "media",
-                    "streamSid": self.stream_sid,
-                    "media": {
-                        "payload": audio_b64
+                # 🔥 CRITICAL FIX: Split large chunks into 160-byte Twilio frames
+                # OpenAI sends large chunks (12KB-33KB), Twilio expects 160 bytes (20ms audio)
+                for i in range(0, len(chunk_bytes), TWILIO_FRAME_SIZE):
+                    frame_bytes = chunk_bytes[i:i+TWILIO_FRAME_SIZE]
+                    
+                    # Only send complete frames
+                    if len(frame_bytes) < TWILIO_FRAME_SIZE:
+                        # Pad incomplete frame with silence (μ-law 0xFF = silence)
+                        frame_bytes = frame_bytes + b'\xff' * (TWILIO_FRAME_SIZE - len(frame_bytes))
+                    
+                    # Encode to base64 for Twilio
+                    frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
+                    
+                    # Create Twilio frame
+                    twilio_frame = {
+                        "event": "media",
+                        "streamSid": self.stream_sid,
+                        "media": {
+                            "payload": frame_b64
+                        }
                     }
-                }
-                
-                try:
-                    self.tx_q.put_nowait(frame)
-                    self.realtime_tx_frames += 1
-                    print(f"✅ [AUDIO DEBUG] Chunk #{chunk_count} queued successfully")
-                except queue.Full:
-                    print(f"❌ [AUDIO DEBUG] tx_q FULL! Dropping chunk #{chunk_count} ({len(chunk_bytes)} bytes)")
-                except Exception as e:
-                    print(f"❌ [AUDIO DEBUG] Error enqueueing: {e}")
+                    
+                    try:
+                        self.tx_q.put_nowait(twilio_frame)
+                        self.realtime_tx_frames += 1
+                        
+                        # Log first few frames for verification
+                        if self.realtime_tx_frames <= 3:
+                            first5 = ' '.join([f'{b:02x}' for b in frame_bytes[:5]])
+                            print(f"✅ [AUDIO] Frame #{self.realtime_tx_frames}: 160 bytes, first5={first5}")
+                    except queue.Full:
+                        print(f"⚠️ [AUDIO] tx_q full, dropping frame #{self.realtime_tx_frames}")
+                    except Exception as e:
+                        print(f"❌ [AUDIO] Error enqueueing: {e}")
                     
             except queue.Empty:
                 continue
@@ -1730,8 +1744,7 @@ class MediaStreamHandler:
                 traceback.print_exc()
                 break
         
-        print(f"📤 [REALTIME] Audio output bridge ended")
-        print(f"📊 [AUDIO DEBUG] Total: {chunk_count} chunks, {self.realtime_tx_frames} frames sent, {self.realtime_tx_bytes} bytes")
+        print(f"📤 [REALTIME] Audio output bridge ended (sent {self.realtime_tx_frames} frames, {self.realtime_tx_bytes} bytes)")
 
     def run(self):
         # Media stream handler initialized")
