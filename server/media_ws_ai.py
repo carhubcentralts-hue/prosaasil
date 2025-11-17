@@ -3980,11 +3980,27 @@ class MediaStreamHandler:
             # ✅ Send as system event (silent - AI reads but doesn't speak)
             try:
                 import asyncio
-                # Send system event asynchronously
-                asyncio.create_task(self._send_server_event_to_ai(
-                    f"📞 הלקוח הקליד מספר טלפון ב-DTMF: {phone_to_show}. שמור את המספר ותאשר ללקוח שקיבלת אותו."
-                ))
-                print(f"✅ [REALTIME] DTMF phone sent as system event")
+                import threading
+                
+                # 🔥 FIX: Run async coroutine in separate thread with its own event loop
+                def run_in_thread():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self._send_server_event_to_ai(
+                            f"📞 הלקוח הקליד מספר טלפון ב-DTMF: {phone_to_show}. שמור את המספר ותאשר ללקוח שקיבלת אותו."
+                        ))
+                        print(f"✅ [REALTIME] DTMF phone sent as system event")
+                    except Exception as e:
+                        print(f"❌ [REALTIME] Error sending DTMF phone: {e}")
+                        import traceback
+                        traceback.print_exc()
+                    finally:
+                        loop.close()
+                
+                # Launch in background thread
+                thread = threading.Thread(target=run_in_thread, daemon=True)
+                thread.start()
                 
                 # Save to conversation history with new format
                 self.conversation_history.append({
