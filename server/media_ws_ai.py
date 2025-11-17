@@ -1663,12 +1663,10 @@ class MediaStreamHandler:
     def _realtime_audio_out_loop(self):
         """
         🚀 REALTIME API: Bridge thread that moves audio from realtime_audio_out_queue to tx_q
-        This allows Realtime audio to use the existing Twilio transmission pipeline.
         
-        ✅ FIFO Queue - No replay, no duplicates
-        🔥 CRITICAL FIX: Break OpenAI chunks into 160-byte Twilio frames (20ms @ 8kHz μ-law)
+        🔍 DEBUG MODE: Log all chunk sizes to diagnose audio issues
         """
-        print(f"📤 [REALTIME] Audio output bridge started")
+        print(f"📤 [REALTIME] Audio output bridge started (DEBUG MODE)")
         
         # Track realtime audio transmission
         if not hasattr(self, 'realtime_tx_frames'):
@@ -1676,7 +1674,7 @@ class MediaStreamHandler:
         if not hasattr(self, 'realtime_tx_bytes'):
             self.realtime_tx_bytes = 0
         
-        TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz = 160 bytes μ-law
+        chunk_count = 0
         
         while not self.realtime_stop_flag:
             try:
@@ -1686,59 +1684,43 @@ class MediaStreamHandler:
                     print(f"📤 [REALTIME] Stop signal received")
                     break
                 
-                # Decode to get raw μ-law bytes
+                # Decode to analyze
                 import base64
                 chunk_bytes = base64.b64decode(audio_b64)
+                chunk_count += 1
                 self.realtime_tx_bytes += len(chunk_bytes)
                 
-                # 🎯 DEBUG: Log chunk sizes from OpenAI
-                if self.realtime_tx_frames <= 3:
-                    print(f"[REALTIME] Got chunk from OpenAI: {len(chunk_bytes)} bytes, will split into {len(chunk_bytes)//TWILIO_FRAME_SIZE} Twilio frames")
+                # 🔍 CRITICAL DEBUG: Log EVERY chunk size to understand the pattern
+                first5_bytes = ' '.join([f'{b:02x}' for b in chunk_bytes[:5]])
+                print(
+                    f"🔍 [AUDIO DEBUG] Chunk #{chunk_count}: "
+                    f"len={len(chunk_bytes)} bytes, "
+                    f"first5={first5_bytes}, "
+                    f"tx_q_size={self.tx_q.qsize()}/900"
+                )
                 
-                # 🔥 CRITICAL FIX: Split large OpenAI chunks into 160-byte Twilio frames
-                # OpenAI may send large chunks (e.g., 12.8KB), but Twilio expects small frames
-                for i in range(0, len(chunk_bytes), TWILIO_FRAME_SIZE):
-                    frame_bytes = chunk_bytes[i:i+TWILIO_FRAME_SIZE]
-                    
-                    # Skip incomplete frames at the end (should not happen with μ-law)
-                    if len(frame_bytes) < TWILIO_FRAME_SIZE:
-                        print(f"⚠️ [REALTIME] Skipping incomplete frame: {len(frame_bytes)} bytes (expected {TWILIO_FRAME_SIZE})")
-                        continue
-                    
-                    # Encode to base64 for Twilio
-                    frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
-                    
-                    # Verify streamSid is valid
-                    if not self.stream_sid:
-                        print(f"❌ [REALTIME] No streamSid available! Skipping frame.")
-                        continue
-                    
-                    # Create Twilio frame
-                    twilio_frame = {
-                        "event": "media",
-                        "streamSid": self.stream_sid,
-                        "media": {
-                            "payload": frame_b64
-                        }
+                # Verify streamSid is valid
+                if not self.stream_sid:
+                    print(f"❌ [REALTIME] No streamSid available! Skipping chunk.")
+                    continue
+                
+                # 🎯 Send chunk AS-IS (no splitting for now - debug mode)
+                frame = {
+                    "event": "media",
+                    "streamSid": self.stream_sid,
+                    "media": {
+                        "payload": audio_b64
                     }
-                    
-                    try:
-                        self.tx_q.put_nowait(twilio_frame)
-                        self.realtime_tx_frames += 1
-                        
-                        # 🎯 Enhanced logging: verify μ-law format
-                        if self.realtime_tx_frames <= 5 or self.realtime_tx_frames % 100 == 0:
-                            first5_bytes = ' '.join([f'{b:02x}' for b in frame_bytes[:5]])
-                            print(
-                                f"[REALTIME] TX frame #{self.realtime_tx_frames}: "
-                                f"len={len(frame_bytes)}, first5_hex={first5_bytes}, "
-                                f"streamSid={self.stream_sid[:15]}..."
-                            )
-                    except queue.Full:
-                        print(f"⚠️ [REALTIME] tx_q full, dropping frame #{self.realtime_tx_frames}")
-                        pass
-                    except Exception as e:
-                        print(f"❌ [REALTIME] Error enqueueing audio: {e}")
+                }
+                
+                try:
+                    self.tx_q.put_nowait(frame)
+                    self.realtime_tx_frames += 1
+                    print(f"✅ [AUDIO DEBUG] Chunk #{chunk_count} queued successfully")
+                except queue.Full:
+                    print(f"❌ [AUDIO DEBUG] tx_q FULL! Dropping chunk #{chunk_count} ({len(chunk_bytes)} bytes)")
+                except Exception as e:
+                    print(f"❌ [AUDIO DEBUG] Error enqueueing: {e}")
                     
             except queue.Empty:
                 continue
@@ -1748,7 +1730,8 @@ class MediaStreamHandler:
                 traceback.print_exc()
                 break
         
-        print(f"📤 [REALTIME] Audio output bridge ended (sent {self.realtime_tx_frames} frames, {self.realtime_tx_bytes} bytes)")
+        print(f"📤 [REALTIME] Audio output bridge ended")
+        print(f"📊 [AUDIO DEBUG] Total: {chunk_count} chunks, {self.realtime_tx_frames} frames sent, {self.realtime_tx_bytes} bytes")
 
     def run(self):
         # Media stream handler initialized")
