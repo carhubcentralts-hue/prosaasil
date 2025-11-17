@@ -91,7 +91,9 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
         
         # 🎤 CRITICAL RULES AT THE TOP - HIGH PRIORITY
-        critical_rules = """🎤 חוקי שיחה (עדיפות ראשונה!):
+        critical_rules = """⚠️ שפת השיחה: עברית בלבד! כל השיחה מתנהלת בעברית.
+
+🎤 חוקי שיחה (עדיפות ראשונה!):
 
 1. פתיח קצר: בפתיחת השיחה תאמר רק משפט פתיחה אחד קצר (עד 2 משפטים) שמציג מי אתה ומה אתה עושה, ואז תשאל שאלה פתוחה קצרה.
    דוגמה: "שלום, {{business_name}}, איך אפשר לעזור?"

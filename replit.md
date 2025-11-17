@@ -82,7 +82,7 @@ AgentLocator implements a multi-tenant architecture with complete business isola
     - Cost: $0.01/min input + $0.02/min output = **80% cost savings** (~$0.025 per 2-min call vs $0.21)
     - Temperature: 0.18 (very low for consistency)
     - NO function calling tools - appointments via NLP parser only
-  - Internal Whisper transcription with **forced Hebrew language** (`language: "he"`) for accurate phone call transcription
+  - Internal Whisper transcription with auto-detect (Hebrew specified in system prompt)
   - Fresh session per call (no reuse)
 - **Google Cloud Platform** (legacy/fallback):
   - STT: Streaming API v1 for Hebrew speech recognition.
