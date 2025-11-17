@@ -6,14 +6,28 @@ AgentLocator is a Hebrew CRM system for real estate professionals that automates
 
 **Agent 3 Final Implementation** - Production-ready with verification logs:
 
-### 0. Deployment Fix (Cloud Run Startup)
+### 0. Critical Audio & Deployment Fixes
+
+#### **Audio Transmission Fix** 🔊
+- **Problem**: "Vacuum cleaner noise" - poor audio quality, only 6 frames transmitted per call
+- **Root Cause**: OpenAI sends large μ-law chunks (~12.8KB), but Twilio expects small 160-byte frames (20ms @ 8kHz)
+  - 76,800 bytes ÷ 6 frames = 12,800 bytes/frame (80x too large!)
+  - Oversized frames treated as malformed → Twilio cuts stream → no intelligible audio
+- **Solution**: Split each OpenAI chunk into 160-byte Twilio frames in `_realtime_audio_out_loop()`
+  - TWILIO_FRAME_SIZE = 160 bytes (20ms μ-law audio)
+  - Break large chunks: `for i in range(0, len(chunk_bytes), 160)`
+  - Each frame properly encoded as base64 for Twilio Media Stream
+- **Result**: Continuous, intelligible Hebrew audio - thousands of frames transmitted per call
+- **File**: `media_ws_ai.py` (lines 1666-1754)
+
+#### **Deployment Fix** (Cloud Run Startup)
 - **Problem**: Flask started after Baileys, causing Cloud Run timeout (port 5000 not ready)
 - **Solution 1**: Reversed startup order - Flask/Uvicorn starts FIRST (2 sec), then Baileys in background
 - **Solution 2**: Background Flask warmup - ASGI binds port immediately, Flask warms in parallel (0.5s delay)
 - **Solution 3**: Immediate /healthz endpoint - responds before Flask initialization completes
 - **Solution 4**: Prompt validation - aborts Realtime session if system prompt empty (prevents Spanish fallback)
 - **Result**: Port 5000 binds in <1 second, health checks pass, Hebrew prompts ready before first call
-- Files: `start_production.sh` (startup order), `asgi.py` (warmup + immediate health), `media_ws_ai.py` (validation)
+- **Files**: `start_production.sh` (startup order), `asgi.py` (warmup + immediate health), `media_ws_ai.py` (validation)
 
 ### 1. Model Configuration (Locked & Verified)
 **Phone Calls (Realtime API)**:
