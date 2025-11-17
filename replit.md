@@ -30,7 +30,13 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - **Model**: gpt-4o-realtime-preview, max_tokens: 300, temperature: 0.18.
   - **Critical Rules**: 10 comprehensive behavioral rules cover identity, brevity, silence, honesty, DTMF, turn-taking, hours_info, and appointment flow.
   - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with 3 actions: `hours_info` (general inquiry), `ask` (check availability), `confirm` (create appointment).
-  - **Appointment Flow (Nov 2025)**: Date/time first → Check availability → Suggest alternatives if busy → Collect name+phone → Create appointment.
+  - **Appointment Flow (Nov 2025)**: Date/time first → Check availability → Suggest alternatives if busy → Collect name (verbal) → Collect phone (DTMF) → Create appointment.
+  - **Customer Data Persistence (Nov 2025)**: 4-path hydration system ensures name survival:
+    - Path 1: Direct save to crm_context.customer_name when context exists
+    - Path 2: Temporary cache (self.pending_customer_name) when context doesn't exist yet
+    - Path 3: Auto-hydration when crm_context created (session_description event)
+    - Path 4: Auto-hydration when crm_context created by DTMF handler
+    - Fallback in confirm handler retrieves from both sources and writes back to context
   - **Availability Check**: Real-time slot validation with up to 3 alternative suggestions if requested time is taken.
 - **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)` for reliable Hebrew speech detection.
 - **Smart Barge-In**: 400ms grace period, 150 RMS threshold, 400ms minimum voice duration, 800ms cooldown.
