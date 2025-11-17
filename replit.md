@@ -38,6 +38,7 @@ AgentLocator implements a multi-tenant architecture with complete business isola
   - **Comprehensive Cost Tracking**: Chunk-based audio duration tracking (50 chunks/sec @ 8kHz μ-law), precise cost calculations with pricing lookup table, per-call cost summary with warnings
   - Session-per-call architecture (no reuse), duplicate session prevention, and failed transcription handling without retries
   - Internal Whisper transcription is mandatory for AI to hear audio - this cost cannot be avoided (included in audio input pricing)
+- **Smart Barge-In**: Enabled by default with intelligent state tracking (`is_ai_speaking`, `has_pending_ai_response`) for natural interruption handling
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

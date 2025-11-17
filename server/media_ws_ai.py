@@ -54,10 +54,9 @@ USE_STREAMING_STT = True
 if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
     USE_STREAMING_STT = False
 
-# 🔥 BARGE-IN PERMANENTLY DISABLED - Hard-coded (user demand)
-# User: "ששום דבר לא יוכל לגרום לבוט להפסיק לדבר, אם הוא התחיל לדבר שלא יפסיק!!!!"
-# 🚨 DO NOT USE ENV VAR - ALWAYS False!
-ENABLE_BARGE_IN = False  # ← PERMANENTLY DISABLED!
+# 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
+# Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
+ENABLE_BARGE_IN = os.getenv("ENABLE_BARGE_IN", "true").lower() in ("true", "1", "yes")
 
 # 🚀 REALTIME API MODE - OpenAI Realtime API for phone calls
 # When enabled, phone calls use OpenAI Realtime API instead of Google STT/TTS
@@ -344,7 +343,7 @@ if USE_REALTIME_API:
     cost_info = "$0.01-0.02/min (80% cheaper)" if is_mini else "$0.06-0.24/min (standard)"
     print(f"[BOOT] 💰 REALTIME_MODEL = {OPENAI_REALTIME_MODEL} ({cost_info})")
 print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
-print(f"[BOOT] ENABLE_BARGE_IN = {ENABLE_BARGE_IN} (🔥 Phase 2N: Default DISABLED)")
+print(f"[BOOT] ENABLE_BARGE_IN = {ENABLE_BARGE_IN} (🎯 Smart barge-in with state tracking)")
 print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
 print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
 print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
@@ -1836,9 +1835,8 @@ class MediaStreamHandler:
                         self.voice_in_row = 0  # Reset barge-in counter
                         continue  # ← SKIP EVERYTHING - don't listen at all!
                     
-                    # 🔥 PHASE 2N: BARGE-IN COMPLETELY DISABLED BY DEFAULT
-                    # User: "שלא יעצור בחיים לדבר עד שהוא מסיים לדבר"
-                    # Only run barge-in logic if EXPLICITLY enabled via env var
+                    # 🎯 SMART BARGE-IN: Enabled by default with intelligent state tracking
+                    # Only trigger when AI is actively speaking (not just thinking)
                     if ENABLE_BARGE_IN:
                         # ספירת פריימים רצופים של קול חזק בלבד
                         if is_strong_voice:
