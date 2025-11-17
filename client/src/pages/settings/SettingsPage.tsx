@@ -237,7 +237,19 @@ export function SettingsPage() {
   });
 
   // Business data query
-  const { data: businessData, isLoading: businessLoading } = useQuery({
+  const { data: businessData, isLoading: businessLoading } = useQuery<{
+    name: string;
+    phone_number: string;
+    email: string;
+    address: string;
+    working_hours: string;
+    timezone: string;
+    slot_size_min: number;
+    allow_24_7: boolean;
+    booking_window_days: number;
+    min_notice_min: number;
+    opening_hours_json?: Record<string, string[][]>;
+  }>({
     queryKey: ['/api/business/current'],
     refetchOnMount: true
   });
@@ -246,7 +258,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (businessData) {
       setBusinessSettings({
-        business_name: businessData.name || '',
+        business_name: businessData.name || '',  // API returns 'name' but UI uses 'business_name'
         phone_number: businessData.phone_number || '',
         email: businessData.email || '',
         address: businessData.address || '',
