@@ -697,6 +697,7 @@ class MediaStreamHandler:
         self.realtime_greeting_queue = _queue_module.Queue(maxsize=1)  # Greeting → Realtime
         self.realtime_stop_flag = False  # Signal to stop Realtime threads
         self.realtime_thread = None  # Thread running asyncio loop
+        self.realtime_client = None  # 🔥 NEW: Store Realtime client for barge-in response.cancel
         
         # 🎯 SMART BARGE-IN: Track AI speaking state and user interruption detection
         self.is_ai_speaking = False  # Is AI currently speaking?
@@ -704,6 +705,7 @@ class MediaStreamHandler:
         self.last_ai_audio_ts = None  # Last time AI audio was received from Realtime
         self.last_user_turn_id = None  # Last user conversation item ID
         self.last_ai_turn_id = None  # Last AI conversation item ID
+        self.active_response_id = None  # 🔥 Track active response ID for cancellation
         self.min_ai_talk_guard_ms = 600  # 🔥 Grace period after AI starts speaking (raised to 600ms)
         self.barge_in_rms_threshold = 150.0  # 🔥 LOWERED: RMS threshold for barge-in (was 260, now 150 for easier interruption)
         self.min_voice_duration_ms = 500  # 🔥 LOWERED: Minimum voice duration to process (was 800ms, now 500ms)
@@ -912,6 +914,9 @@ class MediaStreamHandler:
         try:
             client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
             await client.connect()
+            
+            # 🔥 Store client reference for barge-in
+            self.realtime_client = client
             
             # 💰 Log model selection for cost tracking
             is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
@@ -1150,6 +1155,13 @@ class MediaStreamHandler:
                 if not event_type.endswith(".delta") and not event_type.startswith("session"):
                     print(f"[REALTIME] event: {event_type}")
                 
+                # 🔥 Track response ID for barge-in cancellation
+                if event_type == "response.created":
+                    response_id = event.get("response", {}).get("id")
+                    if response_id:
+                        self.active_response_id = response_id
+                        print(f"🎯 [REALTIME] Response started: {response_id}")
+                
                 # ✅ ONLY handle audio.delta - ignore other audio events!
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
@@ -1188,6 +1200,7 @@ class MediaStreamHandler:
                     # 🎯 Mark AI response complete
                     self.is_ai_speaking = False
                     self.has_pending_ai_response = False
+                    self.active_response_id = None  # Clear response ID
                     pass
                 
                 elif event_type == "response.audio_transcript.done":
@@ -1242,10 +1255,33 @@ class MediaStreamHandler:
     
     def _handle_realtime_barge_in(self):
         """
-        🎯 SMART BARGE-IN: Pause AI audio playback when user starts speaking
-        Does NOT disconnect Realtime session - just stops playing back AI audio
+        🔥 ENHANCED BARGE-IN: Stop AI generation + playback when user speaks
+        Sends response.cancel to Realtime API to stop text generation (not just audio!)
         """
-        print("[REALTIME] BARGE-IN triggered – user started speaking, pausing AI audio")
+        print("[REALTIME] BARGE-IN triggered – user started speaking, CANCELING AI response")
+        
+        # 🔥 CRITICAL: Cancel active AI response generation (not just playback!)
+        if self.active_response_id and self.realtime_client:
+            try:
+                import asyncio
+                # Create event loop if needed
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                # Send response.cancel event
+                cancel_event = {"type": "response.cancel"}
+                future = asyncio.run_coroutine_threadsafe(
+                    self.realtime_client.send_event(cancel_event),
+                    loop
+                )
+                future.result(timeout=0.5)  # Wait max 0.5s
+                print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id}")
+                self.active_response_id = None
+            except Exception as e:
+                print(f"⚠️ [BARGE-IN] Failed to cancel response: {e}")
         
         # Stop AI speaking flag (checked in audio output bridge)
         self.is_ai_speaking = False
@@ -1268,7 +1304,7 @@ class MediaStreamHandler:
         # Reset barge-in state
         self.current_user_voice_start_ts = None
         
-        print("🎤 [REALTIME] BARGE-IN complete – AI paused, user can speak")
+        print("🎤 [REALTIME] BARGE-IN complete – AI FULLY STOPPED, user can speak")
     
     async def _check_appointment_confirmation_async(self):
         """
