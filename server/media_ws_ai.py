@@ -4052,15 +4052,6 @@ class MediaStreamHandler:
                     self.pending_customer_name = None  # Clear cache
                 print(f"✅ Created crm_context with phone: {normalized_phone}")
             
-            # 🔥 CRITICAL FIX: After creating/updating crm_context, check if we can create appointment
-            # This runs IMMEDIATELY after we have both name and phone
-            crm_context = getattr(self, 'crm_context', None)
-            if crm_context and crm_context.customer_name and crm_context.customer_phone:
-                print(f"🎯 [DTMF] We now have name={crm_context.customer_name} AND phone={crm_context.customer_phone}")
-                print(f"🔄 [DTMF] Triggering NLP to check if appointment can be created...")
-                # Trigger NLP check (uses existing conversation history)
-                self._check_appointment_confirmation("")  # Empty string - uses history
-            
             phone_to_show = normalized_phone
         else:
             print(f"⚠️ Phone normalization failed for: {phone_number}")
@@ -4104,6 +4095,15 @@ class MediaStreamHandler:
                     "text": f"[DTMF keys pressed: {phone_to_show}]",
                     "ts": time.time()
                 })
+                
+                # 🔥 CRITICAL FIX: After adding DTMF to history, check if we can create appointment
+                # This runs AFTER conversation_history has DTMF, so NLP sees complete data
+                crm_context = getattr(self, 'crm_context', None)
+                if crm_context and crm_context.customer_name and crm_context.customer_phone:
+                    print(f"🎯 [DTMF] We now have name={crm_context.customer_name} AND phone={crm_context.customer_phone}")
+                    print(f"🔄 [DTMF] Triggering NLP to check if appointment can be created...")
+                    # Trigger NLP check (uses existing conversation history WITH DTMF!)
+                    self._check_appointment_confirmation("")  # Empty string - uses history
                 
             except queue.Full:
                 print(f"❌ [REALTIME] CRITICAL: Text input queue full - DTMF phone dropped!")
