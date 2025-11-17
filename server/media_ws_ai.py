@@ -1326,21 +1326,16 @@ class MediaStreamHandler:
             
             # 🎯 Thread-safe optimistic lock: Prevent response collision race condition
             if not self.active_response_id and not self.response_pending_event.is_set():
-                self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
-                send_success = False
                 try:
+                    self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
                     await self.realtime_client.send_event({"type": "response.create"})
-                    send_success = True  # Mark success
-                    print(f"🎯 [SERVER_EVENT] Triggered response.create")
+                    print(f"🎯 [SERVER_EVENT] Triggered response.create (lock will be cleared by response.created)")
                 except Exception as send_error:
-                    print(f"❌ [SERVER_EVENT] Failed to send response.create: {send_error}")
+                    # 🔓 CRITICAL: Clear lock immediately on send failure
+                    # Prevents deadlock when network errors occur
+                    self.response_pending_event.clear()
+                    print(f"❌ [SERVER_EVENT] Send failed, lock cleared: {send_error}")
                     raise  # Re-raise to outer handler
-                finally:
-                    # 🔓 CRITICAL: Clear lock if send failed (prevents deadlock on network errors)
-                    # If send succeeded, lock will be cleared by response.created or audio.done
-                    if not send_success:
-                        self.response_pending_event.clear()
-                        print(f"🔓 [SERVER_EVENT] Cleared lock after send failure")
             else:
                 print(f"⏸️ [SERVER_EVENT] Skipping response.create - active: {self.active_response_id}, pending: {self.response_pending_event.is_set()}")
             
@@ -1595,25 +1590,29 @@ class MediaStreamHandler:
         current_hash = hashlib.md5(conversation_str.encode()).hexdigest()
         
         # Skip if already processed this exact conversation state (with 30s TTL)
+        should_process = False
         with self.nlp_processing_lock:
             now = time.time()
-            hash_age = now - self.last_nlp_hash_timestamp
             
-            # Clear cache if TTL expired (allows alternating hashes: A→B→A)
-            if hash_age >= 30:
-                print(f"🔄 [NLP] TTL expired ({hash_age:.1f}s) - clearing cache")
-                self.last_nlp_processed_hash = None
-                self.last_nlp_hash_timestamp = 0
-            
-            # Skip only if SAME hash AND within TTL window
-            if current_hash == self.last_nlp_processed_hash:
-                print(f"⏭️ [NLP] Skipping duplicate analysis (hash={current_hash[:8]}..., age={hash_age:.1f}s)")
+            # Check if we should process (new hash OR expired TTL)
+            if self.last_nlp_processed_hash is None:
+                # First run
+                should_process = True
+            elif current_hash != self.last_nlp_processed_hash:
+                # Different hash - always process
+                should_process = True
+            elif (now - self.last_nlp_hash_timestamp) >= 30:
+                # Same hash but TTL expired - reprocess
+                print(f"🔄 [NLP] TTL expired - reprocessing same hash")
+                should_process = True
+            else:
+                # Same hash within TTL - skip
+                hash_age = now - self.last_nlp_hash_timestamp
+                print(f"⏭️ [NLP] Skipping duplicate (hash={current_hash[:8]}..., age={hash_age:.1f}s)")
                 return
-            
-            # Process: NEW hash (or cache was cleared)
-            # Update hash and timestamp atomically
-            self.last_nlp_processed_hash = current_hash
-            self.last_nlp_hash_timestamp = now
+        
+        if not should_process:
+            return
         
         print(f"🔍 [NLP] Processing new conversation state (hash={current_hash[:8]}...)")
         
@@ -1623,10 +1622,16 @@ class MediaStreamHandler:
             asyncio.set_event_loop(loop)
             try:
                 loop.run_until_complete(self._check_appointment_confirmation_async())
+                # ✅ SUCCESS: Update cache ONLY after NLP completes successfully
+                with self.nlp_processing_lock:
+                    self.last_nlp_processed_hash = current_hash
+                    self.last_nlp_hash_timestamp = time.time()
+                    print(f"✅ [NLP] Cache updated after successful processing")
             except Exception as e:
-                print(f"❌ [NLP] Error in async parser: {e}")
+                print(f"❌ [NLP] Error in async parser (cache NOT updated): {e}")
                 import traceback
                 traceback.print_exc()
+                # Cache NOT updated - allows retry on next utterance
             finally:
                 loop.close()
         
