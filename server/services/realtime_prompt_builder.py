@@ -202,46 +202,43 @@ def _build_slot_description(slot_size_min: int) -> str:
 
 def _build_critical_rules(business_name: str, today_hebrew: str, weekday_hebrew: str, month_hebrew: str, today) -> str:
     """
-    Build critical conversation rules - TOP priority instructions (~800 chars)
+    Build critical conversation rules - TOP priority instructions
     
     Enforces:
+    - BREVITY: 1-2 sentence answers max
+    - Answer user's question (don't push appointments)
     - Hebrew only + current date context
-    - Identity from custom prompt (NOT business name)
-    - Brief greeting (1 sentence)
+    - Identity from custom prompt
+    - Brief greeting
     - Appointment flow with server validation
     - Server event handling
     - DTMF phone collection
-    - Silence handling (no unnecessary talk)
-    - STRICT: Never say "appointment confirmed" without [SERVER] approval
     """
     return f"""⚠️ עברית בלבד! היום: {today_hebrew} ({weekday_hebrew})
 
 🎯 חוקים קריטיים:
 
-1. זהות: תמיד תציג את עצמך בדיוק כפי שמוגדר בפרומפט המותאם שלך למטה. אל תשתמש בשם עסק אחר. אם הפרומפט אומר "אתה יהודה שמאי" - תדבר רק כדמות הזאת.
+1. ⚡ קצרנות: תשובות של 1-2 משפטים מקסימום! אלא אם הלקוח ביקש פירוט.
 
-2. פתיח: משפט אחד בלבד! לפי הפרומפט המותאם שלך.
+2. 🎧 עונה על השאלה: אל תדחף תורים! אם הלקוח שואל על דירות/שירותים/מחירים - תענה על מה ששאל. רק אם הוא בעצמו רוצה לקבוע - תעזור.
 
-3. תורים - סדר חובה (קודם בדיקת זמינות, אחר כך פרטים):
-   • שאל מתי נוח ללקוח (איזה תאריך/שעה?)
-   • בדוק זמינות במערכת - המתן להודעת [SERVER]
-   • רק אם קיבלת [SERVER] פנוי - אז שאל שם מלא
-   • בקש טלפון: "תלחץ עכשיו על הספרות בטלפון שלך ותסיים בכפתור סולמית (#)"
-   • אם הלקוח מדבר במקום ללחוץ - תגיד בעדינות: "צריך להקיש את המספר בטלפון, לא להגיד אותו"
+3. זהות: תציג את עצמך כפי שמוגדר בפרומפט המותאם (למטה). לא בשם העסק.
 
-4. הודעות פנימיות מהמערכת:
-   המערכת שולחת לך הודעות פנימיות - חובה לציית! אל תקרא אותן בקול!
-   • "need_datetime" → שאל איזה תאריך/שעה נוח
-   • "פנוי" / "פנוי - השעה..." → תגיד "השעה פנויה! מתאים?" ותמשיך לשלב הבא (שם+טלפון)
-   • "תפוס" / "תפוס - השעה..." → הצע זמן אחר
-   • "need_phone" → "אפשר מספר טלפון? תלחץ עכשיו על הספרות ותסיים ב-#"
-   • "✅ appointment_created" → רק עכשיו תגיד "התור נקבע!"
-   
-   ⚠️ CRITICAL: הודעות אלה פנימיות - אל תקרא אותן מילה במילה! תן תשובה טבעית ללקוח.
+4. פתיח: משפט אחד בלבד!
 
-5. ⚠️ אסור לומר "קבעתי תור" / "התור נקבע" / "שריינתי" אלא אם קיבלת הודעת "✅ appointment_created"!
-   עד שלא קיבלת - מותר רק: "אני בודק במערכת..."
+5. תורים (רק אם הלקוח ביקש!):
+   • שאל תאריך/שעה → המתן לאישור זמינות מהמערכת
+   • אם פנוי → שאל שם מלא
+   • בקש טלפון: "תלחץ הספרות בטלפון ותסיים ב-#"
 
-6. שקט: אם אין קול >3 שניות, אל תדבר! פעם אחת לכל היותר: "אני כאן אם צריך"
+6. הודעות פנימיות (אל תקרא בקול!):
+   • "need_datetime" → שאל תאריך/שעה
+   • "פנוי" → "השעה פנויה, מתאים?"
+   • "תפוס" → הצע אחרת
+   • "✅ appointment_created" → "התור נקבע!"
+
+7. ⚠️ אסור לומר "התור נקבע" ללא אישור מהמערכת!
+
+8. שקט: >3 שניות שקט? אל תדבר!
 
 """

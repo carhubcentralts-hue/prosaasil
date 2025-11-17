@@ -729,6 +729,8 @@ class MediaStreamHandler:
         
         # 🎯 APPOINTMENT PARSER: DB-based deduplication via CallSession table
         self.call_sid = None  # Will be set from 'start' event
+        self.last_nlp_processed_hash = None  # Hash of last processed conversation for NLP dedup
+        self.nlp_processing_lock = threading.Lock()  # Prevent concurrent NLP runs
 
     def _init_streaming_stt(self):
         """
@@ -951,7 +953,7 @@ class MediaStreamHandler:
                 vad_threshold=0.6,
                 silence_duration_ms=600,  # 💰 OPTIMIZED: Faster detection = less audio input minutes
                 temperature=0.18,  # 🎯 LOW TEMP: Focused, less creative responses (was 0.8)
-                max_tokens=600  # ✅ Prevent truncated responses
+                max_tokens=120  # 🔥 BREVITY: Force short 1-2 sentence answers (was 600)
             )
             print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.18, silence=600ms, format=g711_ulaw, NO TOOLS (appointment via NLP)")
             
@@ -1308,8 +1310,12 @@ class MediaStreamHandler:
             await self.realtime_client.send_event(event)
             print(f"🔇 [SERVER_EVENT] Sent SILENTLY to AI: {message_text[:100]}")
             
-            # 🎯 Trigger AI response
-            await self.realtime_client.send_event({"type": "response.create"})
+            # 🎯 Trigger AI response ONLY if there's no active response
+            if not self.active_response_id:
+                await self.realtime_client.send_event({"type": "response.create"})
+                print(f"🎯 [SERVER_EVENT] Triggered response.create")
+            else:
+                print(f"⏸️ [SERVER_EVENT] Skipping response.create - active response: {self.active_response_id}")
             
         except Exception as e:
             print(f"❌ [SERVER_EVENT] Failed to send: {e}")
@@ -1551,8 +1557,24 @@ class MediaStreamHandler:
         """
         Wrapper to call async NLP parser from sync context
         Launches async parser in separate thread to avoid event loop conflicts
+        
+        🔥 DEDUPLICATION: Only runs NLP once per unique conversation state
         """
         import threading
+        import hashlib
+        
+        # 🔥 CRITICAL: Create hash of conversation to prevent duplicate NLP runs
+        conversation_str = json.dumps(self.conversation_history[-10:], sort_keys=True)  # Last 10 messages
+        current_hash = hashlib.md5(conversation_str.encode()).hexdigest()
+        
+        # Skip if already processed this exact conversation state
+        with self.nlp_processing_lock:
+            if current_hash == self.last_nlp_processed_hash:
+                print(f"⏭️ [NLP] Skipping duplicate analysis (hash={current_hash[:8]}...)")
+                return
+            self.last_nlp_processed_hash = current_hash
+        
+        print(f"🔍 [NLP] Processing new conversation state (hash={current_hash[:8]}...)")
         
         def run_in_thread():
             """Run async parser in dedicated thread with its own event loop"""
