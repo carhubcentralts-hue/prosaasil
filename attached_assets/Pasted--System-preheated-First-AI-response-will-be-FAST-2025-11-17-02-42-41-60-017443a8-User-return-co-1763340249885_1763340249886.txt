@@ -1,0 +1,82 @@
+🚀 System preheated - First AI response will be FAST!
+2025-11-17 02:42:41.60
+017443a8
+User
+return connection._execute_clauseelement(
+
+2025-11-17 02:42:41.60
+017443a8
+User
+cursor.execute(statement, parameters)
+2025-11-17 02:42:41.60
+017443a8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+2025-11-17 02:42:41.60
+017443a8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+2025-11-17 02:42:41.60
+017443a8
+User
+FROM business_settings
+2025-11-17 02:42:41.60
+017443a8
+User
+return self._exec_single_context(
+2025-11-17 02:42:41.60
+017443a8
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-17 02:42:41.60
+017443a8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+2025-11-17 02:42:41.60
+017443a8
+User
+settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+2025-11-17 02:42:41.60
+017443a8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+2025-11-17 02:42:41.60
+017443a8
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-17 02:42:41.60
+017443a8
+User
+cursor.execute(statement, parameters)
+2025-11-17 02:42:41.60
+017443a8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+2025-11-17 02:42:41.60
+017443a8
+User
+return self.limit(1)._iter().first() # type: ignore
+2025-11-17 02:42:41.60
+017443a8
+User
+WHERE business_settings.tenant_id = %(tenant_id_1)s
+2025-11-17 02:42:41.60
+017443a8
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+2025-11-17 02:42:41.60
+017443a8
+User
+Traceback (most recent call last):
+2025-11-17 02:42:41.60
+017443a8
+User
+^^^^^^^^^^^^^^^^^^^^^
+2025-11-17 02:42:41.60
+017443a8
+User
+LIMIT %(param_1)s]
+2025-11-17 02:42:41.60
+017443a8
+User
+result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
