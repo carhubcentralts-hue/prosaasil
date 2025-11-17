@@ -1576,11 +1576,29 @@ class MediaStreamHandler:
             
             return
         
-        # Handle "confirm" action (user confirmed appointment)
+        # 🔥 NEW: Handle "confirm" action (user confirmed appointment)
         if action == "confirm":
-            # ✅ CRITICAL: Validate we have all required fields
+            # Get CRM context
+            crm_context = getattr(self, 'crm_context', None)
+            
+            # ✅ STEP 1: Validate we have date and time
             if not date_iso or not time_str:
                 print(f"⚠️ [NLP] Incomplete confirmation (date={date_iso}, time={time_str}) - SKIPPING")
+                return
+            
+            # ✅ STEP 2: Check if we have customer name and phone
+            # Customer phone should be available from call context
+            customer_phone = crm_context.customer_phone if crm_context else None
+            
+            if not customer_name or not customer_phone:
+                # Missing name or phone - ask AI to collect it
+                print(f"⚠️ [NLP] Missing customer info (name={customer_name}, phone={customer_phone})")
+                if not customer_name and not customer_phone:
+                    await self._send_server_event_to_ai("need_name_phone - שאל את הלקוח: על איזה שם לרשום? ומה מספר הטלפון?")
+                elif not customer_name:
+                    await self._send_server_event_to_ai("need_name_phone - שאל את הלקוח: על איזה שם לרשום את התור?")
+                elif not customer_phone:
+                    await self._send_server_event_to_ai("need_name_phone - שאל את הלקוח: מה מספר הטלפון שלך?")
                 return
             
             # Calculate datetime
