@@ -1331,9 +1331,16 @@ class MediaStreamHandler:
                 target_date.year, target_date.month, target_date.day,
                 hour, minute, 0
             ))
-            end_dt = start_dt + timedelta(hours=1)  # Default 1 hour duration
             
-            # ✅ STEP 1: Validate slot is within business hours
+            # 🔥 CRITICAL: Use slot_size_min from business policy (NOT hardcoded 1 hour!)
+            from server.policy.business_policy import get_business_policy
+            policy = get_business_policy(self.business_id)
+            slot_duration_min = policy.slot_size_min  # 15, 30, or 60 minutes from DB settings
+            end_dt = start_dt + timedelta(minutes=slot_duration_min)
+            
+            print(f"📅 [NLP] Appointment duration: {slot_duration_min} minutes (from DB policy)")
+            
+            # ✅ STEP 1: Validate slot is within business hours AND check calendar availability
             if not validate_appointment_slot(self.business_id, start_dt):
                 print(f"❌ [NLP] Slot {start_dt.isoformat()} outside business hours - SKIPPING")
                 return
