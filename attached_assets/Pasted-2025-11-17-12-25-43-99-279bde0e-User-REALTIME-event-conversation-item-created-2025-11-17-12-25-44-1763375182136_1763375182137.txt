@@ -1,0 +1,92 @@
+2025-11-17 12:25:43.99
+279bde0e
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 12:25:44.06
+279bde0e
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-17 12:25:44.06
+279bde0e
+User
+🧠 STATE -> PROCESSING | len=15040 | silence_ms=517
+2025-11-17 12:25:44.06
+279bde0e
+User
+🎤 END OF UTTERANCE: 0.9s audio, conversation #4
+2025-11-17 12:25:44.06
+279bde0e
+User
+✅ Processing complete for conversation #4
+2025-11-17 12:25:44.68
+279bde0e
+User
+[REALTIME] event: conversation.item.input_audio_transcription.completed
+2025-11-17 12:25:44.68
+279bde0e
+User
+👤 [REALTIME] User said: MBC 뉴스 이덕영입니다.
+2025-11-17 12:25:44.68
+279bde0e
+User
+💰 [COST] User utterance: 12.31s (1735 chunks total)
+2025-11-17 12:25:44.68
+279bde0e
+User
+[SAFETY] Transcription successful (total failures: 0)
+2025-11-17 12:25:44.68
+279bde0e
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-17 12:25:44.88
+279bde0e
+User
+💰 [COST] User utterance: 0.20s (1745 chunks total)
+2025-11-17 12:25:44.88
+279bde0e
+User
+[REALTIME] event: conversation.item.input_audio_transcription.completed
+2025-11-17 12:25:44.88
+279bde0e
+User
+👤 [REALTIME] User said: Thank you very much. We look forward to seeing you again.
+2025-11-17 12:25:45.14
+279bde0e
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 12:25:45.14
+279bde0e
+User
+[REALTIME] event: response.output_item.added
+2025-11-17 12:25:45.15
+279bde0e
+User
+[REALTIME] event: response.content_part.added
+2025-11-17 12:25:45.78
+279bde0e
+User
+📭 [NLP] No appointment action detected
+2025-11-17 12:25:46.42
+279bde0e
+User
+🤖 [REALTIME] AI said: אפשר לקבל את שמך המלא? בנוסף, תוכל להקיש את המספר בטלפון שלך ולהשלים עם כפתור סולמית (#) כדי שאוכל לבדוק עבורך את זמינות התור.
+2025-11-17 12:25:46.42
+279bde0e
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 12:25:46.42
+279bde0e
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-17 12:25:46.42
+279bde0e
+User
+[REALTIME] event: response.content_part.done
+2025-11-17 12:25:46.42
+279bde0e
+User
+[REALTIME] event: response.output_item.done
+2025-11-17 12:25:46.43
+279bde0e
+User
+[REALTIME
