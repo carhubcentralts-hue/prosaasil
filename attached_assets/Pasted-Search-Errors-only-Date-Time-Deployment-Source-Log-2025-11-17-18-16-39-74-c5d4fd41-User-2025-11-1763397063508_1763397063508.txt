@@ -1,0 +1,187 @@
+Search
+
+
+Errors only
+
+Date
+Time
+Deployment
+Source
+Log
+2025-11-17 18:16:39.74
+c5d4fd41
+User
+]
+2025-11-17 18:26:19.34
+c5d4fd41
+User
+⚠️ [BARGE-IN] User spoke 780ms but AI NOT speaking - no barge-in needed
+2025-11-17 18:26:19.36
+c5d4fd41
+User
+⚠️ [BARGE-IN] User spoke 800ms but AI NOT speaking - no barge-in needed
+2025-11-17 18:26:19.38
+c5d4fd41
+User
+⚠️ [BARGE-IN] User spoke 820ms but AI NOT speaking - no barge-in needed
+2025-11-17 18:26:19.40
+c5d4fd41
+User
+⚠️ [BARGE-IN] User spoke 840ms but AI NOT speaking - no barge-in needed
+2025-11-17 18:26:19.42
+c5d4fd41
+User
+⚠️ [BARGE-IN] User spoke 860ms but AI NOT speaking - no barge-in needed
+2025-11-17 18:26:19.45
+c5d4fd41
+User
+⚠️ [BARGE-IN] User spoke 882ms but AI NOT speaking - no barge-in needed
+2025-11-17 18:26:19.46
+c5d4fd41
+User
+⚠️ [BARGE-IN] User spoke 900ms but AI NOT speaking - no barge-in needed
+2025-11-17 18:26:19.48
+c5d4fd41
+User
+⚠️ [BARGE-IN] User spoke 920ms but AI NOT speaking - no barge-in needed
+2025-11-17 18:26:19.50
+c5d4fd41
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-17 18:26:19.50
+c5d4fd41
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=69 < 150.0)
+2025-11-17 18:26:20.00
+c5d4fd41
+User
+🎤 END OF UTTERANCE: 1.8s audio, conversation #8
+2025-11-17 18:26:20.00
+c5d4fd41
+User
+🧠 STATE -> PROCESSING | len=29440 | silence_ms=520
+2025-11-17 18:26:20.00
+c5d4fd41
+User
+✅ Processing complete for conversation #8
+2025-11-17 18:26:20.00
+c5d4fd41
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-17 18:26:20.27
+c5d4fd41
+User
+[REALTIME] event: input_audio_buffer.speech_stopped
+2025-11-17 18:26:20.28
+c5d4fd41
+User
+[REALTIME] event: input_audio_buffer.committed
+2025-11-17 18:26:20.28
+c5d4fd41
+User
+[REALTIME] event: response.created
+2025-11-17 18:26:20.28
+c5d4fd41
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 18:26:20.28
+c5d4fd41
+User
+🎯 [REALTIME] Response started: resp_CcwLUIYsxgnpSWOvrrJz9
+2025-11-17 18:26:20.74
+c5d4fd41
+User
+[REALTIME] event: conversation.item.input_audio_transcription.completed
+2025-11-17 18:26:20.74
+c5d4fd41
+User
+🔍 [NLP] Processing new conversation state (hash=8e65269b...)
+2025-11-17 18:26:20.74
+c5d4fd41
+User
+💰 [COST] User utterance: 9.47s (1874 chunks total)
+
+2025-11-17 18:26:20.74
+c5d4fd41
+User
+👤 [REALTIME] User said: Shash Mone Bhairav.
+2025-11-17 18:26:20.74
+c5d4fd41
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-17 18:26:20.75
+c5d4fd41
+User
+[SAFETY] Transcription successful (total failures: 0)
+2025-11-17 18:26:20.95
+c5d4fd41
+User
+[REALTIME] event: response.output_item.added
+2025-11-17 18:26:20.95
+c5d4fd41
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 18:26:20.96
+c5d4fd41
+User
+[REALTIME] event: response.content_part.added
+2025-11-17 18:26:21.05
+c5d4fd41
+User
+🔊 [REALTIME] AI started speaking (audio.delta)
+2025-11-17 18:26:22.15
+c5d4fd41
+User
+💰 [COST] AI utterance: 1.10s (126 chunks)
+2025-11-17 18:26:22.15
+c5d4fd41
+User
+🤖 [REALTIME] AI said: מצוין, אני בודק זמינות לשמונה בערב ביום שלישי.
+2025-11-17 18:26:22.15
+c5d4fd41
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 18:26:22.15
+c5d4fd41
+User
+[REALTIME] event: response.output_item.done
+2025-11-17 18:26:22.15
+c5d4fd41
+User
+[REALTIME] event: response.audio.done
+2025-11-17 18:26:22.15
+c5d4fd41
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-17 18:26:22.15
+c5d4fd41
+User
+[REALTIME] event: response.content_part.done
+2025-11-17 18:26:22.16
+c5d4fd41
+User
+[REALTIME] event: response.done
+2025-11-17 18:26:22.16
+c5d4fd41
+User
+[REALTIME] event: rate_limits.updated
+2025-11-17 18:26:22.32
+c5d4fd41
+User
+📭 [NLP] No appointment action detected
+2025-11-17 18:26:22.32
+c5d4fd41
+User
+✅ [NLP] Cache updated after successful processing
+2025-11-17 18:26:23.40
+c5d4fd41
+User
+💓 WS_KEEPALIVE #4 (prevents 5min timeout)
+2025-11-17 18:26:23.49
+c5d4fd41
+User
+📨 Received: mark
+2025-11-17 18:26:33.42
+c5d4fd41
+User
+💓 WS_KEEPALIVE #5 (prevents 5min timeout)

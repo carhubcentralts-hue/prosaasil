@@ -3970,22 +3970,27 @@ class MediaStreamHandler:
             print(f"⚠️ Phone normalization failed for: {phone_number}")
             phone_to_show = phone_number
         
-        # Create Hebrew text as if customer said it
-        # 🔥 BUILD 118: Add context so agent understands this is phone input
-        hebrew_text = f"המספר שלי הוא {phone_to_show}"
+        # 🔥 FIX: Send DTMF phone as SYSTEM event (not user message) so AI accepts it!
+        # AI is configured to reject verbal phone numbers and only accept DTMF keys
+        # By sending as system event, we bypass AI's strict "press keys" validation
         
-        # 🚀 REALTIME API: Send via Realtime if enabled, otherwise use AgentKit
+        # 🚀 REALTIME API: Send via system event (not user message!)
         if USE_REALTIME_API:
-            print(f"🚀 [REALTIME] Sending DTMF phone via Realtime API: {phone_to_show}")
-            # ✅ Queue the user's DTMF phone message (non-blocking, no fallback to AgentKit)
+            print(f"🚀 [REALTIME] Sending DTMF phone as SYSTEM event: {phone_to_show}")
+            # ✅ Send as system event (silent - AI reads but doesn't speak)
             try:
-                self.realtime_text_input_queue.put_nowait(hebrew_text)
-                print(f"✅ [REALTIME] DTMF phone queued for Realtime API")
+                import asyncio
+                # Send system event asynchronously
+                asyncio.create_task(self._send_server_event_to_ai(
+                    f"📞 הלקוח הקליד מספר טלפון ב-DTMF: {phone_to_show}. שמור את המספר ותאשר ללקוח שקיבלת אותו."
+                ))
+                print(f"✅ [REALTIME] DTMF phone sent as system event")
                 
-                # Save to conversation history
+                # Save to conversation history with new format
                 self.conversation_history.append({
-                    "user": f"[DTMF] {phone_to_show}",
-                    "bot": "(Realtime API handling)"
+                    "speaker": "user",
+                    "text": f"[DTMF keys pressed: {phone_to_show}]",
+                    "ts": time.time()
                 })
             except queue.Full:
                 print(f"❌ [REALTIME] CRITICAL: Text input queue full - DTMF phone dropped!")
@@ -3997,6 +4002,7 @@ class MediaStreamHandler:
                 # Don't fall back to AgentKit - this could cause dual responses
         else:
             # Legacy: Get AI response via AgentKit (Google STT/TTS mode)
+            hebrew_text = f"המספר שלי הוא {phone_to_show}"
             ai_response = self._ai_response(hebrew_text)
             
             # Speak the response using the correct method
