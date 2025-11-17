@@ -67,10 +67,18 @@ ENABLE_BARGE_IN = os.getenv("ENABLE_BARGE_IN", "true").lower() in ("true", "1", 
 # WhatsApp continues to use AgentKit (not affected by this flag)
 USE_REALTIME_API = os.getenv("USE_REALTIME_API", "false").lower() in ("true", "1", "yes")
 
-# 💰 COST OPTIMIZATION: Choose Realtime model
-# gpt-4o-realtime-preview: $0.06/min input, $0.24/min output (default)
-# gpt-4o-mini-realtime-preview: $0.01/min input, $0.02/min output (80% cheaper!)
-OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL", "gpt-4o-realtime-preview")
+# 🎯 AGENT 3 SPEC: Force gpt-4o-realtime-preview (NOT mini)
+# This overrides any environment variable to ensure compliance
+OPENAI_REALTIME_MODEL = "gpt-4o-realtime-preview"
+
+# 🔍 VERIFICATION: Log if env var tries to override
+_env_model = os.getenv("OPENAI_REALTIME_MODEL")
+if _env_model and _env_model != OPENAI_REALTIME_MODEL:
+    import logging
+    logging.getLogger(__name__).warning(
+        f"⚠️ [AGENT 3] OPENAI_REALTIME_MODEL env var='{_env_model}' IGNORED - "
+        f"Agent 3 spec requires '{OPENAI_REALTIME_MODEL}'"
+    )
 
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
@@ -2049,11 +2057,13 @@ class MediaStreamHandler:
                             # margin: 80 RMS prevents noise false triggers
                             if self.calibration_frames < 10:
                                 self.vad_threshold = 170.0  # Default baseline for Hebrew
+                                logger.warning(f"🎛️ [VAD VERIFICATION] TIMEOUT - using Hebrew baseline threshold=170 (got only {self.calibration_frames} quiet frames)")
                                 print(f"🎛️ VAD TIMEOUT - using Hebrew baseline threshold=170 (got only {self.calibration_frames} quiet frames)")
                             else:
                                 # Calibrated: noise + 80, capped at 175 to guarantee detection
                                 # Typical: noise ~80-110 → threshold ~160-175 (catches 180+ RMS)
                                 self.vad_threshold = min(175.0, self.noise_floor + 80.0)
+                                logger.info(f"✅ [VAD VERIFICATION] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}, quiet_frames={self.calibration_frames}")
                                 print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}, quiet_frames={self.calibration_frames})")
                             self.is_calibrated = True
                     

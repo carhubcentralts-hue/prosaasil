@@ -8,11 +8,12 @@ AgentLocator is a Hebrew CRM system for real estate professionals that automates
 
 ### 1. Model Configuration (Locked & Verified)
 **Phone Calls (Realtime API)**:
-- Model: `gpt-4o-realtime-preview` (NOT mini - verified in code)
+- Model: `gpt-4o-realtime-preview` (NOT mini - **HARDCODED**, ignores env var)
 - max_tokens: 300 (range: 280-320, balanced Hebrew responses)
 - temperature: 0.18 (range: 0.18-0.25, very low for consistency)
 - Whisper transcription: `whisper-1` auto-detect (NO explicit language field)
 - ✅ Verification log: `[REALTIME CONFIG] model=gpt-4o-realtime-preview, temp=0.18, max_tokens=300`
+- ⚠️ Protection: Warns if `OPENAI_REALTIME_MODEL` secret tries to override
 
 **NLP Appointment Parser**:
 - Model: `gpt-4o-mini` (text-only analysis, NOT realtime)
