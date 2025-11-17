@@ -82,11 +82,23 @@ async def extract_appointment_request(conversation_history: list, business_id: i
                     "content": f"""אתה מנתח שיחות בעברית ומחלץ בקשות לקביעת פגישה.
 התאריך היום: {today_str} (יום {weekday_hebrew})
 
+🔥 זרימת קביעת תור (שלב אחר שלב):
+1. לקוח מבקש תאריך/שעה → action="ask"
+2. נציג מאשר "פנוי!" → לקוח ממשיך
+3. נציג שואל "על איזה שם?" → לקוח עונה שם
+4. נציג שואל "אפשר מספר טלפון?" → לקוח מקליד DTMF
+5. רק אחרי שיש שם AND טלפון → action="confirm"
+
+⚠️ CRITICAL: action="confirm" רק אם:
+- יש תאריך/שעה בשיחה
+- יש שם לקוח (לא כללי!)
+- נציג ביקש טלפון / ראית DTMF במשפט
+
 החזר JSON בלבד עם השדות:
 - action: 
   * "hours_info" - לקוח שואל על שעות פעילות/מידע כללי (לא רוצה לקבוע תור!)
   * "ask" - לקוח שואל על זמינות לתאריך/שעה ספציפיים
-  * "confirm" - לקוח מאשר שעה
+  * "confirm" - לקוח אישר + יש שם + יש טלפון/DTMF (שלב אחרון!)
   * "none" - אין בקשה
 - date: תאריך בפורמט ISO (YYYY-MM-DD) או null. חשב לפי התאריך הנוכחי ({today_str}).
   דוגמאות: "מחר" = {tomorrow_str}, "יום חמישי הקרוב" = חשב מ-{today_str}.
@@ -108,21 +120,24 @@ async def extract_appointment_request(conversation_history: list, business_id: i
 לקוח: "מה השעות פעילות שלכם?"
 → {{"action":"hours_info","date":null,"time":null,"name":null,"confidence":1.0}}
 
-לקוח: "מתי אתם עובדים בשישי?"
-→ {{"action":"hours_info","date":null,"time":null,"name":null,"confidence":0.95}}
-
 לקוח: "אפשר ליום ראשון בשבע?"
 → {{"action":"ask","date":"{next_sunday}","time":"19:00","name":null,"confidence":0.9}}
 
-לקוח: "אפשר ליום שלישי בשש?"
-→ {{"action":"ask","date":"2025-11-19","time":"18:00","name":null,"confidence":0.9}}
-
-נציג: "מעולה, אז ליום שלישי בשש?"
-לקוח: "כן, מושלם"
-→ {{"action":"confirm","date":"2025-11-19","time":"18:00","name":null,"confidence":0.95}}
-
+נציג: "על איזה שם?"
 לקוח: "שמי דוד"
-→ {{"action":"none","date":null,"time":null,"name":"דוד","confidence":1.0}}"""
+→ {{"action":"none","date":"{next_sunday}","time":"19:00","name":"דוד","confidence":1.0}}
+
+נציג: "אפשר מספר טלפון?"
+לקוח: "[DTMF keys pressed: +972501234567]"
+→ {{"action":"confirm","date":"{next_sunday}","time":"19:00","name":"דוד","confidence":0.95}}
+
+שיחה מלאה:
+לקוח: "רוצה לקבוע תור למחר בשש"
+נציג: "מעולה! הזמן פנוי. על איזה שם?"
+לקוח: "על שם שרה"
+נציג: "תודה! אפשר מספר טלפון?"
+לקוח: "[DTMF keys pressed: +972504294724]"
+→ {{"action":"confirm","date":"{tomorrow_str}","time":"18:00","name":"שרה","confidence":1.0}}"""
                 },
                 {
                     "role": "user",
