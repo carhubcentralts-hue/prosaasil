@@ -957,6 +957,13 @@ class MediaStreamHandler:
                 business_id_safe = self.business_id or 1
                 system_prompt = build_realtime_system_prompt(business_id_safe)
             
+            # 🚨 CRITICAL VALIDATION: Ensure prompt is not empty
+            if not system_prompt or len(system_prompt) < 50:
+                error_msg = f"❌ [REALTIME] CRITICAL: Empty or invalid system prompt (len={len(system_prompt) if system_prompt else 0})! Flask app may not be initialized."
+                print(error_msg)
+                logger.error(error_msg)
+                raise RuntimeError(f"Invalid system prompt - Flask initialization failed. Prompt length: {len(system_prompt) if system_prompt else 0}")
+            
             print(f"✅ [REALTIME] Built system prompt ({len(system_prompt)} chars)")
             print(f"📝 [REALTIME] Prompt preview: {system_prompt[:200]}...")
             

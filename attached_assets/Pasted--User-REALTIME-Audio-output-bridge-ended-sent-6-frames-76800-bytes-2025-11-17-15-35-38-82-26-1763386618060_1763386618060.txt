@@ -1,0 +1,126 @@
+
+User
+📤 [REALTIME] Audio output bridge ended (sent 6 frames, 76800 bytes)
+2025-11-17 15:35:38.82
+266a8c81
+User
+📤 [REALTIME] Stop signal received
+2025-11-17 15:35:38.83
+266a8c81
+User
+📝 [REALTIME] Text sender ended
+2025-11-17 15:35:38.83
+266a8c81
+User
+📤 [REALTIME] Audio sender ended
+2025-11-17 15:35:38.86
+266a8c81
+User
+STREAM_STATUS call=CA531126ddcc5400032e40471c7d0fc6be stream=MZb18e4d7186ec13c76cadd6d43e7bf1c6 event=N/A
+2025-11-17 15:35:38.99
+266a8c81
+User
+[REALTIME] event: response.output_item.added
+2025-11-17 15:35:38.99
+266a8c81
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 15:35:39.00
+266a8c81
+User
+[REALTIME] event: response.content_part.added
+2025-11-17 15:35:39.05
+266a8c81
+User
+📝 Summary: שיחה כללית (27 תווים)
+2025-11-17 15:35:39.05
+266a8c81
+User
+🎯 Intent: general_inquiry
+2025-11-17 15:35:39.05
+266a8c81
+User
+ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)
+2025-11-17 15:35:39.05
+266a8c81
+User
+📊 Next Action: מעקב תוך 24 שעות
+2025-11-17 15:35:39.05
+266a8c81
+User
+✅ CALL FINALIZED: CA531126ddcc5400032e40471c7d0fc6be
+2025-11-17 15:35:39.06
+266a8c81
+User
+🧹 Waiting for 4 background threads...
+2025-11-17 15:35:39.08
+266a8c81
+User
+✅ stream_status: Updated call_log for CA531126ddcc5400032e40471c7d0fc6be
+2025-11-17 15:35:39.08
+266a8c81
+User
+INFO: 34.23.224.173:0 - "POST /webhook/stream_status HTTP/1.1" 200 OK
+2025-11-17 15:35:39.08
+266a8c81
+User
+STREAM_ENDED call=CA531126ddcc5400032e40471c7d0fc6be stream=N/A status=N/A
+2025-11-17 15:35:39.08
+266a8c81
+User
+INFO: 34.26.189.241:0 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+2025-11-17 15:35:39.09
+266a8c81
+User
+🔊 [REALTIME] AI started speaking (audio.delta)
+2025-11-17 15:35:39.17
+266a8c81
+User
+INFO: 34.26.189.241:0 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+2025-11-17 15:35:39.65
+266a8c81
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-17 15:35:39.65
+266a8c81
+User
+🔍 [NLP] Processing new conversation state (hash=8f08a59d...)
+2025-11-17 15:35:39.65
+266a8c81
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 15:35:39.65
+266a8c81
+User
+[REALTIME] event: response.audio.done
+2025-11-17 15:35:39.65
+266a8c81
+User
+🤖 [REALTIME] AI said: ¡Claro! ¿En qué te gustaría que te ayude hoy?
+2025-11-17 15:35:39.65
+266a8c81
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-17 15:35:39.65
+266a8c81
+User
+[REALTIME] event: response.content_part.done
+2025-11-17 15:35:39.65
+266a8c81
+User
+[REALTIME] event: response.done
+
+2025-11-17 15:35:39.66
+266a8c81
+User
+[REALTIME] event: rate_limits.updated
+2025-11-17 15:35:39.83
+266a8c81
+User
+INFO: connection closed
+2025-11-17 15:35:39.83
+266a8c81
+User
+🔧 receive_loop ended
+2025-11-17 15:35:40.19
+266a8c81

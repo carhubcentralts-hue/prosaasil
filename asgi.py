@@ -65,6 +65,21 @@ print("=" * 80, flush=True)
 print("✅ ASGI BUILD 88 READY - LAZY FLASK INIT", flush=True)
 print("=" * 80, flush=True)
 
+# 🚀 CRITICAL FIX: Warm Flask app immediately in background
+# This ensures system prompts are ready BEFORE first Realtime call
+import threading
+def _warmup_flask():
+    """Background warmup to ensure Flask is ready before first call"""
+    import time
+    time.sleep(0.5)  # Let Uvicorn bind port first
+    print("🔥 [WARMUP] Starting Flask app initialization...", flush=True)
+    _ = get_flask_app()
+    print("✅ [WARMUP] Flask app ready for Realtime calls", flush=True)
+
+warmup_thread = threading.Thread(target=_warmup_flask, daemon=True)
+warmup_thread.start()
+print("⚡ Flask warmup initiated in background", flush=True)
+
 async def ws_http_probe(request: Request):
     """Return 426 Upgrade Required for non-WebSocket requests"""
     return PlainTextResponse("Upgrade Required", status_code=426)

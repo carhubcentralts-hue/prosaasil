@@ -1,0 +1,132 @@
+2025-11-17 15:35:33.67
+266a8c81
+User
+🎯 [T0=1763386533.671] WS_START sid=MZb18e4d7186ec13c76cadd6d43e7bf1c6 call_sid=CA531126ddcc5400032e40471c7d0fc6be from=None to=+97233763805 mode=AI
+2025-11-17 15:35:33.67
+266a8c81
+User
+✅ self.phone_number set to: 'None'
+2025-11-17 15:35:33.67
+266a8c81
+User
+customParams.CallFrom: None
+2025-11-17 15:35:33.67
+266a8c81
+User
+📞 START EVENT (customParameters path):
+2025-11-17 15:35:33.86
+266a8c81
+User
+⚡ FAST: business_id=1, greeting loaded in single query!
+2025-11-17 15:35:33.86
+266a8c81
+User
+⏭️ Skipping Google STT initialization (USE_REALTIME_API=True)
+2025-11-17 15:35:33.89
+266a8c81
+User
+🚀 [REALTIME] Async loop starting for business_id=1
+2025-11-17 15:35:34.03
+266a8c81
+User
+✅ Call log already exists for CA531126ddcc5400032e40471c7d0fc6be
+2025-11-17 15:35:34.33
+266a8c81
+User
+🎙️ REAL_VOICE: rms=282.0 > threshold=170.0
+2025-11-17 15:35:34.37
+266a8c81
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=115 < 150.0)
+2025-11-17 15:35:37.73
+266a8c81
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-17 15:35:37.73
+266a8c81
+User
+🎤 END OF UTTERANCE: 3.4s audio, conversation #0
+2025-11-17 15:35:37.73
+266a8c81
+User
+🧠 STATE -> PROCESSING | len=54720 | silence_ms=1800
+2025-11-17 15:35:37.73
+266a8c81
+User
+✅ Processing complete for conversation #0
+2025-11-17 15:35:38.33
+266a8c81
+User
+🎙️ [BARGE-IN] User voice detected (RMS=518, AI speaking=False)
+2025-11-17 15:35:38.33
+266a8c81
+User
+🎙️ REAL_VOICE: rms=518.0 > threshold=98.8
+2025-11-17 15:35:38.49
+266a8c81
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=148 < 150.0)
+2025-11-17 15:35:38.51
+266a8c81
+User
+🎙️ [BARGE-IN] User voice detected (RMS=1250, AI speaking=False)
+2025-11-17 15:35:38.59
+266a8c81
+User
+📭 [NLP] No appointment action detected
+2025-11-17 15:35:38.59
+266a8c81
+User
+✅ [NLP] Cache updated after successful processing
+2025-11-17 15:35:38.80
+266a8c81
+User
+[REALTIME] event: input_audio_buffer.committed
+2025-11-17 15:35:38.80
+266a8c81
+User
+[REALTIME] event: input_audio_buffer.speech_stopped
+2025-11-17 15:35:38.81
+266a8c81
+User
+[REALTIME] event: conversation.item.created
+
+2025-11-17 15:35:38.81
+266a8c81
+User
+[REALTIME] event: response.created
+2025-11-17 15:35:38.81
+266a8c81
+User
+🎯 [REALTIME] Response started: resp_CctgIA1ZQeJKDN9fGheUS
+2025-11-17 15:35:38.82
+266a8c81
+User
+WS_STOP sid=MZb18e4d7186ec13c76cadd6d43e7bf1c6 rx=264 tx=6
+2025-11-17 15:35:38.82
+266a8c81
+User
+📨 Received: stop
+2025-11-17 15:35:38.82
+266a8c81
+User
+📤 [REALTIME] Audio output bridge ended (sent 6 frames, 76800 bytes)
+2025-11-17 15:35:38.82
+266a8c81
+User
+📤 [REALTIME] Stop signal received
+2025-11-17 15:35:38.83
+266a8c81
+User
+📝 [REALTIME] Text sender ended
+2025-11-17 15:35:38.83
+266a8c81
+User
+📤 [REALTIME] Audio sender ended
+2025-11-17 15:35:38.86
+266a8c81
+User
+STREAM_STATUS call=CA531126ddcc5400032e40471c7d0fc6be stream=MZb18e4d7186ec13c76cadd6d43e7bf1c6 event=N/A
+2025-11-17 15:35:38.99
+266a8c81
+User
