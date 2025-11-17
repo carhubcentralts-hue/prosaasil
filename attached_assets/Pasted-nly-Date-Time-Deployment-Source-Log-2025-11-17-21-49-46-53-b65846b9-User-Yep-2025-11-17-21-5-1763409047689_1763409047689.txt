@@ -1,0 +1,180 @@
+nly
+
+Date
+Time
+Deployment
+Source
+Log
+2025-11-17 21:49:46.53
+b65846b9
+User
+לקוח: Yep.
+2025-11-17 21:50:09.73
+b65846b9
+User
+✅ [NLP] Saved customer name to crm_context: Shai Daan
+2025-11-17 21:50:09.73
+b65846b9
+User
+✅ [CONFIRM] All data complete! name=Shai Daan, phone=+972504294724, date=2025-11-20, time=16:00
+2025-11-17 21:50:09.73
+b65846b9
+User
+✅ [NLP] 🎯 CONFIRM action triggered!
+2025-11-17 21:50:09.73
+b65846b9
+User
+🔍 [CONFIRM] CRM context exists: True
+2025-11-17 21:50:09.73
+b65846b9
+User
+🔍 [CONFIRM] customer_phone from context: +972504294724
+2025-11-17 21:50:09.73
+b65846b9
+User
+✅ [NLP] Parsed result: {'action': 'confirm', 'date': '2025-11-20', 'time': '16:00', 'name': 'Shai Daan', 'confidence': 1.0}
+2025-11-17 21:50:09.73
+b65846b9
+User
+🔍 [NLP] GPT-4o-mini returned: {"action":"confirm","date":"2025-11-20","time":"16:00","name":"Shai Daan","confidence":1.0}
+2025-11-17 21:50:09.73
+b65846b9
+User
+✅ [CONFIRM] Date/time OK: 2025-11-20 16:00
+2025-11-17 21:50:09.73
+b65846b9
+User
+🔍 [NLP] ◀️ NLP result: {'action': 'confirm', 'date': '2025-11-20', 'time': '16:00', 'name': 'Shai Daan', 'confidence': 1.0}
+2025-11-17 21:50:09.73
+b65846b9
+User
+🎯 [NLP] ✅ Detected action=confirm, date=2025-11-20, time=16:00, name=Shai Daan, confidence=1.0
+2025-11-17 21:50:09.73
+b65846b9
+User
+🔍 [DEBUG] CRM context - name: 'Shai Daan', phone: '+972504294724'
+2025-11-17 21:50:09.73
+b65846b9
+User
+✅ [VALIDATION] Slot 16:00:00 within business hours
+2025-11-17 21:50:09.73
+b65846b9
+User
+📅 [NLP] Appointment duration: 60 minutes (from DB policy)
+2025-11-17 21:50:09.73
+b65846b9
+User
+🔍 [CONFIRM] Validating slot: 2025-11-20T16:00:00+02:00
+2025-11-17 21:50:09.73
+b65846b9
+User
+🔍 [VALIDATION] Checking calendar: 2025-11-20 16:00 - 17:00 (slot_size=60min)
+2025-11-17 21:50:09.79
+b65846b9
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=96 < 150.0)
+2025-11-17 21:50:09.90
+b65846b9
+User
+✅ [VALIDATION] Calendar available - no conflicts
+2025-11-17 21:50:09.92
+b65846b9
+User
+✅ [CONFIRM] Slot is valid - proceeding to create appointment
+2025-11-17 21:50:09.92
+b65846b9
+User
+🔍 [CONFIRM] Slot validation result: True
+2025-11-17 21:50:10.04
+b65846b9
+User
+[REALTIME] event: response.output_item.added
+2025-11-17 21:50:10.05
+b65846b9
+User
+🎙️ [BARGE-IN] User voice detected (RMS=199, AI speaking=False)
+2025-11-17 21:50:10.05
+b65846b9
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 21:50:10.10
+b65846b9
+User
+🔍 [CONFIRM] Calling create_appointment_from_realtime...
+2025-11-17 21:50:10.10
+b65846b9
+User
+✅ [NLP] ▶️ Validation passed - creating appointment for 'Shai Daan' phone=+972504294724
+
+2025-11-17 21:50:10.18
+b65846b9
+User
+[REALTIME] event: response.content_part.added
+2025-11-17 21:50:10.25
+b65846b9
+User
+🔊 [REALTIME] AI started speaking (audio.delta)
+2025-11-17 21:50:10.25
+b65846b9
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+2025-11-17 21:50:10.27
+b65846b9
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=109 < 150.0)
+2025-11-17 21:50:10.31
+b65846b9
+User
+Before: start=2025-11-20 16:00:00+02:00 (with timezone)
+2025-11-17 21:50:10.31
+b65846b9
+User
+After: start=2025-11-20 16:00:00 (naive, local Israel time)
+2025-11-17 21:50:10.31
+b65846b9
+User
+🔥 TIMEZONE FIX:
+2025-11-17 21:50:10.31
+b65846b9
+User
+This ensures 14:00 Israel time saves as 14:00 in DB (not 12:00 UTC!)
+2025-11-17 21:50:10.31
+b65846b9
+User
+treatment_type: פגישה
+2025-11-17 21:50:10.31
+b65846b9
+User
+Added to session
+2025-11-17 21:50:10.31
+b65846b9
+User
+business_id: 1
+2025-11-17 21:50:10.31
+b65846b9
+User
+Appointment object created: <Appointment (transient 140174747142096)>
+2025-11-17 21:50:10.31
+b65846b9
+User
+customer_name: Shai Daan
+2025-11-17 21:50:10.31
+b65846b9
+User
+end_time: 2025-11-20 17:00:00
+2025-11-17 21:50:10.31
+b65846b9
+User
+start_time: 2025-11-20 16:00:00
+2025-11-17 21:50:10.31
+b65846b9
+User
+🔥🔥🔥 CREATING APPOINTMENT IN DATABASE 🔥🔥🔥
+2025-11-17 21:50:10.31
+b65846b9
+User
+phone: +972504294724
+2025-11-17 21:50:10.47
+b65846b9
+User
+🎙️ [BARGE-IN] User voice detected (RMS=290, AI speaking=True)
