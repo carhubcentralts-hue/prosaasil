@@ -2,6 +2,16 @@
 
 AgentLocator is a Hebrew CRM system for real estate professionals that automates the sales pipeline. It features an AI-powered assistant for real-time call processing, intelligent lead information collection, and meeting scheduling. The system uses advanced audio processing for natural conversations, aiming to enhance efficiency and sales conversion within a robust, multi-tenant platform. It offers customizable AI assistants and business branding, leveraging cutting-edge AI communication tools to streamline operations and boost real estate sales.
 
+## Recent Improvements (2025-11-17)
+
+**6 Critical Realtime API Bug Fixes** - Architect-approved, production-ready:
+1. **NLP Deduplication**: Prevents duplicate appointment processing with 30s TTL cache that updates only after successful NLP completion (prevents lost turns on failures)
+2. **Response Collision Prevention**: Thread-safe `threading.Event()` lock with immediate cleanup on network errors (prevents deadlocks)
+3. **is_ai_speaking Debug Logging**: Added state transition logs to diagnose barge-in issues
+4. **Verbosity Reduction**: `max_tokens=120` + prompt rule "1-2 sentences maximum" for brief, focused responses
+5. **Pushiness Reduction**: Prompt critical rule #2 "answer user's questions, don't force appointments"
+6. **Server Messages Silent**: Already implemented - role="system" ensures internal messages aren't read aloud
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
