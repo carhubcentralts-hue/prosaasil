@@ -46,19 +46,32 @@ elif gcp_creds:
 else:
     print("⚠️  No GCP credentials found in ASGI startup!", flush=True)
 
-# Import Flask app directly from factory (no EventLet dependency)
-from server.app_factory import create_app
-
+# 🚀 CRITICAL FIX: Defer Flask app creation to avoid import-time slowness
+# This allows Uvicorn to bind port IMMEDIATELY before heavy initialization
 log = logging.getLogger("twilio_ws")
-flask_app = create_app()
+flask_app = None  # Will be created on first request
+
+def get_flask_app():
+    """Lazy Flask app creation - only when needed"""
+    global flask_app
+    if flask_app is None:
+        print("🔧 Creating Flask app (first request)...", flush=True)
+        from server.app_factory import create_app
+        flask_app = create_app()
+        print("✅ Flask app created", flush=True)
+    return flask_app
 
 print("=" * 80, flush=True)
-print("✅ ASGI BUILD 87 READY - ALL SYSTEMS GO", flush=True)
+print("✅ ASGI BUILD 88 READY - LAZY FLASK INIT", flush=True)
 print("=" * 80, flush=True)
 
 async def ws_http_probe(request: Request):
     """Return 426 Upgrade Required for non-WebSocket requests"""
     return PlainTextResponse("Upgrade Required", status_code=426)
+
+async def healthz_immediate(request: Request):
+    """Immediate health check - no Flask required"""
+    return PlainTextResponse("ok", status_code=200)
 
 class SyncWebSocketWrapper:
     """
@@ -203,6 +216,9 @@ async def ws_twilio_media(websocket: WebSocket):
         # Task 3: MediaStreamHandler in background thread (starts AFTER loops)
         def run_handler():
             try:
+                # Ensure Flask app is created before handler runs
+                _ = get_flask_app()
+                
                 print("🔧 Creating MediaStreamHandler...", flush=True)
                 handler = MediaStreamHandler(ws_wrapper)
                 print("🔧 Starting MediaStreamHandler.run()...", flush=True)
@@ -257,17 +273,35 @@ async def ws_twilio_media(websocket: WebSocket):
             pass
         log.info("📞 WebSocket closed")
 
+# 🚀 CRITICAL: Lazy ASGI wrapper to defer Flask app creation
+class LazyASGIWrapper:
+    """Wraps Flask app creation to defer until first request"""
+    def __init__(self, app_getter):
+        self.app_getter = app_getter
+        self._asgi_app = None
+    
+    async def __call__(self, scope, receive, send):
+        if self._asgi_app is None:
+            print("🔧 LazyASGI: Creating Flask app on first request...", flush=True)
+            flask_app = self.app_getter()
+            self._asgi_app = WsgiToAsgi(flask_app)
+            print("✅ LazyASGI: Flask app wrapped in ASGI", flush=True)
+        await self._asgi_app(scope, receive, send)
+
 # ASGI Application with Starlette
-# Order matters: WS routes BEFORE Mount to prevent SPA from catching them
+# Order matters: Health checks FIRST, then WS, then Flask mount
 app = Starlette(routes=[
+    # 🚀 CRITICAL: Immediate health check for Cloud Run (no Flask required!)
+    Route("/healthz", healthz_immediate, methods=["GET"]),
+    Route("/health", healthz_immediate, methods=["GET"]),
     # Block non-WebSocket GET requests (return 426 instead of HTML)
     Route("/ws/twilio-media", ws_http_probe, methods=["GET"]),
     Route("/ws/twilio-media/", ws_http_probe, methods=["GET"]),
     # WebSocket routes (with and without trailing slash)
     WebSocketRoute("/ws/twilio-media", ws_twilio_media),
     WebSocketRoute("/ws/twilio-media/", ws_twilio_media),
-    # Flask/SPA mount (fallback for everything else)
-    Mount("/", app=WsgiToAsgi(flask_app)),
+    # Flask/SPA mount (fallback for everything else) - LAZY!
+    Mount("/", app=LazyASGIWrapper(get_flask_app)),
 ])
 
 # ✅ Alias for compatibility
