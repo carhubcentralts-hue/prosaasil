@@ -1,0 +1,100 @@
+2025-11-17 21:27:28.63
+ba33c897
+User
+🔊 [REALTIME] AI started speaking (audio.delta)
+2025-11-17 21:27:28.63
+ba33c897
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+2025-11-17 21:27:28.65
+ba33c897
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=56 < 150.0)
+2025-11-17 21:27:28.72
+ba33c897
+User
+🎙️ [BARGE-IN] User voice detected (RMS=214, AI speaking=True)
+2025-11-17 21:27:28.74
+ba33c897
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=86 < 150.0)
+2025-11-17 21:27:28.75
+ba33c897
+User
+🎙️ [BARGE-IN] User voice detected (RMS=152, AI speaking=True)
+2025-11-17 21:27:28.77
+ba33c897
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+2025-11-17 21:27:28.79
+ba33c897
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+2025-11-17 21:27:28.81
+ba33c897
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=98 < 150.0)
+2025-11-17 21:27:28.83
+ba33c897
+User
+🎙️ [BARGE-IN] User voice detected (RMS=165, AI speaking=True)
+2025-11-17 21:27:28.85
+ba33c897
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+2025-11-17 21:27:28.88
+ba33c897
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+2025-11-17 21:27:28.89
+ba33c897
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+2025-11-17 21:27:28.91
+ba33c897
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+2025-11-17 21:27:28.93
+ba33c897
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=107 < 150.0)
+2025-11-17 21:27:28.97
+ba33c897
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-17 21:27:28.99
+ba33c897
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 21:27:28.99
+ba33c897
+User
+[REALTIME] event: response.audio.done
+2025-11-17 21:27:28.99
+ba33c897
+User
+[REALTIME] event: response.content_part.done
+2025-11-17 21:27:28.99
+ba33c897
+User
+[REALTIME] event: response.output_item.done
+2025-11-17 21:27:28.99
+ba33c897
+User
+🤖 [REALTIME] AI said: אנחנו פתוחים בימים ראשון עד שישי,
+2025-11-17 21:27:28.99
+ba33c897
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-17 21:27:28.99
+ba33c897
+User
+💰 [COST] AI utterance: 0.36s (105 chunks)
+2025-11-17 21:27:28.99
+ba33c897
+User
+[REALTIME] event: response.done
+
+2025-11-17 21:27:29.07
+ba33c897
+User
