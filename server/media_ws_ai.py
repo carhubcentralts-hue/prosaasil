@@ -84,11 +84,14 @@ class CallCrmContext:
     """
     Context for tracking CRM state during a phone call.
     Ensures every call creates/updates a lead and can schedule appointments.
+    
+    🔥 NEW: has_appointment_created flag - prevents AI from saying "confirmed" before server approval
     """
     business_id: int
     customer_phone: str
     lead_id: Optional[int] = None
     last_appointment_id: Optional[int] = None
+    has_appointment_created: bool = False  # 🔥 GUARD: True only after [SERVER] ✅ appointment_created
 
 
 # 🔧 APPOINTMENT VALIDATION HELPER
@@ -1222,6 +1225,19 @@ class MediaStreamHandler:
                             print(f"💰 [COST] AI utterance: {ai_duration:.2f}s ({self.realtime_audio_out_chunks} chunks)")
                             self._ai_speech_start = None  # Reset for next utterance
                         
+                        # 🔥 POST-FILTER: Detect if AI said "confirmed" without server approval
+                        crm_context = getattr(self, 'crm_context', None)
+                        forbidden_words = ["קבעתי", "קבענו", "שריינתי", "התור נקבע", "התור שלך נקבע", "הפגישה נקבעה"]
+                        said_forbidden = any(word in transcript for word in forbidden_words)
+                        
+                        if said_forbidden and (not crm_context or not crm_context.has_appointment_created):
+                            print(f"⚠️ [GUARD] AI said '{transcript}' WITHOUT server approval!")
+                            print(f"🛡️ [GUARD] Sending immediate correction to AI...")
+                            # Send immediate correction event
+                            asyncio.create_task(self._send_server_event_to_ai(
+                                "⚠️ תיקון: התור עדיין לא אושר על ידי המערכת! אל תאשר עד שתקבל הודעת [SERVER] ✅ appointment_created"
+                            ))
+                        
                         # Track conversation
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
                         # Check for appointment confirmation
@@ -1513,6 +1529,9 @@ class MediaStreamHandler:
                         # Update CRM context with appointment ID
                         if crm_context:
                             crm_context.last_appointment_id = appt_id
+                            # 🔥 CRITICAL: Set flag - NOW AI is allowed to say "התור נקבע!"
+                            crm_context.has_appointment_created = True
+                            print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer")
                         
                         # 🔥 Send confirmation to AI (with ✅ marker so AI knows it can say "התור נקבע!")
                         await self._send_server_event_to_ai(f"✅ appointment_created: התור נקבע בהצלחה ל-{customer_name} בתאריך {date_iso} בשעה {time_str}. תודיע ללקוח!")
