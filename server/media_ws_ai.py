@@ -1748,10 +1748,6 @@ class MediaStreamHandler:
                             first5 = ' '.join([f'{b:02x}' for b in frame_bytes[:5]])
                             print(f"✅ [AUDIO] Frame #{self.realtime_tx_frames}: 160 bytes, first5={first5}")
                         
-                        # 🔥 FIX: 20ms pacing - prevents choppy audio!
-                        # Each frame is 20ms of audio, so sleep 20ms to maintain realtime playback
-                        time.sleep(FRAME_DURATION_MS / 1000.0)  # 0.02 seconds
-                        
                     except queue.Full:
                         print(f"⚠️ [AUDIO] tx_q full, dropping frame #{self.realtime_tx_frames}")
                     except Exception as e:
