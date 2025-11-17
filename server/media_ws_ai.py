@@ -1291,8 +1291,8 @@ class MediaStreamHandler:
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
-                        # Check for appointment confirmation
-                        self._check_appointment_confirmation(transcript)
+                        # 🔥 FIX: Don't run NLP when AI speaks - only when USER speaks!
+                        # Removing this call to prevent loop (NLP should only analyze user input)
                 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     transcript = event.get("transcript", "")
@@ -1723,12 +1723,14 @@ class MediaStreamHandler:
         import hashlib
         
         # 🔥 CRITICAL: Create hash of conversation to prevent duplicate NLP runs
-        # ⚠️ FIX: Remove timestamps from hash - only text matters!
-        conversation_for_hash = [
-            {"speaker": msg.get("speaker"), "text": msg.get("text")} 
+        # ⚠️ FIX #1: Remove timestamps from hash - only text matters!
+        # ⚠️ FIX #2: Hash ONLY user messages (not AI/system) - prevents re-triggering when AI responds!
+        user_messages_only = [
+            msg.get("text", "") 
             for msg in self.conversation_history[-10:]  # Last 10 messages
+            if msg.get("speaker") == "user"
         ]
-        conversation_str = json.dumps(conversation_for_hash, sort_keys=True)
+        conversation_str = json.dumps(user_messages_only, sort_keys=True)
         current_hash = hashlib.md5(conversation_str.encode()).hexdigest()
         
         # Skip if already processed this exact conversation state (with 30s TTL)
