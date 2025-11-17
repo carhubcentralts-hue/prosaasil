@@ -730,7 +730,11 @@ class MediaStreamHandler:
         # 🎯 APPOINTMENT PARSER: DB-based deduplication via CallSession table
         self.call_sid = None  # Will be set from 'start' event
         self.last_nlp_processed_hash = None  # Hash of last processed conversation for NLP dedup
+        self.last_nlp_hash_timestamp = 0  # Timestamp when hash was set (for TTL)
         self.nlp_processing_lock = threading.Lock()  # Prevent concurrent NLP runs
+        
+        # 🔒 Response collision prevention - thread-safe optimistic lock
+        self.response_pending_event = threading.Event()  # Thread-safe flag
 
     def _init_streaming_stt(self):
         """
@@ -1173,14 +1177,18 @@ class MediaStreamHandler:
                     response_id = event.get("response", {}).get("id")
                     if response_id:
                         self.active_response_id = response_id
+                        self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
                         print(f"🎯 [REALTIME] Response started: {response_id}")
                 
                 # ✅ ONLY handle audio.delta - ignore other audio events!
+                # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
                         # 🎯 Track AI speaking state for barge-in detection
                         now = time.time()
+                        if not self.is_ai_speaking_event.is_set():
+                            print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
                         self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
                         self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
@@ -1211,9 +1219,12 @@ class MediaStreamHandler:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
                     # Don't process - would cause duplicate playback
                     # 🎯 Mark AI response complete
+                    if self.is_ai_speaking_event.is_set():
+                        print(f"🔇 [REALTIME] AI stopped speaking ({event_type})")
                     self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped speaking
                     self.has_pending_ai_response = False
                     self.active_response_id = None  # Clear response ID
+                    self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
                     pass
                 
                 elif event_type == "response.audio_transcript.done":
@@ -1271,6 +1282,9 @@ class MediaStreamHandler:
                 elif event_type.startswith("error"):
                     error_msg = event.get("error", {}).get("message", "Unknown error")
                     print(f"❌ [REALTIME] Error event: {error_msg}")
+                    # 🔒 Clear locks on error to prevent permanent stall
+                    self.response_pending_event.clear()
+                    self.active_response_id = None
                 
         except Exception as e:
             print(f"❌ [REALTIME] Audio receiver error: {e}")
@@ -1310,12 +1324,25 @@ class MediaStreamHandler:
             await self.realtime_client.send_event(event)
             print(f"🔇 [SERVER_EVENT] Sent SILENTLY to AI: {message_text[:100]}")
             
-            # 🎯 Trigger AI response ONLY if there's no active response
-            if not self.active_response_id:
-                await self.realtime_client.send_event({"type": "response.create"})
-                print(f"🎯 [SERVER_EVENT] Triggered response.create")
+            # 🎯 Thread-safe optimistic lock: Prevent response collision race condition
+            if not self.active_response_id and not self.response_pending_event.is_set():
+                self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
+                send_success = False
+                try:
+                    await self.realtime_client.send_event({"type": "response.create"})
+                    send_success = True  # Mark success
+                    print(f"🎯 [SERVER_EVENT] Triggered response.create")
+                except Exception as send_error:
+                    print(f"❌ [SERVER_EVENT] Failed to send response.create: {send_error}")
+                    raise  # Re-raise to outer handler
+                finally:
+                    # 🔓 CRITICAL: Clear lock if send failed (prevents deadlock on network errors)
+                    # If send succeeded, lock will be cleared by response.created or audio.done
+                    if not send_success:
+                        self.response_pending_event.clear()
+                        print(f"🔓 [SERVER_EVENT] Cleared lock after send failure")
             else:
-                print(f"⏸️ [SERVER_EVENT] Skipping response.create - active response: {self.active_response_id}")
+                print(f"⏸️ [SERVER_EVENT] Skipping response.create - active: {self.active_response_id}, pending: {self.response_pending_event.is_set()}")
             
         except Exception as e:
             print(f"❌ [SERVER_EVENT] Failed to send: {e}")
@@ -1567,12 +1594,26 @@ class MediaStreamHandler:
         conversation_str = json.dumps(self.conversation_history[-10:], sort_keys=True)  # Last 10 messages
         current_hash = hashlib.md5(conversation_str.encode()).hexdigest()
         
-        # Skip if already processed this exact conversation state
+        # Skip if already processed this exact conversation state (with 30s TTL)
         with self.nlp_processing_lock:
+            now = time.time()
+            hash_age = now - self.last_nlp_hash_timestamp
+            
+            # Clear cache if TTL expired (allows alternating hashes: A→B→A)
+            if hash_age >= 30:
+                print(f"🔄 [NLP] TTL expired ({hash_age:.1f}s) - clearing cache")
+                self.last_nlp_processed_hash = None
+                self.last_nlp_hash_timestamp = 0
+            
+            # Skip only if SAME hash AND within TTL window
             if current_hash == self.last_nlp_processed_hash:
-                print(f"⏭️ [NLP] Skipping duplicate analysis (hash={current_hash[:8]}...)")
+                print(f"⏭️ [NLP] Skipping duplicate analysis (hash={current_hash[:8]}..., age={hash_age:.1f}s)")
                 return
+            
+            # Process: NEW hash (or cache was cleared)
+            # Update hash and timestamp atomically
             self.last_nlp_processed_hash = current_hash
+            self.last_nlp_hash_timestamp = now
         
         print(f"🔍 [NLP] Processing new conversation state (hash={current_hash[:8]}...)")
         
