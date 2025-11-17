@@ -99,9 +99,11 @@ class CallCrmContext:
     
     🔥 NEW: has_appointment_created flag - prevents AI from saying "confirmed" before server approval
     🔥 NEW: pending_slot - tracks date/time that was checked for availability
+    🔥 NEW: customer_name - persists extracted name between NLP runs (survives 10-message window)
     """
     business_id: int
     customer_phone: str
+    customer_name: Optional[str] = None  # 🔥 Persist name from NLP to survive conversation window
     lead_id: Optional[int] = None
     last_appointment_id: Optional[int] = None
     has_appointment_created: bool = False  # 🔥 GUARD: True only after [SERVER] ✅ appointment_created
@@ -992,6 +994,11 @@ class MediaStreamHandler:
                     customer_phone=customer_phone,
                     lead_id=lead_id
                 )
+                # 🔥 HYDRATION: If we have pending customer name, transfer it to context
+                if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
+                    self.crm_context.customer_name = self.pending_customer_name
+                    print(f"✅ [CRM] Hydrated pending_customer_name → crm_context: {self.pending_customer_name}")
+                    self.pending_customer_name = None  # Clear cache
                 print(f"✅ [CRM] Context initialized: business={business_id_safe}, lead_id={lead_id}")
             else:
                 print(f"⚠️ [CRM] No customer phone - skipping lead creation")
@@ -1467,6 +1474,31 @@ class MediaStreamHandler:
         customer_name = result.get("name")
         confidence = result.get("confidence", 0.0)
         
+        # 🔥 CRITICAL FIX: Save customer name for persistence!
+        # NLP only looks at last 10 messages, so name can be lost if mentioned earlier
+        # Strategy: Save to crm_context if it exists, otherwise cache temporarily on handler
+        if customer_name:
+            crm_context = getattr(self, 'crm_context', None)
+            if crm_context:
+                # Context exists - save there
+                if not crm_context.customer_name:
+                    crm_context.customer_name = customer_name
+                    print(f"✅ [NLP] Saved customer name to crm_context: {customer_name}")
+            else:
+                # Context doesn't exist yet - save to temporary cache
+                self.pending_customer_name = customer_name
+                print(f"✅ [NLP] Saved customer name to temporary cache: {customer_name}")
+        
+        # Fall back to saved name if NLP returns None
+        if not customer_name:
+            crm_context = getattr(self, 'crm_context', None)
+            if crm_context and crm_context.customer_name:
+                customer_name = crm_context.customer_name
+                print(f"🔄 [NLP] Retrieved customer name from crm_context: {customer_name}")
+            elif hasattr(self, 'pending_customer_name') and self.pending_customer_name:
+                customer_name = self.pending_customer_name
+                print(f"🔄 [NLP] Retrieved customer name from temporary cache: {customer_name}")
+        
         print(f"🎯 [NLP] Detected action={action}, date={date_iso}, time={time_str}, name={customer_name}, confidence={confidence}")
         
         # 🔥 NEW: Handle "hours_info" action (user asking about business hours, NOT appointment!)
@@ -1589,6 +1621,19 @@ class MediaStreamHandler:
             # ✅ STEP 2: Check if we have customer name and phone
             # Customer phone should be available from call context
             customer_phone = crm_context.customer_phone if crm_context else None
+            
+            # 🔥 FALLBACK: If NLP didn't extract name, check temp cache and crm_context
+            if not customer_name:
+                if crm_context and crm_context.customer_name:
+                    customer_name = crm_context.customer_name
+                    print(f"🔄 [CONFIRM] Using name from crm_context: {customer_name}")
+                elif hasattr(self, 'pending_customer_name') and self.pending_customer_name:
+                    customer_name = self.pending_customer_name
+                    print(f"🔄 [CONFIRM] Using name from temp cache: {customer_name}")
+                    # CRITICAL: Write name back to crm_context so it's persisted!
+                    if crm_context:
+                        crm_context.customer_name = customer_name
+                        print(f"✅ [CONFIRM] Hydrated temp cache → crm_context.customer_name")
             
             # 🔥 STRICT SEQUENCING: Ask for name FIRST, then phone (never both!)
             if not customer_name or not customer_phone:
@@ -3983,6 +4028,11 @@ class MediaStreamHandler:
                     business_id=self.business_id,
                     customer_phone=normalized_phone
                 )
+                # 🔥 HYDRATION: If we have pending customer name, transfer it to context
+                if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
+                    self.crm_context.customer_name = self.pending_customer_name
+                    print(f"✅ [DTMF] Hydrated pending_customer_name → crm_context: {self.pending_customer_name}")
+                    self.pending_customer_name = None  # Clear cache
                 print(f"✅ Created crm_context with phone: {normalized_phone}")
             
             phone_to_show = normalized_phone
