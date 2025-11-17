@@ -29,6 +29,7 @@ AgentLocator implements a multi-tenant architecture with complete business isola
 - **AI Behavior Optimization**:
   - **Temperature**: 0.18 (very low for focused, consistent responses - reduced from 0.8)
   - **Brief Greetings**: System prompt enforces 1-2 sentence max introductions
+  - **Priority Question Handling**: System prompt requires answering hours/availability questions BEFORE discussing other topics
   - **NO Realtime Tools**: Removed all function calling - appointments handled exclusively via NLP parser (appointment_nlp.py)
   - **NLP Appointment Parser**: 
     - Server-side GPT-4o-mini text analysis with current date context (fixes 2023→2025 date bug)
@@ -81,7 +82,8 @@ AgentLocator implements a multi-tenant architecture with complete business isola
     - Cost: $0.01/min input + $0.02/min output = **80% cost savings** (~$0.025 per 2-min call vs $0.21)
     - Temperature: 0.18 (very low for consistency)
     - NO function calling tools - appointments via NLP parser only
-  - Internal Whisper transcription is required for AI audio comprehension (included in audio input pricing). Fresh session per call.
+  - Internal Whisper transcription with **forced Hebrew language** (`language: "he"`) for accurate phone call transcription
+  - Fresh session per call (no reuse)
 - **Google Cloud Platform** (legacy/fallback):
   - STT: Streaming API v1 for Hebrew speech recognition.
   - TTS: Standard API with WaveNet-D voice, telephony profile, SSML support.
