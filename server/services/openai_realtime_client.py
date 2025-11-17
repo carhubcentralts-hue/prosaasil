@@ -256,8 +256,8 @@ class OpenAIRealtimeClient:
         output_audio_format: str = "g711_ulaw",
         vad_threshold: float = 0.6,
         silence_duration_ms: int = 500,
-        temperature: float = 0.8,
-        max_tokens: int = 150
+        temperature: float = 0.18,
+        max_tokens: int = 300
     ):
         """
         Configure Realtime API session
@@ -271,8 +271,8 @@ class OpenAIRealtimeClient:
             output_audio_format: Audio format to Twilio (g711_ulaw, pcm16)
             vad_threshold: Voice activity detection threshold (0-1)
             silence_duration_ms: Silence duration to detect end of speech
-            temperature: AI temperature (0-2)
-            max_tokens: Maximum tokens in response
+            temperature: AI temperature (0.18-0.25 for Agent 3 spec)
+            max_tokens: Maximum tokens (280-320 for Agent 3 spec)
         """
         # ✅ CRITICAL: Internal transcription is REQUIRED for AI to hear audio!
         # Without input_audio_transcription, the AI receives no STT events and stays silent.
@@ -298,6 +298,9 @@ class OpenAIRealtimeClient:
             "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
             "max_response_output_tokens": max_tokens
         }
+        
+        # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
+        logger.info(f"🎯 [REALTIME CONFIG] model=gpt-4o-realtime-preview, temp={temperature}, max_tokens={max_tokens}")
         
         # 🚫 NO TOOLS for phone calls - appointment scheduling via NLP only
         

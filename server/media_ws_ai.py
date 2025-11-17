@@ -1537,6 +1537,7 @@ class MediaStreamHandler:
                             
                             # 🔥 CRITICAL: Send appropriate server event based on error type
                             if error_type == "need_phone":
+                                logger.info(f"📞 [DTMF VERIFICATION] Requesting phone via DTMF - AI will ask user to press digits")
                                 await self._send_server_event_to_ai("חסר מספר טלפון. שאל: 'אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית (#)'")
                             else:
                                 await self._send_server_event_to_ai(f"❌ שגיאה: {error_msg}")
@@ -1562,6 +1563,7 @@ class MediaStreamHandler:
                             crm_context.last_appointment_id = appt_id
                             # 🔥 CRITICAL: Set flag - NOW AI is allowed to say "התור נקבע!"
                             crm_context.has_appointment_created = True
+                            logger.info(f"✅ [APPOINTMENT VERIFICATION] Created appointment #{appt_id} in DB - has_appointment_created=True")
                             print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer")
                         
                         # 🔥 Send confirmation to AI (with ✅ marker so AI knows it can say "התור נקבע!")
