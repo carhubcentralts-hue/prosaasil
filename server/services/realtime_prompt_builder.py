@@ -90,8 +90,24 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         core_instructions = core_instructions.replace("{{business_name}}", business_name)
         core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
         
+        # 🔥 Get current date for AI context
+        from datetime import datetime
+        import pytz
+        tz = pytz.timezone(policy.tz)
+        today = datetime.now(tz)
+        today_str = today.strftime("%Y-%m-%d")  # e.g., "2025-11-17"
+        today_hebrew = today.strftime("%d/%m/%Y")  # e.g., "17/11/2025"
+        weekday_hebrew = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][today.weekday()]
+        month_hebrew = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"][today.month - 1]
+        
         # 🎤 CRITICAL RULES AT THE TOP - HIGH PRIORITY
-        critical_rules = """⚠️ שפת השיחה: עברית בלבד! כל השיחה מתנהלת בעברית.
+        critical_rules = f"""⚠️ שפת השיחה: עברית בלבד! כל השיחה מתנהלת בעברית.
+
+📅 התאריך היום: {today_hebrew} (יום {weekday_hebrew}, {today.day} ב{month_hebrew} {today.year})
+   ⚠️ כשאתה מדבר על תאריכים - תמיד השתמש בחודש {month_hebrew}!
+"""
+        
+        critical_rules += """
 
 🎤 חוקי שיחה (עדיפות ראשונה!):
 

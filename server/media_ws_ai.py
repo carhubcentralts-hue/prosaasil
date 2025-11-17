@@ -1731,10 +1731,11 @@ class MediaStreamHandler:
                         now = time.time()
                         
                         # Update AI speaking state (check if AI stopped speaking)
+                        # 🔥 FIX: Increased timeout to 1.5s (AI can pause mid-sentence!)
                         if self.is_ai_speaking and self.last_ai_audio_ts and \
-                           (now - self.last_ai_audio_ts) > 0.3:
+                           (now - self.last_ai_audio_ts) > 1.5:
                             self.is_ai_speaking = False
-                            print(f"[REALTIME] AI stopped speaking (no audio for 300ms)")
+                            print(f"[REALTIME] AI stopped speaking (no audio for 1500ms)")
                         
                         # 🎯 CRITICAL FIX: Check if user is speaking AND AI is speaking
                         if rms >= self.barge_in_rms_threshold:
