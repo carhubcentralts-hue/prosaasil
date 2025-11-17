@@ -37,9 +37,9 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
     - Path 3: Auto-hydration when crm_context created (session_description event)
     - Path 4: Auto-hydration when crm_context created by DTMF handler
     - Fallback in confirm handler retrieves from both sources and writes back to context
-  - **NLP Trigger (Nov 2025)**: DTMF completion handler explicitly triggers NLP re-run **immediately after crm_context creation/update** when both name AND phone exist, ensuring appointments are created without race conditions.
-  - **AI Step-by-Step Guidance (Nov 2025)**: AI prompt explicitly instructs to collect name FIRST, then phone SECOND (never together). After receiving name, AI automatically asks for phone without waiting for server signal. No "missing phone" messages during the collection process - AI understands it's a multi-step flow.
-  - **DTMF Auto-Submit (Nov 2025)**: After collecting 10 digits, system automatically processes phone number without requiring # terminator. This prevents silent failures when users forget to press #.
+  - **NLP Trigger (Nov 2025 - CRITICAL FIX)**: NLP runs **AFTER** DTMF is added to conversation_history (line 4102-4109), ensuring NLP sees complete data: date✅ time✅ name✅ phone✅. Previous race condition (NLP before history update) caused silent failures.
+  - **AI Step-by-Step Guidance (Nov 2025)**: AI prompt explicitly instructs to collect name FIRST, then phone SECOND (never together). AI instructs: "תקליד מספר טלפון במקלדת הטלפון - 10 ספרות שמתחילות ב-05" - NO mention of # key.
+  - **DTMF Auto-Submit (Nov 2025)**: After collecting 10 digits, system automatically processes phone number without requiring # terminator. AI does NOT instruct user to press # - system handles it silently.
   - **Availability Check**: Real-time slot validation with up to 3 alternative suggestions if requested time is taken.
 - **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)` for reliable Hebrew speech detection.
 - **Smart Barge-In**: 400ms grace period, 150 RMS threshold, 400ms minimum voice duration, 800ms cooldown.
