@@ -957,7 +957,7 @@ class MediaStreamHandler:
                 vad_threshold=0.6,
                 silence_duration_ms=600,  # 💰 OPTIMIZED: Faster detection = less audio input minutes
                 temperature=0.18,  # 🎯 LOW TEMP: Focused, less creative responses (was 0.8)
-                max_tokens=120  # 🔥 BREVITY: Force short 1-2 sentence answers (was 600)
+                max_tokens=300  # 🎯 BALANCED: ~280-320 tokens for natural but brief responses (Agent 3 spec)
             )
             print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.18, silence=600ms, format=g711_ulaw, NO TOOLS (appointment via NLP)")
             

@@ -295,7 +295,7 @@ class OpenAIRealtimeClient:
                 "silence_duration_ms": silence_duration_ms,
                 "prefix_padding_ms": 300
             },
-            "temperature": max(0.6, temperature),  # ✅ Minimum 0.6 for Realtime API
+            "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
             "max_response_output_tokens": max_tokens
         }
         

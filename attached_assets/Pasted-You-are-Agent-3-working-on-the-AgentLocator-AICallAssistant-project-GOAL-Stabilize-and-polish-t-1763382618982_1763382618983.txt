@@ -1,0 +1,208 @@
+You are Agent 3 working on the AgentLocator / AICallAssistant project.
+
+GOAL:
+Stabilize and polish the OpenAI Realtime phone system so that:
+- The assistant speaks naturally in Hebrew
+- Barge-in works reliably
+- Transcription (whisper-1) is stable
+- Appointment scheduling works end-to-end with the existing server tools
+- Responses are short, focused and not “chatty”
+
+You MUST NOT remove or rewrite the existing architecture
+(media_ws_ai.py, openai_realtime_client.py, appointment_nlp.py, tools_calendar, business_policy, etc.).  
+You are only allowed to:
+- Adjust configuration (model, tokens, thresholds, flags)
+- Refine prompt building
+- Fix small logic bugs around VAD, barge-in and server-events
+- Keep the current Realtime integration as the single source for calls
+
+────────────────────────
+1. Realtime model + tokens configuration
+────────────────────────
+
+1.1 In openai_realtime_client.py (or wherever the Realtime client is configured):
+
+- Use this model:
+
+  - model: "gpt-4o-realtime-preview"
+  - input_audio_format: "g711_ulaw"
+  - output_audio_format: "g711_ulaw"
+  - input_audio_transcription:
+    - model: "whisper-1"
+    - DO NOT set a "language" field. Let Whisper auto-detect Hebrew.
+
+- Response tokens for CALLS (this is important!):
+  - Set max_output_tokens (or equivalent) to a value around **280–320**.
+  - DO NOT set it to 600+ (too verbose).
+  - DO NOT set it below 200 (risk of cutting mid-sentence).
+
+  The balance is:
+  - Realtime: ~300 tokens max per utterance.
+  - Plus strict style rules in the system prompt:
+    - 1–2 short sentences per reply.
+    - No long monologues.
+
+If there is another place where tokens / max_tokens are configured for Realtime, ensure:
+- All phone-call Realtime responses are limited to ~300 tokens.
+- This does NOT affect GPT-4o-mini used in appointment_nlp.py (that can stay at a normal limit like 512 or 1024 as it is text-only parsing, not voice).
+
+────────────────────────
+2. System prompt behaviour (short, not “chatty”)
+────────────────────────
+
+2.1 In realtime_prompt_builder.py:
+
+- Keep the layered structure you already built:
+  - Critical Rules (system-level)
+  - Business custom prompt from DB (ai_prompt['calls'])
+  - Dynamic policy block (opening hours, slot_size, min_notice, etc.)
+
+- In the **Critical Rules** section, ensure the following are clearly, explicitly written at the TOP:
+
+  1) Identity:
+     - “You must present yourself EXACTLY as defined in the custom business prompt (for example: 'יהודה שמאי, סוכן נדל״ן'), not by the business DB name.”
+
+  2) Brevity:
+     - “Every reply must be VERY SHORT: 1–2 short sentences only.”
+     - “Do NOT explain too much. Do NOT speak in paragraphs. No storytelling unless the user explicitly asks.”
+
+  3) Silence behaviour:
+     - “If the user is silent, DO NOT keep talking.”
+     - “At most once per ~8 seconds of silence you may say one short sentence like: 'אני כאן אם צריך, אפשר לשאול אותי כל דבר', and then stay quiet again.”
+     - “Do NOT generate new content when there is no new user speech or server message.”
+
+  4) Appointment honesty:
+     - “You are not allowed to say 'קבעתי לך תור', 'שריינתי לך שעה', 'נקבע התור' unless the server sent a [SERVER] ✅ appointment_created event.”
+     - “If the server sends a [SERVER] ❌ error (e.g. missing phone, outside working hours), you must tell the user that the booking is NOT completed yet and ask for the missing info.”
+
+  5) DTMF phone collection:
+     - “When you ask for a phone number, be very clear:
+        - Say: 'עכשיו תקליד את הספרות של מספר הטלפון שלך בטלפון ותסיים בכפתור סולמית (#)'. 
+        - If the user talks instead of pressing keys, gently repeat that they must PRESS the digits on the keypad.”
+
+  6) Turn-taking:
+     - “Never talk over the user:
+        - If you hear the user start speaking, you must immediately stop talking (the server will send barge-in events).
+        - After the user finishes, respond briefly and only to what they said.”
+
+Make sure these rules are at the beginning of the Critical Rules section, under 700–800 characters if possible.
+
+────────────────────────
+3. VAD + barge-in tuning (Twilio media_ws_ai.py)
+────────────────────────
+
+3.1 Voice Activity Detection:
+
+In media_ws_ai.py, in the VAD configuration (where noise_floor, vad_threshold, min_voice_ms, silence_duration_ms etc. are defined):
+
+- Implement / verify this behaviour:
+
+  - At call start:
+    - Measure background RMS for ~1–2 seconds of initial silence.
+    - Set:
+      - noise_floor ≈ measured_background_rms.
+      - vad_threshold = max(260.0, noise_floor * 2.5).
+  - Voice detection:
+      - Consider speech as “user speaking” if:
+        - rms > vad_threshold
+        - and it stays above this threshold continuously for at least 400–500 ms.
+  - End of user turn:
+      - Consider “user finished speaking” after ~700–900 ms of silence (rms < vad_threshold).
+
+This should reduce false positives (no random noise as speech), but still react fast when the user really speaks.
+
+3.2 Barge-in (interrupting the AI):
+
+- You already changed is_ai_speaking to a thread-safe Event. Ensure the following:
+
+  - When the AI starts sending audio (on response.audio.delta from OpenAI):
+    - call is_ai_speaking_event.set().
+
+  - When the AI finishes or is cancelled (on response.audio.done or response.cancel ACK):
+    - call is_ai_speaking_event.clear().
+
+- In the Twilio media loop where you detect user speech:
+
+  - If:
+    - ENABLE_BARGE_IN is true
+    - AND is_ai_speaking_event.is_set() is true
+    - AND VAD detects a new user utterance (rms above vad_threshold for ≥ ~400 ms)
+  - THEN:
+    - Trigger barge-in:
+      - Immediately stop sending any remaining AI audio to Twilio.
+      - Send response.cancel to the Realtime API (for the current response_id).
+      - Clear any pending AI audio chunks from the out queue.
+      - Optionally log: “[BARGE-IN] user interrupted AI. Cancelling current response.”
+
+- Important:
+  - Do NOT start a new AI response while is_ai_speaking_event is still set.
+  - The normal flow:
+    - User speaks → server sends text/audio to Realtime → AI responds → when finished, is_ai_speaking_event.clear() → wait for next user.
+
+────────────────────────
+4. Appointment scheduling flow (NO Realtime tools)
+────────────────────────
+
+You MUST keep the current architecture:
+- Realtime AI for the conversation.
+- Server-side appointment_nlp.py using GPT-4o-mini for parsing date/time/name/intent.
+- tools_calendar and related server functions for actual DB writes.
+
+Do NOT add Realtime “tools” on the OpenAI side.
+
+Verify:
+
+4.1 NLP path:
+- After each significant user+AI exchange, the server calls the async appointment_nlp parser with the recent conversation window.
+- The parser returns structured data (intent: "ask" / "book"; date; time; etc.).
+
+4.2 Validation path:
+- validate_appointment_slot() checks:
+  - opening_hours from BusinessSettings.opening_hours_json (per-business, per-day).
+  - slot_size_min, min_notice_min.
+  - Avoids times outside working hours.
+
+4.3 Creation path:
+- If validation passes and phone + name exist:
+  - create_appointment_from_realtime() calls the existing calendar tools (NOT Realtime tools) and creates the appointment in the CRM DB.
+
+4.4 Server → AI events:
+- The Realtime server sends explicit [SERVER] messages to the AI, such as:
+  - [SERVER] slot_available: time X is available.
+  - [SERVER] slot_unavailable: time X is not available, ask user for another time.
+  - [SERVER] need_phone / need_name / need_datetime.
+  - [SERVER] ✅ appointment_created with the final date/time.
+
+- The system prompt Critical Rules must instruct the AI to:
+  - Use these [SERVER] messages as ground truth.
+  - Never confirm an appointment without a [SERVER] ✅ appointment_created.
+
+────────────────────────
+5. Final checks before calling it “ready”
+────────────────────────
+
+Before you consider this feature “production-ready”, you MUST ensure:
+
+- Realtime calls:
+  - Use gpt-4o-realtime-preview with whisper-1 transcription enabled.
+  - Do not crash on input_audio_transcription.failed events (only log and continue).
+
+- Behaviour in live calls:
+  - The AI:
+    - Introduces itself as defined in ai_prompt['calls'] (e.g. “יהודה שמאי…”), not using the DB business name.
+    - Answers in short 1–2 sentence replies, in natural Hebrew.
+    - Does NOT keep talking when the user is silent (except one soft “אני כאן אם צריך” every few seconds).
+    - Stops speaking immediately when the user interrupts (barge-in works).
+  - Appointment:
+    - Correctly validates business hours from BusinessSettings.
+    - Only confirms a booking after a real DB appointment is created.
+    - Asks clearly for DTMF phone number and handles the case where user talks instead of pressing keys.
+
+If any of these are not true, DO NOT refactor the whole system.  
+Instead, adjust:
+- VAD thresholds
+- max_output_tokens (~300)
+- Prompt Critical Rules
+- Small glue logic around barge-in and [SERVER] events
+
+Keep the overall architecture exactly as it is now.
