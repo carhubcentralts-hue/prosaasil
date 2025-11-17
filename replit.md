@@ -30,7 +30,11 @@ AgentLocator implements a multi-tenant architecture with complete business isola
   - **Temperature**: 0.18 (very low for focused, consistent responses - reduced from 0.8)
   - **Brief Greetings**: System prompt enforces 1-2 sentence max introductions
   - **NO Realtime Tools**: Removed all function calling - appointments handled exclusively via NLP parser (appointment_nlp.py)
-  - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with business hours validation
+  - **NLP Appointment Parser**: 
+    - Server-side GPT-4o-mini text analysis with current date context (fixes 2023→2025 date bug)
+    - Rejects generic names ("לקוח", "אדון", "גברת") - requires real customer names
+    - Business hours validation before appointment creation
+  - **Appointment Requirements**: System prompt enforces collecting full name + phone number + date/time BEFORE scheduling
 - **Cost Optimization**: 
   - **Model Selection**: `OPENAI_REALTIME_MODEL` = `gpt-4o-mini-realtime-preview` (80% cheaper: $0.01/min input, $0.02/min output vs $0.21 per 2-min call)
   - **VAD Tuning**: `silence_duration_ms=600` (reduced from 800ms) for faster end-of-speech detection = 10-15% audio input savings
@@ -38,7 +42,12 @@ AgentLocator implements a multi-tenant architecture with complete business isola
   - **Comprehensive Cost Tracking**: Chunk-based audio duration tracking (50 chunks/sec @ 8kHz μ-law), precise cost calculations with pricing lookup table, per-call cost summary with warnings
   - Session-per-call architecture (no reuse), duplicate session prevention, and failed transcription handling without retries
   - Internal Whisper transcription is mandatory for AI to hear audio - this cost cannot be avoided (included in audio input pricing)
-- **Smart Barge-In**: Enabled by default with intelligent state tracking (`is_ai_speaking`, `has_pending_ai_response`) for natural interruption handling
+- **Smart Barge-In**: 
+  - Enabled by default with intelligent state tracking (`is_ai_speaking`, `has_pending_ai_response`)
+  - Comprehensive logging for debugging (RMS levels, grace periods, cooldowns)
+  - 400ms grace period after AI starts speaking, 300ms min user speech duration to trigger
+  - 260 RMS threshold for voice detection, 800ms cooldown between interruptions
+- **Error Resilience**: DB query failures fall back to minimal prompt instead of crashing calls
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
