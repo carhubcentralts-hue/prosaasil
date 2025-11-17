@@ -888,28 +888,22 @@ class MediaStreamHandler:
             with app.app_context():
                 business_id_safe = self.business_id or 1
                 system_prompt = build_realtime_system_prompt(business_id_safe)
-                
-                # 🔧 Load tools for calendar and leads
-                from server.services.realtime_tools import get_realtime_tools
-                tools = get_realtime_tools(business_id_safe)
             
             print(f"✅ [REALTIME] Built system prompt ({len(system_prompt)} chars)")
             print(f"📝 [REALTIME] Prompt preview: {system_prompt[:200]}...")
-            print(f"🔧 [REALTIME] Loaded {len(tools)} tools: {[t['name'] for t in tools]}")
             
-            # 🎯 TASK 3: Configure session with G.711 μ-law (verified) + TOOLS
+            # 🎯 Configure session with G.711 μ-law (NO TOOLS - appointment via NLP only)
             await client.configure_session(
                 instructions=system_prompt,
                 voice="shimmer",  # ✅ Best for Hebrew: clear, natural, feminine voice
                 input_audio_format="g711_ulaw",   # Twilio → OpenAI: μ-law 8kHz
                 output_audio_format="g711_ulaw",  # OpenAI → Twilio: μ-law 8kHz
                 vad_threshold=0.6,
-                silence_duration_ms=600,  # 💰 OPTIMIZED: Faster detection = less audio input minutes (was 800)
-                temperature=0.8,  # ✅ Natural conversations (enforced min 0.6 in implementation)
-                max_tokens=600,  # ✅ INCREASED: Prevent truncated responses (was 300)
-                tools=tools  # 🔥 NEW: Register calendar & leads tools!
+                silence_duration_ms=600,  # 💰 OPTIMIZED: Faster detection = less audio input minutes
+                temperature=0.18,  # 🎯 LOW TEMP: Focused, less creative responses (was 0.8)
+                max_tokens=600  # ✅ Prevent truncated responses
             )
-            print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.8, silence=600ms (optimized), format=g711_ulaw, tools={len(tools)}")
+            print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.18, silence=600ms, format=g711_ulaw, NO TOOLS (appointment via NLP)")
             
             # 📋 CRM: Initialize context and ensure lead exists
             customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
@@ -1193,46 +1187,6 @@ class MediaStreamHandler:
                     # ✅ COST SAFETY: Transcription completed successfully
                     print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
                 
-                elif event_type == "response.function_call_arguments.done":
-                    # 🔧 TOOL CALL: AI is calling a function!
-                    function_name = event.get("name")
-                    arguments_str = event.get("arguments", "{}")
-                    call_id = event.get("call_id")
-                    
-                    print(f"🔧 [TOOL] AI calling: {function_name}({arguments_str[:100]}...)")
-                    
-                    try:
-                        import json
-                        arguments = json.loads(arguments_str)
-                        
-                        # Execute the tool
-                        tool_result = await self._execute_realtime_tool(
-                            function_name, 
-                            arguments, 
-                            business_id_safe,
-                            customer_phone
-                        )
-                        
-                        # Send result back to AI
-                        await client.send_event({
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "function_call_output",
-                                "call_id": call_id,
-                                "output": json.dumps(tool_result, ensure_ascii=False)
-                            }
-                        })
-                        
-                        # Trigger AI response with tool result
-                        await client.send_event({"type": "response.create"})
-                        
-                        print(f"✅ [TOOL] {function_name} executed successfully")
-                        
-                    except Exception as tool_error:
-                        print(f"❌ [TOOL] Error executing {function_name}: {tool_error}")
-                        import traceback
-                        traceback.print_exc()
-                
                 elif event_type.startswith("error"):
                     error_msg = event.get("error", {}).get("message", "Unknown error")
                     print(f"❌ [REALTIME] Error event: {error_msg}")
@@ -1243,71 +1197,6 @@ class MediaStreamHandler:
             traceback.print_exc()
         
         print(f"📥 [REALTIME] Audio receiver ended")
-    
-    async def _execute_realtime_tool(self, function_name: str, arguments: dict, business_id: int, customer_phone: str):
-        """Execute tool called by Realtime API"""
-        try:
-            # Get Flask app context
-            app = _get_flask_app()
-            with app.app_context():
-                if function_name == "calendar_find_slots":
-                    from server.agent_tools.tools_calendar import _calendar_find_slots_impl, FindSlotsInput
-                    
-                    # Build input with business_id
-                    input_data = FindSlotsInput(
-                        business_id=business_id,
-                        date_iso=arguments.get("date_iso"),
-                        preferred_time=arguments.get("preferred_time")
-                    )
-                    
-                    result = _calendar_find_slots_impl(input_data)
-                    return result.dict()
-                
-                elif function_name == "calendar_create_appointment":
-                    from server.agent_tools.tools_calendar import _calendar_create_appointment_impl, CreateAppointmentInput
-                    from server.models_sql import db
-                    
-                    # Build input with business_id and customer_phone
-                    input_data = CreateAppointmentInput(
-                        business_id=business_id,
-                        customer_name=arguments.get("customer_name"),
-                        customer_phone=customer_phone,  # From call context
-                        treatment_type=arguments.get("treatment_type", "פגישה"),
-                        start_iso=arguments.get("start_iso"),
-                        end_iso=arguments.get("end_iso"),
-                        notes=arguments.get("notes"),
-                        source="ai_call"
-                    )
-                    
-                    result = _calendar_create_appointment_impl(input_data, session=db.session)
-                    db.session.commit()
-                    return result.dict()
-                
-                elif function_name == "leads_upsert":
-                    from server.agent_tools.tools_leads import leads_upsert, UpsertLeadInput
-                    
-                    # Build input with business_id and customer_phone
-                    input_data = UpsertLeadInput(
-                        business_id=business_id,
-                        phone=customer_phone,  # From call context
-                        first_name=arguments.get("first_name"),
-                        last_name=arguments.get("last_name"),
-                        summary=arguments.get("summary"),
-                        notes=arguments.get("notes"),
-                        source="ai_call"
-                    )
-                    
-                    result = leads_upsert(input_data)
-                    return result.dict()
-                
-                else:
-                    raise ValueError(f"Unknown tool: {function_name}")
-                    
-        except Exception as e:
-            print(f"❌ [TOOL] Error in {function_name}: {e}")
-            import traceback
-            traceback.print_exc()
-            return {"error": str(e)}
     
     def _handle_realtime_barge_in(self):
         """

@@ -80,17 +80,27 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         core_instructions = core_instructions.replace("{{business_name}}", business_name)
         core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
         
-        # 🎤 CRITICAL: Add SHORT greeting + TOOL USAGE instructions at the TOP
-        top_instructions = """🎤 כשאתה מדבר ראשון (פתיח), תן פתיח קצר ולעניין - משפט-שניים בלבד!
-למשל: "שלום, [שם העסק], במה אפשר לעזור?"
+        # 🎤 CRITICAL RULES AT THE TOP - HIGH PRIORITY
+        critical_rules = """🎤 חוקי שיחה (עדיפות ראשונה!):
 
-🔧 כלים זמינים (חובה להשתמש!):
-- כשלקוח שואל "מתי יש פנוי?" → קרא ל-calendar_find_slots
-- כשלקוח רוצה לקבוע תור → קרא ל-calendar_create_appointment
-- כשלקוח נותן פרטים → קרא ל-leads_upsert
+1. פתיח קצר: בפתיחת השיחה תאמר רק משפט פתיחה אחד קצר (עד 2 משפטים) שמציג מי אתה ומה אתה עושה, ואז תשאל שאלה פתוחה קצרה.
+   דוגמה: "שלום, {{business_name}}, איך אפשר לעזור?"
+   ⚠️ אל תיתן מונולוג ארוך!
+
+2. אחרי הפתיח: תענה רק כשהלקוח מדבר שוב. אל תמציא דיבור חדש בשקט.
+
+3. שקט ארוך: אם יש שקט מעל 15 שניות - פעם אחת בלבד מותר לשאול "אתה עדיין על הקו?"
+   אם עדיין שקט - תסיים בנימוס: "אם אתה צריך משהו, תתקשר שוב. להתראות!"
+
+4. תיאום פגישות: 
+   ⚠️ לעולם אל תגיד "קבעתי לך פגישה" או "שלחתי פרטים" עד שהשרת אישר!
+   המערכת תקבע את הפגישה אוטומטית אחרי שתאסוף: תאריך, שעה, ושם מלא.
+
+5. אין שליחת הודעות: אל תגיד "שלחתי לך SMS/WhatsApp" - שירות זה לא פעיל בשיחות טלפון.
+   במקום זה: "הפרטים נרשמו במערכת, נציג יחזור אליך בהמשך."
 
 """
-        core_instructions = top_instructions + core_instructions
+        core_instructions = critical_rules + core_instructions
         
         # 🔥 ADD DYNAMIC POLICY INFO (hours, slots, min_notice)
         hours_description = _build_hours_description(policy)
