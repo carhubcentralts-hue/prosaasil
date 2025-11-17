@@ -1,0 +1,182 @@
+
+
+Errors only
+
+Date
+Time
+Deployment
+Source
+Log
+2025-11-17 19:59:16.69
+3780dfb2
+User
+{'POST', 'OPTIONS'} /api/business/<tenant>/prompts
+2025-11-17 20:01:17.44
+3780dfb2
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=580
+2025-11-17 20:01:17.44
+3780dfb2
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #9
+2025-11-17 20:01:18.06
+3780dfb2
+User
+[REALTIME] event: response.audio.done
+2025-11-17 20:01:18.06
+3780dfb2
+User
+🤖 [REALTIME] AI said: אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית.
+2025-11-17 20:01:18.06
+3780dfb2
+User
+[REALTIME] event: response.output_item.done
+2025-11-17 20:01:18.06
+3780dfb2
+User
+[REALTIME] event: response.done
+2025-11-17 20:01:18.06
+3780dfb2
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-17 20:01:18.06
+3780dfb2
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 20:01:18.06
+3780dfb2
+User
+💰 [COST] AI utterance: 1.42s (142 chunks)
+2025-11-17 20:01:18.06
+3780dfb2
+User
+[REALTIME] event: response.content_part.done
+2025-11-17 20:01:18.12
+3780dfb2
+User
+[REALTIME] event: rate_limits.updated
+2025-11-17 20:01:20.00
+3780dfb2
+User
+📨 Received: dtmf
+2025-11-17 20:01:20.00
+3780dfb2
+User
+📞 DTMF pressed: 0 (buffer=)
+2025-11-17 20:01:20.00
+3780dfb2
+User
+📝 DTMF buffer: 0
+2025-11-17 20:01:20.40
+3780dfb2
+User
+📞 DTMF pressed: 5 (buffer=0)
+2025-11-17 20:01:20.40
+3780dfb2
+User
+📝 DTMF buffer: 05
+2025-11-17 20:01:20.40
+3780dfb2
+User
+📨 Received: dtmf
+2025-11-17 20:01:20.80
+3780dfb2
+User
+📨 Received: dtmf
+2025-11-17 20:01:20.80
+3780dfb2
+User
+📞 DTMF pressed: 0 (buffer=05)
+
+2025-11-17 20:01:20.80
+3780dfb2
+User
+📝 DTMF buffer: 050
+2025-11-17 20:01:21.20
+3780dfb2
+User
+📝 DTMF buffer: 0504
+2025-11-17 20:01:21.20
+3780dfb2
+User
+📞 DTMF pressed: 4 (buffer=050)
+2025-11-17 20:01:21.20
+3780dfb2
+User
+📨 Received: dtmf
+2025-11-17 20:01:21.60
+3780dfb2
+User
+📨 Received: dtmf
+2025-11-17 20:01:21.60
+3780dfb2
+User
+📞 DTMF pressed: 2 (buffer=0504)
+2025-11-17 20:01:21.60
+3780dfb2
+User
+📝 DTMF buffer: 05042
+2025-11-17 20:01:22.04
+3780dfb2
+User
+📨 Received: dtmf
+2025-11-17 20:01:22.04
+3780dfb2
+User
+📞 DTMF pressed: 9 (buffer=05042)
+2025-11-17 20:01:22.04
+3780dfb2
+User
+📝 DTMF buffer: 050429
+2025-11-17 20:01:22.40
+3780dfb2
+User
+📨 Received: dtmf
+2025-11-17 20:01:22.40
+3780dfb2
+User
+📞 DTMF pressed: 4 (buffer=050429)
+2025-11-17 20:01:22.40
+3780dfb2
+User
+📝 DTMF buffer: 0504294
+2025-11-17 20:01:22.80
+3780dfb2
+User
+📝 DTMF buffer: 05042947
+2025-11-17 20:01:22.80
+3780dfb2
+User
+📞 DTMF pressed: 7 (buffer=0504294)
+2025-11-17 20:01:22.80
+3780dfb2
+User
+📨 Received: dtmf
+2025-11-17 20:01:23.20
+3780dfb2
+User
+📞 DTMF pressed: 2 (buffer=05042947)
+2025-11-17 20:01:23.20
+3780dfb2
+User
+📨 Received: dtmf
+2025-11-17 20:01:23.20
+3780dfb2
+User
+📝 DTMF buffer: 050429472
+2025-11-17 20:01:23.58
+3780dfb2
+User
+📞 DTMF pressed: 4 (buffer=050429472)
+2025-11-17 20:01:23.58
+3780dfb2
+User
+📝 DTMF buffer: 0504294724
+2025-11-17 20:01:23.58
+3780dfb2
+User
+📨 Received: dtmf
+2025-11-17 20:01:24.02
+3780dfb2
+User
+✅ DTMF phone collected: 0504294724
