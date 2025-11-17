@@ -1856,7 +1856,9 @@ class MediaStreamHandler:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
+                print(f"🔍 [NLP] Running async NLP parser...")
                 loop.run_until_complete(self._check_appointment_confirmation_async())
+                print(f"✅ [NLP] Async NLP parser completed successfully")
                 # ✅ SUCCESS: Update cache ONLY after NLP completes successfully
                 with self.nlp_processing_lock:
                     self.last_nlp_processed_hash = current_hash
@@ -1871,8 +1873,10 @@ class MediaStreamHandler:
                 loop.close()
         
         # Launch in background thread to avoid blocking and event loop conflicts
+        print(f"🚀 [NLP] Launching NLP thread...")
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
+        print(f"✅ [NLP] Thread launched")
     
     def _realtime_audio_out_loop(self):
         """
@@ -4138,14 +4142,14 @@ class MediaStreamHandler:
                     "ts": time.time()
                 })
                 
-                # 🔥 CRITICAL FIX: After adding DTMF to history, check if we can create appointment
-                # This runs AFTER conversation_history has DTMF, so NLP sees complete data
+                # 🔥 CRITICAL FIX: After adding DTMF to history, ALWAYS trigger NLP!
+                # NLP will extract both date/time AND name from conversation history
+                # Don't check for customer_name here - let NLP extract it from history!
                 crm_context = getattr(self, 'crm_context', None)
-                if crm_context and crm_context.customer_name and crm_context.customer_phone:
-                    print(f"🎯 [DTMF] We now have name={crm_context.customer_name} AND phone={crm_context.customer_phone}")
-                    print(f"🔄 [DTMF] Triggering NLP to check if appointment can be created...")
-                    # Trigger NLP check (uses existing conversation history WITH DTMF!)
-                    self._check_appointment_confirmation("")  # Empty string - uses history
+                print(f"🔄 [DTMF] Triggering NLP with phone={crm_context.customer_phone if crm_context else None}")
+                print(f"🔍 [DEBUG] Calling NLP after DTMF - conversation has {len(self.conversation_history)} messages")
+                # Trigger NLP check (uses existing conversation history WITH DTMF!)
+                self._check_appointment_confirmation("")  # Empty string - uses history
                 
             except queue.Full:
                 print(f"❌ [REALTIME] CRITICAL: Text input queue full - DTMF phone dropped!")

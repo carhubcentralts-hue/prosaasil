@@ -36,6 +36,8 @@ async def extract_appointment_request(conversation_history: list, business_id: i
         - "confirm": User confirming an appointment
         - "none": No appointment-related action
     """
+    print(f"🔍 [NLP ENTRY] extract_appointment_request called")
+    print(f"🔍 [NLP ENTRY] business_id={business_id}, history_length={len(conversation_history)}")
     try:
         # Build conversation text - support both old and new formats
         formatted_messages = []
@@ -54,6 +56,8 @@ async def extract_appointment_request(conversation_history: list, business_id: i
                 formatted_messages.append(f"נציג: {msg['bot']}")
         
         conversation_text = "\n".join(formatted_messages)
+        print(f"🔍 [NLP] Formatted {len(formatted_messages)} messages for GPT-4o-mini")
+        print(f"🔍 [NLP] Conversation text: {conversation_text[:200]}...")
         
         # Get current date for context
         from datetime import datetime, timedelta
@@ -73,6 +77,7 @@ async def extract_appointment_request(conversation_history: list, business_id: i
         next_sunday = (today + timedelta(days=days_until_sunday)).strftime("%Y-%m-%d")
         
         # Call GPT-4o-mini for extraction
+        print(f"🔍 [NLP] Calling GPT-4o-mini with model=gpt-4o-mini, temperature=0.1")
         logger.info(f"🔍 [NLP VERIFICATION] Using model=gpt-4o-mini, temperature=0.1 for appointment parsing")
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
@@ -151,14 +156,17 @@ async def extract_appointment_request(conversation_history: list, business_id: i
         
         # Parse response
         result_text = response.choices[0].message.content
+        print(f"🔍 [NLP] GPT-4o-mini returned: {result_text}")
         import json
         result = json.loads(result_text or "{}")
         
+        print(f"✅ [NLP] Parsed result: {result}")
         logger.info(f"📝 [NLP] Extracted: {result}")
         return result
         
     except Exception as e:
+        print(f"❌ [NLP] Extraction failed: {e}")
         logger.error(f"❌ [NLP] Extraction failed: {e}")
         import traceback
         traceback.print_exc()
-        return None
+        return {"action": "none", "date": None, "time": None, "name": None, "confidence": 0.0}

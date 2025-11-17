@@ -1,0 +1,94 @@
+
+2025-11-17 21:37:38.78
+1ab19de4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=265, AI speaking=True)
+2025-11-17 21:37:38.80
+1ab19de4
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+2025-11-17 21:37:38.82
+1ab19de4
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+2025-11-17 21:37:38.84
+1ab19de4
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+2025-11-17 21:37:38.90
+1ab19de4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=117 < 150.0)
+2025-11-17 21:37:38.94
+1ab19de4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=286, AI speaking=True)
+
+2025-11-17 21:37:39.00
+1ab19de4
+User
+🎤 END OF UTTERANCE: 4.5s audio, conversation #18
+2025-11-17 21:37:39.00
+1ab19de4
+User
+🧠 STATE -> PROCESSING | len=72000 | silence_ms=0
+2025-11-17 21:37:39.00
+1ab19de4
+User
+✅ Processing complete for conversation #18
+2025-11-17 21:37:39.00
+1ab19de4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-17 21:37:39.14
+1ab19de4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=41 < 150.0)
+2025-11-17 21:37:39.18
+1ab19de4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=153, AI speaking=True)
+2025-11-17 21:37:39.24
+1ab19de4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=81 < 150.0)
+2025-11-17 21:37:39.60
+1ab19de4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=224, AI speaking=True)
+2025-11-17 21:37:39.60
+1ab19de4
+User
+🎙️ REAL_VOICE: rms=224.0 > threshold=123.6
+2025-11-17 21:37:39.62
+1ab19de4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=116 < 150.0)
+2025-11-17 21:37:39.97
+1ab19de4
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 21:37:39.97
+1ab19de4
+User
+[REALTIME] event: response.done
+2025-11-17 21:37:39.97
+1ab19de4
+User
+💰 [COST] AI utterance: 1.52s (138 chunks)
+2025-11-17 21:37:39.97
+1ab19de4
+User
+🤖 [REALTIME] AI said: אני עדיין מחכה לאישור סופי מהמערכת. אני אעדכן אותך מיד כשהתור יאושר סופית.
+2025-11-17 21:37:40.84
+ba33c897
+System
+system: received signal terminated
+2025-11-17 21:37:41.16
+1ab19de4
+User
+🎤 END OF UTTERANCE: 0.7s audio, conversation #20
+2025-11-17 21:37:41.16
+1ab19de4
+User
+🧠 STATE -> PROCESSING | len=10880 | silence_ms=520

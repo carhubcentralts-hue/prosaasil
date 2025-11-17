@@ -1,0 +1,99 @@
+2025-11-17 21:37:39.97
+1ab19de4
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 21:37:39.97
+1ab19de4
+User
+[REALTIME] event: response.done
+2025-11-17 21:37:39.97
+1ab19de4
+User
+💰 [COST] AI utterance: 1.52s (138 chunks)
+2025-11-17 21:37:39.97
+1ab19de4
+User
+🤖 [REALTIME] AI said: אני עדיין מחכה לאישור סופי מהמערכת. אני אעדכן אותך מיד כשהתור יאושר סופית.
+2025-11-17 21:37:40.84
+ba33c897
+System
+system: received signal terminated
+2025-11-17 21:37:41.16
+1ab19de4
+User
+🎤 END OF UTTERANCE: 0.7s audio, conversation #20
+2025-11-17 21:37:41.16
+1ab19de4
+User
+🧠 STATE -> PROCESSING | len=10880 | silence_ms=520
+2025-11-17 21:37:44.96
+1ab19de4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=216, AI speaking=False)
+2025-11-17 21:37:44.96
+1ab19de4
+User
+🎙️ REAL_VOICE: rms=216.0 > threshold=123.6
+2025-11-17 21:37:44.98
+1ab19de4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=139 < 150.0)
+2025-11-17 21:37:45.02
+1ab19de4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=187, AI speaking=False)
+2025-11-17 21:37:45.14
+1ab19de4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=113 < 150.0)
+2025-11-17 21:37:45.21
+1ab19de4
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-17 21:37:45.22
+1ab19de4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=348, AI speaking=False)
+2025-11-17 21:37:45.34
+1ab19de4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=127 < 150.0)
+2025-11-17 21:37:46.20
+1ab19de4
+User
+[REALTIME] event: input_audio_buffer.committed
+2025-11-17 21:37:46.20
+1ab19de4
+User
+[REALTIME] event: input_audio_buffer.speech_stopped
+2025-11-17 21:37:46.20
+1ab19de4
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 21:37:46.21
+1ab19de4
+User
+[REALTIME] event: response.created
+2025-11-17 21:37:46.21
+1ab19de4
+User
+🎯 [REALTIME] Response started: resp_CczKkg3wPzBInfLlnqx3j
+2025-11-17 21:37:46.84
+1ab19de4
+User
+💓 WS_KEEPALIVE #6 (prevents 5min timeout)
+2025-11-17 21:37:46.92
+1ab19de4
+User
+📨 Received: mark
+
+2025-11-17 21:37:46.98
+1ab19de4
+User
+🎤 END OF UTTERANCE: 4.5s audio, conversation #21
+2025-11-17 21:37:46.98
+1ab19de4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-17 21:37:46.98
+1ab19de4
