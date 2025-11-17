@@ -94,76 +94,107 @@ class CallCrmContext:
 # 🔧 APPOINTMENT VALIDATION HELPER
 def validate_appointment_slot(business_id: int, requested_dt) -> bool:
     """
-    Validate that requested appointment slot is within business hours
+    Validate that requested appointment slot is available:
+    1. Within business hours
+    2. No overlapping appointments (checks calendar availability)
+    3. Uses slot_size_min from business settings
     
     Args:
         business_id: Business ID
         requested_dt: datetime object (timezone-aware)
     
     Returns:
-        True if slot is valid, False otherwise
+        True if slot is valid AND available, False otherwise
     """
     try:
         from server.policy.business_policy import get_business_policy
+        from datetime import datetime, timedelta
         import pytz
         
         policy = get_business_policy(business_id)
         
-        # Allow 24/7 businesses
-        if policy.allow_24_7:
-            print(f"✅ [VALIDATION] 24/7 business - all slots valid")
-            return True
-        
-        # Python datetime.weekday(): Mon=0, Tue=1, ..., Sun=6
-        # Policy format: "sun", "mon", "tue", "wed", "thu", "fri", "sat"
-        weekday_map = {
-            0: "mon",
-            1: "tue",
-            2: "wed",
-            3: "thu",
-            4: "fri",
-            5: "sat",
-            6: "sun"
-        }
-        
-        weekday_key = weekday_map.get(requested_dt.weekday())
-        if not weekday_key:
-            print(f"❌ [VALIDATION] Invalid weekday: {requested_dt.weekday()}")
-            return False
-        
-        # Get opening hours for this day
-        day_hours = policy.opening_hours.get(weekday_key, [])
-        if not day_hours:
-            print(f"❌ [VALIDATION] Business closed on {weekday_key}")
-            return False
-        
-        # Check if time falls within any window
-        # Use datetime comparison for proper time range checking
-        from datetime import datetime, time as dt_time
-        
-        requested_time = requested_dt.time()
-        
-        for window in day_hours:
-            start_str, end_str = window[0], window[1]
+        # 🔥 STEP 1: Check business hours (skip for 24/7)
+        if not policy.allow_24_7:
+            # Python datetime.weekday(): Mon=0, Tue=1, ..., Sun=6
+            # Policy format: "sun", "mon", "tue", "wed", "thu", "fri", "sat"
+            weekday_map = {
+                0: "mon",
+                1: "tue",
+                2: "wed",
+                3: "thu",
+                4: "fri",
+                5: "sat",
+                6: "sun"
+            }
             
-            # Parse times
-            start_time = datetime.strptime(start_str, "%H:%M").time()
-            end_time = datetime.strptime(end_str, "%H:%M").time()
+            weekday_key = weekday_map.get(requested_dt.weekday())
+            if not weekday_key:
+                print(f"❌ [VALIDATION] Invalid weekday: {requested_dt.weekday()}")
+                return False
             
-            # Handle overnight windows (e.g., 21:00-02:00)
-            if start_time <= end_time:
-                # Normal window (same day)
-                if start_time <= requested_time <= end_time:
-                    print(f"✅ [VALIDATION] Slot {requested_time} within {start_str}-{end_str}")
-                    return True
+            # Get opening hours for this day
+            day_hours = policy.opening_hours.get(weekday_key, [])
+            if not day_hours:
+                print(f"❌ [VALIDATION] Business closed on {weekday_key}")
+                return False
+            
+            # Check if time falls within any window
+            requested_time = requested_dt.time()
+            time_valid = False
+            
+            for window in day_hours:
+                start_str, end_str = window[0], window[1]
+                
+                # Parse times
+                start_time = datetime.strptime(start_str, "%H:%M").time()
+                end_time = datetime.strptime(end_str, "%H:%M").time()
+                
+                # Handle overnight windows (e.g., 21:00-02:00)
+                if start_time <= end_time:
+                    # Normal window (same day)
+                    if start_time <= requested_time <= end_time:
+                        time_valid = True
+                        break
+                else:
+                    # Overnight window
+                    if requested_time >= start_time or requested_time <= end_time:
+                        time_valid = True
+                        break
+            
+            if not time_valid:
+                print(f"❌ [VALIDATION] Slot {requested_time} outside business hours {day_hours}")
+                return False
             else:
-                # Overnight window
-                if requested_time >= start_time or requested_time <= end_time:
-                    print(f"✅ [VALIDATION] Slot {requested_time} within overnight window {start_str}-{end_str}")
-                    return True
+                print(f"✅ [VALIDATION] Slot {requested_time} within business hours")
+        else:
+            print(f"✅ [VALIDATION] 24/7 business - hours check skipped")
         
-        print(f"❌ [VALIDATION] Slot {requested_time} outside business hours {day_hours}")
-        return False
+        # 🔥 STEP 2: Check calendar availability (prevent overlaps!)
+        # Calculate end time using slot_size_min from policy
+        slot_duration_min = policy.slot_size_min  # 15, 30, or 60 minutes
+        requested_end_dt = requested_dt + timedelta(minutes=slot_duration_min)
+        
+        print(f"🔍 [VALIDATION] Checking calendar: {requested_dt.strftime('%Y-%m-%d %H:%M')} - {requested_end_dt.strftime('%H:%M')} (slot_size={slot_duration_min}min)")
+        
+        # Query DB for overlapping appointments
+        from server.models_sql import Appointment
+        app = _get_flask_app()
+        with app.app_context():
+            # Find appointments that overlap with requested slot
+            # Overlap logic: (start1 < end2) AND (end1 > start2)
+            overlapping = Appointment.query.filter(
+                Appointment.business_id == business_id,
+                Appointment.status.in_(['scheduled', 'confirmed']),  # Only active appointments
+                Appointment.start_time < requested_end_dt,  # Existing start before our end
+                Appointment.end_time > requested_dt  # Existing end after our start
+            ).count()
+            
+            if overlapping > 0:
+                print(f"❌ [VALIDATION] CONFLICT! Found {overlapping} overlapping appointment(s) in calendar")
+                return False
+            else:
+                print(f"✅ [VALIDATION] Calendar available - no conflicts")
+                return True
         
     except Exception as e:
         print(f"❌ [VALIDATION] Error validating slot: {e}")
