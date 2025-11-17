@@ -704,10 +704,10 @@ class MediaStreamHandler:
         self.last_ai_audio_ts = None  # Last time AI audio was received from Realtime
         self.last_user_turn_id = None  # Last user conversation item ID
         self.last_ai_turn_id = None  # Last AI conversation item ID
-        self.min_ai_talk_guard_ms = 400  # Grace period after AI starts speaking (ms)
-        self.barge_in_rms_threshold = 260.0  # 🎯 RMS threshold for barge-in (raised from 350)
-        self.min_voice_duration_ms = 800  # 🎯 Minimum voice duration to process (800-1000ms)
-        self.barge_in_min_ms = 300  # Minimum continuous speech duration for barge-in (ms)
+        self.min_ai_talk_guard_ms = 600  # 🔥 Grace period after AI starts speaking (raised to 600ms)
+        self.barge_in_rms_threshold = 150.0  # 🔥 LOWERED: RMS threshold for barge-in (was 260, now 150 for easier interruption)
+        self.min_voice_duration_ms = 500  # 🔥 LOWERED: Minimum voice duration to process (was 800ms, now 500ms)
+        self.barge_in_min_ms = 250  # 🔥 LOWERED: Minimum continuous speech for barge-in (was 300ms, now 250ms)
         self.barge_in_cooldown_ms = 800  # Cooldown between barge-in events (ms)
         self.last_barge_in_ts = None  # Last time barge-in was triggered
         self.current_user_voice_start_ts = None  # When current user voice started
