@@ -1,0 +1,107 @@
+2025-11-17 20:57:05.63
+50647521
+User
+📨 Received: dtmf
+2025-11-17 20:57:06.25
+50647521
+User
+📞 DTMF pressed: 2 (buffer=05042947)
+2025-11-17 20:57:06.45
+50647521
+User
+📝 DTMF buffer: 0504294724
+2025-11-17 20:57:06.45
+50647521
+User
+📨 Received: dtmf
+2025-11-17 20:57:06.69
+50647521
+User
+📭 [NLP] No appointment action detected
+2025-11-17 20:57:06.85
+50647521
+User
+🎙️ [BARGE-IN] User voice detected (RMS=322, AI speaking=False)
+2025-11-17 20:57:07.03
+50647521
+User
+📨 Received: dtmf
+2025-11-17 20:57:08.59
+50647521
+User
+💓 WS_KEEPALIVE #4 (prevents 5min timeout)
+2025-11-17 20:57:08.64
+50647521
+User
+📨 Received: mark
+2025-11-17 20:57:09.07
+50647521
+User
+🎙️ [BARGE-IN] User voice detected (RMS=922, AI speaking=False)
+2025-11-17 20:57:09.31
+50647521
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=140 < 150.0)
+2025-11-17 20:57:09.37
+50647521
+User
+🎙️ [BARGE-IN] User voice detected (RMS=650, AI speaking=False)
+2025-11-17 20:57:09.57
+50647521
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=83 < 150.0)
+2025-11-17 20:57:09.85
+50647521
+User
+🎙️ [BARGE-IN] User voice detected (RMS=883, AI speaking=False)
+2025-11-17 20:57:09.87
+50647521
+User
+🎙️ REAL_VOICE: rms=775.0 > threshold=109.6
+2025-11-17 20:57:09.93
+50647521
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=84 < 150.0)
+2025-11-17 20:57:09.97
+50647521
+User
+🎙️ [BARGE-IN] User voice detected (RMS=836, AI speaking=False)
+2025-11-17 20:57:10.07
+50647521
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=47 < 150.0)
+2025-11-17 20:57:10.13
+50647521
+User
+🎙️ [BARGE-IN] User voice detected (RMS=271, AI speaking=False)
+2025-11-17 20:57:10.17
+50647521
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=54 < 150.0)
+2025-11-17 20:57:10.25
+50647521
+User
+🎙️ [BARGE-IN] User voice detected (RMS=204, AI speaking=False)
+2025-11-17 20:57:10.37
+50647521
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=79 < 150.0)
+2025-11-17 20:57:10.39
+50647521
+User
+🎙️ [BARGE-IN] User voice detected (RMS=162, AI speaking=False)
+2025-11-17 20:57:10.45
+50647521
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=146 < 150.0)
+2025-11-17 20:57:10.47
+50647521
+User
+🎙️ [BARGE-IN] User voice detected (RMS=208, AI speaking=False)
+
+2025-11-17 20:57:10.55
+50647521
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=59 < 150.0)
+2025-11-17 20:57:10.57
+50647521
