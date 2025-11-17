@@ -98,12 +98,14 @@ class CallCrmContext:
     Ensures every call creates/updates a lead and can schedule appointments.
     
     🔥 NEW: has_appointment_created flag - prevents AI from saying "confirmed" before server approval
+    🔥 NEW: pending_slot - tracks date/time that was checked for availability
     """
     business_id: int
     customer_phone: str
     lead_id: Optional[int] = None
     last_appointment_id: Optional[int] = None
     has_appointment_created: bool = False  # 🔥 GUARD: True only after [SERVER] ✅ appointment_created
+    pending_slot: Optional[dict] = None  # 🔥 {"date": "2025-11-17", "time": "18:00", "available": True}
 
 
 # 🔧 APPOINTMENT VALIDATION HELPER
@@ -1504,26 +1506,74 @@ class MediaStreamHandler:
                 await self._send_server_event_to_ai("hours_info - לא הצלחתי לטעון את שעות הפעילות. אפשר ליצור קשר ישירות.")
             return
         
-        # Handle "ask" action (user asking for availability for specific date/time)
+        # 🔥 NEW: Handle "ask" action (user asking for availability for specific date/time)
         if action == "ask":
-            print(f"❓ [NLP] User asking for availability - AI should check and respond")
-            # 🔥 Send availability feedback to AI
-            if date_iso and time_str:
-                from datetime import datetime, timedelta
-                import pytz
-                tz = pytz.timezone('Asia/Jerusalem')
+            print(f"❓ [NLP] User asking for availability - checking slot...")
+            
+            if not date_iso or not time_str:
+                # User wants appointment but didn't specify date/time
+                print(f"⚠️ [NLP] User wants appointment but no date/time - asking for it")
+                await self._send_server_event_to_ai("need_datetime - שאל את הלקוח: באיזה תאריך ושעה היית רוצה לקבוע?")
+                return
+            
+            # Parse requested datetime
+            from datetime import datetime, timedelta
+            import pytz
+            tz = pytz.timezone('Asia/Jerusalem')
+            
+            try:
                 target_date = datetime.fromisoformat(date_iso)
                 hour, minute = map(int, time_str.split(":"))
                 start_dt = tz.localize(datetime(target_date.year, target_date.month, target_date.day, hour, minute, 0))
                 
                 # Check availability
-                if validate_appointment_slot(self.business_id, start_dt):
-                    await self._send_server_event_to_ai(f"פנוי - השעה {time_str} ביום {date_iso} פנויה!")
+                is_available = validate_appointment_slot(self.business_id, start_dt)
+                
+                # Get CRM context
+                crm_context = getattr(self, 'crm_context', None)
+                
+                if is_available:
+                    # ✅ SLOT AVAILABLE - Save to pending_slot and inform AI
+                    print(f"✅ [NLP] Slot {date_iso} {time_str} is AVAILABLE!")
+                    if crm_context:
+                        crm_context.pending_slot = {
+                            "date": date_iso,
+                            "time": time_str,
+                            "available": True
+                        }
+                    await self._send_server_event_to_ai(f"✅ פנוי! {date_iso} {time_str}")
                 else:
-                    await self._send_server_event_to_ai(f"תפוס - השעה {time_str} ביום {date_iso} תפוסה. תציע שעה אחרת.")
-            else:
-                # User asked for availability but didn't specify date/time
-                await self._send_server_event_to_ai("need_datetime - שאל את הלקוח: באיזה תאריך ושעה היית רוצה לקבוע?")
+                    # ❌ SLOT TAKEN - Find alternatives and inform AI
+                    print(f"❌ [NLP] Slot {date_iso} {time_str} is TAKEN - finding alternatives...")
+                    
+                    # Find next 3 available slots
+                    from server.policy.business_policy import get_business_policy
+                    policy = get_business_policy(self.business_id)
+                    slot_size_min = policy.slot_size_min
+                    
+                    alternatives = []
+                    check_dt = start_dt + timedelta(minutes=slot_size_min)
+                    max_checks = 20  # Check up to 20 slots ahead
+                    
+                    for _ in range(max_checks):
+                        if validate_appointment_slot(self.business_id, check_dt):
+                            alternatives.append(check_dt.strftime("%H:%M"))
+                            if len(alternatives) >= 3:
+                                break
+                        check_dt += timedelta(minutes=slot_size_min)
+                    
+                    if alternatives:
+                        alternatives_str = " או ".join(alternatives)
+                        await self._send_server_event_to_ai(f"❌ תפוס - השעה {time_str} תפוסה. מה דעתך על {alternatives_str}?")
+                    else:
+                        await self._send_server_event_to_ai(f"❌ תפוס - השעה {time_str} תפוסה. תנסה יום אחר?")
+                    
+            except Exception as e:
+                print(f"❌ [NLP] Error checking availability: {e}")
+                import traceback
+                traceback.print_exc()
+                await self._send_server_event_to_ai("need_datetime - לא הצלחתי לבדוק זמינות. באיזה תאריך ושעה?")
+            
             return
         
         # Handle "confirm" action (user confirmed appointment)
