@@ -25,13 +25,20 @@ AgentLocator implements a multi-tenant architecture with complete business isola
 - **RBAC**: Role-based access control with admin/manager/business roles and impersonation support.
 - **DTMF Menu**: Interactive voice response system for phone calls.
 - **Data Protection**: Strictly additive database migrations with automatic verification.
-- **OpenAI Realtime API**: Feature-flagged migration for phone calls using configurable model selection, with dedicated asyncio threads, thread-safe queues, and bidirectional audio streaming.
+- **OpenAI Realtime API**: Feature-flagged migration for phone calls using **gpt-4o-mini-realtime-preview exclusively** (no tools), with dedicated asyncio threads, thread-safe queues, and bidirectional audio streaming.
+- **AI Behavior Optimization**:
+  - **Temperature**: 0.18 (very low for focused, consistent responses - reduced from 0.8)
+  - **Brief Greetings**: System prompt enforces 1-2 sentence max introductions
+  - **NO Realtime Tools**: Removed all function calling - appointments handled exclusively via NLP parser (appointment_nlp.py)
+  - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with business hours validation
 - **Cost Optimization**: 
-  - **Model Selection**: `OPENAI_REALTIME_MODEL` env var supports `gpt-4o-mini-realtime-preview` (80% cheaper: $0.01/min input, $0.02/min output) or `gpt-4o-realtime-preview` (standard: $0.06/min input, $0.24/min output)
+  - **Model Selection**: `OPENAI_REALTIME_MODEL` = `gpt-4o-mini-realtime-preview` (80% cheaper: $0.01/min input, $0.02/min output vs $0.21 per 2-min call)
   - **VAD Tuning**: `silence_duration_ms=600` (reduced from 800ms) for faster end-of-speech detection = 10-15% audio input savings
+  - **Enhanced VAD Threshold**: 260 RMS + 800ms min_voice_duration_ms to reduce false triggers
   - **Comprehensive Cost Tracking**: Chunk-based audio duration tracking (50 chunks/sec @ 8kHz μ-law), precise cost calculations with pricing lookup table, per-call cost summary with warnings
   - Session-per-call architecture (no reuse), duplicate session prevention, and failed transcription handling without retries
   - Internal Whisper transcription is mandatory for AI to hear audio - this cost cannot be avoided (included in audio input pricing)
+- **Smart Barge-In**: Tracks `is_ai_speaking` and `has_pending_ai_response` states for intelligent interruption handling
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
@@ -61,9 +68,10 @@ AgentLocator implements a multi-tenant architecture with complete business isola
 - **Twilio**: Telephony services for voice calls and WhatsApp Business API.
 - **OpenAI**:
   - GPT-4o-mini for Hebrew real estate conversations, FAQ responses, and server-side NLP parsing for appointments.
-  - Realtime API with configurable model selection:
-    - `gpt-4o-mini-realtime-preview` (recommended): $0.01/min input + $0.02/min output = **80% cost savings** (~$0.025 per 2-min call)
-    - `gpt-4o-realtime-preview` (standard): $0.06/min input + $0.24/min output (~$0.21 per 2-min call)
+  - Realtime API using **gpt-4o-mini-realtime-preview exclusively**:
+    - Cost: $0.01/min input + $0.02/min output = **80% cost savings** (~$0.025 per 2-min call vs $0.21)
+    - Temperature: 0.18 (very low for consistency)
+    - NO function calling tools - appointments via NLP parser only
   - Internal Whisper transcription is required for AI audio comprehension (included in audio input pricing). Fresh session per call.
 - **Google Cloud Platform** (legacy/fallback):
   - STT: Streaming API v1 for Hebrew speech recognition.
