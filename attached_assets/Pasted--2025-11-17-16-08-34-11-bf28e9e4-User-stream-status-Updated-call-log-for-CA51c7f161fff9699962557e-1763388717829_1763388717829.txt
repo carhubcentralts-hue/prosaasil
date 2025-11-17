@@ -1,0 +1,178 @@
+
+2025-11-17 16:08:34.11
+bf28e9e4
+User
+✅ stream_status: Updated call_log for CA51c7f161fff9699962557ef9849202c7
+2025-11-17 16:10:48.38
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 520ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.40
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 541ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.42
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 561ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.44
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 580ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.46
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 601ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.49
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 621ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.50
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 640ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.52
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 660ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.54
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 680ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.56
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 701ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.58
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 720ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.60
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 741ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.62
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 760ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.64
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 780ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.66
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 800ms but AI NOT speaking - no barge-in needed
+
+2025-11-17 16:10:48.68
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 820ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.70
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 842ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.72
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 860ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.74
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 881ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.76
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 900ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.78
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 920ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.80
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 940ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.82
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 960ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.84
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 980ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.88
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 1020ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.90
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 1041ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:48.91
+bf28e9e4
+User
+[TX] fps=51 q=711/800
+2025-11-17 16:10:49.08
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 1222ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:49.12
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 1260ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:49.14
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 1280ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:49.22
+bf28e9e4
+User
+⚠️ [BARGE-IN] User spoke 1360ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:10:51.77
+bf28e9e4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=170, AI speaking=False)
+2025-11-17 16:10:51.77
+bf28e9e4
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-17 16:10:51.94
+bf28e9e4
+User
+[TX] fps=50 q=560/800
+2025-11-17 16:10:52.10
+bf28e9e4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=42 < 150.0)
+2025-11-17 16:10:52.14
+bf28e9e4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=1222, AI speaking=False)
+2025-11-17 16:10:52.34
+bf28e9e4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=78 < 150.0)
+2025-11-17 16:10:52.82
+bf28e9e4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-17 16:10:52.82
+bf28e9e4
+User
+🧠 STATE -> PROCESSING | len=29120 | silence_ms=500
+2025-11-17 16:10:52.82
+bf28e9e4
+User
+✅ Processing complete for conversation #3
+2025-11-17 16:10:52.82
+bf28e9e4
+User
+🎤 END OF UTTERANCE: 1.8s audio, conversation #3
+2025-11-17 16:10:52.94
+bf28e9e4
+User
+[TX] fps=50 q=510/800
+2025-11-17 16:10:53.08
+bf28e9e4
+User
+🎙️ REAL_VOICE: rms=459.0 > threshold=89.0
