@@ -630,9 +630,9 @@ class MediaStreamHandler:
         
         # ✅ תיקון קריטי: מעקב נפרד אחר קול ושקט
         self.last_voice_ts = 0.0         # זמן הקול האחרון - לחישוב דממה אמיתי
-        # 🔧 Moderate VAD threshold - not too high, not too low
-        self.noise_floor = 150.0          # רמת רעש בסיסית (moderate for Hebrew)
-        self.vad_threshold = 200.0        # סף VAD דינמי (moderate threshold)
+        # 🎯 AGENT 3 HEBREW: VAD = noise + 80, capped at 175 (detects 180-220 RMS speech)
+        self.noise_floor = 80.0          # רמת רעש (calibrated from RMS<120 frames)
+        self.vad_threshold = 170.0        # סף VAD (Hebrew: noise+80, max 175)
         self.is_calibrated = False       # האם כוילרנו את רמת הרעש
         self.calibration_frames = 0      # מונה פריימים לכיול
         self.mark_pending = False        # האם ממתינים לסימון TTS
@@ -717,10 +717,10 @@ class MediaStreamHandler:
         self.last_user_turn_id = None  # Last user conversation item ID
         self.last_ai_turn_id = None  # Last AI conversation item ID
         self.active_response_id = None  # 🔥 Track active response ID for cancellation
-        self.min_ai_talk_guard_ms = 600  # 🔥 Grace period after AI starts speaking (raised to 600ms)
-        self.barge_in_rms_threshold = 150.0  # 🔥 LOWERED: RMS threshold for barge-in (was 260, now 150 for easier interruption)
-        self.min_voice_duration_ms = 500  # 🔥 LOWERED: Minimum voice duration to process (was 800ms, now 500ms)
-        self.barge_in_min_ms = 250  # 🔥 LOWERED: Minimum continuous speech for barge-in (was 300ms, now 250ms)
+        self.min_ai_talk_guard_ms = 400  # 🎯 AGENT 3: Grace period after AI starts speaking (400ms spec)
+        self.barge_in_rms_threshold = 150.0  # 🎯 AGENT 3: Lower threshold for reliable Hebrew speech detection (~180-220 RMS)
+        self.min_voice_duration_ms = 400  # 🎯 AGENT 3: 400-500ms minimum voice duration to detect speech
+        self.barge_in_min_ms = 400  # 🎯 AGENT 3: Minimum continuous speech for barge-in (~400ms)
         self.barge_in_cooldown_ms = 800  # Cooldown between barge-in events (ms)
         self.last_barge_in_ts = None  # Last time barge-in was triggered
         self.current_user_voice_start_ts = None  # When current user voice started
@@ -2024,59 +2024,39 @@ class MediaStreamHandler:
                                 print(f"🔇 [BARGE-IN] User stopped speaking (RMS={rms:.0f} < {self.barge_in_rms_threshold})")
                             self.current_user_voice_start_ts = None
                     
-                    # 📊 VAD דינמי משופר עם קליברציה ארוכה יותר והיסטרזיס
-                    if not self.is_calibrated and self.calibration_frames < 40:
-                        # קליברציה ארוכה יותר: 300-500ms = 15-25 frames, נשתמש ב-40 להיות בטוחים
-                        self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
-                        self.calibration_frames += 1
-                        if self.calibration_frames >= 60:
-                            # 🔧 Moderate threshold - balanced for Hebrew speech
-                            self.vad_threshold = max(200, self.noise_floor * 5.0 + 100)  # Moderate threshold
-                            self.is_calibrated = True
-                            print(f"🎛️ VAD CALIBRATED (threshold: {self.vad_threshold:.1f})")
-                            
-                            # היסטרזיס למניעת ריצוד
-                            if not hasattr(self, 'vad_hysteresis_count'):
-                                self.vad_hysteresis_count = 0
-                            if not hasattr(self, 'last_vad_state'):
-                                self.last_vad_state = False
-                    
-                    # 📊 זיהוי קול משופר עם היסטרזיס ו-Zero-Crossing Rate
-                    if self.is_calibrated:
-                        # חישוב Zero-Crossing Rate למדידת דיבור רך
-                        zero_crossings = 0
-                        try:
-                            import numpy as np
-                            pcm_np = np.frombuffer(pcm16, dtype=np.int16)
-                            zero_crossings = np.sum(np.diff(np.sign(pcm_np)) != 0) / len(pcm_np) if len(pcm_np) > 0 else 0
-                        except ImportError:
-                            # numpy לא מותקן - נשתמש בVAD בסיסי בלבד
-                            zero_crossings = 0
-                        except:
-                            zero_crossings = 0
+                    # 🎯 AGENT 3 VAD: Calibrate ONLY on true background noise (RMS < 120)
+                    if not self.is_calibrated:
+                        # Track total attempts (timeout after 4 seconds)
+                        total_frames = getattr(self, '_total_calibration_attempts', 0) + 1
+                        self._total_calibration_attempts = total_frames
                         
-                        # VAD בסיסי
-                        basic_voice = rms > self.vad_threshold
+                        # Only calibrate on VERY quiet frames (RMS < 120) - excludes all speech!
+                        # Speech onset is typically 180+ RMS, so this is pure background noise
+                        if rms < 120:
+                            self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
+                            self.calibration_frames += 1
                         
-                        # VAD משופר עם Zero-Crossing Rate
-                        zcr_voice = zero_crossings > 0.05  # דיבור רך עם הרבה מעברי אפס
-                        enhanced_voice = basic_voice or (zcr_voice and rms > self.vad_threshold * 0.6)
-                        
-                        # היסטרזיס: 100ms = 5 frames למניעת ריצוד
-                        if enhanced_voice != self.last_vad_state:
-                            self.vad_hysteresis_count += 1
-                            if self.vad_hysteresis_count >= 5:  # 100ms היסטרזיס חזק יותר
-                                is_strong_voice = enhanced_voice
-                                self.last_vad_state = enhanced_voice
-                                self.vad_hysteresis_count = 0
+                        # Complete calibration after 40 quiet frames OR 4 seconds timeout
+                        if self.calibration_frames >= 40 or total_frames >= 200:
+                            # 🎯 AGENT 3 HEBREW FIX: threshold = noise + 80, capped at 175
+                            # Ensures Hebrew speech (180-220 RMS) always detected
+                            # margin: 80 RMS prevents noise false triggers
+                            if self.calibration_frames < 10:
+                                self.vad_threshold = 170.0  # Default baseline for Hebrew
+                                print(f"🎛️ VAD TIMEOUT - using Hebrew baseline threshold=170 (got only {self.calibration_frames} quiet frames)")
                             else:
-                                is_strong_voice = self.last_vad_state  # השאר מצב קודם
-                        else:
-                            is_strong_voice = enhanced_voice
-                            self.vad_hysteresis_count = 0
+                                # Calibrated: noise + 80, capped at 175 to guarantee detection
+                                # Typical: noise ~80-110 → threshold ~160-175 (catches 180+ RMS)
+                                self.vad_threshold = min(175.0, self.noise_floor + 80.0)
+                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}, quiet_frames={self.calibration_frames})")
+                            self.is_calibrated = True
+                    
+                    # 🎯 Simple voice detection: RMS > threshold
+                    if self.is_calibrated:
+                        is_strong_voice = rms > self.vad_threshold
                     else:
-                        # 🔧 Before calibration - moderate threshold
-                        is_strong_voice = rms > 250  # Moderate for Hebrew speech
+                        # Before calibration - use Hebrew baseline (170 RMS)
+                        is_strong_voice = rms > 170.0
                     
                     # ✅ FIXED: Update last_voice_ts only with VERY strong voice
                     current_time = time.time()
