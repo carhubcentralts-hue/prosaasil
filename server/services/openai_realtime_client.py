@@ -286,8 +286,8 @@ class OpenAIRealtimeClient:
             # ✅ MANDATORY: Internal Whisper transcription for audio comprehension
             # DO NOT remove this - AI will be completely silent without it!
             "input_audio_transcription": {
-                "model": "whisper-1"
-                # NO "language" parameter - Whisper auto-detects Hebrew
+                "model": "whisper-1",
+                "language": "he"  # 🔥 CRITICAL: Force Hebrew - auto-detect fails on phone calls!
             },
             "turn_detection": {
                 "type": "server_vad",
