@@ -1068,44 +1068,8 @@ class MediaStreamHandler:
             import traceback
             traceback.print_exc()
         finally:
-            # 💰 COST TRACKING: Calculate and log call cost using actual chunk counts
-            call_duration = time.time() - call_start_time
-            
-            # μ-law 8kHz audio: ~160 bytes per 20ms chunk = 50 chunks/second
-            # Convert chunks to minutes (no early rounding!)
-            audio_in_chunks = getattr(self, 'realtime_audio_in_chunks', 0)
-            audio_out_chunks = getattr(self, 'realtime_audio_out_chunks', 0)
-            
-            # Precise calculation: chunks / 50 chunks/sec / 60 sec/min
-            audio_in_minutes_exact = audio_in_chunks / 50.0 / 60.0 if audio_in_chunks > 0 else 0.0
-            audio_out_minutes_exact = audio_out_chunks / 50.0 / 60.0 if audio_out_chunks > 0 else 0.0
-            
-            # Pricing lookup table (avoid string matching)
-            REALTIME_PRICING = {
-                "gpt-4o-realtime-preview": {"input": 0.06, "output": 0.24},
-                "gpt-4o-mini-realtime-preview": {"input": 0.01, "output": 0.02},
-            }
-            
-            # Get pricing (fallback to standard if unknown model)
-            pricing = REALTIME_PRICING.get(OPENAI_REALTIME_MODEL, REALTIME_PRICING["gpt-4o-realtime-preview"])
-            cost_per_min_in = pricing["input"]
-            cost_per_min_out = pricing["output"]
-            
-            # Calculate cost (keep full precision)
-            cost_in = audio_in_minutes_exact * cost_per_min_in
-            cost_out = audio_out_minutes_exact * cost_per_min_out
-            total_cost = cost_in + cost_out
-            
-            print(f"\n{'='*80}")
-            print(f"💰 [COST] Call Summary:")
-            print(f"  Model: {OPENAI_REALTIME_MODEL}")
-            print(f"  Total duration: {call_duration:.1f}s")
-            print(f"  Audio IN (user): {audio_in_chunks} chunks ({audio_in_minutes_exact:.3f} min) × ${cost_per_min_in}/min = ${cost_in:.4f}")
-            print(f"  Audio OUT (AI): {audio_out_chunks} chunks ({audio_out_minutes_exact:.3f} min) × ${cost_per_min_out}/min = ${cost_out:.4f}")
-            print(f"  TOTAL COST: ${total_cost:.4f}")
-            if total_cost == 0 and call_duration > 5:
-                print(f"  ⚠️ WARNING: Zero cost but call lasted {call_duration:.0f}s - tracking may be incomplete!")
-            print(f"{'='*80}\n")
+            # 💰 COST TRACKING: Use centralized cost calculation
+            self._calculate_and_log_cost()
             
             if client:
                 await client.disconnect()
@@ -1987,11 +1951,69 @@ class MediaStreamHandler:
         
         print(f"📤 [REALTIME] Audio output bridge ended (sent {self.realtime_tx_frames} frames, {self.realtime_tx_bytes} bytes)")
 
+    def _calculate_and_log_cost(self):
+        """💰 Calculate and log call cost - called at end of every call"""
+        try:
+            call_duration = time.time() - getattr(self, 'call_start_time', time.time())
+            
+            # Get chunk counts
+            audio_in_chunks = getattr(self, 'realtime_audio_in_chunks', 0)
+            audio_out_chunks = getattr(self, 'realtime_audio_out_chunks', 0)
+            
+            # Precise calculation: chunks / 50 chunks/sec / 60 sec/min
+            audio_in_minutes_exact = audio_in_chunks / 50.0 / 60.0 if audio_in_chunks > 0 else 0.0
+            audio_out_minutes_exact = audio_out_chunks / 50.0 / 60.0 if audio_out_chunks > 0 else 0.0
+            
+            # Pricing lookup table
+            REALTIME_PRICING = {
+                "gpt-4o-realtime-preview": {"input": 0.06, "output": 0.24},
+                "gpt-4o-mini-realtime-preview": {"input": 0.01, "output": 0.02},
+                "gpt-realtime": {"input": 0.019, "output": 0.038},  # New 2025 model
+            }
+            
+            # Get pricing (fallback to standard if unknown model)
+            pricing = REALTIME_PRICING.get(OPENAI_REALTIME_MODEL, REALTIME_PRICING["gpt-4o-realtime-preview"])
+            cost_per_min_in = pricing["input"]
+            cost_per_min_out = pricing["output"]
+            
+            # Calculate cost
+            cost_in = audio_in_minutes_exact * cost_per_min_in
+            cost_out = audio_out_minutes_exact * cost_per_min_out
+            total_cost = cost_in + cost_out
+            
+            # Convert to NIS (₪) - approximate rate
+            total_cost_nis = total_cost * 3.7
+            
+            print(f"\n{'='*80}")
+            print(f"💰💰💰 [CALL COST SUMMARY] 💰💰💰")
+            print(f"{'='*80}")
+            print(f"📞 Model: {OPENAI_REALTIME_MODEL}")
+            print(f"⏱️  Total duration: {call_duration:.1f}s ({call_duration/60:.1f} min)")
+            print(f"🎙️  Audio IN (user speaking): {audio_in_chunks} chunks ({audio_in_minutes_exact:.3f} min)")
+            print(f"   └─ Cost: {audio_in_minutes_exact:.3f} min × ${cost_per_min_in}/min = ${cost_in:.4f}")
+            print(f"🔊 Audio OUT (AI speaking): {audio_out_chunks} chunks ({audio_out_minutes_exact:.3f} min)")
+            print(f"   └─ Cost: {audio_out_minutes_exact:.3f} min × ${cost_per_min_out}/min = ${cost_out:.4f}")
+            print(f"{'─'*80}")
+            print(f"💵 TOTAL COST: ${total_cost:.4f} (≈ ₪{total_cost_nis:.2f})")
+            print(f"{'='*80}\n")
+            
+            if total_cost == 0 and call_duration > 5:
+                print(f"⚠️  WARNING: Zero cost but call lasted {call_duration:.0f}s - tracking may be incomplete!")
+            
+            return total_cost
+            
+        except Exception as e:
+            print(f"❌ [COST] Error calculating cost: {e}")
+            return 0.0
+    
     def run(self):
         # Media stream handler initialized")
         
         # CRITICAL FIX: Ensure json import is available
         import json
+        
+        # 💰 Track call start time for cost calculation
+        self.call_start_time = time.time()
         
         # Write debug to MULTIPLE LOCATIONS for guaranteed persistence
         timestamp = int(time.time())
@@ -2754,6 +2776,10 @@ class MediaStreamHandler:
                         except Exception as e:
                             print(f"❌ Error joining thread {i}: {e}")
                 print(f"✅ All background threads cleanup complete")
+            
+            # 💰 CALCULATE AND LOG CALL COST
+            if USE_REALTIME_API:
+                self._calculate_and_log_cost()
             
             try: 
                 self.ws.close()

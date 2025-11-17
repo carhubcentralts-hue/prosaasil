@@ -46,7 +46,7 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - **Availability Check**: Real-time slot validation with up to 3 alternative suggestions if requested time is taken.
 - **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)` for reliable Hebrew speech detection.
 - **Smart Barge-In**: 400ms grace period, 150 RMS threshold, 400ms minimum voice duration, 800ms cooldown.
-- **Cost Tracking**: Chunk-based audio duration tracking, precise cost calculations, per-call cost summary.
+- **Cost Tracking (Nov 2025)**: Real-time chunk-based audio tracking with precise cost calculations. Automatic cost summary displayed at end of EVERY call with breakdown: user audio (chunks→minutes→$), AI audio (chunks→minutes→$), total in USD and NIS (₪). Supports all OpenAI Realtime models including new gpt-realtime (2025).
 - **Error Resilience**: DB query failures fall back to minimal prompt.
 
 ### Frontend
