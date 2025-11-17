@@ -26,12 +26,22 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         from server.policy.business_policy import get_business_policy
         
         # Load business and settings
-        if db_session:
-            business = db_session.query(Business).get(business_id)
-            settings = db_session.query(BusinessSettings).filter_by(tenant_id=business_id).first()
-        else:
-            business = Business.query.get(business_id)
-            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        try:
+            if db_session:
+                business = db_session.query(Business).get(business_id)
+                settings = db_session.query(BusinessSettings).filter_by(tenant_id=business_id).first()
+            else:
+                business = Business.query.get(business_id)
+                settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        except Exception as db_error:
+            logger.error(f"❌ DB error loading business {business_id}: {db_error}")
+            # Fall back to minimal prompt if DB access fails
+            return f"""אתה נציג טלפוני של העסק. עונה בעברית, קצר וברור. עזור ללקוח לקבוע תור או לענות על שאלות.
+            
+🎤 חוקי שיחה:
+1. פתיח קצר: רק 1-2 משפטים שמציג מי אתה ומה אתה עושה
+2. תיאום פגישות: חובה לאסוף שם מלא + טלפון + תאריך/שעה לפני קביעת תור
+3. אל תגיד "קבעתי לך" עד שהשרת אישר"""
         
         if not business:
             raise ValueError(f"Business {business_id} not found")
