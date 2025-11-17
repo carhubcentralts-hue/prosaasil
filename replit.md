@@ -38,6 +38,7 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
     - Path 4: Auto-hydration when crm_context created by DTMF handler
     - Fallback in confirm handler retrieves from both sources and writes back to context
   - **NLP Trigger (Nov 2025 - CRITICAL FIX)**: NLP runs **AFTER** DTMF is added to conversation_history (line 4102-4109), ensuring NLP sees complete data: date✅ time✅ name✅ phone✅. Previous race condition (NLP before history update) caused silent failures.
+  - **NLP Debug Logging (Nov 2025)**: Added comprehensive logging to track NLP execution: conversation hash, deduplication logic, action detection (none/hours_info/ask/confirm), CRM context state, missing data detection, and appointment creation flow. Logs prefixed with 🔍 [DEBUG], 🎯 [NLP], ✅ [CONFIRM] for easy debugging.
   - **AI Step-by-Step Guidance (Nov 2025)**: AI prompt explicitly instructs to collect name FIRST, then phone SECOND (never together). AI instructs: "תקליד מספר טלפון במקלדת הטלפון - 10 ספרות שמתחילות ב-05" - NO mention of # key.
   - **DTMF Auto-Submit (Nov 2025)**: After collecting 10 digits, system automatically processes phone number without requiring # terminator. AI does NOT instruct user to press # - system handles it silently.
   - **Availability Check**: Real-time slot validation with up to 3 alternative suggestions if requested time is taken.

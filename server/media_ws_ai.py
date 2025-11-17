@@ -1320,6 +1320,7 @@ class MediaStreamHandler:
                         self.has_pending_ai_response = True
                         
                         # Check for appointment confirmation after user speaks
+                        print(f"🔍 [DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
                         self._check_appointment_confirmation(transcript)
                     # ✅ COST SAFETY: Transcription completed successfully
                     print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
@@ -1450,13 +1451,17 @@ class MediaStreamHandler:
         """
         # Skip if business_id not set yet
         if not self.business_id:
+            print(f"⚠️ [NLP] No business_id - skipping")
             return
         
         # Skip if no conversation history
         if not self.conversation_history:
+            print(f"⚠️ [NLP] No conversation history - skipping")
             return
         
-        print(f"🔍 [NLP] Analyzing conversation for appointment intent...")
+        print(f"🔍 [NLP] ▶️ Analyzing conversation for appointment intent...")
+        print(f"🔍 [NLP] Conversation history has {len(self.conversation_history)} messages")
+        print(f"🔍 [NLP] Last 3 messages: {self.conversation_history[-3:]}")
         
         # Call GPT-4o-mini NLP parser
         result = await extract_appointment_request(
@@ -1464,8 +1469,10 @@ class MediaStreamHandler:
             self.business_id
         )
         
+        print(f"🔍 [NLP] ◀️ NLP result: {result}")
+        
         if not result or result.get("action") == "none":
-            print(f"📭 [NLP] No appointment action detected")
+            print(f"📭 [NLP] No appointment action detected (action={result.get('action') if result else 'None'})")
             return
         
         action = result.get("action")
@@ -1499,7 +1506,14 @@ class MediaStreamHandler:
                 customer_name = self.pending_customer_name
                 print(f"🔄 [NLP] Retrieved customer name from temporary cache: {customer_name}")
         
-        print(f"🎯 [NLP] Detected action={action}, date={date_iso}, time={time_str}, name={customer_name}, confidence={confidence}")
+        print(f"🎯 [NLP] ✅ Detected action={action}, date={date_iso}, time={time_str}, name={customer_name}, confidence={confidence}")
+        
+        # 🔍 DEBUG: Check CRM context state
+        crm_context = getattr(self, 'crm_context', None)
+        if crm_context:
+            print(f"🔍 [DEBUG] CRM context - name: '{crm_context.customer_name}', phone: '{crm_context.customer_phone}'")
+        else:
+            print(f"🔍 [DEBUG] No CRM context exists yet")
         
         # 🔥 NEW: Handle "hours_info" action (user asking about business hours, NOT appointment!)
         if action == "hours_info":
@@ -1610,17 +1624,23 @@ class MediaStreamHandler:
         
         # 🔥 NEW: Handle "confirm" action (user confirmed appointment)
         if action == "confirm":
+            print(f"✅ [NLP] 🎯 CONFIRM action triggered!")
+            
             # Get CRM context
             crm_context = getattr(self, 'crm_context', None)
+            print(f"🔍 [CONFIRM] CRM context exists: {crm_context is not None}")
             
             # ✅ STEP 1: Validate we have date and time
             if not date_iso or not time_str:
-                print(f"⚠️ [NLP] Incomplete confirmation (date={date_iso}, time={time_str}) - SKIPPING")
+                print(f"⚠️ [NLP] ❌ Incomplete confirmation (date={date_iso}, time={time_str}) - SKIPPING")
                 return
+            
+            print(f"✅ [CONFIRM] Date/time OK: {date_iso} {time_str}")
             
             # ✅ STEP 2: Check if we have customer name and phone
             # Customer phone should be available from call context
             customer_phone = crm_context.customer_phone if crm_context else None
+            print(f"🔍 [CONFIRM] customer_phone from context: {customer_phone}")
             
             # 🔥 FALLBACK: If NLP didn't extract name, check temp cache and crm_context
             if not customer_name:
@@ -1638,17 +1658,21 @@ class MediaStreamHandler:
             # 🔥 STRICT SEQUENCING: Ask for name FIRST, then phone (never both!)
             if not customer_name or not customer_phone:
                 # Missing name or phone - ask AI to collect it IN ORDER
-                print(f"⚠️ [NLP] Missing customer info (name={customer_name}, phone={customer_phone})")
+                print(f"⚠️ [NLP] ❌ Missing customer info (name={customer_name}, phone={customer_phone})")
                 
                 # Priority 1: Name (ALWAYS ask for name first!)
                 if not customer_name:
+                    print(f"📝 [CONFIRM] Sending need_name event to AI")
                     await self._send_server_event_to_ai("need_name - שאל את הלקוח: על איזה שם לרשום את התור?")
                     return
                 
                 # Priority 2: Phone (only after we have name!)
                 if not customer_phone:
+                    print(f"📞 [CONFIRM] Sending need_phone event to AI")
                     await self._send_server_event_to_ai("need_phone - שאל את הלקוח: אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית (#)")
                     return
+            
+            print(f"✅ [CONFIRM] All data complete! name={customer_name}, phone={customer_phone}, date={date_iso}, time={time_str}")
             
             # Calculate datetime
             from datetime import datetime, timedelta
@@ -1675,11 +1699,17 @@ class MediaStreamHandler:
             print(f"📅 [NLP] Appointment duration: {slot_duration_min} minutes (from DB policy)")
             
             # ✅ STEP 1: Validate slot is within business hours AND check calendar availability
-            if not validate_appointment_slot(self.business_id, start_dt):
+            print(f"🔍 [CONFIRM] Validating slot: {start_dt.isoformat()}")
+            is_valid = validate_appointment_slot(self.business_id, start_dt)
+            print(f"🔍 [CONFIRM] Slot validation result: {is_valid}")
+            
+            if not is_valid:
                 print(f"❌ [NLP] Slot {start_dt.isoformat()} outside business hours - SKIPPING")
                 # 🔥 Send feedback to AI
                 await self._send_server_event_to_ai(f"השעה {time_str} ביום {date_iso} תפוסה או מחוץ לשעות העבודה. תציע שעה אחרת ללקוח.")
                 return
+            
+            print(f"✅ [CONFIRM] Slot is valid - proceeding to create appointment")
             
             # 🛡️ STEP 2: DB-BASED DEDUPLICATION - Check CallSession table
             appt_hash = start_dt.isoformat()
@@ -1692,12 +1722,13 @@ class MediaStreamHandler:
                     call_session = CallSession.query.filter_by(call_sid=self.call_sid).first()
                     
                     if call_session and call_session.last_confirmed_slot == appt_hash:
-                        print(f"⚠️ [NLP] DB Duplicate detected - appointment for {appt_hash} already created - SKIPPING")
+                        print(f"⚠️ [NLP] ⏭️ DB Duplicate detected - appointment for {appt_hash} already created - SKIPPING")
                         return
                     
                     # 🛡️ CRITICAL: customer_phone is guaranteed valid from line 1596 check
                     # This code only runs if both name AND phone passed validation
-                    print(f"✅ [NLP] Validation passed - creating appointment for '{customer_name}' phone={customer_phone}")
+                    print(f"✅ [NLP] ▶️ Validation passed - creating appointment for '{customer_name}' phone={customer_phone}")
+                    print(f"🔍 [CONFIRM] Calling create_appointment_from_realtime...")
                     
                     # Create appointment
                     result = create_appointment_from_realtime(
@@ -1771,6 +1802,9 @@ class MediaStreamHandler:
         import threading
         import hashlib
         
+        print(f"🔍 [DEBUG] _check_appointment_confirmation called with transcript: '{ai_transcript[:50] if ai_transcript else 'EMPTY'}...'")
+        print(f"🔍 [DEBUG] Conversation history length: {len(self.conversation_history)}")
+        
         # 🔥 CRITICAL: Create hash of conversation to prevent duplicate NLP runs
         # ⚠️ FIX #1: Remove timestamps from hash - only text matters!
         # ⚠️ FIX #2: Hash ONLY user messages (not AI/system) - prevents re-triggering when AI responds!
@@ -1779,8 +1813,10 @@ class MediaStreamHandler:
             for msg in self.conversation_history[-10:]  # Last 10 messages
             if msg.get("speaker") == "user"
         ]
+        print(f"🔍 [DEBUG] User messages for hash: {user_messages_only}")
         conversation_str = json.dumps(user_messages_only, sort_keys=True)
         current_hash = hashlib.md5(conversation_str.encode()).hexdigest()
+        print(f"🔍 [DEBUG] Current conversation hash: {current_hash[:8]}...")
         
         # Skip if already processed this exact conversation state (with 30s TTL)
         should_process = False
@@ -1790,9 +1826,11 @@ class MediaStreamHandler:
             # Check if we should process (new hash OR expired TTL)
             if self.last_nlp_processed_hash is None:
                 # First run
+                print(f"🔍 [DEBUG] First NLP run - processing")
                 should_process = True
             elif current_hash != self.last_nlp_processed_hash:
                 # Different hash - always process
+                print(f"🔍 [DEBUG] Hash changed ({self.last_nlp_processed_hash[:8] if self.last_nlp_processed_hash else 'None'} → {current_hash[:8]}) - processing")
                 should_process = True
             elif (now - self.last_nlp_hash_timestamp) >= 30:
                 # Same hash but TTL expired - reprocess
@@ -1805,9 +1843,13 @@ class MediaStreamHandler:
                 return
         
         if not should_process:
+            print(f"🔍 [DEBUG] should_process=False - returning early")
             return
         
-        print(f"🔍 [NLP] Processing new conversation state (hash={current_hash[:8]}...)")
+        print(f"🔍 [NLP] ✅ WILL PROCESS new conversation state (hash={current_hash[:8]}...)")
+        print(f"🔍 [DEBUG] CRM context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
+        if hasattr(self, 'crm_context') and self.crm_context:
+            print(f"🔍 [DEBUG] CRM data - name: '{self.crm_context.customer_name}', phone: '{self.crm_context.customer_phone}'")
         
         def run_in_thread():
             """Run async parser in dedicated thread with its own event loop"""
