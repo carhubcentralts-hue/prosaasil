@@ -1,0 +1,170 @@
+Log
+2025-11-17 17:42:24.09
+1c2df988
+User
+[REALTIME] event: response.done
+2025-11-17 17:56:49.83
+1c2df988
+User
+🧠 STATE -> PROCESSING | len=63680 | silence_ms=1801
+2025-11-17 17:56:49.83
+1c2df988
+User
+✅ Processing complete for conversation #2
+2025-11-17 17:56:50.90
+1c2df988
+User
+🎯 [NLP] Detected action=ask, date=2025-11-18, time=None, name=None, confidence=0.9
+2025-11-17 17:56:50.90
+1c2df988
+User
+❓ [NLP] User asking for availability - checking slot...
+2025-11-17 17:56:50.90
+1c2df988
+User
+🔇 [SERVER_EVENT] Sent SILENTLY to AI: need_datetime - שאל את הלקוח: באיזה תאריך ושעה היית רוצה לקבוע?
+2025-11-17 17:56:50.90
+1c2df988
+User
+⚠️ [NLP] User wants appointment but no date/time - asking for it
+2025-11-17 17:56:50.90
+1c2df988
+User
+🎯 [SERVER_EVENT] Triggered response.create (lock will be cleared by response.created)
+2025-11-17 17:56:50.90
+1c2df988
+User
+✅ [NLP] Cache updated after successful processing
+2025-11-17 17:56:50.97
+1c2df988
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 17:56:50.97
+1c2df988
+User
+[REALTIME] event: response.created
+2025-11-17 17:56:50.97
+1c2df988
+User
+🎯 [REALTIME] Response started: resp_Ccvsw6uTGO1ZAl5tSclAr
+2025-11-17 17:56:51.18
+1c2df988
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 17:56:51.18
+1c2df988
+User
+[REALTIME] event: response.output_item.added
+2025-11-17 17:56:51.19
+1c2df988
+User
+[REALTIME] event: response.content_part.added
+2025-11-17 17:56:51.21
+1c2df988
+User
+❓ [NLP] User asking for availability - checking slot...
+2025-11-17 17:56:51.21
+1c2df988
+User
+⏸️ [SERVER_EVENT] Skipping response.create - active: resp_Ccvsw6uTGO1ZAl5tSclAr, pending: False
+2025-11-17 17:56:51.21
+1c2df988
+User
+✅ [NLP] Cache updated after successful processing
+2025-11-17 17:56:51.68
+1c2df988
+User
+🤖 [REALTIME] AI said: באיזה שעה בדיוק אתה רוצה מחר?
+
+2025-11-17 17:56:51.68
+1c2df988
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-17 17:56:51.68
+1c2df988
+User
+[REALTIME] event: response.output_item.done
+2025-11-17 17:56:54.17
+1c2df988
+User
+🎙️ REAL_VOICE: rms=397.0 > threshold=102.0
+2025-11-17 17:56:54.17
+1c2df988
+User
+🎙️ [BARGE-IN] User voice detected (RMS=397, AI speaking=False)
+2025-11-17 17:56:54.19
+1c2df988
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=81 < 150.0)
+2025-11-17 17:56:54.75
+1c2df988
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=580
+2025-11-17 17:56:54.75
+1c2df988
+User
+✅ Processing complete for conversation #3
+2025-11-17 17:56:54.75
+1c2df988
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-17 17:56:54.75
+1c2df988
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #3
+2025-11-17 17:56:55.79
+1c2df988
+User
+🎙️ [BARGE-IN] User voice detected (RMS=999, AI speaking=False)
+2025-11-17 17:56:55.81
+1c2df988
+User
+⚠️ [NLP] User wants appointment but no date/time - asking for it
+2025-11-17 17:56:55.81
+1c2df988
+User
+🎯 [NLP] Detected action=ask, date=2025-11-18, time=None, name=None, confidence=0.9
+2025-11-17 17:56:55.81
+1c2df988
+User
+❓ [NLP] User asking for availability - checking slot...
+2025-11-17 17:56:55.81
+1c2df988
+User
+🎯 [SERVER_EVENT] Triggered response.create (lock will be cleared by response.created)
+2025-11-17 17:56:55.81
+1c2df988
+User
+🔇 [SERVER_EVENT] Sent SILENTLY to AI: need_datetime - שאל את הלקוח: באיזה תאריך ושעה היית רוצה לקבוע?
+2025-11-17 17:56:55.81
+1c2df988
+User
+✅ [NLP] Cache updated after successful processing
+2025-11-17 17:56:55.88
+1c2df988
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 17:56:55.89
+1c2df988
+User
+🎯 [REALTIME] Response started: resp_Ccvt1YwUUKGyQhrMiS33h
+2025-11-17 17:56:55.89
+1c2df988
+User
+[REALTIME] event: response.created
+2025-11-17 17:56:56.06
+1c2df988
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-17 17:56:56.06
+1c2df988
+User
+[REALTIME] event: response.done
+2025-11-17 17:56:56.19
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 400ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.21
+1c2df988
+User
+⚠️ [B

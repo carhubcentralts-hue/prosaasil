@@ -1,0 +1,82 @@
+⚠️ [BARGE-IN] User spoke 741ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.55
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 761ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.57
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 780ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.59
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 800ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.61
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 820ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.63
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 840ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.65
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 860ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.67
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 880ms but AI NOT speaking - no barge-in needed
+
+2025-11-17 17:56:56.69
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 900ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.71
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 920ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.73
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 942ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.75
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 960ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.77
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 980ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.79
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 1000ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.81
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 1020ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.83
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 1040ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.85
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 1061ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.87
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 1080ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.93
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 1140ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.97
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 1180ms but AI NOT speaking - no barge-in needed
+2025-11-17 17:56:56.99
+1c2df988
+User
+⚠️ [BARGE-IN] User spoke 1203ms but AI NOT speaking - no barge-in needed
