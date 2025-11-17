@@ -80,6 +80,18 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         core_instructions = core_instructions.replace("{{business_name}}", business_name)
         core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
         
+        # 🎤 CRITICAL: Add SHORT greeting + TOOL USAGE instructions at the TOP
+        top_instructions = """🎤 כשאתה מדבר ראשון (פתיח), תן פתיח קצר ולעניין - משפט-שניים בלבד!
+למשל: "שלום, [שם העסק], במה אפשר לעזור?"
+
+🔧 כלים זמינים (חובה להשתמש!):
+- כשלקוח שואל "מתי יש פנוי?" → קרא ל-calendar_find_slots
+- כשלקוח רוצה לקבוע תור → קרא ל-calendar_create_appointment
+- כשלקוח נותן פרטים → קרא ל-leads_upsert
+
+"""
+        core_instructions = top_instructions + core_instructions
+        
         # 🔥 ADD DYNAMIC POLICY INFO (hours, slots, min_notice)
         hours_description = _build_hours_description(policy)
         slot_description = _build_slot_description(policy.slot_size_min)

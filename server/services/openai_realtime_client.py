@@ -257,7 +257,8 @@ class OpenAIRealtimeClient:
         vad_threshold: float = 0.6,
         silence_duration_ms: int = 500,
         temperature: float = 0.8,
-        max_tokens: int = 150
+        max_tokens: int = 150,
+        tools: list = None
     ):
         """
         Configure Realtime API session
@@ -273,6 +274,7 @@ class OpenAIRealtimeClient:
             silence_duration_ms: Silence duration to detect end of speech
             temperature: AI temperature (0-2)
             max_tokens: Maximum tokens in response
+            tools: List of tools to register (optional)
         """
         # ✅ CRITICAL: Internal transcription is REQUIRED for AI to hear audio!
         # Without input_audio_transcription, the AI receives no STT events and stays silent.
@@ -298,6 +300,11 @@ class OpenAIRealtimeClient:
             "temperature": max(0.6, temperature),  # ✅ Minimum 0.6 for Realtime API
             "max_response_output_tokens": max_tokens
         }
+        
+        # 🔧 Add tools if provided
+        if tools:
+            session_config["tools"] = tools
+            logger.info(f"✅ Registering {len(tools)} tools in Realtime session")
         
         # For g711_ulaw, sample rate is always 8000 Hz (telephony standard)
         # No need to explicitly set it - it's implicit in the format
