@@ -669,10 +669,14 @@ class MediaStreamHandler:
         self.realtime_thread = None  # Thread running asyncio loop
         
         # 🎯 SMART BARGE-IN: Track AI speaking state and user interruption detection
-        self.ai_speaking = False  # Is AI currently speaking?
+        self.is_ai_speaking = False  # Is AI currently speaking?
+        self.has_pending_ai_response = False  # Is AI response pending?
         self.last_ai_audio_ts = None  # Last time AI audio was received from Realtime
+        self.last_user_turn_id = None  # Last user conversation item ID
+        self.last_ai_turn_id = None  # Last AI conversation item ID
         self.min_ai_talk_guard_ms = 400  # Grace period after AI starts speaking (ms)
-        self.barge_in_rms_threshold = 350.0  # RMS threshold for barge-in detection
+        self.barge_in_rms_threshold = 260.0  # 🎯 RMS threshold for barge-in (raised from 350)
+        self.min_voice_duration_ms = 800  # 🎯 Minimum voice duration to process (800-1000ms)
         self.barge_in_min_ms = 300  # Minimum continuous speech duration for barge-in (ms)
         self.barge_in_cooldown_ms = 800  # Cooldown between barge-in events (ms)
         self.last_barge_in_ts = None  # Last time barge-in was triggered
@@ -1122,7 +1126,8 @@ class MediaStreamHandler:
                     if audio_b64:
                         # 🎯 Track AI speaking state for barge-in detection
                         now = time.time()
-                        self.ai_speaking = True
+                        self.is_ai_speaking = True
+                        self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
                         
                         # 💰 COST TRACKING: Count AI audio chunks
@@ -1150,6 +1155,9 @@ class MediaStreamHandler:
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
                     # Don't process - would cause duplicate playback
+                    # 🎯 Mark AI response complete
+                    self.is_ai_speaking = False
+                    self.has_pending_ai_response = False
                     pass
                 
                 elif event_type == "response.audio_transcript.done":
@@ -1182,6 +1190,10 @@ class MediaStreamHandler:
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
+                        
+                        # 🎯 Mark that we have pending AI response (AI will respond to this)
+                        self.has_pending_ai_response = True
+                        
                         # Check for appointment confirmation after user speaks
                         self._check_appointment_confirmation(transcript)
                     # ✅ COST SAFETY: Transcription completed successfully
@@ -1206,7 +1218,7 @@ class MediaStreamHandler:
         print("[REALTIME] BARGE-IN triggered – user started speaking, pausing AI audio")
         
         # Stop AI speaking flag (checked in audio output bridge)
-        self.ai_speaking = False
+        self.is_ai_speaking = False
         self.last_ai_audio_ts = None
         
         # Clear any queued AI audio that hasn't been sent yet
@@ -1714,13 +1726,13 @@ class MediaStreamHandler:
                         now = time.time()
                         
                         # Update AI speaking state (check if AI stopped speaking)
-                        if self.ai_speaking and self.last_ai_audio_ts and \
+                        if self.is_ai_speaking and self.last_ai_audio_ts and \
                            (now - self.last_ai_audio_ts) > 0.3:
-                            self.ai_speaking = False
+                            self.is_ai_speaking = False
                             if DEBUG: print(f"[REALTIME] AI stopped speaking (no audio for 300ms)")
                         
                         # Check if AI is in grace period (just started speaking)
-                        if self.ai_speaking and self.last_ai_audio_ts and \
+                        if self.is_ai_speaking and self.last_ai_audio_ts and \
                            (now - self.last_ai_audio_ts) * 1000 < self.min_ai_talk_guard_ms:
                             # Inside grace period - don't allow barge-in
                             self.current_user_voice_start_ts = None
@@ -1741,7 +1753,7 @@ class MediaStreamHandler:
                                 if self.last_barge_in_ts and \
                                    (now - self.last_barge_in_ts) * 1000 < self.barge_in_cooldown_ms:
                                     pass  # Inside cooldown period
-                                elif elapsed_ms >= self.barge_in_min_ms and self.ai_speaking:
+                                elif elapsed_ms >= self.barge_in_min_ms and self.is_ai_speaking:
                                     # Trigger barge-in!
                                     self._handle_realtime_barge_in()
                                     self.last_barge_in_ts = now
