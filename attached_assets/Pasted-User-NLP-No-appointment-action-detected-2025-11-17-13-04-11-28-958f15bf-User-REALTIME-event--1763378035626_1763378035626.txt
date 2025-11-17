@@ -1,0 +1,90 @@
+User
+📭 [NLP] No appointment action detected
+2025-11-17 13:04:11.28
+958f15bf
+User
+[REALTIME] event: response.audio.done
+2025-11-17 13:04:11.28
+958f15bf
+User
+💰 [COST] AI utterance: 2.61s (137 chunks)
+2025-11-17 13:04:11.28
+958f15bf
+User
+🤖 [REALTIME] AI said: יש לי דירת 3 חדרים בחולון למכירה. היא ממוקמת במרכז חולון, קרוב לקווי תחבורה וקניון חולון. הדירה בקומה שלישית מתוך חמש, עם מעלית ויש אפשרות חניה. הדירה שמורה ונקייה, והיא מתאימה מאוד להשקעה למשפחות וזוגות. המסמכים כוללים טופס 4 ורישום בטאבו תקין. רוצה לשמוע פרטים נוספים או לקבוע לראות את הדירה?
+2025-11-17 13:04:11.28
+958f15bf
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 13:04:11.28
+958f15bf
+User
+[REALTIME] event: response.output_item.done
+2025-11-17 13:04:11.28
+958f15bf
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-17 13:04:11.28
+958f15bf
+User
+[REALTIME] event: response.content_part.done
+2025-11-17 13:04:11.28
+958f15bf
+User
+[REALTIME] event: response.done
+2025-11-17 13:04:11.29
+958f15bf
+User
+[REALTIME] event: rate_limits.updated
+2025-11-17 13:04:13.10
+958f15bf
+User
+📭 [NLP] No appointment action detected
+2025-11-17 13:04:15.32
+958f15bf
+User
+🎙️ [BARGE-IN] User voice detected (RMS=460, AI speaking=False)
+2025-11-17 13:04:15.32
+958f15bf
+User
+🎙️ REAL_VOICE: rms=460.0 > threshold=200.0
+2025-11-17 13:04:15.38
+958f15bf
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=78 < 150.0)
+2025-11-17 13:04:15.56
+958f15bf
+User
+🎙️ [BARGE-IN] User voice detected (RMS=346, AI speaking=False)
+2025-11-17 13:04:15.60
+958f15bf
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=133 < 150.0)
+2025-11-17 13:04:15.64
+958f15bf
+User
+🎙️ [BARGE-IN] User voice detected (RMS=269, AI speaking=False)
+2025-11-17 13:04:15.74
+958f15bf
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=74 < 150.0)
+2025-11-17 13:04:16.20
+958f15bf
+User
+🧠 STATE -> PROCESSING | len=14400 | silence_ms=501
+2025-11-17 13:04:16.20
+958f15bf
+User
+✅ Processing complete for conversation #3
+2025-11-17 13:04:16.20
+958f15bf
+User
+🎤 END OF UTTERANCE: 0.9s audio, conversation #3
+2025-11-17 13:04:16.20
+958f15bf
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-17 13:04:16.48
+958f15bf
+User
+💓 WS_KEEPALIVE #3 
