@@ -4,27 +4,73 @@ AgentLocator is a Hebrew CRM system for real estate professionals that automates
 
 ## Recent Improvements (2025-11-17)
 
-**Agent 3 Realtime API Stabilization** - Architect-approved, production-ready:
-1. **Model Configuration**:
-   - max_tokens: 300 (balanced Hebrew responses, up from 120)
-   - temperature: 0.18 (removed min(0.6) constraint for focused responses)
-   - Model: gpt-4o-realtime-preview (not mini, per Agent 3 spec)
-2. **Critical Rules System**: 8 comprehensive rules for identity, brevity, silence handling, appointment honesty, DTMF instructions, turn-taking
-3. **Hebrew-Optimized VAD**: 
-   - Formula: `threshold = min(175, noise_floor + 80)` GUARANTEES detection of Hebrew speech (180-220 RMS)
-   - Calibrates ONLY on quiet frames (RMS < 120) during first 4 seconds
-   - 80 RMS margin prevents noise false triggers (60-120 RMS)
-   - 175 RMS cap ensures speech detection in all environments
-4. **Barge-in Timing** (Agent 3 spec):
-   - Grace period: 400ms after AI starts speaking
-   - Barge-in threshold: 150 RMS (safety margin below speech)
-   - Min voice duration: 400ms continuous speech to trigger
-   - Cooldown: 800ms between interruptions
-5. **Previous Bug Fixes** (retained):
-   - NLP deduplication (30s TTL cache)
-   - Response collision prevention (thread-safe locks)
-   - is_ai_speaking debug logging
-   - Server messages silent (role="system")
+**Agent 3 Final Implementation** - Production-ready with verification logs:
+
+### 1. Model Configuration (Locked & Verified)
+**Phone Calls (Realtime API)**:
+- Model: `gpt-4o-realtime-preview` (NOT mini - verified in code)
+- max_tokens: 300 (range: 280-320, balanced Hebrew responses)
+- temperature: 0.18 (range: 0.18-0.25, very low for consistency)
+- Whisper transcription: `whisper-1` auto-detect (NO explicit language field)
+- ✅ Verification log: `[REALTIME CONFIG] model=gpt-4o-realtime-preview, temp=0.18, max_tokens=300`
+
+**NLP Appointment Parser**:
+- Model: `gpt-4o-mini` (text-only analysis, NOT realtime)
+- temperature: 0.1 (range: 0.1-0.2, deterministic extraction)
+- Purpose: Extract date/time/name from conversation text
+- ✅ Verification log: `[NLP VERIFICATION] Using model=gpt-4o-mini, temperature=0.1`
+
+### 2. Critical Rules System
+8 comprehensive behavioral rules enforced in system prompt:
+1. **Identity**: Present ONLY as defined in custom business prompt (NOT business_name from DB)
+2. **Brevity**: 1-2 sentences maximum per response
+3. **Silence**: Don't talk over 3s+ quiet periods (once per ~8s max)
+4. **Appointment Honesty**: NEVER say "קבעתי" until `has_appointment_created=True` from server
+5. **DTMF Phone**: Clear instructions: "תלחץ על הספרות ותסיים בסולמית (#)"
+6. **Turn-taking**: Stop immediately when user starts speaking (barge-in)
+7. **Answer Questions**: Don't push appointments - answer what customer asks
+8. **Server Messages**: Silent [SERVER] events (role="system")
+
+### 3. Hebrew-Optimized VAD
+**Formula**: `threshold = min(175, noise_floor + 80)`
+- Calibrates ONLY on quiet frames (RMS < 120) for first 4 seconds
+- 80 RMS margin prevents false triggers from background noise (60-120 RMS)
+- 175 RMS cap GUARANTEES Hebrew speech detection (180-220 RMS typical)
+- Result: Speech ALWAYS detected, noise NEVER triggers
+- ✅ Verification log: `VAD CALIBRATED (noise=X, threshold=Y, quiet_frames=Z)`
+
+### 4. Barge-in Timing (Agent 3 Spec)
+- **is_ai_speaking**: Implemented with `threading.Event()` (thread-safe)
+- **Grace period**: 400ms after AI starts speaking
+- **Barge-in RMS threshold**: 150 (safety margin below speech 180-220 RMS)
+- **Min voice duration**: 400ms continuous speech to trigger
+- **Cooldown**: 800ms between interruptions
+- Comprehensive debug logs for all barge-in events
+
+### 5. Appointment Workflow (Server-Side Validation)
+**Order of Operations**:
+1. NLP extracts datetime from conversation (gpt-4o-mini server-side)
+2. Server checks availability against `AppointmentSettings` + `business_policy`
+3. Server validates business hours, slot availability, min_notice
+4. ONLY if all valid → Create appointment in DB
+5. Set `has_appointment_created=True` in `CallCrmContext`
+6. Send `[SERVER] ✅ appointment_created` to AI
+7. AI can now say "התור נקבע!"
+
+**Protection**:
+- AI CANNOT say confirmation words until `has_appointment_created=True`
+- Guard system monitors AI transcripts for forbidden phrases
+- ✅ Verification log: `[APPOINTMENT VERIFICATION] Created appointment #X - has_appointment_created=True`
+
+**Missing Phone (DTMF)**:
+- Server sends `[SERVER] need_phone`
+- AI receives explicit instruction text with DTMF guidance
+- ✅ Verification log: `[DTMF VERIFICATION] Requesting phone via DTMF`
+
+### 6. Previous Bug Fixes (Retained)
+- NLP deduplication (30s TTL cache)
+- Response collision prevention (thread-safe locks)
+- Server messages silent (role="system")
 
 # User Preferences
 

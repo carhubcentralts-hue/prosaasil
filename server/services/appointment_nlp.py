@@ -59,7 +59,7 @@ async def extract_appointment_request(conversation_history: list, business_id: i
         tomorrow_str = (today + timedelta(days=1)).strftime("%Y-%m-%d")
         
         # Call GPT-4o-mini for extraction
-        logger.info(f"🔍 [NLP VERIFICATION] Using model=gpt-4o-mini, temperature=0.0 for appointment parsing")
+        logger.info(f"🔍 [NLP VERIFICATION] Using model=gpt-4o-mini, temperature=0.1 for appointment parsing")
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -93,7 +93,7 @@ async def extract_appointment_request(conversation_history: list, business_id: i
                 }
             ],
             response_format={"type": "json_object"},
-            temperature=0.0,  # Deterministic
+            temperature=0.1,  # Agent 3 spec: 0.1-0.2 for deterministic extraction
             max_tokens=200
         )
         
