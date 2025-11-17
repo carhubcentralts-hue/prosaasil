@@ -6,6 +6,12 @@ AgentLocator is a Hebrew CRM system for real estate professionals that automates
 
 **Agent 3 Final Implementation** - Production-ready with verification logs:
 
+### 0. Deployment Fix (Cloud Run Startup)
+- **Problem**: Flask started after Baileys, causing Cloud Run timeout (port 5000 not ready)
+- **Solution**: Reversed startup order - Flask/Uvicorn starts FIRST, then Baileys in background
+- **Result**: Port 5000 binds immediately (within 2 seconds), meets Cloud Run 3-minute requirement
+- Script: `start_production.sh` now prioritizes Flask startup for health checks
+
 ### 1. Model Configuration (Locked & Verified)
 **Phone Calls (Realtime API)**:
 - Model: `gpt-4o-realtime-preview` (NOT mini - **HARDCODED**, ignores env var)

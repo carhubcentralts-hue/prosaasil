@@ -53,7 +53,25 @@ else
     echo "✅ INTERNAL_SECRET found in environment"
 fi
 
-# 1) Start Baileys ONLY if not using external service
+# 🚀 CRITICAL: Start Flask/Uvicorn FIRST for Cloud Run health checks
+# Cloud Run REQUIRES port 5000 to be listening IMMEDIATELY (within 3 minutes)
+echo "🟡 Starting Flask/Uvicorn on EXTERNAL port 0.0.0.0:${PORT}..."
+uvicorn asgi:app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 --log-level info &
+FL=$!
+echo "✅ Flask/Uvicorn started (PID: $FL)"
+
+# Give Flask 2 seconds to bind to port (CRITICAL for Cloud Run)
+echo "⏳ Waiting for Flask to bind to port ${PORT}..."
+sleep 2
+
+# Verify Flask is running
+if ! kill -0 $FL 2>/dev/null; then
+    echo "❌ CRITICAL: Flask/ASGI failed to start - check logs"
+    exit 1
+fi
+echo "✅ Flask confirmed running - port ${PORT} should be ready"
+
+# 2) Start Baileys ONLY if not using external service (AFTER Flask!)
 if [ "$SKIP_BAILEYS" = "false" ]; then
     echo "🟡 Checking Baileys dependencies..."
     cd services/whatsapp
@@ -78,64 +96,28 @@ if [ "$SKIP_BAILEYS" = "false" ]; then
     nohup node services/whatsapp/baileys_service.js > /tmp/baileys_prod.log 2>&1 &
     BAI=$!
     
-    # Wait for Baileys to be ready (with timeout) - FAST for production deployment
-    echo "⏳ Quick Baileys check (max 3s)..."
-    BAILEYS_READY=false
-    for i in {1..3}; do
-        sleep 1
-        if curl -sf http://127.0.0.1:${BAILEYS_PORT}/healthz > /dev/null 2>&1; then
-            echo "✅ Baileys is ready! (PID: $BAI)"
-            BAILEYS_READY=true
-            break
-        fi
-        echo -n "."
-    done
-    echo ""
+    # Don't wait for Baileys - it will warm up in background
+    echo "⚡ Baileys starting in background (PID: $BAI) - will be ready soon"
     
-    # Don't fail if Baileys isn't ready yet - it will warm up in background
-    if [ "$BAILEYS_READY" = "false" ]; then
-        echo "⚠️ Baileys starting in background (PID: $BAI) - will be ready soon"
-        if ! kill -0 $BAI 2>/dev/null; then
-            echo "❌ WARNING: Baileys process died - check /tmp/baileys_prod.log"
-        fi
+    # Quick check (non-blocking)
+    if ! kill -0 $BAI 2>/dev/null; then
+        echo "❌ WARNING: Baileys process died immediately - check /tmp/baileys_prod.log"
     fi
 else
     echo "⏭️ Skipping Baileys - using external service"
     BAI=0  # Dummy PID
 fi
 
-# 2) Start Flask/ASGI with Uvicorn on EXTERNAL port (native WebSocket support - BUILD 90)
-echo "🟡 Starting BUILD 90 with Uvicorn ASGI on EXTERNAL port 0.0.0.0:${PORT}..."
-uvicorn asgi:app --host 0.0.0.0 --port ${PORT} --ws websockets --lifespan off --timeout-keep-alive 75 --log-level info &
-FL=$!
-echo "✅ BUILD 90 Uvicorn/ASGI started (PID: $FL)"
-
-echo "🎯 Both services running. System ready!"
-echo "📊 EXTERNAL Access: Port ${PORT} (exposed)"
-echo "📊 INTERNAL Baileys: 127.0.0.1:${BAILEYS_PORT} (not exposed)"
-echo "📝 Logs: /tmp/baileys_prod.log"
-
-# Quick health check - Flask must be ready immediately for Replit health checks
-sleep 1
-echo "🔍 Quick status check..."
-
-# Check Flask (always required)
-if ! kill -0 $FL 2>/dev/null; then
-    echo "❌ Flask/ASGI failed to start - check logs"
-    exit 1
-fi
-
-# Check Baileys only if running locally
+echo ""
+echo "🎯 System Ready!"
+echo "📊 EXTERNAL: Flask on 0.0.0.0:${PORT} (Cloud Run ready)"
 if [ "$SKIP_BAILEYS" = "false" ]; then
-    if ! kill -0 $BAI 2>/dev/null; then
-        echo "❌ Baileys failed to start - check /tmp/baileys_prod.log"
-        exit 1
-    fi
-    echo "✅ All services confirmed running and ready!"
-    echo "🔑 PIDs saved - Baileys: $BAI | Flask: $FL"
+    echo "📊 INTERNAL: Baileys on 127.0.0.1:${BAILEYS_PORT} (warming up)"
+    echo "📝 Baileys logs: /tmp/baileys_prod.log"
+    echo "🔑 PIDs - Flask: $FL | Baileys: $BAI"
 else
-    echo "✅ Flask confirmed running and ready!"
-    echo "🔑 PID saved - Flask: $FL"
+    echo "📊 Baileys: External service (${BAILEYS_BASE_URL})"
+    echo "🔑 PID - Flask: $FL"
 fi
 
 echo "✅ Startup complete - keeping processes alive..."
