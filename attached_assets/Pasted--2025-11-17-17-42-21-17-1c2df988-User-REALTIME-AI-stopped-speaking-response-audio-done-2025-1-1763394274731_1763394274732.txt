@@ -1,0 +1,102 @@
+
+2025-11-17 17:42:21.17
+1c2df988
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-17 17:42:21.17
+1c2df988
+User
+🤖 [REALTIME] AI said: השעה פנויה, מתאים לך?
+2025-11-17 17:42:21.17
+1c2df988
+User
+[REALTIME] event: response.content_part.done
+
+2025-11-17 17:42:21.17
+1c2df988
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-17 17:42:21.17
+1c2df988
+User
+[REALTIME] event: response.output_item.done
+2025-11-17 17:42:21.17
+1c2df988
+User
+[REALTIME] event: response.done
+2025-11-17 17:42:21.19
+1c2df988
+User
+[REALTIME] event: rate_limits.updated
+2025-11-17 17:42:21.28
+1c2df988
+User
+💓 WS_KEEPALIVE #6 (prevents 5min timeout)
+2025-11-17 17:42:21.36
+1c2df988
+User
+📨 Received: mark
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on fri
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on sat
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on sat
+2025-11-17 17:42:22.75
+1c2df988
+User
+❓ [NLP] User asking for availability - checking slot...
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on sat
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on sat
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on fri
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on sat
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on sat
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on fri
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on sat
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on sat
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on sat
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [NLP] Slot 2025-11-21 19:00 is TAKEN - finding alternatives...
+2025-11-17 17:42:22.75
+1c2df988
+User
+🎯 [NLP] Detected action=ask, date=2025-11-21, time=19:00, name=None, confidence=0.9
+2025-11-17 17:42:22.75
+1c2df988
+User
+❌ [VALIDATION] Business closed on sat
