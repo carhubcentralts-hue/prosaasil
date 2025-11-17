@@ -1,0 +1,109 @@
+2025-11-17 19:22:54.75
+7d3e982e
+User
+🎤 END OF UTTERANCE: 0.7s audio, conversation #11
+2025-11-17 19:22:54.80
+7d3e982e
+User
+✅ [VALIDATION] Slot 16:00:00 within business hours
+2025-11-17 19:22:54.80
+7d3e982e
+User
+🎯 [NLP] Detected action=ask, date=2025-11-19, time=16:00, name=None, confidence=0.9
+2025-11-17 19:22:54.80
+7d3e982e
+User
+🔍 [VALIDATION] Checking calendar: 2025-11-19 16:00 - 17:00 (slot_size=60min)
+2025-11-17 19:22:54.80
+7d3e982e
+User
+❓ [NLP] User asking for availability - checking slot...
+2025-11-17 19:22:54.98
+7d3e982e
+User
+✅ [VALIDATION] Calendar available - no conflicts
+2025-11-17 19:22:55.00
+7d3e982e
+User
+🔇 [SERVER_EVENT] Sent SILENTLY to AI: ✅ פנוי! 2025-11-19 16:00
+2025-11-17 19:22:55.00
+7d3e982e
+User
+✅ [NLP] Slot 2025-11-19 16:00 is AVAILABLE!
+2025-11-17 19:22:55.00
+7d3e982e
+User
+🎯 [SERVER_EVENT] Triggered response.create (lock will be cleared by response.created)
+2025-11-17 19:22:55.00
+7d3e982e
+User
+✅ [NLP] Cache updated after successful processing
+2025-11-17 19:22:55.07
+7d3e982e
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 19:22:55.08
+7d3e982e
+User
+[REALTIME] event: response.created
+2025-11-17 19:22:55.08
+7d3e982e
+User
+🎯 [REALTIME] Response started: resp_CcxEFrPETT36VGwrI9XTe
+2025-11-17 19:22:55.62
+7d3e982e
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 19:22:55.62
+7d3e982e
+User
+[REALTIME] event: response.output_item.added
+2025-11-17 19:22:55.63
+7d3e982e
+User
+[REALTIME] event: response.content_part.added
+2025-11-17 19:22:55.75
+7d3e982e
+User
+🔊 [REALTIME] AI started speaking (audio.delta)
+2025-11-17 19:22:56.37
+7d3e982e
+User
+🎙️ [BARGE-IN] User voice detected (RMS=231, AI speaking=True)
+2025-11-17 19:22:56.42
+7d3e982e
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=25 < 150.0)
+
+2025-11-17 19:22:56.49
+7d3e982e
+User
+🎙️ [BARGE-IN] User voice detected (RMS=548, AI speaking=True)
+2025-11-17 19:22:56.65
+7d3e982e
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=53 < 150.0)
+2025-11-17 19:22:56.75
+7d3e982e
+User
+[REALTIME] event: response.audio.done
+2025-11-17 19:22:56.76
+7d3e982e
+User
+🤖 [REALTIME] AI said: השעה פנויה. על איזה שם לקבוע ומה מספר הטלפון?
+2025-11-17 19:22:56.76
+7d3e982e
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 19:22:56.76
+7d3e982e
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-17 19:22:56.76
+7d3e982e
+User
+💰 [COST] AI utterance: 1.00s (116 chunks)
+2025-11-17 19:22:56.76
+7d3e982e
+User
+[REALTI

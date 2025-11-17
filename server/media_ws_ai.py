@@ -1590,16 +1590,20 @@ class MediaStreamHandler:
             # Customer phone should be available from call context
             customer_phone = crm_context.customer_phone if crm_context else None
             
+            # 🔥 STRICT SEQUENCING: Ask for name FIRST, then phone (never both!)
             if not customer_name or not customer_phone:
-                # Missing name or phone - ask AI to collect it
+                # Missing name or phone - ask AI to collect it IN ORDER
                 print(f"⚠️ [NLP] Missing customer info (name={customer_name}, phone={customer_phone})")
-                if not customer_name and not customer_phone:
-                    await self._send_server_event_to_ai("need_name_phone - שאל את הלקוח: על איזה שם לרשום? ומה מספר הטלפון?")
-                elif not customer_name:
-                    await self._send_server_event_to_ai("need_name_phone - שאל את הלקוח: על איזה שם לרשום את התור?")
-                elif not customer_phone:
-                    await self._send_server_event_to_ai("need_name_phone - שאל את הלקוח: מה מספר הטלפון שלך?")
-                return
+                
+                # Priority 1: Name (ALWAYS ask for name first!)
+                if not customer_name:
+                    await self._send_server_event_to_ai("need_name - שאל את הלקוח: על איזה שם לרשום את התור?")
+                    return
+                
+                # Priority 2: Phone (only after we have name!)
+                if not customer_phone:
+                    await self._send_server_event_to_ai("need_phone - שאל את הלקוח: אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית (#)")
+                    return
             
             # Calculate datetime
             from datetime import datetime, timedelta
@@ -3964,6 +3968,22 @@ class MediaStreamHandler:
             # Don't use flask.g - WebSocket runs outside request context
             self.customer_phone_dtmf = normalized_phone
             print(f"✅ Stored customer_phone_dtmf: {normalized_phone}")
+            
+            # 🔥 CRITICAL FIX: Also update crm_context.customer_phone!
+            # This is what the confirm handler checks - if we don't set it, appointment creation fails!
+            crm_context = getattr(self, 'crm_context', None)
+            if crm_context:
+                crm_context.customer_phone = normalized_phone
+                print(f"✅ Updated crm_context.customer_phone: {normalized_phone}")
+            else:
+                print(f"⚠️ No crm_context found - creating one")
+                # Create CRM context if missing
+                from server.media_ws_ai import CallCrmContext
+                self.crm_context = CallCrmContext(
+                    business_id=self.business_id,
+                    customer_phone=normalized_phone
+                )
+                print(f"✅ Created crm_context with phone: {normalized_phone}")
             
             phone_to_show = normalized_phone
         else:
