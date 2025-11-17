@@ -97,7 +97,10 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         today = datetime.now(tz)
         today_str = today.strftime("%Y-%m-%d")  # e.g., "2025-11-17"
         today_hebrew = today.strftime("%d/%m/%Y")  # e.g., "17/11/2025"
-        weekday_hebrew = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][today.weekday()]
+        # 🔥 FIX: Python weekday() is Mon=0, Tue=1, ..., Sun=6
+        # Hebrew: Mon=שני, Tue=שלישי, ..., Sun=ראשון
+        weekday_names = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
+        weekday_hebrew = weekday_names[today.weekday()]
         month_hebrew = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"][today.month - 1]
         
         # 🎤 CRITICAL RULES AT THE TOP - HIGH PRIORITY
