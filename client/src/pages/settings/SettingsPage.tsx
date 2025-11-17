@@ -328,18 +328,19 @@ export function SettingsPage() {
     if (activeTab === 'business') {
       saveBusinessMutation.mutate(businessSettings);
     } else if (activeTab === 'appointments') {
-      // ✅ Build opening_hours_json: preserve existing hours OR use selected default
+      // 🔥 BUILD FIXED: Apply user-selected hours to ALL active days (not preserved hours)
       const opening_hours_json: Record<string, string[][]> = {};
-      const existingHours = appointmentSettings.opening_hours_json || {};
-      const selectedDefaultHours = [[defaultHours.opening, defaultHours.closing]]; // User-selected default
+      const selectedHours = [[defaultHours.opening, defaultHours.closing]]; // Current UI selection
 
       Object.keys(workingDays).forEach((day) => {
         if (workingDays[day as keyof typeof workingDays]) {
-          // ✅ Keep existing hours if day was already active, use user-selected default for NEW days
-          opening_hours_json[day] = existingHours[day] || selectedDefaultHours;
+          // 🔥 ALWAYS use the hours the user just selected in the UI
+          opening_hours_json[day] = selectedHours;
         }
         // ✅ If unchecked, day is removed (not included in opening_hours_json)
       });
+
+      console.log('💾 Saving opening_hours_json:', opening_hours_json);
 
       saveAppointmentMutation.mutate({
         ...appointmentSettings,
