@@ -61,8 +61,16 @@ async def extract_appointment_request(conversation_history: list, business_id: i
         tz = pytz.timezone('Asia/Jerusalem')
         today = datetime.now(tz)
         today_str = today.strftime("%Y-%m-%d")  # e.g., "2025-11-17"
-        weekday_hebrew = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][today.weekday()]
+        # Python weekday: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
+        # Hebrew: ראשון=Sun, שני=Mon, שלישי=Tue, רביעי=Wed, חמישי=Thu, שישי=Fri, שבת=Sat
+        weekday_hebrew = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"][today.weekday()]
         tomorrow_str = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        # Calculate next Sunday for examples
+        days_until_sunday = (6 - today.weekday()) % 7  # Days until next Sunday
+        if days_until_sunday == 0:
+            days_until_sunday = 7  # If today is Sunday, get next Sunday
+        next_sunday = (today + timedelta(days=days_until_sunday)).strftime("%Y-%m-%d")
         
         # Call GPT-4o-mini for extraction
         logger.info(f"🔍 [NLP VERIFICATION] Using model=gpt-4o-mini, temperature=0.1 for appointment parsing")
@@ -90,12 +98,21 @@ async def extract_appointment_request(conversation_history: list, business_id: i
 - "מה השעות שלכם?" / "מתי אתם פתוחים?" / "תעבדו מחר?" → "hours_info" (לא רוצה תור!)
 - "יש פנוי ביום ראשון בשש?" / "אפשר לקבוע?" → "ask" (רוצה לבדוק זמינות)
 
+🔥 חישוב תאריכים (היום: {today_str}, {weekday_hebrew}):
+- "מחר" = {tomorrow_str}
+- "יום ראשון" / "ביום ראשון" = {next_sunday} (ראשון הקרוב!)
+- "השבוע" = תאריך השבוע הנוכחי
+- "שבוע הבא" = תאריך שבוע הבא
+
 דוגמאות:
 לקוח: "מה השעות פעילות שלכם?"
 → {{"action":"hours_info","date":null,"time":null,"name":null,"confidence":1.0}}
 
 לקוח: "מתי אתם עובדים בשישי?"
 → {{"action":"hours_info","date":null,"time":null,"name":null,"confidence":0.95}}
+
+לקוח: "אפשר ליום ראשון בשבע?"
+→ {{"action":"ask","date":"{next_sunday}","time":"19:00","name":null,"confidence":0.9}}
 
 לקוח: "אפשר ליום שלישי בשש?"
 → {{"action":"ask","date":"2025-11-19","time":"18:00","name":null,"confidence":0.9}}

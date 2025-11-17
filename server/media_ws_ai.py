@@ -1723,7 +1723,12 @@ class MediaStreamHandler:
         import hashlib
         
         # 🔥 CRITICAL: Create hash of conversation to prevent duplicate NLP runs
-        conversation_str = json.dumps(self.conversation_history[-10:], sort_keys=True)  # Last 10 messages
+        # ⚠️ FIX: Remove timestamps from hash - only text matters!
+        conversation_for_hash = [
+            {"speaker": msg.get("speaker"), "text": msg.get("text")} 
+            for msg in self.conversation_history[-10:]  # Last 10 messages
+        ]
+        conversation_str = json.dumps(conversation_for_hash, sort_keys=True)
         current_hash = hashlib.md5(conversation_str.encode()).hexdigest()
         
         # Skip if already processed this exact conversation state (with 30s TTL)
