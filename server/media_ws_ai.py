@@ -1235,7 +1235,7 @@ class MediaStreamHandler:
                             print(f"🛡️ [GUARD] Sending immediate correction to AI...")
                             # Send immediate correction event
                             asyncio.create_task(self._send_server_event_to_ai(
-                                "⚠️ תיקון: התור עדיין לא אושר על ידי המערכת! אל תאשר עד שתקבל הודעת [SERVER] ✅ appointment_created"
+                                "⚠️ תיקון: התור עדיין לא אושר על ידי המערכת! אל תאשר עד שתקבל הודעה שהתור נקבע"
                             ))
                         
                         # Track conversation
@@ -1290,23 +1290,23 @@ class MediaStreamHandler:
             return
         
         try:
-            # Create server message event
+            # Create server message event with role="system" (SILENT - won't be spoken!)
             event = {
                 "type": "conversation.item.create",
                 "item": {
                     "type": "message",
-                    "role": "user",  # ✅ Server messages appear as "user" to AI
+                    "role": "system",  # 🔇 CRITICAL: system messages are SILENT (not spoken aloud)
                     "content": [
                         {
                             "type": "input_text",
-                            "text": f"[SERVER] {message_text}"
+                            "text": message_text  # No [SERVER] prefix needed - already implicit
                         }
                     ]
                 }
             }
             
             await self.realtime_client.send_event(event)
-            print(f"✅ [SERVER_EVENT] Sent to AI: {message_text[:100]}")
+            print(f"🔇 [SERVER_EVENT] Sent SILENTLY to AI: {message_text[:100]}")
             
             # 🎯 Trigger AI response
             await self.realtime_client.send_event({"type": "response.create"})
@@ -1416,12 +1416,12 @@ class MediaStreamHandler:
                 
                 # Check availability
                 if validate_appointment_slot(self.business_id, start_dt):
-                    await self._send_server_event_to_ai(f"[SERVER] פנוי - השעה {time_str} ביום {date_iso} פנויה!")
+                    await self._send_server_event_to_ai(f"פנוי - השעה {time_str} ביום {date_iso} פנויה!")
                 else:
-                    await self._send_server_event_to_ai(f"[SERVER] תפוס - השעה {time_str} ביום {date_iso} תפוסה. תציע שעה אחרת.")
+                    await self._send_server_event_to_ai(f"תפוס - השעה {time_str} ביום {date_iso} תפוסה. תציע שעה אחרת.")
             else:
                 # User asked for availability but didn't specify date/time
-                await self._send_server_event_to_ai("[SERVER] need_datetime - שאל את הלקוח: באיזה תאריך ושעה היית רוצה לקבוע?")
+                await self._send_server_event_to_ai("need_datetime - שאל את הלקוח: באיזה תאריך ושעה היית רוצה לקבוע?")
             return
         
         # Handle "confirm" action (user confirmed appointment)
