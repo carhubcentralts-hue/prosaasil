@@ -1734,34 +1734,40 @@ class MediaStreamHandler:
                         if self.is_ai_speaking and self.last_ai_audio_ts and \
                            (now - self.last_ai_audio_ts) > 0.3:
                             self.is_ai_speaking = False
-                            if DEBUG: print(f"[REALTIME] AI stopped speaking (no audio for 300ms)")
+                            print(f"[REALTIME] AI stopped speaking (no audio for 300ms)")
                         
-                        # Check if AI is in grace period (just started speaking)
-                        if self.is_ai_speaking and self.last_ai_audio_ts and \
-                           (now - self.last_ai_audio_ts) * 1000 < self.min_ai_talk_guard_ms:
-                            # Inside grace period - don't allow barge-in
-                            self.current_user_voice_start_ts = None
-                        # Check if RMS is below barge-in threshold
-                        elif rms < self.barge_in_rms_threshold:
-                            # No strong voice - reset user voice start
-                            self.current_user_voice_start_ts = None
-                        else:
-                            # RMS is high - check if this is start of user speech
+                        # 🎯 CRITICAL FIX: Check if user is speaking AND AI is speaking
+                        if rms >= self.barge_in_rms_threshold:
+                            # Strong voice detected
                             if self.current_user_voice_start_ts is None:
                                 self.current_user_voice_start_ts = now
-                                if DEBUG: print(f"[REALTIME] User voice detected (RMS={rms:.0f})")
+                                print(f"🎙️ [BARGE-IN] User voice detected (RMS={rms:.0f}, AI speaking={self.is_ai_speaking})")
                             else:
                                 # Calculate how long user has been speaking
                                 elapsed_ms = (now - self.current_user_voice_start_ts) * 1000
                                 
+                                # Check if AI is in grace period (just started speaking)
+                                if self.is_ai_speaking and self.last_ai_audio_ts and \
+                                   (now - self.last_ai_audio_ts) * 1000 < self.min_ai_talk_guard_ms:
+                                    # Inside grace period - don't allow barge-in yet
+                                    print(f"⏳ [BARGE-IN] Grace period ({self.min_ai_talk_guard_ms}ms) - waiting")
                                 # Check cooldown - don't trigger barge-in too frequently
-                                if self.last_barge_in_ts and \
-                                   (now - self.last_barge_in_ts) * 1000 < self.barge_in_cooldown_ms:
-                                    pass  # Inside cooldown period
+                                elif self.last_barge_in_ts and \
+                                     (now - self.last_barge_in_ts) * 1000 < self.barge_in_cooldown_ms:
+                                    print(f"⏳ [BARGE-IN] Cooldown active ({self.barge_in_cooldown_ms}ms)")
+                                # Check if user spoke long enough AND AI is speaking
                                 elif elapsed_ms >= self.barge_in_min_ms and self.is_ai_speaking:
                                     # Trigger barge-in!
+                                    print(f"🔥 [BARGE-IN] TRIGGERED! User spoke {elapsed_ms:.0f}ms, interrupting AI")
                                     self._handle_realtime_barge_in()
                                     self.last_barge_in_ts = now
+                                elif elapsed_ms >= self.barge_in_min_ms and not self.is_ai_speaking:
+                                    print(f"⚠️ [BARGE-IN] User spoke {elapsed_ms:.0f}ms but AI NOT speaking - no barge-in needed")
+                        else:
+                            # No strong voice - reset user voice start
+                            if self.current_user_voice_start_ts is not None:
+                                print(f"🔇 [BARGE-IN] User stopped speaking (RMS={rms:.0f} < {self.barge_in_rms_threshold})")
+                            self.current_user_voice_start_ts = None
                     
                     # 📊 VAD דינמי משופר עם קליברציה ארוכה יותר והיסטרזיס
                     if not self.is_calibrated and self.calibration_frames < 40:
