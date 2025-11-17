@@ -711,7 +711,7 @@ class MediaStreamHandler:
         self.realtime_client = None  # 🔥 NEW: Store Realtime client for barge-in response.cancel
         
         # 🎯 SMART BARGE-IN: Track AI speaking state and user interruption detection
-        self.is_ai_speaking = False  # Is AI currently speaking?
+        self.is_ai_speaking_event = threading.Event()  # Thread-safe flag for AI speaking state
         self.has_pending_ai_response = False  # Is AI response pending?
         self.last_ai_audio_ts = None  # Last time AI audio was received from Realtime
         self.last_user_turn_id = None  # Last user conversation item ID
@@ -1179,7 +1179,7 @@ class MediaStreamHandler:
                     if audio_b64:
                         # 🎯 Track AI speaking state for barge-in detection
                         now = time.time()
-                        self.is_ai_speaking = True
+                        self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
                         self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
                         
@@ -1209,7 +1209,7 @@ class MediaStreamHandler:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
                     # Don't process - would cause duplicate playback
                     # 🎯 Mark AI response complete
-                    self.is_ai_speaking = False
+                    self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped speaking
                     self.has_pending_ai_response = False
                     self.active_response_id = None  # Clear response ID
                     pass
@@ -1347,7 +1347,7 @@ class MediaStreamHandler:
                 print(f"⚠️ [BARGE-IN] Failed to cancel response: {e}")
         
         # Stop AI speaking flag (checked in audio output bridge)
-        self.is_ai_speaking = False
+        self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped due to barge-in
         self.last_ai_audio_ts = None
         
         # Clear any queued AI audio that hasn't been sent yet
@@ -1416,9 +1416,12 @@ class MediaStreamHandler:
                 
                 # Check availability
                 if validate_appointment_slot(self.business_id, start_dt):
-                    await self._send_server_event_to_ai(f"השעה {time_str} ביום {date_iso} פנויה!")
+                    await self._send_server_event_to_ai(f"[SERVER] פנוי - השעה {time_str} ביום {date_iso} פנויה!")
                 else:
-                    await self._send_server_event_to_ai(f"השעה {time_str} ביום {date_iso} תפוסה. תציע שעה אחרת.")
+                    await self._send_server_event_to_ai(f"[SERVER] תפוס - השעה {time_str} ביום {date_iso} תפוסה. תציע שעה אחרת.")
+            else:
+                # User asked for availability but didn't specify date/time
+                await self._send_server_event_to_ai("[SERVER] need_datetime - שאל את הלקוח: באיזה תאריך ושעה היית רוצה לקבוע?")
             return
         
         # Handle "confirm" action (user confirmed appointment)
@@ -1915,9 +1918,9 @@ class MediaStreamHandler:
                         
                         # Update AI speaking state (check if AI stopped speaking)
                         # 🔥 FIX: Increased timeout to 1.5s (AI can pause mid-sentence!)
-                        if self.is_ai_speaking and self.last_ai_audio_ts and \
+                        if self.is_ai_speaking_event.is_set() and self.last_ai_audio_ts and \
                            (now - self.last_ai_audio_ts) > 1.5:
-                            self.is_ai_speaking = False
+                            self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped (timeout)
                             print(f"[REALTIME] AI stopped speaking (no audio for 1500ms)")
                         
                         # 🎯 CRITICAL FIX: Check if user is speaking AND AI is speaking
@@ -1925,13 +1928,13 @@ class MediaStreamHandler:
                             # Strong voice detected
                             if self.current_user_voice_start_ts is None:
                                 self.current_user_voice_start_ts = now
-                                print(f"🎙️ [BARGE-IN] User voice detected (RMS={rms:.0f}, AI speaking={self.is_ai_speaking})")
+                                print(f"🎙️ [BARGE-IN] User voice detected (RMS={rms:.0f}, AI speaking={self.is_ai_speaking_event.is_set()})")
                             else:
                                 # Calculate how long user has been speaking
                                 elapsed_ms = (now - self.current_user_voice_start_ts) * 1000
                                 
                                 # Check if AI is in grace period (just started speaking)
-                                if self.is_ai_speaking and self.last_ai_audio_ts and \
+                                if self.is_ai_speaking_event.is_set() and self.last_ai_audio_ts and \
                                    (now - self.last_ai_audio_ts) * 1000 < self.min_ai_talk_guard_ms:
                                     # Inside grace period - don't allow barge-in yet
                                     print(f"⏳ [BARGE-IN] Grace period ({self.min_ai_talk_guard_ms}ms) - waiting")
@@ -1940,12 +1943,12 @@ class MediaStreamHandler:
                                      (now - self.last_barge_in_ts) * 1000 < self.barge_in_cooldown_ms:
                                     print(f"⏳ [BARGE-IN] Cooldown active ({self.barge_in_cooldown_ms}ms)")
                                 # Check if user spoke long enough AND AI is speaking
-                                elif elapsed_ms >= self.barge_in_min_ms and self.is_ai_speaking:
+                                elif elapsed_ms >= self.barge_in_min_ms and self.is_ai_speaking_event.is_set():
                                     # Trigger barge-in!
                                     print(f"🔥 [BARGE-IN] TRIGGERED! User spoke {elapsed_ms:.0f}ms, interrupting AI")
                                     self._handle_realtime_barge_in()
                                     self.last_barge_in_ts = now
-                                elif elapsed_ms >= self.barge_in_min_ms and not self.is_ai_speaking:
+                                elif elapsed_ms >= self.barge_in_min_ms and not self.is_ai_speaking_event.is_set():
                                     print(f"⚠️ [BARGE-IN] User spoke {elapsed_ms:.0f}ms but AI NOT speaking - no barge-in needed")
                         else:
                             # No strong voice - reset user voice start

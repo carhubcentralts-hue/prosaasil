@@ -1,0 +1,118 @@
+2025-11-17 12:26:44.24
+279bde0e
+User
+💰 [COST] AI utterance: 0.81s (348 chunks)
+2025-11-17 12:26:44.24
+279bde0e
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 12:26:44.24
+279bde0e
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-17 12:26:44.25
+279bde0e
+User
+[REALTIME] event: response.content_part.done
+2025-11-17 12:26:44.25
+279bde0e
+User
+[REALTIME] event: response.done
+2025-11-17 12:26:44.25
+279bde0e
+User
+[REALTIME] event: response.output_item.done
+2025-11-17 12:26:44.26
+279bde0e
+User
+[REALTIME] event: rate_limits.updated
+2025-11-17 12:26:44.30
+279bde0e
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=46 < 150.0)
+2025-11-17 12:26:44.52
+279bde0e
+User
+🎙️ [BARGE-IN] User voice detected (RMS=544, AI speaking=False)
+2025-11-17 12:26:44.60
+279bde0e
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=98 < 150.0)
+2025-11-17 12:26:45.06
+279bde0e
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-17 12:26:45.06
+279bde0e
+User
+✅ Processing complete for conversation #13
+2025-11-17 12:26:45.06
+279bde0e
+User
+🧠 STATE -> PROCESSING | len=16000 | silence_ms=501
+2025-11-17 12:26:45.06
+279bde0e
+User
+🎤 END OF UTTERANCE: 1.0s audio, conversation #13
+2025-11-17 12:26:46.64
+279bde0e
+User
+❓ [NLP] User asking for availability - AI should check and respond
+2025-11-17 12:26:46.64
+279bde0e
+User
+🎯 [NLP] Detected action=ask, date=None, time=None, name=None, confidence=0.8
+2025-11-17 12:26:48.07
+279bde0e
+User
+🎙️ [BARGE-IN] User voice detected (RMS=561, AI speaking=False)
+2025-11-17 12:26:48.07
+279bde0e
+User
+🎙️ REAL_VOICE: rms=561.0 > threshold=200.0
+2025-11-17 12:26:48.16
+279bde0e
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=103 < 150.0)
+2025-11-17 12:26:48.64
+279bde0e
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #14
+2025-11-17 12:26:48.64
+279bde0e
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+
+2025-11-17 12:26:48.64
+279bde0e
+User
+✅ Processing complete for conversation #14
+2025-11-17 12:26:48.64
+279bde0e
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=520
+2025-11-17 12:26:49.14
+279bde0e
+User
+🎙️ [BARGE-IN] User voice detected (RMS=241, AI speaking=False)
+2025-11-17 12:26:49.18
+279bde0e
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=31 < 150.0)
+2025-11-17 12:26:50.24
+279bde0e
+User
+💓 WS_KEEPALIVE #10 (prevents 5min timeout)
+2025-11-17 12:26:55.50
+279bde0e
+User
+📨 Received: mark
+2025-11-17 12:26:57.14
+279bde0e
+User
+🎙️ [BARGE-IN] User voice detected (RMS=201, AI speaking=False)
+2025-11-17 12:26:57.18
+279bde0e
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=77 < 150.0)
+2025-11-17 12:26:57.32
