@@ -112,8 +112,6 @@ interface FAQ {
 }
 
 export function SettingsPage() {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'faqs' | 'integrations' | 'ai' | 'security'>('business');
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   const [faqModalOpen, setFaqModalOpen] = useState(false);
@@ -238,102 +236,86 @@ export function SettingsPage() {
     closing: '18:00'
   });
 
+  // Business data query
+  const { data: businessData, isLoading: businessLoading } = useQuery({
+    queryKey: ['/api/business/current'],
+    refetchOnMount: true
+  });
 
+  // Update state when businessData changes
   useEffect(() => {
-    loadSettings();
-  }, []);
-
-  const loadSettings = async () => {
-    try {
-      setLoading(true);
-      
-      // Load business settings from API
-      const response = await fetch('/api/business/current', {
-        credentials: 'include'
+    if (businessData) {
+      setBusinessSettings({
+        business_name: businessData.name || '',
+        phone_number: businessData.phone_number || '',
+        email: businessData.email || '',
+        address: businessData.address || '',
+        working_hours: businessData.working_hours || '09:00-18:00',
+        timezone: businessData.timezone || 'Asia/Jerusalem'
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        setBusinessSettings({
-          business_name: data.name || '',
-          phone_number: data.phone_number || '',
-          email: data.email || '',
-          address: data.address || '',
-          working_hours: data.working_hours || '09:00-18:00',
-          timezone: data.timezone || 'Asia/Jerusalem'
-        });
-        
-        // Load appointment settings
-        setAppointmentSettings({
-          slot_size_min: data.slot_size_min || 60,
-          allow_24_7: data.allow_24_7 || false,
-          booking_window_days: data.booking_window_days || 30,
-          min_notice_min: data.min_notice_min || 0,
-          opening_hours_json: data.opening_hours_json
+      // Load appointment settings
+      setAppointmentSettings({
+        slot_size_min: businessData.slot_size_min || 60,
+        allow_24_7: businessData.allow_24_7 || false,
+        booking_window_days: businessData.booking_window_days || 30,
+        min_notice_min: businessData.min_notice_min || 0,
+        opening_hours_json: businessData.opening_hours_json
+      });
+
+      // ✅ Load working days from opening_hours_json
+      if (businessData.opening_hours_json) {
+        const days = businessData.opening_hours_json;
+        setWorkingDays({
+          sun: !!days.sun,
+          mon: !!days.mon,
+          tue: !!days.tue,
+          wed: !!days.wed,
+          thu: !!days.thu,
+          fri: !!days.fri,
+          sat: !!days.sat
         });
 
-        // ✅ Load working days from opening_hours_json
-        if (data.opening_hours_json) {
-          const days = data.opening_hours_json;
-          setWorkingDays({
-            sun: !!days.sun,
-            mon: !!days.mon,
-            tue: !!days.tue,
-            wed: !!days.wed,
-            thu: !!days.thu,
-            fri: !!days.fri,
-            sat: !!days.sat
-          });
-
-          // ✅ Load default hours from first available day
-          const firstDay = Object.keys(days).find(d => days[d]);
-          if (firstDay && days[firstDay] && days[firstDay][0]) {
-            const [opening, closing] = days[firstDay][0];
-            setDefaultHours({ opening, closing });
-          }
+        // ✅ Load default hours from first available day
+        const firstDay = Object.keys(days).find(d => days[d]);
+        if (firstDay && days[firstDay] && days[firstDay][0]) {
+          const [opening, closing] = days[firstDay][0];
+          setDefaultHours({ opening, closing });
         }
-      } else {
-        console.error('Failed to load business settings');
       }
-    } catch (error) {
-      console.error('Error loading settings:', error);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [businessData]);
 
-  const saveBusinessSettings = async () => {
-    try {
-      setSaving(true);
-      
-      const response = await fetch('/api/business/current/settings', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(businessSettings)
-      });
-      
-      if (response.ok) {
-        // Show success message
-        alert('הגדרות עסק נשמרו בהצלחה');
-      } else {
-        const error = await response.json();
-        alert('שגיאה בשמירת הגדרות: ' + (error.message || 'שגיאה לא ידועה'));
-      }
-    } catch (error) {
-      console.error('Error saving settings:', error);
-      alert('שגיאה בשמירת הגדרות');
-    } finally {
-      setSaving(false);
+  // Save business settings mutation
+  const saveBusinessMutation = useMutation({
+    mutationFn: (data: BusinessSettings) => 
+      apiRequest('/api/business/current/settings', { method: 'PUT', body: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/business/current'] });
+      alert('הגדרות עסק נשמרו בהצלחה');
+    },
+    onError: (error) => {
+      alert('שגיאה בשמירת הגדרות: ' + (error instanceof Error ? error.message : 'שגיאה לא ידועה'));
     }
-  };
+  });
 
-  const saveAppointmentSettings = async () => {
-    try {
-      setSaving(true);
+  // Save appointment settings mutation
+  const saveAppointmentMutation = useMutation({
+    mutationFn: (data: AppointmentSettings & { opening_hours_json: Record<string, string[][]> }) =>
+      apiRequest('/api/business/current/settings', { method: 'PUT', body: data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/business/current'] });
+      alert('הגדרות תורים נשמרו בהצלחה');
+    },
+    onError: (error) => {
+      alert('שגיאה בשמירת הגדרות: ' + (error instanceof Error ? error.message : 'שגיאה לא ידועה'));
+    }
+  });
 
+  const handleSave = () => {
+    if (activeTab === 'business') {
+      saveBusinessMutation.mutate(businessSettings);
+    } else if (activeTab === 'appointments') {
       // ✅ Build opening_hours_json: preserve existing hours OR use selected default
       const opening_hours_json: Record<string, string[][]> = {};
       const existingHours = appointmentSettings.opening_hours_json || {};
@@ -346,45 +328,14 @@ export function SettingsPage() {
         }
         // ✅ If unchecked, day is removed (not included in opening_hours_json)
       });
-      
-      const response = await fetch('/api/business/current/settings', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          ...appointmentSettings,
-          opening_hours_json  // ✅ Include working days!
-        })
-      });
-      
-      if (response.ok) {
-        alert('הגדרות תורים נשמרו בהצלחה');
-      } else {
-        const error = await response.json();
-        alert('שגיאה בשמירת הגדרות: ' + (error.message || 'שגיאה לא ידועה'));
-      }
-    } catch (error) {
-      console.error('Error saving appointment settings:', error);
-      alert('שגיאה בשמירת הגדרות');
-    } finally {
-      setSaving(false);
-    }
-  };
 
-  const handleSave = async () => {
-    if (activeTab === 'business') {
-      await saveBusinessSettings();
-    } else if (activeTab === 'appointments') {
-      await saveAppointmentSettings();
+      saveAppointmentMutation.mutate({
+        ...appointmentSettings,
+        opening_hours_json
+      });
     } else {
       // Handle other tabs later
-      setSaving(true);
-      setTimeout(() => {
-        setSaving(false);
-        alert('הגדרות נשמרו בהצלחה');
-      }, 1000);
+      alert('הגדרות נשמרו בהצלחה');
     }
   };
 
@@ -399,6 +350,10 @@ export function SettingsPage() {
     if (!value) return '';
     return value.substring(0, 6) + '*'.repeat(Math.max(0, value.length - 6));
   };
+
+  // Compute loading and saving states from mutations/queries
+  const loading = businessLoading;
+  const saving = saveBusinessMutation.isPending || saveAppointmentMutation.isPending;
 
   if (loading) {
     return (
