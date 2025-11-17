@@ -1,0 +1,113 @@
+2025-11-17 11:41:09.71
+090cabf7
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 11:41:09.71
+090cabf7
+User
+[REALTIME] event: response.created
+2025-11-17 11:41:09.71
+090cabf7
+User
+🎯 [REALTIME] Response started: resp_Ccq1NOyeJygLSfOVmQNfQ
+2025-11-17 11:41:10.25
+090cabf7
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 11:41:10.25
+090cabf7
+User
+[REALTIME] event: response.output_item.added
+2025-11-17 11:41:10.26
+090cabf7
+User
+[REALTIME] event: response.content_part.added
+2025-11-17 11:41:10.65
+090cabf7
+User
+[REALTIME] event: response.audio.done
+2025-11-17 11:41:10.65
+090cabf7
+User
+💰 [COST] AI utterance: 0.32s (254 chunks)
+2025-11-17 11:41:10.65
+090cabf7
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-17 11:41:10.65
+090cabf7
+User
+🤖 [REALTIME] AI said: פנוי, מתאים?
+2025-11-17 11:41:10.65
+090cabf7
+User
+[REALTIME] event: response.output_item.done
+2025-11-17 11:41:10.65
+090cabf7
+User
+[REALTIME] event: response.content_part.done
+2025-11-17 11:41:10.65
+090cabf7
+User
+🔍 [NLP] Analyzing conversation for appointment intent...
+2025-11-17 11:41:10.66
+090cabf7
+User
+[REALTIME] event: rate_limits.updated
+2025-11-17 11:41:10.66
+090cabf7
+User
+[REALTIME] event: response.done
+2025-11-17 11:41:12.82
+090cabf7
+User
+💓 WS_KEEPALIVE #11 (prevents 5min timeout)
+2025-11-17 11:41:12.83
+090cabf7
+User
+🔍 [VALIDATION] Checking calendar: 2025-11-20 16:00 - 17:00 (slot_size=60min)
+2025-11-17 11:41:12.83
+090cabf7
+User
+🎯 [NLP] Detected action=ask, date=2025-11-20, time=16:00, name=שיידן, confidence=0.9
+2025-11-17 11:41:12.83
+090cabf7
+User
+✅ [VALIDATION] Slot 16:00:00 within business hours
+2025-11-17 11:41:12.83
+090cabf7
+User
+❓ [NLP] User asking for availability - AI should check and respond
+2025-11-17 11:41:13.01
+090cabf7
+User
+✅ [VALIDATION] Calendar available - no conflicts
+2025-11-17 11:41:13.04
+090cabf7
+User
+✅ [SERVER_EVENT] Sent to AI: השעה 16:00 ביום 2025-11-20 פנויה!
+2025-11-17 11:41:13.11
+090cabf7
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 11:41:13.11
+090cabf7
+User
+🎯 [REALTIME] Response started: resp_Ccq1Rpb9wn38MVTCP2LvR
+2025-11-17 11:41:13.11
+090cabf7
+User
+[REALTIME] event: response.created
+2025-11-17 11:41:13.57
+090cabf7
+User
+[REALTIME] event: response.output_item.added
+2025-11-17 11:41:13.57
+090cabf7
+User
+[REALTIME] event: conversation.item.created
+2025-11-17 11:41:13.58
+090cabf7
+User
+[REALTIME] event: response.content_part.added
+2025-11-17 11:41:13.82
