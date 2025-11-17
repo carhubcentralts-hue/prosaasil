@@ -1,0 +1,118 @@
+ation.item.created
+2025-11-17 21:37:23.85
+1ab19de4
+User
+[REALTIME] event: response.output_item.added
+2025-11-17 21:37:23.86
+1ab19de4
+User
+[REALTIME] event: response.content_part.added
+2025-11-17 21:37:23.90
+1ab19de4
+User
+🎙️ REAL_VOICE: rms=595.0 > threshold=123.6
+2025-11-17 21:37:23.99
+1ab19de4
+User
+🔊 [REALTIME] AI started speaking (audio.delta)
+2025-11-17 21:37:24.00
+1ab19de4
+User
+⏳ [BARGE-IN] Grace period (400ms) - waiting
+
+2025-11-17 21:37:24.02
+1ab19de4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=147 < 150.0)
+2025-11-17 21:37:24.50
+1ab19de4
+User
+🧠 STATE -> PROCESSING | len=19200 | silence_ms=500
+2025-11-17 21:37:24.50
+1ab19de4
+User
+🎤 END OF UTTERANCE: 1.2s audio, conversation #12
+2025-11-17 21:37:24.50
+1ab19de4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-17 21:37:24.50
+1ab19de4
+User
+✅ Processing complete for conversation #12
+2025-11-17 21:37:24.54
+1ab19de4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=189, AI speaking=True)
+2025-11-17 21:37:24.55
+1ab19de4
+User
+💰 [COST] User utterance: 10.02s (1899 chunks total)
+2025-11-17 21:37:24.55
+1ab19de4
+User
+👤 [REALTIME] User said: על שם שיידן
+2025-11-17 21:37:24.55
+1ab19de4
+User
+🔍 [DEBUG] Hash changed (5d9343d2 → a99fc47f) - processing
+2025-11-17 21:37:24.55
+1ab19de4
+User
+🔍 [DEBUG] Current conversation hash: a99fc47f...
+2025-11-17 21:37:24.55
+1ab19de4
+User
+[REALTIME] event: conversation.item.input_audio_transcription.completed
+2025-11-17 21:37:24.55
+1ab19de4
+User
+🔍 [NLP] ✅ WILL PROCESS new conversation state (hash=a99fc47f...)
+2025-11-17 21:37:24.55
+1ab19de4
+User
+🔍 [NLP] ▶️ Analyzing conversation for appointment intent...[SAFETY] Transcription successful (total failures: 0)
+2025-11-17 21:37:24.55
+1ab19de4
+User
+🔍 [NLP] Conversation history has 11 messages
+2025-11-17 21:37:24.56
+1ab19de4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=80 < 150.0)
+2025-11-17 21:37:25.12
+1ab19de4
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=579
+2025-11-17 21:37:26.88
+1ab19de4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=32 < 150.0)
+2025-11-17 21:37:26.92
+1ab19de4
+User
+📨 Received: mark
+2025-11-17 21:37:27.44
+1ab19de4
+User
+✅ Processing complete for conversation #15
+2025-11-17 21:37:27.44
+1ab19de4
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=580
+2025-11-17 21:37:27.44
+1ab19de4
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #15
+2025-11-17 21:37:27.44
+1ab19de4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-17 21:37:27.70
+1ab19de4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=213, AI speaking=False)
+2025-11-17 21:37:27.70
+1ab19de4
+User
+🎙️ REAL_VOICE: rms=213.0 > threshold=123.6
