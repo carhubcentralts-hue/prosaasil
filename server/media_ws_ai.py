@@ -1467,7 +1467,44 @@ class MediaStreamHandler:
         
         print(f"🎯 [NLP] Detected action={action}, date={date_iso}, time={time_str}, name={customer_name}, confidence={confidence}")
         
-        # Handle "ask" action (user asking for availability)
+        # 🔥 NEW: Handle "hours_info" action (user asking about business hours, NOT appointment!)
+        if action == "hours_info":
+            print(f"📋 [NLP] User asking for business hours info - responding with policy")
+            try:
+                # Load business hours from policy
+                from server.policy.business_policy import get_business_policy
+                policy = get_business_policy(self.business_id)
+                
+                print(f"📊 [DEBUG] Policy loaded: allow_24_7={policy.allow_24_7}, opening_hours={policy.opening_hours}")
+                
+                if policy.allow_24_7:
+                    await self._send_server_event_to_ai("hours_info - העסק פתוח 24/7, אפשר לקבוע תור בכל יום ושעה.")
+                elif policy.opening_hours:
+                    # Format hours in Hebrew
+                    day_names = {"sun": "ראשון", "mon": "שני", "tue": "שלישי", "wed": "רביעי", "thu": "חמישי", "fri": "שישי", "sat": "שבת"}
+                    hours_lines = []
+                    for day_key in ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]:
+                        windows = policy.opening_hours.get(day_key, [])
+                        if not windows:
+                            hours_lines.append(f"{day_names[day_key]}: סגור")
+                        else:
+                            time_ranges = ", ".join([f"{w[0]}-{w[1]}" for w in windows])
+                            hours_lines.append(f"{day_names[day_key]}: {time_ranges}")
+                    
+                    hours_text = "שעות הפעילות שלנו:\n" + "\n".join(hours_lines)
+                    print(f"✅ [DEBUG] Sending hours to AI: {hours_text[:100]}...")
+                    await self._send_server_event_to_ai(f"hours_info - {hours_text}")
+                else:
+                    print(f"⚠️ [DEBUG] No opening_hours in policy!")
+                    await self._send_server_event_to_ai("hours_info - שעות הפעילות לא הוגדרו במערכת.")
+            except Exception as e:
+                print(f"❌ [ERROR] Failed to load business policy: {e}")
+                import traceback
+                traceback.print_exc()
+                await self._send_server_event_to_ai("hours_info - לא הצלחתי לטעון את שעות הפעילות. אפשר ליצור קשר ישירות.")
+            return
+        
+        # Handle "ask" action (user asking for availability for specific date/time)
         if action == "ask":
             print(f"❓ [NLP] User asking for availability - AI should check and respond")
             # 🔥 Send availability feedback to AI

@@ -23,12 +23,18 @@ async def extract_appointment_request(conversation_history: list, business_id: i
     
     Returns:
         {
-            "action": "ask" | "confirm" | "none",
+            "action": "hours_info" | "ask" | "confirm" | "none",
             "date": ISO string or null,
             "time": "HH:MM" or null,
             "name": str or null,
             "confidence": 0.0-1.0
         }
+        
+    Action types:
+        - "hours_info": User asking for business hours/general info (NOT appointment)
+        - "ask": User asking for specific date/time availability
+        - "confirm": User confirming an appointment
+        - "none": No appointment-related action
     """
     try:
         # Build conversation text - support both old and new formats
@@ -69,14 +75,28 @@ async def extract_appointment_request(conversation_history: list, business_id: i
 התאריך היום: {today_str} (יום {weekday_hebrew})
 
 החזר JSON בלבד עם השדות:
-- action: "ask" (לקוח שואל על זמינות), "confirm" (לקוח מאשר שעה), או "none" (אין בקשה)
+- action: 
+  * "hours_info" - לקוח שואל על שעות פעילות/מידע כללי (לא רוצה לקבוע תור!)
+  * "ask" - לקוח שואל על זמינות לתאריך/שעה ספציפיים
+  * "confirm" - לקוח מאשר שעה
+  * "none" - אין בקשה
 - date: תאריך בפורמט ISO (YYYY-MM-DD) או null. חשב לפי התאריך הנוכחי ({today_str}).
   דוגמאות: "מחר" = {tomorrow_str}, "יום חמישי הקרוב" = חשב מ-{today_str}.
 - time: שעה בפורמט HH:MM (24 שעות) או null. "בשש" = 18:00, "בשבע וחצי" = 19:30, "ב-4" = 16:00.
 - name: שם הלקוח או null. אם השם הוא "לקוח", "אדון", "גברת" או כללי - החזר null!
 - confidence: רמת ודאות (0.0-1.0)
 
+🔥 CRITICAL: הבחן בין שאלות מידע לבקשות תור:
+- "מה השעות שלכם?" / "מתי אתם פתוחים?" / "תעבדו מחר?" → "hours_info" (לא רוצה תור!)
+- "יש פנוי ביום ראשון בשש?" / "אפשר לקבוע?" → "ask" (רוצה לבדוק זמינות)
+
 דוגמאות:
+לקוח: "מה השעות פעילות שלכם?"
+→ {{"action":"hours_info","date":null,"time":null,"name":null,"confidence":1.0}}
+
+לקוח: "מתי אתם עובדים בשישי?"
+→ {{"action":"hours_info","date":null,"time":null,"name":null,"confidence":0.95}}
+
 לקוח: "אפשר ליום שלישי בשש?"
 → {{"action":"ask","date":"2025-11-19","time":"18:00","name":null,"confidence":0.9}}
 
