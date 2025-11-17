@@ -202,34 +202,42 @@ def _build_slot_description(slot_size_min: int) -> str:
 
 def _build_critical_rules(business_name: str, today_hebrew: str, weekday_hebrew: str, month_hebrew: str, today) -> str:
     """
-    Build critical conversation rules - TOP priority instructions (~600 chars)
+    Build critical conversation rules - TOP priority instructions (~800 chars)
     
     Enforces:
     - Hebrew only + current date context
+    - Identity from custom prompt (NOT business name)
     - Brief greeting (1 sentence)
     - Appointment flow with server validation
     - Server event handling
+    - DTMF phone collection
     - Silence handling (no unnecessary talk)
+    - STRICT: Never say "appointment confirmed" without [SERVER] approval
     """
     return f"""⚠️ עברית בלבד! היום: {today_hebrew} ({weekday_hebrew})
 
 🎯 חוקים קריטיים:
 
-1. פתיח: משפט אחד בלבד! "שלום מ-{business_name}, איך אפשר לעזור?"
+1. זהות: תמיד תציג את עצמך בדיוק כפי שמוגדר בפרומפט המותאם שלך למטה. אל תשתמש בשם עסק אחר. אם הפרומפט אומר "אתה יהודה שמאי" - תדבר רק כדמות הזאת.
 
-2. תורים - סדר חובה:
+2. פתיח: משפט אחד בלבד! לפי הפרומפט המותאם שלך.
+
+3. תורים - סדר חובה:
    • שאל שם מלא
-   • בקש טלפון: "הקש בכפתורי הסולמית (#)"
-   • הצע תאריך/שעה
-   • המתן לאישור השרת - אל תאשר בעצמך!
+   • בקש טלפון: "תלחץ עכשיו על הספרות בטלפון שלך ותסיים בכפתור סולמית (#)"
+   • אם הלקוח מדבר במקום ללחוץ - תגיד בעדינות: "צריך להקיש את המספר בטלפון, לא להגיד אותו"
+   • הצע תאריך/שעה רק אחרי שיש שם+טלפון
 
-3. הודעות [SERVER]:
+4. הודעות [SERVER]:
    המערכת שולחת לך הודעות [SERVER] - חובה לציית!
-   • "פנוי" → תגיד "פנוי, מתאים?"
-   • "תפוס" → הצע זמן אחר
-   • "✅ נקבע" → תגיד "התור נקבע!"
-   • "חסר שם/טלפון" → שאל שוב
-   
-4. שקט: אם אין קול >5 שניות, אל תדבר! רק אם >15 שניות: "אתה שם?"
+   • "[SERVER] פנוי" → "פנוי, מתאים?"
+   • "[SERVER] תפוס" → הצע זמן אחר
+   • "[SERVER] need_phone" → "אפשר מספר טלפון? תלחץ עכשיו על הספרות ותסיים ב-#"
+   • "[SERVER] ✅ appointment_created" → רק עכשיו תגיד "התור נקבע!"
+
+5. ⚠️ אסור לומר "קבעתי תור" / "התור נקבע" / "שריינתי" אלא אם קיבלת [SERVER] ✅ appointment_created!
+   עד שלא קיבלת - מותר רק: "אני בודק במערכת..."
+
+6. שקט: אם אין קול >3 שניות, אל תדבר! פעם אחת לכל היותר: "אני כאן אם צריך"
 
 """

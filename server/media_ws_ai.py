@@ -312,7 +312,7 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
 def create_appointment_from_realtime(business_id: int, customer_phone: str, 
                                      customer_name: str, treatment_type: str,
                                      start_iso: str, end_iso: str, 
-                                     notes: Optional[str] = None) -> Optional[int]:
+                                     notes: Optional[str] = None):
     """
     Create appointment directly from server (no Realtime Tools)
     Called when AI mentions date/time in conversation
@@ -327,7 +327,9 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
         notes: Optional notes
     
     Returns:
-        Appointment ID if created, None on error
+        dict with ok/error/message/appointment_id OR
+        int (appointment ID) for backwards compatibility OR
+        None on error
     """
     try:
         from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
@@ -347,13 +349,19 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
             
             result = _calendar_create_appointment_impl(input_data, context=None, session=None)
             
-            if isinstance(result, dict) and result.get("ok"):
-                appt_id = result.get("appointment_id")
-                print(f"✅ [CRM] Created appointment #{appt_id} for {customer_name}")
-                return appt_id
+            # 🔥 ENHANCED: Return full result dict for better error handling
+            if isinstance(result, dict):
+                if result.get("ok"):
+                    appt_id = result.get("appointment_id")
+                    print(f"✅ [CRM] Created appointment #{appt_id} for {customer_name}")
+                else:
+                    error_msg = result.get("message", "Unknown error")
+                    print(f"⚠️ [CRM] Appointment creation failed: {error_msg}")
+                # Return full result (includes error type, message, etc.)
+                return result
             else:
-                error_msg = result.get("message") if isinstance(result, dict) else str(result)
-                print(f"⚠️ [CRM] Appointment creation failed: {error_msg}")
+                # Unexpected result format
+                print(f"⚠️ [CRM] Unexpected result format: {type(result)}")
                 return None
                 
     except Exception as e:
@@ -1461,7 +1469,7 @@ class MediaStreamHandler:
                         return
                     
                     # Create appointment
-                    appt_id = create_appointment_from_realtime(
+                    result = create_appointment_from_realtime(
                         business_id=self.business_id,
                         customer_phone=customer_phone,
                         customer_name=customer_name,  # ✅ Only real names pass validation
@@ -1470,6 +1478,30 @@ class MediaStreamHandler:
                         end_iso=end_dt.isoformat(),
                         notes=f"נקבע בשיחה - confidence={confidence}"
                     )
+                    
+                    # 🔥 ENHANCED: Handle appointment creation result with proper error handling
+                    if result and isinstance(result, dict):
+                        # Check if this is an error response
+                        if not result.get("ok", True):
+                            error_type = result.get("error", "unknown")
+                            error_msg = result.get("message", "שגיאה לא ידועה")
+                            
+                            print(f"⚠️ [CRM] Appointment creation failed: {error_msg}")
+                            
+                            # 🔥 CRITICAL: Send appropriate server event based on error type
+                            if error_type == "need_phone":
+                                await self._send_server_event_to_ai("חסר מספר טלפון. שאל: 'אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית (#)'")
+                            else:
+                                await self._send_server_event_to_ai(f"❌ שגיאה: {error_msg}")
+                            return
+                        
+                        # Success - extract appointment ID
+                        appt_id = result.get("appointment_id")
+                    elif result and isinstance(result, int):
+                        # Old format - just ID
+                        appt_id = result
+                    else:
+                        appt_id = None
                     
                     if appt_id:
                         # ✅ Mark as created in DB to prevent duplicates
@@ -1482,8 +1514,8 @@ class MediaStreamHandler:
                         if crm_context:
                             crm_context.last_appointment_id = appt_id
                         
-                        # 🔥 Send confirmation to AI
-                        await self._send_server_event_to_ai(f"✅ התור נקבע בהצלחה ל-{customer_name} בתאריך {date_iso} בשעה {time_str}. תודיע ללקוח!")
+                        # 🔥 Send confirmation to AI (with ✅ marker so AI knows it can say "התור נקבע!")
+                        await self._send_server_event_to_ai(f"✅ appointment_created: התור נקבע בהצלחה ל-{customer_name} בתאריך {date_iso} בשעה {time_str}. תודיע ללקוח!")
                     else:
                         print(f"❌ [NLP] Failed to create appointment for {appt_hash}")
                         # 🔥 Send failure to AI
