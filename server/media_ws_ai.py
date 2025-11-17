@@ -368,15 +368,31 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
             
             result = _calendar_create_appointment_impl(input_data, context=None, session=None)
             
-            # 🔥 ENHANCED: Return full result dict for better error handling
-            if isinstance(result, dict):
+            # 🔥 FIX: Handle CreateAppointmentOutput dataclass (not dict!)
+            if hasattr(result, 'appointment_id'):
+                # Success - got CreateAppointmentOutput
+                appt_id = result.appointment_id
+                print(f"✅ [CRM] Created appointment #{appt_id} for {customer_name}")
+                print(f"✅ [CRM] Status: {result.status}, WhatsApp: {result.whatsapp_status}")
+                if result.lead_id:
+                    print(f"✅ [CRM] Lead created/updated: #{result.lead_id}")
+                # Return dict for backwards compatibility
+                return {
+                    "ok": True,
+                    "appointment_id": appt_id,
+                    "status": result.status,
+                    "message": result.confirmation_message,
+                    "whatsapp_status": result.whatsapp_status,
+                    "lead_id": result.lead_id
+                }
+            elif isinstance(result, dict):
+                # Legacy dict format
                 if result.get("ok"):
                     appt_id = result.get("appointment_id")
                     print(f"✅ [CRM] Created appointment #{appt_id} for {customer_name}")
                 else:
                     error_msg = result.get("message", "Unknown error")
                     print(f"⚠️ [CRM] Appointment creation failed: {error_msg}")
-                # Return full result (includes error type, message, etc.)
                 return result
             else:
                 # Unexpected result format
