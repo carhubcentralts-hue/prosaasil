@@ -27,6 +27,10 @@ builtins.print = _dprint
 
 # ⚡ PHASE 1 Task 4: טלמטריה - 4 מדדים בכל TURN
 import logging
+
+# Create logger for this module
+logger = logging.getLogger(__name__)
+
 _now_ms = lambda: int(time.time() * 1000)
 
 def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False, eou_reason="unknown"):
