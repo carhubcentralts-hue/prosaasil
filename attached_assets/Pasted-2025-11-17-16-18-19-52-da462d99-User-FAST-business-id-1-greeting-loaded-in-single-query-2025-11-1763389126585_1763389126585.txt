@@ -1,0 +1,117 @@
+2025-11-17 16:18:19.52
+da462d99
+User
+⚡ FAST: business_id=1, greeting loaded in single query!
+2025-11-17 16:18:19.52
+da462d99
+User
+⏭️ Skipping Google STT initialization (USE_REALTIME_API=True)
+2025-11-17 16:18:19.52
+da462d99
+User
+🚀 [REALTIME] Starting Realtime API mode for call CA0dcb31
+2025-11-17 16:18:19.52
+da462d99
+User
+🔧 DB_URL_AT_WRITE: driver=postgresql, BIZ=1, SID=CA0dcb310e6fcc95b0026598f25047dd34
+2025-11-17 16:18:19.52
+da462d99
+User
+🎯 [T1=1763389099.523] NO GREETING - AI will speak first dynamically!
+2025-11-17 16:18:19.52
+da462d99
+User
+🔊 TX_LOOP_START: Audio transmission thread started
+2025-11-17 16:18:19.52
+da462d99
+User
+🚀 [REALTIME] Thread started for call CA0dcb31 (FRESH SESSION)
+2025-11-17 16:18:19.52
+da462d99
+User
+✅ [REALTIME] Threads started - greeting will be sent by async loop
+2025-11-17 16:18:19.52
+da462d99
+User
+📤 [REALTIME] Audio output bridge started (DEBUG MODE)
+2025-11-17 16:18:19.52
+da462d99
+User
+[REALTIME] sending audio TO OpenAI: chunk#2, μ-law bytes=160, first5=fe fe fe fe fe
+2025-11-17 16:18:19.52
+da462d99
+User
+[REALTIME] sending audio TO OpenAI: chunk#1, μ-law bytes=160, first5=7e fe fe fe 7e
+2025-11-17 16:18:19.52
+da462d99
+User
+[REALTIME] sending audio TO OpenAI: chunk#3, μ-law bytes=160, first5=7e fe 7e 7e fe
+2025-11-17 16:18:19.54
+da462d99
+User
+🚀 [REALTIME] Async loop starting for business_id=1
+2025-11-17 16:18:19.64
+da462d99
+User
+🎙️ [BARGE-IN] User voice detected (RMS=259, AI speaking=False)
+2025-11-17 16:18:19.64
+da462d99
+User
+🎙️ REAL_VOICE: rms=259.0 > threshold=170.0
+2025-11-17 16:18:19.69
+da462d99
+User
+✅ Call log already exists for CA0dcb310e6fcc95b0026598f25047dd34
+2025-11-17 16:18:19.69
+da462d99
+User
+✅ Updated call_log with customer_id=39
+2025-11-17 16:18:19.85
+da462d99
+User
+✅ [REALTIME] Connected to OpenAI using gpt-4o-realtime-preview (STANDARD)
+2025-11-17 16:18:20.05
+da462d99
+User
+⚠️ [BARGE-IN] User spoke 417ms but AI NOT speaking - no barge-in needed
+2025-11-17 16:18:20.07
+da462d99
+User
+⚠️ [BARGE-IN] User spoke 436ms but AI NOT speaking - no barge-in needed
+
+2025-11-17 16:18:20.08
+da462d99
+User
+✅ [REALTIME] Built system prompt (3120 chars)
+2025-11-17 16:18:20.08
+da462d99
+User
+1. 🎭 זהות: תציג את עצמך בדיוק כפי שמוגדר בפרומפט המותאם מהעסק (למטה) - לא לפי שם העסק במערכת!
+2025-11-17 16:18:20.08
+da462d99
+User
+📝 [REALTIME] Prompt preview: ⚠️ עברית בלבד! היום: 17/11/2025 (שני)
+2025-11-17 16:18:20.08
+da462d99
+User
+2. ⚡ קצרנות: כל תשובה חייבת להיות קצרה...
+2025-11-17 16:18:20.08
+da462d99
+User
+🎯 חוקים קריטיים (Agent 3):
+2025-11-17 16:18:20.09
+da462d99
+User
+📤 [REALTIME] Audio sender started
+2025-11-17 16:18:20.09
+da462d99
+User
+⚠️ [CRM] No customer phone - skipping lead creation
+2025-11-17 16:18:20.09
+da462d99
+User
+✅ [REALTIME] Session configured: voice=shimmer, temp=0.18, silence=600ms, format=g711_ulaw, NO TOOLS (appointment via NLP)
+2025-11-17 16:18:20.09
+da462d99
+User
+📝 [REALTIME] Text sender started
