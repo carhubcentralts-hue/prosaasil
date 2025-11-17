@@ -2593,6 +2593,23 @@ class MediaStreamHandler:
                         # Append digit
                         self.dtmf_buffer += digit
                         print(f"📝 DTMF buffer: {self.dtmf_buffer}")
+                        
+                        # 🔥 AUTO-SUBMIT: If we have 10 digits (Israeli mobile), auto-process without waiting for #
+                        if len(self.dtmf_buffer) == 10:
+                            phone_number = self.dtmf_buffer
+                            print(f"✅ DTMF auto-submit (10 digits): {phone_number}")
+                            
+                            # Clear buffer
+                            self.dtmf_buffer = ""
+                            self.waiting_for_dtmf = False
+                            
+                            # Process the phone number
+                            try:
+                                self._process_dtmf_phone(phone_number)
+                            except Exception as e:
+                                print(f"❌ DTMF auto-submit processing failed: {e}")
+                                import traceback
+                                traceback.print_exc()
                     
                     continue
 

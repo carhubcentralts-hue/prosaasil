@@ -30,7 +30,7 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - **Model**: gpt-4o-realtime-preview, max_tokens: 300, temperature: 0.18.
   - **Critical Rules**: 10 comprehensive behavioral rules cover identity, brevity, silence, honesty, DTMF, turn-taking, hours_info, and appointment flow.
   - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with 3 actions: `hours_info` (general inquiry), `ask` (check availability), `confirm` (create appointment).
-  - **Appointment Flow (Nov 2025)**: Date/time first → Check availability → Suggest alternatives if busy → Collect name (verbal) → Collect phone (DTMF) → **DTMF triggers NLP** → Create appointment.
+  - **Appointment Flow (Nov 2025)**: Date/time first → Check availability → Suggest alternatives if busy → Collect name (verbal) → Collect phone (DTMF with auto-submit after 10 digits) → **DTMF triggers NLP** → Create appointment.
   - **Customer Data Persistence (Nov 2025)**: 4-path hydration system ensures name survival:
     - Path 1: Direct save to crm_context.customer_name when context exists
     - Path 2: Temporary cache (self.pending_customer_name) when context doesn't exist yet
@@ -39,6 +39,7 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
     - Fallback in confirm handler retrieves from both sources and writes back to context
   - **NLP Trigger (Nov 2025)**: DTMF completion handler explicitly triggers NLP re-run **immediately after crm_context creation/update** when both name AND phone exist, ensuring appointments are created without race conditions.
   - **AI Step-by-Step Guidance (Nov 2025)**: AI prompt explicitly instructs to collect name FIRST, then phone SECOND (never together). After receiving name, AI automatically asks for phone without waiting for server signal. No "missing phone" messages during the collection process - AI understands it's a multi-step flow.
+  - **DTMF Auto-Submit (Nov 2025)**: After collecting 10 digits, system automatically processes phone number without requiring # terminator. This prevents silent failures when users forget to press #.
   - **Availability Check**: Real-time slot validation with up to 3 alternative suggestions if requested time is taken.
 - **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)` for reliable Hebrew speech detection.
 - **Smart Barge-In**: 400ms grace period, 150 RMS threshold, 400ms minimum voice duration, 800ms cooldown.
