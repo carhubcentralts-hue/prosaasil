@@ -1253,6 +1253,45 @@ class MediaStreamHandler:
         
         print(f"📥 [REALTIME] Audio receiver ended")
     
+    async def _send_server_event_to_ai(self, message_text: str):
+        """
+        🔥 Send server-side message to AI via conversation.item.create
+        Used for appointment validation feedback, calendar availability, etc.
+        
+        Args:
+            message_text: Message to send to AI (in Hebrew)
+        """
+        if not self.realtime_client:
+            print(f"⚠️ [SERVER_EVENT] No Realtime client - cannot send message")
+            return
+        
+        try:
+            # Create server message event
+            event = {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",  # ✅ Server messages appear as "user" to AI
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": f"[SERVER] {message_text}"
+                        }
+                    ]
+                }
+            }
+            
+            await self.realtime_client.send_event(event)
+            print(f"✅ [SERVER_EVENT] Sent to AI: {message_text[:100]}")
+            
+            # 🎯 Trigger AI response
+            await self.realtime_client.send_event({"type": "response.create"})
+            
+        except Exception as e:
+            print(f"❌ [SERVER_EVENT] Failed to send: {e}")
+            import traceback
+            traceback.print_exc()
+    
     def _handle_realtime_barge_in(self):
         """
         🔥 ENHANCED BARGE-IN: Stop AI generation + playback when user speaks
@@ -1342,7 +1381,20 @@ class MediaStreamHandler:
         # Handle "ask" action (user asking for availability)
         if action == "ask":
             print(f"❓ [NLP] User asking for availability - AI should check and respond")
-            # TODO: Future enhancement - check real availability and send event to AI
+            # 🔥 Send availability feedback to AI
+            if date_iso and time_str:
+                from datetime import datetime, timedelta
+                import pytz
+                tz = pytz.timezone('Asia/Jerusalem')
+                target_date = datetime.fromisoformat(date_iso)
+                hour, minute = map(int, time_str.split(":"))
+                start_dt = tz.localize(datetime(target_date.year, target_date.month, target_date.day, hour, minute, 0))
+                
+                # Check availability
+                if validate_appointment_slot(self.business_id, start_dt):
+                    await self._send_server_event_to_ai(f"השעה {time_str} ביום {date_iso} פנויה!")
+                else:
+                    await self._send_server_event_to_ai(f"השעה {time_str} ביום {date_iso} תפוסה. תציע שעה אחרת.")
             return
         
         # Handle "confirm" action (user confirmed appointment)
@@ -1379,6 +1431,8 @@ class MediaStreamHandler:
             # ✅ STEP 1: Validate slot is within business hours AND check calendar availability
             if not validate_appointment_slot(self.business_id, start_dt):
                 print(f"❌ [NLP] Slot {start_dt.isoformat()} outside business hours - SKIPPING")
+                # 🔥 Send feedback to AI
+                await self._send_server_event_to_ai(f"השעה {time_str} ביום {date_iso} תפוסה או מחוץ לשעות העבודה. תציע שעה אחרת ללקוח.")
                 return
             
             # 🛡️ STEP 2: DB-BASED DEDUPLICATION - Check CallSession table
@@ -1402,7 +1456,8 @@ class MediaStreamHandler:
                     # 🛡️ VALIDATION: Require real customer name before creating appointment
                     if not customer_name or customer_name in ["לקוח", "אדון", "גברת", "מר", "גב'"]:
                         print(f"⚠️ [NLP] Missing customer name - cannot create appointment without real name")
-                        # TODO: Send event to AI to ask for name
+                        # 🔥 Send event to AI to ask for name
+                        await self._send_server_event_to_ai("חסר שם מלא של הלקוח. שאל: 'מה השם המלא שלך?'")
                         return
                     
                     # Create appointment
@@ -1427,9 +1482,12 @@ class MediaStreamHandler:
                         if crm_context:
                             crm_context.last_appointment_id = appt_id
                         
-                        # TODO: Send server_event to AI confirming appointment creation
+                        # 🔥 Send confirmation to AI
+                        await self._send_server_event_to_ai(f"✅ התור נקבע בהצלחה ל-{customer_name} בתאריך {date_iso} בשעה {time_str}. תודיע ללקוח!")
                     else:
                         print(f"❌ [NLP] Failed to create appointment for {appt_hash}")
+                        # 🔥 Send failure to AI
+                        await self._send_server_event_to_ai("❌ שגיאה ביצירת התור. נסה שעה אחרת.")
             except Exception as e:
                 print(f"❌ [NLP] DB deduplication error: {e}")
                 import traceback
