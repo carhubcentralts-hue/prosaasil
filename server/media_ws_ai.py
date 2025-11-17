@@ -726,6 +726,7 @@ class MediaStreamHandler:
         self.is_ai_speaking_event = threading.Event()  # Thread-safe flag for AI speaking state
         self.has_pending_ai_response = False  # Is AI response pending?
         self.last_ai_audio_ts = None  # Last time AI audio was received from Realtime
+        self.ai_speaking_start_ts = None  # 🔥 FIX: When AI STARTED speaking (for grace period)
         self.last_user_turn_id = None  # Last user conversation item ID
         self.last_ai_turn_id = None  # Last AI conversation item ID
         self.active_response_id = None  # 🔥 Track active response ID for cancellation
@@ -1208,6 +1209,7 @@ class MediaStreamHandler:
                         now = time.time()
                         if not self.is_ai_speaking_event.is_set():
                             print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
+                            self.ai_speaking_start_ts = now  # 🔥 FIX: Record when AI STARTED (not last chunk)
                         self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
                         self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
@@ -1241,6 +1243,18 @@ class MediaStreamHandler:
                     if self.is_ai_speaking_event.is_set():
                         print(f"🔇 [REALTIME] AI stopped speaking ({event_type})")
                     self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped speaking
+                    self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
+                    
+                    # 🔥 FIX: Clear audio queue to prevent background noise (residual frames)
+                    frames_cleared = 0
+                    try:
+                        while not self.realtime_audio_out_queue.empty():
+                            self.realtime_audio_out_queue.get_nowait()
+                            frames_cleared += 1
+                    except:
+                        pass
+                    if frames_cleared > 0:
+                        print(f"🧹 [AUDIO] Cleared {frames_cleared} residual frames from queue (prevents background noise)")
                     self.has_pending_ai_response = False
                     self.active_response_id = None  # Clear response ID
                     self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
@@ -1396,6 +1410,7 @@ class MediaStreamHandler:
         # Stop AI speaking flag (checked in audio output bridge)
         self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped due to barge-in
         self.last_ai_audio_ts = None
+        self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
         
         # Clear any queued AI audio that hasn't been sent yet
         try:
@@ -1664,7 +1679,7 @@ class MediaStreamHandler:
         """
         🚀 REALTIME API: Bridge thread that moves audio from realtime_audio_out_queue to tx_q
         
-        🔥 CRITICAL FIX: Split OpenAI chunks (12KB+) into Twilio frames (160 bytes)
+        🔥 CRITICAL FIX: Split OpenAI chunks (12KB+) into Twilio frames (160 bytes) + 20ms pacing
         """
         print(f"📤 [REALTIME] Audio output bridge started")
         
@@ -1675,6 +1690,7 @@ class MediaStreamHandler:
             self.realtime_tx_bytes = 0
         
         TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law = 160 bytes
+        FRAME_DURATION_MS = 20  # Each frame is 20ms of audio
         chunk_count = 0
         
         while not self.realtime_stop_flag:
@@ -1692,7 +1708,7 @@ class MediaStreamHandler:
                 self.realtime_tx_bytes += len(chunk_bytes)
                 
                 # 🔍 Log large chunks (OpenAI sends 12KB+ chunks, we need to split them)
-                if len(chunk_bytes) > 1000:
+                if len(chunk_bytes) > 1000 and chunk_count <= 3:
                     num_frames = len(chunk_bytes) // TWILIO_FRAME_SIZE
                     print(f"📦 [AUDIO] OpenAI chunk #{chunk_count}: {len(chunk_bytes)} bytes → splitting into {num_frames} frames")
                 
@@ -1706,10 +1722,10 @@ class MediaStreamHandler:
                 for i in range(0, len(chunk_bytes), TWILIO_FRAME_SIZE):
                     frame_bytes = chunk_bytes[i:i+TWILIO_FRAME_SIZE]
                     
-                    # Only send complete frames
+                    # 🔥 FIX: Drop incomplete frames instead of padding (prevents clicks)
                     if len(frame_bytes) < TWILIO_FRAME_SIZE:
-                        # Pad incomplete frame with silence (μ-law 0xFF = silence)
-                        frame_bytes = frame_bytes + b'\xff' * (TWILIO_FRAME_SIZE - len(frame_bytes))
+                        print(f"⚠️ [AUDIO] Dropping incomplete frame: {len(frame_bytes)} bytes")
+                        continue
                     
                     # Encode to base64 for Twilio
                     frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
@@ -1731,6 +1747,11 @@ class MediaStreamHandler:
                         if self.realtime_tx_frames <= 3:
                             first5 = ' '.join([f'{b:02x}' for b in frame_bytes[:5]])
                             print(f"✅ [AUDIO] Frame #{self.realtime_tx_frames}: 160 bytes, first5={first5}")
+                        
+                        # 🔥 FIX: 20ms pacing - prevents choppy audio!
+                        # Each frame is 20ms of audio, so sleep 20ms to maintain realtime playback
+                        time.sleep(FRAME_DURATION_MS / 1000.0)  # 0.02 seconds
+                        
                     except queue.Full:
                         print(f"⚠️ [AUDIO] tx_q full, dropping frame #{self.realtime_tx_frames}")
                     except Exception as e:
@@ -2037,9 +2058,9 @@ class MediaStreamHandler:
                                 # Calculate how long user has been speaking
                                 elapsed_ms = (now - self.current_user_voice_start_ts) * 1000
                                 
-                                # Check if AI is in grace period (just started speaking)
-                                if self.is_ai_speaking_event.is_set() and self.last_ai_audio_ts and \
-                                   (now - self.last_ai_audio_ts) * 1000 < self.min_ai_talk_guard_ms:
+                                # 🔥 FIX: Check grace period based on when AI STARTED, not last chunk!
+                                if self.is_ai_speaking_event.is_set() and self.ai_speaking_start_ts and \
+                                   (now - self.ai_speaking_start_ts) * 1000 < self.min_ai_talk_guard_ms:
                                     # Inside grace period - don't allow barge-in yet
                                     print(f"⏳ [BARGE-IN] Grace period ({self.min_ai_talk_guard_ms}ms) - waiting")
                                 # Check cooldown - don't trigger barge-in too frequently
