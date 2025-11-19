@@ -2284,25 +2284,6 @@ class MediaStreamHandler:
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
                         try:
-                            # 🔥 AUDIO GATE: Calculate RMS and filter out background noise BEFORE sending to OpenAI
-                            # This prevents OpenAI from hallucinating transcriptions on silence/noise
-                            rms_local = audioop.rms(pcm16, 2)
-                            AUDIO_GATE_THRESHOLD = 180  # 🔥 Only send audio with RMS > 180 (real speech)
-                            
-                            # Track consecutive low-noise frames
-                            if not hasattr(self, '_consecutive_noise_frames'):
-                                self._consecutive_noise_frames = 0
-                            
-                            if rms_local < AUDIO_GATE_THRESHOLD:
-                                self._consecutive_noise_frames += 1
-                                # ⚠️ Skip sending if consistently below threshold (>5 frames = 100ms of noise)
-                                if self._consecutive_noise_frames > 5:
-                                    # Don't send background noise to OpenAI at all!
-                                    continue
-                            else:
-                                # Reset counter on real voice
-                                self._consecutive_noise_frames = 0
-                            
                             # 🔍 DEBUG: Log first few frames from Twilio
                             if not hasattr(self, '_twilio_audio_chunks_sent'):
                                 self._twilio_audio_chunks_sent = 0
@@ -2310,8 +2291,10 @@ class MediaStreamHandler:
                             
                             if self._twilio_audio_chunks_sent <= 3:
                                 first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, RMS={rms_local}, first5={first5_bytes}")
+                                print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}")
                             
+                            # ✅ Send ALL audio to OpenAI - let OpenAI VAD (threshold=0.7) handle noise filtering
+                            # This ensures clean audio transmission without tx_q overflow
                             self.realtime_audio_in_queue.put_nowait(b64)
                         except queue.Full:
                             pass
