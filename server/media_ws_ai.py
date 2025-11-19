@@ -1948,6 +1948,13 @@ class MediaStreamHandler:
                 
                 # Extract complete 160-byte frames from buffer
                 while len(audio_buffer) >= TWILIO_FRAME_SIZE:
+                    # 🔥 BACKPRESSURE: If queue is >80% full, wait before adding more frames
+                    # This prevents tx_q overflow when OpenAI sends large chunks
+                    queue_size = self.tx_q.qsize()
+                    if queue_size > 720:  # 80% of 900
+                        time.sleep(0.05)  # Wait 50ms for TX loop to drain queue
+                        continue
+                    
                     frame_bytes = audio_buffer[:TWILIO_FRAME_SIZE]
                     audio_buffer = audio_buffer[TWILIO_FRAME_SIZE:]  # Keep remainder
                     
