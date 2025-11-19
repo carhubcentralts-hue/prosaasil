@@ -1,0 +1,104 @@
+2cd
+User
+🚫 [FILTER] Ignoring English hallucination: 'Thank you.' (no Hebrew detected)
+2025-11-19 11:18:42.51
+e6f182cd
+User
+💰 [COST] User utterance: 5.85s (618 chunks total)
+2025-11-19 11:18:43.05
+e6f182cd
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-19 11:18:43.05
+e6f182cd
+User
+💰 [COST] AI utterance: 0.83s (46 chunks)
+2025-11-19 11:18:43.05
+e6f182cd
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-19 11:18:43.05
+e6f182cd
+User
+[REALTIME] event: response.audio.done
+2025-11-19 11:18:43.05
+e6f182cd
+User
+[REALTIME] event: response.content_part.done
+2025-11-19 11:18:43.05
+e6f182cd
+User
+🤖 [REALTIME] AI said: אם תרצה לקבוע פגישה, רק תן לי תאריך ושעה שנוחים לך.
+2025-11-19 11:18:43.05
+e6f182cd
+User
+[REALTIME] event: response.done
+2025-11-19 11:18:43.05
+e6f182cd
+User
+[REALTIME] event: response.output_item.done
+2025-11-19 11:18:43.06
+e6f182cd
+User
+[REALTIME] event: rate_limits.updated
+2025-11-19 11:18:46.38
+e6f182cd
+User
+🎙️ REAL_VOICE: rms=1187.0 > threshold=88.0
+2025-11-19 11:18:46.38
+e6f182cd
+User
+🎙️ [BARGE-IN] User voice detected (RMS=1187, AI speaking=False)
+2025-11-19 11:18:46.50
+e6f182cd
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-19 11:18:46.80
+e6f182cd
+User
+⚠️ [BARGE-IN] User spoke 420ms but AI NOT speaking - no barge-in needed
+2025-11-19 11:18:46.82
+e6f182cd
+User
+⚠️ [BARGE-IN] User spoke 440ms but AI NOT speaking - no barge-in needed
+2025-11-19 11:18:46.84
+e6f182cd
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=71 < 150.0)
+2025-11-19 11:18:46.92
+e6f182cd
+User
+🎙️ [BARGE-IN] User voice detected (RMS=164, AI speaking=False)
+2025-11-19 11:18:46.94
+e6f182cd
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=103 < 150.0)
+2025-11-19 11:18:47.42
+e6f182cd
+User
+🧠 STATE -> PROCESSING | len=16960 | silence_ms=500
+
+2025-11-19 11:18:47.42
+e6f182cd
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-19 11:18:47.42
+e6f182cd
+User
+✅ Processing complete for conversation #4
+2025-11-19 11:18:47.42
+e6f182cd
+User
+🎤 END OF UTTERANCE: 1.1s audio, conversation #4
+2025-11-19 11:18:47.68
+e6f182cd
+User
+[REALTIME] event: conversation.item.created
+2025-11-19 11:18:47.68
+e6f182cd
+User
+[REALTIME] event: input_audio_buffer.speech_stopped
+2025-11-19 11:18:47.68
+e6f182cd
+User
+[REALTIME] event: 

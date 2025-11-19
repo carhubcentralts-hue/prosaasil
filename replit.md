@@ -33,10 +33,10 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
     - **Rule 9 - Appointment Flow**: AI forbidden from confirming appointments before [SERVER] ✅ appointment_created. After confirmation, AI MUST stay silent (no re-validation loops).
     - **Guard System**: Post-filter detects forbidden words ("קבעתי", "התור נקבע") without server approval and sends immediate correction.
     - **Loop Prevention**: pending_slot cleared immediately after appointment creation to prevent re-validation cycles.
-  - **Hallucination Filter (Nov 2025)**: 3-layer transcription validation to prevent AI from responding to phantom speech:
-    - **Filter 1**: Reject transcriptions shorter than 3 characters (noise).
-    - **Filter 2**: Reject non-Hebrew transcriptions (English hallucinations like "Thank you", "Bye-bye").
-    - **Filter 3**: Reject common single-word hallucinations in both languages.
+  - **Hallucination Prevention (Nov 2025)**: Multi-layer approach to prevent AI from responding to phantom speech:
+    - **Layer 1 - Audio Gate (Pre-OpenAI)**: RMS threshold (180) filters background noise before sending to OpenAI. Skips audio chunks with RMS < 180 for >100ms (5 frames).
+    - **Layer 2 - OpenAI VAD**: Raised threshold to 0.7, silence_duration_ms to 700ms, added smoothing_duration_ms (200ms) to reduce false positive speech detection.
+    - **Layer 3 - Transcription Filter**: Rejects transcriptions <3 chars, English-only text, and single-word hallucinations ("תודה", "שלום", "Thank you").
   - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with 3 actions: `hours_info` (general inquiry), `ask` (check availability), `confirm` (create appointment).
   - **Appointment Flow (Nov 2025)**: Date/time first → Check availability → Suggest alternatives if busy → Collect name (verbal) → Collect phone (DTMF with auto-submit after 10 digits) → **DTMF triggers NLP** → Create appointment.
   - **Customer Data Persistence (Nov 2025)**: 4-path hydration system ensures name survival:

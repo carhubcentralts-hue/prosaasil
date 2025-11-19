@@ -254,8 +254,8 @@ class OpenAIRealtimeClient:
         voice: str = "alloy",
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
-        vad_threshold: float = 0.6,
-        silence_duration_ms: int = 500,
+        vad_threshold: float = 0.7,
+        silence_duration_ms: int = 700,
         temperature: float = 0.18,
         max_tokens: int = 300
     ):
@@ -293,7 +293,8 @@ class OpenAIRealtimeClient:
                 "type": "server_vad",
                 "threshold": vad_threshold,
                 "silence_duration_ms": silence_duration_ms,
-                "prefix_padding_ms": 300
+                "prefix_padding_ms": 300,
+                "smoothing_duration_ms": 200  # 🔥 NEW: Smooth out brief noise spikes
             },
             "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
             "max_response_output_tokens": max_tokens
