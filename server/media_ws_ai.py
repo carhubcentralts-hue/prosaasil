@@ -1291,6 +1291,40 @@ class MediaStreamHandler:
                         self._user_speech_start = None  # Reset for next utterance
                     
                     if transcript:
+                        # 🔥 HALLUCINATION FILTER: Detect and ignore fake transcriptions
+                        transcript_clean = transcript.strip()
+                        
+                        # ⚠️ FILTER 1: Too short (noise/hallucination)
+                        if len(transcript_clean) < 3:
+                            print(f"🚫 [FILTER] Ignoring too-short transcription: '{transcript_clean}' (len={len(transcript_clean)})")
+                            continue
+                        
+                        # ⚠️ FILTER 2: Non-Hebrew characters (hallucination in wrong language)
+                        # Hebrew range: \u0590-\u05FF, allow spaces/digits/punctuation
+                        import re
+                        has_hebrew = bool(re.search(r'[\u0590-\u05FF]', transcript_clean))
+                        is_mostly_english = bool(re.search(r'[a-zA-Z]{3,}', transcript_clean))
+                        
+                        if is_mostly_english and not has_hebrew:
+                            print(f"🚫 [FILTER] Ignoring English hallucination: '{transcript_clean}' (no Hebrew detected)")
+                            print(f"⚠️ [HALLUCINATION] OpenAI transcribed English when user spoke Hebrew or was silent!")
+                            continue
+                        
+                        # ⚠️ FILTER 3: Common hallucination phrases
+                        hallucination_patterns = [
+                            r'^(thank you|thanks|bye|goodbye|ok|okay|yes|no|hello|hi)\.?$',
+                            r'^(תודה|שלום|כן|לא)\.?$'  # Single-word Hebrew too
+                        ]
+                        is_hallucination = False
+                        for pattern in hallucination_patterns:
+                            if re.match(pattern, transcript_clean.lower()):
+                                print(f"🚫 [FILTER] Ignoring common hallucination: '{transcript_clean}'")
+                                is_hallucination = True
+                                break
+                        
+                        if is_hallucination:
+                            continue
+                        
                         print(f"👤 [REALTIME] User said: {transcript}")
                         
                         # Track conversation

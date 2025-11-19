@@ -33,6 +33,10 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
     - **Rule 9 - Appointment Flow**: AI forbidden from confirming appointments before [SERVER] ✅ appointment_created. After confirmation, AI MUST stay silent (no re-validation loops).
     - **Guard System**: Post-filter detects forbidden words ("קבעתי", "התור נקבע") without server approval and sends immediate correction.
     - **Loop Prevention**: pending_slot cleared immediately after appointment creation to prevent re-validation cycles.
+  - **Hallucination Filter (Nov 2025)**: 3-layer transcription validation to prevent AI from responding to phantom speech:
+    - **Filter 1**: Reject transcriptions shorter than 3 characters (noise).
+    - **Filter 2**: Reject non-Hebrew transcriptions (English hallucinations like "Thank you", "Bye-bye").
+    - **Filter 3**: Reject common single-word hallucinations in both languages.
   - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with 3 actions: `hours_info` (general inquiry), `ask` (check availability), `confirm` (create appointment).
   - **Appointment Flow (Nov 2025)**: Date/time first → Check availability → Suggest alternatives if busy → Collect name (verbal) → Collect phone (DTMF with auto-submit after 10 digits) → **DTMF triggers NLP** → Create appointment.
   - **Customer Data Persistence (Nov 2025)**: 4-path hydration system ensures name survival:
