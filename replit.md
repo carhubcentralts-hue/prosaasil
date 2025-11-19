@@ -27,8 +27,12 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **Data Protection**: Strictly additive database migrations.
 - **OpenAI Realtime API**: Integrates **gpt-4o-realtime-preview** for phone calls with dedicated asyncio threads and thread-safe queues.
 - **AI Behavior Optimization**:
-  - **Model**: gpt-4o-realtime-preview, max_tokens: 300, temperature: 0.18.
-  - **Critical Rules**: 10 comprehensive behavioral rules cover identity, brevity, silence, honesty, DTMF, turn-taking, hours_info, and appointment flow.
+  - **Model**: gpt-4o-realtime-preview, max_tokens: 300, temperature: 0.6 (OpenAI Realtime API minimum).
+  - **Critical Rules (Nov 2025)**: 10 comprehensive behavioral rules with STRICT silence enforcement:
+    - **Rule 3 - Silence**: AI MUST NOT speak during user silence under any circumstances. No "small talk" after 8 seconds. Only responds to explicit user questions or [SERVER] messages.
+    - **Rule 9 - Appointment Flow**: AI forbidden from confirming appointments before [SERVER] ✅ appointment_created. After confirmation, AI MUST stay silent (no re-validation loops).
+    - **Guard System**: Post-filter detects forbidden words ("קבעתי", "התור נקבע") without server approval and sends immediate correction.
+    - **Loop Prevention**: pending_slot cleared immediately after appointment creation to prevent re-validation cycles.
   - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with 3 actions: `hours_info` (general inquiry), `ask` (check availability), `confirm` (create appointment).
   - **Appointment Flow (Nov 2025)**: Date/time first → Check availability → Suggest alternatives if busy → Collect name (verbal) → Collect phone (DTMF with auto-submit after 10 digits) → **DTMF triggers NLP** → Create appointment.
   - **Customer Data Persistence (Nov 2025)**: 4-path hydration system ensures name survival:

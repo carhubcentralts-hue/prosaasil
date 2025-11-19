@@ -1758,8 +1758,10 @@ class MediaStreamHandler:
                             crm_context.last_appointment_id = appt_id
                             # 🔥 CRITICAL: Set flag - NOW AI is allowed to say "התור נקבע!"
                             crm_context.has_appointment_created = True
-                            logger.info(f"✅ [APPOINTMENT VERIFICATION] Created appointment #{appt_id} in DB - has_appointment_created=True")
-                            print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer")
+                            # 🔥 CLEAR pending_slot to prevent re-validation loop!
+                            crm_context.pending_slot = None
+                            logger.info(f"✅ [APPOINTMENT VERIFICATION] Created appointment #{appt_id} in DB - has_appointment_created=True, pending_slot cleared")
+                            print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer (pending_slot cleared to prevent loop)")
                         
                         # 🔥 Send confirmation to AI (with ✅ marker so AI knows it can say "התור נקבע!")
                         await self._send_server_event_to_ai(f"✅ appointment_created: התור נקבע בהצלחה ל-{customer_name} בתאריך {date_iso} בשעה {time_str}. תודיע ללקוח!")
