@@ -1,0 +1,106 @@
+User
+נציג: הדירה ברחוב חנקין 82 היא דירת...
+2025-11-19 10:57:31.54
+bb77ea35
+User
+🔍 [NLP] Formatted 6 messages for GPT-4o-mini
+2025-11-19 10:57:31.54
+bb77ea35
+User
+🔍 [NLP] Running async NLP parser...✅ [NLP] Thread launched
+2025-11-19 10:57:31.54
+bb77ea35
+User
+🔍 [NLP] Conversation history has 6 messages
+2025-11-19 10:57:31.54
+bb77ea35
+User
+נציג: בטח, אשמח לתת פרטים על הדירה או הקרקע. מה מעניין אותך לשמוע?
+2025-11-19 10:57:31.54
+bb77ea35
+User
+🔍 [NLP ENTRY] extract_appointment_request called
+2025-11-19 10:57:31.54
+bb77ea35
+User
+לקוח: Bye-bye.
+2025-11-19 10:57:31.54
+bb77ea35
+User
+🔍 [NLP] Last 3 messages: [{'speaker': 'user', 'text': 'Thank you.', 'ts': 1763542644.2069602}, {'speaker': 'ai', 'text': 'הדירה ברחוב חנקין 82 היא דירת 4 חדרים, משופצת ברמה גבוהה, עם חניה צמודה. יש עוד משהו שתרצה לדעת?', 'ts': 1763542646.7030184}, {'speaker': 'user', 'text': "That's fine, John.", 'ts': 1763542651.5427976}]
+2025-11-19 10:57:31.54
+bb77ea35
+User
+🔍 [NLP ENTRY] business_id=1, history_length=6
+2025-11-19 10:57:31.54
+bb77ea35
+User
+לקוח: Thank you.
+2025-11-19 10:57:31.54
+bb77ea35
+User
+[SAFETY] Transcription successful (total failures: 0)
+2025-11-19 10:57:31.54
+bb77ea35
+User
+🔍 [NLP] Calling GPT-4o-mini with model=gpt-4o-mini, temperature=0.1
+2025-11-19 10:57:32.13
+bb77ea35
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-19 10:57:32.13
+bb77ea35
+User
+[REALTIME] event: response.audio.done
+2025-11-19 10:57:32.13
+bb77ea35
+User
+[REALTIME] event: response.content_part.done
+2025-11-19 10:57:32.13
+bb77ea35
+User
+[REALTIME] event: response.output_item.done
+2025-11-19 10:57:32.13
+bb77ea35
+User
+[REALTIME] event: response.done
+2025-11-19 10:57:33.01
+bb77ea35
+User
+✅ [NLP] Cache updated after successful processing
+2025-11-19 10:57:33.01
+bb77ea35
+User
+✅ [NLP] Async NLP parser completed successfully
+2025-11-19 10:57:37.68
+bb77ea35
+User
+📨 Received: stop
+2025-11-19 10:57:37.68
+bb77ea35
+User
+WS_STOP sid=MZe24b2f3a1caf0762211a3a5d4b59463a rx=1314 tx=1168
+
+2025-11-19 10:57:37.69
+bb77ea35
+User
+📤 [REALTIME] Audio output bridge ended (sent 1317 frames, 210800 bytes)
+2025-11-19 10:57:37.69
+bb77ea35
+User
+📤 [REALTIME] Stop signal received
+2025-11-19 10:57:37.69
+bb77ea35
+User
+🧹 Waiting for 4 background threads...
+2025-11-19 10:57:37.69
+bb77ea35
+User
+📝 [REALTIME] Text sender ended
+2025-11-19 10:57:37.69
+bb77ea35
+User
+📤 [REALTIME] Audio sender ended
+2025-11-19 10:57:37.73
+bb77ea35
+User
