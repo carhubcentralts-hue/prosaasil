@@ -1,0 +1,129 @@
+2025-11-19 12:06:31.01
+650807f3
+User
+📤 [REALTIME] Audio output bridge started
+2025-11-19 12:06:31.01
+650807f3
+User
+✅ [REALTIME] Threads started - greeting will be sent by async loop
+2025-11-19 12:06:31.01
+650807f3
+User
+🚀 [REALTIME] Async loop starting for business_id=1
+2025-11-19 12:06:31.11
+650807f3
+User
+[REALTIME] sending audio TO OpenAI: chunk#2, μ-law bytes=160, first5=fe fe fe fe fe
+2025-11-19 12:06:31.11
+650807f3
+User
+[REALTIME] sending audio TO OpenAI: chunk#3, μ-law bytes=160, first5=7e 7e 7e 7e fe
+2025-11-19 12:06:31.11
+650807f3
+User
+[REALTIME] sending audio TO OpenAI: chunk#1, μ-law bytes=160, first5=fe fe fe fe fe
+2025-11-19 12:06:31.12
+650807f3
+User
+🎙️ [BARGE-IN] User voice detected (RMS=353, AI speaking=False)
+2025-11-19 12:06:31.12
+650807f3
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=73 < 150.0)
+2025-11-19 12:06:31.18
+650807f3
+User
+✅ Call log already exists for CA5e69146870b1f315b20848bb179f8970
+2025-11-19 12:06:31.23
+650807f3
+User
+✅ [REALTIME] Connected to OpenAI using gpt-4o-realtime-preview (STANDARD)
+2025-11-19 12:06:31.25
+650807f3
+User
+✅ Updated call_log with customer_id=39
+2025-11-19 12:06:31.43
+650807f3
+User
+🎙️ [BARGE-IN] User voice detected (RMS=319, AI speaking=False)
+2025-11-19 12:06:31.44
+650807f3
+User
+2. ⚡ קצרנות: כל תשובה חייבת להיות קצ...
+2025-11-19 12:06:31.44
+650807f3
+User
+📝 [REALTIME] Prompt preview: ⚠️ עברית בלבד! היום: 19/11/2025 (רביעי)
+2025-11-19 12:06:31.44
+650807f3
+User
+✅ [REALTIME] Built system prompt (5548 chars)
+2025-11-19 12:06:31.44
+650807f3
+User
+🎯 חוקים קריטיים (Agent 3):
+2025-11-19 12:06:31.44
+650807f3
+User
+1. 🎭 זהות: תציג את עצמך בדיוק כפי שמוגדר בפרומפט המותאם מהעסק (למטה) - לא לפי שם העסק במערכת!
+2025-11-19 12:06:31.44
+650807f3
+User
+✅ [REALTIME] Session configured: voice=shimmer, temp=0.6, vad_threshold=0.7, silence=700ms, format=g711_ulaw, NO TOOLS (appointment via NLP)
+
+2025-11-19 12:06:31.44
+650807f3
+User
+⚠️ [CRM] No customer phone - skipping lead creation
+2025-11-19 12:06:31.44
+650807f3
+User
+📤 [REALTIME] Audio sender started
+2025-11-19 12:06:31.44
+650807f3
+User
+📥 [REALTIME] Audio receiver started
+2025-11-19 12:06:31.44
+650807f3
+User
+📝 [REALTIME] Text sender started
+2025-11-19 12:06:31.47
+650807f3
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=146 < 150.0)
+2025-11-19 12:06:31.50
+650807f3
+User
+❌ [REALTIME] Error event: Unknown parameter: 'session.turn_detection.smoothing_duration_ms'.
+2025-11-19 12:06:31.50
+650807f3
+User
+[REALTIME] event: error
+2025-11-19 12:06:31.64
+650807f3
+User
+✅ [REALTIME] AI triggered to speak first!
+2025-11-19 12:06:31.64
+650807f3
+User
+🎤 [REALTIME] No greeting defined - AI will speak first dynamically!
+2025-11-19 12:06:31.70
+650807f3
+User
+🎯 [REALTIME] Response started: resp_CdZN1UO7bV4ux0HiDKfF6
+2025-11-19 12:06:31.70
+650807f3
+User
+[REALTIME] event: response.created
+2025-11-19 12:06:31.77
+650807f3
+User
+🎙️ [BARGE-IN] User voice detected (RMS=293, AI speaking=False)
+2025-11-19 12:06:31.83
+650807f3
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=89 < 150.0)
+2025-11-19 12:06:31.85
+650807f3
+User
+🎛️ VAD CALIBRATED (noise=33.3, threshold=113
