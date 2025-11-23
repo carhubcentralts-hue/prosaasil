@@ -1056,16 +1056,22 @@ class MediaStreamHandler:
                         print(f"❌ [REALTIME] Greeting send failed: {e}")
                 else:
                     # אין פתיח מוגדר - ה-AI ידבר ראשון בעצמו!
-                    print(f"🎤 [REALTIME] No greeting defined - AI will speak first dynamically!")
-                    try:
-                        # Trigger AI to start speaking based on system prompt
-                        await client.send_event({
-                            "type": "response.create"
-                        })
-                        self.greeting_sent = True
-                        print(f"✅ [REALTIME] AI triggered to speak first!")
-                    except Exception as e:
-                        print(f"❌ [REALTIME] Failed to trigger AI first speech: {e}")
+                    # 🔥 AGENT 3 FIX - PHASE 6: Block AI from speaking before real user utterance
+                    if not self.has_real_user_utterance:
+                        logger.info("[GUARD] Blocking AI first speech - no real user utterance detected yet")
+                        print(f"🛡️ [GUARD] Blocking AI first speech - waiting for real user utterance")
+                        self.greeting_sent = True  # Mark as handled to prevent retry loop
+                    else:
+                        print(f"🎤 [REALTIME] No greeting defined - AI will speak first dynamically!")
+                        try:
+                            # Trigger AI to start speaking based on system prompt
+                            await client.send_event({
+                                "type": "response.create"
+                            })
+                            self.greeting_sent = True
+                            print(f"✅ [REALTIME] AI triggered to speak first!")
+                        except Exception as e:
+                            print(f"❌ [REALTIME] Failed to trigger AI first speech: {e}")
             else:
                 print(f"📭 [REALTIME] Greeting already sent (greeting_sent={getattr(self, 'greeting_sent', None)})")
             

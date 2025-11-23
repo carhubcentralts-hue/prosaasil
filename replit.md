@@ -47,7 +47,13 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - **AI Step-by-Step Guidance (Nov 2025)**: AI prompt explicitly instructs to collect name FIRST, then phone SECOND (never together). AI instructs: "תקליד מספר טלפון במקלדת הטלפון - 10 ספרות שמתחילות ב-05" - NO mention of # key.
   - **DTMF Auto-Submit (Nov 2025)**: After collecting 10 digits, system automatically processes phone number without requiring # terminator. AI does NOT instruct user to press # - system handles it silently.
   - **Availability Check**: Real-time slot validation with up to 3 alternative suggestions if requested time is taken.
-- **Hebrew-Optimized VAD (Nov 2025 - AGENT 3 FIX)**: Time-based calibration (1500ms window) with adaptive noise floor. `speech_threshold = min(175.0, noise_floor + 60.0)` for reliable Hebrew speech detection. Audio gate prevents sending silence/noise to OpenAI.
+- **Hebrew-Optimized VAD (Nov 2025 - AGENT 3 FIX)**: 
+  - **Time-Based Calibration**: Exact 1500ms window collects quiet frames (RMS < 120) to calculate adaptive noise floor
+  - **Speech Threshold**: `speech_threshold = min(175.0, noise_floor + 60.0)` for reliable Hebrew speech detection
+  - **Audio Gate (Nov 2025 - CRITICAL FIX)**: Flag-based gating system prevents silence/noise frames from reaching OpenAI queue. Only frames passing `frame_rms >= speech_threshold` are sent to Realtime API
+  - **Calibration Safety**: Guards against missing `calibration_start_ts` and handles edge case when no quiet samples collected (fallback to defaults: noise_floor=100, threshold=160)
+  - **Initialization**: Calibration state reset on every "start" event to ensure fresh calibration per call
+  - **Logging**: All gate decisions logged at INFO level with `[AUDIO GATE]` prefix for observability
 - **Smart Barge-In (Nov 2025 - AGENT 3 FIX)**: Thread-safe Event-based implementation with 300ms grace period, 150 RMS threshold, 400ms minimum voice duration, 800ms cooldown. Sends `response.cancel` to OpenAI for immediate interruption.
 - **Cost Tracking (Nov 2025)**: Real-time chunk-based audio tracking with precise cost calculations. Automatic cost summary displayed at end of EVERY call with breakdown: user audio (chunks→minutes→$), AI audio (chunks→minutes→$), total in USD and NIS (₪). Supports all OpenAI Realtime models including new gpt-realtime (2025).
 - **Error Resilience**: DB query failures fall back to minimal prompt.
