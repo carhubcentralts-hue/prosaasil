@@ -662,23 +662,11 @@ class MediaStreamHandler:
         
         # ✅ תיקון קריטי: מעקב נפרד אחר קול ושקט
         self.last_voice_ts = 0.0         # זמן הקול האחרון - לחישוב דממה אמיתי
-        
-        # 🔥 AGENT 3 FIX: Advanced VAD with adaptive noise calibration
-        self.noise_floor = 100.0          # רמת רעש (will be calibrated)
-        self.speech_threshold = 160.0     # סף דיבור (will be updated after calibration)
-        self.is_calibrated = False        # האם כוילרנו את רמת הרעש
-        self.calibration_frames = 0       # מונה פריימים לכיול
-        self.calibration_ms = 1500        # 🎯 AGENT 3: 1500ms calibration window
-        self.noise_floor_samples = []     # 🎯 AGENT 3: Collect quiet frames for calibration
-        
-        # 🔥 AGENT 3 FIX: First utterance detection (prevent AI talking on silence)
-        self.has_real_user_utterance = False  # 🎯 AGENT 3: Track if user has actually spoken
-        self.allow_opening_greeting = True    # 🎯 AGENT 3: Allow greeting before first utterance (from settings)
-        
-        # 🔥 AGENT 3 FIX - PHASE 6: Simple retry flags (no queues, no functions)
-        self.bootstrap_response_blocked = False  # Track if no-greeting response.create was blocked
-        self.pending_server_prompt = None        # Store blocked server prompt text
-        
+        # 🎯 AGENT 3 HEBREW: VAD = noise + 80, capped at 175 (detects 180-220 RMS speech)
+        self.noise_floor = 80.0          # רמת רעש (calibrated from RMS<120 frames)
+        self.vad_threshold = 170.0        # סף VAD (Hebrew: noise+80, max 175)
+        self.is_calibrated = False       # האם כוילרנו את רמת הרעש
+        self.calibration_frames = 0      # מונה פריימים לכיול
         self.mark_pending = False        # האם ממתינים לסימון TTS
         self.mark_sent_ts = 0.0          # זמן שליחת סימון
         
@@ -762,7 +750,7 @@ class MediaStreamHandler:
         self.last_user_turn_id = None  # Last user conversation item ID
         self.last_ai_turn_id = None  # Last AI conversation item ID
         self.active_response_id = None  # 🔥 Track active response ID for cancellation
-        self.min_ai_talk_guard_ms = 300  # 🔥 AGENT 3 FIX: Grace period after AI starts speaking (300ms from spec)
+        self.min_ai_talk_guard_ms = 400  # 🎯 AGENT 3: Grace period after AI starts speaking (400ms spec)
         self.barge_in_rms_threshold = 150.0  # 🎯 AGENT 3: Lower threshold for reliable Hebrew speech detection (~180-220 RMS)
         self.min_voice_duration_ms = 400  # 🎯 AGENT 3: 400-500ms minimum voice duration to detect speech
         self.barge_in_min_ms = 400  # 🎯 AGENT 3: Minimum continuous speech for barge-in (~400ms)
@@ -1041,7 +1029,6 @@ class MediaStreamHandler:
             await asyncio.sleep(0.2)  # 200ms for bridge initialization
             
             # 🚀 REALTIME API: Send greeting OR trigger AI to speak first
-            print(f"🔍 [DEBUG] Greeting check: hasattr={hasattr(self, 'greeting_text')}, greeting_sent={getattr(self, 'greeting_sent', 'N/A')}, greeting_text={getattr(self, 'greeting_text', 'N/A')[:50] if hasattr(self, 'greeting_text') else 'N/A'}")
             if hasattr(self, 'greeting_text') and not self.greeting_sent:
                 if self.greeting_text:
                     # יש פתיח מוגדר - שלח אותו
@@ -1061,22 +1048,16 @@ class MediaStreamHandler:
                         print(f"❌ [REALTIME] Greeting send failed: {e}")
                 else:
                     # אין פתיח מוגדר - ה-AI ידבר ראשון בעצמו!
-                    # 🔥 AGENT 3 FIX - PHASE 6: Block AI from speaking before real user utterance
-                    if not self.has_real_user_utterance:
-                        logger.info("[GUARD] Blocking bootstrap response.create — no real user utterance yet")
-                        print(f"🛡️ [GUARD] Blocking bootstrap response.create — will retry after user speaks")
-                        self.bootstrap_response_blocked = True  # Mark for retry
-                    else:
-                        print(f"🎤 [REALTIME] No greeting defined - AI will speak first dynamically!")
-                        try:
-                            # Trigger AI to start speaking based on system prompt
-                            await client.send_event({
-                                "type": "response.create"
-                            })
-                            self.greeting_sent = True
-                            print(f"✅ [REALTIME] AI triggered to speak first!")
-                        except Exception as e:
-                            print(f"❌ [REALTIME] Failed to trigger AI first speech: {e}")
+                    print(f"🎤 [REALTIME] No greeting defined - AI will speak first dynamically!")
+                    try:
+                        # Trigger AI to start speaking based on system prompt
+                        await client.send_event({
+                            "type": "response.create"
+                        })
+                        self.greeting_sent = True
+                        print(f"✅ [REALTIME] AI triggered to speak first!")
+                    except Exception as e:
+                        print(f"❌ [REALTIME] Failed to trigger AI first speech: {e}")
             else:
                 print(f"📭 [REALTIME] Greeting already sent (greeting_sent={getattr(self, 'greeting_sent', None)})")
             
@@ -1309,48 +1290,8 @@ class MediaStreamHandler:
                         print(f"💰 [COST] User utterance: {user_duration:.2f}s ({self.realtime_audio_in_chunks} chunks total)")
                         self._user_speech_start = None  # Reset for next utterance
                     
-                    # 🔥 AGENT 3 FIX: Filter out gibberish/noise transcriptions
-                    # Ignore if < 2 chars or pure punctuation
-                    text_clean = transcript.strip()
-                    
-                    # Skip processing if transcript is too short or pure noise
-                    should_process = True
-                    if len(text_clean) < 2:
-                        print(f"🚫 [TRANSCRIPT FILTER] Too short (len={len(text_clean)}), ignoring: '{transcript}'")
-                        should_process = False
-                    elif all(ch in ".?!, -" for ch in text_clean):
-                        print(f"🚫 [TRANSCRIPT FILTER] Punctuation noise, ignoring: '{transcript}'")
-                        should_process = False
-                    
-                    if transcript and should_process:
+                    if transcript:
                         print(f"👤 [REALTIME] User said: {transcript}")
-                        
-                        # 🔥 AGENT 3 FIX: Mark first real user utterance
-                        # Only mark as real if transcript is meaningful (>= 3 chars after strip, not just punctuation)
-                        meaningful_chars = ''.join([c for c in text_clean if c not in ".?!, -"])
-                        if not self.has_real_user_utterance and len(meaningful_chars) >= 3:
-                            self.has_real_user_utterance = True
-                            print(f"🎤 [NLP] First real user utterance detected – has_real_user_utterance=True (transcript='{transcript[:30]}...')")
-                            
-                            # 🔥 AGENT 3 FIX - PHASE 6: Retry blocked responses
-                            if self.bootstrap_response_blocked:
-                                print(f"🔄 [GUARD] Retrying blocked bootstrap response.create")
-                                try:
-                                    await client.send_event({"type": "response.create"})
-                                    print(f"✅ [GUARD] Bootstrap response.create sent after first utterance")
-                                except Exception as e:
-                                    print(f"❌ [GUARD] Failed to send bootstrap response.create: {e}")
-                                finally:
-                                    self.bootstrap_response_blocked = False  # Clear flag
-                            
-                            if self.pending_server_prompt:
-                                print(f"🔄 [GUARD] Retrying blocked server prompt: '{self.pending_server_prompt[:50]}...'")
-                                try:
-                                    await self._send_server_event_to_ai(self.pending_server_prompt)
-                                except Exception as e:
-                                    print(f"❌ [GUARD] Failed to send pending server prompt: {e}")
-                                finally:
-                                    self.pending_server_prompt = None  # Clear stored prompt
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
@@ -1408,18 +1349,6 @@ class MediaStreamHandler:
             
             await self.realtime_client.send_event(event)
             print(f"🔇 [SERVER_EVENT] Sent SILENTLY to AI: {message_text[:100]}")
-            
-            # 🔥 AGENT 3 FIX - PHASE 6: Block AI responses before real user utterance
-            # Exception: Allow greeting to pass through
-            if not self.has_real_user_utterance:
-                if self.greeting_text and not self.greeting_sent:
-                    # Allow greeting once
-                    pass
-                else:
-                    logger.info("[GUARD] Blocking server prompt — no real user utterance yet")
-                    print(f"🛡️ [GUARD] Blocking server prompt — will retry after user speaks")
-                    self.pending_server_prompt = message_text  # Store for retry
-                    return
             
             # 🎯 Thread-safe optimistic lock: Prevent response collision race condition
             if not self.active_response_id and not self.response_pending_event.is_set():
@@ -2219,12 +2148,6 @@ class MediaStreamHandler:
                     self.last_rx_ts = time.time()
                     self.last_keepalive_ts = time.time()  # ✅ התחל keepalive
                     self.t0_connected = time.time()  # ⚡ [T0] WebSocket connected
-                    
-                    # 🔥 AGENT 3 FIX - PHASE 2: Initialize calibration on start
-                    self.calibration_start_ts = time.time()
-                    self.noise_floor_samples = []
-                    self.is_calibrated = False
-                    
                     print(f"🎯 [T0={time.time():.3f}] WS_START sid={self.stream_sid} call_sid={self.call_sid} from={self.phone_number} to={getattr(self, 'to_number', 'N/A')} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
@@ -2323,35 +2246,16 @@ class MediaStreamHandler:
                         stream_registry.touch_media(self.call_sid)
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
-                    # 🔥 AGENT 3 FIX - PHASE 3: Audio gate with flag-based approach
-                    frame_rms = audioop.rms(pcm16, 2)
-                    should_send_to_realtime = True
-                    
-                    # Apply audio gate BEFORE sending to Realtime
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
-                        # Audio gate: block silence/noise frames
-                        if self.is_calibrated:
-                            if frame_rms < self.speech_threshold:
-                                should_send_to_realtime = False
-                                if not hasattr(self, '_last_gate_log') or (time.time() - self._last_gate_log) > 5.0:
-                                    logger.info(f"[AUDIO GATE] Dropping frame rms={frame_rms:.1f} < {self.speech_threshold:.1f}")
-                                    self._last_gate_log = time.time()
-                        else:
-                            # Before calibration - drop very quiet frames
-                            if frame_rms < 120:
-                                should_send_to_realtime = False
-                    
-                    # 🔥 CRITICAL: Only send if passed gate
-                    if USE_REALTIME_API and should_send_to_realtime and self.realtime_thread and self.realtime_thread.is_alive():
                         try:
-                            # 🔍 DEBUG: Log first few frames
+                            # 🔍 DEBUG: Log first few frames from Twilio
                             if not hasattr(self, '_twilio_audio_chunks_sent'):
                                 self._twilio_audio_chunks_sent = 0
                             self._twilio_audio_chunks_sent += 1
                             
                             if self._twilio_audio_chunks_sent <= 3:
                                 first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={frame_rms:.1f}")
+                                print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}")
                             
                             self.realtime_audio_in_queue.put_nowait(b64)
                         except queue.Full:
@@ -2421,45 +2325,50 @@ class MediaStreamHandler:
                                 print(f"🔇 [BARGE-IN] User stopped speaking (RMS={rms:.0f} < {self.barge_in_rms_threshold})")
                             self.current_user_voice_start_ts = None
                     
-                    # 🔥 AGENT 3 FIX - PHASE 2: Time-based noise calibration (exact 1500ms window)
-                    now = time.time()
-                    if not self.is_calibrated and self.calibration_start_ts:
-                        elapsed = (now - self.calibration_start_ts) * 1000
+                    # 🎯 AGENT 3 VAD: Calibrate ONLY on true background noise (RMS < 120)
+                    if not self.is_calibrated:
+                        # Track total attempts (timeout after 4 seconds)
+                        total_frames = getattr(self, '_total_calibration_attempts', 0) + 1
+                        self._total_calibration_attempts = total_frames
                         
-                        # Collect quiet frames (RMS < 120) - pure background noise
+                        # Only calibrate on VERY quiet frames (RMS < 120) - excludes all speech!
+                        # Speech onset is typically 180+ RMS, so this is pure background noise
                         if rms < 120:
-                            self.noise_floor_samples.append(rms)
+                            self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
+                            self.calibration_frames += 1
                         
-                        # Complete calibration after 1500ms
-                        if elapsed >= 1500:
-                            if self.noise_floor_samples:
-                                self.noise_floor = sum(self.noise_floor_samples) / len(self.noise_floor_samples)
-                                self.speech_threshold = min(175.0, self.noise_floor + 60.0)
-                                logger.info(f"[VAD] Calibrated noise={self.noise_floor:.1f}, speech_threshold={self.speech_threshold:.1f}")
-                                print(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, speech_threshold={self.speech_threshold:.1f} (samples={len(self.noise_floor_samples)})")
+                        # Complete calibration after 40 quiet frames OR 4 seconds timeout
+                        if self.calibration_frames >= 40 or total_frames >= 200:
+                            # 🎯 AGENT 3 HEBREW FIX: threshold = noise + 80, capped at 175
+                            # Ensures Hebrew speech (180-220 RMS) always detected
+                            # margin: 80 RMS prevents noise false triggers
+                            if self.calibration_frames < 10:
+                                self.vad_threshold = 170.0  # Default baseline for Hebrew
+                                logger.warning(f"🎛️ [VAD VERIFICATION] TIMEOUT - using Hebrew baseline threshold=170 (got only {self.calibration_frames} quiet frames)")
+                                print(f"🎛️ VAD TIMEOUT - using Hebrew baseline threshold=170 (got only {self.calibration_frames} quiet frames)")
                             else:
-                                # No quiet samples - use default
-                                self.noise_floor = 100.0
-                                self.speech_threshold = 160.0
-                                logger.warning(f"[VAD] No quiet samples - using defaults noise={self.noise_floor:.1f}, speech_threshold={self.speech_threshold:.1f}")
-                                print(f"⚠️ [VAD] No quiet samples - using defaults")
+                                # Calibrated: noise + 80, capped at 175 to guarantee detection
+                                # Typical: noise ~80-110 → threshold ~160-175 (catches 180+ RMS)
+                                self.vad_threshold = min(175.0, self.noise_floor + 80.0)
+                                logger.info(f"✅ [VAD VERIFICATION] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}, quiet_frames={self.calibration_frames}")
+                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}, quiet_frames={self.calibration_frames})")
                             self.is_calibrated = True
                     
                     # 🎯 Simple voice detection: RMS > threshold
                     if self.is_calibrated:
-                        is_strong_voice = rms > self.speech_threshold
+                        is_strong_voice = rms > self.vad_threshold
                     else:
-                        # Before calibration - use Hebrew baseline (160 RMS)
-                        is_strong_voice = rms > 160.0
+                        # Before calibration - use Hebrew baseline (170 RMS)
+                        is_strong_voice = rms > 170.0
                     
                     # ✅ FIXED: Update last_voice_ts only with VERY strong voice
                     current_time = time.time()
                     # ✅ EXTRA CHECK: Only if RMS is significantly above threshold
-                    if is_strong_voice and rms > (getattr(self, 'speech_threshold', 200) * 1.2):
+                    if is_strong_voice and rms > (getattr(self, 'vad_threshold', 200) * 1.2):
                         self.last_voice_ts = current_time
                         # 🔧 Reduced logging spam - max once per 3 seconds
                         if not hasattr(self, 'last_debug_ts') or (current_time - self.last_debug_ts) > 3.0:
-                            print(f"🎙️ REAL_VOICE: rms={rms:.1f} > threshold={getattr(self, 'speech_threshold', 'uncalibrated'):.1f}")
+                            print(f"🎙️ REAL_VOICE: rms={rms:.1f} > threshold={getattr(self, 'vad_threshold', 'uncalibrated'):.1f}")
                             self.last_debug_ts = current_time
                     
                     # חישוב דממה אמיתי - מאז הקול האחרון! 
