@@ -289,12 +289,9 @@ class OpenAIRealtimeClient:
                 "model": "whisper-1"
                 # Auto-detect language (Hebrew specified in system prompt)
             },
-            "turn_detection": {
-                "type": "server_vad",
-                "threshold": vad_threshold,
-                "silence_duration_ms": silence_duration_ms,
-                "prefix_padding_ms": 300
-            },
+            # 🔥 CRITICAL: turn_detection=None to prevent OpenAI from auto-responding!
+            # We control when AI speaks by manually sending response.create
+            "turn_detection": None,
             "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
             "max_response_output_tokens": max_tokens
         }
