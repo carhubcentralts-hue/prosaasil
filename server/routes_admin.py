@@ -9,7 +9,9 @@ from server.models_sql import Business, User, CallLog, WhatsAppMessage, Customer
 from server.db import db
 from datetime import datetime, timedelta
 from sqlalchemy import func
+from werkzeug.security import generate_password_hash
 import logging
+import secrets
 
 logger = logging.getLogger(__name__)
 admin_bp = Blueprint("admin_bp", __name__)
@@ -937,5 +939,141 @@ def admin_support_phones():
         "working_hours": biz.working_hours or "08:00-18:00",
         "voice_message": biz.voice_message or "שלום, הגעתם לתמיכה הטכנית של מערכת ניהול הנדל\"ן. אנחנו כאן לעזור לכם."
     })
+
+# ✅ Users Management Endpoints
+
+@admin_bp.get("/api/admin/users")
+@require_api_auth(["admin", "manager"])
+def get_users():
+    """Get all users for admin - can manage"""
+    try:
+        business_id = g.business_id
+        users = User.query.filter_by(business_id=business_id, is_active=True).all()
+        return jsonify([{
+            'id': u.id,
+            'name': u.name or u.email,
+            'email': u.email,
+            'role': u.role,
+            'business_id': u.business_id,
+            'created_at': u.created_at.isoformat() if u.created_at else None,
+            'last_login': u.last_login.isoformat() if u.last_login else None
+        } for u in users])
+    except Exception as e:
+        logger.error(f"Error getting users: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@admin_bp.post("/api/admin/users")
+@require_api_auth(["admin", "manager"])
+def create_user():
+    """Create new business user - admin/manager only"""
+    try:
+        data = request.get_json() or {}
+        business_id = g.business_id
+        
+        email = data.get('email', '').strip()
+        name = data.get('name', '').strip()
+        password = data.get('password', '').strip()
+        role = data.get('role', 'business')  # Default: business
+        
+        # Validation
+        if not email or '@' not in email:
+            return jsonify({"error": "דוא\"ל חדש לא תקין"}), 400
+        if not password or len(password) < 6:
+            return jsonify({"error": "סיסמה חייבת להיות לפחות 6 תווים"}), 400
+        if not name:
+            return jsonify({"error": "שם משתמש נדרש"}), 400
+        if role not in ['business', 'manager']:
+            return jsonify({"error": "תפקיד לא חדש"}), 400
+        
+        # Check if user exists
+        existing = User.query.filter_by(email=email).first()
+        if existing:
+            return jsonify({"error": "דוא\"ל זה כבר בשימוש"}), 400
+        
+        # Create new user
+        new_user = User(
+            email=email,
+            name=name,
+            password_hash=generate_password_hash(password, method='scrypt'),
+            role=role,
+            business_id=business_id,
+            is_active=True
+        )
+        
+        db.session.add(new_user)
+        db.session.commit()
+        
+        return jsonify({
+            'id': new_user.id,
+            'email': new_user.email,
+            'name': new_user.name,
+            'role': new_user.role,
+            'business_id': new_user.business_id,
+            'created_at': new_user.created_at.isoformat() if new_user.created_at else None
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error creating user: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@admin_bp.put("/api/admin/users/<int:user_id>")
+@require_api_auth(["admin", "manager"])
+def update_user(user_id):
+    """Update user details"""
+    try:
+        business_id = g.business_id
+        user = User.query.get(user_id)
+        
+        if not user or user.business_id != business_id:
+            return jsonify({"error": "משתמש לא נמצא"}), 404
+        
+        data = request.get_json() or {}
+        
+        if 'name' in data:
+            user.name = data['name'].strip()
+        if 'password' in data and data['password']:
+            if len(data['password']) < 6:
+                return jsonify({"error": "סיסמה חייבת להיות לפחות 6 תווים"}), 400
+            user.password_hash = generate_password_hash(data['password'], method='scrypt')
+        if 'role' in data and data['role'] in ['business', 'manager']:
+            user.role = data['role']
+        
+        db.session.commit()
+        
+        return jsonify({
+            'id': user.id,
+            'email': user.email,
+            'name': user.name,
+            'role': user.role,
+            'business_id': user.business_id,
+            'updated_at': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating user: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@admin_bp.delete("/api/admin/users/<int:user_id>")
+@require_api_auth(["admin", "manager"])
+def delete_user(user_id):
+    """Soft delete user"""
+    try:
+        business_id = g.business_id
+        user = User.query.get(user_id)
+        
+        if not user or user.business_id != business_id:
+            return jsonify({"error": "משתמש לא נמצא"}), 404
+        
+        user.is_active = False
+        db.session.commit()
+        
+        return jsonify({"success": True})
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting user: {e}")
+        return jsonify({"error": str(e)}), 500
 
 

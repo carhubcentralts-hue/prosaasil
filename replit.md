@@ -86,6 +86,19 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **FAQ Hybrid Fast-Path**: Sub-2s voice responses using a 2-step matching process.
 - **Multi-Tenant Isolation**: Complete business data separation.
 - **Appointment Settings UI**: Configurable slot size, availability, booking window, and minimum notice time.
+- **Users Management (Nov 25, 2025)**: 
+  - `POST /api/admin/users` - Create new business users (admin/manager only)
+  - `GET /api/admin/users` - List all users for a business
+  - `PUT /api/admin/users/<id>` - Update user details (name, password, role)
+  - `DELETE /api/admin/users/<id>` - Soft delete user
+  - UsersManagementPage component for admin panel user management
+  - Users can manage role ('business' or 'manager') per business
+- **User Profile Page (Nov 25, 2025)**:
+  - `/app/profile` route displays user profile info (name, email, role, business)
+  - `PUT /api/auth/profile/password` endpoint for password changes
+  - Secure password change with current password verification
+  - Copy-to-clipboard for email address
+  - Logout functionality
 
 # External Dependencies
 

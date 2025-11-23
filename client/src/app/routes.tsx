@@ -31,6 +31,8 @@ import { CallsPage } from '../pages/calls/CallsPage';
 import { CrmPage } from '../pages/crm/CrmPage';
 import { BillingPage } from '../pages/billing/BillingPage';
 import { UsersPage } from '../pages/users/UsersPage';
+import { UsersManagementPage } from '../pages/Admin/UsersManagementPage';
+import { ProfilePage } from '../pages/Profile/ProfilePage';
 import { SettingsPage } from '../pages/settings/SettingsPage';
 import CustomerIntelligencePage from '../pages/Intelligence/CustomerIntelligencePage';
 
@@ -211,6 +213,22 @@ export function AppRoutes() {
               <UsersPage />
             </RoleGuard>
           }
+        />
+
+        {/* Admin Users Management */}
+        <Route
+          path="admin/users"
+          element={
+            <RoleGuard roles={['admin', 'manager']}>
+              <UsersManagementPage />
+            </RoleGuard>
+          }
+        />
+
+        {/* Profile Routes */}
+        <Route
+          path="profile"
+          element={<ProfilePage />}
         />
 
         {/* Settings Routes */}
