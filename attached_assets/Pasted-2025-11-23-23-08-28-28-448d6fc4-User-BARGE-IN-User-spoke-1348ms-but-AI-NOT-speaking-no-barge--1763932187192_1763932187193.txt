@@ -1,0 +1,108 @@
+2025-11-23 23:08:28.28
+448d6fc4
+User
+⚠️ [BARGE-IN] User spoke 1348ms but AI NOT speaking - no barge-in needed
+2025-11-23 23:08:28.29
+448d6fc4
+User
+⚠️ [BARGE-IN] User spoke 1360ms but AI NOT speaking - no barge-in needed
+2025-11-23 23:08:28.31
+448d6fc4
+User
+⚠️ [BARGE-IN] User spoke 1383ms but AI NOT speaking - no barge-in needed
+2025-11-23 23:08:28.35
+448d6fc4
+User
+⚠️ [BARGE-IN] User spoke 1420ms but AI NOT speaking - no barge-in needed
+2025-11-23 23:08:28.97
+448d6fc4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-23 23:08:29.84
+448d6fc4
+User
+📨 Received: mark
+2025-11-23 23:08:32.57
+448d6fc4
+User
+🎙️ REAL_VOICE: rms=92.0 > threshold=71.6
+2025-11-23 23:08:33.13
+448d6fc4
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=560
+2025-11-23 23:08:33.13
+448d6fc4
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #1
+2025-11-23 23:08:33.13
+448d6fc4
+User
+✅ Processing complete for conversation #1
+2025-11-23 23:08:33.13
+448d6fc4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-23 23:08:33.13
+448d6fc4
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=560
+2025-11-23 23:08:33.13
+448d6fc4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-23 23:08:33.13
+448d6fc4
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #1
+2025-11-23 23:08:33.13
+448d6fc4
+User
+✅ Processing complete for conversation #1
+2025-11-23 23:08:36.17
+448d6fc4
+User
+🎙️ REAL_VOICE: rms=177.0 > threshold=71.6
+2025-11-23 23:08:36.17
+448d6fc4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=177, AI speaking=False)
+2025-11-23 23:08:36.19
+448d6fc4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=63 < 150.0)
+2025-11-23 23:08:36.75
+448d6fc4
+User
+🧠 STATE -> PROCESSING | len=9600 | silence_ms=580
+2025-11-23 23:08:36.75
+448d6fc4
+User
+✅ Processing complete for conversation #2
+2025-11-23 23:08:36.75
+448d6fc4
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #2
+2025-11-23 23:08:36.75
+448d6fc4
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-23 23:08:36.95
+448d6fc4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=239, AI speaking=False)
+2025-11-23 23:08:36.99
+448d6fc4
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=78 < 150.0)
+2025-11-23 23:08:37.11
+448d6fc4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=255, AI speaking=False)
+
+2025-11-23 23:08:37.51
+448d6fc4
+User
+⚠️ [BARGE-IN] User spoke 400ms but AI NOT speaking - no barge-in needed
+2025-11-23 23:08:37.54
+448d6fc4
+User

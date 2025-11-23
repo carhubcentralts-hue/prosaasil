@@ -1,0 +1,121 @@
+2025-11-23 23:08:11.17
+448d6fc4
+User
+[REALTIME] event: response.output_item.added
+2025-11-23 23:08:11.18
+448d6fc4
+User
+[REALTIME] event: response.content_part.added
+2025-11-23 23:08:11.29
+448d6fc4
+User
+[REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=fe 7d 7c 7d 7b
+2025-11-23 23:08:11.29
+448d6fc4
+User
+🔊 [REALTIME] AI started speaking (audio.delta)
+2025-11-23 23:08:11.29
+448d6fc4
+User
+✅ [AUDIO] Frame #1: 160 bytes, first5=fe 7d 7c 7d 7b, buffer=640[TX_LOOP] Frame 0: type=None, event=media, has_media=True
+2025-11-23 23:08:11.29
+448d6fc4
+User
+✅ [AUDIO] Frame #2: 160 bytes, first5=c5 d1 c4 df 4f, buffer=480
+2025-11-23 23:08:11.29
+448d6fc4
+User
+✅ [AUDIO] Frame #3: 160 bytes, first5=a7 ae af b1 ca, buffer=320
+2025-11-23 23:08:11.31
+448d6fc4
+User
+[TX_LOOP] Sent Realtime format: success=True
+2025-11-23 23:08:11.32
+448d6fc4
+User
+[REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=d6 ca cb c8 c8
+2025-11-23 23:08:11.36
+448d6fc4
+User
+[REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=be b7 c9 be be
+2025-11-23 23:08:13.72
+448d6fc4
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-23 23:08:13.72
+448d6fc4
+User
+🤖 [REALTIME] AI said: הדירה בחנקין 82 היא דירת 4 חדרים, משופצת ברמה גבוהה, עם חניה צמודה בטאבו. המחיר הוא 1,890,000 ש”ח. אפשר לתאם ביקור אם תרצה.
+2025-11-23 23:08:13.72
+448d6fc4
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-23 23:08:13.72
+448d6fc4
+User
+💰 [COST] AI utterance: 2.43s (45 chunks)
+
+2025-11-23 23:08:13.72
+448d6fc4
+User
+[REALTIME] event: response.content_part.done
+2025-11-23 23:08:13.75
+448d6fc4
+User
+[REALTIME] event: rate_limits.updated
+2025-11-23 23:08:13.75
+448d6fc4
+User
+[REALTIME] event: rate_limits.updated
+2025-11-23 23:08:19.77
+448d6fc4
+User
+💓 WS_KEEPALIVE #1 (prevents 5min timeout)
+2025-11-23 23:08:19.86
+448d6fc4
+User
+📨 Received: mark
+2025-11-23 23:08:24.49
+448d6fc4
+User
+[REALTIME] sending audio TO OpenAI: chunk#1, μ-law bytes=160, first5=7e 7e 7e 7e fa, rms=81.0
+2025-11-23 23:08:26.93
+448d6fc4
+User
+[REALTIME] sending audio TO OpenAI: chunk#2, μ-law bytes=160, first5=fe 7e fe fe fe, rms=1059.0
+2025-11-23 23:08:26.93
+448d6fc4
+User
+🎙️ [BARGE-IN] User voice detected (RMS=1059, AI speaking=False)
+2025-11-23 23:08:26.93
+448d6fc4
+User
+🎙️ REAL_VOICE: rms=1059.0 > threshold=71.6
+2025-11-23 23:08:26.95
+448d6fc4
+User
+[REALTIME] sending audio TO OpenAI: chunk#3, μ-law bytes=160, first5=36 5f cd c3 b6, rms=3243.0
+2025-11-23 23:08:27.10
+448d6fc4
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-23 23:08:27.35
+448d6fc4
+User
+⚠️ [BARGE-IN] User spoke 420ms but AI NOT speaking - no barge-in needed
+2025-11-23 23:08:27.37
+448d6fc4
+User
+⚠️ [BARGE-IN] User spoke 441ms but AI NOT speaking - no barge-in needed
+2025-11-23 23:08:27.39
+448d6fc4
+User
+⚠️ [BARGE-IN] User spoke 460ms but AI NOT speaking - no barge-in needed
+2025-11-23 23:08:27.41
+448d6fc4
+User
+⚠️ [BARGE-IN] User spoke 480ms but AI NOT speaking - no barge-in needed
+2025-11-23 23:08:27.43
+448d6fc4
+User
+⚠️ [BARGE-IN] User spoke 500ms but AI NOT speaking - no barge-in needed

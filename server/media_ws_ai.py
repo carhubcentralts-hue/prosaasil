@@ -1041,6 +1041,7 @@ class MediaStreamHandler:
             await asyncio.sleep(0.2)  # 200ms for bridge initialization
             
             # 🚀 REALTIME API: Send greeting OR trigger AI to speak first
+            print(f"🔍 [DEBUG] Greeting check: hasattr={hasattr(self, 'greeting_text')}, greeting_sent={getattr(self, 'greeting_sent', 'N/A')}, greeting_text={getattr(self, 'greeting_text', 'N/A')[:50] if hasattr(self, 'greeting_text') else 'N/A'}")
             if hasattr(self, 'greeting_text') and not self.greeting_sent:
                 if self.greeting_text:
                     # יש פתיח מוגדר - שלח אותו
