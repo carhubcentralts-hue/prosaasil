@@ -1058,9 +1058,9 @@ class MediaStreamHandler:
                     # אין פתיח מוגדר - ה-AI ידבר ראשון בעצמו!
                     # 🔥 AGENT 3 FIX - PHASE 6: Block AI from speaking before real user utterance
                     if not self.has_real_user_utterance:
-                        logger.info("[GUARD] Blocking AI first speech - no real user utterance detected yet")
-                        print(f"🛡️ [GUARD] Blocking AI first speech - waiting for real user utterance")
-                        self.greeting_sent = True  # Mark as handled to prevent retry loop
+                        logger.info("[GUARD] Blocking AI first speech — no real user utterance yet")
+                        print(f"🛡️ [GUARD] Blocking AI first speech — waiting for real user utterance")
+                        self.greeting_sent = True  # Mark as handled to avoid retry
                     else:
                         print(f"🎤 [REALTIME] No greeting defined - AI will speak first dynamically!")
                         try:
@@ -1383,6 +1383,17 @@ class MediaStreamHandler:
             
             await self.realtime_client.send_event(event)
             print(f"🔇 [SERVER_EVENT] Sent SILENTLY to AI: {message_text[:100]}")
+            
+            # 🔥 AGENT 3 FIX - PHASE 6: Block AI responses before real user utterance
+            # Exception: Allow greeting to pass through
+            if not self.has_real_user_utterance:
+                if self.greeting_text and not self.greeting_sent:
+                    # Allow greeting once
+                    pass
+                else:
+                    logger.info("[GUARD] Blocking AI response — no real user utterance yet")
+                    print(f"🛡️ [GUARD] Blocking AI response — waiting for real user utterance")
+                    return
             
             # 🎯 Thread-safe optimistic lock: Prevent response collision race condition
             if not self.active_response_id and not self.response_pending_event.is_set():
