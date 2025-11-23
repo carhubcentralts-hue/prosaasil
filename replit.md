@@ -45,7 +45,7 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - **DTMF Auto-Submit (Nov 2025)**: After collecting 10 digits, system automatically processes phone number without requiring # terminator. AI does NOT instruct user to press # - system handles it silently.
   - **Availability Check**: Real-time slot validation with up to 3 alternative suggestions if requested time is taken.
 - **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)` for reliable Hebrew speech detection.
-- **Simplified Barge-In (Nov 24, 2025)**: 350ms grace period, calibrated speech threshold (vad_threshold or 900 default), instant trigger on speech detection, no minimum duration or cooldown requirements.
+- **Simplified Barge-In (Nov 24, 2025)**: 350ms grace period, calibrated speech threshold (vad_threshold or 900 default), instant trigger on speech detection, no minimum duration or cooldown requirements. Enhanced debug logging to track is_ai_speaking_event state and RMS values.
 - **Cost Tracking (Nov 2025)**: Real-time chunk-based audio tracking with precise cost calculations. Automatic cost summary displayed at end of EVERY call with breakdown: user audio (chunks→minutes→$), AI audio (chunks→minutes→$), total in USD and NIS (₪). Supports all OpenAI Realtime models including new gpt-realtime (2025).
 - **Error Resilience**: DB query failures fall back to minimal prompt.
 - **Automatic DB Prompt Loading (Nov 24, 2025 - CRITICAL FIX)**: 
