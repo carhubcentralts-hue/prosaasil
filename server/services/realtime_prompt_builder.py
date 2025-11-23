@@ -105,6 +105,35 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         
         # 🎯 Build layered system prompt: CRITICAL RULES → Core Instructions → Policy Info
         critical_rules = _build_critical_rules(business_name, today_hebrew, weekday_hebrew, month_hebrew, today)
+        
+        # 🔥 LOAD GREETING FROM DB AND ADD TO SYSTEM PROMPT
+        greeting_text = None
+        try:
+            if business:
+                greeting_text = business.greeting_message
+                if greeting_text:
+                    print(f"✅ [PROMPT] Loaded greeting from DB: '{greeting_text[:80]}...'")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not load greeting for system prompt: {e}")
+        
+        # 🔥 PREPEND GREETING INSTRUCTION IF GREETING EXISTS
+        if greeting_text:
+            greeting_instruction = f"""🎤 **פתיחה ראשונה (חובה - בדיוק כמו שכתוב למטה!):**
+
+כשהקול של הלקוח מתחיל - תגיד בדיוק את הברכה הזו (בלי שום תוספות):
+
+"{greeting_text}"
+
+**אחרי הברכה:**
+- תחכה בשקט לתגובת הלקוח
+- אל תוסיף "מה אוכל לעזור?" או שום דבר אחר
+- רק הברכה בלבד ותמשך אל הקריאה היוצאת הבא
+
+---
+
+"""
+            critical_rules = greeting_instruction + critical_rules
+        
         core_instructions = critical_rules + "\n" + core_instructions
         
         # 🔥 ADD DYNAMIC POLICY INFO (hours, slots, min_notice)
