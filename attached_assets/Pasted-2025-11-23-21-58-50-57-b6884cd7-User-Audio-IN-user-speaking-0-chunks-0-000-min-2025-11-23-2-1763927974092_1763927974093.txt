@@ -1,0 +1,100 @@
+2025-11-23 21:58:50.57
+b6884cd7
+User
+🎙️ Audio IN (user speaking): 0 chunks (0.000 min)
+2025-11-23 21:58:50.57
+b6884cd7
+User
+✅ MediaStreamHandler completed
+2025-11-23 21:58:50.57
+b6884cd7
+User
+================================================================================
+2025-11-23 21:58:50.57
+b6884cd7
+User
+└─ Cost: 0.006 min × $0.24/min = $0.0014
+2025-11-23 21:58:50.57
+b6884cd7
+User
+✅ All background threads cleanup complete
+2025-11-23 21:58:50.57
+b6884cd7
+User
+💵 TOTAL COST: $0.0014 (≈ ₪0.01)
+2025-11-23 21:58:50.57
+b6884cd7
+User
+💰💰💰 [CALL COST SUMMARY] 💰💰💰
+2025-11-23 21:58:50.57
+b6884cd7
+User
+⏱️ Total duration: 3.9s (0.1 min)
+2025-11-23 21:58:50.57
+b6884cd7
+User
+WS_DONE sid=MZ0599993b0bf5ca84020f5f3419c90b2d rx=1 tx=0
+2025-11-23 21:58:50.57
+b6884cd7
+User
+────────────────────────────────────────────────────────────────────────────────
+2025-11-23 21:58:50.57
+b6884cd7
+User
+================================================================================
+2025-11-23 21:58:50.57
+b6884cd7
+User
+└─ Cost: 0.000 min × $0.06/min = $0.0000
+2025-11-23 21:58:50.57
+b6884cd7
+User
+================================================================================
+2025-11-23 21:58:50.57
+b6884cd7
+User
+📞 Model: gpt-4o-realtime-preview
+2025-11-23 21:58:50.58
+b6884cd7
+User
+🔧 receive_loop ended
+2025-11-23 21:58:50.74
+b6884cd7
+User
+🔧 send_loop ended
+2025-11-23 21:58:50.74
+b6884cd7
+User
+✅ Handler thread join completed
+2025-11-23 21:58:50.85
+b6884cd7
+User
+STREAM_STATUS call=CAedc8c26738e660d4ad390ff7c8f59a10 stream=MZ0599993b0bf5ca84020f5f3419c90b2d event=N/A
+
+2025-11-23 21:58:51.07
+b6884cd7
+User
+✅ stream_status: Updated call_log for CAedc8c26738e660d4ad390ff7c8f59a10
+2025-11-23 21:58:51.07
+b6884cd7
+User
+INFO: 35.237.195.234:0 - "POST /webhook/stream_status HTTP/1.1" 200 OK
+2025-11-23 21:58:51.08
+b6884cd7
+User
+STREAM_ENDED call=CAedc8c26738e660d4ad390ff7c8f59a10 stream=N/A status=N/A
+2025-11-23 21:58:51.08
+b6884cd7
+User
+INFO: 104.196.221.213:0 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+2025-11-23 21:58:51.34
+b6884cd7
+User
+✅ Resolved business_id=1 from to_number=+97233763805 (Business: שי דירות)
+2025-11-23 21:58:51.37
+b6884cd7
+User
+🔵 CREATE_LEAD_FROM_CALL - App context created🟢 INCOMING_CALL - Thread started successfully
+2025-11-23 21:58:51.37
+b6884cd7
+U

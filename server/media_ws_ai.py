@@ -2284,6 +2284,8 @@ class MediaStreamHandler:
                     mulaw = base64.b64decode(b64)
                     # ⚡ SPEED: Fast μ-law decode using lookup table (~10-20x faster)
                     pcm16 = mulaw_to_pcm16_fast(mulaw)
+                    # 🔊 Calculate RMS (loudness of this frame)
+                    rms = audioop.rms(pcm16, 2)
                     self.last_rx_ts = time.time()
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
