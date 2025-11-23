@@ -3995,7 +3995,7 @@ class MediaStreamHandler:
             import traceback
             traceback.print_exc()
             self.business_id = 1
-            return (1, "שלום! איך אפשר לעזור?")
+            return (1, None)  # ✅ NO fallback greeting - AI speaks first!
     
     def _identify_business_from_phone(self):
         """זיהוי business_id לפי to_number (wrapper for backwards compat)"""
@@ -4006,7 +4006,7 @@ class MediaStreamHandler:
         # קודם כל - בדוק אם יש business_id
         if not hasattr(self, 'business_id') or not self.business_id:
             print(f"⚠️ business_id חסר בקריאה ל-_get_business_greeting_cached!")
-            return "שלום! איך אפשר לעזור?"
+            return None  # ✅ NO fallback - return None
         
         try:
             # ✅ CRITICAL FIX: Must have app_context for DB query in Cloud Run/ASGI!
@@ -4019,24 +4019,27 @@ class MediaStreamHandler:
                 business = Business.query.get(self.business_id)
                 
                 if business:
-                    # קבלת הברכה המותאמת
-                    greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
-                    business_name = business.name or "העסק שלנו"
+                    # קבלת הברכה המותאמת - אם אין, return None (לא fallback!)
+                    greeting = business.greeting_message or None
                     
-                    # החלפת placeholder בשם האמיתי
-                    greeting = greeting.replace("{{business_name}}", business_name)
-                    greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                    if greeting:
+                        business_name = business.name or "העסק שלנו"
+                        # החלפת placeholder בשם האמיתי
+                        greeting = greeting.replace("{{business_name}}", business_name)
+                        greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                        print(f"✅ ברכה נטענה: business_id={self.business_id}, greeting='{greeting}' (len={len(greeting)})")
+                    else:
+                        print(f"✅ No greeting defined for business_id={self.business_id} - AI will speak first!")
                     
-                    print(f"✅ ברכה נטענה במהירות: business_id={self.business_id}, name={business_name}")
                     return greeting
                 else:
-                    print(f"⚠️ Business {self.business_id} לא נמצא - ברכה ברירת מחדל")
-                    return "שלום! איך אפשר לעזור?"
+                    print(f"⚠️ Business {self.business_id} לא נמצא")
+                    return None
         except Exception as e:
             print(f"❌ שגיאה בטעינת ברכה: {e}")
             import traceback
             traceback.print_exc()
-            return "שלום! איך אפשר לעזור?"
+            return None  # ✅ NO fallback - return None on error
     
     def _get_business_greeting(self) -> str:
         """טעינת ברכה מותאמת אישית מהעסק עם {{business_name}} placeholder"""
