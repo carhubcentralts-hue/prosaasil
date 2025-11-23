@@ -423,66 +423,86 @@ def create_lead():
 @leads_bp.route("/api/leads/<int:lead_id>", methods=["GET"])
 def get_lead_detail(lead_id):
     """Get detailed lead information with activities and reminders"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
-    
-    if not check_lead_access(lead_id):
-        return jsonify({"error": "Lead not found or access denied"}), 404
-    
-    # Get lead with related data
-    lead = Lead.query.filter_by(id=lead_id).first()
-    if not lead:
-        return jsonify({"error": "Lead not found"}), 404
-    
-    # Get reminders
-    reminders = LeadReminder.query.filter_by(lead_id=lead_id).order_by(LeadReminder.due_at).all()
-    
-    # Get recent activities
-    activities = LeadActivity.query.filter_by(lead_id=lead_id).order_by(desc(LeadActivity.at)).limit(50).all()
-    
-    # Format response
-    response = {
-        "id": lead.id,
-        "first_name": lead.first_name,
-        "last_name": lead.last_name,
-        "full_name": lead.full_name,
-        "phone_e164": lead.phone_e164,
-        "display_phone": lead.display_phone,
-        "email": lead.email,
-        "status": lead.status,
-        "source": lead.source,
-        "external_id": lead.external_id,
-        "owner_user_id": lead.owner_user_id,
-        "tags": lead.tags or [],
-        "notes": lead.notes,
-        "created_at": lead.created_at.isoformat() if lead.created_at else None,
-        "updated_at": lead.updated_at.isoformat() if lead.updated_at else None,
-        "last_contact_at": lead.last_contact_at.isoformat() if lead.last_contact_at else None,
+    try:
+        auth_error = require_auth()
+        if auth_error:
+            return auth_error
         
-        "reminders": [
-            {
-                "id": r.id,
-                "due_at": r.due_at.isoformat() if r.due_at else None,
-                "note": r.note,
-                "channel": r.channel,
-                "delivered_at": r.delivered_at.isoformat() if r.delivered_at else None,
-                "completed_at": r.completed_at.isoformat() if r.completed_at else None
-            } for r in reminders
-        ],
+        if not check_lead_access(lead_id):
+            return jsonify({"error": "Lead not found or access denied"}), 404
         
-        "activity": [
-            {
-                "id": a.id,
-                "type": a.type,
-                "payload": a.payload,
-                "at": a.at.isoformat() if a.at else None,
-                "created_by": a.created_by
-            } for a in activities
-        ]
-    }
-    
-    return jsonify(response)
+        # Get lead with related data
+        lead = Lead.query.filter_by(id=lead_id).first()
+        if not lead:
+            return jsonify({"error": "Lead not found"}), 404
+        
+        # Get reminders
+        reminders = LeadReminder.query.filter_by(lead_id=lead_id).order_by(LeadReminder.due_at).all()
+        
+        # Get recent activities
+        activities = LeadActivity.query.filter_by(lead_id=lead_id).order_by(desc(LeadActivity.at)).limit(50).all()
+        
+        # Format reminders safely
+        formatted_reminders = []
+        for r in reminders:
+            try:
+                formatted_reminders.append({
+                    "id": r.id,
+                    "due_at": r.due_at.isoformat() if r.due_at else None,
+                    "note": r.note,
+                    "channel": r.channel,
+                    "delivered_at": r.delivered_at.isoformat() if r.delivered_at else None,
+                    "completed_at": r.completed_at.isoformat() if r.completed_at else None
+                })
+            except Exception as e:
+                log.error(f"Error formatting reminder {r.id}: {e}")
+                continue
+        
+        # Format activities safely
+        formatted_activities = []
+        for a in activities:
+            try:
+                formatted_activities.append({
+                    "id": a.id,
+                    "type": a.type,
+                    "payload": a.payload if a.payload is not None else {},
+                    "at": a.at.isoformat() if a.at else None,
+                    "created_by": a.created_by
+                })
+            except Exception as e:
+                log.error(f"Error formatting activity {a.id}: {e}")
+                continue
+        
+        # Format response
+        response = {
+            "id": lead.id,
+            "first_name": lead.first_name,
+            "last_name": lead.last_name,
+            "full_name": lead.full_name,
+            "phone_e164": lead.phone_e164,
+            "display_phone": lead.display_phone,
+            "email": lead.email,
+            "status": lead.status,
+            "source": lead.source,
+            "external_id": lead.external_id,
+            "owner_user_id": lead.owner_user_id,
+            "tags": lead.tags or [],
+            "notes": lead.notes,
+            "created_at": lead.created_at.isoformat() if lead.created_at else None,
+            "updated_at": lead.updated_at.isoformat() if lead.updated_at else None,
+            "last_contact_at": lead.last_contact_at.isoformat() if lead.last_contact_at else None,
+            "tenant_id": lead.tenant_id,
+            
+            "reminders": formatted_reminders,
+            "activity": formatted_activities
+        }
+        
+        return jsonify(response)
+    except Exception as e:
+        log.error(f"Error getting lead detail for lead {lead_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Internal server error", "details": str(e)}), 500
 
 @leads_bp.route("/api/leads/<int:lead_id>", methods=["PATCH"])
 def update_lead(lead_id):
