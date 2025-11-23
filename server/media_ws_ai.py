@@ -1317,9 +1317,13 @@ class MediaStreamHandler:
                     raw_text = event.get("transcript", "") or ""
                     text = raw_text.strip()
                     
-                    # Simple noise filter: ignore very short or punctuation-only transcripts
-                    if len(text) < 3 or all(ch in ".?!, " for ch in text):
-                        print("[TRANSCRIPT FILTER] Ignoring very short / noise transcript:", repr(text))
+                    # 🔇 Noise filter: ignore very short, punctuation-only, or mixed-language chatter
+                    chatter_words = ["thank you", "thanks", "bye", "bye bye", "goodbye", "ok", "okay", "sure", "got it", "yes", "no", "yeah", "nope"]
+                    text_lower = text.lower().strip()
+                    is_chatter = any(text_lower == word or text_lower.endswith(" " + word) for word in chatter_words)
+                    
+                    if len(text) < 3 or all(ch in ".?!, " for ch in text) or is_chatter:
+                        print(f"[TRANSCRIPT FILTER] Ignoring noise: {repr(text)} (chatter={is_chatter})")
                         print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
                         continue
                     
@@ -1343,9 +1347,14 @@ class MediaStreamHandler:
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
                         
-                        # Check for appointment confirmation after user speaks
-                        print(f"🔍 [DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
-                        self._check_appointment_confirmation(transcript)
+                        # 🛡️ CHECK: Don't run NLP twice for same appointment
+                        already_confirmed = getattr(self, 'appointment_confirmed_in_session', False)
+                        if already_confirmed:
+                            print(f"🛡️ [NLP] SKIP - Appointment already confirmed in this session")
+                        else:
+                            # Check for appointment confirmation after user speaks
+                            print(f"🔍 [DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
+                            self._check_appointment_confirmation(transcript)
                     # ✅ COST SAFETY: Transcription completed successfully
                     print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
                 
@@ -1802,6 +1811,8 @@ class MediaStreamHandler:
                             crm_context.last_appointment_id = appt_id
                             # 🔥 CRITICAL: Set flag - NOW AI is allowed to say "התור נקבע!"
                             crm_context.has_appointment_created = True
+                            # 🛡️ PREVENT NLP LOOP: Mark that appointment was confirmed in this session
+                            self.appointment_confirmed_in_session = True
                             logger.info(f"✅ [APPOINTMENT VERIFICATION] Created appointment #{appt_id} in DB - has_appointment_created=True")
                             print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer")
                         
@@ -2239,7 +2250,9 @@ class MediaStreamHandler:
                             # ⚡ DON'T reset greeting_sent here - it's set in the async loop
                             if not hasattr(self, 'greeting_sent'):
                                 self.greeting_sent = False
-                            print(f"✅ [REALTIME] Greeting stored: '{greet[:50]}...'")
+                            # 🔍 DEBUG: Log FULL greeting to detect truncation
+                            print(f"✅ [REALTIME] Greeting stored (FULL): '{greet}' (len={len(greet)})")
+                            print(f"✅ [REALTIME] Greeting stored (PREVIEW): '{greet[:50]}...'")
                         else:
                             print(f"🎯 [T1={self.t1_greeting_start:.3f}] NO GREETING - AI will speak first dynamically!")
                             self.greeting_text = None
@@ -3967,7 +3980,8 @@ class MediaStreamHandler:
                         # החלפת placeholder
                         greeting = greeting.replace("{{business_name}}", business_name)
                         greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
-                        print(f"⚡ FAST COMPLETE: business_id={self.business_id}, greeting='{greeting[:30]}...'")
+                        # 🔍 DEBUG: Log FULL greeting to detect truncation
+                        print(f"⚡ FAST COMPLETE: business_id={self.business_id}, greeting (FULL)='{greeting}' (len={len(greeting)})")
                     else:
                         print(f"⚡ FAST COMPLETE: business_id={self.business_id}, NO GREETING (AI will speak first!)")
                     

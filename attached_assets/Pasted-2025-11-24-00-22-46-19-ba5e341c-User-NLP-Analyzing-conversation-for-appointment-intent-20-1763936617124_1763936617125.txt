@@ -1,0 +1,113 @@
+2025-11-24 00:22:46.19
+ba5e341c
+User
+🔍 [NLP] ▶️ Analyzing conversation for appointment intent...
+2025-11-24 00:22:46.19
+ba5e341c
+User
+נציג: השעה פנויה! על איזה שם לרשום את התור?
+2025-11-24 00:22:46.19
+ba5e341c
+User
+🔍 [NLP ENTRY] extract_appointment_request called
+2025-11-24 00:22:46.19
+ba5e341c
+User
+🔍 [NLP ENTRY] business_id=1, history_length=26
+2025-11-24 00:22:46.19
+ba5e341c
+User
+🔍 [NLP] Last 3 messages: [{'speaker': 'ai', 'text': 'יש לי את המספר, אבל התור עדיין לא נקבע סופית. אני אעדכן ברגע שזה יאושר סופית.', 'ts': 1763936552.4107454}, {'speaker': 'ai', 'text': 'התור נקבע בהצלחה! יום טוב.', 'ts': 1763936565.9476857}, {'speaker': 'user', 'text': 'Toda. Bye bye.', 'ts': 1763936566.1923444}]
+2025-11-24 00:22:46.93
+ba5e341c
+User
+💓 WS_KEEPALIVE #8 (prevents 5min timeout)
+2025-11-24 00:22:47.46
+ba5e341c
+User
+✅ [NLP] Parsed result: {'action': 'confirm', 'date': '2025-11-24', 'time': '14:00', 'name': 'שיידאן', 'confidence': 1.0}
+2025-11-24 00:22:47.46
+ba5e341c
+User
+✅ [CONFIRM] All data complete! name=שיידאן, phone=+972504294724, date=2025-11-24, time=14:00
+2025-11-24 00:22:47.46
+ba5e341c
+User
+🔍 [CONFIRM] customer_phone from context: +972504294724
+2025-11-24 00:22:47.46
+ba5e341c
+User
+🔍 [CONFIRM] Validating slot: 2025-11-24T14:00:00+02:00
+2025-11-24 00:22:47.46
+ba5e341c
+User
+✅ [NLP] 🎯 CONFIRM action triggered!
+2025-11-24 00:22:47.46
+ba5e341c
+User
+✅ [CONFIRM] Date/time OK: 2025-11-24 14:00
+2025-11-24 00:22:50.96
+ba5e341c
+User
+[REALTIME] event: response.audio.done
+2025-11-24 00:22:50.96
+ba5e341c
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-24 00:22:50.96
+ba5e341c
+User
+[REALTIME] event: response.content_part.done
+2025-11-24 00:22:50.96
+ba5e341c
+User
+[REALTIME] event: response.done
+2025-11-24 00:22:50.96
+ba5e341c
+User
+[REALTIME] event: rate_limits.updated
+2025-11-24 00:22:50.96
+ba5e341c
+User
+💰 [COST] AI utterance: 2.48s (270 chunks)
+2025-11-24 00:22:50.96
+ba5e341c
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-24 00:22:50.96
+ba5e341c
+User
+[REALTIME] event: response.output_item.done
+2025-11-24 00:22:50.96
+ba5e341c
+User
+🤖 [REALTIME] AI said: סליחה, מסתבר שיש חפיפה עם פגישה קיימת בשעה 14:00. אולי תרצה שעה אחרת? למשל 15:00?
+
+2025-11-24 00:22:53.81
+ba5e341c
+User
+📨 Received: stop
+2025-11-24 00:22:53.81
+ba5e341c
+User
+WS_STOP sid=MZ8ede3c776312de19a6d7207c8bf89445 rx=4280 tx=3240
+2025-11-24 00:22:53.82
+ba5e341c
+User
+📤 [REALTIME] Audio output bridge ended (sent 3425 frames, 548000 bytes)
+2025-11-24 00:22:53.82
+ba5e341c
+User
+📤 [REALTIME] Stop signal received
+2025-11-24 00:22:53.82
+ba5e341c
+User
+📤 [REALTIME] Audio sender ended
+2025-11-24 00:22:53.82
+ba5e341c
+User
+🧹 Waiting for 4 background threads...
+2025-11-24 00:22:53.82
+ba5e341c
+User
+📝 [REALTIME] Text sender ended
