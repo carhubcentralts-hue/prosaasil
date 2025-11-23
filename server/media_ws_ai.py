@@ -4064,26 +4064,30 @@ class MediaStreamHandler:
                 print(f"🔍 שאילתת business: id={self.business_id}, נמצא: {business is not None}")
                 
                 if business:
-                    # קבלת הברכה המותאמת
-                    greeting = business.greeting_message or "שלום! איך אפשר לעזור?"
+                    # קבלת הברכה המותאמת - אם אין, return None (לא fallback!)
+                    greeting = business.greeting_message or None
                     business_name = business.name or "העסק שלנו"
                     
                     print(f"🔍 פרטי עסק: name={business_name}, greeting_message={business.greeting_message}")
                     
-                    # החלפת placeholder בשם האמיתי
-                    greeting = greeting.replace("{{business_name}}", business_name)
-                    greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                    if greeting:
+                        # החלפת placeholder בשם האמיתי
+                        greeting = greeting.replace("{{business_name}}", business_name)
+                        greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
+                        
+                        print(f"✅ Loaded custom greeting for business {self.business_id} ({business_name}): '{greeting}'")
+                    else:
+                        print(f"✅ No greeting defined for business {self.business_id} - AI will speak first!")
                     
-                    print(f"✅ Loaded custom greeting for business {self.business_id} ({business_name}): '{greeting}'")
                     return greeting
                 else:
-                    print(f"⚠️ Business {self.business_id} not found - using default greeting")
-                    return "שלום! איך אפשר לעזור?"
+                    print(f"⚠️ Business {self.business_id} not found")
+                    return None
         except Exception as e:
             import traceback
             print(f"❌ Error loading business greeting: {e}")
             print(f"❌ Traceback: {traceback.format_exc()}")
-            return "שלום! איך אפשר לעזור?"
+            return None
 
     def _process_dtmf_skip(self):
         """
