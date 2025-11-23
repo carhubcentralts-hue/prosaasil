@@ -1391,6 +1391,11 @@ class MediaStreamHandler:
             await self.realtime_client.send_event(event)
             print(f"🔇 [SERVER_EVENT] Sent SILENTLY to AI: {message_text[:100]}")
             
+            # 🎯 DEBUG: Track appointment_created messages
+            if "appointment_created" in message_text:
+                print(f"🔔 [APPOINTMENT] appointment_created message sent to AI!")
+                print(f"🔔 [APPOINTMENT] Message content: {message_text}")
+            
             # 🎯 Thread-safe optimistic lock: Prevent response collision race condition
             if not self.active_response_id and not self.response_pending_event.is_set():
                 try:
@@ -2329,10 +2334,21 @@ class MediaStreamHandler:
                     
                     # 🎯 SIMPLIFIED BARGE-IN for Realtime API
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
+                        # 🔍 DEBUG: Log AI speaking state every 50 frames (~1 second)
+                        if not hasattr(self, '_barge_in_debug_counter'):
+                            self._barge_in_debug_counter = 0
+                        self._barge_in_debug_counter += 1
+                        
+                        if self._barge_in_debug_counter % 50 == 0:
+                            print(f"🔍 [BARGE-IN DEBUG] is_ai_speaking={self.is_ai_speaking_event.is_set()}, "
+                                  f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
+                                  f"rms={rms:.0f}")
+                        
                         # Only allow barge-in if AI is speaking AND user has spoken before
                         if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
                             # Don't barge-in before user has ever spoken – avoids cutting greeting due to noise
                             if not self.user_has_spoken:
+                                print(f"⏸️ [BARGE-IN] Blocked - user hasn't spoken yet")
                                 continue
                             
                             current_time = time.monotonic()
@@ -2341,6 +2357,8 @@ class MediaStreamHandler:
                             # Grace period to ignore our own TTS echo
                             grace_period = 0.35  # ~350ms
                             if time_since_tts_start < grace_period:
+                                if rms >= 150:  # Only log if there's actual voice
+                                    print(f"⏳ [BARGE-IN] Grace period - {time_since_tts_start*1000:.0f}ms/{grace_period*1000:.0f}ms (rms={rms:.0f})")
                                 continue
                             
                             # Use calibrated VAD/speech threshold if available, otherwise a sane default
@@ -2349,10 +2367,13 @@ class MediaStreamHandler:
                             
                             # If this frame looks like real speech above the threshold – trigger barge-in
                             if rms >= speech_threshold:
+                                print(f"🔥 [BARGE-IN] TRIGGERED! rms={rms:.0f} >= threshold={speech_threshold:.0f}, AI speaking={self.is_ai_speaking_event.is_set()}")
                                 logger.info(f"[BARGE-IN] User speech detected while AI speaking "
                                           f"(rms={rms:.1f}, threshold={speech_threshold:.1f})")
                                 self._handle_realtime_barge_in()
                                 continue
+                            elif rms >= 150:  # Voice detected but below threshold
+                                print(f"🎙️ [BARGE-IN] Voice detected but below threshold: rms={rms:.0f} < {speech_threshold:.0f}")
                     
                     # 🎯 AGENT 3 VAD: Calibrate ONLY on true background noise (RMS < 120)
                     if not self.is_calibrated:
