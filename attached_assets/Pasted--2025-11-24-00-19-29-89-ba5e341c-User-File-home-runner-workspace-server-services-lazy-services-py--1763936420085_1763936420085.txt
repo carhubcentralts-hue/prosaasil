@@ -1,0 +1,121 @@
+
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/server/services/lazy_services.py", line 194, in _warmup
+2025-11-24 00:19:29.89
+ba5e341c
+User
+return self.limit(1)._iter().first() # type: ignore
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2251, in _execute_internal
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^^^^^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2251, in _execute_internal
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+2025-11-24 00:19:29.89
+ba5e341c
+User
+result = conn.execute(
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^^^^^^^^^^^^^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+The above exception was the direct cause of the following exception:
+2025-11-24 00:19:37.28
+ba5e341c
+User
+👤 Admin exists (ID=2), resetting password to 'admin123'
+2025-11-24 00:19:41.18
+ba5e341c
+User
+🔒 LAYER 1 (BEFORE): 4 leads in database
+2025-11-24 00:19:55.88
+ba5e341c
+User
+✅ Admin password reset: admin@admin.com / admin123
+2025-11-24 00:19:57.29
+ba5e341c
+User
+🔧 Starting database initialization...
+2025-11-24 00:19:59.38
+ba5e341c
+User
+✅ Business exists: שי דירות (ID: 1)
+2025-11-24 00:20:00.28
+ba5e341c
+User
+✅ Admin user exists: admin@admin.com (ID: 2)
+2025-11-24 00:20:01.28
+ba5e341c
+User
+✅ Lead statuses exist: 7 statuses found
+2025-11-24 00:20:02.38
+ba5e341c
+User
+⚠️ FAQs table not ready: (psycopg2.errors.UndefinedTable) relation "faqs" does not exist
+2025-11-24 00:20:02.38
+ba5e341c
+User
+FROM (SELECT faqs.id AS faqs_id, faqs.business_id AS faqs_business_id, faqs.question AS faqs_question, faqs.answer AS faqs_answer, faqs.intent_key AS faqs_intent_key, faqs.patterns_json AS faqs_patterns_json, faqs.channels AS faqs_channels, faqs.priority AS faqs_priority, faqs.lang AS faqs_lang, faqs.is_active AS faqs_is_active, faqs.order_index AS faqs_order_index, faqs.created_at AS faqs_created_at, faqs.updated_at AS faqs_updated_at
+2025-11-24 00:20:02.38
+ba5e341c
+User
+^
+2025-11-24 00:20:02.38
+ba5e341c
+User
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-11-24 00:20:02.38
+ba5e341c
+User
+FROM faqs) AS anon_1]
+2025-11-24 00:20:02.38
+ba5e341c
+User
+LINE 3: FROM faqs) AS anon_1
+2025-11-24 00:20:02.38
+ba5e341c
+User
+[SQL: SELECT count(*) AS count_1
+2025-11-24 00:20:02.38
+ba5e341c
+User
+(This is normal on first deployment - table will be created by migrations)
+2025-11-24 00:20:02.48
+ba5e341c
+User
+(Background on this error at: https://sqlalche.me/e/20/2j85)
+2025-11-24 00:20:02.48
+ba5e341c
+User
+LIMIT %(param_1)s]
+2025-11-24 00:20:02.48
+ba5e341c
+User
+[parameters: {'tenant_id_1': 1, 'param_1': 1}]

@@ -1,0 +1,183 @@
+2025-11-24 00:19:29.89
+ba5e341c
+User
+return self.limit(1)._iter().first() # type: ignore
+2025-11-24 00:19:29.89
+ba5e341c
+User
+Traceback (most recent call last):
+2025-11-24 00:19:29.89
+ba5e341c
+User
+psycopg2.errors.UndefinedColumn: column business_settings.slot_size_min does not exist
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+2025-11-24 00:19:29.89
+ba5e341c
+User
+settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+2025-11-24 00:19:29.89
+ba5e341c
+User
+result: Result[Any] = compile_state_cls.orm_execute_statement(
+2025-11-24 00:19:29.89
+ba5e341c
+User
+self.dialect.do_execute(
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^^^^^^^^^^^^^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/server/services/lazy_services.py", line 194, in _warmup
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+2025-11-24 00:19:29.89
+ba5e341c
+User
+settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+2025-11-24 00:19:29.89
+ba5e341c
+User
+cursor.execute(statement, parameters)
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+return self._execute_internal(
+2025-11-24 00:19:29.89
+ba5e341c
+User
+return meth(
+2025-11-24 00:19:29.89
+ba5e341c
+User
+result: Result[Any] = compile_state_cls.orm_execute_statement(
+2025-11-24 00:19:29.89
+ba5e341c
+User
+settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+2025-11-24 00:19:29.89
+ba5e341c
+User
+psycopg2.errors.UndefinedColumn: column business_settings.slot_size_min does not exist
+2025-11-24 00:19:29.89
+ba5e341c
+User
+Traceback (most recent call last):
+2025-11-24 00:19:29.89
+ba5e341c
+User
+return self.limit(1)._iter().first() # type: ignore
+2025-11-24 00:19:29.89
+ba5e341c
+User
+return self._exec_single_context(
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+LINE 1: ..._settings.timezone AS business_settings_timezone, business_s...
+
+2025-11-24 00:19:29.89
+ba5e341c
+User
+result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+2025-11-24 00:19:29.89
+ba5e341c
+User
+return connection._execute_clauseelement(
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^^^^^^^^^^^^^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^^^^^^^^^^^^^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/server/services/lazy_services.py", line 194, in _warmup
+2025-11-24 00:19:29.89
+ba5e341c
+User
+return self.limit(1)._iter().first() # type: ignore
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2251, in _execute_internal
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^^^^^^^^^^^^^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+^
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2251, in _execute_internal
+2025-11-24 00:19:29.89
+ba5e341c
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+2025-11-24 00:19:29.89
+ba5e341c
+User
+result = conn.execute(
+
+Collapse
+
+Wrap
+
+Colors
