@@ -1177,6 +1177,7 @@ class MediaStreamHandler:
                                 self.ai_speaking_start_ts = now
                                 self.speaking_start_ts = now
                             self.is_ai_speaking_event.set()
+                            self.is_playing_greeting = True
                             try:
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
                             except queue.Full:
@@ -1198,8 +1199,18 @@ class MediaStreamHandler:
                                 except Exception:
                                     print("[GUARD] Failed to send response.cancel for pre-user-response")
                             continue  # do NOT enqueue audio for TTS
-                        # 🎯 Track AI speaking state for barge-in detection
+                        
+                        # 🎯 Track AI speaking state for ALL AI audio (not just greeting)
                         now = time.time()
+                        
+                        # For non-greeting AI audio, ensure speaking state is tracked for barge-in
+                        if not self.is_playing_greeting:
+                            if not self.is_ai_speaking_event.is_set():
+                                self.ai_speaking_start_ts = now
+                                self.speaking_start_ts = now
+                                self.is_ai_speaking_event.set()
+                        
+                        # Original tracking logic (always runs for all audio)
                         if not self.is_ai_speaking_event.is_set():
                             print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
                             self.ai_speaking_start_ts = now  # 🔥 FIX: Record when AI STARTED (not last chunk)
@@ -2316,51 +2327,32 @@ class MediaStreamHandler:
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
                     
-                    # 🎯 SMART BARGE-IN for Realtime API
+                    # 🎯 SIMPLIFIED BARGE-IN for Realtime API
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
-                        now = time.time()
-                        
-                        # 🔥 FIX: Safety timeout (5s) - only if response.audio.done is missed!
-                        # Primary clearing is response.audio.done, this is backup for error cases
-                        # (connection hiccup, response.cancel during barge-in, etc.)
-                        if self.is_ai_speaking_event.is_set() and self.last_ai_audio_ts and \
-                           (now - self.last_ai_audio_ts) > 5.0:
-                            self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped (timeout backup)
-                            self.ai_speaking_start_ts = None
-                            print(f"⚠️ [REALTIME] AI stopped speaking (safety timeout 5s - response.audio.done missed?)")
-                        
-                        # 🎯 CRITICAL FIX: Check if user is speaking AND AI is speaking
-                        if rms >= self.barge_in_rms_threshold:
-                            # Strong voice detected
-                            if self.current_user_voice_start_ts is None:
-                                self.current_user_voice_start_ts = now
-                                print(f"🎙️ [BARGE-IN] User voice detected (RMS={rms:.0f}, AI speaking={self.is_ai_speaking_event.is_set()})")
-                            else:
-                                # Calculate how long user has been speaking
-                                elapsed_ms = (now - self.current_user_voice_start_ts) * 1000
-                                
-                                # 🔥 FIX: Check grace period based on when AI STARTED, not last chunk!
-                                if self.is_ai_speaking_event.is_set() and self.ai_speaking_start_ts and \
-                                   (now - self.ai_speaking_start_ts) * 1000 < self.min_ai_talk_guard_ms:
-                                    # Inside grace period - don't allow barge-in yet
-                                    print(f"⏳ [BARGE-IN] Grace period ({self.min_ai_talk_guard_ms}ms) - waiting")
-                                # Check cooldown - don't trigger barge-in too frequently
-                                elif self.last_barge_in_ts and \
-                                     (now - self.last_barge_in_ts) * 1000 < self.barge_in_cooldown_ms:
-                                    print(f"⏳ [BARGE-IN] Cooldown active ({self.barge_in_cooldown_ms}ms)")
-                                # Check if user spoke long enough AND AI is speaking
-                                elif elapsed_ms >= self.barge_in_min_ms and self.is_ai_speaking_event.is_set():
-                                    # Trigger barge-in!
-                                    print(f"🔥 [BARGE-IN] TRIGGERED! User spoke {elapsed_ms:.0f}ms, interrupting AI")
-                                    self._handle_realtime_barge_in()
-                                    self.last_barge_in_ts = now
-                                elif elapsed_ms >= self.barge_in_min_ms and not self.is_ai_speaking_event.is_set():
-                                    print(f"⚠️ [BARGE-IN] User spoke {elapsed_ms:.0f}ms but AI NOT speaking - no barge-in needed")
-                        else:
-                            # No strong voice - reset user voice start
-                            if self.current_user_voice_start_ts is not None:
-                                print(f"🔇 [BARGE-IN] User stopped speaking (RMS={rms:.0f} < {self.barge_in_rms_threshold})")
-                            self.current_user_voice_start_ts = None
+                        # Only allow barge-in if AI is speaking AND user has spoken before
+                        if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
+                            # Don't barge-in before user has ever spoken – avoids cutting greeting due to noise
+                            if not self.user_has_spoken:
+                                continue
+                            
+                            current_time = time.monotonic()
+                            time_since_tts_start = current_time - self.speaking_start_ts if hasattr(self, 'speaking_start_ts') and self.speaking_start_ts else 999
+                            
+                            # Grace period to ignore our own TTS echo
+                            grace_period = 0.35  # ~350ms
+                            if time_since_tts_start < grace_period:
+                                continue
+                            
+                            # Use calibrated VAD/speech threshold if available, otherwise a sane default
+                            speech_threshold = getattr(self, "speech_threshold", None) or \
+                                             getattr(self, "vad_threshold", None) or 900
+                            
+                            # If this frame looks like real speech above the threshold – trigger barge-in
+                            if rms >= speech_threshold:
+                                logger.info(f"[BARGE-IN] User speech detected while AI speaking "
+                                          f"(rms={rms:.1f}, threshold={speech_threshold:.1f})")
+                                self._handle_realtime_barge_in()
+                                continue
                     
                     # 🎯 AGENT 3 VAD: Calibrate ONLY on true background noise (RMS < 120)
                     if not self.is_calibrated:

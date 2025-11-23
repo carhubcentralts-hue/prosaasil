@@ -45,7 +45,7 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - **DTMF Auto-Submit (Nov 2025)**: After collecting 10 digits, system automatically processes phone number without requiring # terminator. AI does NOT instruct user to press # - system handles it silently.
   - **Availability Check**: Real-time slot validation with up to 3 alternative suggestions if requested time is taken.
 - **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)` for reliable Hebrew speech detection.
-- **Smart Barge-In**: 400ms grace period, 150 RMS threshold, 400ms minimum voice duration, 800ms cooldown.
+- **Simplified Barge-In (Nov 24, 2025)**: 350ms grace period, calibrated speech threshold (vad_threshold or 900 default), instant trigger on speech detection, no minimum duration or cooldown requirements.
 - **Cost Tracking (Nov 2025)**: Real-time chunk-based audio tracking with precise cost calculations. Automatic cost summary displayed at end of EVERY call with breakdown: user audio (chunks→minutes→$), AI audio (chunks→minutes→$), total in USD and NIS (₪). Supports all OpenAI Realtime models including new gpt-realtime (2025).
 - **Error Resilience**: DB query failures fall back to minimal prompt.
 - **Automatic DB Prompt Loading (Nov 24, 2025 - CRITICAL FIX)**: 
@@ -57,13 +57,12 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **Greeting Message Response (Nov 24, 2025)**: 
   - `update_business_prompt` endpoint now returns `greeting_message` and `whatsapp_greeting` in response
   - UI can display saved greeting immediately after update
-- **Greeting System Integration (Nov 24, 2025 - FINAL FIX)**:
-  - Greeting loaded automatically from `business.greeting_message` in DB
-  - Added to system prompt as first response instruction in `realtime_prompt_builder.py`
-  - AI instructed to output greeting verbatim as its first turn (no additions, no property descriptions)
-  - `response.create` event triggers AI to speak greeting immediately upon connection
-  - Prevents AI from talking about properties/services before greeting
-  - Ensures consistent greeting delivery on every call
+- **First Response Greeting System (Nov 24, 2025 - PROMPT-BASED)**:
+  - System prompt instructs AI to always include business-specific greeting in FIRST response after user speaks
+  - No automatic server-initiated responses - user must speak first
+  - Greeting template: "היי, אני העוזרת הדיגיטלית של [business_name], איך אפשר לעזור?"
+  - AI combines greeting with answering user's first question
+  - Greeting spoken only once per call (never repeated)
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

@@ -1,0 +1,158 @@
+Goal
+----
+Current behavior:
+- AI stays silent until the user talks (good).
+- After the user talks, the AI answers (good).
+- But:
+  1) The FIRST answer is not always a nice greeting tailored to the business.
+  2) Barge-in is still weak – the AI often finishes her sentence instead of stopping quickly.
+
+I want a SMALL, focused fix that:
+- Keeps the "user speaks first" behavior.
+- Ensures the FIRST answer always includes a greeting (via the prompt, not new code paths).
+- Makes barge-in reliably cut off AI speech within ~0.3–0.6 seconds.
+
+You may ONLY touch:
+- server/services/realtime_prompt_builder.py
+- server/media_ws_ai.py
+
+You MUST NOT:
+- Change OpenAI Realtime turn_detection or session config.
+- Add complex state machines or new queues.
+- Reintroduce any automatic response.create at call start.
+
+------------------------------------------------
+STEP 1 – First answer must always include a greeting (prompt-level)
+------------------------------------------------
+
+File: server/services/realtime_prompt_builder.py
+
+In the critical rules section for the call assistant (where we already defined silence behavior etc.), add a clear rule that controls the FIRST reply.
+
+Add this rule (in Hebrew) to the system prompt:
+
+    • בתגובה הראשונה שלך אחרי שהלקוח מדבר בפעם הראשונה בשיחה,
+      תמיד תתחיל במשפט פתיחה קצר וברור שמתאים לעסק, למשל:
+      "היי, אני העוזרת הדיגיטלית של <שם העסק>, איך אפשר לעזור?"
+      אחרי משפט הפתיחה תענה ישירות למה שהלקוח אמר.
+    • אל תגיד ברכה כזו יותר מפעם אחת לכל שיחה.
+
+Do NOT change other rules that we already set (especially Rule 3 about silence).
+
+This ensures that:
+- The very first assistant reply after the first user utterance will ALWAYS include a greeting,
+  and this is handled by the model, not by server-side triggers.
+
+------------------------------------------------
+STEP 2 – Make sure AI speaking state is set for ALL answers (not only greeting)
+------------------------------------------------
+
+File: server/media_ws_ai.py
+
+We already added:
+- self.user_has_spoken
+- self.is_playing_greeting
+- a fix for greeting_sent race
+- is_ai_speaking_event + speaking_start_ts for greeting
+
+Now we must ensure that for EVERY AI audio response (not just greeting),
+we correctly mark "AI is speaking" so that barge-in can work.
+
+Inside `_realtime_audio_receiver`, in the `response.audio.delta` handler,
+AFTER you decode `audio_b64` and BEFORE you put it on `self.realtime_audio_out_queue`,
+add this block (for non-greeting audio):
+
+    # For non-greeting AI audio, ensure speaking state is tracked for barge-in
+    if not self.is_playing_greeting:
+        now = time.time()
+        if not self.is_ai_speaking_event.is_set():
+            self.ai_speaking_start_ts = now
+            self.speaking_start_ts = now
+            self.is_ai_speaking_event.set()
+
+Then proceed to enqueue the audio as you currently do.
+
+Important:
+- The greeting path we already handled with is_playing_greeting – keep that logic.
+- This new block is only for normal AI answers (not greeting).
+
+------------------------------------------------
+STEP 3 – Simplify and strengthen barge-in based on calibrated speech threshold
+------------------------------------------------
+
+In the Twilio media loop where you process incoming caller audio frames,
+you already have barge-in logic using:
+
+    if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
+        ...
+        # old barge-in code
+
+We want a simple and strong barge-in rule:
+
+RULES:
+- Do NOT allow barge-in before the user has ever spoken (user_has_spoken == False).
+- Once the user has spoken at least once, and AI is speaking,
+  any clear speech frame above the speech threshold, after a short grace period,
+  should trigger barge-in immediately.
+
+Replace the inner barge-in logic with:
+
+    if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
+        # Don't barge-in before user has ever spoken – avoids cutting greeting due to noise
+        if not self.user_has_spoken:
+            continue
+
+        current_time = time.monotonic()
+        time_since_tts_start = current_time - self.speaking_start_ts
+
+        # Grace period to ignore our own TTS echo
+        grace_period = 0.35  # ~350ms
+        if time_since_tts_start < grace_period:
+            continue
+
+        # Use calibrated VAD/speech threshold if available, otherwise a sane default
+        speech_threshold = getattr(self, "speech_threshold", None) or \
+                           getattr(self, "vad_threshold", None) or 900
+
+        # If this frame looks like real speech above the threshold – trigger barge-in
+        if rms >= speech_threshold:
+            logger.info(f"[BARGE-IN] User speech detected while AI speaking "
+                        f"(rms={rms:.1f}, threshold={speech_threshold:.1f})")
+            self._handle_realtime_barge_in()
+            continue
+
+Remove or comment out any old barge-in logic that uses:
+- self.voice_in_row
+- huge fixed RMS values (3000+)
+- long continuous voice requirements (e.g. >= 40 frames)
+
+The helper `_handle_realtime_barge_in()` is already implemented to:
+- send response.cancel to Realtime (if we track last_response_id),
+- clear the outgoing audio queue,
+- reset is_ai_speaking_event.
+
+Do NOT change `_handle_realtime_barge_in()` itself.
+
+------------------------------------------------
+RULES SUMMARY
+------------------------------------------------
+
+- Do NOT add new response.create triggers anywhere.
+- Do NOT modify turn_detection or session configuration.
+- Do NOT add new complex flags besides what already exists.
+- Only:
+    1) Add the "first reply includes greeting" rule in the prompt.
+    2) Ensure speaking_start_ts / is_ai_speaking_event are set for all AI audio.
+    3) Use simple RMS-based barge-in with a short grace period and calibrated threshold.
+
+After these changes, verify:
+
+1) User speaks for the first time:
+   - AI's first answer starts with a short greeting tailored to the business,
+     then answers the actual question.
+
+2) If the AI is speaking and the user talks over it:
+   - Within ~0.3–0.6 seconds, barge-in triggers and the AI stops speaking.
+
+3) When the user stays silent:
+   - AI does NOT talk at all (no opening on pure silence).
