@@ -994,12 +994,12 @@ class MediaStreamHandler:
                 voice="shimmer",  # ✅ Best for Hebrew: clear, natural, feminine voice
                 input_audio_format="g711_ulaw",   # Twilio → OpenAI: μ-law 8kHz
                 output_audio_format="g711_ulaw",  # OpenAI → Twilio: μ-law 8kHz
-                vad_threshold=0.7,  # 🔥 RAISED: Reduce false positives from background noise
-                silence_duration_ms=700,  # 🔥 INCREASED: Require longer silence before turn ends
+                vad_threshold=0.6,
+                silence_duration_ms=600,  # 💰 OPTIMIZED: Faster detection = less audio input minutes
                 temperature=0.6,  # 🔥 MINIMUM VALUE: OpenAI Realtime requires >= 0.6
                 max_tokens=300  # 🎯 BALANCED: ~280-320 tokens for natural but brief responses (Agent 3 spec)
             )
-            print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.6, vad_threshold=0.7, silence=700ms, format=g711_ulaw, NO TOOLS (appointment via NLP)")
+            print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.6, silence=600ms, format=g711_ulaw, NO TOOLS (appointment via NLP)")
             
             # 📋 CRM: Initialize context and ensure lead exists
             customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
@@ -1291,40 +1291,6 @@ class MediaStreamHandler:
                         self._user_speech_start = None  # Reset for next utterance
                     
                     if transcript:
-                        # 🔥 HALLUCINATION FILTER: Detect and ignore fake transcriptions
-                        transcript_clean = transcript.strip()
-                        
-                        # ⚠️ FILTER 1: Too short (noise/hallucination)
-                        if len(transcript_clean) < 3:
-                            print(f"🚫 [FILTER] Ignoring too-short transcription: '{transcript_clean}' (len={len(transcript_clean)})")
-                            continue
-                        
-                        # ⚠️ FILTER 2: Non-Hebrew characters (hallucination in wrong language)
-                        # Hebrew range: \u0590-\u05FF, allow spaces/digits/punctuation
-                        import re
-                        has_hebrew = bool(re.search(r'[\u0590-\u05FF]', transcript_clean))
-                        is_mostly_english = bool(re.search(r'[a-zA-Z]{3,}', transcript_clean))
-                        
-                        if is_mostly_english and not has_hebrew:
-                            print(f"🚫 [FILTER] Ignoring English hallucination: '{transcript_clean}' (no Hebrew detected)")
-                            print(f"⚠️ [HALLUCINATION] OpenAI transcribed English when user spoke Hebrew or was silent!")
-                            continue
-                        
-                        # ⚠️ FILTER 3: Common hallucination phrases
-                        hallucination_patterns = [
-                            r'^(thank you|thanks|bye|goodbye|ok|okay|yes|no|hello|hi)\.?$',
-                            r'^(תודה|שלום|כן|לא)\.?$'  # Single-word Hebrew too
-                        ]
-                        is_hallucination = False
-                        for pattern in hallucination_patterns:
-                            if re.match(pattern, transcript_clean.lower()):
-                                print(f"🚫 [FILTER] Ignoring common hallucination: '{transcript_clean}'")
-                                is_hallucination = True
-                                break
-                        
-                        if is_hallucination:
-                            continue
-                        
                         print(f"👤 [REALTIME] User said: {transcript}")
                         
                         # Track conversation
@@ -1792,10 +1758,8 @@ class MediaStreamHandler:
                             crm_context.last_appointment_id = appt_id
                             # 🔥 CRITICAL: Set flag - NOW AI is allowed to say "התור נקבע!"
                             crm_context.has_appointment_created = True
-                            # 🔥 CLEAR pending_slot to prevent re-validation loop!
-                            crm_context.pending_slot = None
-                            logger.info(f"✅ [APPOINTMENT VERIFICATION] Created appointment #{appt_id} in DB - has_appointment_created=True, pending_slot cleared")
-                            print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer (pending_slot cleared to prevent loop)")
+                            logger.info(f"✅ [APPOINTMENT VERIFICATION] Created appointment #{appt_id} in DB - has_appointment_created=True")
+                            print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer")
                         
                         # 🔥 Send confirmation to AI (with ✅ marker so AI knows it can say "התור נקבע!")
                         await self._send_server_event_to_ai(f"✅ appointment_created: התור נקבע בהצלחה ל-{customer_name} בתאריך {date_iso} בשעה {time_str}. תודיע ללקוח!")
@@ -1948,13 +1912,6 @@ class MediaStreamHandler:
                 
                 # Extract complete 160-byte frames from buffer
                 while len(audio_buffer) >= TWILIO_FRAME_SIZE:
-                    # 🔥 BACKPRESSURE: If queue is >80% full, wait before adding more frames
-                    # This prevents tx_q overflow when OpenAI sends large chunks
-                    queue_size = self.tx_q.qsize()
-                    if queue_size > 720:  # 80% of 900
-                        time.sleep(0.05)  # Wait 50ms for TX loop to drain queue
-                        continue
-                    
                     frame_bytes = audio_buffer[:TWILIO_FRAME_SIZE]
                     audio_buffer = audio_buffer[TWILIO_FRAME_SIZE:]  # Keep remainder
                     
@@ -2284,8 +2241,6 @@ class MediaStreamHandler:
                     mulaw = base64.b64decode(b64)
                     # ⚡ SPEED: Fast μ-law decode using lookup table (~10-20x faster)
                     pcm16 = mulaw_to_pcm16_fast(mulaw)
-                    # 🔊 Calculate RMS (loudness of this frame)
-                    rms = audioop.rms(pcm16, 2)
                     self.last_rx_ts = time.time()
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
@@ -2293,47 +2248,6 @@ class MediaStreamHandler:
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
                         try:
-                            # 🔥 AUDIO GATE: Filter by RMS before sending to OpenAI
-                            # Calibration: first 100 frames (2 sec), collect RMS<120 as noise_floor
-                            if self.calibration_frames < 100:
-                                self.calibration_frames += 1
-                                if rms < 120:
-                                    self.noise_floor = 0.9 * self.noise_floor + 0.1 * rms
-                                    if self.calibration_frames == 100:
-                                        # Calibration complete!
-                                        # ✅ REDUCED THRESHOLD: Don't block soft speech
-                                        # Formula: min(noise_floor + 50, 140) - more conservative
-                                        audio_gate_threshold = min(self.noise_floor + 50, 140)
-                                        print(f"✅ [AUDIO_GATE] Calibration complete: noise_floor={self.noise_floor:.1f}, threshold={audio_gate_threshold:.1f}")
-                                        self.audio_gate_threshold = audio_gate_threshold
-                                        self.is_calibrated = True
-                            
-                            # Gate: After calibration, check RMS
-                            if self.is_calibrated:
-                                gate_threshold = getattr(self, 'audio_gate_threshold', 120)
-                                if rms < gate_threshold:
-                                    # ❌ Blocked: too quiet
-                                    if not hasattr(self, '_gate_blocks'):
-                                        self._gate_blocks = 0
-                                        self._gate_blocks_by_range = {}
-                                    self._gate_blocks += 1
-                                    # Log with range info
-                                    rms_range = int(rms // 10) * 10
-                                    if rms_range not in self._gate_blocks_by_range:
-                                        self._gate_blocks_by_range[rms_range] = 0
-                                    self._gate_blocks_by_range[rms_range] += 1
-                                    
-                                    if self._gate_blocks <= 5:  # Log only first 5 blocks
-                                        print(f"[AUDIO_GATE] rms={rms:.0f}, threshold={gate_threshold:.0f}, send_to_openai=False ❌ (total_blocks={self._gate_blocks})")
-                                    continue  # Skip sending this chunk
-                                else:
-                                    # ✅ Passed: send to OpenAI
-                                    if not hasattr(self, '_gate_passes'):
-                                        self._gate_passes = 0
-                                    self._gate_passes += 1
-                                    if self._gate_passes <= 5:  # Log first 5 passes
-                                        print(f"[AUDIO_GATE] rms={rms:.0f}, threshold={gate_threshold:.0f}, send_to_openai=True ✅ (total_passes={self._gate_passes})")
-                            
                             # 🔍 DEBUG: Log first few frames from Twilio
                             if not hasattr(self, '_twilio_audio_chunks_sent'):
                                 self._twilio_audio_chunks_sent = 0
@@ -2343,7 +2257,6 @@ class MediaStreamHandler:
                                 first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
                                 print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}")
                             
-                            # Send audio to OpenAI (after gate filtering)
                             self.realtime_audio_in_queue.put_nowait(b64)
                         except queue.Full:
                             pass
