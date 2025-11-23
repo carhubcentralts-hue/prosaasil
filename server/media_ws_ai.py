@@ -4001,7 +4001,7 @@ class MediaStreamHandler:
         """זיהוי business_id לפי to_number (wrapper for backwards compat)"""
         self._identify_business_and_get_greeting()  # קורא לפונקציה החדשה ומתעלם מהברכה
 
-    def _get_business_greeting_cached(self) -> str:
+    def _get_business_greeting_cached(self) -> str | None:
         """⚡ טעינת ברכה עם cache - במיוחד מהיר לברכה הראשונה!"""
         # קודם כל - בדוק אם יש business_id
         if not hasattr(self, 'business_id') or not self.business_id:
@@ -4041,7 +4041,7 @@ class MediaStreamHandler:
             traceback.print_exc()
             return None  # ✅ NO fallback - return None on error
     
-    def _get_business_greeting(self) -> str:
+    def _get_business_greeting(self) -> str | None:
         """טעינת ברכה מותאמת אישית מהעסק עם {{business_name}} placeholder"""
         print(f"🔍 _get_business_greeting CALLED! business_id={getattr(self, 'business_id', 'NOT SET')}")
         
